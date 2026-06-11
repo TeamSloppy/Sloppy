@@ -69,17 +69,25 @@ final class AgentSessionFileStore: @unchecked Sendable {
             guard fileManager.fileExists(atPath: sessionsDirectory.path) else {
                 return []
             }
+            try migrateLegacySessions(in: sessionsDirectory)
 
-            let files = try fileManager.contentsOfDirectory(
+            let resolver = try sessionPathResolver(agentID: normalizedAgentID)
+            var seenSessionIDs = Set<String>()
+            let canonicalFiles = resolver.canonicalSessionFiles()
+            let legacyFiles = try fileManager.contentsOfDirectory(
                 at: sessionsDirectory,
                 includingPropertiesForKeys: [.isRegularFileKey],
                 options: [.skipsHiddenFiles]
-            )
-
-            let sessionFiles = files.filter { $0.pathExtension == "jsonl" }
+            ).filter { $0.pathExtension == "jsonl" }
+            let sessionFiles = canonicalFiles + legacyFiles
             var summaries: [AgentSessionSummary] = []
             for file in sessionFiles {
-                let sessionID = file.deletingPathExtension().lastPathComponent
+                let sessionID = file.lastPathComponent == "session.jsonl"
+                    ? AgentSessionPathResolver.sessionID(fromCanonicalSessionFile: file)
+                    : file.deletingPathExtension().lastPathComponent
+                guard seenSessionIDs.insert(sessionID).inserted else {
+                    continue
+                }
                 if let summary = try? loadSessionSummary(agentID: normalizedAgentID, sessionID: sessionID, fileURL: file),
                    includeHeartbeat || summary.kind != .heartbeat {
                     summaries.append(summary)
@@ -99,7 +107,8 @@ final class AgentSessionFileStore: @unchecked Sendable {
         try withLock {
             let normalizedAgentID = try normalizedAgentID(agentID)
             let normalizedParentSessionID = try normalizedOptionalSessionID(request.parentSessionId)
-            let sessionsDirectory = try sessionsDirectoryURL(agentID: normalizedAgentID, createIfMissing: true)
+            _ = try sessionsDirectoryURL(agentID: normalizedAgentID, createIfMissing: true)
+            let resolver = try sessionPathResolver(agentID: normalizedAgentID)
 
             let sessionID = "session-\(UUID().uuidString.lowercased())"
             let trimmedTitle = request.title?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -130,7 +139,9 @@ final class AgentSessionFileStore: @unchecked Sendable {
                 )
             )
 
-            let fileURL = sessionsDirectory.appendingPathComponent("\(sessionID).jsonl")
+            let location = resolver.canonicalLocation(sessionID: sessionID, createdAt: createdAt)
+            try fileManager.createDirectory(at: location.directoryURL, withIntermediateDirectories: true)
+            let fileURL = location.sessionFileURL
             try append(events: [createdEvent], to: fileURL, createIfMissing: true)
             return try refreshSummaryCache(agentID: normalizedAgentID, sessionID: sessionID, fileURL: fileURL)
         }
@@ -206,8 +217,15 @@ final class AgentSessionFileStore: @unchecked Sendable {
                 throw StoreError.sessionNotFound
             }
 
+            let location = try sessionPathResolver(agentID: normalizedAgentID)
+                .existingLocation(sessionID: normalizedSessionID)
             try fileManager.removeItem(at: fileURL)
             removeSummaryCache(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+
+            if location?.isLegacy == false {
+                try? fileManager.removeItem(at: location!.directoryURL)
+                return
+            }
 
             if let sidecar = sessionSidecarURL(agentID: normalizedAgentID, sessionID: normalizedSessionID),
                fileManager.fileExists(atPath: sidecar.path) {
@@ -245,9 +263,11 @@ final class AgentSessionFileStore: @unchecked Sendable {
     }
 
     private func sessionSidecarURL(agentID: String, sessionID: String) -> URL? {
-        resolvedAgentDirectoryURL(agentID: agentID)?
-            .appendingPathComponent("sessions", isDirectory: true)
-            .appendingPathComponent("\(sessionID).sidecar.json", isDirectory: false)
+        guard let resolver = try? sessionPathResolver(agentID: agentID) else {
+            return nil
+        }
+        return resolver.existingLocation(sessionID: sessionID)?.sidecarURL
+            ?? resolver.legacyLocation(sessionID: sessionID).sidecarURL
     }
 
     private func readUserTurnCount(agentID: String, sessionID: String) throws -> Int {
@@ -293,14 +313,15 @@ final class AgentSessionFileStore: @unchecked Sendable {
                         throw StoreError.invalidPayload
                     }
 
-                    guard let assetsDirectory = assetsDirectoryURL(agentID: normalizedAgentID, sessionID: normalizedSessionID) else {
+                    guard let assetsDirectory = assetsDirectoryURL(agentID: normalizedAgentID, sessionID: normalizedSessionID),
+                          let agentDirectory = resolvedAgentDirectoryURL(agentID: normalizedAgentID) else {
                         throw StoreError.agentNotFound
                     }
                     try fileManager.createDirectory(at: assetsDirectory, withIntermediateDirectories: true)
 
                     let fileURL = assetsDirectory.appendingPathComponent(fileName)
                     try data.write(to: fileURL, options: .atomic)
-                    relativePath = "sessions/\(normalizedSessionID).assets/\(fileName)"
+                    relativePath = AgentSessionPathResolver.relativePath(from: agentDirectory, to: fileURL)
                 }
 
                 attachments.append(
@@ -326,7 +347,16 @@ final class AgentSessionFileStore: @unchecked Sendable {
                   let agentDirectory = resolvedAgentDirectoryURL(agentID: normalizedAgentID) else {
                 return nil
             }
-            return agentDirectory.appendingPathComponent(relativePath, isDirectory: false)
+            let directURL = agentDirectory.appendingPathComponent(relativePath, isDirectory: false)
+            if fileManager.fileExists(atPath: directURL.path) {
+                return directURL
+            }
+
+            if let migratedURL = migratedAttachmentURL(agentID: normalizedAgentID, legacyRelativePath: relativePath),
+               fileManager.fileExists(atPath: migratedURL.path) {
+                return migratedURL
+            }
+            return directURL
         }
     }
 
@@ -355,6 +385,11 @@ final class AgentSessionFileStore: @unchecked Sendable {
     }
 
     private func readEvents(agentID: String, sessionID: String) throws -> [AgentSessionEvent] {
+        if let sessionsDirectory = try? sessionsDirectoryURL(agentID: agentID, createIfMissing: false),
+           fileManager.fileExists(atPath: sessionsDirectory.path) {
+            try? migrateLegacySessions(in: sessionsDirectory)
+        }
+
         guard let fileURL = sessionFileURL(agentID: agentID, sessionID: sessionID) else {
             logger.warning(
                 "Session file URL resolution failed",
@@ -473,9 +508,11 @@ final class AgentSessionFileStore: @unchecked Sendable {
     }
 
     private func sessionSummaryCacheURL(agentID: String, sessionID: String) -> URL? {
-        resolvedAgentDirectoryURL(agentID: agentID)?
-            .appendingPathComponent("sessions", isDirectory: true)
-            .appendingPathComponent("\(sessionID).summary.json", isDirectory: false)
+        guard let resolver = try? sessionPathResolver(agentID: agentID) else {
+            return nil
+        }
+        return resolver.existingLocation(sessionID: sessionID)?.summaryURL
+            ?? resolver.legacyLocation(sessionID: sessionID).summaryURL
     }
 
     private func sourceFingerprint(fileURL: URL) throws -> (byteCount: Int, modifiedAt: TimeInterval)? {
@@ -580,15 +617,106 @@ final class AgentSessionFileStore: @unchecked Sendable {
     }
 
     private func sessionFileURL(agentID: String, sessionID: String) -> URL? {
-        resolvedAgentDirectoryURL(agentID: agentID)?
-            .appendingPathComponent("sessions", isDirectory: true)
-            .appendingPathComponent("\(sessionID).jsonl")
+        guard let resolver = try? sessionPathResolver(agentID: agentID) else {
+            return nil
+        }
+        return resolver.existingLocation(sessionID: sessionID)?.sessionFileURL
     }
 
     private func assetsDirectoryURL(agentID: String, sessionID: String) -> URL? {
-        resolvedAgentDirectoryURL(agentID: agentID)?
-            .appendingPathComponent("sessions", isDirectory: true)
-            .appendingPathComponent("\(sessionID).assets", isDirectory: true)
+        guard let resolver = try? sessionPathResolver(agentID: agentID) else {
+            return nil
+        }
+        return resolver.existingLocation(sessionID: sessionID)?.assetsURL
+    }
+
+    private func sessionPathResolver(agentID: String) throws -> AgentSessionPathResolver {
+        guard let agentDirectory = resolvedAgentDirectoryURL(agentID: agentID) else {
+            throw StoreError.agentNotFound
+        }
+        return AgentSessionPathResolver(agentDirectoryURL: agentDirectory, fileManager: fileManager)
+    }
+
+    private func migrateLegacySessions(in sessionsDirectory: URL) throws {
+        let files = try fileManager.contentsOfDirectory(
+            at: sessionsDirectory,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ).filter { $0.pathExtension == "jsonl" }
+
+        let resolver = AgentSessionPathResolver(
+            agentDirectoryURL: sessionsDirectory.deletingLastPathComponent(),
+            fileManager: fileManager
+        )
+
+        for fileURL in files {
+            let sessionID = fileURL.deletingPathExtension().lastPathComponent
+            guard resolver.existingCanonicalLocation(sessionID: sessionID) == nil else {
+                continue
+            }
+
+            let createdAt = legacySessionCreatedAt(fileURL: fileURL) ?? legacyFileModifiedAt(fileURL: fileURL) ?? Date()
+            let destination = resolver.canonicalLocation(sessionID: sessionID, createdAt: createdAt)
+            try fileManager.createDirectory(at: destination.directoryURL, withIntermediateDirectories: true)
+            let legacy = resolver.legacyLocation(sessionID: sessionID)
+
+            try moveIfPossible(from: legacy.summaryURL, to: destination.summaryURL)
+            try moveIfPossible(from: legacy.sidecarURL, to: destination.sidecarURL)
+            try moveIfPossible(from: legacy.acpStateURL, to: destination.acpStateURL)
+            try moveIfPossible(from: legacy.assetsURL, to: destination.assetsURL)
+            try moveIfPossible(from: legacy.sessionFileURL, to: destination.sessionFileURL)
+        }
+    }
+
+    private func moveIfPossible(from sourceURL: URL, to destinationURL: URL) throws {
+        guard fileManager.fileExists(atPath: sourceURL.path),
+              !fileManager.fileExists(atPath: destinationURL.path) else {
+            return
+        }
+        try fileManager.createDirectory(at: destinationURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fileManager.moveItem(at: sourceURL, to: destinationURL)
+    }
+
+    private func legacySessionCreatedAt(fileURL: URL) -> Date? {
+        guard let data = try? Data(contentsOf: fileURL),
+              let content = String(data: data, encoding: .utf8) else {
+            return nil
+        }
+
+        for line in content.split(whereSeparator: \.isNewline) {
+            guard line.contains(where: { !$0.isWhitespace }),
+                  let lineData = String(line).data(using: .utf8),
+                  let event = try? decoder.decode(AgentSessionEvent.self, from: lineData),
+                  event.type == .sessionCreated else {
+                continue
+            }
+            return event.createdAt
+        }
+        return nil
+    }
+
+    private func legacyFileModifiedAt(fileURL: URL) -> Date? {
+        try? fileURL.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate
+    }
+
+    private func migratedAttachmentURL(agentID: String, legacyRelativePath: String) -> URL? {
+        let prefix = "sessions/"
+        guard legacyRelativePath.hasPrefix(prefix) else {
+            return nil
+        }
+        let tail = String(legacyRelativePath.dropFirst(prefix.count))
+        guard let assetsRange = tail.range(of: ".assets/") else {
+            return nil
+        }
+        let sessionID = String(tail[..<assetsRange.lowerBound])
+        let fileName = String(tail[assetsRange.upperBound...])
+        guard !sessionID.isEmpty,
+              !fileName.isEmpty,
+              let resolver = try? sessionPathResolver(agentID: agentID),
+              let location = resolver.existingCanonicalLocation(sessionID: sessionID) else {
+            return nil
+        }
+        return location.assetsURL.appendingPathComponent(fileName, isDirectory: false)
     }
 
     private func normalizedAgentID(_ raw: String) throws -> String {

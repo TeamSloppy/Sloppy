@@ -117,6 +117,44 @@ struct ChatModelsTests {
         #expect(detail.messages.last?.textContent == "Hi")
     }
 
+    @Test("ChatSessionDetail decodes messages from REST event history")
+    func chatSessionDetailDecodesEventMessages() throws {
+        let json = """
+        {
+            "summary": {
+                "id": "sess-1",
+                "agentId": "agent-1",
+                "title": "Selected Chat",
+                "messageCount": 1,
+                "updatedAt": "2026-01-01T00:00:00Z",
+                "kind": "chat"
+            },
+            "events": [
+                {
+                    "id": "evt-1",
+                    "type": "session_created"
+                },
+                {
+                    "id": "evt-2",
+                    "type": "message",
+                    "message": {
+                        "id": "msg-1",
+                        "role": "user",
+                        "segments": [{"kind": "text", "text": "Open me"}],
+                        "createdAt": "2026-01-01T00:00:01Z"
+                    }
+                }
+            ]
+        }
+        """.data(using: .utf8)!
+
+        let detail = try isoDecoder.decode(ChatSessionDetail.self, from: json)
+
+        #expect(detail.summary.id == "sess-1")
+        #expect(detail.messages.map(\.id) == ["msg-1"])
+        #expect(detail.messages.first?.textContent == "Open me")
+    }
+
     @Test("ChatStreamUpdate sessionReady kind decodes")
     func chatStreamUpdateSessionReady() throws {
         let json = """

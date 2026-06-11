@@ -245,6 +245,12 @@ private func makeSessionManagerFixture(
     let agentsRootURL = root.appendingPathComponent("agents", isDirectory: true)
     let sessionsURL = agentsRootURL.appendingPathComponent("agent-1", isDirectory: true).appendingPathComponent("sessions", isDirectory: true)
     try FileManager.default.createDirectory(at: sessionsURL, withIntermediateDirectories: true)
+    let sessionStore = AgentSessionFileStore(agentsRootURL: agentsRootURL)
+    let session = try sessionStore.createSession(
+        agentID: "agent-1",
+        request: AgentSessionCreateRequest(title: "ACP test session"),
+        createdAt: Date(timeIntervalSince1970: 1_700_000_000)
+    )
 
     let queue = MockACPClientQueue(clients: clients)
     let manager = ACPSessionManager(
@@ -257,7 +263,7 @@ private func makeSessionManagerFixture(
         }
     )
 
-    return (manager, agentsRootURL, "session-1")
+    return (manager, agentsRootURL, session.id)
 }
 
 @Test
@@ -331,7 +337,11 @@ func acpSessionManagerCreatesSessionSendsPrimerAndPersistsSidecar() async throws
     let sidecarURL = agentsRootURL
         .appendingPathComponent("agent-1", isDirectory: true)
         .appendingPathComponent("sessions", isDirectory: true)
-        .appendingPathComponent("\(sessionID).acp-state.json")
+        .appendingPathComponent("2023", isDirectory: true)
+        .appendingPathComponent("11", isDirectory: true)
+        .appendingPathComponent("14", isDirectory: true)
+        .appendingPathComponent(sessionID, isDirectory: true)
+        .appendingPathComponent("acp-state.json")
     #expect(FileManager.default.fileExists(atPath: sidecarURL.path))
 
     let sidecarData = try Data(contentsOf: sidecarURL)

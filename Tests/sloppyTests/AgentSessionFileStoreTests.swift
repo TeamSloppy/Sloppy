@@ -17,14 +17,28 @@ func agentSessionStoreCachesListsAndInvalidatesSummarySidecar() throws {
     )
 
     let store = AgentSessionFileStore(agentsRootURL: rootURL)
+    let createdAt = Date(timeIntervalSince1970: 1_700_000_000)
     let session = try store.createSession(
         agentID: agentID,
-        request: AgentSessionCreateRequest(title: "Cached session")
+        request: AgentSessionCreateRequest(title: "Cached session"),
+        createdAt: createdAt
     )
+    let sessionDirectoryURL = datedSessionDirectoryURL(
+        rootURL: rootURL,
+        agentID: agentID,
+        sessionID: session.id,
+        createdAt: createdAt
+    )
+    let sessionFileURL = sessionDirectoryURL.appendingPathComponent("session.jsonl")
     let summaryURL = rootURL
         .appendingPathComponent(agentID, isDirectory: true)
         .appendingPathComponent("sessions", isDirectory: true)
-        .appendingPathComponent("\(session.id).summary.json")
+        .appendingPathComponent("2023", isDirectory: true)
+        .appendingPathComponent("11", isDirectory: true)
+        .appendingPathComponent("14", isDirectory: true)
+        .appendingPathComponent(session.id, isDirectory: true)
+        .appendingPathComponent("summary.json")
+    #expect(FileManager.default.fileExists(atPath: sessionFileURL.path))
     try? FileManager.default.removeItem(at: summaryURL)
     #expect(!FileManager.default.fileExists(atPath: summaryURL.path))
 
@@ -136,12 +150,15 @@ func agentSessionStoreDeletesExpiredSessionsAndCompanionFiles() throws {
         ]
     )
 
-    let sessionsURL = rootURL
-        .appendingPathComponent(agentID, isDirectory: true)
-        .appendingPathComponent("sessions", isDirectory: true)
-    let oldFileURL = sessionsURL.appendingPathComponent("\(oldSession.id).jsonl")
-    let oldSidecarURL = sessionsURL.appendingPathComponent("\(oldSession.id).sidecar.json")
-    let oldAssetsURL = sessionsURL.appendingPathComponent("\(oldSession.id).assets", isDirectory: true)
+    let oldSessionDirectoryURL = datedSessionDirectoryURL(
+        rootURL: rootURL,
+        agentID: agentID,
+        sessionID: oldSession.id,
+        createdAt: oldDate
+    )
+    let oldFileURL = oldSessionDirectoryURL.appendingPathComponent("session.jsonl")
+    let oldSidecarURL = oldSessionDirectoryURL.appendingPathComponent("sidecar.json")
+    let oldAssetsURL = oldSessionDirectoryURL.appendingPathComponent("assets", isDirectory: true)
 
     let deleted = try store.deleteExpiredSessions(
         agentIDs: [agentID],
@@ -152,7 +169,124 @@ func agentSessionStoreDeletesExpiredSessionsAndCompanionFiles() throws {
     #expect(!FileManager.default.fileExists(atPath: oldFileURL.path))
     #expect(!FileManager.default.fileExists(atPath: oldSidecarURL.path))
     #expect(!FileManager.default.fileExists(atPath: oldAssetsURL.path))
+    #expect(!FileManager.default.fileExists(atPath: oldSessionDirectoryURL.path))
     #expect(try store.listSessions(agentID: agentID).map(\.id) == [freshSession.id])
+}
+
+@Test
+func agentSessionStorePersistsAttachmentsInDatedAssetsDirectoryAndResolvesLegacyPaths() throws {
+    let rootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("agent-session-attachments-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: rootURL) }
+
+    let agentID = "attachment-agent"
+    let catalog = AgentCatalogFileStore(agentsRootURL: rootURL)
+    _ = try catalog.createAgent(
+        AgentCreateRequest(id: agentID, displayName: "Attachment Agent", role: "Testing"),
+        availableModels: []
+    )
+
+    let createdAt = Date(timeIntervalSince1970: 1_700_000_000)
+    let store = AgentSessionFileStore(agentsRootURL: rootURL)
+    let session = try store.createSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest(title: "Attachments"),
+        createdAt: createdAt
+    )
+
+    let attachments = try store.persistAttachments(
+        agentID: agentID,
+        sessionID: session.id,
+        uploads: [
+            AgentAttachmentUpload(
+                name: "note.txt",
+                mimeType: "text/plain",
+                sizeBytes: 5,
+                contentBase64: "aGVsbG8="
+            )
+        ]
+    )
+
+    let attachment = try #require(attachments.first)
+    #expect(attachment.relativePath?.contains("/\(session.id)/assets/") == true)
+    let fileURL = try #require(try store.resolveAttachmentFileURL(agentID: agentID, attachment: attachment))
+    #expect(fileURL.path.contains("/sessions/2023/11/14/\(session.id)/assets/"))
+    #expect(FileManager.default.fileExists(atPath: fileURL.path))
+
+    let legacyAssetsURL = rootURL
+        .appendingPathComponent(agentID, isDirectory: true)
+        .appendingPathComponent("sessions", isDirectory: true)
+        .appendingPathComponent("\(session.id).assets", isDirectory: true)
+    try FileManager.default.createDirectory(at: legacyAssetsURL, withIntermediateDirectories: true)
+    let legacyFileURL = legacyAssetsURL.appendingPathComponent("legacy.txt")
+    try Data("legacy".utf8).write(to: legacyFileURL)
+
+    let legacyAttachment = AgentAttachment(
+        id: "legacy",
+        name: "legacy.txt",
+        mimeType: "text/plain",
+        sizeBytes: 6,
+        relativePath: "sessions/\(session.id).assets/legacy.txt"
+    )
+    #expect(try store.resolveAttachmentFileURL(agentID: agentID, attachment: legacyAttachment)?.path == legacyFileURL.path)
+}
+
+@Test
+func agentSessionStoreMigratesFlatSessionFilesToDatedDirectory() throws {
+    let rootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("agent-session-migration-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: rootURL) }
+
+    let agentID = "migration-agent"
+    let catalog = AgentCatalogFileStore(agentsRootURL: rootURL)
+    _ = try catalog.createAgent(
+        AgentCreateRequest(id: agentID, displayName: "Migration Agent", role: "Testing"),
+        availableModels: []
+    )
+
+    let sessionID = "session-11111111-2222-4333-8444-555555555555"
+    let createdAt = Date(timeIntervalSince1970: 1_700_000_000)
+    let sessionsURL = rootURL
+        .appendingPathComponent(agentID, isDirectory: true)
+        .appendingPathComponent("sessions", isDirectory: true)
+    try FileManager.default.createDirectory(at: sessionsURL, withIntermediateDirectories: true)
+
+    let event = AgentSessionEvent(
+        agentId: agentID,
+        sessionId: sessionID,
+        type: .sessionCreated,
+        createdAt: createdAt,
+        metadata: AgentSessionMetadataEvent(title: "Migrated", kind: .chat)
+    )
+    let encoder = JSONEncoder()
+    encoder.outputFormatting = [.sortedKeys]
+    encoder.dateEncodingStrategy = .iso8601
+    var payload = try encoder.encode(event)
+    payload.append(0x0A)
+    try payload.write(to: sessionsURL.appendingPathComponent("\(sessionID).jsonl"))
+    try Data(#"{"schemaVersion":1}"#.utf8).write(to: sessionsURL.appendingPathComponent("\(sessionID).summary.json"))
+    try Data(#"{"userTurnCount":3}"#.utf8).write(to: sessionsURL.appendingPathComponent("\(sessionID).sidecar.json"))
+    try Data(#"{"targetId":"local"}"#.utf8).write(to: sessionsURL.appendingPathComponent("\(sessionID).acp-state.json"))
+    let legacyAssetsURL = sessionsURL.appendingPathComponent("\(sessionID).assets", isDirectory: true)
+    try FileManager.default.createDirectory(at: legacyAssetsURL, withIntermediateDirectories: true)
+    try Data("asset".utf8).write(to: legacyAssetsURL.appendingPathComponent("note.txt"))
+
+    let store = AgentSessionFileStore(agentsRootURL: rootURL)
+    let sessions = try store.listSessions(agentID: agentID)
+    #expect(sessions.map(\.id) == [sessionID])
+
+    let sessionDirectoryURL = datedSessionDirectoryURL(
+        rootURL: rootURL,
+        agentID: agentID,
+        sessionID: sessionID,
+        createdAt: createdAt
+    )
+    #expect(FileManager.default.fileExists(atPath: sessionDirectoryURL.appendingPathComponent("session.jsonl").path))
+    #expect(FileManager.default.fileExists(atPath: sessionDirectoryURL.appendingPathComponent("summary.json").path))
+    #expect(FileManager.default.fileExists(atPath: sessionDirectoryURL.appendingPathComponent("sidecar.json").path))
+    #expect(FileManager.default.fileExists(atPath: sessionDirectoryURL.appendingPathComponent("acp-state.json").path))
+    #expect(FileManager.default.fileExists(atPath: sessionDirectoryURL.appendingPathComponent("assets/note.txt").path))
+    #expect(!FileManager.default.fileExists(atPath: sessionsURL.appendingPathComponent("\(sessionID).jsonl").path))
 }
 
 @Test
@@ -223,4 +357,16 @@ private final class ErrorCollector: @unchecked Sendable {
         defer { lock.unlock() }
         values.append(error)
     }
+}
+
+private func datedSessionDirectoryURL(rootURL: URL, agentID: String, sessionID: String, createdAt: Date) -> URL {
+    let components = Calendar(identifier: .gregorian)
+        .dateComponents(in: TimeZone(secondsFromGMT: 0)!, from: createdAt)
+    return rootURL
+        .appendingPathComponent(agentID, isDirectory: true)
+        .appendingPathComponent("sessions", isDirectory: true)
+        .appendingPathComponent(String(format: "%04d", components.year ?? 1970), isDirectory: true)
+        .appendingPathComponent(String(format: "%02d", components.month ?? 1), isDirectory: true)
+        .appendingPathComponent(String(format: "%02d", components.day ?? 1), isDirectory: true)
+        .appendingPathComponent(sessionID, isDirectory: true)
 }

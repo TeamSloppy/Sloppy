@@ -4,7 +4,7 @@ import PackageDescription
 let package = Package(
     name: "Sloppy",
     platforms: [
-        .macOS(.v14)
+        .macOS(.v15)
     ],
     products: [
         .library(name: "Protocols", targets: ["Protocols"]),

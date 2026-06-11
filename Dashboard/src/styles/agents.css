@@ -4683,12 +4683,15 @@ body.agent-chat-no-page-scroll .page {
 
 .agent-modal-card {
   width: min(520px, 100%);
+  max-height: calc(100dvh - 40px);
   border: 1px solid var(--line);
   border-radius: 0;
   background: var(--surface-2);
   padding: 14px;
   display: grid;
   gap: 10px;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
 }
 
 .agent-modal-head {
@@ -4729,6 +4732,16 @@ body.agent-chat-no-page-scroll .page {
 .agent-create-confirm {
   border-color: var(--accent-color);
   color: var(--text);
+}
+
+@media (max-width: 700px) {
+  .agent-modal-overlay {
+    align-items: flex-start;
+  }
+
+  .agent-modal-card {
+    max-height: calc(100dvh - 24px);
+  }
 }
 
 /* ── Agent Generate Section ──────────────────────────────── */
@@ -4775,6 +4788,119 @@ body.agent-chat-no-page-scroll .page {
 .agent-generate-fields {
   display: grid;
   gap: 10px;
+}
+
+.agent-pet-create-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agent-pet-create-head > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.agent-pet-create-face {
+  flex-shrink: 0;
+  color: var(--text);
+  font-size: 0.82rem;
+  white-space: nowrap;
+}
+
+.agent-pet-mode-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.agent-pet-mode-button {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.agent-pet-mode-button.is-active {
+  border-color: var(--accent);
+  color: var(--text);
+  background: rgba(110, 231, 168, 0.08);
+}
+
+.agent-pet-preview-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.agent-pet-preview {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  color: var(--text);
+  font-size: 0.85rem;
+}
+
+.agent-pet-preview > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-pet-generation-progress {
+  display: grid;
+  gap: 6px;
+}
+
+.agent-pet-generation-progress-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--text);
+  font-size: 0.78rem;
+}
+
+.agent-pet-generation-progress-meter {
+  height: 6px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.agent-pet-generation-progress-meter > div {
+  height: 100%;
+  background: var(--accent);
+}
+
+.agent-pet-generated-prompt {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.agent-pet-generated-prompt summary {
+  color: var(--text);
+  cursor: pointer;
+}
+
+.agent-pet-generated-prompt p {
+  margin: 0;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+@media (max-width: 460px) {
+  .agent-pet-mode-row {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-pet-preview-row {
+    align-items: stretch;
+    flex-direction: column;
+  }
 }
 
 /* ── Agent Generate Preview Modal ───────────────────────── */

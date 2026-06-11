@@ -2441,10 +2441,6 @@ export function ProjectsView({
         onToggleFavorite={toggleProjectFavorite}
       />}
 
-      {statusText && statusText !== "No projects yet." && statusText !== "Loading projects..." && (
-        <p className="app-status-text">{statusText}</p>
-      )}
-
       <ProjectCreateModal
         isOpen={isCreateProjectModalOpen}
         draft={projectDraft}

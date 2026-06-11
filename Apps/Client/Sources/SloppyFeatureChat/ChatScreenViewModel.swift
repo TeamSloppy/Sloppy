@@ -168,7 +168,7 @@ public final class ChatScreenViewModel {
 
     public func pickSession(_ session: ChatSessionSummary) {
         showSessionPicker = false
-        selectSession(session.id, contextTitle: displayTitle(for: session), projectId: session.projectId)
+        openSession(session)
     }
 
     public func pickNewSession() {
@@ -296,6 +296,19 @@ public final class ChatScreenViewModel {
             settings.lastSessionId = summary.id
             connectToSession(agentId: agent.id, sessionId: summary.id)
         }
+    }
+
+    private func openSession(_ session: ChatSessionSummary) {
+        let nextAgent = agents.first {
+            $0.id.caseInsensitiveCompare(session.agentId) == .orderedSame
+        } ?? selectedAgent
+
+        if let nextAgent, selectedAgent?.id != nextAgent.id {
+            selectedAgent = nextAgent
+            settings.lastAgentId = nextAgent.id
+        }
+
+        selectSession(session.id, contextTitle: displayTitle(for: session), projectId: session.projectId)
     }
 
     private func selectSession(

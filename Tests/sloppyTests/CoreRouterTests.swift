@@ -3133,12 +3133,10 @@ func agentSessionLifecycleEndpoints() async throws {
     #expect(bootstrapMessage?.content.contains("[Skills]") == true)
     #expect(bootstrapMessage?.content.contains("`sloppy/task-spec-writer`") == true)
 
-    let sessionFileURL = config
-        .resolvedWorkspaceRootURL()
-        .appendingPathComponent("agents", isDirectory: true)
-        .appendingPathComponent("agent-chat", isDirectory: true)
-        .appendingPathComponent("sessions", isDirectory: true)
-        .appendingPathComponent("\(sessionSummary.id).jsonl")
+    let sessionFileURL = URL(fileURLWithPath: try await service.getAgentSessionFilePath(
+        agentID: "agent-chat",
+        sessionID: sessionSummary.id
+    ))
     #expect(FileManager.default.fileExists(atPath: sessionFileURL.path))
 
     let listResponse = await router.handle(method: "GET", path: "/v1/agents/agent-chat/sessions", body: nil)

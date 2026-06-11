@@ -60,9 +60,14 @@ final class ACPSessionStateStore {
     }
 
     private func sidecarURL(agentID: String, sessionID: String) -> URL? {
-        resolvedAgentDirectoryURL(agentID: agentID)?
-            .appendingPathComponent("sessions", isDirectory: true)
-            .appendingPathComponent("\(sessionID).acp-state.json")
+        guard let agentDirectory = resolvedAgentDirectoryURL(agentID: agentID) else {
+            return nil
+        }
+        let resolver = AgentSessionPathResolver(agentDirectoryURL: agentDirectory, fileManager: fileManager)
+        if let location = resolver.existingLocation(sessionID: sessionID) {
+            return location.acpStateURL
+        }
+        return resolver.legacyLocation(sessionID: sessionID).acpStateURL
     }
 
     private func resolvedAgentDirectoryURL(agentID: String) -> URL? {

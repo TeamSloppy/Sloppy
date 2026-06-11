@@ -4,6 +4,7 @@ import {
     TASK_PRIORITIES,
     TASK_PRIORITY_LABELS,
     TASK_STATUS_COLORS,
+    TASK_KINDS,
     buildTaskCounts,
     buildSwarmGroups,
     formatRelativeTime

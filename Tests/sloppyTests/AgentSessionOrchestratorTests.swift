@@ -1335,7 +1335,7 @@ func nativeAgentSessionPromptIncludesAttachmentPaths() async throws {
         ProviderModelOption(id: "openai-api:gpt-5.4-mini", title: "openai-api:gpt-5.4-mini", capabilities: ["tools"])
     ]
     let agentID = "attachment-native-agent"
-    let (catalogStore, sessionStore, agentsRootURL) = try makeAgentSessionFixture(
+    let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
         agentID: agentID,
         selectedModel: "openai-api:gpt-5.4-mini",
         availableModels: availableModels
@@ -1369,11 +1369,19 @@ func nativeAgentSessionPromptIncludesAttachmentPaths() async throws {
     )
 
     let prompt = await provider.requestedPromptsSnapshot().last ?? ""
-    let expectedAssetDirectory = agentsRootURL
-        .appendingPathComponent(agentID, isDirectory: true)
-        .appendingPathComponent("sessions", isDirectory: true)
-        .appendingPathComponent("\(session.id).assets", isDirectory: true)
-        .path
+    let detail = try sessionStore.loadSession(agentID: agentID, sessionID: session.id)
+    let attachments = detail.events.flatMap { event in
+        event.message?.segments.compactMap(\.attachment) ?? []
+    }
+    guard let attachment = attachments.first else {
+        Issue.record("Expected persisted attachment in session events")
+        return
+    }
+    guard let attachmentURL = try sessionStore.resolveAttachmentFileURL(agentID: agentID, attachment: attachment) else {
+        Issue.record("Expected attachment file URL")
+        return
+    }
+    let expectedAssetDirectory = attachmentURL.deletingLastPathComponent().path
     #expect(prompt.contains("[Attachment context]"))
     #expect(prompt.contains("notes.txt"))
     #expect(prompt.contains("Path: \(expectedAssetDirectory)/"))

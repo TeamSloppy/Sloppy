@@ -115,7 +115,30 @@ public struct ChatEventEnvelope: Decodable, Sendable {
     public var message: ChatMessage?
 
     private enum CodingKeys: String, CodingKey {
-        case id, type, message
+        case id, type, message, event
+    }
+
+    private struct EmbeddedEvent: Decodable {
+        var message: ChatMessage?
+    }
+
+    public init(id: String, type: String, message: ChatMessage? = nil) {
+        self.id = id
+        self.type = type
+        self.message = message
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        type = try container.decode(String.self, forKey: .type)
+
+        // REST session history stores chat messages on the event itself:
+        // { "type": "message", "message": { ... } }
+        // Some streamed/debug payloads wrap the same value under `event.message`.
+        // Support both so opening an existing session can hydrate the transcript.
+        message = try container.decodeIfPresent(ChatMessage.self, forKey: .message)
+            ?? container.decodeIfPresent(EmbeddedEvent.self, forKey: .event)?.message
     }
 }
 

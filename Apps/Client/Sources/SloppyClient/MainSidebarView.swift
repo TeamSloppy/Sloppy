@@ -17,27 +17,8 @@ struct MainSidebarView: View {
 
     private static let rowRadius: Float = 18
 
-    let projects: [APIProjectRecord]
-    let isLoadingProjects: Bool
-    let chatSessions: [ChatSessionSummary]
-    let selectedChatSessionId: String?
-    let isLoadingChatSessions: Bool
-    let chatActionStatus: String?
-    let pinnedSessionIds: Set<String>
-    @Binding var expandedTaskLists: Set<String>
-    @Binding var selectedItem: MainSidebarSelection?
-    @Binding var isCollapsed: Bool
+    let viewModel: MainViewModel
     let isOverlay: Bool
-    let onDismissOverlay: @MainActor () -> Void
-    let onOpenSettings: @MainActor () -> Void
-    let onOpenWorkspace: @MainActor () -> Void
-    let onSelectNewChat: @MainActor () -> Void
-    let onSelectChatSession: @MainActor (ChatSessionSummary) -> Void
-    let onDeleteChatSession: @MainActor (ChatSessionSummary) -> Void
-    let onTogglePinChatSession: @MainActor (ChatSessionSummary) -> Void
-    let onCopyDebugSessionFileLink: @MainActor (ChatSessionSummary) -> Void
-    let onSelectProject: @MainActor (APIProjectRecord) -> Void
-    let onSelectTask: @MainActor (String, String, APIProjectTask, String?) -> Void
 
     @Environment(\.theme) private var theme
 
@@ -52,7 +33,7 @@ struct MainSidebarView: View {
     var body: some View {
         let c = theme.colors
 
-        if isCollapsed && !isOverlay {
+        if viewModel.isSidebarCollapsed && !isOverlay {
             collapsedSidebar(c: c)
         } else {
             expandedSidebar(c: c)
@@ -86,7 +67,7 @@ struct MainSidebarView: View {
 
         return VStack(alignment: .center, spacing: sp.m) {
             sidebarIconButton(.collapseContent, isActive: false, c: c) {
-                isCollapsed = false
+                viewModel.isSidebarCollapsed = false
             }
 
             Color.clear
@@ -94,19 +75,19 @@ struct MainSidebarView: View {
                 .background(c.border.opacity(0.45 as Float))
                 .padding(.horizontal, sp.m)
 
-            ForEach(projects.prefix(5)) { project in
+            ForEach(viewModel.projects.prefix(5)) { project in
                 sidebarIconButton(projectMonogram(project.name), isActive: isProjectSelected(project.id), c: c) {
-                    onSelectProject(project)
+                    viewModel.selectProject(project)
                 }
             }
 
             Spacer(minLength: 0)
 
-            sidebarIconButton(.chatAddOn, isActive: selectedItem == .chats && selectedChatSessionId == nil, c: c) {
-                onSelectNewChat()
+            sidebarIconButton(.chatAddOn, isActive: viewModel.selectedSidebarItem == .chats && viewModel.chatViewModel.selectedSessionId == nil, c: c) {
+                viewModel.selectNewChat()
             }
 
-            sidebarIconButton(.settings, isActive: false, c: c, action: onOpenSettings)
+            sidebarIconButton(.settings, isActive: false, c: c, action: viewModel.onOpenSettings)
         }
         .frame(width: Self.collapsedWidth)
         .frame(maxHeight: .infinity)
@@ -119,9 +100,9 @@ struct MainSidebarView: View {
 
             headerIconButton(isOverlay ? .close : .collapseContent, c: c) {
                 if isOverlay {
-                    onDismissOverlay()
+                    viewModel.dismissMobileSidebar()
                 } else {
-                    isCollapsed = true
+                    viewModel.isSidebarCollapsed = true
                 }
             }
         }
@@ -134,11 +115,11 @@ struct MainSidebarView: View {
                 icon: .chatAddOn,
                 title: "New chat",
                 trailing: nil,
-                isSelected: selectedItem == .chats && selectedChatSessionId == nil,
+                isSelected: viewModel.selectedSidebarItem == .chats && viewModel.chatViewModel.selectedSessionId == nil,
                 c: c,
                 sp: sp
             ) {
-                onSelectNewChat()
+                viewModel.selectNewChat()
             }
 
             sidebarPlainRow(
@@ -167,26 +148,26 @@ struct MainSidebarView: View {
         return VStack(alignment: .leading, spacing: sp.s) {
             sectionLabel("Recents", c: c, ty: ty)
 
-            if isLoadingChatSessions && chatSessions.isEmpty {
+            if viewModel.chatViewModel.isLoadingSessions && viewModel.chatViewModel.sessions.isEmpty {
                 Text("Loading chats…")
                     .font(.system(size: ty.caption))
                     .foregroundColor(c.textMuted)
                     .padding(.horizontal, sp.m)
                     .padding(.vertical, sp.s)
-            } else if chatSessions.isEmpty {
+            } else if viewModel.chatViewModel.sessions.isEmpty {
                 Text("No chats yet")
                     .font(.system(size: ty.caption))
                     .foregroundColor(c.textMuted)
                     .padding(.horizontal, sp.m)
                     .padding(.vertical, sp.s)
             } else {
-                ForEach(chatSessions.prefix(12)) { session in
+                ForEach(viewModel.chatViewModel.sessions.prefix(12)) { session in
                     chatSessionRow(session: session, c: c, sp: sp)
                 }
             }
 
-            if let chatActionStatus {
-                Text(chatActionStatus)
+            if let sessionActionStatus = viewModel.chatViewModel.sessionActionStatus {
+                Text(sessionActionStatus)
                     .font(.system(size: ty.micro))
                     .foregroundColor(c.textMuted)
                     .lineLimit(2)
@@ -229,31 +210,33 @@ struct MainSidebarView: View {
         c: AppColors,
         sp: AppSpacing
     ) -> some View {
-        let isPinned = pinnedSessionIds.contains(session.id)
+        let isPinned = viewModel.chatViewModel.pinnedSessionIds.contains(session.id)
+        let isSelected = viewModel.selectedSidebarItem == .chats
+            && viewModel.chatViewModel.selectedSessionId == session.id
         let title = session.title.isEmpty ? "Chat" : session.title
         return sidebarPlainRow(
             icon: nil,
             title: title,
             trailing: isPinned ? "PIN" : nil,
-            isSelected: selectedChatSessionId == session.id,
+            isSelected: isSelected,
             c: c,
             sp: sp,
-            titleColor: selectedChatSessionId == session.id ? c.textPrimary : c.textSecondary,
+            titleColor: isSelected ? c.textPrimary : c.textSecondary,
             leadingInset: 12
         ) {
-            onSelectChatSession(session)
+            viewModel.selectChatSession(session)
         }
         .contextMenu {
             Button(isPinned ? "Unpin Chat" : "Pin Chat") {
-                onTogglePinChatSession(session)
+                viewModel.togglePinChatSession(session)
             }
 
             Button("Copy Session File Debug Link") {
-                onCopyDebugSessionFileLink(session)
+                viewModel.copyDebugSessionFileLink(session)
             }
 
             Button("Delete Chat", role: .destructive) {
-                onDeleteChatSession(session)
+                viewModel.deleteChatSession(session)
             }
         }
     }
@@ -262,15 +245,15 @@ struct MainSidebarView: View {
         let ty = theme.typography
 
         return VStack(alignment: .leading, spacing: sp.s) {
-            if projects.isEmpty {
-                Text(isLoadingProjects ? "Loading…" : "No projects yet")
+            if viewModel.projects.isEmpty {
+                Text(viewModel.isLoadingProjects ? "Loading…" : "No projects yet")
                     .font(.system(size: ty.caption))
                     .foregroundColor(c.textMuted)
                     .padding(.horizontal, sp.m)
                     .padding(.vertical, sp.s)
             } else {
                 VStack(alignment: .leading, spacing: sp.s) {
-                    ForEach(projects) { project in
+                    ForEach(viewModel.projects) { project in
                         projectGroup(project: project, c: c, sp: sp)
                     }
                 }
@@ -288,7 +271,7 @@ struct MainSidebarView: View {
         return VStack(alignment: .leading, spacing: sp.xs) {
             projectHeader(project: project, c: c, sp: sp)
 
-            let expanded = expandedTaskLists.contains(project.id)
+            let expanded = viewModel.expandedTaskLists.contains(project.id)
             let visibleLimit = expanded ? tasks.count : min(tasks.count, 5)
             let visible = Array(tasks.prefix(visibleLimit))
 
@@ -321,11 +304,11 @@ struct MainSidebarView: View {
             icon: .folder,
             title: project.name,
             trailing: nil,
-            isSelected: selectedItem == .project(project.id),
+            isSelected: viewModel.selectedSidebarItem == .project(project.id),
             c: c,
             sp: sp
         ) {
-            onSelectProject(project)
+            viewModel.selectProject(project)
         }
         .font(.system(size: ty.body))
     }
@@ -339,7 +322,7 @@ struct MainSidebarView: View {
         c: AppColors,
         sp: AppSpacing
     ) -> some View {
-        let isSelected = selectedItem == .task(projectId: projectId, taskId: task.id)
+        let isSelected = viewModel.selectedSidebarItem == .task(projectId: projectId, taskId: task.id)
 
         return sidebarPlainRow(
             icon: statusGlyph(task.status),
@@ -351,7 +334,12 @@ struct MainSidebarView: View {
             titleColor: isSelected ? c.textPrimary : c.textSecondary,
             leadingInset: 12
         ) {
-            onSelectTask(projectId, projectName, task, fallbackAgentId)
+            viewModel.selectTask(
+                projectId: projectId,
+                projectName: projectName,
+                task: task,
+                fallbackAgentId: fallbackAgentId
+            )
         }
     }
 
@@ -365,9 +353,9 @@ struct MainSidebarView: View {
 
         return Button {
             if isExpanded {
-                expandedTaskLists.remove(projectId)
+                viewModel.expandedTaskLists.remove(projectId)
             } else {
-                expandedTaskLists.insert(projectId)
+                viewModel.expandedTaskLists.insert(projectId)
             }
         } label: {
             Text(isExpanded ? "Show less" : "Show more")
@@ -483,7 +471,7 @@ struct MainSidebarView: View {
     }
 
     private func isProjectSelected(_ projectId: String) -> Bool {
-        switch selectedItem {
+        switch viewModel.selectedSidebarItem {
         case .project(let selectedProjectId):
             return selectedProjectId == projectId
         case .task(let selectedProjectId, _):
@@ -527,7 +515,9 @@ private struct HoverableSidebarRow: View {
             maxCharacters: leadingInset > 0 ? 36 : 30
         )
 
-        Button(action: action) {
+        Button(action: {
+            action()
+        }) {
             HStack(spacing: spacing.s) {
                 if let icon {
                     Icons.symbol(icon, size: typography.body)
@@ -555,9 +545,7 @@ private struct HoverableSidebarRow: View {
                 }
             }
             .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-            .padding(.leading, leadingInset)
-            .padding(.trailing, spacing.m)
-            .padding(.vertical, spacing.s)
+            .padding(EdgeInsets(top: 0, leading: leadingInset + spacing.s, bottom: 0, trailing: spacing.m + spacing.s))
             .applySidebarGlass(
                 usesLiquidGlass,
                 style: isActive ? .regular.tint(Color.white.opacity(isSelected ? 0.07 as Float : 0.035 as Float)) : .identity,
