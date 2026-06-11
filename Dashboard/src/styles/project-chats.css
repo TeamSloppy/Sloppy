@@ -1,7 +1,7 @@
 .project-chats-shell {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 8px;
   min-height: 0;
   flex: 1;
   overflow: hidden;
@@ -15,27 +15,30 @@
 
 .project-chats-head {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  justify-content: space-between;
   gap: 12px;
-  padding-bottom: 8px;
+  padding-bottom: 6px;
   border-bottom: 1px solid var(--line);
 }
 
 .project-chats-title-row {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 8px;
+  min-width: 0;
 }
 
 .project-chats-avatar {
-  width: 40px;
-  height: 40px;
+  width: 28px;
+  height: 28px;
+  flex: 0 0 28px;
   border-radius: 0;
   border: 1px solid var(--line);
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  font-size: 0.75rem;
+  font-size: 0.65rem;
   font-weight: 600;
   color: var(--accent);
   background: var(--surface);
@@ -43,26 +46,36 @@
 
 .project-chats-title {
   margin: 0;
-  font-size: 1.1rem;
+  font-size: 0.9rem;
+  line-height: 1.15;
   text-transform: uppercase;
   letter-spacing: 0.06em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .project-chats-sub {
-  margin: 4px 0 0;
-  font-size: 0.75rem;
+  margin: 1px 0 0;
+  font-size: 0.68rem;
+  line-height: 1.1;
   color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .project-chats-agent-label {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  max-width: 420px;
+  align-items: center;
+  flex-direction: row;
+  gap: 8px;
+  width: min(360px, 42vw);
+  flex: 0 0 auto;
 }
 
 .project-chats-agent-label-text {
-  font-size: 0.7rem;
+  font-size: 0.65rem;
   text-transform: uppercase;
   letter-spacing: 0.08em;
   color: var(--muted);
@@ -70,6 +83,25 @@
 
 .project-chats-agent-search {
   position: relative;
+  flex: 1;
+  min-width: 180px;
+}
+
+.project-chats-agent-search .actor-team-search {
+  min-height: 32px;
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+@media (max-width: 720px) {
+  .project-chats-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .project-chats-agent-label {
+    width: 100%;
+  }
 }
 
 /* Sidebar project rail */

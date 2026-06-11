@@ -11,6 +11,8 @@ import {
     formatRelativeTime
 } from "./utils";
 import { buildRelatedIssueGroups } from "./taskRelations";
+import { taskDescriptionMode } from "./taskDescriptionMode";
+import { linkifyTaskReferences, taskByReference } from "./taskReferenceLinks";
 import { resolveLinkedAgentPet } from "./commentAvatars";
 import {
     fetchTaskComments,
@@ -35,31 +37,6 @@ import { AgentPetIcon } from "../../features/agents/components/AgentPetSprite";
 import { ReviewDiffPanel } from "./ReviewDiffPanel";
 import { LoadingSkeleton } from "../../components/LoadingSkeleton";
 
-function escapeRegExp(value) {
-    return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function taskByReference(project, reference) {
-    const needle = String(reference || "").replace(/^#+/, "").trim().toLowerCase();
-    if (!needle) return null;
-    return (project.tasks || []).find((task) => String(task.id || "").trim().toLowerCase() === needle) || null;
-}
-
-function linkifyTaskReferences(markdown, project) {
-    const taskIds = (project.tasks || [])
-        .map((task) => String(task.id || "").trim())
-        .filter(Boolean)
-        .sort((a, b) => b.length - a.length);
-    if (taskIds.length === 0) return String(markdown || "");
-    const pattern = new RegExp(`(^|[^\w\]\)/])#?(${taskIds.map(escapeRegExp).join("|")})(?![\w-])`, "gi");
-    return String(markdown || "").replace(pattern, (match, prefix, id) => {
-        const task = taskByReference(project, id);
-        if (!task) return match;
-        const label = `${prefix || ""}#${task.id}`;
-        return `${prefix || ""}[#${task.id}](sloppy-task:${encodeURIComponent(task.id)})`;
-    });
-}
-
 function LinkedMarkdown({ children, project, openTaskDetails }) {
     const source = linkifyTaskReferences(children, project);
     return (
@@ -74,7 +51,10 @@ function LinkedMarkdown({ children, project, openTaskDetails }) {
                             <button
                                 type="button"
                                 className="td-task-ref-link"
-                                onClick={() => linkedTask && openTaskDetails?.(linkedTask)}
+                                onClick={(event) => {
+                                    event.stopPropagation();
+                                    linkedTask && openTaskDetails?.(linkedTask);
+                                }}
                                 disabled={!linkedTask}
                                 title={linkedTask?.title || taskId}
                             >
@@ -1210,6 +1190,7 @@ export function TaskDetailView({
             : true
     );
     const [actionsOpen, setActionsOpen] = useState(false);
+    const [isDescriptionEditing, setIsDescriptionEditing] = useState(() => !String(task.description || "").trim());
     const descriptionInputRef = useRef(null);
     const hasReviewDiff = Boolean(task.worktreeBranch);
     const canShowReviewTab = hasReviewDiff || task.status === "needs_review";
@@ -1313,13 +1294,29 @@ export function TaskDetailView({
         : null;
     const createdByLabel = task.createdBy || "—";
     const relatedIssueCount = buildRelatedIssueGroups(task, project.tasks).reduce((sum, group) => sum + group.items.length, 0);
+    const descriptionMode = taskDescriptionMode(editDraft.description, isDescriptionEditing);
+
+    useEffect(() => {
+        setIsDescriptionEditing(!String(task.description || "").trim());
+    }, [task.id, task.description]);
 
     useEffect(() => {
         const input = descriptionInputRef.current;
-        if (!input) return;
+        if (!input || descriptionMode !== "editor") return;
         input.style.height = "auto";
         input.style.height = `${input.scrollHeight}px`;
-    }, [editDraft.description, task.id]);
+    }, [descriptionMode, editDraft.description, task.id]);
+
+    function focusDescriptionEditor() {
+        setIsDescriptionEditing(true);
+        requestAnimationFrame(() => {
+            const input = descriptionInputRef.current;
+            if (!input) return;
+            input.focus();
+            const end = String(input.value || "").length;
+            input.setSelectionRange(end, end);
+        });
+    }
 
     return (
         <div
@@ -1445,22 +1442,40 @@ export function TaskDetailView({
                         onChange={(e) => updateEditDraft("title", e.target.value)}
                         placeholder="Task title"
                     />
-                    <ProjectMentionTextarea
-                        textareaRef={descriptionInputRef}
-                        className="td-desc-input"
-                        value={editDraft.description}
-                        onChange={(e) => updateEditDraft("description", e.target.value)}
-                        project={project}
-                        placeholder="Add description... use # for tasks, / for files and skills"
-                        rows={5}
-                    />
-                    {String(editDraft.description || "").trim() ? (
-                        <div className="td-desc-preview markdown-body">
+                    {descriptionMode === "editor" ? (
+                        <ProjectMentionTextarea
+                            textareaRef={descriptionInputRef}
+                            className="td-desc-input"
+                            value={editDraft.description}
+                            onChange={(e) => updateEditDraft("description", e.target.value)}
+                            onBlur={() => {
+                                if (String(editDraft.description || "").trim()) {
+                                    setIsDescriptionEditing(false);
+                                }
+                            }}
+                            project={project}
+                            placeholder="Add description... use # for tasks, / for files and skills"
+                            rows={5}
+                        />
+                    ) : (
+                        <div
+                            role="button"
+                            tabIndex={0}
+                            className="td-desc-preview markdown-body"
+                            onClick={focusDescriptionEditor}
+                            onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                    event.preventDefault();
+                                    focusDescriptionEditor();
+                                }
+                            }}
+                            aria-label="Edit description"
+                        >
                             <LinkedMarkdown project={project} openTaskDetails={openTaskDetails}>
                                 {editDraft.description}
                             </LinkedMarkdown>
                         </div>
-                    ) : null}
+                    )}
                     {attachments.length > 0 ? (
                         <div className="td-attachments">
                             {attachments.map((attachment, index) => (
