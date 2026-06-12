@@ -5,7 +5,9 @@ import {
   calculateHoverPlaybackRate,
   chooseHoverSoundUrl,
   HOVER_SOUND_URLS,
-  isHoverSoundEnabled,
+  loadHoverSoundPreference,
+  persistHoverSoundPreference,
+  playHoverSound,
   resolveHoverSoundTarget
 } from "../src/shared/ui/hoverSound.ts";
 
@@ -34,11 +36,34 @@ function fakeElement(options: {
   return node;
 }
 
-test("hover sound defaults to disabled and respects the UI config toggle", () => {
-  assert.equal(isHoverSoundEnabled({}), false);
-  assert.equal(isHoverSoundEnabled({ ui: {} }), false);
-  assert.equal(isHoverSoundEnabled({ ui: { hoverSoundsEnabled: true } }), true);
-  assert.equal(isHoverSoundEnabled({ ui: { hoverSoundsEnabled: false } }), false);
+test("hover sound preference is stored locally instead of in runtime config", () => {
+  const values = new Map<string, string>();
+  const storage = {
+    getItem: (key: string) => values.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      values.set(key, value);
+    }
+  };
+  const events: Array<{ type: string; enabled: boolean }> = [];
+  const target = {
+    dispatchEvent: (event: Event) => {
+      events.push({
+        type: event.type,
+        enabled: Boolean((event as CustomEvent<{ enabled?: boolean }>).detail?.enabled)
+      });
+      return true;
+    }
+  };
+
+  assert.equal(loadHoverSoundPreference(storage), false);
+  persistHoverSoundPreference(true, storage, target);
+  assert.equal(loadHoverSoundPreference(storage), true);
+  persistHoverSoundPreference(false, storage, target);
+  assert.equal(loadHoverSoundPreference(storage), false);
+  assert.deepEqual(events, [
+    { type: "sloppy:hover-sounds-enabled", enabled: true },
+    { type: "sloppy:hover-sounds-enabled", enabled: false }
+  ]);
 });
 
 test("hover sound resolves eligible interactive targets", () => {
@@ -68,4 +93,26 @@ test("hover sound chooses between bundled sound variants", () => {
   ]);
   assert.equal(chooseHoverSoundUrl(() => 0), "/sounds/lil-pip.wav");
   assert.equal(chooseHoverSoundUrl(() => 0.99), "/sounds/teeny-tiny-button-press.wav");
+});
+
+test("hover sound playback uses the selected sound variant", () => {
+  const urls: string[] = [];
+  const audio = {
+    volume: 0,
+    playbackRate: 0,
+    play: () => Promise.resolve()
+  } as HTMLAudioElement;
+
+  const played = playHoverSound({
+    random: () => 0.99,
+    now: () => 1000,
+    audioFactory: (url) => {
+      urls.push(url);
+      return audio;
+    }
+  });
+
+  assert.equal(played, true);
+  assert.deepEqual(urls, ["/sounds/teeny-tiny-button-press.wav"]);
+  assert.equal(audio.playbackRate, 1.24);
 });

@@ -1,15 +1,11 @@
 import { useEffect, useRef, useState } from "react";
 
-import { HOVER_SOUND_PREFERENCE_EVENT, playHoverSound, resolveHoverSoundTarget } from "./hoverSound";
+import { HOVER_SOUND_PREFERENCE_EVENT, HOVER_SOUND_STORAGE_KEY, loadHoverSoundPreference, playHoverSound, resolveHoverSoundTarget } from "./hoverSound";
 
-export function useHoverSoundEffect(enabled: boolean) {
-  const [sessionEnabled, setSessionEnabled] = useState(enabled);
+export function useHoverSoundEffect() {
+  const [sessionEnabled, setSessionEnabled] = useState(loadHoverSoundPreference);
   const lastTargetRef = useRef<unknown | null>(null);
   const lastPlayedAtRef = useRef(0);
-
-  useEffect(() => {
-    setSessionEnabled(enabled);
-  }, [enabled]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -21,8 +17,18 @@ export function useHoverSoundEffect(enabled: boolean) {
       setSessionEnabled(nextEnabled);
     }
 
+    function handleStorageChanged(event: StorageEvent) {
+      if (event.key === HOVER_SOUND_STORAGE_KEY) {
+        setSessionEnabled(loadHoverSoundPreference());
+      }
+    }
+
     window.addEventListener(HOVER_SOUND_PREFERENCE_EVENT, handlePreferenceChanged);
-    return () => window.removeEventListener(HOVER_SOUND_PREFERENCE_EVENT, handlePreferenceChanged);
+    window.addEventListener("storage", handleStorageChanged);
+    return () => {
+      window.removeEventListener(HOVER_SOUND_PREFERENCE_EVENT, handlePreferenceChanged);
+      window.removeEventListener("storage", handleStorageChanged);
+    };
   }, []);
 
   useEffect(() => {

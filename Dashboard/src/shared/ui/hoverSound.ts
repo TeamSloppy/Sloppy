@@ -24,9 +24,14 @@ export const HOVER_SOUND_URLS = [
 export const HOVER_SOUND_URL = HOVER_SOUND_URLS[0];
 export const HOVER_SOUND_THROTTLE_MS = 45;
 export const HOVER_SOUND_PREFERENCE_EVENT = "sloppy:hover-sounds-enabled";
+export const HOVER_SOUND_STORAGE_KEY = "sloppy_hover_sounds_enabled";
 
-export function isHoverSoundEnabled(config: Record<string, any> | null | undefined): boolean {
-  return config?.ui?.hoverSoundsEnabled === true;
+export function loadHoverSoundPreference(storage: Pick<Storage, "getItem"> | null | undefined = globalThis.localStorage): boolean {
+  try {
+    return storage?.getItem(HOVER_SOUND_STORAGE_KEY) === "true";
+  } catch {
+    return false;
+  }
 }
 
 export function resolveHoverSoundTarget(target: unknown): unknown | null {
@@ -66,6 +71,19 @@ export function emitHoverSoundPreferenceChanged(enabled: boolean, target: EventT
   target?.dispatchEvent(new CustomEvent(HOVER_SOUND_PREFERENCE_EVENT, { detail: { enabled } }));
 }
 
+export function persistHoverSoundPreference(
+  enabled: boolean,
+  storage: Pick<Storage, "setItem"> | null | undefined = globalThis.localStorage,
+  target: EventTarget | null | undefined = globalThis.window
+) {
+  try {
+    storage?.setItem(HOVER_SOUND_STORAGE_KEY, enabled ? "true" : "false");
+  } catch {
+    // Local storage can be unavailable in private or embedded contexts.
+  }
+  emitHoverSoundPreferenceChanged(enabled, target);
+}
+
 export function playHoverSound(options: {
   audioFactory?: (url: string) => HTMLAudioElement;
   random?: () => number;
@@ -87,7 +105,7 @@ export function playHoverSound(options: {
     lastPlayedAtRef.current = currentTime;
   }
 
-  const audio = audioFactory(HOVER_SOUND_URL);
+  const audio = audioFactory(chooseHoverSoundUrl(random));
   audio.volume = 0.18;
   audio.playbackRate = calculateHoverPlaybackRate(random);
   void audio.play().catch(() => {

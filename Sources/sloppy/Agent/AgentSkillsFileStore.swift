@@ -208,6 +208,102 @@ final class AgentSkillsFileStore {
         return skill
     }
 
+    @discardableResult
+    func saveSkill(
+        agentID: String,
+        owner: String,
+        repo: String,
+        markdown: String,
+        files: [String: String],
+        userInvocable: Bool? = nil,
+        allowedTools: [String]? = nil,
+        context: SkillContext? = nil,
+        agent: String? = nil,
+        autoRoute: String? = nil
+    ) throws -> (skill: InstalledSkill, created: Bool) {
+        let normalizedAgentID = try normalizedAgentID(agentID)
+        guard resolvedAgentDirectoryURL(agentID: normalizedAgentID) != nil else {
+            throw StoreError.agentNotFound
+        }
+
+        let normalizedOwner = skillIDComponent(from: owner.isEmpty ? "local" : owner)
+        let normalizedRepo = skillIDComponent(from: repo)
+        let skillID = "\(normalizedOwner)/\(normalizedRepo)"
+        _ = try normalizedSkillID(skillID)
+
+        guard let skillDirectory = skillDirectoryURL(agentID: normalizedAgentID, skillID: skillID) else {
+            throw StoreError.agentNotFound
+        }
+
+        try fileManager.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
+        try Data(markdown.utf8).write(
+            to: skillDirectory.appendingPathComponent("SKILL.md"),
+            options: .atomic
+        )
+        for (relativePath, content) in files {
+            guard relativePath != "SKILL.md" else { continue }
+            let destination = try safeSkillFileURL(relativePath: relativePath, skillDirectory: skillDirectory)
+            try fileManager.createDirectory(
+                at: destination.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try Data(content.utf8).write(to: destination, options: .atomic)
+        }
+
+        let frontmatter = SkillsGitHubClient.parseFrontmatter(from: markdown)
+        let name = normalizedFrontmatterValue(frontmatter?.name) ?? normalizedRepo
+        let description = normalizedFrontmatterValue(frontmatter?.description)
+        let resolvedUserInvocable = userInvocable ?? frontmatter?.userInvocable ?? true
+        let resolvedAllowedTools = allowedTools ?? frontmatter?.allowedTools ?? []
+        let resolvedContext: SkillContext? = context ?? {
+            guard let raw = normalizedFrontmatterValue(frontmatter?.context) else {
+                return nil
+            }
+            return SkillContext(rawValue: raw)
+        }()
+        let resolvedAgent = normalizedFrontmatterValue(agent) ?? normalizedFrontmatterValue(frontmatter?.agent)
+        let resolvedAutoRoute = normalizedFrontmatterValue(autoRoute) ?? normalizedFrontmatterValue(frontmatter?.autoRoute)
+
+        var manifest = try readManifest(agentID: normalizedAgentID)
+        let created: Bool
+        let installedAt: Date
+        let version: String?
+        if let existing = manifest.installedSkills.first(where: { $0.id == skillID }) {
+            created = false
+            installedAt = existing.installedAt
+            version = existing.version ?? "local"
+        } else {
+            created = true
+            installedAt = Date()
+            version = "local"
+        }
+
+        let skill = InstalledSkill(
+            id: skillID,
+            owner: normalizedOwner,
+            repo: normalizedRepo,
+            name: name,
+            description: description,
+            installedAt: installedAt,
+            version: version,
+            localPath: skillDirectory.standardizedFileURL.path,
+            userInvocable: resolvedUserInvocable,
+            allowedTools: resolvedAllowedTools,
+            context: resolvedContext,
+            agent: resolvedAgent,
+            autoRoute: resolvedAutoRoute
+        )
+
+        if let index = manifest.installedSkills.firstIndex(where: { $0.id == skillID }) {
+            manifest.installedSkills[index] = skill
+        } else {
+            manifest.installedSkills.append(skill)
+        }
+        try writeManifest(manifest, agentID: normalizedAgentID)
+
+        return (skill, created)
+    }
+
     /// Uninstall a skill from an agent
     func uninstallSkill(agentID: String, skillID: String) throws {
         let normalizedAgentID = try normalizedAgentID(agentID)

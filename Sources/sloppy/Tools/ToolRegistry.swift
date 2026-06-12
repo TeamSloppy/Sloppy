@@ -135,6 +135,7 @@ struct ToolRegistry: Sendable {
             SkillsSearchTool(),
             SkillsListTool(),
             SkillsInstallTool(),
+            SkillsManageTool(),
             SkillsUninstallTool(),
             LSPTool(),
             VisorStatusTool(),

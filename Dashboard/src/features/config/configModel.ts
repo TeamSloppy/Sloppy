@@ -468,7 +468,6 @@ export const EMPTY_CONFIG = {
     }
   },
   ui: {
-    hoverSoundsEnabled: false,
     dashboardAuth: {
       enabled: false,
       token: ""
@@ -778,7 +777,6 @@ export function normalizeConfig(config) {
   normalized.workspace.basePath = config?.workspace?.basePath || normalized.workspace.basePath;
   normalized.auth.token = config?.auth?.token || normalized.auth.token;
   normalized.onboarding.completed = Boolean(config?.onboarding?.completed);
-  normalized.ui.hoverSoundsEnabled = config?.ui?.hoverSoundsEnabled === true;
   normalized.sessionRetention.enabled = config?.sessionRetention?.enabled !== false;
   normalized.sessionRetention.days = Math.min(
     90,

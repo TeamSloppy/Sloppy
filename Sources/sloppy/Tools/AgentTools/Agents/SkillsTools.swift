@@ -180,3 +180,146 @@ struct SkillsUninstallTool: CoreTool {
         }
     }
 }
+
+struct SkillsManageTool: CoreTool {
+    let domain = "skills"
+    let title = "Create or update skill"
+    let status = "fully_functional"
+    let name = "skills.manage"
+    let description = "Create or update a skill in this agent's skills directory. Writes SKILL.md plus optional bundled files under the skill folder."
+
+    var parameters: GenerationSchema {
+        .objectSchema([
+            .init(name: "repo", description: "Skill folder/repo name, normalized to a safe skill ID component.", schema: DynamicGenerationSchema(type: String.self)),
+            .init(name: "skillMarkdown", description: "Complete SKILL.md content, including YAML frontmatter with name and description.", schema: DynamicGenerationSchema(type: String.self)),
+            .init(name: "owner", description: "Skill owner namespace. Defaults to 'local'.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(
+                name: "files",
+                description: "Additional UTF-8 text files as objects with path and content, for example [{\"path\":\"references/guide.md\",\"content\":\"...\"}]. SKILL.md is ignored here; use skillMarkdown.",
+                schema: DynamicGenerationSchema(
+                    arrayOf: DynamicGenerationSchema(
+                        name: "SkillSaveFile",
+                        properties: [
+                            .init(name: "path", description: "Safe relative path under the skill directory.", schema: DynamicGenerationSchema(type: String.self)),
+                            .init(name: "content", description: "UTF-8 text content to write.", schema: DynamicGenerationSchema(type: String.self))
+                        ]
+                    )
+                ),
+                isOptional: true
+            ),
+            .init(name: "userInvocable", description: "Whether users can invoke this skill directly. Defaults to SKILL.md frontmatter or true.", schema: DynamicGenerationSchema(type: Bool.self), isOptional: true),
+            .init(name: "allowedTools", description: "Optional tool IDs this skill expects. Defaults to SKILL.md frontmatter.", schema: DynamicGenerationSchema(type: [String].self), isOptional: true),
+            .init(name: "context", description: "Optional skill context, currently 'fork' when the skill should run in a forked agent context.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "agent", description: "Optional preferred agent/role metadata for the skill.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "autoRoute", description: "Optional auto-route metadata for runtime routing.", schema: DynamicGenerationSchema(type: String.self), isOptional: true)
+        ])
+    }
+
+    func invoke(arguments: [String: JSONValue], context: ToolContext) async -> ToolInvocationResult {
+        guard let svc = context.skillsService else {
+            return toolFailure(tool: name, code: "not_available", message: "Skills service is unavailable.", retryable: true)
+        }
+
+        guard let repo = arguments["repo"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines), !repo.isEmpty else {
+            return toolFailure(tool: name, code: "invalid_arguments", message: "`repo` is required.", retryable: false)
+        }
+        guard let skillMarkdown = arguments["skillMarkdown"]?.asString, !skillMarkdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            return toolFailure(tool: name, code: "invalid_arguments", message: "`skillMarkdown` is required.", retryable: false)
+        }
+
+        let owner = arguments["owner"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "local"
+        let userInvocable = arguments["userInvocable"]?.asBool
+        let allowedTools = arguments["allowedTools"]?.asArray?.compactMap(\.asString)
+        let contextValue: SkillContext? = {
+            guard let raw = arguments["context"]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !raw.isEmpty
+            else {
+                return nil
+            }
+            return SkillContext(rawValue: raw)
+        }()
+        let files: [String: String]
+        do {
+            files = try parseExtraFiles(arguments["files"])
+        } catch {
+            return toolFailure(
+                tool: name,
+                code: "invalid_arguments",
+                message: "`files` must be an object of safe relative paths to string content.",
+                retryable: false
+            )
+        }
+
+        do {
+            let result = try await svc.saveAgentSkill(
+                agentID: context.agentID,
+                request: SkillSaveRequest(
+                    owner: owner.isEmpty ? "local" : owner,
+                    repo: repo,
+                    skillMarkdown: skillMarkdown,
+                    files: files,
+                    userInvocable: userInvocable,
+                    allowedTools: allowedTools,
+                    context: contextValue,
+                    agent: arguments["agent"]?.asString,
+                    autoRoute: arguments["autoRoute"]?.asString
+                )
+            )
+            let skill = result.skill
+            return toolSuccess(tool: name, data: .object([
+                "id": .string(skill.id),
+                "name": .string(skill.name),
+                "owner": .string(skill.owner),
+                "repo": .string(skill.repo),
+                "description": skill.description.map { .string($0) } ?? .null,
+                "localPath": .string(skill.localPath),
+                "status": .string(result.created ? "created" : "updated")
+            ]))
+        } catch CoreService.AgentSkillsError.invalidPayload {
+            return toolFailure(tool: name, code: "invalid_arguments", message: "Provide a valid `repo` and `skillMarkdown`.", retryable: false)
+        } catch CoreService.AgentSkillsError.agentNotFound {
+            return toolFailure(tool: name, code: "agent_not_found", message: "Agent '\(context.agentID)' was not found.", retryable: false)
+        } catch {
+            return toolFailure(tool: name, code: "save_error", message: "Failed to save skill '\(owner)/\(repo)'.", retryable: true)
+        }
+    }
+
+    private func parseExtraFiles(_ value: JSONValue?) throws -> [String: String] {
+        guard let value else { return [:] }
+        var files: [String: String] = [:]
+
+        if let object = value.asObject {
+            for (relativePath, contentValue) in object {
+                guard isSafeSkillRelativePath(relativePath), let content = contentValue.asString else {
+                    throw SkillsManageToolError.invalidFiles
+                }
+                files[relativePath] = content
+            }
+            return files
+        }
+
+        guard let array = value.asArray else { throw SkillsManageToolError.invalidFiles }
+        for item in array {
+            guard let object = item.asObject,
+                  let relativePath = object["path"]?.asString,
+                  let content = object["content"]?.asString,
+                  isSafeSkillRelativePath(relativePath)
+            else {
+                throw SkillsManageToolError.invalidFiles
+            }
+            files[relativePath] = content
+        }
+        return files
+    }
+
+    private func isSafeSkillRelativePath(_ relativePath: String) -> Bool {
+        let components = relativePath.split(separator: "/", omittingEmptySubsequences: false).map(String.init)
+        return !components.isEmpty &&
+            relativePath != "SKILL.md" &&
+            components.allSatisfy { !$0.isEmpty && $0 != "." && $0 != ".." }
+    }
+}
+
+private enum SkillsManageToolError: Error {
+    case invalidFiles
+}

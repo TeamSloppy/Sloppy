@@ -28,7 +28,11 @@ func coreServiceCreateAgentInstallsBuiltInTaskSpecSkill() async throws {
         BuiltInSkillCatalog.modeAutoID,
         BuiltInSkillCatalog.kanbanTaskManagerID,
         BuiltInSkillCatalog.taskSpecWriterID,
-        BuiltInSkillCatalog.workflowID
+        BuiltInSkillCatalog.workflowID,
+        "bundled/caveman",
+        "bundled/grill-me",
+        "bundled/tdd",
+        "bundled/ui-ux-pro-max"
     ])
     #expect(skillIDs.isSuperset(of: expectedCoreSkillIDs))
 
@@ -150,6 +154,33 @@ func builtInModePlanReferencesKanbanTaskManager() throws {
     let markdown = BuiltInSkillCatalog.modeSkillMarkdown(for: .plan)
 
     #expect(markdown.contains("sloppy/kanban-task-manager"))
+}
+
+@Test
+func builtInResourceSkillsIncludeBundledThirdPartySkillFiles() throws {
+    let definitions = BuiltInSkillCatalog.resourceSkillDefinitions()
+
+    let caveman = try #require(definitions.first { $0.repo == "caveman" })
+    #expect(caveman.owner == "bundled")
+    #expect(caveman.name == "caveman")
+    #expect(caveman.files.keys.contains("LICENSE"))
+    #expect(caveman.files.keys.contains("agents/openai.yaml"))
+    #expect(caveman.files.keys.contains("assets/caveman.svg"))
+
+    let grillMe = try #require(definitions.first { $0.repo == "grill-me" })
+    #expect(grillMe.name == "grill-me")
+    #expect(grillMe.files.keys.contains("LICENSE"))
+
+    let tdd = try #require(definitions.first { $0.repo == "tdd" })
+    #expect(tdd.name == "tdd")
+    #expect(tdd.files.keys.contains("LICENSE"))
+    #expect(tdd.files.keys.contains("tests.md"))
+    #expect(tdd.files.keys.contains("mocking.md"))
+    #expect(tdd.files.keys.contains("interface-design.md"))
+
+    let uiUXProMax = try #require(definitions.first { $0.repo == "ui-ux-pro-max" })
+    #expect(uiUXProMax.name == "ui-ux-pro-max")
+    #expect(uiUXProMax.files.keys.contains("LICENSE"))
 }
 
 @Test

@@ -196,6 +196,46 @@ protocol SkillsToolService: Sendable {
     func listAgentSkills(agentID: String) async throws -> AgentSkillsResponse
     func installAgentSkill(agentID: String, request: SkillInstallRequest) async throws -> InstalledSkill
     func uninstallAgentSkill(agentID: String, skillID: String) async throws
+    func saveAgentSkill(agentID: String, request: SkillSaveRequest) async throws -> SkillSaveResult
+}
+
+struct SkillSaveRequest: Sendable {
+    var owner: String
+    var repo: String
+    var skillMarkdown: String
+    var files: [String: String]
+    var userInvocable: Bool?
+    var allowedTools: [String]?
+    var context: SkillContext?
+    var agent: String?
+    var autoRoute: String?
+
+    init(
+        owner: String = "local",
+        repo: String,
+        skillMarkdown: String,
+        files: [String: String] = [:],
+        userInvocable: Bool? = nil,
+        allowedTools: [String]? = nil,
+        context: SkillContext? = nil,
+        agent: String? = nil,
+        autoRoute: String? = nil
+    ) {
+        self.owner = owner
+        self.repo = repo
+        self.skillMarkdown = skillMarkdown
+        self.files = files
+        self.userInvocable = userInvocable
+        self.allowedTools = allowedTools
+        self.context = context
+        self.agent = agent
+        self.autoRoute = autoRoute
+    }
+}
+
+struct SkillSaveResult: Sendable {
+    var skill: InstalledSkill
+    var created: Bool
 }
 
 // MARK: - Argument resolution helpers

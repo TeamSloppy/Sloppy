@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { emitHoverSoundPreferenceChanged } from "../../../shared/ui/hoverSound";
+import { loadHoverSoundPreference, persistHoverSoundPreference } from "../../../shared/ui/hoverSound";
 
 const ACCENT_STORAGE_KEY = "sloppy_accent_color";
 const DEFAULT_ACCENT = "#ccff00";
@@ -55,7 +55,7 @@ interface UIEditorProps {
 export function UIEditor({ draftConfig, mutateDraft }: UIEditorProps) {
   const [accentColor, setAccentColor] = useState(loadStoredAccent);
   const [hexInput, setHexInput] = useState(loadStoredAccent);
-  const hoverSoundsEnabled = draftConfig?.ui?.hoverSoundsEnabled === true;
+  const [hoverSoundsEnabled, setHoverSoundsEnabled] = useState(loadHoverSoundPreference);
   const dashboardAuthEnabled = Boolean(draftConfig?.ui?.dashboardAuth?.enabled);
   const dashboardAuthToken = String(draftConfig?.ui?.dashboardAuth?.token || "");
   const terminalEnabled = Boolean(draftConfig?.ui?.dashboardTerminal?.enabled);
@@ -183,11 +183,8 @@ export function UIEditor({ draftConfig, mutateDraft }: UIEditorProps) {
                   checked={hoverSoundsEnabled}
                   onChange={(event) => {
                     const checked = event.target.checked;
-                    mutateDraft((draft) => {
-                      if (!draft.ui) draft.ui = {};
-                      draft.ui.hoverSoundsEnabled = checked;
-                    });
-                    emitHoverSoundPreferenceChanged(checked);
+                    setHoverSoundsEnabled(checked);
+                    persistHoverSoundPreference(checked);
                   }}
                 />
                 <span className="agent-tools-switch-track" />

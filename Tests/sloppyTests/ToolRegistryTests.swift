@@ -40,7 +40,7 @@ struct ToolRegistryTests {
             "project.task_list", "project.task_create", "project.task_get",
             "project.task_update", "project.task_cancel", "project.task_delete", "project.escalate_to_user",
             "actor.discuss_with_actor", "actor.conclude_discussion",
-            "skills.search", "skills.list", "skills.install", "skills.uninstall"
+            "skills.search", "skills.list", "skills.install", "skills.manage", "skills.uninstall"
         ]
         let knownIDs = registry.knownToolIDs
         for id in expectedIDs {

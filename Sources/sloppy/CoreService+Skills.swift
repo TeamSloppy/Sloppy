@@ -188,6 +188,41 @@ extension CoreService {
         await sessionOrchestrator.notifySkillsChanged(agentID: normalizedAgentID)
     }
 
+    func saveAgentSkill(agentID: String, request: SkillSaveRequest) async throws -> SkillSaveResult {
+        guard let normalizedAgentID = normalizedAgentID(agentID) else {
+            throw AgentSkillsError.invalidAgentID
+        }
+        _ = try getAgent(id: normalizedAgentID)
+
+        let owner = request.owner.trimmingCharacters(in: .whitespacesAndNewlines)
+        let repo = request.repo.trimmingCharacters(in: .whitespacesAndNewlines)
+        let markdown = request.skillMarkdown.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !repo.isEmpty, !markdown.isEmpty else {
+            throw AgentSkillsError.invalidPayload
+        }
+
+        do {
+            let result = try agentSkillsStore.saveSkill(
+                agentID: normalizedAgentID,
+                owner: owner.isEmpty ? "local" : owner,
+                repo: repo,
+                markdown: request.skillMarkdown,
+                files: request.files,
+                userInvocable: request.userInvocable,
+                allowedTools: request.allowedTools,
+                context: request.context,
+                agent: request.agent,
+                autoRoute: request.autoRoute
+            )
+            await sessionOrchestrator.notifySkillsChanged(agentID: normalizedAgentID)
+            return SkillSaveResult(skill: result.skill, created: result.created)
+        } catch let error as AgentSkillsFileStore.StoreError {
+            throw mapAgentSkillsError(error)
+        } catch {
+            throw AgentSkillsError.storageFailure
+        }
+    }
+
     /// Get agent skills for runtime use
     public func getAgentSkillsForRuntime(agentID: String) async throws -> [InstalledSkill] {
         guard let normalizedAgentID = normalizedAgentID(agentID) else {

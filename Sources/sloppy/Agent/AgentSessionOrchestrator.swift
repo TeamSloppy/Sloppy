@@ -2045,6 +2045,7 @@ actor AgentSessionOrchestrator {
             }
             "Session: \(sessionID)"
             ""
+            BaseSloppyPrompts.generalPrompt
             "[AGENTS.md]"
             documents.agentsMarkdown
             ""
@@ -2061,6 +2062,12 @@ actor AgentSessionOrchestrator {
                 "[MEMORY.md]"
                 documents.memoryMarkdown
             }
+            ""
+            BaseSloppyPrompts.generalPrompt
+            ""
+            BaseSloppyPrompts.sessionSearchPrompt
+            ""
+            BaseSloppyPrompts.skillsPrompt
             ""
             capabilitiesSection
             ""
@@ -2364,4 +2371,30 @@ actor AgentSessionOrchestrator {
         let endIndex = value.index(value.startIndex, offsetBy: limit)
         return "\(value[..<endIndex])… [truncated]"
     }
+}
+
+struct BaseSloppyPrompts {
+    static let generalPrompt = {
+        """
+        You are Sloppy Agent, an AI assistant that created by Sloppy Team.
+
+        """
+    }()
+
+    static let sessionSearchPrompt = {
+        """
+        When the user references something from a past sessions or you suspect it may be relevant, use this prompt to search for a relevant session.
+        Use session.search to find something that may be relevant to the user's request.
+        """
+    }()
+
+    static let skillsPrompt = {
+        """
+        After completing a complex task or fixing a tricky error or you discovering a non-trivial workflow,
+        save the approach as a skill with skill.manage so you can reuse it next time.
+        When using a skill and finding it outdated, incomplete, or wrong,
+        patch it immediately with skill_manage — don't wait to be asked.
+        Skills that aren't maintained become liabilities.
+        """
+    }()
 }
