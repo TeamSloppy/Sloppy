@@ -430,13 +430,22 @@ actor TelegramPoller {
             return
         }
 
+        let processedAttachments = await TelegramAttachmentProcessor(
+            bot: bot,
+            logger: logger
+        ).process(attachments)
+        let processedText = TelegramAttachmentProcessor.contentWithTranscripts(
+            content: text,
+            attachments: processedAttachments
+        )
+
         let ok = await receiver.postMessage(
             channelId: channelId,
             userId: userIdString,
-            content: text,
+            content: processedText,
             topicId: topicId,
             inboundContext: inboundContext,
-            attachments: attachments
+            attachments: processedAttachments
         )
 
         if ok {

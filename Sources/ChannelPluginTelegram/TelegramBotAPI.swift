@@ -8,16 +8,28 @@ import FoundationNetworking
 actor TelegramBotAPI {
     private let botToken: String
     private let baseURL: URL
+    private let fileBaseURL: URL
     private let logger: Logger
     private let session: URLSession
 
-    init(botToken: String, logger: Logger? = nil) {
+    init(
+        botToken: String,
+        logger: Logger? = nil,
+        baseURL: URL? = nil,
+        fileBaseURL: URL? = nil,
+        session: URLSession? = nil
+    ) {
         self.botToken = botToken
-        self.baseURL = URL(string: "https://api.telegram.org/bot\(botToken)/")!
+        self.baseURL = baseURL ?? URL(string: "https://api.telegram.org/bot\(botToken)/")!
+        self.fileBaseURL = fileBaseURL ?? URL(string: "https://api.telegram.org/file/bot\(botToken)/")!
         self.logger = logger ?? Logger(label: "sloppy.telegram.api")
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 65
-        self.session = URLSession(configuration: config)
+        if let session {
+            self.session = session
+        } else {
+            let config = URLSessionConfiguration.default
+            config.timeoutIntervalForRequest = 65
+            self.session = URLSession(configuration: config)
+        }
     }
 
     // MARK: - getUpdates (long-polling)
@@ -286,6 +298,42 @@ actor TelegramBotAPI {
         _ = try await post(method: "answerCallbackQuery", params: params)
     }
 
+
+    // MARK: - getFile / file download
+
+    struct GetFileResponse: Decodable {
+        let ok: Bool
+        let result: TelegramFile?
+    }
+
+    struct TelegramFile: Decodable, Equatable {
+        let fileId: String
+        let fileUniqueId: String?
+        let fileSize: Int?
+        let filePath: String?
+
+        enum CodingKeys: String, CodingKey {
+            case fileId = "file_id"
+            case fileUniqueId = "file_unique_id"
+            case fileSize = "file_size"
+            case filePath = "file_path"
+        }
+    }
+
+    func getFile(fileId: String) async throws -> TelegramFile {
+        let data = try await post(method: "getFile", params: ["file_id": fileId])
+        let decoded = try JSONDecoder().decode(GetFileResponse.self, from: data)
+        guard decoded.ok, let file = decoded.result else {
+            throw TelegramAPIError.invalidResponse(method: "getFile")
+        }
+        return file
+    }
+
+    func downloadFile(filePath: String) async throws -> Data {
+        let url = fileBaseURL.appendingPathComponent(filePath)
+        return try await get(url: url, method: "downloadFile")
+    }
+
     // MARK: - setMyCommands
 
     func setMyCommands(_ commands: [[String: String]]) async throws {
@@ -317,7 +365,16 @@ actor TelegramBotAPI {
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONSerialization.data(withJSONObject: params)
+        return try await perform(request: request, method: method)
+    }
 
+    private func get(url: URL, method: String) async throws -> Data {
+        var request = URLRequest(url: url)
+        request.httpMethod = "GET"
+        return try await perform(request: request, method: method)
+    }
+
+    private func perform(request: URLRequest, method: String) async throws -> Data {
         // Use callback-based dataTask to avoid URLSession async cancellation issues
         // with FoundationNetworking on Linux (NSURLErrorDomain -999).
         let (data, response): (Data, URLResponse) = try await withCheckedThrowingContinuation { continuation in
