@@ -51,6 +51,15 @@ import Testing
     #expect(chunks.joined() == text)
 }
 
+@Test func telegramMessageSplitter_splitsRichMessagesAtRichTelegramLimit() {
+    let text = String(repeating: "a", count: TelegramMessageSplitter.richMaxCharacters + 5)
+    let chunks = TelegramMessageSplitter.split(text, maxCharacters: TelegramMessageSplitter.richMaxCharacters)
+
+    #expect(chunks.count == 2)
+    #expect(chunks.allSatisfy { $0.count <= TelegramMessageSplitter.richMaxCharacters })
+    #expect(chunks.joined() == text)
+}
+
 @Test func telegramMessageSplitter_prefersReadableBoundaries() {
     let firstParagraph = String(repeating: "a", count: TelegramMessageSplitter.maxCharacters - 20)
     let secondParagraph = String(repeating: "b", count: 40)

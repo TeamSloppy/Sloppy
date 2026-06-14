@@ -61,6 +61,20 @@ struct AgentPetDraftRecord: Codable, Sendable {
 
 extension AgentPetGeneratedRecord: Codable, Sendable {}
 
+struct AgentPetModelBrief: Decodable, Sendable {
+    var displayName: String?
+    var speciesId: String?
+    var headId: String?
+    var bodyId: String?
+    var legsId: String?
+    var faceId: String?
+    var accessoryId: String?
+    var idleFace: String?
+    var happyFace: String?
+    var sadFace: String?
+    var sleepFace: String?
+}
+
 private struct AgentPetPartCatalogEntry {
     let id: String
     let rarity: AgentPetRarityTier
@@ -316,6 +330,84 @@ enum AgentPetFactory {
         )
     }
 
+    static func makePetDraft(
+        request: AgentPetGenerationRequest,
+        brief: AgentPetModelBrief,
+        modelResponse: String,
+        createdAt: Date = Date()
+    ) -> AgentPetDraftRecord {
+        let seed = draftSeed(for: request, createdAt: createdAt)
+        var rng = SplitMix64(seed: seed)
+        let head = catalogEntry(from: heads, requestedID: brief.headId, using: &rng)
+        let body = catalogEntry(from: bodies, requestedID: brief.bodyId, using: &rng)
+        let legs = catalogEntry(from: legs, requestedID: brief.legsId, using: &rng)
+        let face = catalogEntry(from: faces, requestedID: brief.faceId, using: &rng)
+        let accessory = catalogEntry(from: accessories, requestedID: brief.accessoryId, using: &rng)
+        let baseStats = makeBaseStats(head: head, body: body, legs: legs, face: face, accessory: accessory, rng: &rng)
+        let partRarities = AgentPetPartRarities(
+            head: head.rarity,
+            body: body.rarity,
+            legs: legs.rarity,
+            face: face.rarity,
+            accessory: accessory.rarity
+        )
+        let terminalFaceSet = AgentPetTerminalFaceSet(
+            idle: sanitizedFace(brief.idleFace, fallback: "(o_o)"),
+            happy: sanitizedFace(brief.happyFace, fallback: "(^_^)"),
+            sad: sanitizedFace(brief.sadFace, fallback: "(._.)"),
+            sleep: sanitizedFace(brief.sleepFace, fallback: "(-_-)")
+        )
+        let displayName = sanitizedName(brief.displayName, fallback: "Generated Sloppie")
+        let speciesId = sanitizedSpeciesId(brief.speciesId, fallback: displayName)
+        let draftId = "draft_" + String(UUID().uuidString.lowercased().prefix(12))
+        let genome = String(format: "%016llx", seed)
+        let visual = AgentPetVisualSummary(
+            speciesId: speciesId,
+            displayName: displayName,
+            source: "model",
+            assetBaseURL: "",
+            currentStage: 1,
+            stageCount: stageThresholds.count,
+            terminalFaceSet: terminalFaceSet
+        )
+        let summary = AgentPetSummary(
+            petId: "pet_" + String(UUID().uuidString.lowercased().prefix(12)),
+            genomeHex: genome,
+            parts: AgentPetParts(headId: head.id, bodyId: body.id, legsId: legs.id, faceId: face.id, accessoryId: accessory.id),
+            partRarities: partRarities,
+            rarity: overallRarity(from: partRarities),
+            baseStats: baseStats,
+            currentStats: baseStats,
+            transferable: true,
+            visual: visual,
+            evolution: evolutionSummary(totalXp: 0),
+            stageAssets: []
+        )
+        let state = AgentPetProgressState(
+            currentStats: baseStats,
+            totalXp: 0,
+            createdAt: createdAt,
+            updatedAt: createdAt
+        )
+        let generatedPrompt = modelPromptText(request: request, brief: brief, modelResponse: modelResponse)
+        let response = AgentPetGenerationResponse(
+            draftId: draftId,
+            visual: visual,
+            evolution: summary.evolution ?? evolutionSummary(totalXp: 0),
+            generatedPrompt: generatedPrompt,
+            assetURLs: [],
+            stageAssets: [],
+            terminalFaceSet: terminalFaceSet
+        )
+        return AgentPetDraftRecord(
+            draftId: draftId,
+            generatedPrompt: generatedPrompt,
+            generated: AgentPetGeneratedRecord(summary: summary, state: state),
+            response: response,
+            createdAt: createdAt
+        )
+    }
+
     static func summary(
         _ summary: AgentPetSummary,
         applying state: AgentPetProgressState
@@ -450,6 +542,63 @@ enum AgentPetFactory {
             }
         }
         return entries[0]
+    }
+
+    private static func catalogEntry(
+        from entries: [AgentPetPartCatalogEntry],
+        requestedID: String?,
+        using rng: inout SplitMix64
+    ) -> AgentPetPartCatalogEntry {
+        let normalized = requestedID?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if let entry = entries.first(where: { $0.id == normalized }) {
+            return entry
+        }
+        return weightedPick(from: entries, using: &rng)
+    }
+
+    private static func sanitizedName(_ value: String?, fallback: String) -> String {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return fallback }
+        return String(trimmed.prefix(48))
+    }
+
+    private static func sanitizedSpeciesId(_ value: String?, fallback: String) -> String {
+        let source = (value?.isEmpty == false ? value! : fallback).lowercased()
+        var result = ""
+        var previousWasDash = false
+        for scalar in source.unicodeScalars {
+            if CharacterSet.alphanumerics.contains(scalar) {
+                result.unicodeScalars.append(scalar)
+                previousWasDash = false
+            } else if !previousWasDash {
+                result.append("-")
+                previousWasDash = true
+            }
+        }
+        let trimmed = result.trimmingCharacters(in: CharacterSet(charactersIn: "-"))
+        return trimmed.isEmpty ? "generated-sloppie" : String(trimmed.prefix(64))
+    }
+
+    private static func sanitizedFace(_ value: String?, fallback: String) -> String {
+        let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else { return fallback }
+        return String(trimmed.prefix(24))
+    }
+
+    private static func modelPromptText(
+        request: AgentPetGenerationRequest,
+        brief: AgentPetModelBrief,
+        modelResponse: String
+    ) -> String {
+        let prompt = request.prompt?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let constraints = prompt.isEmpty ? "Wish me luck." : prompt
+        let name = sanitizedName(brief.displayName, fallback: "Generated Sloppie")
+        return """
+        Model-generated Sloppie brief for: \(constraints)
+        Display name: \(name)
+        Parts: \(brief.headId ?? "auto"), \(brief.bodyId ?? "auto"), \(brief.legsId ?? "auto"), \(brief.faceId ?? "auto"), \(brief.accessoryId ?? "auto")
+        Raw model brief: \(String(modelResponse.prefix(1_200)))
+        """
     }
 
     private static func makeBaseStats(

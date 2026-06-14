@@ -241,6 +241,16 @@ actor TelegramBotAPI {
         let result: Message?
     }
 
+    struct SendRichMessageResponse: Decodable {
+        let ok: Bool
+        let result: Message?
+    }
+
+    struct SendRichMessageDraftResponse: Decodable {
+        let ok: Bool
+        let result: Bool?
+    }
+
     struct EditMessageTextResponse: Decodable {
         let ok: Bool
         let result: Message?
@@ -285,6 +295,58 @@ actor TelegramBotAPI {
         return message
     }
 
+    func sendRichMessage(
+        chatId: Int64,
+        markdown: String,
+        messageThreadId: Int? = nil,
+        skipEntityDetection: Bool? = nil,
+        replyMarkup: [[[String: String]]]? = nil,
+        showTyping: Bool = true
+    ) async throws -> Message {
+        logger.debug("sendRichMessage: chatId=\(chatId), length=\(markdown.count)")
+
+        if showTyping {
+            try? await sendChatAction(chatId: chatId, action: "typing", messageThreadId: messageThreadId)
+        }
+
+        var params: [String: Any] = [
+            "chat_id": chatId,
+            "rich_message": inputRichMessage(markdown: markdown, skipEntityDetection: skipEntityDetection)
+        ]
+        if let messageThreadId { params["message_thread_id"] = messageThreadId }
+        if let replyMarkup {
+            params["reply_markup"] = ["inline_keyboard": replyMarkup]
+        }
+        let data = try await post(method: "sendRichMessage", params: params)
+        let response = try JSONDecoder().decode(SendRichMessageResponse.self, from: data)
+        guard response.ok, let message = response.result else {
+            throw TelegramAPIError.invalidResponse(method: "sendRichMessage")
+        }
+        return message
+    }
+
+    func sendRichMessageDraft(
+        chatId: Int64,
+        draftId: Int64,
+        markdown: String,
+        messageThreadId: Int? = nil,
+        skipEntityDetection: Bool? = nil
+    ) async throws {
+        logger.debug("sendRichMessageDraft: chatId=\(chatId), draftId=\(draftId), length=\(markdown.count)")
+
+        var params: [String: Any] = [
+            "chat_id": chatId,
+            "draft_id": draftId,
+            "rich_message": inputRichMessage(markdown: markdown, skipEntityDetection: skipEntityDetection)
+        ]
+        if let messageThreadId { params["message_thread_id"] = messageThreadId }
+        let data = try await post(method: "sendRichMessageDraft", params: params)
+        let response = try JSONDecoder().decode(SendRichMessageDraftResponse.self, from: data)
+        guard response.ok, response.result == true else {
+            throw TelegramAPIError.invalidResponse(method: "sendRichMessageDraft")
+        }
+    }
+
     func editMessageText(
         chatId: Int64,
         messageId: Int64,
@@ -311,6 +373,14 @@ actor TelegramBotAPI {
             throw TelegramAPIError.invalidResponse(method: "editMessageText")
         }
         return message
+    }
+
+    private func inputRichMessage(markdown: String, skipEntityDetection: Bool?) -> [String: Any] {
+        var richMessage: [String: Any] = ["markdown": markdown]
+        if let skipEntityDetection {
+            richMessage["skip_entity_detection"] = skipEntityDetection
+        }
+        return richMessage
     }
 
     func deleteMessage(chatId: Int64, messageId: Int64, messageThreadId: Int? = nil) async throws {

@@ -43,6 +43,8 @@ func projectContextRefreshLoadsWorkspacePrivateMetaMemory() async throws {
         .appendingPathComponent("project-context-repo-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: repoRoot, withIntermediateDirectories: true)
     try "Repo instructions".write(to: repoRoot.appendingPathComponent("AGENTS.md"), atomically: true, encoding: .utf8)
+    try "Project user preferences".write(to: repoRoot.appendingPathComponent("USER.md"), atomically: true, encoding: .utf8)
+    try "Project soul instructions".write(to: repoRoot.appendingPathComponent("SOUL.md"), atomically: true, encoding: .utf8)
 
     let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let projectID = "ctx-memory-\(UUID().uuidString.prefix(8).lowercased())"
@@ -59,9 +61,15 @@ func projectContextRefreshLoadsWorkspacePrivateMetaMemory() async throws {
 
     let response = try await service.refreshProjectContext(projectID: projectID)
     #expect(response.loadedDocPaths.contains("AGENTS.md"))
+    #expect(response.loadedDocPaths.contains("USER.md"))
+    #expect(response.loadedDocPaths.contains("SOUL.md"))
     #expect(response.loadedDocPaths.contains(".meta/MEMORY.md"))
 
     let bootstrap = try #require(await service.projectBootstrapMarkdownForAgentSession(projectID: projectID))
+    #expect(bootstrap.contains("[USER.md]"))
+    #expect(bootstrap.contains("Project user preferences"))
+    #expect(bootstrap.contains("[SOUL.md]"))
+    #expect(bootstrap.contains("Project soul instructions"))
     #expect(bootstrap.contains("[.meta/MEMORY.md]"))
     #expect(bootstrap.contains("Workspace project memory"))
 }

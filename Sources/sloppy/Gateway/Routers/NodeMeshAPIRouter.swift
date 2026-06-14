@@ -9,9 +9,56 @@ struct NodeMeshAPIRouter: APIRouter {
     }
 
     func configure(on router: CoreRouterRegistrar) {
+        router.get("/v1/node/mesh", metadata: RouteMetadata(summary: "Get mesh state", description: "Returns SloppyNode mesh network, invites, nodes, shared projects, tasks, and audit state", tags: ["Node Mesh"])) { _ in
+            do {
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: try await service.getMeshState())
+            } catch {
+                return meshErrorResponse(error)
+            }
+        }
+
+        router.post("/v1/node/mesh/network", metadata: RouteMetadata(summary: "Configure mesh network", description: "Creates or updates SloppyNode mesh network metadata", tags: ["Node Mesh"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: MeshNetworkUpdateRequest.self) else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: try await service.configureMeshNetwork(payload))
+            } catch {
+                return meshErrorResponse(error)
+            }
+        }
+
+        router.post("/v1/node/mesh/invites", metadata: RouteMetadata(summary: "Create mesh invite", description: "Creates a one-time SloppyNode mesh invite token", tags: ["Node Mesh"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: MeshInviteCreateRequest.self) else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                return CoreRouter.encodable(status: HTTPStatus.created, payload: try await service.createMeshInvite(payload))
+            } catch {
+                return meshErrorResponse(error)
+            }
+        }
+
         router.get("/v1/node/mesh/nodes", metadata: RouteMetadata(summary: "List mesh nodes", description: "Returns known SloppyNode mesh nodes and statuses", tags: ["Node Mesh"])) { _ in
             do {
                 return CoreRouter.encodable(status: HTTPStatus.ok, payload: try await service.listMeshNodes())
+            } catch {
+                return meshErrorResponse(error)
+            }
+        }
+
+        router.post("/v1/node/mesh/nodes", metadata: RouteMetadata(summary: "Register mesh node", description: "Registers a SloppyNode identity public key so it can authenticate with the relay", tags: ["Node Mesh"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: MeshNodeRegisterRequest.self) else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                return CoreRouter.encodable(status: HTTPStatus.created, payload: try await service.registerMeshNode(payload))
             } catch {
                 return meshErrorResponse(error)
             }
@@ -47,6 +94,16 @@ struct NodeMeshAPIRouter: APIRouter {
             do {
                 let projectId = request.pathParam("projectId") ?? ""
                 return CoreRouter.encodable(status: HTTPStatus.ok, payload: try await service.updateMeshSharedProject(id: projectId, request: payload))
+            } catch {
+                return meshErrorResponse(error)
+            }
+        }
+
+        router.delete("/v1/node/mesh/shared-projects/:projectId", metadata: RouteMetadata(summary: "Disable shared project", description: "Removes a SloppyNode mesh shared project and its members", tags: ["Node Mesh"])) { request in
+            do {
+                let projectId = request.pathParam("projectId") ?? ""
+                try await service.deleteMeshSharedProject(id: projectId)
+                return CoreRouter.json(status: HTTPStatus.ok, payload: ["status": "deleted"])
             } catch {
                 return meshErrorResponse(error)
             }

@@ -204,6 +204,63 @@ public struct MeshNodeRecord: Codable, Sendable, Equatable {
     }
 }
 
+public struct MeshNetworkUpdateRequest: Codable, Sendable, Equatable {
+    public var id: String
+    public var name: String?
+
+    public init(id: String, name: String? = nil) {
+        self.id = id
+        self.name = name
+    }
+}
+
+public struct MeshInviteCreateRequest: Codable, Sendable, Equatable {
+    public var networkId: String
+    public var name: String?
+    public var roles: [String]
+    public var capabilities: [String]
+    public var ttlSeconds: TimeInterval
+
+    public init(
+        networkId: String,
+        name: String? = nil,
+        roles: [String] = ["worker"],
+        capabilities: [String] = ["run_agent", "git"],
+        ttlSeconds: TimeInterval = 86400
+    ) {
+        self.networkId = networkId
+        self.name = name
+        self.roles = roles
+        self.capabilities = capabilities
+        self.ttlSeconds = ttlSeconds
+    }
+}
+
+public struct MeshNodeRegisterRequest: Codable, Sendable, Equatable {
+    public var id: String
+    public var name: String
+    public var publicKey: String
+    public var roles: [String]
+    public var endpoint: String?
+    public var capabilities: [String]
+
+    public init(
+        id: String,
+        name: String,
+        publicKey: String,
+        roles: [String],
+        endpoint: String? = nil,
+        capabilities: [String]
+    ) {
+        self.id = id
+        self.name = name
+        self.publicKey = publicKey
+        self.roles = roles
+        self.endpoint = endpoint
+        self.capabilities = capabilities
+    }
+}
+
 public struct MeshInvite: Codable, Sendable, Equatable {
     public var token: String
     public var networkId: String
@@ -342,11 +399,13 @@ public struct SharedProjectRecord: Codable, Sendable, Equatable {
 }
 
 public struct MeshSharedProjectCreateRequest: Codable, Sendable, Equatable {
+    public var id: String?
     public var name: String
     public var repoUrl: String
     public var defaultBranch: String
 
-    public init(name: String, repoUrl: String, defaultBranch: String = "main") {
+    public init(id: String? = nil, name: String, repoUrl: String, defaultBranch: String = "main") {
+        self.id = id
         self.name = name
         self.repoUrl = repoUrl
         self.defaultBranch = defaultBranch
@@ -619,10 +678,11 @@ public struct NodeMeshStore: Sendable {
     }
 
     @discardableResult
-    public func createSharedProject(name: String, repoUrl: String, defaultBranch: String = "main") throws -> SharedProjectRecord {
+    public func createSharedProject(id: String? = nil, name: String, repoUrl: String, defaultBranch: String = "main") throws -> SharedProjectRecord {
         var state = try load()
+        let projectId = id?.isEmpty == false ? id! : makeSharedProjectId(name)
         let project = SharedProjectRecord(
-            id: makeSharedProjectId(name),
+            id: projectId,
             name: name,
             repoUrl: repoUrl,
             defaultBranch: defaultBranch.isEmpty ? "main" : defaultBranch
@@ -641,6 +701,23 @@ public struct NodeMeshStore: Sendable {
         state.auditLog.append(MeshAuditLogEntry(actor: "local", action: "shared_project.create", project: project.id, allowed: true))
         try save(state)
         return project
+    }
+
+    public func removeSharedProject(projectIdOrName: String, actor: String = "local") throws {
+        var state = try load()
+        guard let projectIndex = state.sharedProjects.firstIndex(where: { $0.id == projectIdOrName || $0.name == projectIdOrName }) else {
+            throw NodeMeshStoreError.projectMissing(projectIdOrName)
+        }
+
+        let project = state.sharedProjects.remove(at: projectIndex)
+        appendProjectSyncEvent(
+            project,
+            action: "shared_project.remove",
+            actor: actor,
+            in: &state
+        )
+        state.auditLog.append(MeshAuditLogEntry(actor: actor, action: "shared_project.remove", project: project.id, allowed: true))
+        try save(state)
     }
 
     @discardableResult

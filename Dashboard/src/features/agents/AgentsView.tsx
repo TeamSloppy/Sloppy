@@ -437,7 +437,7 @@ export function AgentsView({
       ...previous,
       [field]: value
     }));
-    if (field === "petMode" || field === "petPrompt") {
+    if (field === "petMode" || field === "petPrompt" || field === "petModel") {
       setPetDraft(null);
       setPetGenerationProgress(null);
     }
@@ -445,7 +445,7 @@ export function AgentsView({
 
   function openCreateModal() {
     const defaultModel = availableModels[0]?.id ?? "";
-    setForm({ ...emptyAgentFormValues(), generateModel: defaultModel });
+    setForm({ ...emptyAgentFormValues(), generateModel: defaultModel, petModel: defaultModel });
     setCreateError("");
     setGenerationPhase("form");
     setGeneratedFiles(EMPTY_GENERATED_FILES);
@@ -485,7 +485,7 @@ export function AgentsView({
       const response = await generatePet({
         mode: form.petMode,
         prompt,
-        model: form.generateModel || undefined
+        model: form.petModel || undefined
       });
       if (!response) {
         setCreateError("Failed to generate pet draft. Default preset pets are still available.");

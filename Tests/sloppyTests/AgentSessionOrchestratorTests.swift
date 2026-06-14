@@ -1531,6 +1531,83 @@ func agentSessionBootstrapIncludesInstalledSkillsSummary() async throws {
 }
 
 @Test
+func agentDocumentUpdatesRefreshExistingSessionBootstrap() async throws {
+    let agentID = "doc-refresh-agent"
+    let modelID = "openai-api:gpt-5.4-mini"
+    let availableModels = [
+        ProviderModelOption(id: modelID, title: modelID, contextWindow: "1.0M", capabilities: ["tools"])
+    ]
+    let agentsRootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("agent-doc-refresh-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("agents", isDirectory: true)
+    let catalogStore = AgentCatalogFileStore(agentsRootURL: agentsRootURL)
+    let sessionStore = AgentSessionFileStore(agentsRootURL: agentsRootURL)
+    _ = try catalogStore.createAgent(
+        AgentCreateRequest(id: agentID, displayName: "Doc Refresh Agent", role: "Test agent"),
+        availableModels: availableModels
+    )
+    let initialConfig = try catalogStore.updateAgentConfig(
+        agentID: agentID,
+        request: AgentConfigUpdateRequest(
+            role: nil,
+            selectedModel: modelID,
+            documents: AgentDocumentBundle(
+                userMarkdown: "# User\nInitial preference\n",
+                agentsMarkdown: "# Agent\nFollow project rules\n",
+                soulMarkdown: "# Soul\nInitial soul\n",
+                identityMarkdown: "# Identity\nDoc Refresh Agent\n"
+            )
+        ),
+        availableModels: availableModels
+    )
+
+    let provider = SessionCapturingModelProvider(models: [modelID])
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: modelID)
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels
+    )
+    let session = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest(title: "Main"))
+
+    _ = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(userId: "dashboard", content: "first")
+    )
+
+    var updatedDocuments = initialConfig.documents
+    updatedDocuments.userMarkdown = "# User\nUpdated preference\n"
+    updatedDocuments.soulMarkdown = "# Soul\nUpdated soul\n"
+    let updateStore = AgentCatalogFileStore(agentsRootURL: agentsRootURL)
+    _ = try updateStore.updateAgentConfig(
+        agentID: agentID,
+        request: AgentConfigUpdateRequest(
+            role: initialConfig.role,
+            selectedModel: initialConfig.selectedModel,
+            documents: updatedDocuments,
+            heartbeat: initialConfig.heartbeat,
+            channelSessions: initialConfig.channelSessions,
+            runtime: initialConfig.runtime
+        ),
+        availableModels: availableModels
+    )
+    await orchestrator.notifyAgentDocumentsChanged(agentID: agentID)
+
+    _ = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(userId: "dashboard", content: "second")
+    )
+
+    let transcripts = await provider.requestedTranscriptsSnapshot()
+    #expect(transcripts.count >= 2)
+    #expect(transcripts.last?.joined(separator: "\n").contains("Updated preference") == true)
+    #expect(transcripts.last?.joined(separator: "\n").contains("Updated soul") == true)
+}
+
+@Test
 func agentSessionBootstrapIncludesReadableEntrypointsForInstalledSkills() async throws {
     let availableModels = [
         ProviderModelOption(id: "openai-api:gpt-5.4-mini", title: "openai-api:gpt-5.4-mini", capabilities: ["tools"])

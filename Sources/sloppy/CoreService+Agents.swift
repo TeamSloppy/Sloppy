@@ -583,11 +583,13 @@ extension CoreService {
                     throw AgentConfigError.invalidPayload
                 }
             }
-            let previousSkills = (try? agentCatalogStore.getAgentConfig(
+            let previousConfig = try? agentCatalogStore.getAgentConfig(
                 agentID: agentID,
                 availableModels: availableModels,
                 persistedModelAllowed: makePersistedModelAllowance()
-            ).skills) ?? AgentSkillSettings()
+            )
+            let previousSkills = previousConfig?.skills ?? AgentSkillSettings()
+            let previousDocuments = previousConfig?.documents
             let updated = try agentCatalogStore.updateAgentConfig(
                 agentID: agentID,
                 request: request,
@@ -595,6 +597,9 @@ extension CoreService {
             )
             if previousSkills != updated.skills {
                 await sessionOrchestrator.notifySkillsChanged(agentID: agentID)
+            }
+            if let previousDocuments, previousDocuments != updated.documents {
+                await sessionOrchestrator.notifyAgentDocumentsChanged(agentID: agentID)
             }
             if !currentConfig.onboarding.completed {
                 logger.info(
@@ -651,6 +656,7 @@ extension CoreService {
                 request: updateRequest,
                 availableModels: saveModels
             )
+            await sessionOrchestrator.notifyAgentDocumentsChanged(agentID: normalizedID)
         } catch {
             throw mapAgentConfigError(error)
         }

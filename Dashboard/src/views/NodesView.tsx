@@ -2,17 +2,73 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import type { CoreApi } from "../shared/api/coreApi";
 
 type AnyRecord = Record<string, unknown>;
+type MeshModal = "network" | "invite" | "node" | null;
+type MeshGraphNode = {
+  id: string;
+  name: string;
+  endpoint: string;
+  ip: string;
+  status: string;
+  kind: "relay" | "worker";
+  roles: string;
+  capabilities: string;
+  lastSeen: string;
+  x: number;
+  y: number;
+};
 
+const CAPABILITY_OPTIONS = [
+  { id: "run_agent", label: "Run agent", detail: "Can execute assigned Sloppy work" },
+  { id: "git", label: "Git", detail: "Can branch, commit, and push" },
+  { id: "run_shell", label: "Shell", detail: "Can run local commands" },
+  { id: "local_files", label: "Local files", detail: "Can inspect local paths" },
+];
+
+const ROLE_OPTIONS = [
+  { id: "worker", label: "worker", tooltip: "Executes assigned mesh tasks on this node and reports lifecycle state back to the relay." },
+  { id: "client", label: "client", tooltip: "Connects to the mesh as a consumer of relay services without receiving worker execution tasks." },
+  { id: "controller", label: "controller", tooltip: "Coordinates mesh control-plane actions such as routing, registry updates, and node operations." },
+  { id: "reviewer", label: "reviewer", tooltip: "Reviews worker output and participates in approval or verification flows before work is accepted." },
+];
 function text(value: unknown, fallback = "") {
   return typeof value === "string" && value.trim() ? value.trim() : fallback;
+}
+
+function records(value: unknown) {
+  return Array.isArray(value) ? (value as AnyRecord[]) : [];
 }
 
 function list(value: unknown) {
   return Array.isArray(value) ? value.map((item) => String(item || "").trim()).filter(Boolean) : [];
 }
 
+function csv(value: string) {
+  return value.split(",").map((part) => part.trim()).filter(Boolean);
+}
+
+function toCsv(values: string[]) {
+  return values.join(",");
+}
+
 function statusLabel(value: unknown) {
   return text(value, "offline").replace(/_/g, " ");
+}
+
+function statusClass(value: unknown) {
+  const raw = text(value, "offline");
+  return ["online", "degraded", "offline"].includes(raw) ? raw : "offline";
+}
+
+function endpointHost(value: unknown) {
+  const raw = text(value);
+  if (!raw) {
+    return "No endpoint";
+  }
+  try {
+    return new URL(raw).host || raw;
+  } catch {
+    return raw.split("/")[0] || raw;
+  }
 }
 
 function formatTime(value: unknown) {
@@ -27,230 +83,697 @@ function formatTime(value: unknown) {
   return date.toLocaleString();
 }
 
-function projectMembers(project: AnyRecord) {
-  return Array.isArray(project.members) ? (project.members as AnyRecord[]) : [];
-}
-
 function nodeName(nodes: AnyRecord[], nodeId: string) {
   return text(nodes.find((node) => text(node.id) === nodeId)?.name, nodeId);
+}
+
+function toggleCsvValue(raw: string, value: string) {
+  const current = new Set(csv(raw));
+  if (current.has(value)) {
+    current.delete(value);
+  } else {
+    current.add(value);
+  }
+  return toCsv(Array.from(current));
+}
+
+function Field({
+  label,
+  hint,
+  children,
+}: {
+  label: string;
+  hint?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <label className="nodes-field">
+      <span>{label}</span>
+      {children}
+      {hint ? <small>{hint}</small> : null}
+    </label>
+  );
+}
+
+function ChipPicker({
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  label: string;
+  value: string;
+  options: Array<{ id: string; label: string; detail?: string; tooltip?: string }>;
+  onChange: (value: string) => void;
+}) {
+  const selected = new Set(csv(value));
+  return (
+    <div className="nodes-picker" role="group" aria-label={label}>
+      <div className="nodes-picker-label">{label}</div>
+      <div className="nodes-chip-grid">
+        {options.map((option) => (
+          <button
+            key={option.id}
+            type="button"
+            className={selected.has(option.id) ? "active" : ""}
+            data-tooltip={option.tooltip || undefined}
+            aria-label={option.tooltip ? `${option.label}. ${option.tooltip}` : option.label}
+            onClick={() => onChange(toggleCsvValue(value, option.id))}
+          >
+            <span>{option.label}</span>
+            {option.detail ? <small>{option.detail}</small> : null}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function MeshModalFrame({
+  title,
+  description,
+  icon,
+  onClose,
+  children,
+}: {
+  title: string;
+  description: string;
+  icon: string;
+  onClose: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="nodes-modal-backdrop" role="presentation" onMouseDown={onClose}>
+      <section
+        className="nodes-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="nodes-modal-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header className="nodes-modal-head">
+          <span className="material-symbols-rounded" aria-hidden="true">{icon}</span>
+          <div>
+            <h3 id="nodes-modal-title">{title}</h3>
+            <p>{description}</p>
+          </div>
+          <button type="button" className="nodes-icon-button" onClick={onClose} aria-label="Close modal">
+            <span className="material-symbols-rounded" aria-hidden="true">close</span>
+          </button>
+        </header>
+        {children}
+      </section>
+    </div>
+  );
 }
 
 export function NodesView({ coreApi }: { coreApi: CoreApi }) {
   const [nodes, setNodes] = useState<AnyRecord[]>([]);
   const [projects, setProjects] = useState<AnyRecord[]>([]);
   const [tasks, setTasks] = useState<AnyRecord[]>([]);
+  const [invites, setInvites] = useState<AnyRecord[]>([]);
   const [auditLog, setAuditLog] = useState<AnyRecord[]>([]);
-  const [selectedProjectId, setSelectedProjectId] = useState("");
+  const [networkId, setNetworkId] = useState("personal");
+  const [networkName, setNetworkName] = useState("personal");
+  const [activeSystemId, setActiveSystemId] = useState("personal");
+  const [activeModal, setActiveModal] = useState<MeshModal>(null);
+  const [inviteName, setInviteName] = useState("");
+  const [inviteRoles, setInviteRoles] = useState("worker");
+  const [inviteCapabilities, setInviteCapabilities] = useState("run_agent,git");
+  const [inviteTtlSeconds, setInviteTtlSeconds] = useState("86400");
+  const [latestInvite, setLatestInvite] = useState<AnyRecord | null>(null);
+  const [nodeId, setNodeId] = useState("");
+  const [nodeDisplayName, setNodeDisplayName] = useState("");
+  const [nodePublicKey, setNodePublicKey] = useState("");
+  const [nodeRoles, setNodeRoles] = useState("worker");
+  const [nodeCapabilities, setNodeCapabilities] = useState("run_agent,git");
   const [selectedNodeId, setSelectedNodeId] = useState("");
-  const [taskTitle, setTaskTitle] = useState("");
   const [isLoading, setIsLoading] = useState(true);
-  const [isDispatching, setIsDispatching] = useState(false);
+  const [busyAction, setBusyAction] = useState("");
   const [error, setError] = useState("");
+  const [hoveredGraphNodeId, setHoveredGraphNodeId] = useState("");
 
-  const selectedProject = useMemo(
-    () => projects.find((project) => text(project.id) === selectedProjectId) || null,
-    [projects, selectedProjectId]
+  const onlineNodes = useMemo(() => nodes.filter((node) => text(node.status) === "online"), [nodes]);
+  const activeInvites = useMemo(
+    () => invites.filter((invite) => text(invite.networkId, networkId) === activeSystemId),
+    [activeSystemId, invites, networkId]
   );
-  const assignableNodes = useMemo(() => {
-    const memberIds = new Set(projectMembers(selectedProject || {}).map((member) => text(member.nodeId)).filter(Boolean));
-    return nodes.filter((node) => memberIds.has(text(node.id)));
-  }, [nodes, selectedProject]);
+  const systems = useMemo(() => {
+    const map = new Map<string, { id: string; name: string; inviteCount: number; current: boolean }>();
+    map.set(networkId, { id: networkId, name: networkName, inviteCount: 0, current: true });
+    for (const invite of invites) {
+      const id = text(invite.networkId, networkId);
+      const current = map.get(id) || { id, name: id, inviteCount: 0, current: id === networkId };
+      current.inviteCount += 1;
+      map.set(id, current);
+    }
+    return Array.from(map.values()).sort((a, b) => Number(b.current) - Number(a.current) || a.id.localeCompare(b.id));
+  }, [invites, networkId, networkName]);
+  const meshHealth = useMemo(() => {
+    if (nodes.length === 0) {
+      return { label: "Setup needed", className: "empty", detail: "Register at least one node public key." };
+    }
+    if (onlineNodes.length === 0) {
+      return { label: "Waiting for nodes", className: "degraded", detail: "Registered nodes exist, but none are connected." };
+    }
+    return { label: "Online", className: "online", detail: `${onlineNodes.length} connected node${onlineNodes.length === 1 ? "" : "s"}.` };
+  }, [nodes.length, onlineNodes.length]);
+  const graphNodes = useMemo<MeshGraphNode[]>(() => {
+    const centerX = 50;
+    const centerY = 43;
+    const workerNodes = nodes.map((node, index) => {
+      const total = Math.max(nodes.length, 1);
+      const angle = -Math.PI / 2 + (index * Math.PI * 2) / total;
+      const x = centerX + Math.cos(angle) * 36;
+      const y = centerY + Math.sin(angle) * 26;
+      const nodeId = text(node.id, `node-${index + 1}`);
+      return {
+        id: nodeId,
+        name: text(node.name, nodeId),
+        endpoint: text(node.endpoint, "No endpoint advertised"),
+        ip: endpointHost(node.endpoint),
+        status: text(node.status, "offline"),
+        kind: "worker" as const,
+        roles: list(node.roles).join(", ") || "No roles",
+        capabilities: list(node.capabilities).join(", ") || "No capabilities",
+        lastSeen: formatTime(node.lastSeenAt),
+        x: Math.max(10, Math.min(90, x)),
+        y: Math.max(12, Math.min(74, y))
+      };
+    });
+    return [
+      {
+        id: "relay",
+        name: networkName || networkId,
+        endpoint: "Current Sloppy relay",
+        ip: "localhost",
+        status: nodes.length === 0 ? "offline" : onlineNodes.length > 0 ? "online" : "degraded",
+        kind: "relay" as const,
+        roles: "coordinator",
+        capabilities: "invites, registry, dispatch",
+        lastSeen: "active session",
+        x: centerX,
+        y: centerY
+      },
+      ...workerNodes
+    ];
+  }, [networkId, networkName, nodes, onlineNodes.length]);
+  const activeGraphNode = graphNodes.find((node) => node.id === hoveredGraphNodeId) || graphNodes[0];
 
   const refresh = useCallback(async () => {
     setIsLoading(true);
     setError("");
     try {
-      const [nextNodes, nextProjects, nextTasks, nextAuditLog] = await Promise.all([
-        coreApi.fetchMeshNodes(),
-        coreApi.fetchMeshSharedProjects(),
-        coreApi.fetchMeshTasks(),
-        coreApi.fetchMeshAuditLog()
-      ]);
+      const state = await coreApi.fetchMeshState();
+      if (!state) {
+        throw new Error("missing mesh state");
+      }
+      const nextNodes = records(state.nodes);
+      const nextProjects = records(state.sharedProjects);
+      const nextTasks = records(state.tasks);
+      const nextInvites = records(state.invites);
+      const nextAuditLog = records(state.auditLog);
+      const nextNetworkId = text(state.networkId, "personal");
       setNodes(nextNodes);
       setProjects(nextProjects);
       setTasks(nextTasks);
+      setInvites(nextInvites);
       setAuditLog(nextAuditLog.slice(0, 12));
-      const firstProjectId = text(nextProjects[0]?.id);
-      const activeProjectId = selectedProjectId && nextProjects.some((project) => text(project.id) === selectedProjectId)
-        ? selectedProjectId
-        : firstProjectId;
-      setSelectedProjectId(activeProjectId);
-      const activeProject = nextProjects.find((project) => text(project.id) === activeProjectId);
-      const memberIds = new Set(projectMembers(activeProject || {}).map((member) => text(member.nodeId)).filter(Boolean));
-      const firstNodeId = text(nextNodes.find((node) => memberIds.has(text(node.id)))?.id);
-      setSelectedNodeId((current) => current && memberIds.has(current) ? current : firstNodeId);
+      setNetworkId(nextNetworkId);
+      setNetworkName(text(state.networkName, nextNetworkId));
+      setActiveSystemId((current) => current || nextNetworkId);
+
+      const firstNodeId = text(nextNodes[0]?.id);
+      setSelectedNodeId((current) => current && nextNodes.some((node) => text(node.id) === current) ? current : firstNodeId);
     } catch {
       setError("Mesh state could not be loaded.");
     } finally {
       setIsLoading(false);
     }
-  }, [coreApi, selectedProjectId]);
+  }, [coreApi]);
 
   useEffect(() => {
     void refresh();
   }, [refresh]);
 
-  async function dispatchTask() {
-    const title = taskTitle.trim();
-    if (!title || !selectedProjectId || !selectedNodeId || isDispatching) {
+  async function runAction(name: string, action: () => Promise<boolean>) {
+    if (busyAction) {
       return;
     }
-    setIsDispatching(true);
+    setBusyAction(name);
     setError("");
     try {
-      const created = await coreApi.createMeshTask({
-        projectId: selectedProjectId,
-        title,
-        assignedNodeId: selectedNodeId
-      });
-      if (!created) {
-        setError("Task dispatch failed.");
-        return;
+      const ok = await action();
+      if (ok) {
+        setActiveModal(null);
+        await refresh();
       }
-      setTaskTitle("");
-      await refresh();
+    } catch {
+      setError("Mesh update failed.");
     } finally {
-      setIsDispatching(false);
+      setBusyAction("");
     }
+  }
+
+  async function configureNetwork() {
+    const id = networkId.trim();
+    if (!id) {
+      setError("Network id is required.");
+      return;
+    }
+    await runAction("network", async () => {
+      const updated = await coreApi.configureMeshNetwork({ id, name: networkName.trim() || id });
+      if (!updated) {
+        setError("Network could not be saved.");
+        return false;
+      }
+      setActiveSystemId(id);
+      return true;
+    });
+  }
+
+  async function createInvite() {
+    const id = activeSystemId.trim() || networkId.trim() || "personal";
+    await runAction("invite", async () => {
+      const invite = await coreApi.createMeshInvite({
+        networkId: id,
+        name: inviteName.trim() || null,
+        roles: csv(inviteRoles),
+        capabilities: csv(inviteCapabilities),
+        ttlSeconds: Number(inviteTtlSeconds) || 86400
+      });
+      if (!invite) {
+        setError("Invite could not be created.");
+        return false;
+      }
+      setLatestInvite(invite);
+      setInviteName("");
+      return true;
+    });
+  }
+
+  async function registerNode() {
+    const id = nodeId.trim();
+    const publicKey = nodePublicKey.trim();
+    if (!id || !publicKey) {
+      setError("Node id and public key are required.");
+      return;
+    }
+    await runAction("node", async () => {
+      const node = await coreApi.registerMeshNode({
+        id,
+        name: nodeDisplayName.trim() || id,
+        publicKey,
+        roles: csv(nodeRoles),
+        capabilities: csv(nodeCapabilities)
+      });
+      if (!node) {
+        setError("Node could not be registered.");
+        return false;
+      }
+      setNodeId("");
+      setNodeDisplayName("");
+      setNodePublicKey("");
+      return true;
+    });
+  }
+
+  function renderModal() {
+    if (!activeModal) {
+      return null;
+    }
+
+    if (activeModal === "network") {
+      return (
+        <MeshModalFrame title="Mesh System" description="Name the coordinator state that this running Sloppy instance owns." icon="hub" onClose={() => setActiveModal(null)}>
+          <div className="nodes-modal-body">
+            <section className="nodes-graph-section" aria-label="Mesh node graph">
+              <div className="nodes-graph-head">
+                <div>
+                  <h4>Node graph</h4>
+                  <p>Hover or focus a node to inspect its name, IP, endpoint, and capabilities.</p>
+                </div>
+                <span className={`nodes-health-pill ${meshHealth.className}`}>{meshHealth.label}</span>
+              </div>
+              <div className="nodes-graph" role="group" aria-label={`${nodes.length} registered mesh node${nodes.length === 1 ? "" : "s"}`}>
+                <svg className="nodes-graph-lines" viewBox="0 0 100 100" aria-hidden="true">
+                  {graphNodes.filter((node) => node.kind === "worker").map((node) => (
+                    <line key={node.id} x1="50" y1="43" x2={node.x} y2={node.y} />
+                  ))}
+                </svg>
+                {graphNodes.map((node) => (
+                  <button
+                    key={node.id}
+                    type="button"
+                    className={`nodes-graph-node ${node.kind} ${statusClass(node.status)}`}
+                    style={{ left: `${node.x}%`, top: `${node.y}%` }}
+                    onMouseEnter={() => setHoveredGraphNodeId(node.id)}
+                    onMouseLeave={() => setHoveredGraphNodeId("")}
+                    onFocus={() => setHoveredGraphNodeId(node.id)}
+                    onBlur={() => setHoveredGraphNodeId("")}
+                    aria-label={`${node.name}, ${node.ip}, ${statusLabel(node.status)}`}
+                  >
+                    <span className="material-symbols-rounded" aria-hidden="true">{node.kind === "relay" ? "hub" : "dns"}</span>
+                  </button>
+                ))}
+                {nodes.length === 0 ? (
+                  <div className="nodes-graph-empty">
+                    <span className="material-symbols-rounded" aria-hidden="true">add_link</span>
+                    <strong>No registered workers</strong>
+                    <small>Create an invite or register a public key to grow this mesh.</small>
+                  </div>
+                ) : null}
+                <div className="nodes-graph-tooltip" aria-live="polite">
+                  <span>{activeGraphNode.kind === "relay" ? "Coordinator" : "Worker node"}</span>
+                  <strong>{activeGraphNode.name}</strong>
+                  <dl>
+                    <div>
+                      <dt>IP</dt>
+                      <dd>{activeGraphNode.ip}</dd>
+                    </div>
+                    <div>
+                      <dt>Endpoint</dt>
+                      <dd>{activeGraphNode.endpoint}</dd>
+                    </div>
+                    <div>
+                      <dt>Status</dt>
+                      <dd>{statusLabel(activeGraphNode.status)}</dd>
+                    </div>
+                    <div>
+                      <dt>Roles</dt>
+                      <dd>{activeGraphNode.roles}</dd>
+                    </div>
+                    <div>
+                      <dt>Capabilities</dt>
+                      <dd>{activeGraphNode.capabilities}</dd>
+                    </div>
+                    <div>
+                      <dt>Last seen</dt>
+                      <dd>{activeGraphNode.lastSeen}</dd>
+                    </div>
+                  </dl>
+                </div>
+              </div>
+            </section>
+            <Field label="System id" hint="Stable id used by invites and local registry state.">
+              <input id="mesh-network-id" type="text" value={networkId} onChange={(event) => setNetworkId(event.target.value)} />
+            </Field>
+            <Field label="Display name">
+              <input id="mesh-network-name" type="text" value={networkName} onChange={(event) => setNetworkName(event.target.value)} />
+            </Field>
+          </div>
+          <div className="nodes-modal-actions">
+            <button type="button" onClick={() => setActiveModal(null)}>Cancel</button>
+            <button type="button" className="nodes-primary-button" disabled={!networkId.trim() || !!busyAction} onClick={() => void configureNetwork()}>
+              {busyAction === "network" ? "Saving" : "Save system"}
+            </button>
+          </div>
+        </MeshModalFrame>
+      );
+    }
+
+    if (activeModal === "invite") {
+      return (
+        <MeshModalFrame title="Invite Node" description="Create a token with explicit node roles and capabilities." icon="key" onClose={() => setActiveModal(null)}>
+          <div className="nodes-modal-body">
+            <div className="nodes-selected-system">
+              <span>System</span>
+              <strong>{activeSystemId}</strong>
+            </div>
+            <Field label="Expected node name" hint="Optional, shown to you when the token is created.">
+              <input type="text" value={inviteName} onChange={(event) => setInviteName(event.target.value)} />
+            </Field>
+            <ChipPicker
+              label="Roles"
+              value={inviteRoles}
+              options={ROLE_OPTIONS}
+              onChange={setInviteRoles}
+            />
+            <ChipPicker
+              label="Capabilities"
+              value={inviteCapabilities}
+              options={CAPABILITY_OPTIONS}
+              onChange={setInviteCapabilities}
+            />
+            <Field label="TTL seconds">
+              <input type="number" min="1" value={inviteTtlSeconds} onChange={(event) => setInviteTtlSeconds(event.target.value)} />
+            </Field>
+          </div>
+          <div className="nodes-modal-actions">
+            <button type="button" onClick={() => setActiveModal(null)}>Cancel</button>
+            <button type="button" className="nodes-primary-button" disabled={!activeSystemId.trim() || !!busyAction} onClick={() => void createInvite()}>
+              {busyAction === "invite" ? "Creating" : "Create invite"}
+            </button>
+          </div>
+        </MeshModalFrame>
+      );
+    }
+
+    if (activeModal === "node") {
+      return (
+        <MeshModalFrame title="Register Node" description="Allow a worker identity to authenticate with this relay by adding its public key." icon="add_link" onClose={() => setActiveModal(null)}>
+          <div className="nodes-modal-body">
+            <Field label="Node id">
+              <input type="text" value={nodeId} onChange={(event) => setNodeId(event.target.value)} />
+            </Field>
+            <Field label="Display name">
+              <input type="text" value={nodeDisplayName} onChange={(event) => setNodeDisplayName(event.target.value)} />
+            </Field>
+            <Field label="Public key" hint="Paste the ed25519 public key from the worker identity.">
+              <textarea value={nodePublicKey} onChange={(event) => setNodePublicKey(event.target.value)} rows={4} />
+            </Field>
+            <ChipPicker
+              label="Roles"
+              value={nodeRoles}
+              options={ROLE_OPTIONS}
+              onChange={setNodeRoles}
+            />
+            <ChipPicker
+              label="Capabilities"
+              value={nodeCapabilities}
+              options={CAPABILITY_OPTIONS}
+              onChange={setNodeCapabilities}
+            />
+          </div>
+          <div className="nodes-modal-actions">
+            <button type="button" onClick={() => setActiveModal(null)}>Cancel</button>
+            <button type="button" className="nodes-primary-button" disabled={!nodeId.trim() || !nodePublicKey.trim() || !!busyAction} onClick={() => void registerNode()}>
+              {busyAction === "node" ? "Registering" : "Register node"}
+            </button>
+          </div>
+        </MeshModalFrame>
+      );
+    }
+
+    return null;
   }
 
   return (
     <main className="nodes-shell">
-      <header className="nodes-header">
+      <header className="nodes-hero">
         <div>
+          <span className={`nodes-health-pill ${meshHealth.className}`}>{meshHealth.label}</span>
           <h1>Node Mesh</h1>
-          <p>{nodes.length} nodes / {projects.length} shared projects / {tasks.length} remote tasks</p>
+          <p>Coordinate remote worker nodes, shared repositories, invites, and task dispatch from this running Sloppy relay.</p>
         </div>
-        <button type="button" className="nodes-icon-button" onClick={() => void refresh()} disabled={isLoading} title="Refresh">
-          <span className="material-symbols-rounded" aria-hidden="true">refresh</span>
-        </button>
+        <div className="nodes-hero-actions">
+          <button type="button" className="nodes-secondary-button" onClick={() => setActiveModal("network")}>
+            <span className="material-symbols-rounded" aria-hidden="true">hub</span>
+            System
+          </button>
+          <button type="button" className="nodes-primary-button" onClick={() => setActiveModal("invite")}>
+            <span className="material-symbols-rounded" aria-hidden="true">key</span>
+            Invite Node
+          </button>
+          <button type="button" className="nodes-icon-button" onClick={() => void refresh()} disabled={isLoading} title="Refresh">
+            <span className="material-symbols-rounded" aria-hidden="true">refresh</span>
+          </button>
+        </div>
       </header>
 
       {error ? <div className="nodes-error">{error}</div> : null}
 
-      <section className="nodes-grid">
-        <div className="nodes-panel nodes-panel-wide">
-          <div className="nodes-panel-head">
-            <h2>Nodes</h2>
-            <span>{isLoading ? "syncing" : "current"}</span>
-          </div>
-          <div className="nodes-list">
-            {nodes.length === 0 ? <p className="nodes-empty">No mesh nodes registered.</p> : nodes.map((node) => (
-              <button
-                key={text(node.id)}
-                type="button"
-                className={`nodes-row ${selectedNodeId === text(node.id) ? "selected" : ""}`}
-                onClick={() => setSelectedNodeId(text(node.id))}
-              >
-                <span className={`nodes-status-dot ${statusLabel(node.status)}`} />
-                <span>
-                  <strong>{text(node.name, text(node.id))}</strong>
-                  <small>{list(node.roles).join(", ") || "node"} / {list(node.capabilities).join(", ") || "no capabilities"}</small>
-                </span>
-                <em>{statusLabel(node.status)}</em>
-              </button>
-            ))}
-          </div>
-        </div>
+      <section className="nodes-status-strip" aria-label="Mesh system status">
+        <article>
+          <span>Active system</span>
+          <strong>{networkName}</strong>
+          <small>{networkId}</small>
+        </article>
+        <article>
+          <span>Relay state</span>
+          <strong>{meshHealth.label}</strong>
+          <small>{meshHealth.detail}</small>
+        </article>
+        <article>
+          <span>Capacity</span>
+          <strong>{onlineNodes.length}/{nodes.length} online</strong>
+          <small>{projects.length} projects, {tasks.length} tasks</small>
+        </article>
+        <article>
+          <span>Invites</span>
+          <strong>{invites.length}</strong>
+          <small>{activeInvites.length} for selected system</small>
+        </article>
+      </section>
 
-        <div className="nodes-panel">
-          <div className="nodes-panel-head">
-            <h2>Shared Projects</h2>
-            <span>{projects.length}</span>
-          </div>
-          <div className="nodes-list">
-            {projects.length === 0 ? <p className="nodes-empty">No shared projects attached.</p> : projects.map((project) => (
-              <button
-                key={text(project.id)}
-                type="button"
-                className={`nodes-row ${selectedProjectId === text(project.id) ? "selected" : ""}`}
-                onClick={() => setSelectedProjectId(text(project.id))}
-              >
-                <span className="material-symbols-rounded nodes-row-icon" aria-hidden="true">folder_shared</span>
-                <span>
-                  <strong>{text(project.name, text(project.id))}</strong>
-                  <small>{projectMembers(project).length} members / {text(project.defaultBranch, "main")}</small>
-                </span>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        <div className="nodes-panel">
-          <div className="nodes-panel-head">
-            <h2>Dispatch</h2>
-            <span>{selectedProject ? text(selectedProject.name, selectedProjectId) : "idle"}</span>
-          </div>
-          <div className="nodes-dispatch">
-            <input
-              type="text"
-              value={taskTitle}
-              onChange={(event) => setTaskTitle(event.target.value)}
-              placeholder="Task title"
-            />
-            <div className="nodes-choice-list">
-              {assignableNodes.map((node) => (
-                <button
-                  key={text(node.id)}
-                  type="button"
-                  className={selectedNodeId === text(node.id) ? "active" : ""}
-                  onClick={() => setSelectedNodeId(text(node.id))}
-                >
-                  <span>{text(node.name, text(node.id))}</span>
-                  <small>{statusLabel(node.status)}</small>
-                </button>
-              ))}
+      <section className="nodes-layout">
+        <aside className="nodes-systems">
+          <div className="nodes-section-head">
+            <div>
+              <h2>Mesh Systems</h2>
+              <p>View current coordinator state and other systems seen in invite history.</p>
             </div>
-            <button
-              type="button"
-              className="nodes-primary-button"
-              disabled={!taskTitle.trim() || !selectedProjectId || !selectedNodeId || isDispatching}
-              onClick={() => void dispatchTask()}
-            >
-              <span className="material-symbols-rounded" aria-hidden="true">send</span>
-              {isDispatching ? "Dispatching" : "Assign Task"}
+          </div>
+          <div className="nodes-system-list">
+            {systems.map((system) => (
+              <button
+                key={system.id}
+                type="button"
+                className={activeSystemId === system.id ? "active" : ""}
+                onClick={() => setActiveSystemId(system.id)}
+              >
+                <span className="material-symbols-rounded" aria-hidden="true">{system.current ? "radio_button_checked" : "radio_button_unchecked"}</span>
+                <span>
+                  <strong>{system.name}</strong>
+                  <small>{system.id} / {system.inviteCount} invites</small>
+                </span>
+              </button>
+            ))}
+          </div>
+          <div className="nodes-guidance">
+            <strong>{activeSystemId === networkId ? "Current system" : "Historical system"}</strong>
+            <span>{activeSystemId === networkId ? "Actions write into this coordinator state." : "This system is visible from invite history; switch the active system to manage it."}</span>
+          </div>
+        </aside>
+
+        <div className="nodes-main">
+          <section className="nodes-workflow">
+            <button type="button" onClick={() => setActiveModal("network")}>
+              <span className="material-symbols-rounded" aria-hidden="true">settings_input_component</span>
+              <strong>1. System</strong>
+              <small>Name the mesh coordinator and inspect known systems.</small>
             </button>
-          </div>
-        </div>
+            <button type="button" onClick={() => setActiveModal("invite")}>
+              <span className="material-symbols-rounded" aria-hidden="true">vpn_key</span>
+              <strong>2. Invite</strong>
+              <small>Issue a token with explicit capabilities.</small>
+            </button>
+            <button type="button" onClick={() => setActiveModal("node")}>
+              <span className="material-symbols-rounded" aria-hidden="true">badge</span>
+              <strong>3. Register</strong>
+              <small>Add the worker public key for relay auth.</small>
+            </button>
+          </section>
 
-        <div className="nodes-panel nodes-panel-wide">
-          <div className="nodes-panel-head">
-            <h2>Remote Lifecycle</h2>
-            <span>{tasks.length}</span>
-          </div>
-          <div className="nodes-task-list">
-            {tasks.length === 0 ? <p className="nodes-empty">No remote tasks dispatched.</p> : tasks.map((task) => (
-              <article key={text(task.id)} className="nodes-task">
-                <div className="nodes-task-main">
-                  <strong>{text(task.title, text(task.id))}</strong>
-                  <small>{text(task.projectId)} / {nodeName(nodes, text(task.assignedNodeId))}</small>
-                </div>
-                <span className={`nodes-task-status ${statusLabel(task.status)}`}>{statusLabel(task.status)}</span>
-                <div className="nodes-task-review">
-                  <span>{text(task.branch, "no branch")}</span>
-                  <span>{text(task.commit, "no commit")}</span>
-                  <span>{text(task.summary, "no summary")}</span>
-                </div>
-              </article>
-            ))}
-          </div>
-        </div>
-
-        <div className="nodes-panel">
-          <div className="nodes-panel-head">
-            <h2>Audit</h2>
-            <span>{auditLog.length}</span>
-          </div>
-          <div className="nodes-audit-list">
-            {auditLog.length === 0 ? <p className="nodes-empty">No audit events.</p> : auditLog.map((entry) => (
-              <div key={text(entry.id, `${text(entry.action)}-${text(entry.time)}`)} className="nodes-audit-row">
-                <strong>{text(entry.action)}</strong>
-                <small>{text(entry.actor)} / {formatTime(entry.time)}</small>
+          {latestInvite ? (
+            <section className="nodes-token-banner">
+              <div>
+                <span>Latest invite token</span>
+                <strong>{text(latestInvite.token)}</strong>
+                <small>{text(latestInvite.name, "node")} / expires {formatTime(latestInvite.expiresAt)}</small>
               </div>
-            ))}
-          </div>
+              <button type="button" className="nodes-secondary-button" onClick={() => setActiveModal("invite")}>Create another</button>
+            </section>
+          ) : null}
+
+          <section className="nodes-grid">
+            <div className="nodes-panel nodes-panel-wide">
+              <div className="nodes-panel-head">
+                <div>
+                  <h2>Nodes</h2>
+                  <p>Registered identities and live relay presence.</p>
+                </div>
+                <button type="button" className="nodes-secondary-button" onClick={() => setActiveModal("node")}>
+                  <span className="material-symbols-rounded" aria-hidden="true">add</span>
+                  Register
+                </button>
+              </div>
+              <div className="nodes-list">
+                {nodes.length === 0 ? <p className="nodes-empty">No mesh nodes registered.</p> : nodes.map((node) => (
+                  <button
+                    key={text(node.id)}
+                    type="button"
+                    className={`nodes-row ${selectedNodeId === text(node.id) ? "selected" : ""}`}
+                    onClick={() => setSelectedNodeId(text(node.id))}
+                  >
+                    <span className={`nodes-status-dot ${statusLabel(node.status)}`} />
+                    <span>
+                      <strong>{text(node.name, text(node.id))}</strong>
+                      <small>{list(node.roles).join(", ") || "node"} / {list(node.capabilities).join(", ") || "no capabilities"}</small>
+                    </span>
+                    <em>{statusLabel(node.status)}</em>
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            <div className="nodes-panel">
+              <div className="nodes-panel-head">
+                <div>
+                  <h2>Invites</h2>
+                  <p>Tokens issued for the selected system.</p>
+                </div>
+                <span>{activeInvites.length}</span>
+              </div>
+              <div className="nodes-list">
+                {activeInvites.length === 0 ? <p className="nodes-empty">No invites for this system.</p> : activeInvites.map((invite) => (
+                  <article key={text(invite.token)} className="nodes-invite-row">
+                    <strong>{text(invite.name, "unnamed node")}</strong>
+                    <small>{list(invite.roles).join(", ") || "worker"} / {list(invite.capabilities).join(", ") || "no capabilities"}</small>
+                    <code>{text(invite.token)}</code>
+                  </article>
+                ))}
+              </div>
+            </div>
+
+            <div className="nodes-panel nodes-panel-wide">
+              <div className="nodes-panel-head">
+                <div>
+                  <h2>Remote Lifecycle</h2>
+                  <p>Task state reported by workers.</p>
+                </div>
+                <span>{tasks.length}</span>
+              </div>
+              <div className="nodes-task-list">
+                {tasks.length === 0 ? <p className="nodes-empty">No remote tasks dispatched.</p> : tasks.map((task) => (
+                  <article key={text(task.id)} className="nodes-task">
+                    <div className="nodes-task-main">
+                      <strong>{text(task.title, text(task.id))}</strong>
+                      <small>{text(task.projectId)} / {nodeName(nodes, text(task.assignedNodeId))}</small>
+                    </div>
+                    <span className={`nodes-task-status ${statusLabel(task.status)}`}>{statusLabel(task.status)}</span>
+                    <div className="nodes-task-review">
+                      <span>{text(task.branch, "no branch")}</span>
+                      <span>{text(task.commit, "no commit")}</span>
+                      <span>{text(task.summary, "no summary")}</span>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </div>
+
+            <div className="nodes-panel">
+              <div className="nodes-panel-head">
+                <div>
+                  <h2>Audit</h2>
+                  <p>Recent coordinator state changes.</p>
+                </div>
+                <span>{auditLog.length}</span>
+              </div>
+              <div className="nodes-audit-list">
+                {auditLog.length === 0 ? <p className="nodes-empty">No audit events.</p> : auditLog.map((entry) => (
+                  <div key={text(entry.id, `${text(entry.action)}-${text(entry.time)}`)} className="nodes-audit-row">
+                    <strong>{text(entry.action)}</strong>
+                    <small>{text(entry.actor)} / {formatTime(entry.time)}</small>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </section>
         </div>
       </section>
+
+      {renderModal()}
     </main>
   );
 }

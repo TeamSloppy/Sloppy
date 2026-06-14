@@ -29,6 +29,7 @@ func coreServiceCreateAgentInstallsBuiltInTaskSpecSkill() async throws {
         BuiltInSkillCatalog.kanbanTaskManagerID,
         BuiltInSkillCatalog.taskSpecWriterID,
         BuiltInSkillCatalog.workflowID,
+        BuiltInSkillCatalog.deepResearchID,
         "bundled/caveman",
         "bundled/grill-me",
         "bundled/tdd",
@@ -85,6 +86,14 @@ func coreServiceCreateAgentInstallsBuiltInTaskSpecSkill() async throws {
     #expect(workflow.name == "workflow")
     #expect(workflow.userInvocable == true)
     #expect(workflow.allowedTools.contains("project.workflow"))
+
+    let deepResearch = try #require(response.skills.first { $0.id == BuiltInSkillCatalog.deepResearchID })
+    #expect(deepResearch.name == "deep-research")
+    #expect(deepResearch.userInvocable == true)
+    #expect(deepResearch.allowedTools.contains("web.search"))
+    #expect(deepResearch.allowedTools.contains("web.fetch"))
+    #expect(deepResearch.allowedTools.contains("planning.progress_update"))
+    #expect(deepResearch.allowedTools.contains("runtime.exec"))
 }
 
 @Test
@@ -120,10 +129,16 @@ func builtInSkillsBackfillIsIdempotentForExistingAgents() throws {
         BuiltInSkillCatalog.modeAutoID,
         BuiltInSkillCatalog.kanbanTaskManagerID,
         BuiltInSkillCatalog.taskSpecWriterID,
-        BuiltInSkillCatalog.workflowID
+        BuiltInSkillCatalog.workflowID,
+        BuiltInSkillCatalog.deepResearchID
     ])))
-    #expect(installed.filter { $0.owner == "sloppy" && $0.id != BuiltInSkillCatalog.workflowID }.allSatisfy { $0.userInvocable == false })
+    #expect(installed.filter {
+        $0.owner == "sloppy"
+            && $0.id != BuiltInSkillCatalog.workflowID
+            && $0.id != BuiltInSkillCatalog.deepResearchID
+    }.allSatisfy { $0.userInvocable == false })
     #expect(installed.first { $0.id == BuiltInSkillCatalog.workflowID }?.userInvocable == true)
+    #expect(installed.first { $0.id == BuiltInSkillCatalog.deepResearchID }?.userInvocable == true)
     #expect(FileManager.default.fileExists(atPath: agentsRootURL
         .appendingPathComponent("existing-agent", isDirectory: true)
         .appendingPathComponent("skills", isDirectory: true)

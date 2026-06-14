@@ -144,6 +144,18 @@ func meshAPIListsStateAndDispatchesTasks() async throws {
     let updatedProject = try decoder.decode(SharedProjectRecord.self, from: updateProjectResponse.body)
     #expect(updatedProject.defaultBranch == "develop")
 
+    let deleteProjectResponse = await router.handle(
+        method: "DELETE",
+        path: "/v1/node/mesh/shared-projects/\(createdProject.id)",
+        body: nil
+    )
+    #expect(deleteProjectResponse.status == 200)
+
+    let projectsAfterDeleteResponse = await router.handle(method: "GET", path: "/v1/node/mesh/shared-projects", body: nil)
+    #expect(projectsAfterDeleteResponse.status == 200)
+    let projectsAfterDelete = try decoder.decode([SharedProjectRecord].self, from: projectsAfterDeleteResponse.body)
+    #expect(!projectsAfterDelete.contains { $0.id == createdProject.id })
+
     let createBody = try encoder.encode(MeshTaskCreateRequest(
         projectId: "shared_mesh",
         title: "Implement dashboard flow",
@@ -176,6 +188,56 @@ func meshAPIListsStateAndDispatchesTasks() async throws {
     #expect(auditResponse.status == 200)
     let auditLog = try decoder.decode([MeshAuditLogEntry].self, from: auditResponse.body)
     #expect(auditLog.contains { $0.action == "task.dispatch" && $0.allowed })
+}
+
+@Test
+func meshAPIConfiguresNetworkInvitesAndRegisteredNodes() async throws {
+    let service = CoreService(config: .test)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let networkBody = try encoder.encode(MeshNetworkUpdateRequest(id: "studio", name: "Studio Mesh"))
+    let networkResponse = await router.handle(method: "POST", path: "/v1/node/mesh/network", body: networkBody)
+    #expect(networkResponse.status == 200)
+    let networkState = try decoder.decode(MeshState.self, from: networkResponse.body)
+    #expect(networkState.networkId == "studio")
+    #expect(networkState.networkName == "Studio Mesh")
+
+    let inviteBody = try encoder.encode(MeshInviteCreateRequest(
+        networkId: "studio",
+        name: "Render Worker",
+        roles: ["worker"],
+        capabilities: ["run_agent", "git"],
+        ttlSeconds: 600
+    ))
+    let inviteResponse = await router.handle(method: "POST", path: "/v1/node/mesh/invites", body: inviteBody)
+    #expect(inviteResponse.status == 201)
+    let invite = try decoder.decode(MeshInvite.self, from: inviteResponse.body)
+    #expect(invite.networkId == "studio")
+    #expect(invite.name == "Render Worker")
+
+    let nodeBody = try encoder.encode(MeshNodeRegisterRequest(
+        id: "node_render",
+        name: "Render Worker",
+        publicKey: "ed25519:public",
+        roles: ["worker"],
+        endpoint: nil,
+        capabilities: ["run_agent", "git"]
+    ))
+    let nodeResponse = await router.handle(method: "POST", path: "/v1/node/mesh/nodes", body: nodeBody)
+    #expect(nodeResponse.status == 201)
+    let node = try decoder.decode(MeshNodeRecord.self, from: nodeResponse.body)
+    #expect(node.id == "node_render")
+    #expect(node.publicKey == "ed25519:public")
+
+    let stateResponse = await router.handle(method: "GET", path: "/v1/node/mesh", body: nil)
+    #expect(stateResponse.status == 200)
+    let state = try decoder.decode(MeshState.self, from: stateResponse.body)
+    #expect(state.nodes.map(\.id) == ["node_render"])
+    #expect(state.invites.map(\.token) == [invite.token])
 }
 
 @Test

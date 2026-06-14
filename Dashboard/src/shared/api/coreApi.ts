@@ -85,8 +85,15 @@ export interface CoreApi {
   fetchChannelPlugins: () => Promise<AnyRecord[] | null>;
   installPlugin: (payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchWorkers: () => Promise<AnyRecord[]>;
+  fetchMeshState: () => Promise<AnyRecord | null>;
+  configureMeshNetwork: (payload: AnyRecord) => Promise<AnyRecord | null>;
+  createMeshInvite: (payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchMeshNodes: () => Promise<AnyRecord[]>;
+  registerMeshNode: (payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchMeshSharedProjects: () => Promise<AnyRecord[]>;
+  createMeshSharedProject: (payload: AnyRecord) => Promise<AnyRecord | null>;
+  deleteMeshSharedProject: (projectId: string) => Promise<boolean>;
+  attachMeshSharedProjectMember: (projectId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchMeshTasks: (projectId?: string | null) => Promise<AnyRecord[]>;
   fetchMeshAuditLog: () => Promise<AnyRecord[]>;
   createMeshTask: (payload: AnyRecord) => Promise<AnyRecord | null>;
@@ -503,6 +510,40 @@ export function createCoreApi(): CoreApi {
       return response.data;
     },
 
+    fetchMeshState: async () => {
+      const response = await requestJson<AnyRecord>({
+        path: "/v1/node/mesh"
+      });
+      if (!response.ok || !response.data) {
+        return null;
+      }
+      return response.data;
+    },
+
+    configureMeshNetwork: async (payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/node/mesh/network",
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    createMeshInvite: async (payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/node/mesh/invites",
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
     fetchMeshNodes: async () => {
       const response = await requestJson<AnyRecord[]>({
         path: "/v1/node/mesh/nodes"
@@ -513,12 +554,56 @@ export function createCoreApi(): CoreApi {
       return response.data;
     },
 
+    registerMeshNode: async (payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/node/mesh/nodes",
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
     fetchMeshSharedProjects: async () => {
       const response = await requestJson<AnyRecord[]>({
         path: "/v1/node/mesh/shared-projects"
       });
       if (!response.ok || !Array.isArray(response.data)) {
         return [];
+      }
+      return response.data;
+    },
+
+    createMeshSharedProject: async (payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/node/mesh/shared-projects",
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    deleteMeshSharedProject: async (projectId) => {
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/node/mesh/shared-projects/${encodeURIComponent(projectId)}`,
+        method: "DELETE"
+      });
+      return response.ok;
+    },
+
+    attachMeshSharedProjectMember: async (projectId, payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/node/mesh/shared-projects/${encodeURIComponent(projectId)}/members`,
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) {
+        return null;
       }
       return response.data;
     },

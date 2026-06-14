@@ -1,4 +1,6 @@
 import Foundation
+import AnyLanguageModel
+import PluginSDK
 import Testing
 @testable import Protocols
 @testable import sloppy
@@ -91,6 +93,45 @@ func generatedPetDraftAttachesToCreatedAgent() throws {
 }
 
 @Test
+func modelGeneratedPetDraftUsesSelectedModelBrief() async throws {
+    let service = CoreService(config: .test)
+    let modelOutput = """
+    ```json
+    {
+      "displayName": "Glass Kitty",
+      "speciesId": "glass-kitty",
+      "headId": "head-visor",
+      "bodyId": "body-puff",
+      "legsId": "legs-bouncer",
+      "faceId": "face-star",
+      "accessoryId": "acc-scarf",
+      "idleFace": "/(o_o)\\\\",
+      "happyFace": "/(^_^)\\\\",
+      "sadFace": "/(._.)\\\\",
+      "sleepFace": "/(-_-)\\\\"
+    }
+    ```
+    """
+    let provider = PetDraftFixedOutputModelProvider(models: ["mock:pet"], output: modelOutput)
+    await service.overrideModelProviderForTests(provider, defaultModel: "mock:pet")
+
+    let response = try await service.generatePetDraft(
+        AgentPetGenerationRequest(
+            mode: .prompt,
+            prompt: "Pink kitty with glasses",
+            model: "mock:pet"
+        )
+    )
+
+    #expect(response.visual.displayName == "Glass Kitty")
+    #expect(response.visual.speciesId == "glass-kitty")
+    #expect(response.visual.source == "model")
+    #expect(response.assetURLs.isEmpty)
+    #expect(response.stageAssets.isEmpty)
+    #expect(response.generatedPrompt.contains("Pink kitty with glasses"))
+}
+
+@Test
 func generatedPetPartsUseMiniSloppieHeads() {
     let retiredSheetHeads: Set<String> = [
         "head_kisya",
@@ -125,6 +166,55 @@ func generatedPetPartsUseMiniSloppieHeads() {
         )
         #expect(!retiredSheetHeads.contains(draft.generated.summary.parts.headId))
         #expect(miniSloppieHeads.contains(draft.generated.summary.parts.headId))
+    }
+}
+
+private actor PetDraftFixedOutputModelProvider: ModelProvider {
+    nonisolated let id = "pet-draft-fixed"
+    nonisolated let supportedModels: [String]
+    private let output: String
+
+    init(models: [String], output: String) {
+        self.supportedModels = models
+        self.output = output
+    }
+
+    func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
+        PetDraftFixedOutputLanguageModel(output: output)
+    }
+}
+
+private struct PetDraftFixedOutputLanguageModel: LanguageModel {
+    typealias UnavailableReason = Never
+
+    let output: String
+
+    func respond<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) async throws -> LanguageModelSession.Response<Content> where Content: Generable {
+        LanguageModelSession.Response(
+            content: output as! Content,
+            rawContent: GeneratedContent(output),
+            transcriptEntries: []
+        )
+    }
+
+    func streamResponse<Content>(
+        within session: LanguageModelSession,
+        to prompt: Prompt,
+        generating type: Content.Type,
+        includeSchemaInPrompt: Bool,
+        options: GenerationOptions
+    ) -> sending LanguageModelSession.ResponseStream<Content> where Content: Generable {
+        let stream = AsyncThrowingStream<LanguageModelSession.ResponseStream<Content>.Snapshot, any Error> { continuation in
+            continuation.yield(.init(content: output as! Content.PartiallyGenerated, rawContent: GeneratedContent(output)))
+            continuation.finish()
+        }
+        return LanguageModelSession.ResponseStream(stream: stream)
     }
 }
 

@@ -31,7 +31,9 @@ import {
     postAgentSessionMessage,
     fetchAgentSessions,
     searchProjectFiles,
-    fetchSkillsRegistry
+    fetchSkillsRegistry,
+    fetchMeshState,
+    createMeshTask
 } from "../../api";
 import { AgentPetIcon } from "../../features/agents/components/AgentPetSprite";
 import { ReviewDiffPanel } from "./ReviewDiffPanel";
@@ -1190,6 +1192,10 @@ export function TaskDetailView({
             : true
     );
     const [actionsOpen, setActionsOpen] = useState(false);
+    const [meshState, setMeshState] = useState(null);
+    const [meshSelectedNodeId, setMeshSelectedNodeId] = useState("");
+    const [meshDispatchStatus, setMeshDispatchStatus] = useState("");
+    const [meshDispatchBusy, setMeshDispatchBusy] = useState(false);
     const [isDescriptionEditing, setIsDescriptionEditing] = useState(() => !String(task.description || "").trim());
     const descriptionInputRef = useRef(null);
     const hasReviewDiff = Boolean(task.worktreeBranch);
@@ -1295,10 +1301,46 @@ export function TaskDetailView({
     const createdByLabel = task.createdBy || "—";
     const relatedIssueCount = buildRelatedIssueGroups(task, project.tasks).reduce((sum, group) => sum + group.items.length, 0);
     const descriptionMode = taskDescriptionMode(editDraft.description, isDescriptionEditing);
+    const meshProject = useMemo(() => {
+        const sharedProjects = Array.isArray(meshState?.sharedProjects) ? meshState.sharedProjects : [];
+        const projectId = String(project?.id || "").trim();
+        const projectName = String(project?.name || "").trim();
+        return sharedProjects.find((item) => (
+            String(item?.id || "") === projectId ||
+            String(item?.name || "") === projectName
+        )) || null;
+    }, [meshState, project?.id, project?.name]);
+    const meshNodes = useMemo(() => {
+        const nodes = Array.isArray(meshState?.nodes) ? meshState.nodes : [];
+        const memberIds = new Set((Array.isArray(meshProject?.members) ? meshProject.members : [])
+            .map((member) => String(member?.nodeId || "").trim())
+            .filter(Boolean));
+        return nodes.filter((node) => memberIds.has(String(node?.id || "").trim()));
+    }, [meshProject, meshState]);
 
     useEffect(() => {
         setIsDescriptionEditing(!String(task.description || "").trim());
     }, [task.id, task.description]);
+
+    useEffect(() => {
+        let cancelled = false;
+        async function loadMesh() {
+            const state = await fetchMeshState().catch(() => null);
+            if (cancelled) return;
+            setMeshState(state);
+        }
+        loadMesh();
+        return () => { cancelled = true; };
+    }, [project.id]);
+
+    useEffect(() => {
+        setMeshSelectedNodeId((current) => {
+            if (current && meshNodes.some((node) => String(node?.id || "") === current)) {
+                return current;
+            }
+            return String(meshNodes[0]?.id || "");
+        });
+    }, [meshNodes]);
 
     useEffect(() => {
         const input = descriptionInputRef.current;
@@ -1316,6 +1358,31 @@ export function TaskDetailView({
             const end = String(input.value || "").length;
             input.setSelectionRange(end, end);
         });
+    }
+
+    async function dispatchTaskToMesh() {
+        if (!meshProject?.id || !meshSelectedNodeId || meshDispatchBusy) {
+            return;
+        }
+        setMeshDispatchBusy(true);
+        setMeshDispatchStatus("Dispatching to mesh...");
+        try {
+            const title = `#${task.id} ${String(editDraft.title || task.title || "Task").trim()}`;
+            const result = await createMeshTask({
+                projectId: meshProject.id,
+                title,
+                assignedNodeId: meshSelectedNodeId
+            });
+            if (!result) {
+                setMeshDispatchStatus("Mesh dispatch failed.");
+                return;
+            }
+            setMeshDispatchStatus(`Dispatched to ${meshSelectedNodeId}.`);
+        } catch (error) {
+            setMeshDispatchStatus(error?.message || "Mesh dispatch failed.");
+        } finally {
+            setMeshDispatchBusy(false);
+        }
     }
 
     return (
@@ -1794,6 +1861,51 @@ export function TaskDetailView({
                     <div className="td-prop-row">
                         <span className="td-prop-label">Project</span>
                         <span className="td-prop-value td-prop-value--static">{project.name}</span>
+                    </div>
+
+                    <div className="td-mesh-dispatch-card">
+                        <div className="td-mesh-dispatch-head">
+                            <span className="material-symbols-rounded" aria-hidden="true">hub</span>
+                            <div>
+                                <strong>Mesh dispatch</strong>
+                                <small>Send this task to a worker node.</small>
+                            </div>
+                        </div>
+                        {!meshProject ? (
+                            <p>Enable Mesh Sharing in this project's Settings before dispatching tasks to nodes.</p>
+                        ) : meshNodes.length === 0 ? (
+                            <p>Attach at least one mesh worker to this project in Settings.</p>
+                        ) : (
+                            <>
+                                <div className="td-mesh-node-options" role="group" aria-label="Mesh worker nodes">
+                                    {meshNodes.map((node) => {
+                                        const nodeId = String(node?.id || "");
+                                        const active = meshSelectedNodeId === nodeId;
+                                        return (
+                                            <button
+                                                key={nodeId}
+                                                type="button"
+                                                className={active ? "active" : ""}
+                                                onClick={() => setMeshSelectedNodeId(nodeId)}
+                                            >
+                                                <strong>{String(node?.name || nodeId)}</strong>
+                                                <small>{String(node?.endpoint || node?.status || "offline")}</small>
+                                            </button>
+                                        );
+                                    })}
+                                </div>
+                                <button
+                                    type="button"
+                                    className="td-mesh-dispatch-button"
+                                    disabled={!meshSelectedNodeId || meshDispatchBusy}
+                                    onClick={() => void dispatchTaskToMesh()}
+                                >
+                                    <span className="material-symbols-rounded" aria-hidden="true">send</span>
+                                    {meshDispatchBusy ? "Dispatching" : "Dispatch to mesh"}
+                                </button>
+                            </>
+                        )}
+                        {meshDispatchStatus ? <p className="td-mesh-dispatch-status">{meshDispatchStatus}</p> : null}
                     </div>
 
                     <div className="td-prop-row td-prop-row--stacked">

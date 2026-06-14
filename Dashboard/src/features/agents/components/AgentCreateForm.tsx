@@ -23,6 +23,7 @@ export interface AgentFormValues {
   generateEnabled: boolean;
   generateDescription: string;
   generateModel: string;
+  petModel: string;
   petMode: "default" | "wish" | "prompt";
   petPrompt: string;
 }
@@ -36,6 +37,7 @@ export function emptyAgentFormValues(): AgentFormValues {
     generateEnabled: false,
     generateDescription: "",
     generateModel: "",
+    petModel: "",
     petMode: "default",
     petPrompt: ""
   };
@@ -78,12 +80,14 @@ export function AgentCreateForm({
 }: AgentCreateFormProps) {
   const [roleDropdownOpen, setRoleDropdownOpen] = React.useState(false);
   const [modelDropdownOpen, setModelDropdownOpen] = React.useState(false);
+  const [petModelDropdownOpen, setPetModelDropdownOpen] = React.useState(false);
 
   const filteredRoles = SYSTEM_ROLES.filter((r) =>
     r.label.toLowerCase().includes(form.role.toLowerCase())
   );
 
   const selectedModelLabel = availableModels.find((m) => m.id === form.generateModel)?.title || form.generateModel || "Select a model…";
+  const selectedPetModelLabel = availableModels.find((m) => m.id === form.petModel)?.title || form.petModel || "Select a pet model…";
 
   return (
     <form className="agent-form" onSubmit={onSubmit}>
@@ -254,8 +258,47 @@ export function AgentCreateForm({
 
         {!imageGenerationStatus.available && (
           <p className="agent-field-note agent-generate-no-provider">
-            {imageGenerationStatus.message || "No image provider is configured. Sloppie generation will use bundled pixel-art presets."}
+            {imageGenerationStatus.message || "No model provider is configured. Sloppie generation will use bundled pixel-art presets."}
           </p>
+        )}
+
+        {form.petMode !== "default" && providerConfigured && (
+          <label>
+            Pet model
+            <div className="actor-team-search-wrap">
+              <input
+                className="actor-team-search"
+                value={selectedPetModelLabel}
+                readOnly
+                onClick={() => setPetModelDropdownOpen((prev) => !prev)}
+                onBlur={() => setTimeout(() => setPetModelDropdownOpen(false), 150)}
+                placeholder="Select a pet model…"
+                autoComplete="off"
+              />
+              {petModelDropdownOpen && availableModels.length > 0 && (
+                <ul className="actor-team-dropdown">
+                  {availableModels.map((m) => {
+                    const isSelected = form.petModel === m.id;
+                    return (
+                      <li
+                        key={m.id}
+                        className={`actor-team-dropdown-item ${isSelected ? "selected" : ""}`}
+                        onMouseDown={(event) => {
+                          event.preventDefault();
+                          onFormChange("petModel", m.id);
+                          setPetModelDropdownOpen(false);
+                        }}
+                      >
+                        <span className="actor-team-dropdown-name">{m.title}</span>
+                        {isSelected && <span className="actor-team-dropdown-check material-symbols-rounded">check</span>}
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+            <span className="agent-field-note">This model writes the Sloppie brief; presets are used only if the model is unavailable or returns invalid JSON.</span>
+          </label>
         )}
 
         {form.petMode === "prompt" && (

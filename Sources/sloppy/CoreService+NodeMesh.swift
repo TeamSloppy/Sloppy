@@ -2,8 +2,41 @@ import Foundation
 import SloppyNodeCore
 
 extension CoreService {
+    public func getMeshState() throws -> MeshState {
+        try nodeMeshStore.load()
+    }
+
     public func listMeshNodes() throws -> [MeshNodeRecord] {
         try nodeMeshStore.load().nodes.sorted { $0.name < $1.name }
+    }
+
+    public func configureMeshNetwork(_ request: MeshNetworkUpdateRequest) throws -> MeshState {
+        try nodeMeshStore.createNetwork(id: request.id, name: request.name)
+    }
+
+    public func createMeshInvite(_ request: MeshInviteCreateRequest) throws -> MeshInvite {
+        try nodeMeshStore.createInvite(
+            networkId: request.networkId,
+            name: request.name,
+            roles: request.roles,
+            capabilities: request.capabilities,
+            ttlSeconds: request.ttlSeconds
+        )
+    }
+
+    public func registerMeshNode(_ request: MeshNodeRegisterRequest) throws -> MeshNodeRecord {
+        try nodeMeshStore.upsertNodeRecord(
+            MeshNodeRecord(
+                id: request.id,
+                name: request.name,
+                publicKey: request.publicKey,
+                roles: request.roles,
+                endpoint: request.endpoint,
+                status: .offline,
+                capabilities: request.capabilities
+            ),
+            auditAction: "node.register.api"
+        )
     }
 
     public func listMeshSharedProjects() throws -> [SharedProjectRecord] {
@@ -12,10 +45,15 @@ extension CoreService {
 
     public func createMeshSharedProject(_ request: MeshSharedProjectCreateRequest) throws -> SharedProjectRecord {
         try nodeMeshStore.createSharedProject(
+            id: request.id,
             name: request.name,
             repoUrl: request.repoUrl,
             defaultBranch: request.defaultBranch
         )
+    }
+
+    public func deleteMeshSharedProject(id: String) throws {
+        try nodeMeshStore.removeSharedProject(projectIdOrName: id, actor: "api")
     }
 
     public func attachMeshSharedProjectMember(

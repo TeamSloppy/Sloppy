@@ -2005,6 +2005,180 @@ body.agent-chat-no-page-scroll .page {
   margin: 0;
 }
 
+.agent-deep-research-panel,
+.agent-deep-research-config {
+  display: grid;
+  gap: 10px;
+  min-width: 0;
+  margin-bottom: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(45, 212, 191, 0.32);
+  background: rgba(20, 184, 166, 0.08);
+  color: var(--text);
+}
+
+.agent-deep-research-head,
+.agent-deep-research-config-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  min-width: 0;
+}
+
+.agent-deep-research-head {
+  justify-content: flex-start;
+}
+
+.agent-deep-research-head > .material-symbols-rounded {
+  color: #5eead4;
+  font-size: 20px;
+}
+
+.agent-deep-research-head div {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.agent-deep-research-head strong,
+.agent-deep-research-config-head strong {
+  font-size: 0.86rem;
+}
+
+.agent-deep-research-head small {
+  color: var(--muted);
+  font-size: 0.76rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.agent-deep-research-meter {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(18px, 1fr));
+  gap: 4px;
+}
+
+.agent-deep-research-meter span {
+  height: 4px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.agent-deep-research-meter span.active {
+  background: #2dd4bf;
+}
+
+.agent-deep-research-section {
+  display: grid;
+  gap: 5px;
+  min-width: 0;
+}
+
+.agent-deep-research-section > span,
+.agent-deep-research-field > span {
+  color: var(--muted);
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.agent-deep-research-section ul {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  margin: 0;
+  padding-left: 18px;
+  color: var(--text);
+  font-size: 0.78rem;
+}
+
+.agent-deep-research-section li,
+.agent-deep-research-section a {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.agent-deep-research-config {
+  position: absolute;
+  right: 0;
+  bottom: calc(100% + 8px);
+  z-index: 20;
+  width: min(520px, calc(100vw - 32px));
+  margin: 0;
+  box-shadow: 0 18px 60px rgba(0, 0, 0, 0.36);
+}
+
+.agent-deep-research-mode-row {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.agent-deep-research-mode-row button,
+.agent-deep-research-actions button {
+  min-height: 32px;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.agent-deep-research-mode-row button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 5px 8px;
+  font-size: 0.78rem;
+}
+
+.agent-deep-research-mode-row button.active {
+  border-color: rgba(45, 212, 191, 0.72);
+  background: rgba(45, 212, 191, 0.14);
+}
+
+.agent-deep-research-mode-row .material-symbols-rounded {
+  font-size: 17px;
+}
+
+.agent-deep-research-field {
+  display: grid;
+  gap: 5px;
+}
+
+.agent-deep-research-field input,
+.agent-deep-research-field textarea {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--line);
+  background: rgba(0, 0, 0, 0.18);
+  color: var(--text);
+  font: inherit;
+  font-size: 0.82rem;
+  padding: 7px 8px;
+}
+
+.agent-deep-research-field textarea {
+  resize: vertical;
+}
+
+.agent-deep-research-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.agent-deep-research-actions button {
+  padding: 5px 10px;
+}
+
+.agent-deep-research-actions button.primary {
+  border-color: rgba(45, 212, 191, 0.72);
+  background: rgba(45, 212, 191, 0.16);
+}
+
 .agent-chat-tool-approval-banner {
   display: grid;
   grid-template-columns: auto minmax(0, 1fr) auto;
@@ -2215,6 +2389,7 @@ body.agent-chat-no-page-scroll .page {
   display: grid;
   gap: 8px;
   min-width: 0;
+  position: relative;
 }
 
 .agent-chat-message {
@@ -4688,13 +4863,14 @@ body.agent-chat-no-page-scroll .page {
   border-radius: 0;
   background: var(--surface-2);
   padding: 14px;
-  display: grid;
+  display: flex;
+  flex-direction: column;
   gap: 10px;
-  overflow-y: auto;
-  -webkit-overflow-scrolling: touch;
+  overflow: hidden;
 }
 
 .agent-modal-head {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -4723,10 +4899,24 @@ body.agent-chat-no-page-scroll .page {
 }
 
 .agent-modal-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 2;
   display: flex;
   justify-content: flex-end;
   gap: 8px;
-  margin-top: 2px;
+  margin: 2px -4px -4px;
+  border-top: 1px solid var(--line);
+  background: var(--surface-2);
+  padding: 10px 4px 4px;
+}
+
+.agent-modal-card>.agent-form {
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding-right: 4px;
+  -webkit-overflow-scrolling: touch;
 }
 
 .agent-create-confirm {

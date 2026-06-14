@@ -106,6 +106,14 @@ struct ToolRegistryTests {
         }
     }
 
+    @Test("all tool parameter schemas encode object roots")
+    func allToolParameterSchemasEncodeObjectRoots() throws {
+        for tool in registry.allTools {
+            let schema = try schemaRoot(tool.parameters)
+            #expect(schema["type"] as? String == "object", "\(tool.name) parameters must be an object schema")
+        }
+    }
+
     @Test("allTools count matches catalog entries count")
     func allToolsCountMatchesCatalogEntries() {
         let tools = registry.allTools
@@ -138,6 +146,22 @@ struct ToolRegistryTests {
 
         #expect(properties.keys.contains("title"))
         #expect(required.contains("title"))
+    }
+
+    @Test("Skills manage schema advertises save arguments")
+    func skillsManageSchemaAdvertisesSaveArguments() throws {
+        let tools = Dictionary(uniqueKeysWithValues: registry.allTools.map { ($0.name, $0) })
+        let skillsManage = try #require(tools["skills.manage"])
+        let schema = try schemaRoot(skillsManage.parameters)
+        let properties = try #require(schema["properties"] as? [String: Any])
+        let required = try #require(schema["required"] as? [String])
+
+        #expect(properties.keys.contains("repo"))
+        #expect(properties.keys.contains("skillMarkdown"))
+        #expect(properties.keys.contains("files"))
+        #expect(properties.keys.contains("allowedTools"))
+        #expect(required.contains("repo"))
+        #expect(required.contains("skillMarkdown"))
     }
 
     @Test("Memory save still rejects missing scope")
