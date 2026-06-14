@@ -1,8 +1,8 @@
 cask "sloppy" do
-  version "1.2.4"
-  sha256 "57dee4d5b955c76cc4d3f4b52045593ace851f9a1dde967cb5ce692297bddbc4"
+  version "1.3.0"
+  sha256 "13fe7b337e073b270a504944cb1b4135545376e3641aef1cbcbae54f8e31dd14"
 
-  url "https://github.com/TeamSloppy/Sloppy/releases/download/v1.2.4/Sloppy-macos-arm64.tar.gz"
+  url "https://github.com/TeamSloppy/Sloppy/releases/download/v1.3.0/Sloppy-macos-arm64.tar.gz"
   name "Sloppy"
   desc "Agent runtime and dashboard for Sloppy"
   homepage "https://github.com/TeamSloppy/Sloppy"
