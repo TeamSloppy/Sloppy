@@ -79,6 +79,39 @@ actor TelegramBotAPI {
         }
     }
 
+    struct ForwardOrigin: Decodable {
+        let type: String
+        let date: Int?
+        let senderUser: User?
+        let senderUserName: String?
+        let chat: Chat?
+        let authorSignature: String?
+
+        enum CodingKeys: String, CodingKey {
+            case type
+            case date
+            case senderUser = "sender_user"
+            case senderUserName = "sender_user_name"
+            case chat
+            case authorSignature = "author_signature"
+        }
+
+        var attribution: String? {
+            switch type {
+            case "user":
+                return senderUser?.displayName
+            case "hidden_user":
+                return senderUserName
+            case "chat":
+                return chat?.displayName ?? authorSignature
+            case "channel":
+                return chat?.displayName ?? authorSignature
+            default:
+                return senderUser?.displayName ?? senderUserName ?? chat?.displayName ?? authorSignature
+            }
+        }
+    }
+
 
     struct PhotoSize: Decodable {
         let fileId: String
@@ -130,6 +163,12 @@ actor TelegramBotAPI {
         let messageThreadId: Int?
         let replyToMessage: ReplyToMessage?
         let entities: [MessageEntity]?
+        let forwardOrigin: ForwardOrigin?
+        let forwardFrom: User?
+        let forwardFromChat: Chat?
+        let forwardSenderName: String?
+        let forwardSignature: String?
+        let forwardDate: Int?
 
         enum CodingKeys: String, CodingKey {
             case messageId = "message_id"
@@ -137,6 +176,12 @@ actor TelegramBotAPI {
             case messageThreadId = "message_thread_id"
             case replyToMessage = "reply_to_message"
             case entities
+            case forwardOrigin = "forward_origin"
+            case forwardFrom = "forward_from"
+            case forwardFromChat = "forward_from_chat"
+            case forwardSenderName = "forward_sender_name"
+            case forwardSignature = "forward_signature"
+            case forwardDate = "forward_date"
         }
     }
 

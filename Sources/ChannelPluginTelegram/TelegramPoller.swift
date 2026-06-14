@@ -434,9 +434,13 @@ actor TelegramPoller {
             bot: bot,
             logger: logger
         ).process(attachments)
-        let processedText = TelegramAttachmentProcessor.contentWithTranscripts(
+        let attachmentText = TelegramAttachmentProcessor.contentWithTranscripts(
             content: text,
             attachments: processedAttachments
+        )
+        let processedText = TelegramForwardedMessage.contentForModel(
+            text: attachmentText,
+            message: message
         )
 
         let ok = await receiver.postMessage(
@@ -827,7 +831,7 @@ actor TelegramPoller {
         if message.chat.type == "private" {
             return ChannelInboundContext(mentionsThisBot: true, isReplyToThisBot: true)
         }
-        var mentions = false
+        var mentions = TelegramForwardedMessage.from(message) != nil
         if !botUsernameLowercased.isEmpty {
             let needle = "@\(botUsernameLowercased)"
             if rawText.lowercased().contains(needle) {
