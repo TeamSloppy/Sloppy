@@ -91,6 +91,44 @@ func serverEnvironmentOverridesUseNodeMeshPublicURL() {
 }
 
 @Test
+func coffeeModeEnvironmentOverridesParseBooleans() {
+    var config = CoreConfig.default
+    config.coffeeMode = .init(enabled: false, preventDisplaySleep: false, privilegedLidModeRequired: false)
+
+    applyCoffeeModeEnvironmentOverrides(
+        config: &config,
+        environment: [
+            "SLOPPY_COFFEE_MODE": "true",
+            "SLOPPY_COFFEE_PREVENT_DISPLAY_SLEEP": "1",
+            "SLOPPY_COFFEE_REQUIRE_PRIVILEGED_LID_MODE": "yes",
+        ]
+    )
+
+    #expect(config.coffeeMode.enabled == true)
+    #expect(config.coffeeMode.preventDisplaySleep == true)
+    #expect(config.coffeeMode.privilegedLidModeRequired == true)
+}
+
+@Test
+func coffeeModeEnvironmentOverridesIgnoreInvalidBooleans() {
+    var config = CoreConfig.default
+    config.coffeeMode = .init(enabled: true, preventDisplaySleep: false, privilegedLidModeRequired: true)
+
+    applyCoffeeModeEnvironmentOverrides(
+        config: &config,
+        environment: [
+            "SLOPPY_COFFEE_MODE": "maybe",
+            "SLOPPY_COFFEE_PREVENT_DISPLAY_SLEEP": "",
+            "SLOPPY_COFFEE_REQUIRE_PRIVILEGED_LID_MODE": "later",
+        ]
+    )
+
+    #expect(config.coffeeMode.enabled == true)
+    #expect(config.coffeeMode.preventDisplaySleep == false)
+    #expect(config.coffeeMode.privilegedLidModeRequired == true)
+}
+
+@Test
 func configFileStoreRestoresInvalidPrimaryFromBackup() throws {
     let tempRoot = FileManager.default.temporaryDirectory
         .appendingPathComponent("sloppy-config-restore-\(UUID().uuidString)", isDirectory: true)

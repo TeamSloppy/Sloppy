@@ -290,6 +290,46 @@ func dashboardAuthConfigRoundTripsThroughJSON() throws {
 }
 
 @Test
+func missingCoffeeModeConfigDefaultsToEnabledIdleSleepOnly() throws {
+    let json =
+        """
+        {
+          "listen": { "host": "0.0.0.0", "port": 25101 },
+          "auth": { "token": "dev-token" },
+          "models": [],
+          "memory": { "backend": "sqlite-local-vectors" },
+          "nodes": ["local"],
+          "gateways": [],
+          "plugins": [],
+          "sqlitePath": "core.sqlite"
+        }
+        """
+
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
+
+    #expect(decoded.coffeeMode.enabled == true)
+    #expect(decoded.coffeeMode.preventDisplaySleep == false)
+    #expect(decoded.coffeeMode.privilegedLidModeRequired == false)
+}
+
+@Test
+func coffeeModeConfigRoundTripsThroughJSON() throws {
+    var config = CoreConfig.default
+    config.coffeeMode = .init(
+        enabled: false,
+        preventDisplaySleep: true,
+        privilegedLidModeRequired: true
+    )
+
+    let encoded = try JSONEncoder().encode(config)
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: encoded)
+
+    #expect(decoded.coffeeMode.enabled == false)
+    #expect(decoded.coffeeMode.preventDisplaySleep == true)
+    #expect(decoded.coffeeMode.privilegedLidModeRequired == true)
+}
+
+@Test
 func resolvedSQLiteURLKeepsAbsolutePath() {
     var config = CoreConfig.default
     config.sqlitePath = "/var/lib/slop/core.sqlite"

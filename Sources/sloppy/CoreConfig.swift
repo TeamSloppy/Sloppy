@@ -160,6 +160,22 @@ public struct CoreConfig: Codable, Sendable {
         }
     }
 
+    public struct CoffeeMode: Codable, Sendable, Equatable {
+        public var enabled: Bool
+        public var preventDisplaySleep: Bool
+        public var privilegedLidModeRequired: Bool
+
+        public init(
+            enabled: Bool = true,
+            preventDisplaySleep: Bool = false,
+            privilegedLidModeRequired: Bool = false
+        ) {
+            self.enabled = enabled
+            self.preventDisplaySleep = preventDisplaySleep
+            self.privilegedLidModeRequired = privilegedLidModeRequired
+        }
+    }
+
     public struct SessionRetention: Codable, Sendable, Equatable {
         public static let minimumDays = 1
         public static let maximumDays = 90
@@ -1613,6 +1629,7 @@ public struct CoreConfig: Codable, Sendable {
     public var auth: Auth
     public var onboarding: Onboarding
     public var tui: TUI
+    public var coffeeMode: CoffeeMode
     public var models: [ModelConfig]
     public var opencode: OpenCode
     public var disableModelInference: Bool
@@ -1646,6 +1663,7 @@ public struct CoreConfig: Codable, Sendable {
         auth: Auth,
         onboarding: Onboarding = Onboarding(),
         tui: TUI = TUI(),
+        coffeeMode: CoffeeMode = CoffeeMode(),
         models: [ModelConfig],
         opencode: OpenCode = OpenCode(),
         sessionRetention: SessionRetention = SessionRetention(),
@@ -1677,6 +1695,7 @@ public struct CoreConfig: Codable, Sendable {
         self.auth = auth
         self.onboarding = onboarding
         self.tui = tui
+        self.coffeeMode = coffeeMode
         self.models = models
         self.opencode = opencode
         self.sessionRetention = sessionRetention
@@ -1710,6 +1729,7 @@ public struct CoreConfig: Codable, Sendable {
             workspace: .init(),
             auth: .init(token: "dev-token"),
             onboarding: .init(),
+            coffeeMode: .init(),
             models: [
                 .init(
                     title: "openai-main",
@@ -1797,6 +1817,7 @@ public struct CoreConfig: Codable, Sendable {
         case auth
         case onboarding
         case tui
+        case coffeeMode
         case models
         case opencode
         case sessionRetention
@@ -1832,6 +1853,7 @@ public struct CoreConfig: Codable, Sendable {
         auth = try container.decode(Auth.self, forKey: .auth)
         onboarding = try container.decodeIfPresent(Onboarding.self, forKey: .onboarding) ?? .init()
         tui = try container.decodeIfPresent(TUI.self, forKey: .tui) ?? .init()
+        coffeeMode = try container.decodeIfPresent(CoffeeMode.self, forKey: .coffeeMode) ?? .init()
         memory = try container.decode(Memory.self, forKey: .memory)
         sessionRetention = try container.decodeIfPresent(SessionRetention.self, forKey: .sessionRetention) ?? .init()
         nodes = try container.decodeIfPresent([Node].self, forKey: .nodes) ?? []
@@ -1866,6 +1888,7 @@ public struct CoreConfig: Codable, Sendable {
         try container.encode(auth, forKey: .auth)
         try container.encode(onboarding, forKey: .onboarding)
         try container.encode(tui, forKey: .tui)
+        try container.encode(coffeeMode, forKey: .coffeeMode)
         try container.encode(models, forKey: .models)
         try container.encode(opencode, forKey: .opencode)
         try container.encode(sessionRetention, forKey: .sessionRetention)

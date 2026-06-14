@@ -88,6 +88,7 @@ struct RunCommand: AsyncParsableCommand {
             } else {
                 config = try loadServerConfigRecovering(from: explicitConfigPath, currentDirectory: homeDirectory)
             }
+            applyCoffeeModeEnvironmentOverrides(config: &config)
             try applyRelayStartupOptions(
                 config: &config,
                 relayPublicURL: relayPublicURL,
@@ -134,6 +135,25 @@ struct RunCommand: AsyncParsableCommand {
                 try data.write(to: docsPublicURL, options: .atomic)
                 logger.info("OpenAPI specification copied to \(docsPublicURL.path)")
                 return
+            }
+
+            let coffeeModeHandle = CoffeeModeController(logger: logger).start(config: config.coffeeMode)
+            defer {
+                coffeeModeHandle?.end()
+            }
+
+            if config.coffeeMode.privilegedLidModeRequired {
+                do {
+                    let status = try CoffeeSystemService().status(
+                        config: config.coffeeMode,
+                        workspaceRoot: workspaceRoot
+                    )
+                    if !status.privilegedLidModeActive {
+                        logger.warning("Coffee Mode privileged lid mode is required but not active. Run `sudo sloppy coffee apply --allow-unsupported-lid-mode --config-path \(resolvedConfigPath)` to enable the experimental system setting.")
+                    }
+                } catch {
+                    logger.warning("Coffee Mode privileged lid mode status could not be inspected: \(String(describing: error))")
+                }
             }
 
             logger.info("sloppy initialized")
@@ -244,6 +264,33 @@ private func relayPublicWebSocketURL(from publicURL: String) throws -> String {
 
 func shouldBootstrapVisorBulletin(cliOverride: Bool?, config: CoreConfig) -> Bool {
     cliOverride ?? config.visor.bootstrapBulletin
+}
+
+func applyCoffeeModeEnvironmentOverrides(
+    config: inout CoreConfig,
+    environment: [String: String] = ProcessInfo.processInfo.environment
+) {
+    if let enabled = parseCoffeeModeEnvironmentBool(environment["SLOPPY_COFFEE_MODE"]) {
+        config.coffeeMode.enabled = enabled
+    }
+    if let preventDisplaySleep = parseCoffeeModeEnvironmentBool(environment["SLOPPY_COFFEE_PREVENT_DISPLAY_SLEEP"]) {
+        config.coffeeMode.preventDisplaySleep = preventDisplaySleep
+    }
+    if let privilegedLidModeRequired = parseCoffeeModeEnvironmentBool(environment["SLOPPY_COFFEE_REQUIRE_PRIVILEGED_LID_MODE"]) {
+        config.coffeeMode.privilegedLidModeRequired = privilegedLidModeRequired
+    }
+}
+
+private func parseCoffeeModeEnvironmentBool(_ rawValue: String?) -> Bool? {
+    guard let rawValue else { return nil }
+    switch rawValue.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+    case "1", "true", "yes", "on":
+        return true
+    case "0", "false", "no", "off":
+        return false
+    default:
+        return nil
+    }
 }
 
 @available(macOS 15.0, *)
