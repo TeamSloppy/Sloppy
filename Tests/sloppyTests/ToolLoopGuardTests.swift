@@ -95,6 +95,64 @@ struct ToolLoopGuardTests {
         #expect(second.error?.code == "tool_loop_detected")
     }
 
+    @Test("project.task_update is exempt from loop guard limits")
+    func projectTaskUpdateIsExemptFromLoopGuardLimits() async throws {
+        let guardrail = ToolLoopGuard()
+        let policy = AgentToolsPolicy()
+        let root = FileManager.default.temporaryDirectory
+        let request = ToolInvocationRequest(
+            tool: "project.task_update",
+            arguments: [
+                "taskId": .string("TASK-1"),
+                "status": .string(ProjectTaskStatus.done.rawValue),
+            ]
+        )
+
+        let first = await guardrail.evaluate(
+            sessionID: "session-task-update",
+            request: request,
+            policy: policy,
+            workspaceRootURL: root
+        )
+        await guardrail.recordStarted(
+            sessionID: "session-task-update",
+            request: request,
+            policy: policy,
+            workspaceRootURL: root
+        )
+        let whilePending = await guardrail.evaluate(
+            sessionID: "session-task-update",
+            request: request,
+            policy: policy,
+            workspaceRootURL: root
+        )
+        await guardrail.recordResult(
+            sessionID: "session-task-update",
+            request: request,
+            result: ToolInvocationResult(
+                tool: "project.task_update",
+                ok: false,
+                error: ToolErrorPayload(
+                    code: "invalid_payload",
+                    message: "Task update payload is invalid.",
+                    retryable: false
+                )
+            ),
+            policy: policy,
+            workspaceRootURL: root
+        )
+        let afterFailure = await guardrail.evaluate(
+            sessionID: "session-task-update",
+            request: request,
+            policy: policy,
+            workspaceRootURL: root
+        )
+
+        #expect(first != .block(message: ""))
+        #expect(whilePending != .block(message: "Loop blocked: a matching tool call is already running."))
+        #expect(afterFailure != .block(message: "Loop blocked: repeated non-retryable tool failure."))
+    }
+
     @Test("mixed one-shot commands do not trip the guard")
     func mixedExecCommandsRemainAllowed() async throws {
         let service = makeService()

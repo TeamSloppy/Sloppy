@@ -12,7 +12,12 @@ struct AgentRunnerModelError: Error, LocalizedError {
 /// which creates a dedicated session, posts the task objective, and returns the assistant response.
 /// Workers without an agentID fall back to DefaultWorkerExecutor.
 final class ToolExecutionWorkerExecutorAdapter: @unchecked Sendable, WorkerExecutor {
-    typealias AgentRunner = @Sendable (_ agentID: String, _ taskID: String, _ objective: String, _ workingDirectory: String?, _ selectedModel: String?) async -> String?
+    struct AgentRunnerResult: Sendable {
+        var summary: String
+        var payload: [String: JSONValue]
+    }
+
+    typealias AgentRunner = @Sendable (_ agentID: String, _ taskID: String, _ objective: String, _ workingDirectory: String?, _ selectedModel: String?) async -> AgentRunnerResult?
 
     private let fallback: any WorkerExecutor
     private let agentRunner: AgentRunner?
@@ -30,10 +35,10 @@ final class ToolExecutionWorkerExecutorAdapter: @unchecked Sendable, WorkerExecu
     func execute(workerId: String, spec: WorkerTaskSpec) async throws -> WorkerExecutionResult {
         if let agentID = spec.agentID, let runner = agentRunner {
             let result = await runner(agentID, spec.taskId, spec.objective, spec.workingDirectory, spec.selectedModel)
-            if let result, Self.isModelProviderError(result) {
-                throw AgentRunnerModelError(detail: result)
+            if let result, Self.isModelProviderError(result.summary) {
+                throw AgentRunnerModelError(detail: result.summary)
             }
-            return .completed(summary: result ?? spec.objective)
+            return .completed(summary: result?.summary ?? spec.objective, payload: result?.payload ?? [:])
         }
         return try await fallback.execute(workerId: workerId, spec: spec)
     }

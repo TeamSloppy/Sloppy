@@ -569,12 +569,18 @@ public actor CoreService {
                     toolExecutionService: self.toolExecution,
                     agentRunner: { [weak self] agentID, taskID, objective, workingDirectory, selectedModel in
                         guard let self else { return nil }
-                        return await self.runAgentTask(
+                        guard let result = await self.runAgentTaskResult(
                             agentID: agentID,
                             taskID: taskID,
                             objective: objective,
                             workingDirectory: workingDirectory,
                             selectedModel: selectedModel
+                        ) else {
+                            return nil
+                        }
+                        return ToolExecutionWorkerExecutorAdapter.AgentRunnerResult(
+                            summary: result.text,
+                            payload: result.payload
                         )
                     }
                 )

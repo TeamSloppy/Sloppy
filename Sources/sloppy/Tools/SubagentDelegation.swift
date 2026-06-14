@@ -13,7 +13,6 @@ enum SubagentDelegation {
         "workers.spawn",
         "workers.route",
         "branches.spawn",
-        "project.task_clarification_create",
         "memory.recall",
         "memory.get",
         "memory.save",
@@ -48,6 +47,7 @@ enum SubagentDelegation {
             "project.task_create",
             "project.task_get",
             "project.task_update",
+            "project.task_clarification_create",
         ],
         "project": [
             "project.list",
@@ -59,6 +59,7 @@ enum SubagentDelegation {
             "project.task_create",
             "project.task_get",
             "project.task_update",
+            "project.task_clarification_create",
             "project.task_cancel",
             "project.escalate_to_user",
             "project.meta_memory_set",

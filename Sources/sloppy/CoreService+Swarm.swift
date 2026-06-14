@@ -1210,12 +1210,20 @@ extension CoreService {
                     taskID: task.id,
                     event: event
                 )
+                let delegatedFinishSummary = delegatedFinishCompletionSummary(from: event)
 
                 if task.status == ProjectTaskStatus.done.rawValue {
                     resolvedStatus = ProjectTaskStatus.done.rawValue
                 } else if let currentStatus = task.statusValue,
                           currentStatus == .waitingInput || currentStatus == .blocked || currentStatus == .needsReview || currentStatus == .cancelled {
                     resolvedStatus = currentStatus.rawValue
+                } else if let delegatedFinishSummary {
+                    resolvedStatus = ProjectTaskStatus.needsReview.rawValue
+                    await appendSystemTaskComment(
+                        projectID: project.id,
+                        taskID: task.id,
+                        content: "Task moved to needs_review because the delegated worker reported completion, but explicit project.task_update(done) was not recorded. Evidence: \(delegatedFinishSummary)"
+                    )
                 } else {
                     resolvedStatus = ProjectTaskStatus.blocked.rawValue
                     effectiveFailureNote = "Worker exited without explicit completion confirmation. Mark the task done only after calling project.task_update with completion evidence."
@@ -1413,6 +1421,21 @@ extension CoreService {
         }
     }
 
+    func delegatedFinishCompletionSummary(from event: EventEnvelope) -> String? {
+        guard event.messageType == .workerCompleted,
+              let finish = event.payload.objectValue["delegateFinish"]?.objectValue,
+              finish["finished"]?.boolValue == true,
+              finish["synthetic"]?.boolValue != true,
+              finish["status"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() == "completed"
+        else {
+            return nil
+        }
+
+        let summary = finish["summary"]?.stringValue?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        return summary.isEmpty ? nil : summary
+    }
+
 }
 
 private extension JSONValue {
@@ -1423,6 +1446,11 @@ private extension JSONValue {
 
     var stringValue: String? {
         if case .string(let value) = self { return value }
+        return nil
+    }
+
+    var boolValue: Bool? {
+        if case .bool(let value) = self { return value }
         return nil
     }
 }

@@ -52,6 +52,7 @@ func coreServiceCreateAgentInstallsBuiltInTaskSpecSkill() async throws {
     #expect(kanbanSkill.allowedTools.contains("project.task_get"))
     #expect(kanbanSkill.allowedTools.contains("project.task_create"))
     #expect(kanbanSkill.allowedTools.contains("project.task_update"))
+    #expect(kanbanSkill.allowedTools.contains("project.task_clarification_create"))
     #expect(FileManager.default.fileExists(atPath: URL(fileURLWithPath: kanbanSkill.localPath)
         .appendingPathComponent("SKILL.md")
         .path))

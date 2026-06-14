@@ -211,6 +211,9 @@ actor ToolLoopGuard {
         guard !trimmedTool.isEmpty else {
             return nil
         }
+        guard trimmedTool != "project.task_update" else {
+            return nil
+        }
 
         switch trimmedTool {
         case "runtime.exec":

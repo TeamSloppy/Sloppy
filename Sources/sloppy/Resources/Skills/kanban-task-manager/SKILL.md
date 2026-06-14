@@ -8,6 +8,7 @@ allowedTools:
   - project.task_get
   - project.task_create
   - project.task_update
+  - project.task_clarification_create
   - memory.save
 ---
 

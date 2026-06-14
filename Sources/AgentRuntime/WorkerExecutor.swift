@@ -2,7 +2,7 @@ import Foundation
 import Protocols
 
 public enum WorkerExecutionResult: Sendable, Equatable {
-    case completed(summary: String)
+    case completed(summary: String, payload: [String: JSONValue])
     case waitingForRoute(report: String?)
 }
 
@@ -26,9 +26,9 @@ public struct DefaultWorkerExecutor: WorkerExecutor {
         case .fireAndForget:
             let summary = spec.objective.trimmingCharacters(in: .whitespacesAndNewlines)
             if summary.isEmpty == false {
-                return .completed(summary: summary)
+                return .completed(summary: summary, payload: [:])
             }
-            return .completed(summary: spec.title)
+            return .completed(summary: spec.title, payload: [:])
 
         case .interactive:
             return .waitingForRoute(report: nil)

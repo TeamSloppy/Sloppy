@@ -145,7 +145,7 @@ private struct CompletingWorkerExecutor: WorkerExecutor {
     let summary: String
 
     func execute(workerId: String, spec: WorkerTaskSpec) async throws -> WorkerExecutionResult {
-        .completed(summary: summary)
+        .completed(summary: summary, payload: [:])
     }
 
     func route(workerId: String, spec: WorkerTaskSpec, message: String) async throws -> WorkerRouteExecutionResult {

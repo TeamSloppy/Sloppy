@@ -190,8 +190,8 @@ public actor WorkerRuntime {
         do {
             let result = try await executor.execute(workerId: workerId, spec: state.spec)
             switch result {
-            case .completed(let summary):
-                _ = await completeNow(workerId: workerId, summary: summary)
+            case .completed(let summary, let payload):
+                _ = await completeNow(workerId: workerId, summary: summary, payload: payload)
 
             case .waitingForRoute(let report):
                 state.status = .waitingInput
@@ -283,7 +283,7 @@ public actor WorkerRuntime {
     }
 
     /// Completes worker immediately with summary artifact.
-    public func completeNow(workerId: String, summary: String) async -> ArtifactRef? {
+    public func completeNow(workerId: String, summary: String, payload additionalPayload: [String: JSONValue] = [:]) async -> ArtifactRef? {
         guard var state = workers[workerId] else { return nil }
         guard state.status != .failed, state.status != .completed else { return nil }
 
@@ -296,15 +296,16 @@ public actor WorkerRuntime {
         artifacts[artifactId] = summary
         let ref = ArtifactRef(id: artifactId, kind: "text", preview: String(summary.prefix(120)))
 
+        var payload = additionalPayload
+        payload["summary"] = .string(summary)
+        payload["artifactId"] = .string(artifactId)
+
         await publish(
             channelId: state.spec.channelId,
             taskId: state.spec.taskId,
             workerId: workerId,
             messageType: .workerCompleted,
-            payload: [
-                "summary": .string(summary),
-                "artifactId": .string(artifactId)
-            ]
+            payload: payload
         )
 
         return ref

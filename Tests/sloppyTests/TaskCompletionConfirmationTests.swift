@@ -87,6 +87,41 @@ func workerCompletedWithoutExplicitDoneBlocksTask() async throws {
 }
 
 @Test
+func workerCompletedWithDelegatedFinishEvidenceMovesToNeedsReview() async throws {
+    let (service, _, projectID, taskID) = try await makeCompletionTestContext()
+
+    await service.handleVisorEvent(
+        EventEnvelope(
+            messageType: .workerCompleted,
+            channelId: "general",
+            taskId: taskID,
+            workerId: "worker-finished",
+            payload: .object([
+                "summary": .string("Implemented and committed the requested change."),
+                "artifactId": .string("artifact-1"),
+                "delegateFinish": .object([
+                    "finished": .bool(true),
+                    "status": .string("completed"),
+                    "summary": .string("Implemented and committed the requested change."),
+                    "synthetic": .bool(false),
+                ]),
+            ])
+        )
+    )
+
+    let saved = try await service.getProject(id: projectID)
+    let task = try #require(saved.tasks.first(where: { $0.id == taskID }))
+    #expect(task.status == ProjectTaskStatus.needsReview.rawValue)
+
+    let comments = await service.listTaskComments(projectID: projectID, taskID: taskID)
+    #expect(comments.contains {
+        $0.authorActorId == "system"
+            && $0.content.contains("delegated worker reported completion")
+            && $0.content.contains("needs_review")
+    })
+}
+
+@Test
 func workerCompletedPreservesExplicitBlockedStatus() async throws {
     let (service, _, projectID, taskID) = try await makeCompletionTestContext()
 

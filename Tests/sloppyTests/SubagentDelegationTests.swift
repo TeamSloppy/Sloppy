@@ -58,6 +58,7 @@ func subagentProjectTasksToolsetAllowsOnlyTaskLifecycleTools() {
         "project.task_create",
         "project.task_get",
         "project.task_update",
+        "project.task_clarification_create",
         "project.delete",
         "agent_delegate.finish",
     ]
@@ -72,8 +73,25 @@ func subagentProjectTasksToolsetAllowsOnlyTaskLifecycleTools() {
         "project.task_create",
         "project.task_get",
         "project.task_update",
+        "project.task_clarification_create",
         "agent_delegate.finish",
     ]))
+}
+
+@Test
+func subagentEffectiveToolsAllowTaskClarificationFlow() {
+    let policy = AgentToolsPolicy(defaultPolicy: .allow, tools: [:])
+    let known: Set<String> = [
+        "project.task_clarification_create",
+        "agent_delegate.finish",
+    ]
+    let eff = SubagentDelegation.effectiveToolIDs(
+        policy: policy,
+        knownToolIDs: known,
+        toolsetNames: nil
+    )
+    #expect(eff.contains("project.task_clarification_create"))
+    #expect(eff.contains("agent_delegate.finish"))
 }
 
 @Test

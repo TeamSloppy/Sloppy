@@ -1470,8 +1470,24 @@ extension CoreService {
         workingDirectory: String?,
         selectedModel: String? = nil
     ) async -> String? {
+        await runAgentTaskResult(
+            agentID: agentID,
+            taskID: taskID,
+            objective: objective,
+            workingDirectory: workingDirectory,
+            selectedModel: selectedModel
+        )?.text
+    }
+
+    func runAgentTaskResult(
+        agentID: String,
+        taskID: String,
+        objective: String,
+        workingDirectory: String?,
+        selectedModel: String? = nil
+    ) async -> AgentTaskRunResult? {
         let autopilotContext = await autopilotWorkerContext(taskID: taskID)
-        return await runSubagentTask(
+        return await runSubagentTaskResult(
             agentID: agentID,
             taskID: taskID,
             objective: objective,
@@ -1493,6 +1509,29 @@ extension CoreService {
         parentSessionID: String? = nil,
         bypassToolApproval: Bool = false
     ) async -> String? {
+        await runSubagentTaskResult(
+            agentID: agentID,
+            taskID: taskID,
+            objective: objective,
+            workingDirectory: workingDirectory,
+            toolsetNames: toolsetNames,
+            selectedModel: selectedModel,
+            parentSessionID: parentSessionID,
+            bypassToolApproval: bypassToolApproval
+        )?.text
+    }
+
+    /// Runs a one-shot agent session and preserves typed completion metadata for worker events.
+    func runSubagentTaskResult(
+        agentID: String,
+        taskID: String,
+        objective: String,
+        workingDirectory: String?,
+        toolsetNames: [String]?,
+        selectedModel: String? = nil,
+        parentSessionID: String? = nil,
+        bypassToolApproval: Bool = false
+    ) async -> AgentTaskRunResult? {
         let knownIDs = await ToolCatalog.knownToolIDs(mcpRegistry: mcpRegistry)
         guard let policy = try? await toolsAuthorization.policy(agentID: agentID) else {
             await recordProjectTaskWorkerLaunchFailure(
@@ -1507,7 +1546,7 @@ extension CoreService {
                 "task.subagent.policy_failed",
                 metadata: ["agent_id": .string(agentID), "task_id": .string(taskID)]
             )
-            return "[failed] Could not load tool policy for agent \(agentID).\nError: tool policy unavailable"
+            return AgentTaskRunResult(text: "[failed] Could not load tool policy for agent \(agentID).\nError: tool policy unavailable")
         }
         let effectiveTools = SubagentDelegation.effectiveToolIDs(
             policy: policy,
@@ -1527,7 +1566,7 @@ extension CoreService {
                 "task.subagent.no_tools",
                 metadata: ["agent_id": .string(agentID), "task_id": .string(taskID)]
             )
-            return "[failed] Agent \(agentID) has no effective tools available.\nError: no tools available"
+            return AgentTaskRunResult(text: "[failed] Agent \(agentID) has no effective tools available.\nError: no tools available")
         }
 
         let sessionBaseTitle = "task-\(taskID)"
@@ -1560,7 +1599,7 @@ extension CoreService {
                 "task.worker.session_create_failed",
                 metadata: ["agent_id": .string(agentID), "task_id": .string(taskID), "error": .string(error.localizedDescription)]
             )
-            return "[failed] Failed to create worker session for agent \(agentID).\nError: \(error.localizedDescription)"
+            return AgentTaskRunResult(text: "[failed] Failed to create worker session for agent \(agentID).\nError: \(error.localizedDescription)")
         }
 
         if let parentSessionID = parentSessionID.flatMap(normalizedSessionID) {
@@ -1641,7 +1680,7 @@ extension CoreService {
             await sessionOrchestrator.unmarkDelegatedSubagentSession(sessionID: session.id)
             await runtime.clearChannelToolAllowList(channelId: channelId)
             await runtime.invalidateChannelSession(channelId: channelId)
-            return "[failed] Failed to start worker session for agent \(agentID).\nError: \(error.localizedDescription)"
+            return AgentTaskRunResult(text: "[failed] Failed to start worker session for agent \(agentID).\nError: \(error.localizedDescription)")
         }
 
         let detail = try? getAgentSession(agentID: agentID, sessionID: session.id)
@@ -1681,7 +1720,10 @@ extension CoreService {
         await sessionOrchestrator.unmarkDelegatedSubagentSession(sessionID: session.id)
         await runtime.clearChannelToolAllowList(channelId: channelId)
         await runtime.invalidateChannelSession(channelId: channelId)
-        return text
+        return AgentTaskRunResult(
+            text: text,
+            payload: delegatedTaskWorkerPayload(from: outcome)
+        )
     }
 
     private func attemptDelegatedTaskFinishRescueIfNeeded(
@@ -1737,6 +1779,16 @@ extension CoreService {
                 ]
             )
             return nil
+        }
+    }
+
+    struct AgentTaskRunResult: Sendable {
+        var text: String
+        var payload: [String: JSONValue]
+
+        init(text: String, payload: [String: JSONValue] = [:]) {
+            self.text = text
+            self.payload = payload
         }
     }
 
@@ -1947,6 +1999,24 @@ extension CoreService {
             return "[\(outcome.status)] \(outcome.summary)\nError: \(error)"
         }
         return "[\(outcome.status)] \(outcome.summary)"
+    }
+
+    private func delegatedTaskWorkerPayload(from outcome: DelegatedTaskFinishOutcome) -> [String: JSONValue] {
+        guard outcome.status == "completed",
+              !outcome.synthetic
+        else {
+            return [:]
+        }
+
+        return [
+            "delegateFinish": .object([
+                "finished": .bool(true),
+                "status": .string(outcome.status),
+                "summary": .string(outcome.summary),
+                "error": outcome.error.map(JSONValue.string) ?? .null,
+                "synthetic": .bool(outcome.synthetic),
+            ]),
+        ]
     }
 
     private func delegatedTaskFinishOutcome(from events: [AgentSessionEvent]) -> DelegatedTaskFinishOutcome? {
