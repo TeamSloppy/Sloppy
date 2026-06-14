@@ -333,6 +333,18 @@ public enum CompactionLevel: String, Codable, Sendable {
 }
 
 public struct CompactionJob: Codable, Sendable, Equatable {
+    enum CodingKeys: String, CodingKey {
+        case id
+        case channelId
+        case level
+        case threshold
+        case targetReductionPercent
+        case preserveRecentMessages
+        case preserveRecentTokens
+        case contextWindowTokens
+        case createdAt
+    }
+
     public var id: String
     public var channelId: String
     public var level: CompactionLevel
@@ -363,6 +375,19 @@ public struct CompactionJob: Codable, Sendable, Equatable {
         self.preserveRecentTokens = preserveRecentTokens
         self.contextWindowTokens = contextWindowTokens
         self.createdAt = createdAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        channelId = try container.decode(String.self, forKey: .channelId)
+        level = try container.decode(CompactionLevel.self, forKey: .level)
+        threshold = try container.decode(Double.self, forKey: .threshold)
+        targetReductionPercent = try container.decodeIfPresent(Int.self, forKey: .targetReductionPercent) ?? 50
+        preserveRecentMessages = try container.decodeIfPresent(Int.self, forKey: .preserveRecentMessages) ?? 8
+        preserveRecentTokens = try container.decodeIfPresent(Int.self, forKey: .preserveRecentTokens) ?? 2_000
+        contextWindowTokens = try container.decodeIfPresent(Int.self, forKey: .contextWindowTokens) ?? 32_000
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
     }
 }
 

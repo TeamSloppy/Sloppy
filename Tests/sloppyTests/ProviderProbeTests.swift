@@ -210,7 +210,7 @@ func providerProbeGeminiUsesAntigravityModelsForOAuthCredentials() async throws 
             seenRequests.count += 1
             #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer oauth-access-token")
             #expect(request.value(forHTTPHeaderField: "User-Agent") == "antigravity")
-            if request.url?.absoluteString == "https://daily-cloudcode-pa.googleapis.com/v1internal:loadCodeAssist" {
+            if request.url?.absoluteString == "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist" {
                 let body = try #require(request.httpBody)
                 let object = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
                 #expect(object["cloudaicompanionProject"] == nil)
@@ -227,7 +227,7 @@ func providerProbeGeminiUsesAntigravityModelsForOAuthCredentials() async throws 
                 """
                 return (Data(payload.utf8), makeProbeHTTPResponse(url: request.url!))
             }
-            #expect(request.url?.absoluteString == "https://daily-cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels")
+            #expect(request.url?.absoluteString == "https://cloudcode-pa.googleapis.com/v1internal:fetchAvailableModels")
             let body = try #require(request.httpBody)
             let object = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
             #expect(object["project"] as? String == "companion-project-123")

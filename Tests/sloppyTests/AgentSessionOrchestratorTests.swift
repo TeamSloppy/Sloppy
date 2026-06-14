@@ -451,6 +451,10 @@ private func expectedFallbackBootstrapMessage(
 ) throws -> String {
     let loader = PromptTemplateLoader()
     let renderer = PromptTemplateRenderer()
+    let identity = BaseSloppyPrompts.generalPrompt.trimmingCharacters(in: .newlines)
+    let skillsRules = [BaseSloppyPrompts.sessionSearchPrompt, BaseSloppyPrompts.skillsPrompt]
+        .joined(separator: "\n\n")
+        .trimmingCharacters(in: .newlines)
     let capabilities = try renderer.render(template: try loader.loadPartial(named: "session_capabilities"), values: [:])
     let runtimeRules = try renderer.render(template: try loader.loadPartial(named: "runtime_rules"), values: [:])
     let branchingRules = try renderer.render(template: try loader.loadPartial(named: "branching_rules"), values: [:])
@@ -467,6 +471,8 @@ private func expectedFallbackBootstrapMessage(
     Agent: \(agentID)
     \(agentDirectoryLine)Session: \(sessionID)
 
+    \(identity)
+
     [AGENTS.md]
     \(documents.agentsMarkdown)
 
@@ -478,6 +484,10 @@ private func expectedFallbackBootstrapMessage(
 
     [SOUL.md]
     \(documents.soulMarkdown)
+
+    \(identity)
+
+    \(skillsRules)
 
     \(capabilities)
 

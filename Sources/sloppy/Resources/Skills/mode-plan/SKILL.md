@@ -36,6 +36,7 @@ Your final Plan-mode answer is saved by Sloppy as `PLAN_NAME.md` inside a durabl
 ## Project Task Handoff
 
 - For substantial work, offer to capture the plan as a project task.
+- Before creating or updating project tasks, call `project.current`, inspect existing work with `project.task_list`, then use `project.task_create` or `project.task_update` as appropriate.
 - If the user asks to create, save, track, decompose, link, update, or enqueue tasks, load and follow built-in skill `sloppy/kanban-task-manager`.
 - The kanban skill owns duplicate checks, umbrella/root tasks, parent/dependency links, tags, authors, assignments, and autopilot queue placement.
 - Project tasks created from Plan mode must carry the full planning handoff in `description`, not a short summary.

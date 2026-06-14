@@ -878,11 +878,11 @@ enum SloppyTUIPlanInputPicker {
 extension AgentChatMode {
     var next: AgentChatMode {
         switch self {
-        case .auto: return .build
+        case .ask: return .build
         case .build: return .plan
         case .plan: return .debug
-        case .debug: return .ask
-        case .ask: return .auto
+        case .debug: return .auto
+        case .auto: return .ask
         }
     }
 
