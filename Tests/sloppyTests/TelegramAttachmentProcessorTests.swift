@@ -96,6 +96,35 @@ func telegramBotAPISendRichMessageDraftUsesDraftEndpoint() async throws {
 }
 
 @Test
+func telegramBotAPISendRichMessageDraftCanSendThinkingBlockHTML() async throws {
+    TelegramMockURLProtocol.reset()
+    TelegramMockURLProtocol.handler = { request in
+        let url = request.url!.absoluteString
+        #expect(url.hasSuffix("/botTEST/sendRichMessageDraft"))
+        let params = try #require(JSONSerialization.jsonObject(with: requestBodyData(request)) as? [String: Any])
+        #expect(params["chat_id"] as? Int == 42)
+        #expect(params["draft_id"] as? Int == 99)
+        let richMessage = try #require(params["rich_message"] as? [String: Any])
+        #expect(richMessage["html"] as? String == "<tg-thinking>Thinking...</tg-thinking>")
+        #expect(richMessage["markdown"] == nil)
+        return (200, #"{"ok":true,"result":true}"#.data(using: .utf8)!)
+    }
+
+    let bot = TelegramBotAPI(
+        botToken: "TEST",
+        baseURL: URL(string: "https://telegram.test/botTEST/")!,
+        fileBaseURL: URL(string: "https://telegram.test/file/botTEST/")!,
+        session: TelegramMockURLProtocol.session()
+    )
+
+    try await bot.sendRichMessageDraft(
+        chatId: 42,
+        draftId: 99,
+        html: "<tg-thinking>Thinking...</tg-thinking>"
+    )
+}
+
+@Test
 func telegramAttachmentProcessorDownloadsVoiceAndAddsTranscript() async throws {
     TelegramMockURLProtocol.reset()
     TelegramMockURLProtocol.handler = { request in

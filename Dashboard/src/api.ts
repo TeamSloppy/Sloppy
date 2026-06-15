@@ -19,6 +19,7 @@ export const fetchWorkers = coreApi.fetchWorkers;
 export const fetchMeshState = coreApi.fetchMeshState;
 export const configureMeshNetwork = coreApi.configureMeshNetwork;
 export const createMeshInvite = coreApi.createMeshInvite;
+export const acceptMeshInvite = coreApi.acceptMeshInvite;
 export const fetchMeshNodes = coreApi.fetchMeshNodes;
 export const registerMeshNode = coreApi.registerMeshNode;
 export const fetchMeshSharedProjects = coreApi.fetchMeshSharedProjects;

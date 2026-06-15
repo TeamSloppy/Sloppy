@@ -213,6 +213,7 @@ func meshAPIConfiguresNetworkInvitesAndRegisteredNodes() async throws {
         capabilities: ["run_agent", "git"],
         ttlSeconds: 600,
         relayURL: "https://sloppy.example.com",
+        nodeId: "node_render",
         publicKey: "ed25519:public"
     ))
     let inviteResponse = await router.handle(method: "POST", path: "/v1/node/mesh/invites", body: inviteBody)
@@ -226,9 +227,18 @@ func meshAPIConfiguresNetworkInvitesAndRegisteredNodes() async throws {
     let bundle = try MeshInviteBundle.parse(bundleToken)
     #expect(bundle.inviteToken == invite.token)
     #expect(bundle.relayURL == "https://sloppy.example.com")
+    #expect(bundle.nodeId == "node_render")
     #expect(bundle.publicKey == "ed25519:public")
     let inviteObject = try #require(JSONSerialization.jsonObject(with: inviteResponse.body) as? [String: Any])
     #expect((inviteObject["bundleToken"] as? String)?.hasPrefix(MeshInviteBundle.prefix) == true)
+
+    let acceptBody = try encoder.encode(MeshInviteAcceptRequest(token: bundleToken))
+    let acceptResponse = await router.handle(method: "POST", path: "/v1/node/mesh/invites/accept", body: acceptBody)
+    #expect(acceptResponse.status == 201)
+    let acceptedNode = try decoder.decode(MeshNodeRecord.self, from: acceptResponse.body)
+    #expect(acceptedNode.id == "node_render")
+    #expect(acceptedNode.publicKey == "ed25519:public")
+    #expect(acceptedNode.endpoint == "https://sloppy.example.com")
 
     let nodeBody = try encoder.encode(MeshNodeRegisterRequest(
         id: "node_render",

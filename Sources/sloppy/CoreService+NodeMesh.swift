@@ -25,8 +25,13 @@ extension CoreService {
             capabilities: request.capabilities,
             ttlSeconds: request.ttlSeconds,
             relayURL: relayURL,
+            nodeId: request.nodeId,
             publicKey: request.publicKey
         )
+    }
+
+    public func acceptMeshInvite(_ request: MeshInviteAcceptRequest) throws -> MeshNodeRecord {
+        try nodeMeshStore.acceptInvite(token: request.token, endpoint: request.endpoint)
     }
 
     public func registerMeshNode(_ request: MeshNodeRegisterRequest) throws -> MeshNodeRecord {

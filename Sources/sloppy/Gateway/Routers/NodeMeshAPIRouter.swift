@@ -43,6 +43,19 @@ struct NodeMeshAPIRouter: APIRouter {
             }
         }
 
+        router.post("/v1/node/mesh/invites/accept", metadata: RouteMetadata(summary: "Accept mesh invite", description: "Consumes a bundled SloppyNode mesh invite token and registers the invited node identity", tags: ["Node Mesh"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: MeshInviteAcceptRequest.self) else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                return CoreRouter.encodable(status: HTTPStatus.created, payload: try await service.acceptMeshInvite(payload))
+            } catch {
+                return meshErrorResponse(error)
+            }
+        }
+
         router.get("/v1/node/mesh/nodes", metadata: RouteMetadata(summary: "List mesh nodes", description: "Returns known SloppyNode mesh nodes and statuses", tags: ["Node Mesh"])) { _ in
             do {
                 return CoreRouter.encodable(status: HTTPStatus.ok, payload: try await service.listMeshNodes())

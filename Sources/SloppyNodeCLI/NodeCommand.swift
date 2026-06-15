@@ -205,6 +205,9 @@ public struct InviteCreate: AsyncParsableCommand {
     @Option(name: .long, help: "Worker public key to include in the bundled invite token.")
     var publicKey: String?
 
+    @Option(name: .long, help: "Worker node id to include in the bundled invite token.")
+    var nodeId: String?
+
     @Option(name: .long, help: "Mesh state path. Defaults to ~/.sloppy/mesh.json.")
     var meshPath: String?
 
@@ -220,6 +223,7 @@ public struct InviteCreate: AsyncParsableCommand {
             capabilities: normalizeList(capabilities),
             ttlSeconds: ttlSeconds,
             relayURL: relay,
+            nodeId: nodeId,
             publicKey: publicKey
         )
         print(invite.bundleToken ?? invite.token)
@@ -231,6 +235,9 @@ public struct InviteCreate: AsyncParsableCommand {
         }
         if let publicKey = invite.publicKey {
             print("  publicKey: \(publicKey)")
+        }
+        if let nodeId = invite.nodeId {
+            print("  nodeId: \(nodeId)")
         }
         print("  expiresAt: \(ISO8601DateFormatter().string(from: invite.expiresAt))")
     }
@@ -307,6 +314,9 @@ public struct Join: AsyncParsableCommand {
         let configStore = NodeConfigStore(configURL: configURL(from: configPath))
         let config: NodeConfig
         if !force, let existingConfig = try? configStore.load() {
+            if let nodeId = bundle?.nodeId, existingConfig.identity.nodeId != nodeId {
+                throw ValidationError("Bundled invite is bound to a different worker node id.")
+            }
             if let publicKey = bundle?.publicKey, existingConfig.identity.publicKey != publicKey {
                 throw ValidationError("Bundled invite is bound to a different worker public key.")
             }

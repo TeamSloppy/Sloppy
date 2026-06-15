@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import type { CoreApi } from "../shared/api/coreApi";
 
 type AnyRecord = Record<string, unknown>;
-type MeshModal = "network" | "invite" | "node" | null;
+type MeshModal = "network" | "invite" | "accept" | "node" | null;
 type MeshGraphNode = {
   id: string;
   name: string;
@@ -206,7 +206,9 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
   const [inviteCapabilities, setInviteCapabilities] = useState("run_agent,git");
   const [inviteTtlSeconds, setInviteTtlSeconds] = useState("86400");
   const [inviteRelayURL, setInviteRelayURL] = useState(() => (typeof window === "undefined" ? "" : window.location.origin));
+  const [inviteNodeId, setInviteNodeId] = useState("");
   const [invitePublicKey, setInvitePublicKey] = useState("");
+  const [acceptInviteToken, setAcceptInviteToken] = useState("");
   const [latestInvite, setLatestInvite] = useState<AnyRecord | null>(null);
   const [nodeId, setNodeId] = useState("");
   const [nodeDisplayName, setNodeDisplayName] = useState("");
@@ -361,9 +363,10 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
   async function createInvite() {
     const id = activeSystemId.trim() || networkId.trim() || "personal";
     const relayURL = inviteRelayURL.trim();
+    const inviteeNodeId = inviteNodeId.trim();
     const publicKey = invitePublicKey.trim();
-    if (!relayURL || !publicKey) {
-      setError("Relay URL and worker public key are required for a bundled invite token.");
+    if (!relayURL || !inviteeNodeId || !publicKey) {
+      setError("Relay URL, worker node id, and worker public key are required for a bundled invite token.");
       return;
     }
     await runAction("invite", async () => {
@@ -374,6 +377,7 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
         capabilities: csv(inviteCapabilities),
         ttlSeconds: Number(inviteTtlSeconds) || 86400,
         relayURL,
+        nodeId: inviteeNodeId,
         publicKey
       });
       if (!invite) {
@@ -382,7 +386,26 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
       }
       setLatestInvite(invite);
       setInviteName("");
+      setInviteNodeId("");
       setInvitePublicKey("");
+      return true;
+    });
+  }
+
+  async function acceptInvite() {
+    const token = acceptInviteToken.trim();
+    if (!token) {
+      setError("Invite token is required.");
+      return;
+    }
+    await runAction("accept", async () => {
+      const node = await coreApi.acceptMeshInvite({ token });
+      if (!node) {
+        setError("Invite could not be accepted.");
+        return false;
+      }
+      setAcceptInviteToken("");
+      setSelectedNodeId(text(node.id));
       return true;
     });
   }
@@ -521,6 +544,9 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
             <Field label="Relay URL" hint="Included in the bundled token so the worker does not need a separate --relay value.">
               <input type="url" value={inviteRelayURL} onChange={(event) => setInviteRelayURL(event.target.value)} />
             </Field>
+            <Field label="Worker node id" hint="Paste the node id from the worker identity.">
+              <input type="text" value={inviteNodeId} onChange={(event) => setInviteNodeId(event.target.value)} />
+            </Field>
             <Field label="Worker public key" hint="Paste the ed25519 public key from the worker identity.">
               <textarea value={invitePublicKey} onChange={(event) => setInvitePublicKey(event.target.value)} rows={4} />
             </Field>
@@ -542,8 +568,26 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
           </div>
           <div className="nodes-modal-actions">
             <button type="button" onClick={() => setActiveModal(null)}>Cancel</button>
-            <button type="button" className="nodes-primary-button" disabled={!activeSystemId.trim() || !inviteRelayURL.trim() || !invitePublicKey.trim() || !!busyAction} onClick={() => void createInvite()}>
+            <button type="button" className="nodes-primary-button" disabled={!activeSystemId.trim() || !inviteRelayURL.trim() || !inviteNodeId.trim() || !invitePublicKey.trim() || !!busyAction} onClick={() => void createInvite()}>
               {busyAction === "invite" ? "Creating" : "Create invite"}
+            </button>
+          </div>
+        </MeshModalFrame>
+      );
+    }
+
+    if (activeModal === "accept") {
+      return (
+        <MeshModalFrame title="Accept Invite" description="Paste one bundled mesh invite token to register the invited worker identity." icon="move_to_inbox" onClose={() => setActiveModal(null)}>
+          <div className="nodes-modal-body">
+            <Field label="Invite token" hint="Accepts slp_mesh bundled tokens. Legacy slp_invite tokens still work when the invite exists in this coordinator state.">
+              <textarea value={acceptInviteToken} onChange={(event) => setAcceptInviteToken(event.target.value)} rows={6} />
+            </Field>
+          </div>
+          <div className="nodes-modal-actions">
+            <button type="button" onClick={() => setActiveModal(null)}>Cancel</button>
+            <button type="button" className="nodes-primary-button" disabled={!acceptInviteToken.trim() || !!busyAction} onClick={() => void acceptInvite()}>
+              {busyAction === "accept" ? "Accepting" : "Accept invite"}
             </button>
           </div>
         </MeshModalFrame>
@@ -605,6 +649,10 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
           <button type="button" className="nodes-primary-button" onClick={() => setActiveModal("invite")}>
             <span className="material-symbols-rounded" aria-hidden="true">key</span>
             Invite Node
+          </button>
+          <button type="button" className="nodes-secondary-button" onClick={() => setActiveModal("accept")}>
+            <span className="material-symbols-rounded" aria-hidden="true">move_to_inbox</span>
+            Accept Invite
           </button>
           <button type="button" className="nodes-icon-button" onClick={() => void refresh()} disabled={isLoading} title="Refresh">
             <span className="material-symbols-rounded" aria-hidden="true">refresh</span>
@@ -683,6 +731,11 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
               <span className="material-symbols-rounded" aria-hidden="true">badge</span>
               <strong>3. Register</strong>
               <small>Manual fallback for existing worker keys.</small>
+            </button>
+            <button type="button" onClick={() => setActiveModal("accept")}>
+              <span className="material-symbols-rounded" aria-hidden="true">move_to_inbox</span>
+              <strong>4. Accept</strong>
+              <small>Paste one bundled invite token.</small>
             </button>
           </section>
 

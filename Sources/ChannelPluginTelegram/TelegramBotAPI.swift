@@ -334,10 +334,40 @@ actor TelegramBotAPI {
     ) async throws {
         logger.debug("sendRichMessageDraft: chatId=\(chatId), draftId=\(draftId), length=\(markdown.count)")
 
+        try await sendRichMessageDraft(
+            chatId: chatId,
+            draftId: draftId,
+            richMessage: inputRichMessage(markdown: markdown, skipEntityDetection: skipEntityDetection),
+            messageThreadId: messageThreadId
+        )
+    }
+
+    func sendRichMessageDraft(
+        chatId: Int64,
+        draftId: Int64,
+        html: String,
+        messageThreadId: Int? = nil
+    ) async throws {
+        logger.debug("sendRichMessageDraft: chatId=\(chatId), draftId=\(draftId), length=\(html.count)")
+
+        try await sendRichMessageDraft(
+            chatId: chatId,
+            draftId: draftId,
+            richMessage: inputRichMessage(html: html),
+            messageThreadId: messageThreadId
+        )
+    }
+
+    private func sendRichMessageDraft(
+        chatId: Int64,
+        draftId: Int64,
+        richMessage: [String: Any],
+        messageThreadId: Int?
+    ) async throws {
         var params: [String: Any] = [
             "chat_id": chatId,
             "draft_id": draftId,
-            "rich_message": inputRichMessage(markdown: markdown, skipEntityDetection: skipEntityDetection)
+            "rich_message": richMessage
         ]
         if let messageThreadId { params["message_thread_id"] = messageThreadId }
         let data = try await post(method: "sendRichMessageDraft", params: params)
@@ -381,6 +411,10 @@ actor TelegramBotAPI {
             richMessage["skip_entity_detection"] = skipEntityDetection
         }
         return richMessage
+    }
+
+    private func inputRichMessage(html: String) -> [String: Any] {
+        ["html": html]
     }
 
     func deleteMessage(chatId: Int64, messageId: Int64, messageThreadId: Int? = nil) async throws {

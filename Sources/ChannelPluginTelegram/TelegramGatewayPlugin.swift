@@ -28,6 +28,8 @@ actor TelegramPlanInputSessionStore {
 }
 
 public actor TelegramGatewayPlugin: StreamingGatewayPlugin, ToolApprovalGatewayPlugin, PlanInputGatewayPlugin {
+    static let thinkingDraftHTML = "<tg-thinking>Thinking...</tg-thinking>"
+
     private struct StreamState: Sendable {
         enum Mode: Sendable {
             case richDraft(draftId: Int64)
@@ -266,7 +268,7 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin, ToolApprovalGatewayP
             try await bot.sendRichMessageDraft(
                 chatId: chatId,
                 draftId: draftId,
-                markdown: "Thinking...",
+                html: Self.thinkingDraftHTML,
                 messageThreadId: threadId
             )
             streams[handle.id] = StreamState(

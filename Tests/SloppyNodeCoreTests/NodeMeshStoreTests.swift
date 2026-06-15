@@ -107,6 +107,7 @@ struct NodeMeshStoreTests {
             capabilities: identity.capabilities,
             ttlSeconds: 60,
             relayURL: "https://sloppy.example.com",
+            nodeId: identity.nodeId,
             publicKey: identity.publicKey
         )
 
@@ -115,6 +116,7 @@ struct NodeMeshStoreTests {
 
         #expect(bundle.inviteToken == invite.token)
         #expect(bundle.relayURL == "https://sloppy.example.com")
+        #expect(bundle.nodeId == identity.nodeId)
         #expect(bundle.publicKey == identity.publicKey)
 
         let node = try store.consumeInvite(
@@ -125,6 +127,40 @@ struct NodeMeshStoreTests {
 
         #expect(node.publicKey == identity.publicKey)
         #expect(node.endpoint == "https://sloppy.example.com")
+    }
+
+    @Test("accept bundled invite registers expected node from one token")
+    func acceptBundledInviteRegistersExpectedNodeFromOneToken() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let identity = NodeIdentityGenerator.makeIdentity(
+            name: "Home Mac",
+            roles: ["worker"],
+            capabilities: ["run_agent", "git"]
+        )
+        let invite = try store.createInvite(
+            networkId: "personal",
+            name: "Home Mac",
+            roles: identity.roles,
+            capabilities: identity.capabilities,
+            ttlSeconds: 60,
+            relayURL: "https://sloppy.example.com",
+            nodeId: identity.nodeId,
+            publicKey: identity.publicKey
+        )
+        let bundleToken = try #require(invite.bundleToken)
+
+        let node = try store.acceptInvite(token: bundleToken)
+
+        #expect(node.id == identity.nodeId)
+        #expect(node.name == "Home Mac")
+        #expect(node.publicKey == identity.publicKey)
+        #expect(node.roles == ["worker"])
+        #expect(node.capabilities == ["run_agent", "git"])
+        #expect(node.status == .offline)
+        #expect(node.endpoint == "https://sloppy.example.com")
+        let state = try store.load()
+        #expect(state.invites.first?.consumedByNodeId == identity.nodeId)
+        #expect(state.nodes.map(\.id) == [identity.nodeId])
     }
 
     @Test("shared project attach stores per-node local paths")

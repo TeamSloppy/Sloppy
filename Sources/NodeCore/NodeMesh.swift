@@ -221,6 +221,7 @@ public struct MeshInviteCreateRequest: Codable, Sendable, Equatable {
     public var capabilities: [String]
     public var ttlSeconds: TimeInterval
     public var relayURL: String?
+    public var nodeId: String?
     public var publicKey: String?
 
     public init(
@@ -230,6 +231,7 @@ public struct MeshInviteCreateRequest: Codable, Sendable, Equatable {
         capabilities: [String] = ["run_agent", "git"],
         ttlSeconds: TimeInterval = 86400,
         relayURL: String? = nil,
+        nodeId: String? = nil,
         publicKey: String? = nil
     ) {
         self.networkId = networkId
@@ -238,7 +240,18 @@ public struct MeshInviteCreateRequest: Codable, Sendable, Equatable {
         self.capabilities = capabilities
         self.ttlSeconds = ttlSeconds
         self.relayURL = relayURL
+        self.nodeId = nodeId
         self.publicKey = publicKey
+    }
+}
+
+public struct MeshInviteAcceptRequest: Codable, Sendable, Equatable {
+    public var token: String
+    public var endpoint: String?
+
+    public init(token: String, endpoint: String? = nil) {
+        self.token = token
+        self.endpoint = endpoint
     }
 }
 
@@ -274,6 +287,7 @@ public struct MeshInvite: Codable, Sendable, Equatable {
     public var roles: [String]
     public var capabilities: [String]
     public var relayURL: String?
+    public var nodeId: String?
     public var publicKey: String?
     public var createdAt: Date
     public var expiresAt: Date
@@ -287,6 +301,7 @@ public struct MeshInvite: Codable, Sendable, Equatable {
         roles: [String],
         capabilities: [String],
         relayURL: String? = nil,
+        nodeId: String? = nil,
         publicKey: String? = nil,
         createdAt: Date = Date(),
         expiresAt: Date,
@@ -299,6 +314,7 @@ public struct MeshInvite: Codable, Sendable, Equatable {
         self.roles = roles
         self.capabilities = capabilities
         self.relayURL = relayURL
+        self.nodeId = nodeId
         self.publicKey = publicKey
         self.createdAt = createdAt
         self.expiresAt = expiresAt
@@ -313,6 +329,7 @@ public struct MeshInvite: Codable, Sendable, Equatable {
         return try? MeshInviteBundle(
             inviteToken: token,
             relayURL: relayURL,
+            nodeId: nodeId,
             publicKey: publicKey
         ).tokenString()
     }
@@ -324,6 +341,7 @@ public struct MeshInvite: Codable, Sendable, Equatable {
         case roles
         case capabilities
         case relayURL
+        case nodeId
         case publicKey
         case createdAt
         case expiresAt
@@ -340,6 +358,7 @@ public struct MeshInvite: Codable, Sendable, Equatable {
         roles = try container.decode([String].self, forKey: .roles)
         capabilities = try container.decode([String].self, forKey: .capabilities)
         relayURL = try container.decodeIfPresent(String.self, forKey: .relayURL)
+        nodeId = try container.decodeIfPresent(String.self, forKey: .nodeId)
         publicKey = try container.decodeIfPresent(String.self, forKey: .publicKey)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         expiresAt = try container.decode(Date.self, forKey: .expiresAt)
@@ -355,6 +374,7 @@ public struct MeshInvite: Codable, Sendable, Equatable {
         try container.encode(roles, forKey: .roles)
         try container.encode(capabilities, forKey: .capabilities)
         try container.encodeIfPresent(relayURL, forKey: .relayURL)
+        try container.encodeIfPresent(nodeId, forKey: .nodeId)
         try container.encodeIfPresent(publicKey, forKey: .publicKey)
         try container.encode(createdAt, forKey: .createdAt)
         try container.encode(expiresAt, forKey: .expiresAt)
@@ -387,17 +407,20 @@ public struct MeshInviteBundle: Codable, Sendable, Equatable {
     public var version: Int
     public var inviteToken: String
     public var relayURL: String
+    public var nodeId: String?
     public var publicKey: String
 
     public init(
         version: Int = 1,
         inviteToken: String,
         relayURL: String,
+        nodeId: String? = nil,
         publicKey: String
     ) {
         self.version = version
         self.inviteToken = inviteToken
         self.relayURL = relayURL
+        self.nodeId = nodeId
         self.publicKey = publicKey
     }
 
@@ -405,6 +428,7 @@ public struct MeshInviteBundle: Codable, Sendable, Equatable {
         case version = "v"
         case inviteToken
         case relayURL
+        case nodeId
         case publicKey
     }
 
@@ -746,6 +770,7 @@ public struct NodeMeshStore: Sendable {
         capabilities: [String],
         ttlSeconds: TimeInterval = 86400,
         relayURL: String? = nil,
+        nodeId: String? = nil,
         publicKey: String? = nil
     ) throws -> MeshInvite {
         var state = try load()
@@ -758,6 +783,7 @@ public struct NodeMeshStore: Sendable {
             roles: roles,
             capabilities: capabilities,
             relayURL: relayURL,
+            nodeId: nodeId,
             publicKey: publicKey,
             expiresAt: Date().addingTimeInterval(max(1, ttlSeconds))
         )
@@ -765,6 +791,42 @@ public struct NodeMeshStore: Sendable {
         state.auditLog.append(MeshAuditLogEntry(actor: "local", action: "node.invite.create", allowed: true, message: invite.token))
         try save(state)
         return invite
+    }
+
+    @discardableResult
+    public func acceptInvite(token: String, endpoint: String? = nil) throws -> MeshNodeRecord {
+        var state = try load()
+        let bundle = try? MeshInviteBundle.parse(token)
+        let inviteToken = bundle?.inviteToken ?? token
+        guard let index = state.invites.firstIndex(where: { $0.token == inviteToken }) else {
+            throw NodeMeshStoreError.inviteMissing
+        }
+        let invite = state.invites[index]
+        guard invite.consumedAt == nil else { throw NodeMeshStoreError.inviteConsumed }
+        guard invite.expiresAt > Date() else { throw NodeMeshStoreError.inviteExpired }
+        guard let nodeId = bundle?.nodeId ?? invite.nodeId, !nodeId.isEmpty,
+              let publicKey = bundle?.publicKey ?? invite.publicKey, !publicKey.isEmpty
+        else {
+            throw NodeMeshStoreError.permissionDenied("invite.identity")
+        }
+
+        state.invites[index].consumedAt = Date()
+        state.invites[index].consumedByNodeId = nodeId
+        state.networkId = invite.networkId
+        let record = MeshNodeRecord(
+            id: nodeId,
+            name: invite.name ?? nodeId,
+            publicKey: publicKey,
+            roles: invite.roles,
+            endpoint: endpoint ?? bundle?.relayURL ?? invite.relayURL,
+            status: .offline,
+            lastSeenAt: Date(),
+            capabilities: invite.capabilities
+        )
+        upsert(record, in: &state.nodes)
+        state.auditLog.append(MeshAuditLogEntry(actor: nodeId, action: "node.invite.accept", allowed: true, message: invite.token))
+        try save(state)
+        return record
     }
 
     @discardableResult
