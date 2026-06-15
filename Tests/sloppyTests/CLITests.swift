@@ -59,6 +59,7 @@ func rootCommandAllowsTUIOnlyForInteractiveStdioWithoutPrompt() {
 func rootCommandIncludesSloppyNodeCommandTree() {
     let rootSubcommands = SloppyApp.configuration.subcommands.compactMap { $0.configuration.commandName }
     #expect(rootSubcommands.contains("node"))
+    #expect(rootSubcommands.contains("deepresearch"))
 
     let nodeCommand = SloppyApp.configuration.subcommands.first { $0.configuration.commandName == "node" }
     let nodeSubcommands = nodeCommand?.configuration.subcommands.compactMap { $0.configuration.commandName } ?? []

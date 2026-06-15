@@ -2,6 +2,7 @@ import Foundation
 
 enum TelegramMessageSplitter {
     static let maxCharacters = 4096
+    static let richMaxCharacters = 32768
 
     static func split(_ text: String, maxCharacters: Int = Self.maxCharacters) -> [String] {
         guard maxCharacters > 0 else { return [text] }

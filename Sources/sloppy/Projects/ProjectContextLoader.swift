@@ -92,7 +92,10 @@ struct ProjectContextLoader {
 
         let docPaths: [String] = [
             "AGENTS.md",
+            "USER.md",
+            "SOUL.md",
             "CLAUDE.md",
+            "GEMINI.md",
             "SLOPPY.md"
         ]
         for relativePath in docPaths {

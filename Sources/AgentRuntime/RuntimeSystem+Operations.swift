@@ -6,6 +6,9 @@ import Protocols
 
 public extension RuntimeSystem {
     func setChannelBootstrap(channelId: String, content: String) async {
+        if bootstrapByChannel[channelId] != content {
+            sessionsByChannel.removeValue(forKey: channelId)
+        }
         bootstrapByChannel[channelId] = content
     }
 

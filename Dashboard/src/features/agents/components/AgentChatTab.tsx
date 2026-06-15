@@ -33,6 +33,17 @@ import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
 import { filterModelsByQuery } from "../utils/aggregateProviderModels";
+import {
+  DEEP_RESEARCH_DEFAULT_MODE,
+  DEEP_RESEARCH_DEFAULT_ROUNDS,
+  DEEP_RESEARCH_MAX_ROUNDS,
+  DEEP_RESEARCH_MIN_ROUNDS,
+  DEEP_RESEARCH_MODES,
+  buildDeepResearchCommand,
+  buildDeepResearchProcess,
+  deepResearchSkillInvocation,
+  parseDeepResearchCommand
+} from "../deepResearch";
 
 const INLINE_ATTACHMENT_MAX_BYTES = 2 * 1024 * 1024;
 const ACTIVE_RUN_STATUS_REFRESH_AFTER_MS = 30 * 1000;
@@ -54,6 +65,7 @@ const DASHBOARD_ONLY_SLASH_COMMANDS = [
   { name: "clear", description: "Clear conversation (new session)" },
   { name: "compact", description: "Free up context by summarizing the conversation so far" },
   { name: "add_dir", description: "Add a working directory to this session" },
+  { name: "deepresearch", description: "Configure and run multi-round web research" },
   { name: "tasks", description: "List tasks linked to this agent" }
 ];
 
@@ -1954,6 +1966,11 @@ function buildTimelineItems({
   const latestBuildProgressEvent = [...safeEvents]
     .reverse()
     .find((eventItem) => eventItem?.type === "build_progress" && eventItem.buildProgress);
+  const deepResearchProcess = buildDeepResearchProcess(
+    safeEvents,
+    latestRunStatus,
+    (eventItem) => segmentsToPlainText(eventItem?.message?.segments || [])
+  );
   const planArtifactsByMessageId = new Map();
   for (const eventItem of safeEvents) {
     const artifact = eventItem?.type === "plan_artifact" ? eventItem?.planArtifact?.artifact : null;
@@ -2003,6 +2020,13 @@ function buildTimelineItems({
         event: eventItem,
         planArtifact: planArtifactsByMessageId.get(String(eventItem.id || "")) || null
       });
+      if (deepResearchProcess?.startEventId && deepResearchProcess.startEventId === String(eventItem.id || "")) {
+        timelineItems.push({
+          id: `${extractEventKey(eventItem, index)}-deep-research`,
+          kind: "deep_research",
+          process: deepResearchProcess
+        });
+      }
       continue;
     }
 
@@ -2156,6 +2180,67 @@ function BuildProgressPanel({ progress, latestRunStatus }) {
           );
         })}
       </ol>
+    </section>
+  );
+}
+
+function DeepResearchProcessPanel({ process }) {
+  if (!process?.config) {
+    return null;
+  }
+  const mode = DEEP_RESEARCH_MODES.find((item) => item.id === process.config.mode) || DEEP_RESEARCH_MODES[2];
+  const rounds = Number(process.config.rounds) || DEEP_RESEARCH_DEFAULT_ROUNDS;
+  const stage = String(process.stage || "thinking").replace(/_/g, " ");
+  const progressItems = Array.isArray(process.progress?.items) ? process.progress.items : [];
+  return (
+    <section className="agent-deep-research-panel" aria-label="Deep research process">
+      <div className="agent-deep-research-head">
+        <span className="material-symbols-rounded" aria-hidden="true">
+          travel_explore
+        </span>
+        <div>
+          <strong>Deep Research</strong>
+          <small>{mode.label} · round {process.currentRound}/{rounds} · {stage}</small>
+        </div>
+      </div>
+      <div className="agent-deep-research-meter" aria-hidden="true">
+        {Array.from({ length: rounds }).map((_, index) => (
+          <span key={index} className={index < process.currentRound ? "active" : ""} />
+        ))}
+      </div>
+      {process.queries.length > 0 ? (
+        <div className="agent-deep-research-section">
+          <span>Recent queries</span>
+          <ul>
+            {process.queries.map((query) => <li key={query}>{query}</li>)}
+          </ul>
+        </div>
+      ) : null}
+      {process.urls.length > 0 ? (
+        <div className="agent-deep-research-section">
+          <span>Sources</span>
+          <ul>
+            {process.urls.map((url) => (
+              <li key={url}>
+                <a href={url} target="_blank" rel="noreferrer">{url}</a>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+      {progressItems.length > 0 ? (
+        <div className="agent-deep-research-section">
+          <span>Progress</span>
+          <ul>
+            {progressItems.map((item, index) => (
+              <li key={String(item?.id || index)}>
+                <strong>{String(item?.title || `Item ${index + 1}`)}</strong>
+                {item?.status ? ` · ${String(item.status).replace(/_/g, " ")}` : ""}
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
     </section>
   );
 }
@@ -2389,6 +2474,10 @@ function AgentChatEvents({
                   latestRunStatus={timelineItem.latestRunStatus}
                 />
               );
+            }
+
+            if (timelineItem.kind === "deep_research") {
+              return <DeepResearchProcessPanel key={timelineItem.id} process={timelineItem.process} />;
             }
 
             const eventItem = timelineItem.event;
@@ -2676,6 +2765,12 @@ function AgentChatComposer({
   const [pathSuggestions, setPathSuggestions] = useState<Array<{ path: string; type?: string }>>([]);
   const [pathSearchLoading, setPathSearchLoading] = useState(false);
   const [pathSearchError, setPathSearchError] = useState<string | null>(null);
+  const [deepResearchOpen, setDeepResearchOpen] = useState(false);
+  const [deepResearchDraft, setDeepResearchDraft] = useState({
+    mode: DEEP_RESEARCH_DEFAULT_MODE,
+    rounds: String(DEEP_RESEARCH_DEFAULT_ROUNDS),
+    prompt: ""
+  });
   const activeChatMode = chatModeMeta(chatMode);
   const pathSearchRequestIdRef = useRef(0);
   const pendingCaretOffsetRef = useRef(null);
@@ -2817,6 +2912,34 @@ function AgentChatComposer({
   function applyInputValue(nextValue, nextCaret) {
     pendingCaretOffsetRef.current = nextCaret;
     onInputTextChange(nextValue);
+  }
+
+  function openDeepResearchConfig() {
+    const parsed = parseDeepResearchCommand(inputText);
+    const existing = parsed?.config;
+    setDeepResearchDraft({
+      mode: existing?.mode || DEEP_RESEARCH_DEFAULT_MODE,
+      rounds: String(existing?.rounds || DEEP_RESEARCH_DEFAULT_ROUNDS),
+      prompt: existing?.prompt || String(inputText || "").replace(/^\/deepresearch\b/i, "").trim()
+    });
+    setDeepResearchOpen(true);
+  }
+
+  function applyDeepResearchConfig() {
+    const rounds = Math.min(
+      DEEP_RESEARCH_MAX_ROUNDS,
+      Math.max(DEEP_RESEARCH_MIN_ROUNDS, Number.parseInt(String(deepResearchDraft.rounds || ""), 10) || DEEP_RESEARCH_DEFAULT_ROUNDS)
+    );
+    const mode = DEEP_RESEARCH_MODES.some((item) => item.id === deepResearchDraft.mode)
+      ? deepResearchDraft.mode
+      : DEEP_RESEARCH_DEFAULT_MODE;
+    const nextValue = buildDeepResearchCommand({
+      mode,
+      rounds,
+      prompt: deepResearchDraft.prompt
+    });
+    applyInputValue(nextValue, nextValue.length);
+    setDeepResearchOpen(false);
   }
 
   function applyTaskSuggestion(task) {
@@ -3027,6 +3150,54 @@ function AgentChatComposer({
         {renderTaskDropdown()}
         {renderPathDropdown()}
         {renderSlashDropdown()}
+        {deepResearchOpen ? (
+          <div className="agent-deep-research-config" role="dialog" aria-label="Deep research configuration">
+            <div className="agent-deep-research-config-head">
+              <strong>Deep Research</strong>
+              <button type="button" className="agent-chat-icon-button" onClick={() => setDeepResearchOpen(false)} aria-label="Close deep research configuration">
+                <span className="material-symbols-rounded" aria-hidden="true">close</span>
+              </button>
+            </div>
+            <div className="agent-deep-research-mode-row" role="radiogroup" aria-label="Search mode">
+              {DEEP_RESEARCH_MODES.map((mode) => (
+                <button
+                  key={mode.id}
+                  type="button"
+                  className={deepResearchDraft.mode === mode.id ? "active" : ""}
+                  onClick={() => setDeepResearchDraft((draft) => ({ ...draft, mode: mode.id }))}
+                  aria-pressed={deepResearchDraft.mode === mode.id}
+                >
+                  <span className="material-symbols-rounded" aria-hidden="true">{mode.icon}</span>
+                  {mode.label}
+                </button>
+              ))}
+            </div>
+            <label className="agent-deep-research-field">
+              <span>Rounds</span>
+              <input
+                type="number"
+                min={DEEP_RESEARCH_MIN_ROUNDS}
+                max={DEEP_RESEARCH_MAX_ROUNDS}
+                value={deepResearchDraft.rounds}
+                onChange={(event) => setDeepResearchDraft((draft) => ({ ...draft, rounds: event.target.value }))}
+              />
+            </label>
+            <label className="agent-deep-research-field">
+              <span>Prompt</span>
+              <textarea
+                value={deepResearchDraft.prompt}
+                onChange={(event) => setDeepResearchDraft((draft) => ({ ...draft, prompt: event.target.value }))}
+                rows={3}
+              />
+            </label>
+            <div className="agent-deep-research-actions">
+              <button type="button" onClick={() => setDeepResearchOpen(false)}>Cancel</button>
+              <button type="button" className="primary" onClick={applyDeepResearchConfig} disabled={!String(deepResearchDraft.prompt || "").trim()}>
+                Insert command
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <form className="agent-chat-compose" onSubmit={onSend}>
           <input
@@ -3340,6 +3511,18 @@ function AgentChatComposer({
             />
 
             <div className="agent-chat-compose-right">
+              <button
+                type="button"
+                className="agent-chat-icon-button"
+                onClick={openDeepResearchConfig}
+                disabled={isInputDisabled}
+                title="Configure Deep Research"
+              >
+                <span className="material-symbols-rounded" aria-hidden="true">
+                  travel_explore
+                </span>
+              </button>
+
               <button
                 type="button"
                 className={`agent-chat-mode-button agent-chat-mode-button--${activeChatMode.id}`}
@@ -5319,6 +5502,15 @@ export function AgentChatTab({
       return true;
     }
 
+    const deepResearch = parseDeepResearchCommand(text);
+    if (deepResearch) {
+      if (deepResearch.error) {
+        await persistCommandEvents(text, deepResearch.error);
+        return true;
+      }
+      return false;
+    }
+
     if (lower === "/tasks") {
       if (knownTaskRecords.length === 0) {
         await persistCommandEvents(text, "No tasks found.");
@@ -5385,16 +5577,19 @@ export function AgentChatTab({
     const skillInvocation = pendingFiles.length === 0 && !replyTarget && sourceControlDiffComposeTags.length === 0
       ? skillInvocationMessage(trimmed)
       : null;
+    const deepResearchInvocation = pendingFiles.length === 0 && !replyTarget && sourceControlDiffComposeTags.length === 0
+      ? parseDeepResearchCommand(trimmed)
+      : null;
     const replyContext = replyTarget ? `Reply to assistant: "${replyTarget.text}"` : "";
     const contentForSend = mergedBody
       ? replyContext
-        ? `${replyContext}\n\n${skillInvocation || mergedBody}`
-        : (skillInvocation || mergedBody)
+        ? `${replyContext}\n\n${deepResearchInvocation?.config ? deepResearchSkillInvocation(deepResearchInvocation.config) : (skillInvocation || mergedBody)}`
+        : (deepResearchInvocation?.config ? deepResearchSkillInvocation(deepResearchInvocation.config) : (skillInvocation || mergedBody))
       : replyContext;
     if (!contentForSend && pendingFiles.length === 0) {
       return;
     }
-    const modeForSend = normalizeChatMode(chatMode);
+    const modeForSend = deepResearchInvocation?.config ? "auto" : normalizeChatMode(chatMode);
 
     let sessionId = activeSessionId;
     if (!sessionId) {

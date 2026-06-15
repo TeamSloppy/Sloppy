@@ -1008,6 +1008,30 @@ func respondInlineIncludesBootstrapContextInPrompt() async {
 }
 
 @Test
+func updatingBootstrapContextInvalidatesPersistentSession() async {
+    let provider = PromptCapturingModelProvider()
+    let system = RuntimeSystem(modelProvider: provider, defaultModel: "mock-model")
+    let channelId = "session-bootstrap-refresh"
+
+    await system.setChannelBootstrap(channelId: channelId, content: "Initial bootstrap")
+    _ = await system.postMessage(
+        channelId: channelId,
+        request: ChannelMessageRequest(userId: "dashboard", content: "first")
+    )
+
+    await system.setChannelBootstrap(channelId: channelId, content: "Updated bootstrap")
+    _ = await system.postMessage(
+        channelId: channelId,
+        request: ChannelMessageRequest(userId: "dashboard", content: "second")
+    )
+
+    let instructions = await provider.allInstructions()
+    #expect(await provider.requestedModelsSnapshot().count == 2)
+    #expect(instructions.first?.contains("Initial bootstrap") == true)
+    #expect(instructions.last?.contains("Updated bootstrap") == true)
+}
+
+@Test
 func respondInlineInjectsScopedMemoryForAgentSession() async {
     let provider = PromptCapturingModelProvider()
     let memory = InMemoryMemoryStore()

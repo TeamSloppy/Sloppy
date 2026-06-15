@@ -1,5 +1,9 @@
-import React, { useState, useMemo, useEffect, useRef } from "react";
+import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import {
+    attachMeshSharedProjectMember,
+    createMeshSharedProject,
+    deleteMeshSharedProject,
+    fetchMeshState,
     fetchSourceControlProviders,
     fetchProjectTaskSync,
     discoverProjectTaskSync,
@@ -19,7 +23,8 @@ const SETTINGS_TABS = [
     { id: "loop", title: "Task Loop Mode", icon: "sync" },
     { id: "autopilot", title: "Autopilot", icon: "robot_2" },
     { id: "review", title: "Git Worktree & Review", icon: "rate_review" },
-    { id: "task_sync", title: "Task Sync", icon: "sync_alt" }
+    { id: "task_sync", title: "Task Sync", icon: "sync_alt" },
+    { id: "mesh", title: "Mesh Sharing", icon: "hub" }
 ];
 
 const APPROVAL_MODES = [
@@ -71,6 +76,14 @@ const AUTOPILOT_PERMISSIONS = [
     { id: "canStartLocalhost", label: "Localhost", icon: "dns" },
     { id: "canCommit", label: "Commit", icon: "commit" },
     { id: "canPush", label: "Push", icon: "upload" }
+];
+
+const MESH_PERMISSION_OPTIONS = [
+    { id: "project.read", label: "Project read" },
+    { id: "task.update", label: "Task update" },
+    { id: "task.assign", label: "Task assign" },
+    { id: "node.rpc", label: "Node RPC" },
+    { id: "project.sync", label: "Project sync" }
 ];
 
 const PROJECT_ICONS = [
@@ -302,6 +315,16 @@ function parseList(value) {
         .filter(Boolean);
 }
 
+function toggleListValue(values, value) {
+    const set = new Set(Array.isArray(values) ? values : []);
+    if (set.has(value)) {
+        set.delete(value);
+    } else {
+        set.add(value);
+    }
+    return Array.from(set);
+}
+
 function listText(values) {
     return Array.isArray(values) ? values.join(", ") : "";
 }
@@ -415,6 +438,13 @@ export function ProjectSettingsTab({
     const [debugWorktreeStatus, setDebugWorktreeStatus] = useState("");
     const [debugWorktreeResult, setDebugWorktreeResult] = useState(null);
     const [debugWorktreeBusy, setDebugWorktreeBusy] = useState(false);
+    const [meshState, setMeshState] = useState(null);
+    const [meshStatus, setMeshStatus] = useState("");
+    const [meshBusy, setMeshBusy] = useState("");
+    const [meshSelectedNodeId, setMeshSelectedNodeId] = useState("");
+    const [meshMemberPath, setMeshMemberPath] = useState("");
+    const [meshMemberRole, setMeshMemberRole] = useState("worker");
+    const [meshMemberPermissions, setMeshMemberPermissions] = useState(["project.read", "task.update"]);
 
     useEffect(() => {
         setDraft(cloneDraft(project));
@@ -424,6 +454,31 @@ export function ProjectSettingsTab({
         setDebugWorktreeStatus("");
         setDebugWorktreeResult(null);
     }, [project?.id, project?.updatedAt]);
+
+    const loadMeshState = useCallback(async () => {
+        const state = await fetchMeshState();
+        setMeshState(state);
+        const nodes = Array.isArray(state?.nodes) ? state.nodes : [];
+        setMeshSelectedNodeId((current) => {
+            if (current && nodes.some((node) => String(node?.id || "") === current)) {
+                return current;
+            }
+            return String(nodes[0]?.id || "");
+        });
+    }, []);
+
+    useEffect(() => {
+        let cancelled = false;
+        async function load() {
+            const state = await fetchMeshState();
+            if (cancelled) return;
+            setMeshState(state);
+            const nodes = Array.isArray(state?.nodes) ? state.nodes : [];
+            setMeshSelectedNodeId((current) => current || String(nodes[0]?.id || ""));
+        }
+        load();
+        return () => { cancelled = true; };
+    }, [project.id, project.updatedAt]);
 
     useEffect(() => {
         let cancelled = false;
@@ -494,6 +549,26 @@ export function ProjectSettingsTab({
         });
         return options;
     }, [availableActors, draft.autopilotSettings.defaultAgentId, draft.autopilotSettings.reviewerAgentId]);
+    const meshNodes = useMemo(
+        () => Array.isArray(meshState?.nodes) ? meshState.nodes : [],
+        [meshState]
+    );
+    const meshSharedProjects = useMemo(
+        () => Array.isArray(meshState?.sharedProjects) ? meshState.sharedProjects : [],
+        [meshState]
+    );
+    const meshProject = useMemo(() => {
+        const projectId = String(project?.id || "").trim();
+        const projectName = String(project?.name || "").trim();
+        return meshSharedProjects.find((item) => (
+            String(item?.id || "") === projectId ||
+            String(item?.name || "") === projectName
+        )) || null;
+    }, [meshSharedProjects, project?.id, project?.name]);
+    const meshProjectMembers = useMemo(
+        () => Array.isArray(meshProject?.members) ? meshProject.members : [],
+        [meshProject]
+    );
 
     function mutateDraft(mutator) {
         setDraft((prev) => {
@@ -578,6 +653,85 @@ export function ProjectSettingsTab({
             setDebugWorktreeStatus(error?.message || "Failed to create worktree");
         } finally {
             setDebugWorktreeBusy(false);
+        }
+    }
+
+    async function enableMeshSharing() {
+        const repoTarget = draft.repoPath.trim() || project.repoPath || "";
+        if (!repoTarget) {
+            setMeshStatus("Set a workspace path before enabling mesh sharing.");
+            return;
+        }
+        setMeshBusy("enable");
+        setMeshStatus("Enabling mesh sharing...");
+        try {
+            const result = await createMeshSharedProject({
+                id: project.id,
+                name: draft.name.trim() || project.name || project.id,
+                repoUrl: repoTarget,
+                defaultBranch: "main"
+            });
+            if (!result) {
+                setMeshStatus("Mesh sharing could not be enabled.");
+                return;
+            }
+            setMeshStatus("Mesh sharing enabled.");
+            await loadMeshState();
+        } catch (error) {
+            setMeshStatus(error?.message || "Mesh sharing could not be enabled.");
+        } finally {
+            setMeshBusy("");
+        }
+    }
+
+    async function disableMeshSharing() {
+        if (!meshProject?.id) {
+            return;
+        }
+        setMeshBusy("disable");
+        setMeshStatus("Disabling mesh sharing...");
+        try {
+            const ok = await deleteMeshSharedProject(meshProject.id);
+            if (!ok) {
+                setMeshStatus("Mesh sharing could not be disabled.");
+                return;
+            }
+            setMeshStatus("Mesh sharing disabled.");
+            await loadMeshState();
+        } catch (error) {
+            setMeshStatus(error?.message || "Mesh sharing could not be disabled.");
+        } finally {
+            setMeshBusy("");
+        }
+    }
+
+    async function attachMeshMember() {
+        const nodeId = meshSelectedNodeId.trim();
+        const localRepoPath = meshMemberPath.trim();
+        if (!meshProject?.id || !nodeId || !localRepoPath) {
+            setMeshStatus("Choose a node and local checkout path.");
+            return;
+        }
+        setMeshBusy("attach");
+        setMeshStatus("Attaching node...");
+        try {
+            const result = await attachMeshSharedProjectMember(meshProject.id, {
+                nodeId,
+                localRepoPath,
+                role: meshMemberRole.trim() || "worker",
+                permissions: meshMemberPermissions
+            });
+            if (!result) {
+                setMeshStatus("Node could not be attached to this project.");
+                return;
+            }
+            setMeshMemberPath("");
+            setMeshStatus("Node attached to mesh project.");
+            await loadMeshState();
+        } catch (error) {
+            setMeshStatus(error?.message || "Node could not be attached to this project.");
+        } finally {
+            setMeshBusy("");
         }
     }
 
@@ -804,6 +958,165 @@ export function ProjectSettingsTab({
                         )}
                     </div>
                 </section>
+            </>
+        );
+    }
+
+    function renderMeshSharing() {
+        const repoTarget = draft.repoPath.trim() || project.repoPath || "";
+        const sharingEnabled = Boolean(meshProject);
+        return (
+            <>
+                <section className="entry-editor-card mesh-sharing-card">
+                    <div className="mesh-sharing-head">
+                        <div>
+                            <h3>Project Mesh Sharing</h3>
+                            <p>
+                                Enable this project only when worker nodes should receive tasks and repository context from the mesh.
+                            </p>
+                        </div>
+                        <span className={`mesh-sharing-state ${sharingEnabled ? "enabled" : "disabled"}`}>
+                            {sharingEnabled ? "Enabled" : "Disabled"}
+                        </span>
+                    </div>
+
+                    <div className="mesh-sharing-summary">
+                        <article>
+                            <span>Project id</span>
+                            <strong>{project.id}</strong>
+                        </article>
+                        <article>
+                            <span>Repository target</span>
+                            <strong>{repoTarget || "Set workspace path first"}</strong>
+                        </article>
+                        <article>
+                            <span>Members</span>
+                            <strong>{meshProjectMembers.length}</strong>
+                        </article>
+                    </div>
+
+                    <div className="mesh-sharing-actions">
+                        {sharingEnabled ? (
+                            <button
+                                type="button"
+                                className="danger hover-levitate"
+                                disabled={!!meshBusy}
+                                onClick={() => void disableMeshSharing()}
+                            >
+                                <span className="material-symbols-rounded" aria-hidden="true">link_off</span>
+                                {meshBusy === "disable" ? "Disabling" : "Disable sharing"}
+                            </button>
+                        ) : (
+                            <button
+                                type="button"
+                                className="hover-levitate"
+                                disabled={!repoTarget || !!meshBusy}
+                                onClick={() => void enableMeshSharing()}
+                            >
+                                <span className="material-symbols-rounded" aria-hidden="true">share</span>
+                                {meshBusy === "enable" ? "Enabling" : "Enable sharing"}
+                            </button>
+                        )}
+                        <button type="button" className="hover-levitate" disabled={!!meshBusy} onClick={() => void loadMeshState()}>
+                            <span className="material-symbols-rounded" aria-hidden="true">refresh</span>
+                            Refresh
+                        </button>
+                    </div>
+
+                    {meshStatus ? <p className="mesh-sharing-status">{meshStatus}</p> : null}
+                </section>
+
+                {sharingEnabled ? (
+                    <section className="entry-editor-card mesh-sharing-card">
+                        <h3>Worker Access</h3>
+                        <p className="mesh-sharing-copy">
+                            Attach a registered mesh node to this project and define where that node should keep its local checkout.
+                        </p>
+
+                        <div className="mesh-node-picker" role="group" aria-label="Mesh nodes">
+                            {meshNodes.length === 0 ? (
+                                <p className="mesh-sharing-empty">No mesh nodes registered yet. Register a node on the Node Mesh page first.</p>
+                            ) : meshNodes.map((node) => {
+                                const nodeId = String(node?.id || "");
+                                const active = meshSelectedNodeId === nodeId;
+                                return (
+                                    <button
+                                        key={nodeId}
+                                        type="button"
+                                        className={active ? "active" : ""}
+                                        onClick={() => setMeshSelectedNodeId(nodeId)}
+                                    >
+                                        <span className="material-symbols-rounded" aria-hidden="true">dns</span>
+                                        <span>
+                                            <strong>{String(node?.name || nodeId)}</strong>
+                                            <small>{String(node?.endpoint || node?.status || "offline")}</small>
+                                        </span>
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        <div className="entry-form-grid mesh-sharing-form">
+                            <label>
+                                Local checkout path on selected node
+                                <input
+                                    type="text"
+                                    value={meshMemberPath}
+                                    onChange={(e) => setMeshMemberPath(e.target.value)}
+                                    placeholder="/Users/worker/Developer/project"
+                                />
+                            </label>
+                            <label>
+                                Role
+                                <input
+                                    type="text"
+                                    value={meshMemberRole}
+                                    onChange={(e) => setMeshMemberRole(e.target.value)}
+                                />
+                            </label>
+                        </div>
+
+                        <div className="mesh-permission-grid" role="group" aria-label="Mesh permissions">
+                            {MESH_PERMISSION_OPTIONS.map((permission) => {
+                                const active = meshMemberPermissions.includes(permission.id);
+                                return (
+                                    <button
+                                        key={permission.id}
+                                        type="button"
+                                        className={active ? "active" : ""}
+                                        onClick={() => setMeshMemberPermissions((current) => toggleListValue(current, permission.id))}
+                                    >
+                                        {permission.label}
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        <button
+                            type="button"
+                            className="hover-levitate"
+                            disabled={!meshSelectedNodeId || !meshMemberPath.trim() || !!meshBusy}
+                            onClick={() => void attachMeshMember()}
+                        >
+                            <span className="material-symbols-rounded" aria-hidden="true">lan</span>
+                            {meshBusy === "attach" ? "Attaching" : "Attach node"}
+                        </button>
+
+                        <div className="mesh-member-list">
+                            {meshProjectMembers.length === 0 ? (
+                                <p className="mesh-sharing-empty">No worker nodes attached to this project.</p>
+                            ) : meshProjectMembers.map((member) => (
+                                <article key={String(member?.nodeId || member?.localRepoPath || "")}>
+                                    <span className="material-symbols-rounded" aria-hidden="true">badge</span>
+                                    <div>
+                                        <strong>{String(member?.nodeId || "node")}</strong>
+                                        <small>{String(member?.localRepoPath || "no path")} / {listText(member?.permissions) || "no permissions"}</small>
+                                    </div>
+                                </article>
+                            ))}
+                        </div>
+                    </section>
+                ) : null}
             </>
         );
     }
@@ -1889,6 +2202,8 @@ export function ProjectSettingsTab({
                 return renderReview();
             case "task_sync":
                 return renderTaskSync();
+            case "mesh":
+                return renderMeshSharing();
             default:
                 return null;
         }

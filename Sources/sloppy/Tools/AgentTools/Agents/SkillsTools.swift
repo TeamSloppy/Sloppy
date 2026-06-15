@@ -208,7 +208,12 @@ struct SkillsManageTool: CoreTool {
                 isOptional: true
             ),
             .init(name: "userInvocable", description: "Whether users can invoke this skill directly. Defaults to SKILL.md frontmatter or true.", schema: DynamicGenerationSchema(type: Bool.self), isOptional: true),
-            .init(name: "allowedTools", description: "Optional tool IDs this skill expects. Defaults to SKILL.md frontmatter.", schema: DynamicGenerationSchema(type: [String].self), isOptional: true),
+            .init(
+                name: "allowedTools",
+                description: "Optional tool IDs this skill expects. Defaults to SKILL.md frontmatter.",
+                schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)),
+                isOptional: true
+            ),
             .init(name: "context", description: "Optional skill context, currently 'fork' when the skill should run in a forked agent context.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "agent", description: "Optional preferred agent/role metadata for the skill.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "autoRoute", description: "Optional auto-route metadata for runtime routing.", schema: DynamicGenerationSchema(type: String.self), isOptional: true)

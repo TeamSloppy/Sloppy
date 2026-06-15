@@ -3474,6 +3474,206 @@
   background: var(--surface);
 }
 
+/* ── Mesh sharing settings ───────────────────────────────── */
+
+.mesh-sharing-card {
+  display: grid;
+  gap: 14px;
+}
+
+.mesh-sharing-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+}
+
+.mesh-sharing-head h3 {
+  margin: 0;
+}
+
+.mesh-sharing-head p,
+.mesh-sharing-copy,
+.mesh-sharing-status,
+.mesh-sharing-empty {
+  margin: 6px 0 0;
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.45;
+}
+
+.mesh-sharing-state {
+  flex: 0 0 auto;
+  border: 1px solid var(--line);
+  padding: 5px 8px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.mesh-sharing-state.enabled {
+  border-color: color-mix(in srgb, var(--success, #22c55e) 60%, var(--line));
+  color: var(--success, #22c55e);
+}
+
+.mesh-sharing-summary {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mesh-sharing-summary article {
+  min-width: 0;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  padding: 10px;
+}
+
+.mesh-sharing-summary span {
+  display: block;
+  color: var(--muted);
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.mesh-sharing-summary strong {
+  display: block;
+  margin-top: 6px;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  color: var(--text-heading);
+  font-size: 0.84rem;
+}
+
+.mesh-sharing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.mesh-sharing-actions button,
+.mesh-sharing-card>button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+}
+
+.mesh-sharing-actions .material-symbols-rounded,
+.mesh-sharing-card>button .material-symbols-rounded {
+  font-size: 18px;
+}
+
+.mesh-node-picker,
+.mesh-permission-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.mesh-node-picker button,
+.mesh-permission-grid button {
+  min-width: 0;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--muted);
+  text-align: left;
+  cursor: pointer;
+}
+
+.mesh-node-picker button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  min-height: 54px;
+  padding: 8px 10px;
+}
+
+.mesh-permission-grid button {
+  min-height: 38px;
+  padding: 8px 10px;
+  font-family: "Fira Code", monospace;
+  font-size: 0.76rem;
+}
+
+.mesh-node-picker button:hover,
+.mesh-node-picker button.active,
+.mesh-permission-grid button:hover,
+.mesh-permission-grid button.active {
+  border-color: var(--accent);
+  color: var(--text);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-2));
+}
+
+.mesh-node-picker .material-symbols-rounded {
+  color: var(--accent);
+  font-size: 20px;
+}
+
+.mesh-node-picker strong,
+.mesh-node-picker small {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mesh-node-picker strong {
+  color: var(--text-heading);
+  font-size: 0.82rem;
+}
+
+.mesh-node-picker small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.mesh-sharing-form {
+  margin-top: 0;
+}
+
+.mesh-member-list {
+  display: grid;
+  gap: 8px;
+}
+
+.mesh-member-list article {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 9px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  padding: 8px 10px;
+}
+
+.mesh-member-list .material-symbols-rounded {
+  color: var(--accent);
+  font-size: 20px;
+}
+
+.mesh-member-list strong,
+.mesh-member-list small {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.mesh-member-list strong {
+  color: var(--text-heading);
+  font-size: 0.82rem;
+}
+
+.mesh-member-list small {
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
 /* ── Danger zone ─────────────────────────────────────────── */
 
 .settings-danger-zone h3 {
@@ -4220,6 +4420,107 @@
 .td-prop-link {
   border: 1px solid var(--line);
   background: var(--surface);
+}
+
+.td-mesh-dispatch-card {
+  display: grid;
+  gap: 10px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: 10px;
+}
+
+.td-mesh-dispatch-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+}
+
+.td-mesh-dispatch-head .material-symbols-rounded {
+  color: var(--accent);
+  font-size: 20px;
+}
+
+.td-mesh-dispatch-head strong,
+.td-mesh-dispatch-head small,
+.td-mesh-node-options strong,
+.td-mesh-node-options small {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.td-mesh-dispatch-head strong {
+  color: var(--text-heading);
+  font-size: 0.82rem;
+}
+
+.td-mesh-dispatch-head small,
+.td-mesh-dispatch-card p,
+.td-mesh-node-options small,
+.td-mesh-dispatch-status {
+  color: var(--muted);
+  font-size: 0.72rem;
+  line-height: 1.35;
+}
+
+.td-mesh-dispatch-card p {
+  margin: 0;
+}
+
+.td-mesh-node-options {
+  display: grid;
+  gap: 6px;
+}
+
+.td-mesh-node-options button {
+  min-width: 0;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--text);
+  text-align: left;
+  padding: 8px;
+  cursor: pointer;
+}
+
+.td-mesh-node-options button:hover,
+.td-mesh-node-options button.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface-2));
+}
+
+.td-mesh-node-options strong {
+  font-size: 0.78rem;
+}
+
+.td-mesh-node-options small {
+  margin-top: 3px;
+}
+
+.td-mesh-dispatch-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 36px;
+  border: 1px solid color-mix(in srgb, var(--accent) 60%, var(--line));
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface-2));
+  color: var(--text);
+  cursor: pointer;
+}
+
+.td-mesh-dispatch-button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
+.td-mesh-dispatch-button .material-symbols-rounded {
+  font-size: 17px;
+}
+
+.td-mesh-dispatch-status {
+  margin: 0;
 }
 
 .td-prop-tags {

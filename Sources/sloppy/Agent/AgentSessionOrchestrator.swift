@@ -71,6 +71,7 @@ actor AgentSessionOrchestrator {
     private var sessionCompletionSummaryByChannel: [String: String] = [:]
     private var delegatedSubagentSessionIDs: Set<String> = []
     private var syncedSessionStoreFingerprintsByChannel: [String: SessionStoreFingerprint] = [:]
+    private var channelsRequiringBootstrapRefresh: Set<String> = []
 
     init(
         runtime: RuntimeSystem,
@@ -115,6 +116,7 @@ actor AgentSessionOrchestrator {
         agentCatalogStore.updateAgentsRootURL(url)
         agentSkillsStore?.updateAgentsRootURL(url)
         syncedSessionStoreFingerprintsByChannel.removeAll()
+        channelsRequiringBootstrapRefresh.removeAll()
     }
 
     func updateAvailableModels(_ models: [ProviderModelOption]) {
@@ -1739,6 +1741,7 @@ actor AgentSessionOrchestrator {
         recoverySourceSessionID explicitRecoverySourceSessionID: String? = nil
     ) async throws {
         let channelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
+        let shouldRefreshBootstrap = channelsRequiringBootstrapRefresh.contains(channelID)
         let sessionDetail = try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID)
         let recoverySourceSessionID = explicitRecoverySourceSessionID
             ?? sessionDetail?.summary.parentSessionId?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1756,6 +1759,7 @@ actor AgentSessionOrchestrator {
                 $0.userId == "system" && $0.content.contains(Self.sessionContextBootstrapMarker)
             })?.content
         if let existingBootstrapContent,
+           !shouldRefreshBootstrap,
            await runtime.hasCachedChannelSession(channelId: channelID),
            let currentFingerprint = sessionDetail.map(sessionStoreFingerprint),
            syncedSessionStoreFingerprintsByChannel[channelID] == currentFingerprint {
@@ -1776,6 +1780,7 @@ actor AgentSessionOrchestrator {
             return
         }
         if let existingBootstrapContent,
+           !shouldRefreshBootstrap,
            !bootstrapNeedsConversationHistoryRefresh(
                 existingBootstrapContent,
                 agentID: agentID,
@@ -1905,6 +1910,7 @@ actor AgentSessionOrchestrator {
 
         await runtime.appendSystemMessage(channelId: channelID, content: bootstrapContent)
         await runtime.setChannelBootstrap(channelId: channelID, content: bootstrapContent)
+        channelsRequiringBootstrapRefresh.remove(channelID)
         await setRecoveryTranscriptIfAvailable(
             channelID: channelID,
             currentDetail: sessionDetail,
@@ -2179,6 +2185,28 @@ actor AgentSessionOrchestrator {
                     "skills_count": .stringConvertible(skills.count)
                 ]
             )
+        }
+    }
+
+    func notifyAgentDocumentsChanged(agentID: String) async {
+        let sessions: [AgentSessionSummary]
+        do {
+            sessions = try sessionStore.listSessions(agentID: agentID)
+        } catch {
+            logger.warning(
+                "Failed to list sessions for agent document change notification",
+                metadata: [
+                    "agent_id": .string(agentID),
+                    "error": .string(String(describing: error))
+                ]
+            )
+            return
+        }
+
+        for session in sessions {
+            let channelID = sessionChannelID(agentID: agentID, sessionID: session.id)
+            channelsRequiringBootstrapRefresh.insert(channelID)
+            await runtime.invalidateChannelSession(channelId: channelID)
         }
     }
 

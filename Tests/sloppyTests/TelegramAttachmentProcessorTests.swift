@@ -6,13 +6,15 @@ import Testing
 import FoundationNetworking
 #endif
 
+@Suite("Telegram attachment processor", .serialized)
+struct TelegramAttachmentProcessorTests {
 @Test
 func telegramBotAPIGetFileAndDownloadUseTelegramFileEndpoints() async throws {
     TelegramMockURLProtocol.reset()
     TelegramMockURLProtocol.handler = { request in
         let url = request.url!.absoluteString
         if url.hasSuffix("/botTEST/getFile") {
-            let body = String(data: request.httpBody ?? Data(), encoding: .utf8) ?? ""
+            let body = String(data: requestBodyData(request), encoding: .utf8) ?? ""
             #expect(body.contains("voice-file-id"))
             return (200, #"{"ok":true,"result":{"file_id":"voice-file-id","file_unique_id":"unique-1","file_size":3,"file_path":"voice/file_1.oga"}}"#.data(using: .utf8)!)
         }
@@ -34,6 +36,63 @@ func telegramBotAPIGetFileAndDownloadUseTelegramFileEndpoints() async throws {
 
     let data = try await bot.downloadFile(filePath: "voice/file_1.oga")
     #expect(data == Data([0x4f, 0x67, 0x67]))
+}
+
+@Test
+func telegramBotAPISendRichMessageUsesRichMessageEndpoint() async throws {
+    TelegramMockURLProtocol.reset()
+    TelegramMockURLProtocol.handler = { request in
+        let url = request.url!.absoluteString
+        #expect(url.hasSuffix("/botTEST/sendRichMessage"))
+        let params = try #require(JSONSerialization.jsonObject(with: requestBodyData(request)) as? [String: Any])
+        #expect(params["chat_id"] as? Int == 42)
+        #expect((params["rich_message"] as? [String: Any])?["markdown"] as? String == "# Report\n\n| Status | Value |")
+        #expect((params["rich_message"] as? [String: Any])?["skip_entity_detection"] as? Bool == true)
+        return (200, #"{"ok":true,"result":{"message_id":7,"chat":{"id":42,"type":"private"},"date":1,"text":"Report"}}"#.data(using: .utf8)!)
+    }
+
+    let bot = TelegramBotAPI(
+        botToken: "TEST",
+        baseURL: URL(string: "https://telegram.test/botTEST/")!,
+        fileBaseURL: URL(string: "https://telegram.test/file/botTEST/")!,
+        session: TelegramMockURLProtocol.session()
+    )
+
+    let message = try await bot.sendRichMessage(
+        chatId: 42,
+        markdown: "# Report\n\n| Status | Value |",
+        skipEntityDetection: true,
+        showTyping: false
+    )
+
+    #expect(message.messageId == 7)
+}
+
+@Test
+func telegramBotAPISendRichMessageDraftUsesDraftEndpoint() async throws {
+    TelegramMockURLProtocol.reset()
+    TelegramMockURLProtocol.handler = { request in
+        let url = request.url!.absoluteString
+        #expect(url.hasSuffix("/botTEST/sendRichMessageDraft"))
+        let params = try #require(JSONSerialization.jsonObject(with: requestBodyData(request)) as? [String: Any])
+        #expect(params["chat_id"] as? Int == 42)
+        #expect(params["draft_id"] as? Int == 99)
+        #expect((params["rich_message"] as? [String: Any])?["markdown"] as? String == "Streaming **partial**")
+        return (200, #"{"ok":true,"result":true}"#.data(using: .utf8)!)
+    }
+
+    let bot = TelegramBotAPI(
+        botToken: "TEST",
+        baseURL: URL(string: "https://telegram.test/botTEST/")!,
+        fileBaseURL: URL(string: "https://telegram.test/file/botTEST/")!,
+        session: TelegramMockURLProtocol.session()
+    )
+
+    try await bot.sendRichMessageDraft(
+        chatId: 42,
+        draftId: 99,
+        markdown: "Streaming **partial**"
+    )
 }
 
 @Test
@@ -88,6 +147,7 @@ func telegramAttachmentProcessorDownloadsVoiceAndAddsTranscript() async throws {
     let content = TelegramAttachmentProcessor.contentWithTranscripts(content: "[Attachment]", attachments: processed)
     #expect(content == "Voice message transcript:\nпривет из войса")
 }
+}
 
 private struct StubTelegramAudioTranscriber: TelegramAudioTranscribing {
     let transcript: String?
@@ -99,7 +159,7 @@ private struct StubTelegramAudioTranscriber: TelegramAudioTranscribing {
     }
 }
 
-private final class TelegramMockURLProtocol: URLProtocol, @unchecked Sendable {
+private final class TelegramMockURLProtocol: URLProtocol {
     typealias Handler = @Sendable (URLRequest) throws -> (Int, Data)
 
     private static let lock = NSLock()
@@ -150,4 +210,27 @@ private final class TelegramMockURLProtocol: URLProtocol, @unchecked Sendable {
     }
 
     override func stopLoading() {}
+}
+
+private func requestBodyData(_ request: URLRequest) -> Data {
+    if let body = request.httpBody {
+        return body
+    }
+    guard let stream = request.httpBodyStream else {
+        return Data()
+    }
+
+    stream.open()
+    defer { stream.close() }
+
+    var data = Data()
+    var buffer = [UInt8](repeating: 0, count: 4096)
+    while stream.hasBytesAvailable {
+        let read = stream.read(&buffer, maxLength: buffer.count)
+        if read <= 0 {
+            break
+        }
+        data.append(buffer, count: read)
+    }
+    return data
 }

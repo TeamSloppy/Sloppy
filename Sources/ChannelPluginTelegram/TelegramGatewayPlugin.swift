@@ -29,9 +29,22 @@ actor TelegramPlanInputSessionStore {
 
 public actor TelegramGatewayPlugin: StreamingGatewayPlugin, ToolApprovalGatewayPlugin, PlanInputGatewayPlugin {
     private struct StreamState: Sendable {
+        enum Mode: Sendable {
+            case richDraft(draftId: Int64)
+            case editableMessage(messageId: Int64)
+        }
+
+        let chatId: Int64
+        /// Telegram forum topic thread; nil for non-forum chats.
+        let messageThreadId: Int?
+        var mode: Mode
+        var lastRenderedText: String
+        var lastUpdatedAt: Date
+    }
+
+    private struct ApprovalMessageState: Sendable {
         let chatId: Int64
         let messageId: Int64
-        /// Telegram forum topic thread; nil for non-forum chats.
         let messageThreadId: Int?
         var lastRenderedText: String
         var lastUpdatedAt: Date
@@ -48,7 +61,7 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin, ToolApprovalGatewayP
     private let planInputSessions = TelegramPlanInputSessionStore()
     private var pollerTask: Task<Void, Never>?
     private var streams: [String: StreamState] = [:]
-    private var approvalMessages: [String: StreamState] = [:]
+    private var approvalMessages: [String: ApprovalMessageState] = [:]
     /// Tracks the most recent inbound chatId per channelId for catch-all bindings (chatId == 0).
     private var activeChatIds: [String: Int64] = [:]
 
@@ -160,10 +173,10 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin, ToolApprovalGatewayP
             return
         }
         let threadId = effectiveMessageThreadId(channelId: channelId, topicId: topicId)
-        for (index, chunk) in TelegramMessageSplitter.split(message).enumerated() {
-            _ = try await bot.sendMessage(
+        for (index, chunk) in TelegramMessageSplitter.split(message, maxCharacters: TelegramMessageSplitter.richMaxCharacters).enumerated() {
+            try await sendRichMessageWithFallback(
                 chatId: chatId,
-                text: chunk,
+                markdown: chunk,
                 messageThreadId: threadId,
                 showTyping: index == 0
             )
@@ -218,7 +231,7 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin, ToolApprovalGatewayP
             replyMarkup: TelegramToolApproval.keyboard(id: approval.id),
             showTyping: false
         )
-        approvalMessages[approval.id] = StreamState(
+        approvalMessages[approval.id] = ApprovalMessageState(
             chatId: chatId,
             messageId: sent.messageId,
             messageThreadId: threadId,
@@ -247,15 +260,33 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin, ToolApprovalGatewayP
         }
 
         let threadId = effectiveMessageThreadId(channelId: channelId, topicId: topicId)
-        let placeholder = try await bot.sendMessage(chatId: chatId, text: "Thinking...", messageThreadId: threadId)
         let handle = GatewayOutboundStreamHandle(id: UUID().uuidString)
-        streams[handle.id] = StreamState(
-            chatId: chatId,
-            messageId: placeholder.messageId,
-            messageThreadId: threadId,
-            lastRenderedText: "",
-            lastUpdatedAt: .distantPast
-        )
+        let draftId = Self.makeDraftId()
+        do {
+            try await bot.sendRichMessageDraft(
+                chatId: chatId,
+                draftId: draftId,
+                markdown: "Thinking...",
+                messageThreadId: threadId
+            )
+            streams[handle.id] = StreamState(
+                chatId: chatId,
+                messageThreadId: threadId,
+                mode: .richDraft(draftId: draftId),
+                lastRenderedText: "",
+                lastUpdatedAt: .distantPast
+            )
+        } catch {
+            logger.debug("Telegram rich message draft failed; falling back to editable stream: \(error)")
+            let placeholder = try await bot.sendMessage(chatId: chatId, text: "Thinking...", messageThreadId: threadId)
+            streams[handle.id] = StreamState(
+                chatId: chatId,
+                messageThreadId: threadId,
+                mode: .editableMessage(messageId: placeholder.messageId),
+                lastRenderedText: "",
+                lastUpdatedAt: .distantPast
+            )
+        }
         return handle
     }
 
@@ -277,17 +308,45 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin, ToolApprovalGatewayP
             return
         }
 
-        let rendered = TelegramMessageSplitter.split(normalized).first ?? normalized
+        let maxCharacters: Int
+        switch state.mode {
+        case .richDraft:
+            maxCharacters = TelegramMessageSplitter.richMaxCharacters
+        case .editableMessage:
+            maxCharacters = TelegramMessageSplitter.maxCharacters
+        }
+        let rendered = TelegramMessageSplitter.split(normalized, maxCharacters: maxCharacters).first ?? normalized
         guard rendered != state.lastRenderedText else {
             return
         }
 
-        _ = try await bot.editMessageText(
-            chatId: state.chatId,
-            messageId: state.messageId,
-            text: rendered,
-            messageThreadId: state.messageThreadId
-        )
+        switch state.mode {
+        case .richDraft(let draftId):
+            do {
+                try await bot.sendRichMessageDraft(
+                    chatId: state.chatId,
+                    draftId: draftId,
+                    markdown: rendered,
+                    messageThreadId: state.messageThreadId
+                )
+            } catch {
+                logger.debug("Telegram rich draft update failed; switching stream to editable message: \(error)")
+                let placeholder = try await bot.sendMessage(
+                    chatId: state.chatId,
+                    text: rendered,
+                    messageThreadId: state.messageThreadId,
+                    showTyping: false
+                )
+                state.mode = .editableMessage(messageId: placeholder.messageId)
+            }
+        case .editableMessage(let messageId):
+            _ = try await bot.editMessageText(
+                chatId: state.chatId,
+                messageId: messageId,
+                text: rendered,
+                messageThreadId: state.messageThreadId
+            )
+        }
         state.lastRenderedText = rendered
         state.lastUpdatedAt = now
         streams[handle.id] = state
@@ -306,11 +365,25 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin, ToolApprovalGatewayP
         guard let finalContent = finalContent?.trimmingCharacters(in: .whitespacesAndNewlines),
               !finalContent.isEmpty
         else {
-            try await bot.deleteMessage(
-                chatId: state.chatId,
-                messageId: state.messageId,
-                messageThreadId: state.messageThreadId
-            )
+            if case .editableMessage(let messageId) = state.mode {
+                try await bot.deleteMessage(
+                    chatId: state.chatId,
+                    messageId: messageId,
+                    messageThreadId: state.messageThreadId
+                )
+            }
+            return
+        }
+
+        if case .richDraft = state.mode {
+            for (index, chunk) in TelegramMessageSplitter.split(finalContent, maxCharacters: TelegramMessageSplitter.richMaxCharacters).enumerated() {
+                try await sendRichMessageWithFallback(
+                    chatId: state.chatId,
+                    markdown: chunk,
+                    messageThreadId: state.messageThreadId,
+                    showTyping: index == 0
+                )
+            }
             return
         }
 
@@ -320,9 +393,12 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin, ToolApprovalGatewayP
         }
 
         if firstChunk != state.lastRenderedText {
+            guard case .editableMessage(let messageId) = state.mode else {
+                return
+            }
             _ = try await bot.editMessageText(
                 chatId: state.chatId,
-                messageId: state.messageId,
+                messageId: messageId,
                 text: firstChunk,
                 messageThreadId: state.messageThreadId
             )
@@ -337,6 +413,36 @@ public actor TelegramGatewayPlugin: StreamingGatewayPlugin, ToolApprovalGatewayP
                 messageThreadId: state.messageThreadId,
                 showTyping: false
             )
+        }
+    }
+
+    private static func makeDraftId() -> Int64 {
+        Int64.random(in: 1...Int64.max)
+    }
+
+    private func sendRichMessageWithFallback(
+        chatId: Int64,
+        markdown: String,
+        messageThreadId: Int?,
+        showTyping: Bool
+    ) async throws {
+        do {
+            _ = try await bot.sendRichMessage(
+                chatId: chatId,
+                markdown: markdown,
+                messageThreadId: messageThreadId,
+                showTyping: showTyping
+            )
+        } catch {
+            logger.warning("Telegram rich message send failed; falling back to sendMessage: \(error)")
+            for (index, chunk) in TelegramMessageSplitter.split(markdown).enumerated() {
+                _ = try await bot.sendMessage(
+                    chatId: chatId,
+                    text: chunk,
+                    messageThreadId: messageThreadId,
+                    showTyping: showTyping && index == 0
+                )
+            }
         }
     }
 
