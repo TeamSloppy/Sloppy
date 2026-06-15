@@ -1197,9 +1197,11 @@ export function TaskDetailView({
     const [meshDispatchStatus, setMeshDispatchStatus] = useState("");
     const [meshDispatchBusy, setMeshDispatchBusy] = useState(false);
     const [isDescriptionEditing, setIsDescriptionEditing] = useState(() => !String(task.description || "").trim());
+    const [propertiesCollapsed, setPropertiesCollapsed] = useState(false);
     const descriptionInputRef = useRef(null);
     const hasReviewDiff = Boolean(task.worktreeBranch);
     const canShowReviewTab = hasReviewDiff || task.status === "needs_review";
+    const useInlineProperties = isSideView || isMobileTaskDetail;
 
     useEffect(() => {
         if (!canShowReviewTab && activeTab === "review") {
@@ -1218,30 +1220,6 @@ export function TaskDetailView({
         mq.addEventListener("change", syncLayout);
         return () => mq.removeEventListener("change", syncLayout);
     }, []);
-
-    useEffect(() => {
-        if (!isMobileTaskDetail || !sidebarOpen) {
-            return;
-        }
-        const previousOverflow = document.body.style.overflow;
-        document.body.style.overflow = "hidden";
-        return () => {
-            document.body.style.overflow = previousOverflow;
-        };
-    }, [isMobileTaskDetail, sidebarOpen]);
-
-    useEffect(() => {
-        if (!isMobileTaskDetail || !sidebarOpen) {
-            return;
-        }
-        function onKeyDown(e) {
-            if (e.key === "Escape") {
-                setSidebarOpen(false);
-            }
-        }
-        window.addEventListener("keydown", onKeyDown);
-        return () => window.removeEventListener("keydown", onKeyDown);
-    }, [isMobileTaskDetail, sidebarOpen]);
 
     useEffect(() => {
         if (!actionsOpen) {
@@ -1320,6 +1298,7 @@ export function TaskDetailView({
 
     useEffect(() => {
         setIsDescriptionEditing(!String(task.description || "").trim());
+        setPropertiesCollapsed(false);
     }, [task.id, task.description]);
 
     useEffect(() => {
@@ -1385,303 +1364,17 @@ export function TaskDetailView({
         }
     }
 
-    return (
-        <div
-            className={`td-page ${isSideView ? "td-page--side-view" : ""} ${sidebarOpen ? "" : "td-page--sidebar-closed"} ${isMobileTaskDetail ? "td-page--mobile-props" : ""}`}
-        >
-            <div className="td-main">
-                {isMobileTaskDetail && sidebarOpen ? (
-                    <button
-                        type="button"
-                        className="td-sidebar-backdrop"
-                        aria-label="Close properties"
-                        onClick={() => setSidebarOpen(false)}
-                    />
-                ) : null}
-                <header className="td-header">
-                    <div className="td-breadcrumbs">
-                        <button type="button" className="td-breadcrumb-link" onClick={closeTaskDetails}>
-                            Tasks
-                        </button>
-                        <span className="material-symbols-rounded td-breadcrumb-sep">chevron_right</span>
-                        <span className="td-breadcrumb-current">{task.title || "Untitled"}</span>
-                    </div>
-                    <div className="td-header-actions">
-                        {isSideView && onExpand ? (
-                            <button
-                                type="button"
-                                className="task-review-open-btn"
-                                onClick={onExpand}
-                                title="Open task fullscreen"
-                            >
-                                <span className="material-symbols-rounded" aria-hidden="true">open_in_full</span>
-                                Развернуть
-                            </button>
-                        ) : null}
-                        {githubIssueURL ? (
-                            <a
-                                className="task-review-open-btn"
-                                href={githubIssueURL}
-                                target="_blank"
-                                rel="noreferrer"
-                            >
-                                <span className="material-symbols-rounded" aria-hidden="true">open_in_new</span>
-                                {githubIssueLabel}
-                            </a>
-                        ) : null}
-                        {task.status === "needs_review" && onOpenReview && (
-                            <button
-                                type="button"
-                                className="task-review-open-btn"
-                                onClick={() => onOpenReview(task)}
-                            >
-                                <span className="material-symbols-rounded" aria-hidden="true">rate_review</span>
-                                Review
-                            </button>
-                        )}
-                        {isMobileTaskDetail && (
-                            <button
-                                type="button"
-                                className="task-review-open-btn"
-                                onClick={() => setSidebarOpen((open) => !open)}
-                                aria-expanded={sidebarOpen}
-                                aria-controls="td-task-properties"
-                                title="Properties"
-                            >
-                                <span className="material-symbols-rounded" aria-hidden="true">tune</span>
-                                Properties
-                            </button>
-                        )}
-                        {!isMobileTaskDetail && !sidebarOpen && (
-                            <button
-                                type="button"
-                                className="project-task-detail-icon-button"
-                                onClick={() => setSidebarOpen(true)}
-                                aria-label="Show properties"
-                                title="Show properties"
-                            >
-                                <span className="material-symbols-rounded">right_panel_open</span>
-                            </button>
-                        )}
-                        <div
-                            className="td-actions-wrap"
-                            onMouseDown={(event) => event.stopPropagation()}
-                            onClick={(event) => event.stopPropagation()}
-                        >
-                            <button
-                                type="button"
-                                className="task-review-open-btn"
-                                onClick={() => setActionsOpen((open) => !open)}
-                                aria-haspopup="menu"
-                                aria-expanded={actionsOpen}
-                            >
-                                <span className="material-symbols-rounded" aria-hidden="true">more_horiz</span>
-                                Actions
-                            </button>
-                            {actionsOpen ? (
-                                <div className="td-actions-menu" role="menu">
-                                    <button
-                                        type="button"
-                                        className="danger"
-                                        role="menuitem"
-                                        onClick={() => {
-                                            setActionsOpen(false);
-                                            deleteTaskFromModal();
-                                        }}
-                                    >
-                                        <span className="material-symbols-rounded" aria-hidden="true">delete</span>
-                                        Delete task
-                                    </button>
-                                </div>
-                            ) : null}
-                        </div>
-                    </div>
-                </header>
+    async function copyTaskReference() {
+        const value = `#${task.id}`;
+        try {
+            await navigator.clipboard?.writeText(value);
+        } catch {
+            // Clipboard can be unavailable in non-secure contexts; keep this action quiet.
+        }
+    }
 
-                <div className="td-id-row">
-                    <span className="project-task-id">#{task.id}</span>
-                </div>
-
-                <div className="td-content">
-                    <input
-                        className="td-title-input"
-                        value={editDraft.title}
-                        onChange={(e) => updateEditDraft("title", e.target.value)}
-                        placeholder="Task title"
-                    />
-                    {descriptionMode === "editor" ? (
-                        <ProjectMentionTextarea
-                            textareaRef={descriptionInputRef}
-                            className="td-desc-input"
-                            value={editDraft.description}
-                            onChange={(e) => updateEditDraft("description", e.target.value)}
-                            onBlur={() => {
-                                if (String(editDraft.description || "").trim()) {
-                                    setIsDescriptionEditing(false);
-                                }
-                            }}
-                            project={project}
-                            placeholder="Add description... use # for tasks, / for files and skills"
-                            rows={5}
-                        />
-                    ) : (
-                        <div
-                            role="button"
-                            tabIndex={0}
-                            className="td-desc-preview markdown-body"
-                            onClick={focusDescriptionEditor}
-                            onKeyDown={(event) => {
-                                if (event.key === "Enter" || event.key === " ") {
-                                    event.preventDefault();
-                                    focusDescriptionEditor();
-                                }
-                            }}
-                            aria-label="Edit description"
-                        >
-                            <LinkedMarkdown project={project} openTaskDetails={openTaskDetails}>
-                                {editDraft.description}
-                            </LinkedMarkdown>
-                        </div>
-                    )}
-                    {attachments.length > 0 ? (
-                        <div className="td-attachments">
-                            {attachments.map((attachment, index) => (
-                                <div key={`${attachment.name}-${index}`} className="td-attachment">
-                                    {String(attachment.mimeType || "").startsWith("image/") && attachment.contentBase64 ? (
-                                        <img
-                                            src={`data:${attachment.mimeType};base64,${attachment.contentBase64}`}
-                                            alt=""
-                                        />
-                                    ) : (
-                                        <span className="material-symbols-rounded" aria-hidden="true">draft</span>
-                                    )}
-                                    <div>
-                                        <strong>{attachment.name}</strong>
-                                        <span>{attachment.mimeType || "application/octet-stream"} / {formatTaskAttachmentSize(attachment.sizeBytes)}</span>
-                                    </div>
-                                </div>
-                            ))}
-                        </div>
-                    ) : null}
-                </div>
-
-                <div className="td-tabs-section">
-                    <div className="td-tabs-bar">
-                        <button
-                            type="button"
-                            className={`td-tab ${activeTab === "comments" ? "active" : ""}`}
-                            onClick={() => setActiveTab("comments")}
-                        >
-                            <span className="material-symbols-rounded td-tab-icon">chat_bubble_outline</span>
-                            Comments
-                        </button>
-                        <button
-                            type="button"
-                            className={`td-tab ${activeTab === "subtasks" ? "active" : ""}`}
-                            onClick={() => setActiveTab("subtasks")}
-                        >
-                            <span className="material-symbols-rounded td-tab-icon">account_tree</span>
-                            Related issues
-                            {relatedIssueCount > 0 ? <span className="td-tab-count">{relatedIssueCount}</span> : null}
-                        </button>
-                        <button
-                            type="button"
-                            className={`td-tab ${activeTab === "activity" ? "active" : ""}`}
-                            onClick={() => setActiveTab("activity")}
-                        >
-                            <span className="material-symbols-rounded td-tab-icon">history</span>
-                            History
-                        </button>
-                        <button
-                            type="button"
-                            className={`td-tab ${activeTab === "logs" ? "active" : ""}`}
-                            onClick={() => setActiveTab("logs")}
-                        >
-                            <span className="material-symbols-rounded td-tab-icon">terminal</span>
-                            Logs
-                        </button>
-                        {canShowReviewTab && (
-                            <button
-                                type="button"
-                                className={`td-tab ${activeTab === "review" ? "active" : ""}`}
-                                onClick={() => setActiveTab("review")}
-                            >
-                                <span className="material-symbols-rounded td-tab-icon">rate_review</span>
-                                Review
-                            </button>
-                        )}
-                        <button
-                            type="button"
-                            className={`td-tab ${activeTab === "clarifications" ? "active" : ""}`}
-                            onClick={() => setActiveTab("clarifications")}
-                        >
-                            <span className="material-symbols-rounded td-tab-icon">help_outline</span>
-                            Clarifications
-                        </button>
-                    </div>
-
-                    <div className="td-tab-content">
-                        {activeTab === "comments" && (
-                            <CommentsTab
-                                project={project}
-                                task={task}
-                                createModalActors={createModalActors}
-                                agentDirectory={agentDirectory}
-                                openTaskDetails={openTaskDetails}
-                            />
-                        )}
-                        {activeTab === "subtasks" && (
-                            <RelatedIssuesTab
-                                task={task}
-                                project={project}
-                                createModalActors={createModalActors}
-                                createModalTeams={createModalTeams}
-                                agentDirectory={agentDirectory}
-                                openTaskDetails={openTaskDetails}
-                            />
-                        )}
-                        {activeTab === "activity" && (
-                            <ActivityTab
-                                project={project}
-                                task={task}
-                                createModalActors={createModalActors}
-                            />
-                        )}
-                        {activeTab === "logs" && (
-                            <TaskLogsTab
-                                project={project}
-                                task={task}
-                                createModalActors={createModalActors}
-                            />
-                        )}
-                        {activeTab === "review" && canShowReviewTab && (
-                            <ReviewTab
-                                project={project}
-                                task={task}
-                                createModalActors={createModalActors}
-                            />
-                        )}
-                        {activeTab === "clarifications" && (
-                            <ClarificationsTab
-                                project={project}
-                                task={task}
-                            />
-                        )}
-                    </div>
-                </div>
-            </div>
-
-            <aside
-                id="td-task-properties"
-                className={`td-sidebar ${sidebarOpen ? "" : "td-sidebar--closed"}`}
-            >
-                <div className="td-sidebar-header">
-                    <h4>Properties</h4>
-                    <button type="button" className="project-task-detail-icon-button" onClick={() => setSidebarOpen(false)} aria-label="Hide properties">
-                        <span className="material-symbols-rounded">close</span>
-                    </button>
-                </div>
-
+    function renderPropertiesBody() {
+        return (
                 <div className="td-props">
                     <div className="td-prop-row">
                         <span className="td-prop-label">Status</span>
@@ -1974,7 +1667,357 @@ export function TaskDetailView({
                         </div>
                     ) : null}
                 </div>
-            </aside>
+        );
+    }
+
+    function renderInlineProperties() {
+        return (
+            <section
+                id="td-task-properties"
+                className={`td-inline-properties ${propertiesCollapsed ? "td-inline-properties--collapsed" : ""}`}
+            >
+                <button
+                    type="button"
+                    className="td-inline-properties-header"
+                    onClick={() => setPropertiesCollapsed((collapsed) => !collapsed)}
+                    aria-expanded={!propertiesCollapsed}
+                    aria-controls="td-task-properties-body"
+                >
+                    <span>Properties</span>
+                    <span className="material-symbols-rounded" aria-hidden="true">
+                        {propertiesCollapsed ? "expand_more" : "expand_less"}
+                    </span>
+                </button>
+                {!propertiesCollapsed ? (
+                    <div id="td-task-properties-body" className="td-inline-properties-body">
+                        {renderPropertiesBody()}
+                    </div>
+                ) : null}
+            </section>
+        );
+    }
+
+    return (
+        <div
+            className={`td-page ${isSideView ? "td-page--side-view" : ""} ${!useInlineProperties && !sidebarOpen ? "td-page--sidebar-closed" : ""}`}
+        >
+            <div className="td-main">
+                <header className="td-toolbar">
+                    <div className="td-toolbar-left">
+                        <button type="button" className="td-toolbar-project" onClick={closeTaskDetails}>
+                            {project.name}
+                        </button>
+                        <span className="td-toolbar-separator">/</span>
+                        <span className="td-toolbar-status-token" title={currentStatus.title}>
+                            <span className="tcm-status-dot" style={{ background: TASK_STATUS_COLORS[currentStatus.id] }} />
+                        </span>
+                        <span className="td-toolbar-task-id">{task.id}</span>
+                        <button
+                            type="button"
+                            className="td-toolbar-action"
+                            onClick={() => void copyTaskReference()}
+                            aria-label="Copy task reference"
+                            title="Copy task reference"
+                        >
+                            <span className="material-symbols-rounded" aria-hidden="true">content_copy</span>
+                        </button>
+                        {githubIssueURL ? (
+                            <a
+                                className="td-toolbar-action"
+                                href={githubIssueURL}
+                                target="_blank"
+                                rel="noreferrer"
+                                aria-label={githubIssueLabel}
+                                title={githubIssueLabel}
+                            >
+                                <span className="material-symbols-rounded" aria-hidden="true">link</span>
+                            </a>
+                        ) : null}
+                    </div>
+                    <div className="td-toolbar-right">
+                        {isSideView && onExpand ? (
+                            <button
+                                type="button"
+                                className="td-toolbar-action"
+                                onClick={onExpand}
+                                aria-label="Open task fullscreen"
+                                title="Open task fullscreen"
+                            >
+                                <span className="material-symbols-rounded" aria-hidden="true">open_in_full</span>
+                            </button>
+                        ) : null}
+                        {task.status === "needs_review" && onOpenReview && (
+                            <button
+                                type="button"
+                                className="td-toolbar-action"
+                                onClick={() => onOpenReview(task)}
+                                aria-label="Open review"
+                                title="Open review"
+                            >
+                                <span className="material-symbols-rounded" aria-hidden="true">rate_review</span>
+                            </button>
+                        )}
+                        {isMobileTaskDetail && (
+                            <button
+                                type="button"
+                                className="td-toolbar-action"
+                                onClick={() => setPropertiesCollapsed((collapsed) => !collapsed)}
+                                aria-expanded={!propertiesCollapsed}
+                                aria-controls="td-task-properties"
+                                aria-label="Toggle properties"
+                                title="Properties"
+                            >
+                                <span className="material-symbols-rounded" aria-hidden="true">tune</span>
+                            </button>
+                        )}
+                        {!useInlineProperties && !sidebarOpen && (
+                            <button
+                                type="button"
+                                className="td-toolbar-action"
+                                onClick={() => setSidebarOpen(true)}
+                                aria-label="Show properties"
+                                title="Show properties"
+                            >
+                                <span className="material-symbols-rounded">right_panel_open</span>
+                            </button>
+                        )}
+                        <div
+                            className="td-actions-wrap"
+                            onMouseDown={(event) => event.stopPropagation()}
+                            onClick={(event) => event.stopPropagation()}
+                        >
+                            <button
+                                type="button"
+                                className="td-toolbar-action"
+                                onClick={() => setActionsOpen((open) => !open)}
+                                aria-haspopup="menu"
+                                aria-expanded={actionsOpen}
+                                aria-label="Task actions"
+                                title="Task actions"
+                            >
+                                <span className="material-symbols-rounded" aria-hidden="true">more_horiz</span>
+                            </button>
+                            {actionsOpen ? (
+                                <div className="td-actions-menu" role="menu">
+                                    <button
+                                        type="button"
+                                        className="danger"
+                                        role="menuitem"
+                                        onClick={() => {
+                                            setActionsOpen(false);
+                                            deleteTaskFromModal();
+                                        }}
+                                    >
+                                        <span className="material-symbols-rounded" aria-hidden="true">delete</span>
+                                        Delete task
+                                    </button>
+                                </div>
+                            ) : null}
+                        </div>
+                        <span className="td-toolbar-divider" aria-hidden="true" />
+                        <button
+                            type="button"
+                            className="td-toolbar-action td-toolbar-action--close"
+                            onClick={closeTaskDetails}
+                            aria-label="Close task details"
+                            title="Close"
+                        >
+                            <span className="material-symbols-rounded" aria-hidden="true">close</span>
+                        </button>
+                    </div>
+                </header>
+
+                <div className="td-id-row td-id-row--meta">
+                    <span>Created {formatRelativeTime(task.createdAt)}</span>
+                    <span>updated {formatRelativeTime(task.updatedAt)}</span>
+                </div>
+
+                <div className="td-content">
+                    <input
+                        className="td-title-input"
+                        value={editDraft.title}
+                        onChange={(e) => updateEditDraft("title", e.target.value)}
+                        placeholder="Task title"
+                    />
+                    {descriptionMode === "editor" ? (
+                        <ProjectMentionTextarea
+                            textareaRef={descriptionInputRef}
+                            className="td-desc-input"
+                            value={editDraft.description}
+                            onChange={(e) => updateEditDraft("description", e.target.value)}
+                            onBlur={() => {
+                                if (String(editDraft.description || "").trim()) {
+                                    setIsDescriptionEditing(false);
+                                }
+                            }}
+                            project={project}
+                            placeholder="Add description... use # for tasks, / for files and skills"
+                            rows={5}
+                        />
+                    ) : (
+                        <div
+                            role="button"
+                            tabIndex={0}
+                            className="td-desc-preview markdown-body"
+                            onClick={focusDescriptionEditor}
+                            onKeyDown={(event) => {
+                                if (event.key === "Enter" || event.key === " ") {
+                                    event.preventDefault();
+                                    focusDescriptionEditor();
+                                }
+                            }}
+                            aria-label="Edit description"
+                        >
+                            <LinkedMarkdown project={project} openTaskDetails={openTaskDetails}>
+                                {editDraft.description}
+                            </LinkedMarkdown>
+                        </div>
+                    )}
+                    {attachments.length > 0 ? (
+                        <div className="td-attachments">
+                            {attachments.map((attachment, index) => (
+                                <div key={`${attachment.name}-${index}`} className="td-attachment">
+                                    {String(attachment.mimeType || "").startsWith("image/") && attachment.contentBase64 ? (
+                                        <img
+                                            src={`data:${attachment.mimeType};base64,${attachment.contentBase64}`}
+                                            alt=""
+                                        />
+                                    ) : (
+                                        <span className="material-symbols-rounded" aria-hidden="true">draft</span>
+                                    )}
+                                    <div>
+                                        <strong>{attachment.name}</strong>
+                                        <span>{attachment.mimeType || "application/octet-stream"} / {formatTaskAttachmentSize(attachment.sizeBytes)}</span>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
+                    ) : null}
+                </div>
+
+                {useInlineProperties ? renderInlineProperties() : null}
+
+                <div className="td-tabs-section">
+                    <div className="td-tabs-bar">
+                        <button
+                            type="button"
+                            className={`td-tab ${activeTab === "comments" ? "active" : ""}`}
+                            onClick={() => setActiveTab("comments")}
+                        >
+                            <span className="material-symbols-rounded td-tab-icon">chat_bubble_outline</span>
+                            Comments
+                        </button>
+                        <button
+                            type="button"
+                            className={`td-tab ${activeTab === "subtasks" ? "active" : ""}`}
+                            onClick={() => setActiveTab("subtasks")}
+                        >
+                            <span className="material-symbols-rounded td-tab-icon">account_tree</span>
+                            Related issues
+                            {relatedIssueCount > 0 ? <span className="td-tab-count">{relatedIssueCount}</span> : null}
+                        </button>
+                        <button
+                            type="button"
+                            className={`td-tab ${activeTab === "activity" ? "active" : ""}`}
+                            onClick={() => setActiveTab("activity")}
+                        >
+                            <span className="material-symbols-rounded td-tab-icon">history</span>
+                            History
+                        </button>
+                        <button
+                            type="button"
+                            className={`td-tab ${activeTab === "logs" ? "active" : ""}`}
+                            onClick={() => setActiveTab("logs")}
+                        >
+                            <span className="material-symbols-rounded td-tab-icon">terminal</span>
+                            Logs
+                        </button>
+                        {canShowReviewTab && (
+                            <button
+                                type="button"
+                                className={`td-tab ${activeTab === "review" ? "active" : ""}`}
+                                onClick={() => setActiveTab("review")}
+                            >
+                                <span className="material-symbols-rounded td-tab-icon">rate_review</span>
+                                Review
+                            </button>
+                        )}
+                        <button
+                            type="button"
+                            className={`td-tab ${activeTab === "clarifications" ? "active" : ""}`}
+                            onClick={() => setActiveTab("clarifications")}
+                        >
+                            <span className="material-symbols-rounded td-tab-icon">help_outline</span>
+                            Clarifications
+                        </button>
+                    </div>
+
+                    <div className="td-tab-content">
+                        {activeTab === "comments" && (
+                            <CommentsTab
+                                project={project}
+                                task={task}
+                                createModalActors={createModalActors}
+                                agentDirectory={agentDirectory}
+                                openTaskDetails={openTaskDetails}
+                            />
+                        )}
+                        {activeTab === "subtasks" && (
+                            <RelatedIssuesTab
+                                task={task}
+                                project={project}
+                                createModalActors={createModalActors}
+                                createModalTeams={createModalTeams}
+                                agentDirectory={agentDirectory}
+                                openTaskDetails={openTaskDetails}
+                            />
+                        )}
+                        {activeTab === "activity" && (
+                            <ActivityTab
+                                project={project}
+                                task={task}
+                                createModalActors={createModalActors}
+                            />
+                        )}
+                        {activeTab === "logs" && (
+                            <TaskLogsTab
+                                project={project}
+                                task={task}
+                                createModalActors={createModalActors}
+                            />
+                        )}
+                        {activeTab === "review" && canShowReviewTab && (
+                            <ReviewTab
+                                project={project}
+                                task={task}
+                                createModalActors={createModalActors}
+                            />
+                        )}
+                        {activeTab === "clarifications" && (
+                            <ClarificationsTab
+                                project={project}
+                                task={task}
+                            />
+                        )}
+                    </div>
+                </div>
+            </div>
+
+            {!useInlineProperties ? (
+                <aside
+                    id="td-task-properties"
+                    className={`td-sidebar ${sidebarOpen ? "" : "td-sidebar--closed"}`}
+                >
+                    <div className="td-sidebar-header">
+                        <h4>Properties</h4>
+                        <button type="button" className="project-task-detail-icon-button" onClick={() => setSidebarOpen(false)} aria-label="Hide properties">
+                            <span className="material-symbols-rounded">close</span>
+                        </button>
+                    </div>
+
+                    {renderPropertiesBody()}
+                </aside>
+            ) : null}
 
             <div className={`settings-toast ${isDirty ? "settings-toast--visible" : ""}`}>
                 <span className="settings-toast-label">Unsaved changes</span>
