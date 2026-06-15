@@ -1689,6 +1689,17 @@ extension CoreService {
 
         var promotedTasks: [ProjectTask] = []
         let now = Date()
+
+        // Pre-compute the autopilot active count before any promotion mutations.
+        // This is used to enforce sequential/assistive capacity so we do not
+        // over-promote when multiple tasks become unblocked simultaneously.
+        let autopilotActiveCountBaseline = project.tasks.filter { t in
+            t.id != completedTaskID &&
+            isAutopilotExecutionTask(project: project, task: t) &&
+            activeAutopilotStatuses.contains(t.status)
+        }.count
+        var autopilotPromotedInThisPass = 0
+
         for index in project.tasks.indices {
             var task = project.tasks[index]
             guard task.status == ProjectTaskStatus.backlog.rawValue,
@@ -1696,6 +1707,28 @@ extension CoreService {
                   taskDependenciesSatisfied(project: project, task: task)
             else {
                 continue
+            }
+
+            // Enforce autopilot sequential/assistive capacity for managed tasks.
+            if project.autopilotSettings.enabled,
+               isAutopilotManagedTask(project: project, task: task) {
+                let effectiveActive = autopilotActiveCountBaseline + autopilotPromotedInThisPass
+                let capacity = autopilotCapacity(settings: project.autopilotSettings, activeCount: effectiveActive)
+                guard capacity > 0 else {
+                    // Leave task in backlog; visor scheduler will release it later.
+                    appendTaskLifecycleLog(
+                        projectID: project.id,
+                        taskID: task.id,
+                        stage: "autopilot_capacity_wait",
+                        channelID: resolveExecutionChannelID(project: project, task: task),
+                        workerID: nil,
+                        message: "Task kept in backlog after dependency completed: autopilot sequential capacity is at limit.",
+                        actorID: task.actorId,
+                        agentID: task.claimedAgentId
+                    )
+                    continue
+                }
+                autopilotPromotedInThisPass += 1
             }
 
             let previousStatus = task.status

@@ -60,6 +60,28 @@ extension CoreService {
             return
         }
 
+        // Sequential / assistive capacity gate: if autopilot manages this task and the
+        // mode allows only one concurrent execution, return it to backlog when another
+        // autopilot task is already active.  The visor scheduler will re-release it once
+        // the active task completes.
+        if project.autopilotSettings.enabled,
+           isAutopilotManagedTask(project: project, task: task) {
+            let activeCount = project.tasks.filter { t in
+                t.id != task.id &&
+                isAutopilotExecutionTask(project: project, task: t) &&
+                activeAutopilotStatuses.contains(t.status)
+            }.count
+            let capacity = autopilotCapacity(settings: project.autopilotSettings, activeCount: activeCount)
+            if capacity <= 0 {
+                await returnReadyTaskToBacklogForCapacity(
+                    project: project,
+                    taskIndex: taskIndex,
+                    task: task
+                )
+                return
+            }
+        }
+
         _ = await triggerVisorBulletin()
         logger.info(
             "visor.task.approved",
@@ -397,6 +419,49 @@ extension CoreService {
             metadata: [
                 "project_id": .string(project.id),
                 "task_id": .string(task.id)
+            ]
+        )
+    }
+
+    func returnReadyTaskToBacklogForCapacity(
+        project: ProjectRecord,
+        taskIndex: Int,
+        task: ProjectTask
+    ) async {
+        var project = project
+        var task = task
+        let previousStatus = task.status
+        task.status = ProjectTaskStatus.backlog.rawValue
+        task.claimedActorId = nil
+        task.claimedAgentId = nil
+        task.updatedAt = Date()
+        project.tasks[taskIndex] = task
+        project.updatedAt = Date()
+        await store.saveProject(project)
+        await kanbanEventService.push(KanbanEvent(type: .taskUpdated, projectId: project.id, task: task))
+        await recordSystemStatusChange(
+            projectID: project.id,
+            taskID: task.id,
+            from: previousStatus,
+            to: task.status,
+            source: "system"
+        )
+        appendTaskLifecycleLog(
+            projectID: project.id,
+            taskID: task.id,
+            stage: "autopilot_capacity_wait",
+            channelID: resolveExecutionChannelID(project: project, task: task),
+            workerID: nil,
+            message: "Task returned to backlog: autopilot sequential capacity is at limit. Will be re-released when active task completes.",
+            actorID: task.actorId,
+            agentID: task.claimedAgentId
+        )
+        logger.info(
+            "visor.task.autopilot_capacity_wait",
+            metadata: [
+                "project_id": .string(project.id),
+                "task_id": .string(task.id),
+                "mode": .string(project.autopilotSettings.mode.rawValue)
             ]
         )
     }

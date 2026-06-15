@@ -639,3 +639,92 @@ func projectAutopilotKeepsChildBacklogWhenDependencyBlocked() async throws {
     let savedDependentChild = try #require(saved.tasks.first(where: { $0.id == dependentChild.id }))
     #expect(savedDependentChild.status == ProjectTaskStatus.backlog.rawValue)
 }
+
+// MARK: - Sequential capacity gate tests
+
+@Test
+func projectAutopilotSequentialCapacityGatePreventsConcurrentLaunch() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let root = ProjectTask(
+        id: "root-1", title: "Root task", description: "", priority: "medium",
+        status: ProjectTaskStatus.inProgress.rawValue, tags: ["autopilot"]
+    )
+    let activeChild = ProjectTask(
+        id: "child-1", title: "Active child", description: "", priority: "medium",
+        status: ProjectTaskStatus.inProgress.rawValue,
+        parentTaskId: root.id, createdBy: "autopilot", tags: ["autopilot"]
+    )
+    let surplusChild = ProjectTask(
+        id: "child-2", title: "Surplus child", description: "", priority: "medium",
+        status: ProjectTaskStatus.ready.rawValue,
+        parentTaskId: root.id, createdBy: "autopilot", tags: ["autopilot"]
+    )
+    let project = ProjectRecord(
+        id: "autopilot-sequential-capacity-gate",
+        name: "Sequential Capacity Gate", description: "",
+        channels: [ProjectChannel(id: "channel-1", title: "Main", channelId: "chan")],
+        tasks: [root, activeChild, surplusChild],
+        autopilotSettings: ProjectAutopilotSettings(
+            enabled: true, mode: .sequential, defaultAgentId: "builder"
+        )
+    )
+    await service.store.saveProject(project)
+    await service.handleTaskBecameReady(projectID: project.id, taskID: surplusChild.id)
+    let saved = try #require(await service.store.project(id: project.id))
+    let savedSurplus = try #require(saved.tasks.first(where: { $0.id == surplusChild.id }))
+    #expect(
+        savedSurplus.status == ProjectTaskStatus.backlog.rawValue,
+        "Sequential mode must not launch a second autopilot task while one is already active"
+    )
+}
+
+@Test
+func projectAutopilotSequentialDependencyPromotionRespectsCapacity() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let root = ProjectTask(
+        id: "root-1", title: "Root", description: "", priority: "medium",
+        status: ProjectTaskStatus.inProgress.rawValue, tags: ["autopilot"]
+    )
+    let activeChild = ProjectTask(
+        id: "child-active", title: "Active child", description: "", priority: "medium",
+        status: ProjectTaskStatus.inProgress.rawValue,
+        parentTaskId: root.id, createdBy: "autopilot", tags: ["autopilot"]
+    )
+    let completedGate = ProjectTask(
+        id: "child-gate", title: "Completed gate", description: "", priority: "medium",
+        status: ProjectTaskStatus.done.rawValue,
+        parentTaskId: root.id, createdBy: "autopilot", tags: ["autopilot"]
+    )
+    let waiting1 = ProjectTask(
+        id: "child-waiting-1", title: "Waiting 1", description: "", priority: "medium",
+        status: ProjectTaskStatus.backlog.rawValue,
+        parentTaskId: root.id, createdBy: "autopilot",
+        dependsOnTaskIds: [completedGate.id], tags: ["autopilot"]
+    )
+    let waiting2 = ProjectTask(
+        id: "child-waiting-2", title: "Waiting 2", description: "", priority: "medium",
+        status: ProjectTaskStatus.backlog.rawValue,
+        parentTaskId: root.id, createdBy: "autopilot",
+        dependsOnTaskIds: [completedGate.id], tags: ["autopilot"]
+    )
+    let project = ProjectRecord(
+        id: "autopilot-sequential-dep-promotion",
+        name: "Sequential Dep Promotion", description: "",
+        channels: [ProjectChannel(id: "channel-1", title: "Main", channelId: "chan")],
+        tasks: [root, activeChild, completedGate, waiting1, waiting2],
+        autopilotSettings: ProjectAutopilotSettings(
+            enabled: true, mode: .sequential, defaultAgentId: "builder"
+        )
+    )
+    await service.store.saveProject(project)
+    _ = await service.promoteTasksUnblockedByCompletedDependency(
+        projectID: project.id, completedTaskID: completedGate.id
+    )
+    let saved = try #require(await service.store.project(id: project.id))
+    let savedW1: ProjectTask = try #require(saved.tasks.first(where: { $0.id == waiting1.id }))
+    let savedW2: ProjectTask = try #require(saved.tasks.first(where: { $0.id == waiting2.id }))
+    let readyCount = [savedW1, savedW2].filter { $0.status == ProjectTaskStatus.ready.rawValue }.count
+    let backlogCount = [savedW1, savedW2].filter { $0.status == ProjectTaskStatus.backlog.rawValue }.count
+    #expect(readyCount <= 1, "Sequential mode must not promote more than 1 task when at capacity limit")
+    #expect(backlogCount >= 1, "At least one surplus waiting task must stay in backlog in sequential mode")
+}
