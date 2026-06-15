@@ -376,6 +376,7 @@ function DashboardShell({
             setChatsRoute(projectId, agentId, sessionId);
           }}
           onSidebarProjectsListChanged={refreshSidebarProjects}
+          onWorkersChanged={runtime.refreshRuntime}
           onNavigateToChannelSession={(sessionId: string) => {
             setSessionRoute(sessionId);
           }}

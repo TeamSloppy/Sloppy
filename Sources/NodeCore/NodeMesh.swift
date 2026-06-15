@@ -248,10 +248,25 @@ public struct MeshInviteCreateRequest: Codable, Sendable, Equatable {
 public struct MeshInviteAcceptRequest: Codable, Sendable, Equatable {
     public var token: String
     public var endpoint: String?
+    public var allowRemote: Bool
 
-    public init(token: String, endpoint: String? = nil) {
+    public init(token: String, endpoint: String? = nil, allowRemote: Bool = true) {
         self.token = token
         self.endpoint = endpoint
+        self.allowRemote = allowRemote
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case token
+        case endpoint
+        case allowRemote
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.token = try container.decode(String.self, forKey: .token)
+        self.endpoint = try container.decodeIfPresent(String.self, forKey: .endpoint)
+        self.allowRemote = try container.decodeIfPresent(Bool.self, forKey: .allowRemote) ?? true
     }
 }
 
@@ -701,6 +716,7 @@ public struct MeshState: Codable, Sendable, Equatable {
 
 public enum NodeMeshStoreError: LocalizedError, Equatable {
     case inviteMissing
+    case inviteWrongCoordinator(String)
     case inviteExpired
     case inviteConsumed
     case projectMissing(String)
@@ -712,6 +728,8 @@ public enum NodeMeshStoreError: LocalizedError, Equatable {
         switch self {
         case .inviteMissing:
             "Invite token was not found."
+        case let .inviteWrongCoordinator(relayURL):
+            "Invite token was not found in this coordinator state. This bundled token points to relay \(relayURL). Switch the dashboard API base to that relay and accept it there."
         case .inviteExpired:
             "Invite token has expired."
         case .inviteConsumed:

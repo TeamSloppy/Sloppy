@@ -189,7 +189,9 @@ public extension RuntimeSystem {
                 spec: spec,
                 status: .queued,
                 latestReport: nil,
-                artifactId: nil
+                artifactId: nil,
+                createdAt: event.ts,
+                updatedAt: event.ts
             )
             await channels.attachWorker(channelId: event.channelId, workerId: workerID)
 
@@ -205,7 +207,8 @@ public extension RuntimeSystem {
                 workerId: workerID,
                 status: status,
                 latestReport: progress,
-                artifactId: nil
+                artifactId: nil,
+                observedAt: event.ts
             )
             if !updated {
                 let spec = recoveredWorkerSpec(
@@ -219,7 +222,10 @@ public extension RuntimeSystem {
                     spec: spec,
                     status: status,
                     latestReport: progress,
-                    artifactId: nil
+                    artifactId: nil,
+                    startedAt: status == .running ? event.ts : nil,
+                    createdAt: event.ts,
+                    updatedAt: event.ts
                 )
             }
             await channels.attachWorker(channelId: event.channelId, workerId: workerID)
@@ -236,7 +242,8 @@ public extension RuntimeSystem {
                 workerId: workerID,
                 status: .completed,
                 latestReport: summary,
-                artifactId: artifactID
+                artifactId: artifactID,
+                observedAt: event.ts
             )
             if !updated {
                 let spec = recoveredWorkerSpec(
@@ -250,7 +257,9 @@ public extension RuntimeSystem {
                     spec: spec,
                     status: .completed,
                     latestReport: summary,
-                    artifactId: artifactID
+                    artifactId: artifactID,
+                    createdAt: event.ts,
+                    updatedAt: event.ts
                 )
             }
             await channels.detachWorker(channelId: event.channelId, workerId: workerID)
@@ -266,7 +275,8 @@ public extension RuntimeSystem {
                 workerId: workerID,
                 status: .failed,
                 latestReport: error,
-                artifactId: nil
+                artifactId: nil,
+                observedAt: event.ts
             )
             if !updated {
                 let spec = recoveredWorkerSpec(
@@ -280,7 +290,9 @@ public extension RuntimeSystem {
                     spec: spec,
                     status: .failed,
                     latestReport: error,
-                    artifactId: nil
+                    artifactId: nil,
+                    createdAt: event.ts,
+                    updatedAt: event.ts
                 )
             }
             await channels.detachWorker(channelId: event.channelId, workerId: workerID)
@@ -465,6 +477,18 @@ public extension RuntimeSystem {
             )
         }
         return cancelledResponses + cancelledWorkers
+    }
+
+    /// Cancels a specific worker and detaches it from channel active tracking.
+    func cancelWorker(workerId: String, reason: String? = nil) async -> Bool {
+        guard let snapshot = await workers.snapshot(workerId: workerId) else {
+            return false
+        }
+        let ok = await workers.cancel(workerId: workerId, reason: reason)
+        if ok {
+            await channels.detachWorker(channelId: snapshot.channelId, workerId: workerId)
+        }
+        return ok
     }
 
     /// Returns memory entries tracked by runtime memory store.

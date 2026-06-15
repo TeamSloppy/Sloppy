@@ -120,8 +120,12 @@ export function formatHttpError(status: number, data: unknown): string {
     return "Could not reach Sloppy. Is the core running and is the API base URL correct?";
   }
   let code = "";
+  let message = "";
   if (data && typeof data === "object" && "error" in data && data.error != null) {
     code = String((data as Record<string, unknown>).error);
+  }
+  if (data && typeof data === "object" && "message" in data && data.message != null) {
+    message = String((data as Record<string, unknown>).message);
   }
   const hints: Record<string, string> = {
     unauthorized: "Dashboard auth is missing or invalid. Re-enter the dashboard token and try again.",
@@ -132,11 +136,15 @@ export function formatHttpError(status: number, data: unknown): string {
     invalid_agent_id: "Invalid agent id.",
     agent_not_found: "Agent was not found.",
     agent_config_write_failed: "Agent config could not be saved.",
-    agent_document_too_long: "One of agent markdown files exceeded size limits (USER.md <= 2000 chars, MEMORY.md <= 3000 chars). Shorten content and retry."
+    agent_document_too_long: "One of agent markdown files exceeded size limits (USER.md <= 2000 chars, MEMORY.md <= 3000 chars). Shorten content and retry.",
+    mesh_invalid_request: "The invite token was rejected by the mesh coordinator.",
+    mesh_forbidden: "The invite token is not allowed for this mesh operation.",
+    mesh_not_found: "The requested mesh record was not found."
   };
   const hint = code && hints[code] ? ` — ${hints[code]}` : "";
+  const detail = message ? ` — ${message}` : "";
   const suffix = code ? `: ${code}` : "";
-  return `Request failed (HTTP ${status})${suffix}${hint}`;
+  return `Request failed (HTTP ${status})${suffix}${detail}${hint}`;
 }
 
 export async function requestJson<TResponse, TBody = unknown>(

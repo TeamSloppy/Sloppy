@@ -31,7 +31,14 @@ extension CoreService {
     }
 
     public func acceptMeshInvite(_ request: MeshInviteAcceptRequest) throws -> MeshNodeRecord {
-        try nodeMeshStore.acceptInvite(token: request.token, endpoint: request.endpoint)
+        do {
+            return try nodeMeshStore.acceptInvite(token: request.token, endpoint: request.endpoint)
+        } catch NodeMeshStoreError.inviteMissing {
+            if let bundle = try? MeshInviteBundle.parse(request.token) {
+                throw NodeMeshStoreError.inviteWrongCoordinator(bundle.relayURL)
+            }
+            throw NodeMeshStoreError.inviteMissing
+        }
     }
 
     public func registerMeshNode(_ request: MeshNodeRegisterRequest) throws -> MeshNodeRecord {

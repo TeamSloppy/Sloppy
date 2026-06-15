@@ -85,6 +85,7 @@ export interface CoreApi {
   fetchChannelPlugins: () => Promise<AnyRecord[] | null>;
   installPlugin: (payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchWorkers: () => Promise<AnyRecord[]>;
+  cancelWorker: (workerId: string, payload?: AnyRecord) => Promise<AnyRecord | null>;
   fetchMeshState: () => Promise<AnyRecord | null>;
   configureMeshNetwork: (payload: AnyRecord) => Promise<AnyRecord | null>;
   createMeshInvite: (payload: AnyRecord) => Promise<AnyRecord | null>;
@@ -511,6 +512,18 @@ export function createCoreApi(): CoreApi {
       return response.data;
     },
 
+    cancelWorker: async (workerId, payload = {}) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/workers/${encodeURIComponent(workerId)}/cancel`,
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
     fetchMeshState: async () => {
       const response = await requestJson<AnyRecord>({
         path: "/v1/node/mesh"
@@ -552,7 +565,7 @@ export function createCoreApi(): CoreApi {
         body: payload
       });
       if (!response.ok) {
-        return null;
+        throw new Error(formatHttpError(response.status, response.data));
       }
       return response.data;
     },

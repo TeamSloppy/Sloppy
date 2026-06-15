@@ -474,8 +474,7 @@ public actor Visor {
         workers: [WorkerSnapshot]
     ) async -> String {
         let bulletinContext = lastBulletin?.digest ?? "No bulletin yet."
-        let activeWorkers = workers.filter { $0.status == .running || $0.status == .waitingInput }
-        let stateSummary = "Active channels: \(channels.count). Workers in progress: \(activeWorkers.count) / \(workers.count) total."
+        let stateSummary = "Active channels: \(channels.count). \(workerStateSummary(workers))"
         let prompt = buildVisorAnswerPrompt(
             bulletinContext: bulletinContext,
             stateSummary: stateSummary,
@@ -497,8 +496,7 @@ public actor Visor {
         workers: [WorkerSnapshot]
     ) -> AsyncStream<String> {
         let bulletinContext = lastBulletin?.digest ?? "No bulletin yet."
-        let activeWorkers = workers.filter { $0.status == .running || $0.status == .waitingInput }
-        let stateSummary = "Active channels: \(channels.count). Workers in progress: \(activeWorkers.count) / \(workers.count) total."
+        let stateSummary = "Active channels: \(channels.count). \(workerStateSummary(workers))"
         let prompt = buildVisorAnswerPrompt(
             bulletinContext: bulletinContext,
             stateSummary: stateSummary,
@@ -543,6 +541,17 @@ public actor Visor {
         }
     }
 
+    private func workerStateSummary(_ workers: [WorkerSnapshot]) -> String {
+        let activeCount = workers.filter { $0.status == .running || $0.status == .waitingInput }.count
+        let queuedCount = workers.filter { $0.status == .queued }.count
+        let historicalCount = workers.filter { $0.status == .completed || $0.status == .failed }.count
+
+        if queuedCount > 0 {
+            return "Workers: \(activeCount) active, \(queuedCount) queued, \(historicalCount) historical."
+        }
+        return "Workers: \(activeCount) active, \(historicalCount) historical."
+    }
+
     // MARK: - Private
 
     private struct RetrievedSections {
@@ -569,9 +578,8 @@ public actor Visor {
         taskSummary: String?,
         scope: MemoryScope
     ) async -> RetrievedSections {
-        let activeWorkers = workers.filter { $0.status == .running || $0.status == .waitingInput }
         let channelSummary = "Active channels: \(channels.count)"
-        let workerSummary = "Workers in progress: \(activeWorkers.count) / \(workers.count) total"
+        let workerSummary = workerStateSummary(workers)
 
         async let recentHits = memoryStore.recall(
             request: MemoryRecallRequest(query: "recent activity", limit: 8, scope: scope)

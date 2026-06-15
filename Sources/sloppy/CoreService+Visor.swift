@@ -892,5 +892,11 @@ extension CoreService {
         return await runtime.workerSnapshots()
     }
 
+    /// Cancels a worker by identifier for dashboard/operator controls.
+    public func cancelWorker(workerId: String, reason: String? = nil) async -> Bool {
+        await waitForStartup()
+        return await runtime.cancelWorker(workerId: workerId, reason: reason)
+    }
+
     /// Lists dashboard projects with channels and task board data.
 }

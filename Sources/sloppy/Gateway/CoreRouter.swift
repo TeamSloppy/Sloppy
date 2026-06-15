@@ -235,6 +235,19 @@ struct WorkerCreateResponse: Encodable {
     let workerId: String
 }
 
+struct WorkerCancelRequest: Decodable {
+    var reason: String?
+
+    init(reason: String? = nil) {
+        self.reason = reason
+    }
+}
+
+struct WorkerCancelResponse: Encodable {
+    let workerId: String
+    let cancelled: Bool
+}
+
 public enum RoutePathSegment: Equatable {
     case literal(String)
     case parameter(String)

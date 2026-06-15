@@ -259,3 +259,24 @@ private actor SignalCollector {
 
     #expect(answer.hasPrefix("Visor says:"))
 }
+
+@Test func visorAnswerDistinguishesActiveAndHistoricalWorkers() async {
+    let bus = EventBus()
+    let memory = InMemoryMemoryStore()
+    let visor = Visor(
+        eventBus: bus,
+        memoryStore: memory,
+        completionProvider: { prompt, _ in prompt }
+    )
+
+    let answer = await visor.answer(
+        question: "How many workers are active?",
+        channels: [makeChannelSnapshot()],
+        workers: [
+            makeWorkerSnapshot(status: .completed),
+            makeWorkerSnapshot(workerId: "w-failed", status: .failed),
+        ]
+    )
+
+    #expect(answer.contains("Workers: 0 active, 2 historical."))
+}

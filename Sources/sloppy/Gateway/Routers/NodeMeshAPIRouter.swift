@@ -46,7 +46,10 @@ struct NodeMeshAPIRouter: APIRouter {
         router.post("/v1/node/mesh/invites/accept", metadata: RouteMetadata(summary: "Accept mesh invite", description: "Consumes a bundled SloppyNode mesh invite token and registers the invited node identity", tags: ["Node Mesh"])) { request in
             guard let body = request.body,
                   let payload = CoreRouter.decode(body, as: MeshInviteAcceptRequest.self) else {
-                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: [
+                    "error": ErrorCode.invalidBody,
+                    "message": #"Expected JSON body like {"token":"slp_mesh_..."}."#,
+                ])
             }
 
             do {
@@ -190,7 +193,7 @@ private func meshErrorResponse(_ error: Error) -> CoreRouterResponse {
             return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": "mesh_not_found", "message": message])
         case .permissionDenied:
             return CoreRouter.json(status: HTTPStatus.forbidden, payload: ["error": "mesh_forbidden", "message": message])
-        case .inviteMissing, .inviteExpired, .inviteConsumed:
+        case .inviteMissing, .inviteWrongCoordinator, .inviteExpired, .inviteConsumed:
             return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "mesh_invalid_request", "message": message])
         }
     }

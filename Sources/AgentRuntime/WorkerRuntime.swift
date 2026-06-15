@@ -13,11 +13,15 @@ public struct WorkerSnapshot: Codable, Sendable, Equatable {
     public var workerId: String
     public var channelId: String
     public var taskId: String
+    public var title: String
+    public var objective: String
     public var status: WorkerStatus
     public var mode: WorkerMode
     public var tools: [String]
     public var latestReport: String?
     public var startedAt: Date?
+    public var createdAt: Date?
+    public var updatedAt: Date?
 
     public init(
         workerId: String,
@@ -27,27 +31,39 @@ public struct WorkerSnapshot: Codable, Sendable, Equatable {
         mode: WorkerMode,
         tools: [String],
         latestReport: String?,
-        startedAt: Date? = nil
+        startedAt: Date? = nil,
+        title: String = "",
+        objective: String = "",
+        createdAt: Date? = nil,
+        updatedAt: Date? = nil
     ) {
         self.workerId = workerId
         self.channelId = channelId
         self.taskId = taskId
+        self.title = title
+        self.objective = objective
         self.status = status
         self.mode = mode
         self.tools = tools
         self.latestReport = latestReport
         self.startedAt = startedAt
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
     }
 
     enum CodingKeys: String, CodingKey {
         case workerId
         case channelId
         case taskId
+        case title
+        case objective
         case status
         case mode
         case tools
         case latestReport
         case startedAt
+        case createdAt
+        case updatedAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -55,11 +71,15 @@ public struct WorkerSnapshot: Codable, Sendable, Equatable {
         workerId = try container.decode(String.self, forKey: .workerId)
         channelId = try container.decode(String.self, forKey: .channelId)
         taskId = try container.decode(String.self, forKey: .taskId)
+        title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+        objective = try container.decodeIfPresent(String.self, forKey: .objective) ?? ""
         status = try container.decode(WorkerStatus.self, forKey: .status)
         mode = try container.decode(WorkerMode.self, forKey: .mode)
         tools = try container.decode([String].self, forKey: .tools)
         latestReport = try container.decodeIfPresent(String.self, forKey: .latestReport)
         startedAt = try Self.decodeDateIfPresent(container: container, forKey: .startedAt)
+        createdAt = try Self.decodeDateIfPresent(container: container, forKey: .createdAt)
+        updatedAt = try Self.decodeDateIfPresent(container: container, forKey: .updatedAt)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -67,11 +87,15 @@ public struct WorkerSnapshot: Codable, Sendable, Equatable {
         try container.encode(workerId, forKey: .workerId)
         try container.encode(channelId, forKey: .channelId)
         try container.encode(taskId, forKey: .taskId)
+        try container.encode(title, forKey: .title)
+        try container.encode(objective, forKey: .objective)
         try container.encode(status, forKey: .status)
         try container.encode(mode, forKey: .mode)
         try container.encode(tools, forKey: .tools)
         try container.encodeIfPresent(latestReport, forKey: .latestReport)
         try container.encodeIfPresent(startedAt, forKey: .startedAt)
+        try container.encodeIfPresent(createdAt, forKey: .createdAt)
+        try container.encodeIfPresent(updatedAt, forKey: .updatedAt)
     }
 
     private static func decodeDateIfPresent(
@@ -125,6 +149,8 @@ private struct WorkerState: Sendable {
     var routeInbox: [String]
     var artifactId: String?
     var startedAt: Date?
+    var createdAt: Date
+    var updatedAt: Date
 }
 
 public actor WorkerRuntime {
@@ -146,7 +172,17 @@ public actor WorkerRuntime {
     /// Creates worker state and optionally starts execution.
     public func spawn(spec: WorkerTaskSpec, autoStart: Bool = true) async -> String {
         let workerId = UUID().uuidString
-        workers[workerId] = WorkerState(spec: spec, status: .queued, latestReport: nil, routeInbox: [], artifactId: nil)
+        let now = Date()
+        workers[workerId] = WorkerState(
+            spec: spec,
+            status: .queued,
+            latestReport: nil,
+            routeInbox: [],
+            artifactId: nil,
+            startedAt: nil,
+            createdAt: now,
+            updatedAt: now
+        )
 
         await publish(
             channelId: spec.channelId,
@@ -171,10 +207,12 @@ public actor WorkerRuntime {
     /// Executes worker logic according to configured mode.
     public func execute(workerId: String) async {
         guard var state = workers[workerId] else { return }
+        let now = Date()
         state.status = .running
         if state.startedAt == nil {
-            state.startedAt = Date()
+            state.startedAt = now
         }
+        state.updatedAt = now
         workers[workerId] = state
 
         await publish(
@@ -196,6 +234,7 @@ public actor WorkerRuntime {
             case .waitingForRoute(let report):
                 state.status = .waitingInput
                 state.latestReport = report
+                state.updatedAt = Date()
                 workers[workerId] = state
                 await publish(
                     channelId: state.spec.channelId,
@@ -226,6 +265,7 @@ public actor WorkerRuntime {
         state.routeInbox.append(message)
         state.status = .running
         state.latestReport = "routed: \(message)"
+        state.updatedAt = Date()
         workers[workerId] = state
 
         await publish(
@@ -246,6 +286,7 @@ public actor WorkerRuntime {
                 }
                 latestState.status = .waitingInput
                 latestState.latestReport = report ?? latestState.latestReport
+                latestState.updatedAt = Date()
                 workers[workerId] = latestState
                 return WorkerRouteResult(accepted: true, completed: false, artifactRef: nil)
 
@@ -291,6 +332,7 @@ public actor WorkerRuntime {
         state.latestReport = summary
         let artifactId = UUID().uuidString
         state.artifactId = artifactId
+        state.updatedAt = Date()
         workers[workerId] = state
 
         artifacts[artifactId] = summary
@@ -317,6 +359,7 @@ public actor WorkerRuntime {
         guard state.status != .failed, state.status != .completed else { return }
         state.status = .failed
         state.latestReport = error
+        state.updatedAt = Date()
         workers[workerId] = state
 
         await publish(
@@ -339,7 +382,11 @@ public actor WorkerRuntime {
             mode: state.spec.mode,
             tools: state.spec.tools,
             latestReport: state.latestReport,
-            startedAt: state.startedAt
+            startedAt: state.startedAt,
+            title: state.spec.title,
+            objective: state.spec.objective,
+            createdAt: state.createdAt,
+            updatedAt: state.updatedAt
         )
     }
 
@@ -354,7 +401,11 @@ public actor WorkerRuntime {
                 mode: state.spec.mode,
                 tools: state.spec.tools,
                 latestReport: state.latestReport,
-                startedAt: state.startedAt
+                startedAt: state.startedAt,
+                title: state.spec.title,
+                objective: state.spec.objective,
+                createdAt: state.createdAt,
+                updatedAt: state.updatedAt
             )
         }
     }
@@ -381,7 +432,10 @@ public actor WorkerRuntime {
         spec: WorkerTaskSpec,
         status: WorkerStatus,
         latestReport: String?,
-        artifactId: String?
+        artifactId: String?,
+        startedAt: Date? = nil,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date()
     ) {
         workers[workerId] = WorkerState(
             spec: spec,
@@ -389,7 +443,9 @@ public actor WorkerRuntime {
             latestReport: latestReport,
             routeInbox: [],
             artifactId: artifactId,
-            startedAt: nil
+            startedAt: startedAt,
+            createdAt: createdAt,
+            updatedAt: updatedAt
         )
     }
 
@@ -398,7 +454,8 @@ public actor WorkerRuntime {
         workerId: String,
         status: WorkerStatus,
         latestReport: String?,
-        artifactId: String?
+        artifactId: String?,
+        observedAt: Date = Date()
     ) -> Bool {
         guard var state = workers[workerId] else {
             return false
@@ -408,6 +465,10 @@ public actor WorkerRuntime {
         if let artifactId {
             state.artifactId = artifactId
         }
+        if status == .running, state.startedAt == nil {
+            state.startedAt = observedAt
+        }
+        state.updatedAt = observedAt
         workers[workerId] = state
         return true
     }

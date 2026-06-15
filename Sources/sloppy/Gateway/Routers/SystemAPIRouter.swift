@@ -137,6 +137,25 @@ struct SystemAPIRouter: APIRouter {
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: workers)
         }
 
+        router.post("/v1/workers/:workerId/cancel", metadata: RouteMetadata(summary: "Cancel worker", description: "Cancels a specific worker runtime by id", tags: ["System"])) { request in
+            let workerId = request.pathParam("workerId") ?? ""
+            let payload: WorkerCancelRequest
+            if let body = request.body {
+                guard let decoded = CoreRouter.decode(body, as: WorkerCancelRequest.self) else {
+                    return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+                }
+                payload = decoded
+            } else {
+                payload = WorkerCancelRequest()
+            }
+
+            let accepted = await service.cancelWorker(workerId: workerId, reason: payload.reason)
+            return CoreRouter.encodable(
+                status: accepted ? HTTPStatus.ok : HTTPStatus.notFound,
+                payload: WorkerCancelResponse(workerId: workerId, cancelled: accepted)
+            )
+        }
+
         router.get("/v1/config", metadata: RouteMetadata(summary: "Get config", description: "Returns the current sloppy configuration", tags: ["System"])) { _ in
             let config = await service.getConfig()
             let response = RuntimeConfigResponse(config: config, debugEnabled: !SloppyVersion.isReleaseBuild)

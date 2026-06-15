@@ -1672,6 +1672,225 @@
   gap: 8px;
 }
 
+.project-workers-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+  flex-wrap: wrap;
+}
+
+.project-workers-counts {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.project-workers-counts span {
+  border: 1px solid var(--line);
+  padding: 3px 7px;
+  background: var(--surface);
+}
+
+.project-workers-grid {
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 340px), 1fr));
+}
+
+.project-worker-card {
+  cursor: pointer;
+}
+
+.project-worker-card:focus-visible,
+.project-worker-icon-btn:focus-visible,
+.project-worker-actions button:focus-visible,
+.project-worker-modal-actions button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.project-worker-meta-row {
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.74rem;
+  min-width: 0;
+}
+
+.project-worker-meta-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-worker-actions,
+.project-worker-modal-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.project-worker-actions button,
+.project-worker-modal-actions button,
+.project-worker-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--text);
+  min-height: 32px;
+  padding: 0 10px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 0.76rem;
+  transition: border-color var(--motion-duration-fast) ease,
+              color var(--motion-duration-fast) ease,
+              background var(--motion-duration-fast) ease;
+}
+
+.project-worker-actions button:hover,
+.project-worker-modal-actions button:hover,
+.project-worker-icon-btn:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.project-worker-actions button:disabled,
+.project-worker-modal-actions button:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+
+.project-worker-actions button:disabled:hover,
+.project-worker-modal-actions button:disabled:hover {
+  border-color: var(--line);
+  color: var(--text);
+}
+
+.project-worker-actions .danger-action,
+.project-worker-modal-actions .danger-action {
+  border-color: rgba(248, 81, 73, 0.45);
+  color: #ff8b8b;
+}
+
+.project-worker-actions .danger-action:hover,
+.project-worker-modal-actions .danger-action:hover {
+  border-color: #ff8b8b;
+  background: rgba(248, 81, 73, 0.10);
+}
+
+.project-worker-actions .material-symbols-rounded,
+.project-worker-modal-actions .material-symbols-rounded,
+.project-worker-icon-btn .material-symbols-rounded {
+  font-size: 17px;
+  line-height: 1;
+}
+
+.project-worker-modal-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+  background: rgba(0, 0, 0, 0.62);
+}
+
+.project-worker-modal {
+  width: min(760px, 100%);
+  max-height: min(760px, calc(100vh - 48px));
+  overflow: auto;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  box-shadow: var(--shadow-brutalist);
+  padding: 18px;
+}
+
+.project-worker-modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.project-worker-modal-header h3 {
+  margin: 6px 0 0;
+  font-size: 1rem;
+  color: var(--text);
+}
+
+.project-worker-status-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+.project-worker-icon-btn {
+  width: 32px;
+  padding: 0;
+  flex: 0 0 auto;
+}
+
+.project-worker-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 10px;
+  margin: 0;
+}
+
+.project-worker-detail-grid div {
+  border: 1px solid var(--line);
+  padding: 9px;
+  min-width: 0;
+  background: var(--surface-2);
+}
+
+.project-worker-detail-grid dt {
+  color: var(--muted);
+  font-size: 0.72rem;
+  margin-bottom: 4px;
+}
+
+.project-worker-detail-grid dd {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.project-worker-report {
+  margin-top: 14px;
+  border: 1px solid var(--line);
+  background: var(--surface-2);
+  padding: 10px;
+}
+
+.project-worker-report h4 {
+  margin: 0 0 8px;
+}
+
+.project-worker-report p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+}
+
+.project-worker-modal-actions {
+  margin-top: 14px;
+}
+
 .project-worker-item {
   border: 1px solid var(--line);
   border-radius: 0;

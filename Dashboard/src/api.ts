@@ -16,6 +16,7 @@ export const fetchAgentChatSlashCommands = coreApi.fetchAgentChatSlashCommands;
 export const fetchChannelPlugins = coreApi.fetchChannelPlugins;
 export const installPlugin = coreApi.installPlugin;
 export const fetchWorkers = coreApi.fetchWorkers;
+export const cancelWorker = coreApi.cancelWorker;
 export const fetchMeshState = coreApi.fetchMeshState;
 export const configureMeshNetwork = coreApi.configureMeshNetwork;
 export const createMeshInvite = coreApi.createMeshInvite;

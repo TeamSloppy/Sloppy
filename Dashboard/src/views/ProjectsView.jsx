@@ -1127,7 +1127,8 @@ export function ProjectsView({
   onRouteProjectChange = () => { },
   onRouteProjectChatChange = (_projectId, _agentId, _sessionId) => { },
   onSidebarProjectsListChanged = () => { },
-  onNavigateToChannelSession = (_sessionId) => { }
+  onNavigateToChannelSession = (_sessionId) => { },
+  onWorkersChanged = () => { }
 }) {
   const { notifications } = useNotifications();
   const [projects, setProjects] = useState([]);
@@ -2343,7 +2344,17 @@ export function ProjectsView({
     }
 
     if (selectedTab === "workers") {
-      return <ProjectWorkersTab project={project} workers={workers} />;
+      return (
+        <ProjectWorkersTab
+          project={project}
+          workers={workers}
+          onOpenWorkerSession={(agentId, sessionId) => {
+            onRouteProjectChatChange(project.id, agentId, sessionId);
+            openProject(project.id, "chat");
+          }}
+          onWorkersChanged={onWorkersChanged}
+        />
+      );
     }
 
     if (selectedTab === "visor") {

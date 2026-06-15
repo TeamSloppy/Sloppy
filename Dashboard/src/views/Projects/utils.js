@@ -1,6 +1,6 @@
 import { sessionChannelMatchesBinding } from "../../shared/channelGatewayScope";
 
-export const ACTIVE_WORKER_STATUSES = new Set(["queued", "running", "waitinginput", "waiting_input"]);
+export const ACTIVE_WORKER_STATUSES = new Set(["running", "waitinginput", "waiting_input"]);
 
 export const PROJECT_TABS = [
   { id: "overview", title: "Overview" },

@@ -232,7 +232,7 @@ func meshAPIConfiguresNetworkInvitesAndRegisteredNodes() async throws {
     let inviteObject = try #require(JSONSerialization.jsonObject(with: inviteResponse.body) as? [String: Any])
     #expect((inviteObject["bundleToken"] as? String)?.hasPrefix(MeshInviteBundle.prefix) == true)
 
-    let acceptBody = try encoder.encode(MeshInviteAcceptRequest(token: bundleToken))
+    let acceptBody = Data(#"{"token":"\#(bundleToken)"}"#.utf8)
     let acceptResponse = await router.handle(method: "POST", path: "/v1/node/mesh/invites/accept", body: acceptBody)
     #expect(acceptResponse.status == 201)
     let acceptedNode = try decoder.decode(MeshNodeRecord.self, from: acceptResponse.body)
@@ -259,6 +259,45 @@ func meshAPIConfiguresNetworkInvitesAndRegisteredNodes() async throws {
     let state = try decoder.decode(MeshState.self, from: stateResponse.body)
     #expect(state.nodes.map(\.id) == ["node_render"])
     #expect(state.invites.map(\.token) == [invite.token])
+}
+
+@Test
+func meshAPIAcceptInviteExplainsWrongCoordinator() async throws {
+    let service = CoreService(config: .test)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+
+    let token = try MeshInviteBundle(
+        inviteToken: "slp_invite_missing",
+        relayURL: "https://relay.example.com",
+        nodeId: "node_worker",
+        publicKey: "ed25519:public"
+    ).tokenString()
+    let body = try encoder.encode(MeshInviteAcceptRequest(token: token))
+
+    let response = await router.handle(method: "POST", path: "/v1/node/mesh/invites/accept", body: body)
+
+    #expect(response.status == 400)
+    let object = try #require(JSONSerialization.jsonObject(with: response.body) as? [String: Any])
+    #expect(object["error"] as? String == "mesh_invalid_request")
+    let message = try #require(object["message"] as? String)
+    #expect(message.contains("relay https://relay.example.com"))
+    #expect(message.contains("Switch the dashboard API base"))
+}
+
+@Test
+func meshAPIAcceptInviteRejectsWrongBodyWithExpectedShape() async throws {
+    let service = CoreService(config: .test)
+    let router = CoreRouter(service: service)
+
+    let response = await router.handle(method: "POST", path: "/v1/node/mesh/invites/accept", body: Data(#""slp_mesh_example""#.utf8))
+
+    #expect(response.status == 400)
+    let object = try #require(JSONSerialization.jsonObject(with: response.body) as? [String: Any])
+    #expect(object["error"] as? String == ErrorCode.invalidBody)
+    let message = try #require(object["message"] as? String)
+    #expect(message.contains(#""token""#))
+    #expect(message.contains("slp_mesh"))
 }
 
 @Test
@@ -373,6 +412,50 @@ func workersEndpoint() async throws {
 
     let workers = try JSONDecoder().decode([WorkerSnapshot].self, from: response.body)
     #expect(!workers.isEmpty)
+}
+
+@Test
+func workersEndpointIncludesMetadataAndCanCancelWorker() async throws {
+    let service = CoreService(config: .test)
+    let router = CoreRouter(service: service)
+
+    let createBody = try JSONEncoder().encode(
+        WorkerCreateRequest(
+            spec: WorkerTaskSpec(
+                taskId: "task-cancel",
+                channelId: "general",
+                title: "Cancelable Worker",
+                objective: "Wait for operator cancellation",
+                tools: ["shell"],
+                mode: .interactive
+            )
+        )
+    )
+    let createResponse = await router.handle(method: "POST", path: "/v1/workers", body: createBody)
+    #expect(createResponse.status == 201)
+    let createPayload = try #require(JSONSerialization.jsonObject(with: createResponse.body) as? [String: Any])
+    let workerId = try #require(createPayload["workerId"] as? String)
+
+    let listResponse = await router.handle(method: "GET", path: "/v1/workers", body: nil)
+    #expect(listResponse.status == 200)
+    let rawWorkers = try #require(JSONSerialization.jsonObject(with: listResponse.body) as? [[String: Any]])
+    let rawWorker = try #require(rawWorkers.first(where: { $0["workerId"] as? String == workerId }))
+    #expect(rawWorker["title"] as? String == "Cancelable Worker")
+    #expect(rawWorker["createdAt"] as? String != nil)
+    #expect(rawWorker["updatedAt"] as? String != nil)
+
+    let cancelBody = try JSONEncoder().encode(["reason": "Cancelled from dashboard"])
+    let cancelResponse = await router.handle(
+        method: "POST",
+        path: "/v1/workers/\(workerId)/cancel",
+        body: cancelBody
+    )
+    #expect(cancelResponse.status == 200)
+
+    let workers = try JSONDecoder().decode([WorkerSnapshot].self, from: (await router.handle(method: "GET", path: "/v1/workers", body: nil)).body)
+    let cancelledWorker = try #require(workers.first(where: { $0.workerId == workerId }))
+    #expect(cancelledWorker.status == WorkerStatus.failed)
+    #expect(cancelledWorker.latestReport == "Cancelled from dashboard")
 }
 
 @Test

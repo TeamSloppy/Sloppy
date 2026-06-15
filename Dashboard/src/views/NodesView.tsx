@@ -336,8 +336,8 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
         setActiveModal(null);
         await refresh();
       }
-    } catch {
-      setError("Mesh update failed.");
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Mesh update failed.");
     } finally {
       setBusyAction("");
     }
