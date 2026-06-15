@@ -174,6 +174,34 @@ func fullAccessSandboxBypassesMissingDirectoryAccessApproval() async throws {
 }
 
 @Test
+func temporaryDirectoryBypassesMissingDirectoryAccessApproval() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let session = try await makeApprovalSession(service: service, agentID: "approval-temp-directory")
+    let file = URL(fileURLWithPath: "/tmp", isDirectory: true)
+        .appendingPathComponent("sloppy-approval-\(UUID().uuidString)")
+        .appendingPathComponent("fixture.txt")
+        .standardizedFileURL
+    defer { try? FileManager.default.removeItem(at: file.deletingLastPathComponent()) }
+
+    let result = await service.invokeToolFromRuntime(
+        agentID: "approval-temp-directory",
+        sessionID: session.id,
+        request: ToolInvocationRequest(
+            tool: "files.write",
+            arguments: [
+                "path": .string(file.path),
+                "content": .string("tmp")
+            ]
+        ),
+        recordSessionEvents: false
+    )
+
+    #expect(result.ok == true)
+    #expect(await service.listPendingToolApprovals().isEmpty)
+    #expect(try String(contentsOf: file, encoding: .utf8) == "tmp")
+}
+
+@Test
 func autopilotWorkerSessionBypassesMissingDirectoryAccessApproval() async throws {
     let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let session = try await makeApprovalSession(
@@ -832,7 +860,8 @@ private func makeApprovalSession(
 }
 
 private func makeApprovalTempDirectory() throws -> URL {
-    let directory = FileManager.default.temporaryDirectory
+    let directory = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+        .appendingPathComponent(".build/sloppy-approval-fixtures", isDirectory: true)
         .appendingPathComponent("sloppy-approval-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     return directory.standardizedFileURL

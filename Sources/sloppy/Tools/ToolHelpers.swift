@@ -42,21 +42,21 @@ extension ToolContext {
         if policy.sandbox.mode == .fullAccess {
             return ["/"] + readOnlyRoots
         }
-        return policy.guardrails.allowedWriteRoots + readOnlyRoots
+        return policy.guardrails.allowedWriteRoots + defaultTemporaryToolRoots() + readOnlyRoots
     }
 
     private func extraWritableRoots() -> [String] {
         if policy.sandbox.mode == .fullAccess {
             return ["/"]
         }
-        return policy.guardrails.allowedWriteRoots
+        return policy.guardrails.allowedWriteRoots + defaultTemporaryToolRoots()
     }
 
     private func extraExecRoots() -> [String] {
         if policy.sandbox.mode == .fullAccess {
             return ["/"]
         }
-        return policy.guardrails.allowedExecRoots
+        return policy.guardrails.allowedExecRoots + defaultTemporaryToolRoots()
     }
 
     /// True when the path targets an agent's `USER.md` or `MEMORY.md` under `/agents` (including `.system`).
@@ -72,6 +72,10 @@ extension ToolContext {
         let systemPath = systemRoot.path
         return path.hasPrefix(agentsPath + "/") || path.hasPrefix(systemPath + "/")
     }
+}
+
+func defaultTemporaryToolRoots() -> [String] {
+    ["/tmp"]
 }
 
 func resolveToolPath(

@@ -881,7 +881,7 @@ extension CoreService {
             rawPath,
             workspaceRootURL: workspaceRootURL,
             currentDirectoryURL: currentDirectoryURL,
-            extraRoots: extraRoots
+            extraRoots: extraRoots + defaultTemporaryToolRoots()
         ) != nil {
             return []
         }
