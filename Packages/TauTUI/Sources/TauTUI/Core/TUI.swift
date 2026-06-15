@@ -198,7 +198,7 @@ public final class TUI: Container {
             return
         }
 
-        self.writePartialRender(lines: newLines, from: diffRange.lowerBound)
+        self.writePartialRender(lines: newLines, from: diffRange.lowerBound, renderWidth: width)
         self.previousLines = newLines
         self.previousWidth = width
         self.previousHeight = height
@@ -237,7 +237,7 @@ public final class TUI: Container {
         self.terminal.write(buffer)
     }
 
-    private func writePartialRender(lines: [String], from start: Int) {
+    private func writePartialRender(lines: [String], from start: Int, renderWidth: Int) {
         var buffer = ANSI.syncStart
         buffer += ANSI.disableAutowrap
         let lineDiff = start - self.cursorRow
@@ -253,7 +253,7 @@ public final class TUI: Container {
             if index > start { buffer += "\r\n" }
             let line = lines[index]
             if !self.containsImage(line) {
-                precondition(VisibleWidth.measure(line) <= self.terminal.columns, "Rendered line exceeds width")
+                precondition(VisibleWidth.measure(line) <= renderWidth, "Rendered line exceeds width")
             }
             buffer += ANSI.resetStyle
             buffer += ANSI.clearLine

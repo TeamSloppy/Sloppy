@@ -121,3 +121,40 @@ func readingAgentConfigPreservesTemporarilyUnavailablePlannerModel() async throw
     #expect(reloaded.availableModels.contains { $0.id == executorModel.id })
     #expect(reloaded.availableModels.contains { $0.id == plannerModel.id })
 }
+
+@Test
+func updatingAgentConfigPersistsReasoningEffortDefault() async throws {
+    let agentsRootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("agent-reasoning-effort-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("agents", isDirectory: true)
+    let store = AgentCatalogFileStore(agentsRootURL: agentsRootURL)
+    defer {
+        try? FileManager.default.removeItem(at: agentsRootURL.deletingLastPathComponent())
+    }
+
+    let model = ProviderModelOption(id: "openai-api:o4-mini", title: "Reasoning", capabilities: ["reasoning", "tools"])
+    let agent = try store.createAgent(
+        AgentCreateRequest(id: "reasoning-config-agent", displayName: "Reasoning Config Agent", role: "Developer"),
+        availableModels: [model]
+    )
+    let initial = try store.getAgentConfig(agentID: agent.id, availableModels: [model])
+
+    let updated = try store.updateAgentConfig(
+        agentID: agent.id,
+        request: AgentConfigUpdateRequest(
+            role: initial.role,
+            selectedModel: model.id,
+            documents: initial.documents,
+            heartbeat: initial.heartbeat,
+            channelSessions: initial.channelSessions,
+            reasoningEffort: .high,
+            runtime: .init(type: .native),
+            skills: initial.skills
+        ),
+        availableModels: [model]
+    )
+    let reloaded = try store.getAgentConfig(agentID: agent.id, availableModels: [model])
+
+    #expect(updated.reasoningEffort == .high)
+    #expect(reloaded.reasoningEffort == .high)
+}

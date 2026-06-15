@@ -571,6 +571,103 @@ func agentSessionOrchestratorUsesSelectedReasoningModelAndEffort() async throws 
 }
 
 @Test
+func agentSessionOrchestratorUsesAgentDefaultReasoningEffortWhenRequestOmitsIt() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai-api:o4-mini", title: "openai-api:o4-mini", capabilities: ["reasoning", "tools"])
+    ]
+    let agentID = "default-reasoning-agent"
+    let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: "openai-api:o4-mini",
+        availableModels: availableModels
+    )
+    let initial = try catalogStore.getAgentConfig(agentID: agentID, availableModels: availableModels)
+    _ = try catalogStore.updateAgentConfig(
+        agentID: agentID,
+        request: AgentConfigUpdateRequest(
+            role: initial.role,
+            selectedModel: "openai-api:o4-mini",
+            documents: initial.documents,
+            heartbeat: initial.heartbeat,
+            channelSessions: initial.channelSessions,
+            reasoningEffort: .medium,
+            runtime: initial.runtime,
+            skills: initial.skills
+        ),
+        availableModels: availableModels
+    )
+    let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:o4-mini")
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels
+    )
+
+    let session = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest())
+    _ = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(
+            userId: "dashboard",
+            content: "Please think"
+        )
+    )
+
+    #expect(await provider.requestedReasoningEffortsSnapshot().last == .medium)
+}
+
+@Test
+func agentSessionOrchestratorRequestReasoningEffortOverridesAgentDefault() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai-api:o4-mini", title: "openai-api:o4-mini", capabilities: ["reasoning", "tools"])
+    ]
+    let agentID = "override-reasoning-agent"
+    let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: "openai-api:o4-mini",
+        availableModels: availableModels
+    )
+    let initial = try catalogStore.getAgentConfig(agentID: agentID, availableModels: availableModels)
+    _ = try catalogStore.updateAgentConfig(
+        agentID: agentID,
+        request: AgentConfigUpdateRequest(
+            role: initial.role,
+            selectedModel: "openai-api:o4-mini",
+            documents: initial.documents,
+            heartbeat: initial.heartbeat,
+            channelSessions: initial.channelSessions,
+            reasoningEffort: .low,
+            runtime: initial.runtime,
+            skills: initial.skills
+        ),
+        availableModels: availableModels
+    )
+    let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:o4-mini")
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels
+    )
+
+    let session = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest())
+    _ = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(
+            userId: "dashboard",
+            content: "Please think",
+            reasoningEffort: .high
+        )
+    )
+
+    #expect(await provider.requestedReasoningEffortsSnapshot().last == .high)
+}
+
+@Test
 func agentSessionOrchestratorDropsReasoningEffortForNonReasoningModels() async throws {
     let availableModels = [
         ProviderModelOption(id: "openai-api:o4-mini", title: "openai-api:o4-mini", capabilities: ["reasoning", "tools"]),

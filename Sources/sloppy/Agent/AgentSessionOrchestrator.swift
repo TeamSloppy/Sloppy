@@ -256,7 +256,7 @@ actor AgentSessionOrchestrator {
                 .map { $0.lowercased() } ?? []
         )
         let reasoningEffort = agentConfig.runtime.type == .native && selectedModelCapabilities.contains("reasoning")
-            ? request.reasoningEffort
+            ? (request.reasoningEffort ?? agentConfig.reasoningEffort)
             : nil
 
         let content = request.content.trimmingCharacters(in: .whitespacesAndNewlines)

@@ -58,7 +58,13 @@ const TASK_TITLE_PREFIX_PATTERN = /\btask-([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0
 const TASK_SESSION_TITLE_PATTERN = /^task-([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)\b/i;
 const TASK_TAG_REMOVE_PATTERN = /(^|\s)#([A-Za-z0-9][A-Za-z0-9._-]*)(\s?)$/;
 const TASK_TAG_QUERY_VALUE_PATTERN = /^[A-Za-z0-9._-]*$/;
-const DEFAULT_REASONING_EFFORT = "medium";
+const DEFAULT_REASONING_EFFORT = "default";
+const REASONING_EFFORT_OPTIONS = [
+  { id: "default", label: "Agent default", icon: "tune" },
+  { id: "low", label: "Low", icon: "trending_down" },
+  { id: "medium", label: "Medium", icon: "speed" },
+  { id: "high", label: "High", icon: "rocket_launch" }
+];
 
 /** Web-chat-only commands (not in channel plugin list). */
 const DASHBOARD_ONLY_SLASH_COMMANDS = [
@@ -87,6 +93,20 @@ function pathTailIfAddDirCommand(text) {
     }
   }
   return value;
+}
+
+function reasoningEffortOption(value) {
+  return REASONING_EFFORT_OPTIONS.find((option) => option.id === value) || REASONING_EFFORT_OPTIONS[0];
+}
+
+function nextReasoningEffort(value) {
+  const index = REASONING_EFFORT_OPTIONS.findIndex((option) => option.id === value);
+  const nextIndex = index >= 0 ? (index + 1) % REASONING_EFFORT_OPTIONS.length : 0;
+  return REASONING_EFFORT_OPTIONS[nextIndex].id;
+}
+
+function explicitReasoningEffort(value) {
+  return value && value !== "default" ? value : undefined;
 }
 
 function mergeDashboardSlashCommands(
@@ -3538,19 +3558,19 @@ function AgentChatComposer({
               </button>
 
               {supportsReasoningEffort ? (
-                <label className="agent-chat-reasoning-select">
-                  <span>Reasoning</span>
-                  <select
-                    value={reasoningEffort}
-                    onChange={(event) => onReasoningEffortChange(event.target.value)}
-                    disabled={isInputDisabled}
-                    aria-label="Reasoning effort"
-                  >
-                    <option value="low">Low</option>
-                    <option value="medium">Medium</option>
-                    <option value="high">High</option>
-                  </select>
-                </label>
+                <button
+                  type="button"
+                  className="agent-chat-reasoning-button"
+                  onClick={() => onReasoningEffortChange(nextReasoningEffort(reasoningEffort))}
+                  disabled={isInputDisabled}
+                  title={`Reasoning: ${reasoningEffortOption(reasoningEffort).label}`}
+                  aria-label={`Reasoning effort: ${reasoningEffortOption(reasoningEffort).label}`}
+                >
+                  <span className="material-symbols-rounded" aria-hidden="true">
+                    {reasoningEffortOption(reasoningEffort).icon}
+                  </span>
+                  <span>{reasoningEffortOption(reasoningEffort).label}</span>
+                </button>
               ) : null}
 
               <button
@@ -5687,7 +5707,7 @@ export function AgentChatTab({
           attachments: uploads,
           spawnSubSession: false,
           mode: modeForSend,
-          reasoningEffort: supportsReasoningEffort ? reasoningEffort : undefined,
+          reasoningEffort: supportsReasoningEffort ? explicitReasoningEffort(reasoningEffort) : undefined,
           selectedModel: selectedModel || undefined
         },
         { signal: runStateRef.current.abortController.signal }
@@ -5987,7 +6007,7 @@ export function AgentChatTab({
           attachments: [],
           spawnSubSession: false,
           mode: normalizeChatMode(chatMode),
-          reasoningEffort: supportsReasoningEffort ? reasoningEffort : undefined,
+          reasoningEffort: supportsReasoningEffort ? explicitReasoningEffort(reasoningEffort) : undefined,
           selectedModel: selectedModel || undefined
         },
         { signal: runStateRef.current.abortController.signal }

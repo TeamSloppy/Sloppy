@@ -29,12 +29,20 @@ const AGENT_CONFIG_SECTIONS = [
   { id: "danger", title: "Danger Zone", icon: "warning", danger: true }
 ];
 
+const REASONING_EFFORT_OPTIONS = [
+  { value: "", label: "Default" },
+  { value: "low", label: "Low" },
+  { value: "medium", label: "Medium" },
+  { value: "high", label: "High" }
+];
+
 function emptyAgentConfigDraft(agentId) {
   return {
     agentId,
     role: "",
     selectedModel: "",
     plannerModel: "",
+    reasoningEffort: "",
     availableModels: [],
     documents: {
       userMarkdown: "",
@@ -77,6 +85,9 @@ function normalizeConfigDraft(agentId, config) {
     role: String(config.role || ""),
     selectedModel: coerceLegacySloppyModelId(String(config.selectedModel || "")),
     plannerModel: coerceLegacySloppyModelId(String(config.plannerModel || "")),
+    reasoningEffort: REASONING_EFFORT_OPTIONS.some((option) => option.value === config.reasoningEffort)
+      ? String(config.reasoningEffort || "")
+      : "",
     availableModels: Array.isArray(config.availableModels) ? config.availableModels : [],
     documents: {
       userMarkdown: String(config.documents?.userMarkdown || ""),
@@ -590,6 +601,7 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
       role: String(draft.role || "").trim(),
       selectedModel: runtimeType === "native" ? selectedModel : null,
       plannerModel: runtimeType === "native" ? plannerModel || null : null,
+      reasoningEffort: runtimeType === "native" && draft.reasoningEffort ? draft.reasoningEffort : null,
       documents: {
         userMarkdown: String(draft.documents.userMarkdown || ""),
         agentsMarkdown: String(draft.documents.agentsMarkdown || ""),
@@ -925,6 +937,28 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
               emptyOptionTitle="Use executor model"
               emptyOptionSubtitle="Clear planner override"
             />
+            <div className="agent-config-reasoning-field" style={{ gridColumn: "1 / -1" }}>
+              <span className="agent-config-reasoning-label">Reasoning Effort</span>
+              <div className="agent-config-reasoning-options" role="group" aria-label="Default reasoning effort">
+                {REASONING_EFFORT_OPTIONS.map((option) => {
+                  const isActive = String(draft.reasoningEffort || "") === option.value;
+                  return (
+                    <button
+                      key={option.value || "default"}
+                      type="button"
+                      className={`agent-config-reasoning-option ${isActive ? "active" : ""}`}
+                      onClick={() => updateField("reasoningEffort", option.value)}
+                      disabled={isSaving || isACP}
+                    >
+                      {option.label}
+                    </button>
+                  );
+                })}
+              </div>
+              <span className="entry-form-hint">
+                Used for reasoning-capable native models when a chat turn does not override it.
+              </span>
+            </div>
           </div>
 
           {channelNodes.length > 0 && (

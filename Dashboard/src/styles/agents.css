@@ -3306,34 +3306,34 @@ body.agent-chat-no-page-scroll .page {
   color: #e879f9;
 }
 
-.agent-chat-reasoning-select {
-  min-width: auto;
+.agent-chat-reasoning-button {
+  min-width: 142px;
+  min-height: 34px;
   border: 1px solid var(--line);
   border-radius: 0;
-  padding: 4px 10px;
+  padding: 0 10px;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
-  color: var(--muted);
-  font-size: 0.78rem;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
-}
-
-.agent-chat-reasoning-select select {
-  width: auto;
-  min-width: 88px;
-  border: 0;
-  background: transparent;
+  justify-content: center;
+  gap: 6px;
+  background: rgba(255, 255, 255, 0.03);
   color: var(--text);
-  padding: 0;
   font-size: 0.84rem;
-  text-transform: none;
-  letter-spacing: normal;
+  cursor: pointer;
 }
 
-.agent-chat-reasoning-select select:focus {
-  outline: none;
+.agent-chat-reasoning-button:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: var(--surface-3);
+}
+
+.agent-chat-reasoning-button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
+.agent-chat-reasoning-button .material-symbols-rounded {
+  font-size: 18px;
 }
 
 .agent-chat-icon-button {
@@ -3531,6 +3531,59 @@ body.agent-chat-no-page-scroll .page {
   font-size: 0.82rem;
   text-transform: uppercase;
   letter-spacing: 0.04em;
+}
+
+.agent-config-reasoning-field {
+  display: grid;
+  gap: 6px;
+}
+
+.agent-config-reasoning-label {
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.agent-config-reasoning-options {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  max-width: 100%;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  overflow: hidden;
+}
+
+.agent-config-reasoning-option {
+  appearance: none;
+  border: none;
+  border-right: 1px solid var(--line);
+  background: transparent;
+  color: var(--muted);
+  min-width: 82px;
+  min-height: 38px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 0.84rem;
+  cursor: pointer;
+}
+
+.agent-config-reasoning-option:last-child {
+  border-right: none;
+}
+
+.agent-config-reasoning-option:hover:not(:disabled) {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.agent-config-reasoning-option.active {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.agent-config-reasoning-option:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
 }
 
 .agent-doc-files {

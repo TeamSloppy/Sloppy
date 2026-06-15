@@ -19,6 +19,51 @@ private final class CapturingInputComponent: Component {
     }
 }
 
+private final class SequenceWidthTerminal: Terminal {
+    private var columnValues: [Int]
+    private let rowValue: Int
+    private(set) var outputLog: [String] = []
+
+    init(columnValues: [Int], rows: Int) {
+        self.columnValues = columnValues
+        self.rowValue = rows
+    }
+
+    var columns: Int {
+        guard self.columnValues.count > 1 else {
+            return self.columnValues.first ?? 1
+        }
+        return self.columnValues.removeFirst()
+    }
+
+    var rows: Int { self.rowValue }
+
+    func start(onInput: @escaping (TerminalInput) -> Void, onResize: @escaping () -> Void) throws {
+        _ = onInput
+        _ = onResize
+    }
+
+    func stop() {}
+
+    func write(_ data: String) {
+        self.outputLog.append(data)
+    }
+
+    func setMouseReportingEnabled(_ enabled: Bool) {
+        _ = enabled
+    }
+
+    func moveBy(lines: Int) {
+        _ = lines
+    }
+
+    func hideCursor() {}
+    func showCursor() {}
+    func clearLine() {}
+    func clearFromCursor() {}
+    func clearScreen() {}
+}
+
 @Suite("TUI Rendering")
 struct TUIRenderingTests {
     @MainActor @Test
@@ -63,6 +108,20 @@ struct TUIRenderingTests {
         #expect(last.contains("swift"))
         #expect(!last.contains("\u{001B}[3J"))
         #expect(last.contains("\u{001B}[?2026h"))
+    }
+
+    @MainActor @Test
+    func partialDiffUsesRenderFrameWidthWhenTerminalShrinksMidFrame() throws {
+        let terminal = SequenceWidthTerminal(columnValues: [20, 20, 10], rows: 5)
+        let tui = TUI(terminal: terminal, renderScheduler: { $0() })
+        let component = DummyComponent(lines: ["01234567890123456789"])
+        tui.addChild(component)
+        try tui.start()
+
+        component.lines = ["abcdefghijklmnopqrst"]
+        tui.requestRender()
+
+        #expect(terminal.outputLog.last?.contains("abcdefghijklmnopqrst") == true)
     }
 
     @MainActor @Test
