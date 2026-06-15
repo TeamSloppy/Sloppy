@@ -6,6 +6,14 @@ import PluginSDK
 
 // MARK: - Config
 
+struct WorkspaceGitSyncRunError: LocalizedError {
+    var response: WorkspaceGitSyncResponse
+
+    var errorDescription: String? {
+        response.message
+    }
+}
+
 extension CoreService {
     public func updateConfig(_ config: CoreConfig) async throws -> CoreConfig {
         let previousOnboardingCompleted = currentConfig.onboarding.completed
@@ -156,10 +164,79 @@ extension CoreService {
     }
 
     public func runWorkspaceGitSyncNow() async throws -> WorkspaceGitSyncResponse {
-        try await workspaceGitSyncService.syncNow(
-            config: currentConfig.gitSync,
-            workspaceRootURL: workspaceRootURL
+        let syncConfig = currentConfig.gitSync
+        let syncWorkspaceRootURL = workspaceRootURL
+        let attemptedAt = workspaceGitSyncTimestamp()
+        let branch = syncConfig.branch.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            ? "main"
+            : syncConfig.branch.trimmingCharacters(in: .whitespacesAndNewlines)
+
+        do {
+            var response = try await workspaceGitSyncService.syncNow(
+                config: syncConfig,
+                workspaceRootURL: syncWorkspaceRootURL
+            )
+            let status = WorkspaceGitSyncStatus(
+                lastAttemptAt: attemptedAt,
+                lastSuccessAt: attemptedAt,
+                lastFailureAt: syncConfig.status.lastFailureAt,
+                lastError: nil,
+                lastCommit: response.commit ?? syncConfig.status.lastCommit,
+                lastFilesChanged: response.filesChanged,
+                failedAttempts: 0
+            )
+            recordWorkspaceGitSyncStatus(status)
+            response.status = status
+            return response
+        } catch {
+            let message = error.localizedDescription
+            let status = WorkspaceGitSyncStatus(
+                lastAttemptAt: attemptedAt,
+                lastSuccessAt: syncConfig.status.lastSuccessAt,
+                lastFailureAt: attemptedAt,
+                lastError: message,
+                lastCommit: syncConfig.status.lastCommit,
+                lastFilesChanged: syncConfig.status.lastFilesChanged,
+                failedAttempts: syncConfig.status.failedAttempts + 1
+            )
+            recordWorkspaceGitSyncStatus(status)
+            throw WorkspaceGitSyncRunError(
+                response: WorkspaceGitSyncResponse(
+                    ok: false,
+                    message: message,
+                    branch: branch,
+                    status: status
+                )
+            )
+        }
+    }
+
+    private func recordWorkspaceGitSyncStatus(_ status: WorkspaceGitSyncStatus) {
+        currentConfig.gitSync.status = status
+        do {
+            try writeRuntimeConfigSnapshot(currentConfig)
+        } catch {
+            logger.warning(
+                "workspace_git_sync.status_persist_failed",
+                metadata: ["error": .string(error.localizedDescription)]
+            )
+        }
+    }
+
+    private func writeRuntimeConfigSnapshot(_ config: CoreConfig) throws {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let payload = try encoder.encode(config) + Data("\n".utf8)
+        let url = URL(fileURLWithPath: configPath)
+        try FileManager.default.createDirectory(
+            at: url.deletingLastPathComponent(),
+            withIntermediateDirectories: true
         )
+        try payload.write(to: url, options: .atomic)
+    }
+
+    private func workspaceGitSyncTimestamp() -> String {
+        ISO8601DateFormatter().string(from: Date())
     }
 
     /// Lists all persisted agents from workspace `/agents`.

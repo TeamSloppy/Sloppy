@@ -563,7 +563,16 @@ func gitSyncSettingsDecodeWhenPresent() throws {
               "frequency": "daily",
               "time": "18:00"
             },
-            "conflictStrategy": "remote_wins"
+            "conflictStrategy": "remote_wins",
+            "status": {
+              "lastAttemptAt": "2026-06-15T10:00:00Z",
+              "lastSuccessAt": "2026-06-15T10:00:00Z",
+              "lastFailureAt": "2026-06-14T10:00:00Z",
+              "lastError": "git push failed",
+              "lastCommit": "abc123",
+              "lastFilesChanged": 4,
+              "failedAttempts": 2
+            }
           },
           "sqlitePath": "core.sqlite"
         }
@@ -577,6 +586,13 @@ func gitSyncSettingsDecodeWhenPresent() throws {
     #expect(decoded.gitSync.schedule.frequency == .daily)
     #expect(decoded.gitSync.schedule.time == "18:00")
     #expect(decoded.gitSync.conflictStrategy == .remoteWins)
+    #expect(decoded.gitSync.status.lastAttemptAt == "2026-06-15T10:00:00Z")
+    #expect(decoded.gitSync.status.lastSuccessAt == "2026-06-15T10:00:00Z")
+    #expect(decoded.gitSync.status.lastFailureAt == "2026-06-14T10:00:00Z")
+    #expect(decoded.gitSync.status.lastError == "git push failed")
+    #expect(decoded.gitSync.status.lastCommit == "abc123")
+    #expect(decoded.gitSync.status.lastFilesChanged == 4)
+    #expect(decoded.gitSync.status.failedAttempts == 2)
 }
 
 @Test

@@ -199,6 +199,12 @@ public struct InviteCreate: AsyncParsableCommand {
     @Option(name: .long, help: "Invite lifetime in seconds.")
     var ttlSeconds: Double = 86400
 
+    @Option(name: .long, help: "Relay/coordinator URL to include in the bundled invite token.")
+    var relay: String?
+
+    @Option(name: .long, help: "Worker public key to include in the bundled invite token.")
+    var publicKey: String?
+
     @Option(name: .long, help: "Mesh state path. Defaults to ~/.sloppy/mesh.json.")
     var meshPath: String?
 
@@ -212,12 +218,20 @@ public struct InviteCreate: AsyncParsableCommand {
             name: name,
             roles: normalizeList(roles),
             capabilities: normalizeList(capabilities),
-            ttlSeconds: ttlSeconds
+            ttlSeconds: ttlSeconds,
+            relayURL: relay,
+            publicKey: publicKey
         )
-        print(invite.token)
+        print(invite.bundleToken ?? invite.token)
         print("  network: \(invite.networkId)")
         print("  roles: \(invite.roles.joined(separator: ","))")
         print("  capabilities: \(invite.capabilities.joined(separator: ","))")
+        if let relayURL = invite.relayURL {
+            print("  relay: \(relayURL)")
+        }
+        if let publicKey = invite.publicKey {
+            print("  publicKey: \(publicKey)")
+        }
         print("  expiresAt: \(ISO8601DateFormatter().string(from: invite.expiresAt))")
     }
 }
@@ -255,7 +269,7 @@ public struct Join: AsyncParsableCommand {
     )
 
     @Option(name: .long, help: "Relay/coordinator URL, e.g. https://sloppy.example.com.")
-    var relay: String
+    var relay: String?
 
     @Option(name: .long, help: "Invite token created by the coordinator.")
     var invite: String
@@ -276,27 +290,48 @@ public struct Join: AsyncParsableCommand {
 
     public mutating func run() async throws {
         await LoggingBootstrapper.shared.bootstrapIfNeeded()
+        let bundle = try? MeshInviteBundle.parse(invite)
+        let inviteToken = bundle?.inviteToken ?? invite
+        let relayURL = relay ?? bundle?.relayURL
+        guard let relayURL, !relayURL.isEmpty else {
+            throw ValidationError("Provide --relay or use a bundled slp_mesh_ invite token.")
+        }
+
         let meshStore = NodeMeshStore(stateURL: meshURL(from: meshPath))
         let state = try meshStore.load()
-        let inviteRecord = state.invites.first(where: { $0.token == invite })
+        let inviteRecord = state.invites.first(where: { $0.token == inviteToken })
         let nodeName = name ?? inviteRecord?.name ?? Host.current().localizedName ?? "joined-node"
         let roles = inviteRecord?.roles.isEmpty == false ? inviteRecord!.roles : ["worker"]
         let capabilities = inviteRecord?.capabilities.isEmpty == false ? inviteRecord!.capabilities : ["run_agent", "git"]
 
         let configStore = NodeConfigStore(configURL: configURL(from: configPath))
-        let config = try configStore.initialize(
-            name: nodeName,
-            roles: roles,
-            capabilities: capabilities,
-            relayURL: relay,
-            force: force
-        )
-        let record = try meshStore.consumeInvite(token: invite, identity: config.identity, endpoint: relay)
+        let config: NodeConfig
+        if !force, let existingConfig = try? configStore.load() {
+            if let publicKey = bundle?.publicKey, existingConfig.identity.publicKey != publicKey {
+                throw ValidationError("Bundled invite is bound to a different worker public key.")
+            }
+            var updatedConfig = existingConfig
+            updatedConfig.relayURL = relayURL
+            try configStore.save(updatedConfig)
+            config = updatedConfig
+        } else {
+            if bundle?.publicKey != nil {
+                throw ValidationError("Bundled invite is bound to an existing worker public key. Run `sloppy-node init` first or pass --force with a legacy invite.")
+            }
+            config = try configStore.initialize(
+                name: nodeName,
+                roles: roles,
+                capabilities: capabilities,
+                relayURL: relayURL,
+                force: force
+            )
+        }
+        let record = try meshStore.consumeInvite(token: invite, identity: config.identity, endpoint: relayURL)
 
         print("Joined SloppyNode mesh")
         print("  id: \(record.id)")
         print("  name: \(record.name)")
-        print("  relay: \(relay)")
+        print("  relay: \(relayURL)")
         print("  config: \(configStore.configURL.path)")
     }
 }

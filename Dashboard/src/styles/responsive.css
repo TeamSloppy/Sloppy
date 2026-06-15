@@ -166,6 +166,7 @@
   .config-capability-grid,
   .config-plugin-source-row,
   .provider-modal-form,
+  .git-sync-status,
   .updates-status-grid {
     grid-template-columns: 1fr;
   }

@@ -13,10 +13,44 @@ export function GitSyncEditor({
   const gitSyncEnabled = Boolean(draftConfig.gitSync?.enabled);
   const syncFrequency = normalizeGitSyncFrequency(draftConfig.gitSync?.schedule?.frequency);
   const conflictStrategy = normalizeGitSyncConflictStrategy(draftConfig.gitSync?.conflictStrategy);
+  const status = draftConfig.gitSync?.status || {};
+  const failedAttempts = Number.parseInt(String(status.failedAttempts || 0), 10) || 0;
+  const hasActiveFailure = failedAttempts > 0 || Boolean(status.lastError);
+  const statusTone = hasActiveFailure ? "is-warning" : status.lastSuccessAt ? "is-ok" : "";
+  const lastCommit = String(status.lastCommit || "");
+  const lastFilesChanged = Number.parseInt(String(status.lastFilesChanged || 0), 10) || 0;
 
   return (
     <section className="entry-editor-card">
       <h3>Workspace Git Sync</h3>
+      <div className={`git-sync-status ${statusTone}`}>
+        <div className="git-sync-status-item">
+          <span>Last sync</span>
+          <strong>{formatGitSyncDate(status.lastSuccessAt, "Never synced")}</strong>
+        </div>
+        <div className="git-sync-status-item">
+          <span>Last attempt</span>
+          <strong>{formatGitSyncDate(status.lastAttemptAt, "Never run")}</strong>
+        </div>
+        <div className="git-sync-status-item">
+          <span>Failed attempts</span>
+          <strong>{failedAttempts}</strong>
+        </div>
+        <div className="git-sync-status-item">
+          <span>Last commit</span>
+          <strong>{lastCommit || "No commit yet"}</strong>
+        </div>
+        <div className="git-sync-status-item">
+          <span>Changed files</span>
+          <strong>{lastFilesChanged}</strong>
+        </div>
+        {hasActiveFailure ? (
+          <div className="git-sync-status-error">
+            <span>{formatGitSyncDate(status.lastFailureAt, "Last failure")}</span>
+            <strong>{String(status.lastError || "Workspace Git Sync failed.")}</strong>
+          </div>
+        ) : null}
+      </div>
       <div className="entry-form-grid">
         <label style={{ gridColumn: "1 / -1" }}>
           Enable Sync
@@ -131,4 +165,16 @@ export function GitSyncEditor({
       </div>
     </section>
   );
+}
+
+function formatGitSyncDate(value, fallback) {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return fallback;
+  }
+  const date = new Date(raw);
+  if (Number.isNaN(date.getTime())) {
+    return raw;
+  }
+  return date.toLocaleString();
 }

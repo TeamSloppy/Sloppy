@@ -818,6 +818,7 @@ public struct CoreConfig: Codable, Sendable {
         public var branch: String
         public var schedule: Schedule
         public var conflictStrategy: ConflictStrategy
+        public var status: WorkspaceGitSyncStatus
 
         public init(
             enabled: Bool = false,
@@ -825,7 +826,8 @@ public struct CoreConfig: Codable, Sendable {
             repository: String = "",
             branch: String = "main",
             schedule: Schedule = Schedule(),
-            conflictStrategy: ConflictStrategy = .remoteWins
+            conflictStrategy: ConflictStrategy = .remoteWins,
+            status: WorkspaceGitSyncStatus = WorkspaceGitSyncStatus()
         ) {
             self.enabled = enabled
             self.authToken = authToken
@@ -833,6 +835,7 @@ public struct CoreConfig: Codable, Sendable {
             self.branch = branch
             self.schedule = schedule
             self.conflictStrategy = conflictStrategy
+            self.status = status
         }
 
         private enum CodingKeys: String, CodingKey {
@@ -842,6 +845,7 @@ public struct CoreConfig: Codable, Sendable {
             case branch
             case schedule
             case conflictStrategy
+            case status
         }
 
         public init(from decoder: Decoder) throws {
@@ -852,6 +856,7 @@ public struct CoreConfig: Codable, Sendable {
             branch = try container.decodeIfPresent(String.self, forKey: .branch) ?? "main"
             schedule = try container.decodeIfPresent(Schedule.self, forKey: .schedule) ?? Schedule()
             conflictStrategy = try container.decodeIfPresent(ConflictStrategy.self, forKey: .conflictStrategy) ?? .remoteWins
+            status = try container.decodeIfPresent(WorkspaceGitSyncStatus.self, forKey: .status) ?? WorkspaceGitSyncStatus()
         }
     }
 

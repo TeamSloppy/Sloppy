@@ -92,6 +92,41 @@ struct NodeMeshStoreTests {
         }
     }
 
+    @Test("bundled invite token carries relay URL and worker public key")
+    func bundledInviteTokenCarriesRelayURLAndWorkerPublicKey() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let identity = NodeIdentityGenerator.makeIdentity(
+            name: "Home Mac",
+            roles: ["worker"],
+            capabilities: ["run_agent", "git"]
+        )
+        let invite = try store.createInvite(
+            networkId: "personal",
+            name: "Home Mac",
+            roles: identity.roles,
+            capabilities: identity.capabilities,
+            ttlSeconds: 60,
+            relayURL: "https://sloppy.example.com",
+            publicKey: identity.publicKey
+        )
+
+        let bundleToken = try #require(invite.bundleToken)
+        let bundle = try MeshInviteBundle.parse(bundleToken)
+
+        #expect(bundle.inviteToken == invite.token)
+        #expect(bundle.relayURL == "https://sloppy.example.com")
+        #expect(bundle.publicKey == identity.publicKey)
+
+        let node = try store.consumeInvite(
+            token: bundleToken,
+            identity: identity,
+            endpoint: bundle.relayURL
+        )
+
+        #expect(node.publicKey == identity.publicKey)
+        #expect(node.endpoint == "https://sloppy.example.com")
+    }
+
     @Test("shared project attach stores per-node local paths")
     func sharedProjectAttachStoresPerNodeLocalPaths() throws {
         let store = NodeMeshStore(stateURL: temporaryStateURL())

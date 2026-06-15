@@ -211,13 +211,24 @@ func meshAPIConfiguresNetworkInvitesAndRegisteredNodes() async throws {
         name: "Render Worker",
         roles: ["worker"],
         capabilities: ["run_agent", "git"],
-        ttlSeconds: 600
+        ttlSeconds: 600,
+        relayURL: "https://sloppy.example.com",
+        publicKey: "ed25519:public"
     ))
     let inviteResponse = await router.handle(method: "POST", path: "/v1/node/mesh/invites", body: inviteBody)
     #expect(inviteResponse.status == 201)
     let invite = try decoder.decode(MeshInvite.self, from: inviteResponse.body)
     #expect(invite.networkId == "studio")
     #expect(invite.name == "Render Worker")
+    #expect(invite.relayURL == "https://sloppy.example.com")
+    #expect(invite.publicKey == "ed25519:public")
+    let bundleToken = try #require(invite.bundleToken)
+    let bundle = try MeshInviteBundle.parse(bundleToken)
+    #expect(bundle.inviteToken == invite.token)
+    #expect(bundle.relayURL == "https://sloppy.example.com")
+    #expect(bundle.publicKey == "ed25519:public")
+    let inviteObject = try #require(JSONSerialization.jsonObject(with: inviteResponse.body) as? [String: Any])
+    #expect((inviteObject["bundleToken"] as? String)?.hasPrefix(MeshInviteBundle.prefix) == true)
 
     let nodeBody = try encoder.encode(MeshNodeRegisterRequest(
         id: "node_render",

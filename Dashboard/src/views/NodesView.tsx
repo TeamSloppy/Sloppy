@@ -50,6 +50,10 @@ function toCsv(values: string[]) {
   return values.join(",");
 }
 
+function meshInviteToken(invite: AnyRecord) {
+  return text(invite.bundleToken, text(invite.token));
+}
+
 function statusLabel(value: unknown) {
   return text(value, "offline").replace(/_/g, " ");
 }
@@ -201,6 +205,8 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
   const [inviteRoles, setInviteRoles] = useState("worker");
   const [inviteCapabilities, setInviteCapabilities] = useState("run_agent,git");
   const [inviteTtlSeconds, setInviteTtlSeconds] = useState("86400");
+  const [inviteRelayURL, setInviteRelayURL] = useState(() => (typeof window === "undefined" ? "" : window.location.origin));
+  const [invitePublicKey, setInvitePublicKey] = useState("");
   const [latestInvite, setLatestInvite] = useState<AnyRecord | null>(null);
   const [nodeId, setNodeId] = useState("");
   const [nodeDisplayName, setNodeDisplayName] = useState("");
@@ -354,13 +360,21 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
 
   async function createInvite() {
     const id = activeSystemId.trim() || networkId.trim() || "personal";
+    const relayURL = inviteRelayURL.trim();
+    const publicKey = invitePublicKey.trim();
+    if (!relayURL || !publicKey) {
+      setError("Relay URL and worker public key are required for a bundled invite token.");
+      return;
+    }
     await runAction("invite", async () => {
       const invite = await coreApi.createMeshInvite({
         networkId: id,
         name: inviteName.trim() || null,
         roles: csv(inviteRoles),
         capabilities: csv(inviteCapabilities),
-        ttlSeconds: Number(inviteTtlSeconds) || 86400
+        ttlSeconds: Number(inviteTtlSeconds) || 86400,
+        relayURL,
+        publicKey
       });
       if (!invite) {
         setError("Invite could not be created.");
@@ -368,6 +382,7 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
       }
       setLatestInvite(invite);
       setInviteName("");
+      setInvitePublicKey("");
       return true;
     });
   }
@@ -494,7 +509,7 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
 
     if (activeModal === "invite") {
       return (
-        <MeshModalFrame title="Invite Node" description="Create a token with explicit node roles and capabilities." icon="key" onClose={() => setActiveModal(null)}>
+        <MeshModalFrame title="Invite Node" description="Create one bundled token with relay URL, invite secret, and worker public key." icon="key" onClose={() => setActiveModal(null)}>
           <div className="nodes-modal-body">
             <div className="nodes-selected-system">
               <span>System</span>
@@ -502,6 +517,12 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
             </div>
             <Field label="Expected node name" hint="Optional, shown to you when the token is created.">
               <input type="text" value={inviteName} onChange={(event) => setInviteName(event.target.value)} />
+            </Field>
+            <Field label="Relay URL" hint="Included in the bundled token so the worker does not need a separate --relay value.">
+              <input type="url" value={inviteRelayURL} onChange={(event) => setInviteRelayURL(event.target.value)} />
+            </Field>
+            <Field label="Worker public key" hint="Paste the ed25519 public key from the worker identity.">
+              <textarea value={invitePublicKey} onChange={(event) => setInvitePublicKey(event.target.value)} rows={4} />
             </Field>
             <ChipPicker
               label="Roles"
@@ -521,7 +542,7 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
           </div>
           <div className="nodes-modal-actions">
             <button type="button" onClick={() => setActiveModal(null)}>Cancel</button>
-            <button type="button" className="nodes-primary-button" disabled={!activeSystemId.trim() || !!busyAction} onClick={() => void createInvite()}>
+            <button type="button" className="nodes-primary-button" disabled={!activeSystemId.trim() || !inviteRelayURL.trim() || !invitePublicKey.trim() || !!busyAction} onClick={() => void createInvite()}>
               {busyAction === "invite" ? "Creating" : "Create invite"}
             </button>
           </div>
@@ -656,12 +677,12 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
             <button type="button" onClick={() => setActiveModal("invite")}>
               <span className="material-symbols-rounded" aria-hidden="true">vpn_key</span>
               <strong>2. Invite</strong>
-              <small>Issue a token with explicit capabilities.</small>
+              <small>Issue one token with URL and public key.</small>
             </button>
             <button type="button" onClick={() => setActiveModal("node")}>
               <span className="material-symbols-rounded" aria-hidden="true">badge</span>
               <strong>3. Register</strong>
-              <small>Add the worker public key for relay auth.</small>
+              <small>Manual fallback for existing worker keys.</small>
             </button>
           </section>
 
@@ -669,7 +690,7 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
             <section className="nodes-token-banner">
               <div>
                 <span>Latest invite token</span>
-                <strong>{text(latestInvite.token)}</strong>
+                <strong>{meshInviteToken(latestInvite)}</strong>
                 <small>{text(latestInvite.name, "node")} / expires {formatTime(latestInvite.expiresAt)}</small>
               </div>
               <button type="button" className="nodes-secondary-button" onClick={() => setActiveModal("invite")}>Create another</button>
@@ -720,7 +741,7 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
                   <article key={text(invite.token)} className="nodes-invite-row">
                     <strong>{text(invite.name, "unnamed node")}</strong>
                     <small>{list(invite.roles).join(", ") || "worker"} / {list(invite.capabilities).join(", ") || "no capabilities"}</small>
-                    <code>{text(invite.token)}</code>
+                    <code>{meshInviteToken(invite)}</code>
                   </article>
                 ))}
               </div>

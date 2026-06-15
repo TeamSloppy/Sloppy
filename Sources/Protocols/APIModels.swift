@@ -4857,25 +4857,56 @@ public struct GitHubAuthStatusResponse: Codable, Sendable {
     }
 }
 
+public struct WorkspaceGitSyncStatus: Codable, Sendable, Equatable {
+    public var lastAttemptAt: String?
+    public var lastSuccessAt: String?
+    public var lastFailureAt: String?
+    public var lastError: String?
+    public var lastCommit: String?
+    public var lastFilesChanged: Int
+    public var failedAttempts: Int
+
+    public init(
+        lastAttemptAt: String? = nil,
+        lastSuccessAt: String? = nil,
+        lastFailureAt: String? = nil,
+        lastError: String? = nil,
+        lastCommit: String? = nil,
+        lastFilesChanged: Int = 0,
+        failedAttempts: Int = 0
+    ) {
+        self.lastAttemptAt = lastAttemptAt
+        self.lastSuccessAt = lastSuccessAt
+        self.lastFailureAt = lastFailureAt
+        self.lastError = lastError
+        self.lastCommit = lastCommit
+        self.lastFilesChanged = lastFilesChanged
+        self.failedAttempts = failedAttempts
+    }
+}
+
 public struct WorkspaceGitSyncResponse: Codable, Sendable {
     public var ok: Bool
     public var message: String
     public var branch: String
     public var commit: String?
     public var filesChanged: Int
+    public var status: WorkspaceGitSyncStatus?
 
     public init(
         ok: Bool,
         message: String,
         branch: String,
         commit: String? = nil,
-        filesChanged: Int = 0
+        filesChanged: Int = 0,
+        status: WorkspaceGitSyncStatus? = nil
     ) {
         self.ok = ok
         self.message = message
         self.branch = branch
         self.commit = commit
         self.filesChanged = filesChanged
+        self.status = status
     }
 }
 

@@ -435,10 +435,12 @@ export function ConfigView({
       const response = await runWorkspaceGitSync();
       const ok = Boolean(response?.ok);
       const message = String(response?.message || (ok ? "Workspace synced." : "Workspace sync failed."));
+      await loadConfig();
       setGitSyncStatusText(message);
       setStatusText(message);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Workspace sync failed.";
+      await loadConfig().catch(() => {});
       setGitSyncStatusText(message);
       setStatusText(message);
     } finally {

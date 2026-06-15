@@ -381,7 +381,16 @@ export const EMPTY_CONFIG = {
       frequency: "daily",
       time: "18:00"
     },
-    conflictStrategy: "remote_wins"
+    conflictStrategy: "remote_wins",
+    status: {
+      lastAttemptAt: "",
+      lastSuccessAt: "",
+      lastFailureAt: "",
+      lastError: "",
+      lastCommit: "",
+      lastFilesChanged: 0,
+      failedAttempts: 0
+    }
   },
   acp: {
     enabled: false,
@@ -901,6 +910,7 @@ export function normalizeConfig(config) {
     config?.gitSync?.conflictStrategy,
     normalized.gitSync.conflictStrategy
   );
+  normalized.gitSync.status = normalizeGitSyncStatus(config?.gitSync?.status);
 
   normalized.nodes = Array.isArray(config?.nodes)
     ? config.nodes.filter(Boolean).map((node, index) => normalizeNode(node, index))
@@ -1074,6 +1084,19 @@ export function normalizeGitSyncConflictStrategy(value, fallback = "remote_wins"
     .trim()
     .toLowerCase();
   return GIT_SYNC_CONFLICT_STRATEGIES.has(normalized) ? normalized : fallback;
+}
+
+export function normalizeGitSyncStatus(value) {
+  const status = value && typeof value === "object" && !Array.isArray(value) ? value : {};
+  return {
+    lastAttemptAt: String(status.lastAttemptAt || ""),
+    lastSuccessAt: String(status.lastSuccessAt || ""),
+    lastFailureAt: String(status.lastFailureAt || ""),
+    lastError: String(status.lastError || ""),
+    lastCommit: String(status.lastCommit || ""),
+    lastFilesChanged: parseInteger(status.lastFilesChanged ?? 0, 0),
+    failedAttempts: parseInteger(status.failedAttempts ?? 0, 0)
+  };
 }
 
 export function normalizeTimeValue(value, fallback = "18:00") {

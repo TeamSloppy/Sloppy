@@ -147,6 +147,8 @@ struct SystemAPIRouter: APIRouter {
             do {
                 let response = try await service.runWorkspaceGitSyncNow()
                 return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch let error as WorkspaceGitSyncRunError {
+                return CoreRouter.encodable(status: HTTPStatus.badRequest, payload: error.response)
             } catch {
                 return CoreRouter.encodable(
                     status: HTTPStatus.badRequest,

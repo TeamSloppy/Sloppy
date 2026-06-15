@@ -15,12 +15,17 @@ extension CoreService {
     }
 
     public func createMeshInvite(_ request: MeshInviteCreateRequest) throws -> MeshInvite {
-        try nodeMeshStore.createInvite(
+        let relayURL = request.relayURL?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+            ? request.relayURL
+            : currentConfig.nodeMeshPublicURL
+        return try nodeMeshStore.createInvite(
             networkId: request.networkId,
             name: request.name,
             roles: request.roles,
             capabilities: request.capabilities,
-            ttlSeconds: request.ttlSeconds
+            ttlSeconds: request.ttlSeconds,
+            relayURL: relayURL,
+            publicKey: request.publicKey
         )
     }
 

@@ -220,19 +220,25 @@ public struct MeshInviteCreateRequest: Codable, Sendable, Equatable {
     public var roles: [String]
     public var capabilities: [String]
     public var ttlSeconds: TimeInterval
+    public var relayURL: String?
+    public var publicKey: String?
 
     public init(
         networkId: String,
         name: String? = nil,
         roles: [String] = ["worker"],
         capabilities: [String] = ["run_agent", "git"],
-        ttlSeconds: TimeInterval = 86400
+        ttlSeconds: TimeInterval = 86400,
+        relayURL: String? = nil,
+        publicKey: String? = nil
     ) {
         self.networkId = networkId
         self.name = name
         self.roles = roles
         self.capabilities = capabilities
         self.ttlSeconds = ttlSeconds
+        self.relayURL = relayURL
+        self.publicKey = publicKey
     }
 }
 
@@ -267,6 +273,8 @@ public struct MeshInvite: Codable, Sendable, Equatable {
     public var name: String?
     public var roles: [String]
     public var capabilities: [String]
+    public var relayURL: String?
+    public var publicKey: String?
     public var createdAt: Date
     public var expiresAt: Date
     public var consumedAt: Date?
@@ -278,6 +286,8 @@ public struct MeshInvite: Codable, Sendable, Equatable {
         name: String? = nil,
         roles: [String],
         capabilities: [String],
+        relayURL: String? = nil,
+        publicKey: String? = nil,
         createdAt: Date = Date(),
         expiresAt: Date,
         consumedAt: Date? = nil,
@@ -288,6 +298,8 @@ public struct MeshInvite: Codable, Sendable, Equatable {
         self.name = name
         self.roles = roles
         self.capabilities = capabilities
+        self.relayURL = relayURL
+        self.publicKey = publicKey
         self.createdAt = createdAt
         self.expiresAt = expiresAt
         self.consumedAt = consumedAt
@@ -295,6 +307,151 @@ public struct MeshInvite: Codable, Sendable, Equatable {
     }
 
     public var isConsumed: Bool { consumedAt != nil }
+
+    public var bundleToken: String? {
+        guard let relayURL, let publicKey else { return nil }
+        return try? MeshInviteBundle(
+            inviteToken: token,
+            relayURL: relayURL,
+            publicKey: publicKey
+        ).tokenString()
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case token
+        case networkId
+        case name
+        case roles
+        case capabilities
+        case relayURL
+        case publicKey
+        case createdAt
+        case expiresAt
+        case consumedAt
+        case consumedByNodeId
+        case bundleToken
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        token = try container.decode(String.self, forKey: .token)
+        networkId = try container.decode(String.self, forKey: .networkId)
+        name = try container.decodeIfPresent(String.self, forKey: .name)
+        roles = try container.decode([String].self, forKey: .roles)
+        capabilities = try container.decode([String].self, forKey: .capabilities)
+        relayURL = try container.decodeIfPresent(String.self, forKey: .relayURL)
+        publicKey = try container.decodeIfPresent(String.self, forKey: .publicKey)
+        createdAt = try container.decode(Date.self, forKey: .createdAt)
+        expiresAt = try container.decode(Date.self, forKey: .expiresAt)
+        consumedAt = try container.decodeIfPresent(Date.self, forKey: .consumedAt)
+        consumedByNodeId = try container.decodeIfPresent(String.self, forKey: .consumedByNodeId)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(token, forKey: .token)
+        try container.encode(networkId, forKey: .networkId)
+        try container.encodeIfPresent(name, forKey: .name)
+        try container.encode(roles, forKey: .roles)
+        try container.encode(capabilities, forKey: .capabilities)
+        try container.encodeIfPresent(relayURL, forKey: .relayURL)
+        try container.encodeIfPresent(publicKey, forKey: .publicKey)
+        try container.encode(createdAt, forKey: .createdAt)
+        try container.encode(expiresAt, forKey: .expiresAt)
+        try container.encodeIfPresent(consumedAt, forKey: .consumedAt)
+        try container.encodeIfPresent(consumedByNodeId, forKey: .consumedByNodeId)
+        try container.encodeIfPresent(bundleToken, forKey: .bundleToken)
+    }
+}
+
+public enum MeshInviteBundleError: LocalizedError, Equatable {
+    case invalidToken
+    case invalidPayload
+    case unsupportedVersion(Int)
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidToken:
+            "Mesh invite bundle token is invalid."
+        case .invalidPayload:
+            "Mesh invite bundle payload is invalid."
+        case let .unsupportedVersion(version):
+            "Mesh invite bundle version \(version) is not supported."
+        }
+    }
+}
+
+public struct MeshInviteBundle: Codable, Sendable, Equatable {
+    public static let prefix = "slp_mesh_"
+
+    public var version: Int
+    public var inviteToken: String
+    public var relayURL: String
+    public var publicKey: String
+
+    public init(
+        version: Int = 1,
+        inviteToken: String,
+        relayURL: String,
+        publicKey: String
+    ) {
+        self.version = version
+        self.inviteToken = inviteToken
+        self.relayURL = relayURL
+        self.publicKey = publicKey
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case version = "v"
+        case inviteToken
+        case relayURL
+        case publicKey
+    }
+
+    public func tokenString() throws -> String {
+        let data = try JSONEncoder().encode(self)
+        return Self.prefix + Self.base64URLEncode(data)
+    }
+
+    public static func parse(_ token: String) throws -> MeshInviteBundle {
+        guard token.hasPrefix(prefix) else {
+            throw MeshInviteBundleError.invalidToken
+        }
+        let encodedPayload = String(token.dropFirst(prefix.count))
+        guard let data = base64URLDecode(encodedPayload) else {
+            throw MeshInviteBundleError.invalidPayload
+        }
+        let bundle = try JSONDecoder().decode(MeshInviteBundle.self, from: data)
+        guard bundle.version == 1 else {
+            throw MeshInviteBundleError.unsupportedVersion(bundle.version)
+        }
+        guard !bundle.inviteToken.isEmpty, !bundle.relayURL.isEmpty, !bundle.publicKey.isEmpty else {
+            throw MeshInviteBundleError.invalidPayload
+        }
+        return bundle
+    }
+
+    public static func inviteToken(from token: String) -> String {
+        (try? parse(token).inviteToken) ?? token
+    }
+
+    private static func base64URLEncode(_ data: Data) -> String {
+        data.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+    }
+
+    private static func base64URLDecode(_ value: String) -> Data? {
+        var normalized = value
+            .replacingOccurrences(of: "-", with: "+")
+            .replacingOccurrences(of: "_", with: "/")
+        let remainder = normalized.count % 4
+        if remainder > 0 {
+            normalized += String(repeating: "=", count: 4 - remainder)
+        }
+        return Data(base64Encoded: normalized)
+    }
 }
 
 public struct SharedProjectPolicies: Codable, Sendable, Equatable {
@@ -587,7 +744,9 @@ public struct NodeMeshStore: Sendable {
         name: String?,
         roles: [String],
         capabilities: [String],
-        ttlSeconds: TimeInterval = 86400
+        ttlSeconds: TimeInterval = 86400,
+        relayURL: String? = nil,
+        publicKey: String? = nil
     ) throws -> MeshInvite {
         var state = try load()
         state.networkId = networkId
@@ -598,6 +757,8 @@ public struct NodeMeshStore: Sendable {
             name: name,
             roles: roles,
             capabilities: capabilities,
+            relayURL: relayURL,
+            publicKey: publicKey,
             expiresAt: Date().addingTimeInterval(max(1, ttlSeconds))
         )
         state.invites.append(invite)
@@ -609,12 +770,18 @@ public struct NodeMeshStore: Sendable {
     @discardableResult
     public func consumeInvite(token: String, identity: NodeIdentity, endpoint: String?) throws -> MeshNodeRecord {
         var state = try load()
-        guard let index = state.invites.firstIndex(where: { $0.token == token }) else {
+        let bundle = try? MeshInviteBundle.parse(token)
+        let inviteToken = bundle?.inviteToken ?? token
+        guard let index = state.invites.firstIndex(where: { $0.token == inviteToken }) else {
             throw NodeMeshStoreError.inviteMissing
         }
         let invite = state.invites[index]
         guard invite.consumedAt == nil else { throw NodeMeshStoreError.inviteConsumed }
         guard invite.expiresAt > Date() else { throw NodeMeshStoreError.inviteExpired }
+        if let expectedPublicKey = bundle?.publicKey ?? invite.publicKey,
+           expectedPublicKey != identity.publicKey {
+            throw NodeMeshStoreError.permissionDenied("invite.public_key")
+        }
 
         state.invites[index].consumedAt = Date()
         state.invites[index].consumedByNodeId = identity.nodeId
@@ -624,7 +791,7 @@ public struct NodeMeshStore: Sendable {
             name: identity.name,
             publicKey: identity.publicKey,
             roles: identity.roles,
-            endpoint: endpoint,
+            endpoint: endpoint ?? bundle?.relayURL ?? invite.relayURL,
             status: .online,
             lastSeenAt: Date(),
             capabilities: identity.capabilities

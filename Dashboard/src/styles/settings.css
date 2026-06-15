@@ -73,6 +73,56 @@
   min-height: 320px;
 }
 
+.git-sync-status {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(120px, 1fr));
+  gap: 8px;
+  margin: 8px 0 12px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--muted);
+  background: color-mix(in srgb, var(--surface) 86%, transparent);
+}
+
+.git-sync-status.is-ok {
+  border-left-color: var(--success);
+}
+
+.git-sync-status.is-warning {
+  border-left-color: var(--danger);
+}
+
+.git-sync-status-item,
+.git-sync-status-error {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.git-sync-status-item span,
+.git-sync-status-error span {
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
+.git-sync-status-item strong,
+.git-sync-status-error strong {
+  color: var(--text);
+  font-size: 0.86rem;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.git-sync-status-error {
+  grid-column: 1 / -1;
+  border-top: 1px solid var(--line);
+  padding-top: 8px;
+}
+
+.git-sync-status-error strong {
+  color: var(--danger);
+}
+
 .tg-settings-shell.nodehost-settings-shell,
 .tg-settings-shell.sessions-settings-shell,
 .tg-settings-shell.visor-settings-shell {
