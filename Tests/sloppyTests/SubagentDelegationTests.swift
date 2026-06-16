@@ -109,3 +109,60 @@ func subagentRespectsParentDenyPolicy() {
     #expect(!eff.contains("files.read"))
     #expect(eff.contains("web.search"))
 }
+
+@Test
+func subagentExplicitToolsRestrictAllowedSet() {
+    let policy = AgentToolsPolicy(defaultPolicy: .allow, tools: [:])
+    let known: Set<String> = [
+        "files.read",
+        "files.write",
+        "web.search",
+        "agent_delegate.finish",
+    ]
+    let eff = SubagentDelegation.effectiveToolIDs(
+        policy: policy,
+        knownToolIDs: known,
+        toolsetNames: nil,
+        explicitToolIDs: ["files.read", "web.search"]
+    )
+    #expect(eff == Set(["files.read", "web.search", "agent_delegate.finish"]))
+}
+
+@Test
+func subagentExplicitToolsSupportMCPToolIDs() {
+    let policy = AgentToolsPolicy(defaultPolicy: .allow, tools: [:])
+    let known: Set<String> = [
+        "mcp.github.create_issue",
+        "mcp.figma.create_frame",
+        "files.read",
+        "agent_delegate.finish",
+    ]
+    let eff = SubagentDelegation.effectiveToolIDs(
+        policy: policy,
+        knownToolIDs: known,
+        toolsetNames: nil,
+        explicitToolIDs: ["mcp.github.create_issue"]
+    )
+    #expect(eff == Set(["mcp.github.create_issue", "agent_delegate.finish"]))
+}
+
+@Test
+func subagentExplicitToolsStillRespectPolicyAndHardDenylist() {
+    let policy = AgentToolsPolicy(
+        defaultPolicy: .allow,
+        tools: ["files.write": false]
+    )
+    let known: Set<String> = [
+        "files.read",
+        "files.write",
+        "runtime.exec",
+        "agent_delegate.finish",
+    ]
+    let eff = SubagentDelegation.effectiveToolIDs(
+        policy: policy,
+        knownToolIDs: known,
+        toolsetNames: nil,
+        explicitToolIDs: ["files.read", "files.write", "runtime.exec"]
+    )
+    #expect(eff == Set(["files.read", "agent_delegate.finish"]))
+}

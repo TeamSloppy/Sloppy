@@ -94,6 +94,36 @@ private actor SessionCapturingModelProvider: ModelProvider {
     func requestedTranscriptsSnapshot() -> [[String]] { callStore.transcripts }
 }
 
+@Test
+func nativeLoopConfigUsesConfiguredToolBudget() {
+    var config = CoreConfig.test
+    config.toolBudgetExhausted = 7
+
+    let nativeLoopConfig = AgentSessionOrchestrator.nativeLoopConfig(
+        coreConfig: config,
+        userID: "operator",
+        isDelegatedSubagent: false
+    )
+
+    #expect(nativeLoopConfig.maxToolRounds == 7)
+    #expect(nativeLoopConfig.enforceToolRoundLimit)
+}
+
+@Test
+func nativeLoopConfigTreatsZeroToolBudgetAsUnlimited() {
+    var config = CoreConfig.test
+    config.toolBudgetExhausted = 0
+
+    let nativeLoopConfig = AgentSessionOrchestrator.nativeLoopConfig(
+        coreConfig: config,
+        userID: "operator",
+        isDelegatedSubagent: false
+    )
+
+    #expect(nativeLoopConfig.maxToolRounds == 0)
+    #expect(nativeLoopConfig.enforceToolRoundLimit == false)
+}
+
 private actor FixedOutputModelProvider: ModelProvider {
     let id: String = "fixed-output"
     let supportedModels: [String]

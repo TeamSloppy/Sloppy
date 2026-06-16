@@ -92,17 +92,28 @@ enum SubagentDelegation {
     static func effectiveToolIDs(
         policy: AgentToolsPolicy,
         knownToolIDs: Set<String>,
-        toolsetNames: [String]?
+        toolsetNames: [String]?,
+        explicitToolIDs: [String]? = nil
     ) -> Set<String> {
         let parentAllowed = Set(
             knownToolIDs.filter { isToolAllowedByPolicy(toolID: $0, policy: policy) }
         )
-        let candidates: Set<String>
+        var candidates: Set<String>
         if let names = toolsetNames, !names.isEmpty {
             let expanded = toolIDs(forToolsetNames: names, knownToolIDs: knownToolIDs)
             candidates = parentAllowed.intersection(expanded)
         } else {
             candidates = parentAllowed
+        }
+        if let explicitToolIDs {
+            let explicit = Set(
+                explicitToolIDs
+                    .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+                    .filter { !$0.isEmpty }
+            )
+            if !explicit.isEmpty {
+                candidates.formIntersection(explicit)
+            }
         }
         let controlTools = parentAllowed.intersection(controlToolIDs)
         return candidates

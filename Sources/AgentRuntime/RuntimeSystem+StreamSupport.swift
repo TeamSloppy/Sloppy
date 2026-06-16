@@ -118,7 +118,8 @@ actor StreamActivityTracker {
     func nativeLoopOutcome(
         maxToolRounds: Int,
         finishedNaturally: Bool,
-        lastAssistantText: String
+        lastAssistantText: String,
+        turnExitReason: NativeAgentLoopTurnExitReason = .completed
     ) -> NativeAgentLoopOutcome {
         NativeAgentLoopOutcome(
             toolRoundsUsed: toolRoundsUsed,
@@ -126,7 +127,8 @@ actor StreamActivityTracker {
             finishedNaturally: finishedNaturally && !hitToolRoundLimit,
             hitTurnLimit: hitToolRoundLimit,
             toolErrors: toolErrors,
-            lastAssistantText: lastAssistantText
+            lastAssistantText: lastAssistantText,
+            turnExitReason: turnExitReason
         )
     }
 }

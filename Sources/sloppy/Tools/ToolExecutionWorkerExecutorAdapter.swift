@@ -17,24 +17,37 @@ final class ToolExecutionWorkerExecutorAdapter: @unchecked Sendable, WorkerExecu
         var payload: [String: JSONValue]
     }
 
-    typealias AgentRunner = @Sendable (_ agentID: String, _ taskID: String, _ objective: String, _ workingDirectory: String?, _ selectedModel: String?) async -> AgentRunnerResult?
+    typealias AgentRunner = @Sendable (
+        _ agentID: String,
+        _ taskID: String,
+        _ objective: String,
+        _ workingDirectory: String?,
+        _ selectedModel: String?,
+        _ toolIDs: [String]
+    ) async -> AgentRunnerResult?
 
     private let fallback: any WorkerExecutor
     private let agentRunner: AgentRunner?
 
     init(
-        toolExecutionService: ToolExecutionService,
         fallback: any WorkerExecutor = DefaultWorkerExecutor(),
         agentRunner: AgentRunner? = nil
     ) {
-        _ = toolExecutionService
         self.fallback = fallback
         self.agentRunner = agentRunner
     }
 
+    convenience init(
+        toolExecutionService: ToolExecutionService,
+        fallback: any WorkerExecutor = DefaultWorkerExecutor(),
+        agentRunner: AgentRunner? = nil
+    ) {
+        self.init(fallback: fallback, agentRunner: agentRunner)
+    }
+
     func execute(workerId: String, spec: WorkerTaskSpec) async throws -> WorkerExecutionResult {
         if let agentID = spec.agentID, let runner = agentRunner {
-            let result = await runner(agentID, spec.taskId, spec.objective, spec.workingDirectory, spec.selectedModel)
+            let result = await runner(agentID, spec.taskId, spec.objective, spec.workingDirectory, spec.selectedModel, spec.tools)
             if let result, Self.isModelProviderError(result.summary) {
                 throw AgentRunnerModelError(detail: result.summary)
             }

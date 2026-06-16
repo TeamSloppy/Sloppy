@@ -7,6 +7,7 @@ public struct CoreConfig: Codable, Sendable {
     public static var defaultConfigPath: String {
         defaultConfigPath(currentDirectory: FileManager.default.currentDirectoryPath)
     }
+    public static let defaultToolBudgetExhausted = 60
     public static let defaultWorkspaceName = ".sloppy"
     public static let defaultWorkspaceBasePath = "."
     public static let defaultSQLiteFileName = "memory/core.sqlite"
@@ -1656,6 +1657,7 @@ public struct CoreConfig: Codable, Sendable {
     public var kanban: Kanban
     public var ui: UI
     public var toolHooks: ToolHooks
+    public var toolBudgetExhausted: Int
     public var nodeMeshPublicURL: String?
     public var nodeMeshStatePath: String
     public var sqlitePath: String
@@ -1689,6 +1691,7 @@ public struct CoreConfig: Codable, Sendable {
         kanban: Kanban = Kanban(),
         ui: UI = UI(),
         toolHooks: ToolHooks = ToolHooks(),
+        toolBudgetExhausted: Int = CoreConfig.defaultToolBudgetExhausted,
         nodeMeshPublicURL: String? = nil,
         nodeMeshStatePath: String = CoreConfig.defaultNodeMeshStateFileName,
         sqlitePath: String,
@@ -1721,6 +1724,7 @@ public struct CoreConfig: Codable, Sendable {
         self.kanban = kanban
         self.ui = ui
         self.toolHooks = toolHooks
+        self.toolBudgetExhausted = max(0, toolBudgetExhausted)
         self.nodeMeshPublicURL = nodeMeshPublicURL
         self.nodeMeshStatePath = nodeMeshStatePath
         self.sqlitePath = sqlitePath
@@ -1767,6 +1771,7 @@ public struct CoreConfig: Codable, Sendable {
             kanban: .init(),
             ui: .init(),
             toolHooks: .init(),
+            toolBudgetExhausted: CoreConfig.defaultToolBudgetExhausted,
             nodeMeshPublicURL: nil,
             nodeMeshStatePath: CoreConfig.defaultNodeMeshStateFileName,
             sqlitePath: CoreConfig.defaultSQLiteFileName,
@@ -1843,6 +1848,7 @@ public struct CoreConfig: Codable, Sendable {
         case kanban
         case ui
         case toolHooks
+        case toolBudgetExhausted
         case nodeMeshPublicURL
         case nodeMeshStatePath
         case sqlitePath
@@ -1876,6 +1882,10 @@ public struct CoreConfig: Codable, Sendable {
         kanban = try container.decodeIfPresent(Kanban.self, forKey: .kanban) ?? .init()
         ui = try container.decodeIfPresent(UI.self, forKey: .ui) ?? .init()
         toolHooks = try container.decodeIfPresent(ToolHooks.self, forKey: .toolHooks) ?? .init()
+        toolBudgetExhausted = max(
+            0,
+            try container.decodeIfPresent(Int.self, forKey: .toolBudgetExhausted) ?? Self.defaultToolBudgetExhausted
+        )
         nodeMeshPublicURL = try container.decodeIfPresent(String.self, forKey: .nodeMeshPublicURL)
         nodeMeshStatePath = try container.decodeIfPresent(String.self, forKey: .nodeMeshStatePath) ?? Self.defaultNodeMeshStateFileName
         sqlitePath = try container.decode(String.self, forKey: .sqlitePath)
@@ -1914,6 +1924,7 @@ public struct CoreConfig: Codable, Sendable {
         try container.encode(kanban, forKey: .kanban)
         try container.encode(ui, forKey: .ui)
         try container.encode(toolHooks, forKey: .toolHooks)
+        try container.encode(toolBudgetExhausted, forKey: .toolBudgetExhausted)
         try container.encodeIfPresent(nodeMeshPublicURL, forKey: .nodeMeshPublicURL)
         try container.encode(nodeMeshStatePath, forKey: .nodeMeshStatePath)
         try container.encode(sqlitePath, forKey: .sqlitePath)

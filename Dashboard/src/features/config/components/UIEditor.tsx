@@ -68,6 +68,10 @@ export function UIEditor({ draftConfig, mutateDraft }: UIEditorProps) {
   const preToolsTimeoutMs = Number(preToolsHook.timeoutMs || 2000);
   const preToolsMaxOutputBytes = Number(preToolsHook.maxOutputBytes || 65536);
   const preToolsFailurePolicy = String(preToolsHook.failurePolicy || "block") === "allow" ? "allow" : "block";
+  const parsedToolBudgetExhausted = Number(draftConfig?.toolBudgetExhausted ?? 60);
+  const toolBudgetExhausted = Number.isFinite(parsedToolBudgetExhausted)
+    ? Math.max(0, parsedToolBudgetExhausted)
+    : 60;
 
   const commitColor = useCallback((color: string) => {
     const normalized = color.trim().toLowerCase();
@@ -296,6 +300,28 @@ export function UIEditor({ draftConfig, mutateDraft }: UIEditorProps) {
           <span className="entry-form-hint">
             The terminal runs as a real shell inside the current project repo path when one is open, otherwise in the workspace root.
           </span>
+        </div>
+
+        <div style={{ gridColumn: "1 / -1", marginTop: "20px" }}>
+          <span style={{ fontSize: "0.85rem", color: "var(--muted)", display: "block", marginBottom: "8px" }}>
+            Tool Budget
+          </span>
+          <label>
+            Max tool rounds before budget exhaustion
+            <input
+              type="number"
+              min={0}
+              value={toolBudgetExhausted}
+              onChange={(event) => {
+                mutateDraft((draft) => {
+                  draft.toolBudgetExhausted = Math.max(0, Number(event.target.value));
+                });
+              }}
+            />
+            <span className="entry-form-hint">
+              Limits tool-call rounds in one native agent response. Set to 0 for unlimited calls.
+            </span>
+          </label>
         </div>
 
         <div style={{ gridColumn: "1 / -1", marginTop: "20px" }}>

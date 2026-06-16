@@ -1533,14 +1533,16 @@ extension CoreService {
         taskID: String,
         objective: String,
         workingDirectory: String?,
-        selectedModel: String? = nil
+        selectedModel: String? = nil,
+        explicitToolIDs: [String]? = nil
     ) async -> String? {
         await runAgentTaskResult(
             agentID: agentID,
             taskID: taskID,
             objective: objective,
             workingDirectory: workingDirectory,
-            selectedModel: selectedModel
+            selectedModel: selectedModel,
+            explicitToolIDs: explicitToolIDs
         )?.text
     }
 
@@ -1549,7 +1551,8 @@ extension CoreService {
         taskID: String,
         objective: String,
         workingDirectory: String?,
-        selectedModel: String? = nil
+        selectedModel: String? = nil,
+        explicitToolIDs: [String]? = nil
     ) async -> AgentTaskRunResult? {
         let autopilotContext = await autopilotWorkerContext(taskID: taskID)
         return await runSubagentTaskResult(
@@ -1559,7 +1562,8 @@ extension CoreService {
             workingDirectory: workingDirectory,
             toolsetNames: autopilotContext?.toolsets,
             selectedModel: selectedModel,
-            bypassToolApproval: autopilotContext?.bypassToolApproval == true
+            bypassToolApproval: autopilotContext?.bypassToolApproval == true,
+            explicitToolIDs: explicitToolIDs
         )
     }
 
@@ -1572,7 +1576,8 @@ extension CoreService {
         toolsetNames: [String]?,
         selectedModel: String? = nil,
         parentSessionID: String? = nil,
-        bypassToolApproval: Bool = false
+        bypassToolApproval: Bool = false,
+        explicitToolIDs: [String]? = nil
     ) async -> String? {
         await runSubagentTaskResult(
             agentID: agentID,
@@ -1582,7 +1587,8 @@ extension CoreService {
             toolsetNames: toolsetNames,
             selectedModel: selectedModel,
             parentSessionID: parentSessionID,
-            bypassToolApproval: bypassToolApproval
+            bypassToolApproval: bypassToolApproval,
+            explicitToolIDs: explicitToolIDs
         )?.text
     }
 
@@ -1595,7 +1601,8 @@ extension CoreService {
         toolsetNames: [String]?,
         selectedModel: String? = nil,
         parentSessionID: String? = nil,
-        bypassToolApproval: Bool = false
+        bypassToolApproval: Bool = false,
+        explicitToolIDs: [String]? = nil
     ) async -> AgentTaskRunResult? {
         let knownIDs = await ToolCatalog.knownToolIDs(mcpRegistry: mcpRegistry)
         guard let policy = try? await toolsAuthorization.policy(agentID: agentID) else {
@@ -1616,7 +1623,8 @@ extension CoreService {
         let effectiveTools = SubagentDelegation.effectiveToolIDs(
             policy: policy,
             knownToolIDs: knownIDs,
-            toolsetNames: toolsetNames
+            toolsetNames: toolsetNames,
+            explicitToolIDs: explicitToolIDs
         )
         guard !effectiveTools.isEmpty else {
             await recordProjectTaskWorkerLaunchFailure(

@@ -34,7 +34,8 @@ extension RuntimeSystem {
                 NativeAgentLoopOutcome(
                     maxToolRounds: nativeLoopConfig.maxToolRounds,
                     finishedNaturally: true,
-                    lastAssistantText: fallback
+                    lastAssistantText: fallback,
+                    turnExitReason: .fallbackNoModel
                 )
             )
             return
@@ -263,7 +264,8 @@ extension RuntimeSystem {
                     await nativeLoopOutcomeHandler?(await tracker.nativeLoopOutcome(
                         maxToolRounds: nativeLoopConfig.maxToolRounds,
                         finishedNaturally: !(await tracker.hitToolRoundLimit),
-                        lastAssistantText: fallbackContent
+                        lastAssistantText: fallbackContent,
+                        turnExitReason: await tracker.hitToolRoundLimit ? .toolRoundLimit : .streamIdleTimeoutFallback
                     ))
                     return
                 } catch {
@@ -313,7 +315,8 @@ extension RuntimeSystem {
                     await nativeLoopOutcomeHandler?(await tracker.nativeLoopOutcome(
                         maxToolRounds: nativeLoopConfig.maxToolRounds,
                         finishedNaturally: recovered != nil,
-                        lastAssistantText: recovered ?? ""
+                        lastAssistantText: recovered ?? "",
+                        turnExitReason: recovered != nil ? .contextWindowRecovered : .contextWindowRecoveryFailed
                     ))
                     return
                 }
@@ -372,7 +375,8 @@ extension RuntimeSystem {
                 await nativeLoopOutcomeHandler?(await tracker.nativeLoopOutcome(
                     maxToolRounds: nativeLoopConfig.maxToolRounds,
                     finishedNaturally: false,
-                    lastAssistantText: latest
+                    lastAssistantText: latest,
+                    turnExitReason: .modelCancelled
                 ))
                 return
             }
@@ -400,7 +404,8 @@ extension RuntimeSystem {
                 await nativeLoopOutcomeHandler?(await tracker.nativeLoopOutcome(
                     maxToolRounds: nativeLoopConfig.maxToolRounds,
                     finishedNaturally: false,
-                    lastAssistantText: latest
+                    lastAssistantText: latest,
+                    turnExitReason: .consumerCancelled
                 ))
                 return
             }
@@ -442,7 +447,8 @@ extension RuntimeSystem {
                 await nativeLoopOutcomeHandler?(await tracker.nativeLoopOutcome(
                     maxToolRounds: nativeLoopConfig.maxToolRounds,
                     finishedNaturally: false,
-                    lastAssistantText: latest
+                    lastAssistantText: latest,
+                    turnExitReason: .toolRoundLimit
                 ))
                 return
             }
@@ -530,15 +536,18 @@ extension RuntimeSystem {
                     await nativeLoopOutcomeHandler?(await tracker.nativeLoopOutcome(
                         maxToolRounds: nativeLoopConfig.maxToolRounds,
                         finishedNaturally: false,
-                        lastAssistantText: latest
+                        lastAssistantText: latest,
+                        turnExitReason: .toolRoundLimit
                     ))
                     return
                 }
             }
 
+            var turnExitReason: NativeAgentLoopTurnExitReason = .completed
             if latest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 if await tracker.sawToolTimeout {
                     latest = "Tool execution timed out before the model produced a final response. Please review the timed-out tool result and retry when ready."
+                    turnExitReason = .emptyAfterToolTimeout
                     logger.warning(
                         "Model returned empty response after tool timeout",
                         metadata: modelCallMetadata(
@@ -563,8 +572,10 @@ extension RuntimeSystem {
                     onResponseChunk: onResponseChunk
                 ) {
                     latest = repaired
+                    turnExitReason = .emptyResponseRepaired
                 } else {
                     latest = "Model returned an empty response. Please try rephrasing or try again."
+                    turnExitReason = .emptyResponse
                     logger.warning(
                         "Model returned empty response after stream + completion + repair",
                         metadata: modelCallMetadata(
@@ -585,7 +596,8 @@ extension RuntimeSystem {
             await nativeLoopOutcomeHandler?(await tracker.nativeLoopOutcome(
                 maxToolRounds: nativeLoopConfig.maxToolRounds,
                 finishedNaturally: true,
-                lastAssistantText: latest
+                lastAssistantText: latest,
+                turnExitReason: turnExitReason
             ))
         } catch is CancellationError {
             sessionsByChannel.removeValue(forKey: channelId)
@@ -602,7 +614,21 @@ extension RuntimeSystem {
             await nativeLoopOutcomeHandler?(await tracker.nativeLoopOutcome(
                 maxToolRounds: nativeLoopConfig.maxToolRounds,
                 finishedNaturally: false,
-                lastAssistantText: await tracker.latestContent
+                lastAssistantText: await tracker.latestContent,
+                turnExitReason: .modelCancelled
+            ))
+        } catch is StreamIdleTimeoutError {
+            sessionsByChannel.removeValue(forKey: channelId)
+            let text = "Model stream timed out before a final response was produced. Please retry the request."
+            if let onResponseChunk {
+                _ = await onResponseChunk(text)
+            }
+            await channels.appendSystemMessage(channelId: channelId, content: text)
+            await nativeLoopOutcomeHandler?(await tracker.nativeLoopOutcome(
+                maxToolRounds: nativeLoopConfig.maxToolRounds,
+                finishedNaturally: false,
+                lastAssistantText: text,
+                turnExitReason: .streamRetryFailed
             ))
         } catch {
             if await retryInterruptedModelSessionIfNeeded(
@@ -634,7 +660,8 @@ extension RuntimeSystem {
             await nativeLoopOutcomeHandler?(await tracker.nativeLoopOutcome(
                 maxToolRounds: nativeLoopConfig.maxToolRounds,
                 finishedNaturally: false,
-                lastAssistantText: text
+                lastAssistantText: text,
+                turnExitReason: .modelProviderError
             ))
         }
     }

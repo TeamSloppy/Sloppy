@@ -902,6 +902,7 @@ actor AgentSessionOrchestrator {
         var hitTurnLimit: Bool
         var toolErrors: [ToolInvocationResult]
         var lastAssistantText: String
+        var turnExitReason: NativeAgentLoopTurnExitReason = .completed
     }
 
     static func runtimeContent(
@@ -1071,16 +1072,11 @@ actor AgentSessionOrchestrator {
 
         let messageContent = content.isEmpty ? "User attached files." : content
         let toolInvokerRecordsEvents = self.toolInvokerRecordsEvents
-        let enforceToolRoundLimit = !Self.shouldBypassToolUsageLimits(userID: userID)
-        let nativeLoopConfig = delegatedSubagentSessionIDs.contains(sessionID)
-            ? NativeAgentLoopConfig(
-                maxToolRounds: 60,
-                enforceToolRoundLimit: enforceToolRoundLimit,
-                finalizerToolNames: ["agent_delegate.finish", "agents.delegate_finish"],
-                overBudgetRecoveryBatches: 1,
-                budgetExhaustedMessage: "Subagent tool budget exhausted. Stop calling non-finalizer tools and call `agent_delegate.finish` with the best completed, blocked, or failed outcome you can support from current evidence."
-            )
-            : NativeAgentLoopConfig(maxToolRounds: 60, enforceToolRoundLimit: enforceToolRoundLimit)
+        let nativeLoopConfig = Self.nativeLoopConfig(
+            coreConfig: persistedModelContext.config,
+            userID: userID,
+            isDelegatedSubagent: delegatedSubagentSessionIDs.contains(sessionID)
+        )
         let nativeLoopOutcomeBox = NativeAgentLoopOutcomeBox()
         let routeDecision = await runtime.postMessage(
             channelId: channelID,
@@ -1332,7 +1328,8 @@ actor AgentSessionOrchestrator {
             finishedNaturally: nativeLoopOutcome?.finishedNaturally ?? true,
             hitTurnLimit: nativeLoopOutcome?.hitTurnLimit ?? false,
             toolErrors: nativeLoopOutcome?.toolErrors ?? [],
-            lastAssistantText: nativeLoopOutcome?.lastAssistantText ?? ""
+            lastAssistantText: nativeLoopOutcome?.lastAssistantText ?? "",
+            turnExitReason: nativeLoopOutcome?.turnExitReason ?? .completed
         )
     }
 
@@ -1371,6 +1368,13 @@ actor AgentSessionOrchestrator {
             "finished_naturally": .string(outcome.finishedNaturally ? "true" : "false"),
             "hit_tool_round_limit": .string(outcome.hitTurnLimit ? "true" : "false"),
             "tool_error_count": .stringConvertible(outcome.toolErrors.count),
+            "tool_retryable_error_count": .stringConvertible(
+                outcome.toolErrors.filter { $0.error?.retryable == true }.count
+            ),
+            "tool_non_retryable_error_count": .stringConvertible(
+                outcome.toolErrors.filter { $0.error?.retryable == false || $0.error == nil }.count
+            ),
+            "turn_exit_reason": .string(outcome.turnExitReason.rawValue),
             "was_interrupted": .string(outcome.wasInterrupted ? "true" : "false"),
             "did_reset_context": .string(outcome.didResetContext ? "true" : "false"),
             "paused_input_request_id": .string(optionalString(outcome.pausedInputRequestID)),
@@ -1708,6 +1712,29 @@ actor AgentSessionOrchestrator {
 
     private func sessionChannelID(agentID: String, sessionID: String) -> String {
         "agent:\(agentID):session:\(sessionID)"
+    }
+
+    static func nativeLoopConfig(
+        coreConfig: CoreConfig,
+        userID: String,
+        isDelegatedSubagent: Bool
+    ) -> NativeAgentLoopConfig {
+        let maxToolRounds = max(0, coreConfig.toolBudgetExhausted)
+        let enforceToolRoundLimit = maxToolRounds > 0 && !shouldBypassToolUsageLimits(userID: userID)
+        guard isDelegatedSubagent else {
+            return NativeAgentLoopConfig(
+                maxToolRounds: maxToolRounds,
+                enforceToolRoundLimit: enforceToolRoundLimit
+            )
+        }
+
+        return NativeAgentLoopConfig(
+            maxToolRounds: maxToolRounds,
+            enforceToolRoundLimit: enforceToolRoundLimit,
+            finalizerToolNames: ["agent_delegate.finish", "agents.delegate_finish"],
+            overBudgetRecoveryBatches: 1,
+            budgetExhaustedMessage: "Subagent tool budget exhausted. Stop calling non-finalizer tools and call `agent_delegate.finish` with the best completed, blocked, or failed outcome you can support from current evidence."
+        )
     }
 
     private static func shouldBypassToolUsageLimits(userID: String) -> Bool {

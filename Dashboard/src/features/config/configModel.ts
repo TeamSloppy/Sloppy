@@ -499,6 +499,7 @@ export const EMPTY_CONFIG = {
       failurePolicy: "block"
     }
   },
+  toolBudgetExhausted: 60,
   modelRouting: {},
   sqlitePath: "core.sqlite"
 };
@@ -881,6 +882,10 @@ export function normalizeConfig(config) {
   );
   normalized.toolHooks.preTools.failurePolicy =
     String(config?.toolHooks?.preTools?.failurePolicy || "block") === "allow" ? "allow" : "block";
+  normalized.toolBudgetExhausted = Math.max(
+    0,
+    parseInteger(config?.toolBudgetExhausted ?? normalized.toolBudgetExhausted, normalized.toolBudgetExhausted)
+  );
 
   const mr = config?.modelRouting;
   normalized.modelRouting = {};

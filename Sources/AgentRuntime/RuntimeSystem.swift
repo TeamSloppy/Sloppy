@@ -85,6 +85,22 @@ public struct NativeAgentLoopConfig: Sendable, Equatable {
     }
 }
 
+public enum NativeAgentLoopTurnExitReason: String, Sendable, Equatable {
+    case completed
+    case fallbackNoModel
+    case streamIdleTimeoutFallback
+    case streamRetryFailed
+    case contextWindowRecovered
+    case contextWindowRecoveryFailed
+    case toolRoundLimit
+    case emptyResponse
+    case emptyResponseRepaired
+    case emptyAfterToolTimeout
+    case modelProviderError
+    case modelCancelled
+    case consumerCancelled
+}
+
 public struct NativeAgentLoopOutcome: Sendable, Equatable {
     public var toolRoundsUsed: Int
     public var maxToolRounds: Int
@@ -92,6 +108,7 @@ public struct NativeAgentLoopOutcome: Sendable, Equatable {
     public var hitTurnLimit: Bool
     public var toolErrors: [ToolInvocationResult]
     public var lastAssistantText: String
+    public var turnExitReason: NativeAgentLoopTurnExitReason
 
     public init(
         toolRoundsUsed: Int = 0,
@@ -99,7 +116,8 @@ public struct NativeAgentLoopOutcome: Sendable, Equatable {
         finishedNaturally: Bool = false,
         hitTurnLimit: Bool = false,
         toolErrors: [ToolInvocationResult] = [],
-        lastAssistantText: String = ""
+        lastAssistantText: String = "",
+        turnExitReason: NativeAgentLoopTurnExitReason = .completed
     ) {
         self.toolRoundsUsed = toolRoundsUsed
         self.maxToolRounds = maxToolRounds
@@ -107,6 +125,7 @@ public struct NativeAgentLoopOutcome: Sendable, Equatable {
         self.hitTurnLimit = hitTurnLimit
         self.toolErrors = toolErrors
         self.lastAssistantText = lastAssistantText
+        self.turnExitReason = turnExitReason
     }
 }
 

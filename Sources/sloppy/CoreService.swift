@@ -567,14 +567,15 @@ public actor CoreService {
             await self.runtime.updateWorkerExecutor(
                 ToolExecutionWorkerExecutorAdapter(
                     toolExecutionService: self.toolExecution,
-                    agentRunner: { [weak self] agentID, taskID, objective, workingDirectory, selectedModel in
+                    agentRunner: { [weak self] agentID, taskID, objective, workingDirectory, selectedModel, toolIDs in
                         guard let self else { return nil }
                         guard let result = await self.runAgentTaskResult(
                             agentID: agentID,
                             taskID: taskID,
                             objective: objective,
                             workingDirectory: workingDirectory,
-                            selectedModel: selectedModel
+                            selectedModel: selectedModel,
+                            explicitToolIDs: toolIDs
                         ) else {
                             return nil
                         }

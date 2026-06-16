@@ -67,6 +67,54 @@ func missingTUIConfigFallsBackToNoDefaultEditor() throws {
 }
 
 @Test
+func missingToolBudgetExhaustedFallsBackToDefaultLimit() throws {
+    let json =
+        """
+        {
+          "listen": { "host": "0.0.0.0", "port": 25101 },
+          "auth": { "token": "dev-token" },
+          "models": [],
+          "memory": { "backend": "sqlite-local-vectors" },
+          "nodes": ["local"],
+          "gateways": [],
+          "plugins": [],
+          "sqlitePath": "core.sqlite"
+        }
+        """
+
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
+
+    #expect(decoded.toolBudgetExhausted == 60)
+}
+
+@Test
+func toolBudgetExhaustedDecodesAndEncodesAsCamelCase() throws {
+    let json =
+        """
+        {
+          "listen": { "host": "0.0.0.0", "port": 25101 },
+          "auth": { "token": "dev-token" },
+          "models": [],
+          "memory": { "backend": "sqlite-local-vectors" },
+          "nodes": ["local"],
+          "gateways": [],
+          "plugins": [],
+          "toolBudgetExhausted": 0,
+          "sqlitePath": "core.sqlite"
+        }
+        """
+
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
+
+    #expect(decoded.toolBudgetExhausted == 0)
+
+    let encoded = try JSONEncoder().encode(decoded)
+    let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+    #expect(object["toolBudgetExhausted"] as? Int == 0)
+    #expect(object["tool_budget_exhausted"] == nil)
+}
+
+@Test
 func tuiDefaultEditorDecodesAndEncodes() throws {
     let json =
         """
