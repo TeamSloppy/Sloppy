@@ -1566,8 +1566,34 @@ public struct CoreConfig: Codable, Sendable {
 
         public var enabled: Bool
         public var contextWindowTokens: Int
+        public var summaryTargetRatio: Double
+        public var protectHeadMessages: Int
+        public var protectTailTokens: Int
+        public var protectTailMessages: Int
+        public var antiThrashMinSavingsPercent: Int
+        public var antiThrashMaxIneffectiveRuns: Int
+        public var abortOnSummaryFailure: Bool
+        public var maxContextInjectionPercent: Int
+        public var warnContextInjectionPercent: Int
         public var levels: [Level]
         public var retry: Retry
+
+        private enum CodingKeys: String, CodingKey {
+            case enabled
+            case contextWindowTokens
+            case thresholdPercent
+            case summaryTargetRatio
+            case protectHeadMessages
+            case protectTailTokens
+            case protectTailMessages
+            case antiThrashMinSavingsPercent
+            case antiThrashMaxIneffectiveRuns
+            case abortOnSummaryFailure
+            case maxContextInjectionPercent
+            case warnContextInjectionPercent
+            case levels
+            case retry
+        }
 
         public struct Retry: Codable, Sendable, Equatable {
             public var maxAttempts: Int
@@ -1591,6 +1617,16 @@ public struct CoreConfig: Codable, Sendable {
         public init(
             enabled: Bool = true,
             contextWindowTokens: Int = 32_000,
+            thresholdPercent: Double? = nil,
+            summaryTargetRatio: Double = 0.35,
+            protectHeadMessages: Int = 2,
+            protectTailTokens: Int = 2_000,
+            protectTailMessages: Int = 8,
+            antiThrashMinSavingsPercent: Int = 10,
+            antiThrashMaxIneffectiveRuns: Int = 2,
+            abortOnSummaryFailure: Bool = true,
+            maxContextInjectionPercent: Int = 20,
+            warnContextInjectionPercent: Int = 12,
             levels: [Level] = [
                 Level(level: .soft, utilizationThreshold: 0.80, targetReductionPercent: 30),
                 Level(level: .aggressive, utilizationThreshold: 0.85, targetReductionPercent: 50),
@@ -1600,14 +1636,71 @@ public struct CoreConfig: Codable, Sendable {
         ) {
             self.enabled = enabled
             self.contextWindowTokens = max(1, contextWindowTokens)
-            self.levels = levels.isEmpty ? Self().levels : levels
+            self.summaryTargetRatio = min(max(summaryTargetRatio, 0.05), 0.95)
+            self.protectHeadMessages = max(0, protectHeadMessages)
+            self.protectTailTokens = max(0, protectTailTokens)
+            self.protectTailMessages = max(0, protectTailMessages)
+            self.antiThrashMinSavingsPercent = min(max(antiThrashMinSavingsPercent, 0), 100)
+            self.antiThrashMaxIneffectiveRuns = max(1, antiThrashMaxIneffectiveRuns)
+            self.abortOnSummaryFailure = abortOnSummaryFailure
+            self.maxContextInjectionPercent = min(max(maxContextInjectionPercent, 1), 100)
+            self.warnContextInjectionPercent = min(max(warnContextInjectionPercent, 0), self.maxContextInjectionPercent)
+            let normalizedLevels = levels.isEmpty ? Self.defaultLevels(thresholdPercent: thresholdPercent) : levels
+            self.levels = normalizedLevels
             self.retry = retry
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            let thresholdPercent = try container.decodeIfPresent(Double.self, forKey: .thresholdPercent)
+            self.init(
+                enabled: try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true,
+                contextWindowTokens: try container.decodeIfPresent(Int.self, forKey: .contextWindowTokens) ?? 32_000,
+                thresholdPercent: thresholdPercent,
+                summaryTargetRatio: try container.decodeIfPresent(Double.self, forKey: .summaryTargetRatio) ?? 0.35,
+                protectHeadMessages: try container.decodeIfPresent(Int.self, forKey: .protectHeadMessages) ?? 2,
+                protectTailTokens: try container.decodeIfPresent(Int.self, forKey: .protectTailTokens) ?? 2_000,
+                protectTailMessages: try container.decodeIfPresent(Int.self, forKey: .protectTailMessages) ?? 8,
+                antiThrashMinSavingsPercent: try container.decodeIfPresent(Int.self, forKey: .antiThrashMinSavingsPercent) ?? 10,
+                antiThrashMaxIneffectiveRuns: try container.decodeIfPresent(Int.self, forKey: .antiThrashMaxIneffectiveRuns) ?? 2,
+                abortOnSummaryFailure: try container.decodeIfPresent(Bool.self, forKey: .abortOnSummaryFailure) ?? true,
+                maxContextInjectionPercent: try container.decodeIfPresent(Int.self, forKey: .maxContextInjectionPercent) ?? 20,
+                warnContextInjectionPercent: try container.decodeIfPresent(Int.self, forKey: .warnContextInjectionPercent) ?? 12,
+                levels: try container.decodeIfPresent([Level].self, forKey: .levels) ?? Self.defaultLevels(thresholdPercent: thresholdPercent),
+                retry: try container.decodeIfPresent(Retry.self, forKey: .retry) ?? .init()
+            )
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.container(keyedBy: CodingKeys.self)
+            try container.encode(enabled, forKey: .enabled)
+            try container.encode(contextWindowTokens, forKey: .contextWindowTokens)
+            try container.encode(summaryTargetRatio, forKey: .summaryTargetRatio)
+            try container.encode(protectHeadMessages, forKey: .protectHeadMessages)
+            try container.encode(protectTailTokens, forKey: .protectTailTokens)
+            try container.encode(protectTailMessages, forKey: .protectTailMessages)
+            try container.encode(antiThrashMinSavingsPercent, forKey: .antiThrashMinSavingsPercent)
+            try container.encode(antiThrashMaxIneffectiveRuns, forKey: .antiThrashMaxIneffectiveRuns)
+            try container.encode(abortOnSummaryFailure, forKey: .abortOnSummaryFailure)
+            try container.encode(maxContextInjectionPercent, forKey: .maxContextInjectionPercent)
+            try container.encode(warnContextInjectionPercent, forKey: .warnContextInjectionPercent)
+            try container.encode(levels, forKey: .levels)
+            try container.encode(retry, forKey: .retry)
         }
 
         public var runtimeConfiguration: CompactorConfiguration {
             CompactorConfiguration(
                 enabled: enabled,
                 contextWindowTokens: contextWindowTokens,
+                summaryTargetRatio: summaryTargetRatio,
+                protectHeadMessages: protectHeadMessages,
+                protectTailTokens: protectTailTokens,
+                protectTailMessages: protectTailMessages,
+                antiThrashMinSavingsPercent: antiThrashMinSavingsPercent,
+                antiThrashMaxIneffectiveRuns: antiThrashMaxIneffectiveRuns,
+                abortOnSummaryFailure: abortOnSummaryFailure,
+                maxContextInjectionPercent: maxContextInjectionPercent,
+                warnContextInjectionPercent: warnContextInjectionPercent,
                 levels: levels.map { level in
                     CompactionLevelConfiguration(
                         level: level.level,
@@ -1627,6 +1720,22 @@ public struct CoreConfig: Codable, Sendable {
                 multiplier: retry.multiplier,
                 maxBackoffNanoseconds: UInt64(retry.maxBackoffMs) * 1_000_000
             )
+        }
+
+        private static func defaultLevels(thresholdPercent: Double?) -> [Level] {
+            guard let thresholdPercent else {
+                return [
+                    Level(level: .soft, utilizationThreshold: 0.80, targetReductionPercent: 30),
+                    Level(level: .aggressive, utilizationThreshold: 0.85, targetReductionPercent: 50),
+                    Level(level: .emergency, utilizationThreshold: 0.95, targetReductionPercent: 70),
+                ]
+            }
+            let threshold = thresholdPercent > 1.0 ? thresholdPercent / 100.0 : thresholdPercent
+            return [
+                Level(level: .soft, utilizationThreshold: threshold, targetReductionPercent: 30),
+                Level(level: .aggressive, utilizationThreshold: min(threshold + 0.05, 1.0), targetReductionPercent: 50),
+                Level(level: .emergency, utilizationThreshold: min(threshold + 0.15, 1.0), targetReductionPercent: 70),
+            ]
         }
     }
 

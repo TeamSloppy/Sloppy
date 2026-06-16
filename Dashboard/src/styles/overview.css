@@ -142,6 +142,270 @@
   opacity: 0.4;
 }
 
+.agent-usage-section {
+  gap: 16px;
+}
+
+.agent-usage-header {
+  align-items: flex-start;
+}
+
+.agent-usage-toolbar {
+  min-width: min(100%, 240px);
+}
+
+.agent-usage-filter {
+  min-width: min(100%, 240px);
+}
+
+.agent-usage-hero {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 22px;
+  border: 1px solid var(--line);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), rgba(255, 255, 255, 0.01)),
+    linear-gradient(135deg, rgba(91, 141, 239, 0.10), rgba(61, 212, 182, 0.06));
+}
+
+.agent-usage-identity {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+}
+
+.agent-usage-avatar {
+  width: 76px;
+  height: 76px;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.06);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  color: var(--text);
+  flex-shrink: 0;
+}
+
+.agent-usage-copy {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 0;
+  flex: 1;
+}
+
+.agent-usage-copy h3,
+.agent-usage-chart-head h3,
+.agent-usage-insights-card h3 {
+  margin: 0;
+  font-size: 1.45rem;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.agent-usage-copy p {
+  margin: 0;
+  max-width: 720px;
+  color: var(--muted);
+  line-height: 1.55;
+}
+
+.agent-usage-link {
+  margin-left: auto;
+}
+
+.agent-usage-stats {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.agent-usage-stat-card {
+  padding: 18px 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
+.agent-usage-stat-card + .agent-usage-stat-card {
+  border-left: 1px solid rgba(255, 255, 255, 0.06);
+}
+
+.agent-usage-stat-card strong {
+  font-size: 1.6rem;
+  font-weight: 600;
+}
+
+.agent-usage-stat-card span {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.agent-usage-chart-shell,
+.agent-usage-insights-card {
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.agent-usage-chart-shell {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.agent-usage-chart-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.agent-usage-mode-toggle {
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid var(--line);
+  background: rgba(255, 255, 255, 0.02);
+}
+
+.agent-usage-mode-toggle button {
+  min-height: 36px;
+  padding: 0 14px;
+  border: 0;
+  background: transparent;
+  color: var(--muted);
+  font-size: 0.88rem;
+}
+
+.agent-usage-mode-toggle button.active {
+  background: rgba(91, 141, 239, 0.18);
+  color: var(--text);
+}
+
+.agent-usage-heatmap {
+  display: grid;
+  grid-template-rows: repeat(7, 1fr);
+  grid-auto-flow: column;
+  grid-auto-columns: minmax(0, 1fr);
+  gap: 6px;
+  min-height: 150px;
+}
+
+.agent-usage-day {
+  aspect-ratio: 1 / 1;
+  border-radius: 4px;
+  background: linear-gradient(180deg, rgba(120, 176, 255, 0.95), rgba(73, 119, 196, 0.95));
+}
+
+.agent-usage-months {
+  display: grid;
+  grid-template-columns: repeat(12, minmax(0, 1fr));
+  gap: 12px;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.agent-usage-trend {
+  display: grid;
+  grid-template-columns: repeat(16, minmax(0, 1fr));
+  align-items: end;
+  gap: 10px;
+  min-height: 210px;
+}
+
+.agent-usage-trend-bar-wrap {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 8px;
+  min-width: 0;
+  height: 100%;
+}
+
+.agent-usage-trend-bar {
+  width: 100%;
+  min-height: 12px;
+  background: linear-gradient(180deg, #8ac5ff, #486ac7);
+}
+
+.agent-usage-trend-bar-wrap span {
+  font-size: 0.72rem;
+  color: var(--muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.agent-usage-insights-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.5fr) minmax(280px, 0.9fr);
+  gap: 14px;
+}
+
+.agent-usage-insights-card {
+  padding: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+}
+
+.agent-usage-definition-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 22px;
+  margin: 0;
+}
+
+.agent-usage-definition-list div {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.agent-usage-definition-list dt {
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+.agent-usage-definition-list dd {
+  margin: 0;
+  font-size: 1.1rem;
+  font-weight: 600;
+}
+
+.agent-usage-run-highlight {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  justify-content: center;
+  min-height: 100%;
+}
+
+.agent-usage-run-highlight strong {
+  font-size: 2rem;
+  font-weight: 600;
+}
+
+.agent-usage-run-highlight p,
+.agent-usage-run-highlight span {
+  margin: 0;
+}
+
+.agent-usage-run-highlight p {
+  color: var(--text);
+}
+
+.agent-usage-run-highlight span {
+  color: var(--muted);
+}
+
 /* ── Active Channels ── */
 .active-channels-grid {
   display: grid;
@@ -953,4 +1217,3 @@
     font-size: 1rem;
   }
 }
-

@@ -15,6 +15,8 @@ struct WorkflowRunner {
         var saveAction: @Sendable (WorkflowPendingAction) async -> Void
     }
 
+    typealias ToolExecutor = @Sendable (WorkflowNode, Context, [String: JSONValue]) async -> ToolInvocationResult?
+
     enum Result: Sendable, Equatable {
         case completed(WorkflowRun)
         case waitingForHuman(WorkflowRun, WorkflowPendingAction)
@@ -49,7 +51,8 @@ struct WorkflowRunner {
         definition: WorkflowDefinition,
         context: Context,
         persistence: Persistence,
-        updateTask: @Sendable (String, String, String) async throws -> Void
+        updateTask: @Sendable (String, String, String) async throws -> Void,
+        executeTool: ToolExecutor? = nil
     ) async -> Result {
         guard validate(definition: definition).filter({ $0.severity == "error" }).isEmpty else {
             let run = makeRun(definition: definition, context: context, status: .failed, currentNodeIds: [], finishedAt: Date())
@@ -70,7 +73,8 @@ struct WorkflowRunner {
             context: context,
             initialOutput: context.input,
             persistence: persistence,
-            updateTask: updateTask
+            updateTask: updateTask,
+            executeTool: executeTool
         )
     }
 
@@ -80,7 +84,8 @@ struct WorkflowRunner {
         resolvedNodeID: String,
         output: [String: JSONValue],
         persistence: Persistence,
-        updateTask: @Sendable (String, String, String) async throws -> Void
+        updateTask: @Sendable (String, String, String) async throws -> Void,
+        executeTool: ToolExecutor? = nil
     ) async -> Result {
         let context = Context(projectId: run.projectId, taskId: run.taskId, startedBy: run.startedBy, input: output)
         let waitingStep = WorkflowRunStep(
@@ -112,7 +117,8 @@ struct WorkflowRunner {
             context: context,
             initialOutput: output,
             persistence: persistence,
-            updateTask: updateTask
+            updateTask: updateTask,
+            executeTool: executeTool
         )
     }
 
@@ -123,7 +129,8 @@ struct WorkflowRunner {
         context: Context,
         initialOutput: [String: JSONValue],
         persistence: Persistence,
-        updateTask: @Sendable (String, String, String) async throws -> Void
+        updateTask: @Sendable (String, String, String) async throws -> Void,
+        executeTool: ToolExecutor?
     ) async -> Result {
         var run = run
         var nodeID: String? = currentNodeID
@@ -194,11 +201,34 @@ struct WorkflowRunner {
             case .condition:
                 previousOutput = context.input.merging(node.config) { _, new in new }
 
+            case .agentStep, .toolCheck:
+                if let toolResult = await executeTool?(node, context, previousOutput) {
+                    guard toolResult.ok else {
+                        let message = toolResult.error?.message ?? "Workflow tool node failed."
+                        let failedStep = WorkflowRunStep(
+                            id: "step_\(UUID().uuidString.lowercased())",
+                            runId: run.id,
+                            nodeId: node.id,
+                            status: .failed,
+                            input: previousOutput,
+                            output: toolResult.dataObject,
+                            error: message,
+                            startedAt: Date(),
+                            finishedAt: Date()
+                        )
+                        await persistence.saveStep(failedStep)
+                        return await fail(run: run, message: message, persistence: persistence)
+                    }
+                    previousOutput = toolResult.dataObject.merging([
+                        "status": .string("succeeded"),
+                        "tool": .string(toolResult.tool)
+                    ]) { current, _ in current }
+                } else {
+                    previousOutput = node.config.merging(["status": .string("succeeded")]) { current, _ in current }
+                }
+
             case .trigger, .projectTask, .notify:
                 previousOutput = node.config.merging(["status": .string("succeeded")]) { current, _ in current }
-
-            case .agentStep, .toolCheck:
-                return await fail(run: run, message: "\(node.type.rawValue) nodes are not supported in the workflows MVP.", persistence: persistence)
             }
 
             let step = WorkflowRunStep(
@@ -302,5 +332,17 @@ struct WorkflowRunner {
         }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+private extension ToolInvocationResult {
+    var dataObject: [String: JSONValue] {
+        if let object = data?.asObject {
+            return object
+        }
+        if let data {
+            return ["data": data]
+        }
+        return [:]
     }
 }

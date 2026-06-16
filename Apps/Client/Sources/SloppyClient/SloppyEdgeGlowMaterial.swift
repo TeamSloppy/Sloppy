@@ -1,12 +1,40 @@
 import AdaEngine
 
 struct SloppyEdgeGlowMaterial: UIShaderMaterial {
+    static func vertexShader() throws -> AssetHandle<ShaderSource> {
+        let source = """
+        #version 450 core
+        #pragma stage : vert
+
+        #include <AdaEngine/View.glsl>
+
+        layout (location = 0) in vec4 a_Position;
+        layout (location = 1) in vec4 a_Color;
+        layout (location = 2) in vec2 a_TexCoordinate;
+
+        layout (location = 0) out vec4 Output_Color;
+        layout (location = 1) out vec2 Output_UV;
+
+        [[main]]
+        void sloppy_edge_glow_vertex()
+        {
+            Output_Color = a_Color;
+            Output_UV = a_TexCoordinate;
+            gl_Position = u_ViewProjection * a_Position;
+        }
+        """
+
+        return AssetHandle(try ShaderSource(source: source))
+    }
+
     static func fragmentShader() throws -> AssetHandle<ShaderSource> {
         let source = """
         #version 450 core
         #pragma stage : frag
 
-        #include <AdaEngine/UIShaderMaterial.frag>
+        layout (location = 0) in vec4 Input_Color;
+        layout (location = 1) in vec2 Input_UV;
+        layout (location = 0) out vec4 COLOR;
 
         float glowBand(float value, float inner, float outer)
         {
@@ -16,7 +44,7 @@ struct SloppyEdgeGlowMaterial: UIShaderMaterial {
         [[main]]
         void sloppy_edge_glow_fragment()
         {
-            vec2 uv = Input.UV;
+            vec2 uv = Input_UV;
             vec2 edgeDistance = min(uv, 1.0 - uv);
             float edge = min(edgeDistance.x, edgeDistance.y);
 
@@ -37,7 +65,7 @@ struct SloppyEdgeGlowMaterial: UIShaderMaterial {
                 + violet * (top * right + left * bottom) * 0.7;
 
             float alpha = clamp(sideGlow * 0.34 + softBloom, 0.0, 0.54);
-            COLOR = vec4(color * (0.62 + sideGlow * 0.48), alpha);
+            COLOR = vec4(color * (0.62 + sideGlow * 0.48) * Input_Color.rgb, alpha * Input_Color.a);
 
             if (COLOR.a <= 0.001) {
                 discard;
@@ -53,4 +81,3 @@ struct SloppyEdgeGlowMaterial: UIShaderMaterial {
 enum SloppyShaderEffects {
     static let edgeGlow = CustomMaterial(SloppyEdgeGlowMaterial())
 }
-

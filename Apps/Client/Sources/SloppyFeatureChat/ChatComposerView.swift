@@ -262,12 +262,40 @@ private struct ChatComposerCapsuleGlowMaterial: UIShaderMaterial {
         self.capsuleRadius = capsuleRadius
     }
 
+    static func vertexShader() throws -> AssetHandle<ShaderSource> {
+        let source = """
+            #version 450 core
+            #pragma stage : vert
+
+            #include <AdaEngine/View.glsl>
+
+            layout (location = 0) in vec4 a_Position;
+            layout (location = 1) in vec4 a_Color;
+            layout (location = 2) in vec2 a_TexCoordinate;
+
+            layout (location = 0) out vec4 Output_Color;
+            layout (location = 1) out vec2 Output_UV;
+
+            [[main]]
+            void chat_composer_capsule_glow_vertex()
+            {
+                Output_Color = a_Color;
+                Output_UV = a_TexCoordinate;
+                gl_Position = u_ViewProjection * a_Position;
+            }
+            """
+
+        return AssetHandle(try ShaderSource(source: source))
+    }
+
     static func fragmentShader() throws -> AssetHandle<ShaderSource> {
         let source = """
             #version 450 core
             #pragma stage : frag
 
-            #include <AdaEngine/UIShaderMaterial.frag>
+            layout (location = 0) in vec4 Input_Color;
+            layout (location = 1) in vec2 Input_UV;
+            layout (location = 0) out vec4 COLOR;
 
             layout (binding = 0) uniform ChatComposerCapsuleGlowMaterial {
                 float u_Time;
@@ -279,7 +307,7 @@ private struct ChatComposerCapsuleGlowMaterial: UIShaderMaterial {
             [[main]]
             void chat_composer_capsule_glow_fragment()
             {
-                vec2 uv = Input.UV;
+                vec2 uv = Input_UV;
                 float t = u_Time * 0.58;
 
                 // Work in centered overlay coordinates. The overlay is taller than
@@ -316,7 +344,7 @@ private struct ChatComposerCapsuleGlowMaterial: UIShaderMaterial {
                 float alpha = clamp(edge * (0.86 + travellingBand * 0.14) + closeBloom * 0.34 + farBloom * 0.22, 0.0, 0.95);
                 vec3 color = borderColor * (edge * 1.25 + closeBloom * 0.78 + farBloom * 0.44) * fineLines;
 
-                COLOR = vec4(color, alpha);
+                COLOR = vec4(color * Input_Color.rgb, alpha * Input_Color.a);
 
                 if (COLOR.a <= 0.001) {
                     discard;

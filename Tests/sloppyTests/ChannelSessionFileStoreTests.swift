@@ -291,6 +291,91 @@ func channelSessionStorePersistsCompactLifecycleEvents() async throws {
 }
 
 @Test
+func channelSessionCompactionRewritesMiddleIntoMarkedHandoffSummary() async throws {
+    let workspaceRootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("channel-session-middle-compact-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
+    let store = ChannelSessionFileStore(workspaceRootURL: workspaceRootURL)
+
+    let startedAt = Date(timeIntervalSince1970: 1_800_200_000)
+    let first = try await store.recordUserMessage(channelId: "engineering", userId: "u", content: "head-1", createdAt: startedAt)
+    _ = try await store.recordAssistantMessage(channelId: "engineering", content: "middle-1", createdAt: startedAt.addingTimeInterval(1))
+    _ = try await store.recordUserMessage(channelId: "engineering", userId: "u", content: "middle-2", createdAt: startedAt.addingTimeInterval(2))
+    _ = try await store.recordAssistantMessage(channelId: "engineering", content: "tail-1", createdAt: startedAt.addingTimeInterval(3))
+    _ = try await store.recordUserMessage(channelId: "engineering", userId: "u", content: "tail-2", createdAt: startedAt.addingTimeInterval(4))
+
+    let result = try await store.compactOpenSession(
+        channelId: "engineering",
+        reason: "test_compact",
+        protectHeadMessages: 1,
+        protectTailMessages: 2,
+        protectTailTokens: 1_000,
+        summaryTargetRatio: 0.35,
+        createdAt: startedAt.addingTimeInterval(5)
+    )
+
+    #expect(result.applied)
+    #expect(result.summarizedEventCount == 2)
+    #expect(result.savedApproxTokens > 0)
+
+    let detail = try await store.loadSessionDetail(sessionID: first.sessionId)
+    let messages = detail.events.filter { $0.type == .userMessage || $0.type == .assistantMessage || $0.type == .systemMessage }
+    #expect(messages.map(\.content) == [
+        "head-1",
+        ChannelSessionCompaction.handoffSummaryPrefix + "\nThis is a system-generated summary of earlier channel transcript, not a new user request.\n\n- Assistant: middle-1\n- User u: middle-2",
+        "tail-1",
+        "tail-2",
+    ])
+    #expect(messages[1].metadata?["compactionHandoff"] == "true")
+
+    let history = try await store.getMessageHistory(channelId: "engineering", limit: 10)
+    #expect(history.map(\.content) == [messages[1].content, "tail-1", "tail-2"])
+}
+
+@Test
+func channelSessionCompactionUpdatesPriorHandoffInsteadOfStacking() async throws {
+    let workspaceRootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("channel-session-recompact-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: workspaceRootURL) }
+    let store = ChannelSessionFileStore(workspaceRootURL: workspaceRootURL)
+
+    let startedAt = Date(timeIntervalSince1970: 1_800_201_000)
+    let first = try await store.recordUserMessage(channelId: "engineering", userId: "u", content: "head", createdAt: startedAt)
+    _ = try await store.recordAssistantMessage(channelId: "engineering", content: "old middle", createdAt: startedAt.addingTimeInterval(1))
+    _ = try await store.recordUserMessage(channelId: "engineering", userId: "u", content: "tail-a", createdAt: startedAt.addingTimeInterval(2))
+    _ = try await store.recordAssistantMessage(channelId: "engineering", content: "tail-b", createdAt: startedAt.addingTimeInterval(3))
+
+    _ = try await store.compactOpenSession(
+        channelId: "engineering",
+        reason: "first_compact",
+        protectHeadMessages: 1,
+        protectTailMessages: 2,
+        protectTailTokens: 1_000,
+        summaryTargetRatio: 0.35,
+        createdAt: startedAt.addingTimeInterval(4)
+    )
+    _ = try await store.recordUserMessage(channelId: "engineering", userId: "u", content: "new tail", createdAt: startedAt.addingTimeInterval(5))
+
+    let second = try await store.compactOpenSession(
+        channelId: "engineering",
+        reason: "second_compact",
+        protectHeadMessages: 1,
+        protectTailMessages: 1,
+        protectTailTokens: 1_000,
+        summaryTargetRatio: 0.35,
+        createdAt: startedAt.addingTimeInterval(6)
+    )
+
+    #expect(second.applied)
+    let detail = try await store.loadSessionDetail(sessionID: first.sessionId)
+    let handoffs = detail.events.filter { $0.metadata?["compactionHandoff"] == "true" }
+    #expect(handoffs.count == 1)
+    #expect(handoffs.first?.content.contains("old middle") == true)
+    #expect(handoffs.first?.content.contains("tail-a") == true)
+    #expect(handoffs.first?.content.contains("tail-b") == true)
+}
+
+@Test
 func channelSessionStoreReturnsMessageHistoryForDateRangeOnly() async throws {
     let workspaceRootURL = FileManager.default.temporaryDirectory
         .appendingPathComponent("channel-session-range-\(UUID().uuidString)", isDirectory: true)

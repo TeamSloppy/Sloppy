@@ -6088,7 +6088,7 @@
 
 .project-workflows-grid {
   display: grid;
-  grid-template-columns: 260px minmax(420px, 1fr) 300px;
+  grid-template-columns: 280px minmax(420px, 1fr) 340px;
   flex: 1;
   min-height: 0 !important;
   border: 1px solid var(--line);
@@ -6169,15 +6169,13 @@
 .project-workflows-board-scroller {
   width: 100%;
   height: 100%;
-  overflow: auto;
-  overscroll-behavior: contain;
+  overflow: hidden;
+  overscroll-behavior: none;
   touch-action: none;
   background-color: var(--bg);
   background-image: radial-gradient(circle at 1px 1px, rgba(204, 255, 0, 0.22) 1px, transparent 0);
   background-size: 28px 28px;
   cursor: grab;
-  scrollbar-width: thin;
-  scrollbar-color: var(--line-strong) transparent;
 }
 
 .project-workflows-board-scroller.is-panning,
@@ -6185,28 +6183,62 @@
   cursor: grabbing;
 }
 
-.project-workflows-board-scroller::-webkit-scrollbar {
-  width: 10px;
-  height: 10px;
-}
-
-.project-workflows-board-scroller::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.project-workflows-board-scroller::-webkit-scrollbar-thumb {
-  background: var(--line);
-  border: 2px solid var(--bg);
-}
-
-.project-workflows-board-scroller:hover::-webkit-scrollbar-thumb {
-  background: var(--line-strong);
-}
-
 .project-workflows-board {
   position: relative;
-  min-width: 900px;
-  min-height: 420px;
+  width: 20000px;
+  height: 20000px;
+  will-change: transform;
+}
+
+.project-workflows-blocks-header {
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--line);
+}
+
+.project-workflows-block-palette {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.project-workflows-block-palette button {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr);
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--bg);
+  color: var(--text);
+  text-align: left;
+}
+
+.project-workflows-block-palette button:hover:not(:disabled) {
+  border-color: var(--accent);
+  background: rgba(162, 119, 255, 0.10);
+}
+
+.project-workflows-block-palette .material-symbols-rounded {
+  color: var(--accent);
+  font-size: 19px;
+}
+
+.project-workflows-block-palette strong,
+.project-workflows-block-palette small {
+  display: block;
+}
+
+.project-workflows-block-palette strong {
+  font-size: 12px;
+}
+
+.project-workflows-block-palette small {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.25;
 }
 
 .project-workflows-lane-strip {
@@ -6238,15 +6270,21 @@
 
 .project-workflows-links-layer {
   position: absolute;
-  inset: 0;
-  width: 100%;
-  height: 100%;
+  top: 0;
+  left: 0;
+  width: 20000px;
+  height: 20000px;
   overflow: visible;
   pointer-events: none;
 }
 
-.project-workflows-links-layer marker path {
-  fill: var(--accent);
+.project-workflow-link-hit {
+  fill: none;
+  stroke: transparent;
+  stroke-width: 20;
+  stroke-linecap: round;
+  pointer-events: auto;
+  cursor: pointer;
 }
 
 .project-workflow-link {
@@ -6284,10 +6322,21 @@
   pointer-events: none;
 }
 
+.project-workflow-link.selected {
+  stroke: var(--accent);
+  stroke-width: 10;
+}
+
+.project-workflow-link.preview {
+  stroke: #8ab4ff;
+  stroke-width: 8;
+  stroke-dasharray: 6 4;
+}
+
 .project-workflow-node {
   position: absolute;
-  width: 190px;
-  min-height: 92px;
+  width: 220px;
+  min-height: 104px;
   display: flex;
   align-items: center;
   gap: 10px;
@@ -6298,6 +6347,8 @@
   color: var(--text);
   transition: transform 0.1s steps(2), box-shadow 0.1s steps(2);
   z-index: 2;
+  cursor: grab;
+  user-select: none;
 }
 
 .project-workflow-node:hover {
@@ -6308,6 +6359,23 @@
 .project-workflow-node.active {
   border-color: var(--accent);
   box-shadow: 4px 4px 0 var(--accent);
+}
+
+.project-workflow-node.selected {
+  border-color: #8ab4ff;
+  box-shadow: 4px 4px 0 #8ab4ff;
+}
+
+.project-workflow-node.step-succeeded {
+  border-color: rgba(34, 197, 94, 0.7);
+}
+
+.project-workflow-node.step-failed {
+  border-color: rgba(248, 113, 113, 0.8);
+}
+
+.project-workflow-node.step-waiting {
+  border-color: rgba(251, 191, 36, 0.8);
 }
 
 .project-workflow-node .material-symbols-rounded {
@@ -6332,6 +6400,102 @@
   letter-spacing: 0.03em;
 }
 
+.project-workflow-socket {
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: var(--bg);
+  cursor: crosshair;
+}
+
+.project-workflow-socket:hover {
+  border-color: #b4bdd5;
+  background: #27324a;
+}
+
+.project-workflow-socket.side-top {
+  left: calc(50% - 6px);
+  top: -6px;
+}
+
+.project-workflow-socket.side-right {
+  right: -6px;
+  top: calc(50% - 6px);
+}
+
+.project-workflow-socket.side-bottom {
+  left: calc(50% - 6px);
+  bottom: -6px;
+}
+
+.project-workflow-socket.side-left {
+  left: -6px;
+  top: calc(50% - 6px);
+}
+
+.project-workflow-socket.source {
+  border-color: #8ab4ff;
+  background: rgba(138, 180, 255, 0.4);
+}
+
+.project-workflow-socket.hover {
+  border-color: var(--accent);
+  background: rgba(162, 119, 255, 0.45);
+}
+
+.project-workflows-fast-actions {
+  position: absolute;
+  bottom: 36px;
+  left: 14px;
+  z-index: 10;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-width: 156px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: rgba(9, 12, 18, 0.92);
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.35);
+  pointer-events: auto;
+}
+
+.project-workflows-fast-actions button {
+  min-height: 28px;
+  padding: 4px 10px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font-size: 0.82rem;
+  text-align: left;
+}
+
+.project-workflows-fast-actions p {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.35;
+}
+
+.project-workflows-board-status {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  z-index: 5;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  padding: 0 12px;
+  border-top: 1px solid var(--line);
+  background: var(--surface-2);
+  color: var(--muted);
+  font-size: 0.76rem;
+}
+
 .project-workflows-inspector section {
   display: flex;
   flex-direction: column;
@@ -6352,6 +6516,101 @@
   border: 1px solid var(--line);
   border-radius: 0;
   background: var(--bg);
+}
+
+.project-workflow-editor-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--line);
+  background: var(--bg);
+}
+
+.project-workflow-editor-card label {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.project-workflow-editor-card input,
+.project-workflow-editor-card textarea {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 7px 8px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--text);
+  font: inherit;
+}
+
+.project-workflow-editor-card textarea {
+  min-height: 72px;
+  resize: vertical;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
+  font-size: 12px;
+}
+
+.project-workflow-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 6px;
+}
+
+.project-workflow-choice-grid button {
+  min-height: 30px;
+  border: 1px solid var(--line);
+  border-radius: 0;
+  background: rgba(255, 255, 255, 0.04);
+  color: var(--muted);
+}
+
+.project-workflow-choice-grid button.active {
+  border-color: var(--accent);
+  background: rgba(162, 119, 255, 0.18);
+  color: var(--text);
+}
+
+.project-workflow-danger {
+  min-height: 32px;
+  border: 1px solid rgba(248, 113, 113, 0.45);
+  border-radius: 0;
+  background: rgba(248, 113, 113, 0.14);
+  color: #fecaca;
+}
+
+.project-workflow-step-list {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+
+.project-workflow-step-pill {
+  display: inline-flex;
+  align-items: center;
+  min-height: 24px;
+  padding: 3px 7px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.project-workflow-step-pill.succeeded {
+  border-color: rgba(34, 197, 94, 0.45);
+  color: #bbf7d0;
+}
+
+.project-workflow-step-pill.failed {
+  border-color: rgba(248, 113, 113, 0.45);
+  color: #fecaca;
+}
+
+.project-workflow-step-pill.waiting {
+  border-color: rgba(251, 191, 36, 0.45);
+  color: #fde68a;
 }
 
 .project-workflow-run {

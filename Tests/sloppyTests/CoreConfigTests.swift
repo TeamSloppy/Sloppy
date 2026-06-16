@@ -88,6 +88,68 @@ func missingToolBudgetExhaustedFallsBackToDefaultLimit() throws {
 }
 
 @Test
+func missingCompactorEconomyFieldsFallBackToSafeDefaults() throws {
+    let json =
+        """
+        {
+          "listen": { "host": "0.0.0.0", "port": 25101 },
+          "auth": { "token": "dev-token" },
+          "models": [],
+          "memory": { "backend": "sqlite-local-vectors" },
+          "nodes": ["local"],
+          "gateways": [],
+          "plugins": [],
+          "compactor": {
+            "enabled": true,
+            "contextWindowTokens": 64000
+          },
+          "sqlitePath": "core.sqlite"
+        }
+        """
+
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
+
+    #expect(decoded.compactor.contextWindowTokens == 64_000)
+    #expect(decoded.compactor.summaryTargetRatio == 0.35)
+    #expect(decoded.compactor.protectHeadMessages == 2)
+    #expect(decoded.compactor.protectTailTokens == 2_000)
+    #expect(decoded.compactor.protectTailMessages == 8)
+    #expect(decoded.compactor.antiThrashMinSavingsPercent == 10)
+    #expect(decoded.compactor.antiThrashMaxIneffectiveRuns == 2)
+    #expect(decoded.compactor.abortOnSummaryFailure)
+}
+
+@Test
+func compactorEconomyFieldsMapToRuntimeConfiguration() throws {
+    let config = CoreConfig.Compactor(
+        enabled: true,
+        contextWindowTokens: 12_000,
+        summaryTargetRatio: 0.25,
+        protectHeadMessages: 3,
+        protectTailTokens: 1_500,
+        protectTailMessages: 6,
+        antiThrashMinSavingsPercent: 12,
+        antiThrashMaxIneffectiveRuns: 3,
+        abortOnSummaryFailure: false,
+        maxContextInjectionPercent: 18,
+        warnContextInjectionPercent: 9
+    )
+
+    let runtime = config.runtimeConfiguration
+
+    #expect(runtime.contextWindowTokens == 12_000)
+    #expect(runtime.summaryTargetRatio == 0.25)
+    #expect(runtime.protectHeadMessages == 3)
+    #expect(runtime.protectTailTokens == 1_500)
+    #expect(runtime.protectTailMessages == 6)
+    #expect(runtime.antiThrashMinSavingsPercent == 12)
+    #expect(runtime.antiThrashMaxIneffectiveRuns == 3)
+    #expect(!runtime.abortOnSummaryFailure)
+    #expect(runtime.maxContextInjectionPercent == 18)
+    #expect(runtime.warnContextInjectionPercent == 9)
+}
+
+@Test
 func toolBudgetExhaustedDecodesAndEncodesAsCamelCase() throws {
     let json =
         """

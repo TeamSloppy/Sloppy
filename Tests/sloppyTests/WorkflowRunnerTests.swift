@@ -130,6 +130,105 @@ func workflowRunnerConditionFollowsMatchingConditionKey() async throws {
     #expect(await recorder.steps.contains { $0.nodeId == "rejected" })
 }
 
+@Test
+func workflowRunnerRecordsAgentAndToolStepsAsWorkflowActions() async throws {
+    let runner = WorkflowRunner()
+    let definition = workflowDefinition(nodes: [
+        WorkflowNode(id: "start", type: .trigger, title: "Start", laneId: "system"),
+        WorkflowNode(id: "agent", type: .agentStep, title: "Agent", laneId: "system", config: ["blockKind": .string("agent")]),
+        WorkflowNode(id: "tool", type: .toolCheck, title: "Tool", laneId: "system", config: ["blockKind": .string("bash")]),
+        WorkflowNode(id: "done", type: .end, title: "Done", laneId: "system")
+    ], edges: [
+        WorkflowEdge(id: "e1", sourceNodeId: "start", targetNodeId: "agent"),
+        WorkflowEdge(id: "e2", sourceNodeId: "agent", targetNodeId: "tool"),
+        WorkflowEdge(id: "e3", sourceNodeId: "tool", targetNodeId: "done")
+    ])
+    let recorder = WorkflowRecorder()
+
+    let result = await runner.start(
+        definition: definition,
+        context: .init(projectId: "project-1", taskId: nil, startedBy: "human:admin", input: [:]),
+        persistence: recorder.persistence,
+        updateTask: recorder.updateTask
+    )
+
+    guard case .completed(let run) = result else {
+        Issue.record("Expected completed workflow run.")
+        return
+    }
+    #expect(run.status == .completed)
+    #expect(await recorder.steps.contains { $0.nodeId == "agent" && $0.status == .succeeded })
+    #expect(await recorder.steps.contains { $0.nodeId == "tool" && $0.status == .succeeded })
+}
+
+@Test
+func workflowRunnerExecutesToolCheckThroughInjectedExecutor() async throws {
+    let runner = WorkflowRunner()
+    let definition = workflowDefinition(nodes: [
+        WorkflowNode(id: "start", type: .trigger, title: "Start", laneId: "system"),
+        WorkflowNode(id: "bash", type: .toolCheck, title: "Bash", laneId: "system", config: ["blockKind": .string("bash")]),
+        WorkflowNode(id: "done", type: .end, title: "Done", laneId: "system")
+    ], edges: [
+        WorkflowEdge(id: "e1", sourceNodeId: "start", targetNodeId: "bash"),
+        WorkflowEdge(id: "e2", sourceNodeId: "bash", targetNodeId: "done")
+    ])
+    let recorder = WorkflowRecorder()
+
+    let result = await runner.start(
+        definition: definition,
+        context: .init(projectId: "project-1", taskId: nil, startedBy: "agent:test", input: [:]),
+        persistence: recorder.persistence,
+        updateTask: recorder.updateTask,
+        executeTool: { node, _, _ in
+            #expect(node.id == "bash")
+            return ToolInvocationResult(tool: "runtime.exec", ok: true, data: .object(["stdout": .string("ok")]))
+        }
+    )
+
+    guard case .completed(let run) = result else {
+        Issue.record("Expected completed workflow run.")
+        return
+    }
+    #expect(run.status == .completed)
+    #expect(await recorder.steps.contains { $0.nodeId == "bash" && $0.output["stdout"] == .string("ok") })
+}
+
+@Test
+func workflowRunnerFailsWhenInjectedExecutorFails() async throws {
+    let runner = WorkflowRunner()
+    let definition = workflowDefinition(nodes: [
+        WorkflowNode(id: "start", type: .trigger, title: "Start", laneId: "system"),
+        WorkflowNode(id: "tool", type: .toolCheck, title: "Tool", laneId: "system", config: ["blockKind": .string("tool")]),
+        WorkflowNode(id: "done", type: .end, title: "Done", laneId: "system")
+    ], edges: [
+        WorkflowEdge(id: "e1", sourceNodeId: "start", targetNodeId: "tool"),
+        WorkflowEdge(id: "e2", sourceNodeId: "tool", targetNodeId: "done")
+    ])
+    let recorder = WorkflowRecorder()
+
+    let result = await runner.start(
+        definition: definition,
+        context: .init(projectId: "project-1", taskId: nil, startedBy: "agent:test", input: [:]),
+        persistence: recorder.persistence,
+        updateTask: recorder.updateTask,
+        executeTool: { _, _, _ in
+            ToolInvocationResult(
+                tool: "project.task_get",
+                ok: false,
+                error: ToolErrorPayload(code: "failed", message: "tool failed", retryable: false)
+            )
+        }
+    )
+
+    guard case .failed(let run, let message) = result else {
+        Issue.record("Expected failed workflow run.")
+        return
+    }
+    #expect(run.status == .failed)
+    #expect(message == "tool failed")
+    #expect(await recorder.steps.contains { $0.nodeId == "tool" && $0.status == .failed && $0.error == "tool failed" })
+}
+
 private func workflowDefinition(nodes: [WorkflowNode], edges: [WorkflowEdge]) -> WorkflowDefinition {
     WorkflowDefinition(
         id: "workflow-1",

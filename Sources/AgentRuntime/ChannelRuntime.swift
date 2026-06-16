@@ -24,9 +24,19 @@ public struct ChannelMessageEntry: Codable, Sendable, Equatable {
 }
 
 public struct ChannelSnapshot: Codable, Sendable, Equatable {
+    private enum CodingKeys: String, CodingKey {
+        case channelId
+        case messages
+        case contextUtilization
+        case contextPressureSource
+        case activeWorkerIds
+        case lastDecision
+    }
+
     public var channelId: String
     public var messages: [ChannelMessageEntry]
     public var contextUtilization: Double
+    public var contextPressureSource: ContextPressureSource
     public var activeWorkerIds: [String]
     public var lastDecision: ChannelRouteDecision?
 
@@ -34,14 +44,28 @@ public struct ChannelSnapshot: Codable, Sendable, Equatable {
         channelId: String,
         messages: [ChannelMessageEntry],
         contextUtilization: Double,
+        contextPressureSource: ContextPressureSource = .roughMessages,
         activeWorkerIds: [String],
         lastDecision: ChannelRouteDecision?
     ) {
         self.channelId = channelId
         self.messages = messages
         self.contextUtilization = contextUtilization
+        self.contextPressureSource = contextPressureSource
         self.activeWorkerIds = activeWorkerIds
         self.lastDecision = lastDecision
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(
+            channelId: try container.decode(String.self, forKey: .channelId),
+            messages: try container.decode([ChannelMessageEntry].self, forKey: .messages),
+            contextUtilization: try container.decode(Double.self, forKey: .contextUtilization),
+            contextPressureSource: try container.decodeIfPresent(ContextPressureSource.self, forKey: .contextPressureSource) ?? .roughMessages,
+            activeWorkerIds: try container.decode([String].self, forKey: .activeWorkerIds),
+            lastDecision: try container.decodeIfPresent(ChannelRouteDecision.self, forKey: .lastDecision)
+        )
     }
 }
 
@@ -58,18 +82,20 @@ public struct ChannelIngestResult: Sendable, Equatable {
 private struct ChannelState: Sendable {
     var messages: [ChannelMessageEntry] = []
     var contextUtilization: Double = 0
+    var contextPressureSource: ContextPressureSource = .roughMessages
+    var latestPromptUsage: TokenUsage?
     var activeWorkerIds: Set<String> = []
     var lastDecision: ChannelRouteDecision?
 }
 
 public actor ChannelRuntime {
     private let eventBus: EventBus
-    private let contextWindowTokens: Int
+    private let pressureEstimator: TokenPressureEstimator
     private var channels: [String: ChannelState] = [:]
 
     public init(eventBus: EventBus, contextWindowTokens: Int = 32_000) {
         self.eventBus = eventBus
-        self.contextWindowTokens = max(1, contextWindowTokens)
+        self.pressureEstimator = TokenPressureEstimator(contextWindowTokens: contextWindowTokens)
     }
 
     /// Ingests user message into channel state and emits routing decision.
@@ -77,7 +103,8 @@ public actor ChannelRuntime {
         var state = channels[channelId, default: ChannelState()]
         let message = ChannelMessageEntry(userId: request.userId, content: request.content, attachments: request.attachments)
         state.messages.append(message)
-        state.contextUtilization = estimateUtilization(state.messages)
+        state.latestPromptUsage = nil
+        applyPressureEstimate(to: &state)
 
         let decision = decideRoute(for: request.content, utilization: state.contextUtilization)
         state.lastDecision = decision
@@ -103,7 +130,7 @@ public actor ChannelRuntime {
     public func appendSystemMessage(channelId: String, content: String) async {
         var state = channels[channelId, default: ChannelState()]
         state.messages.append(ChannelMessageEntry(userId: "system", content: content))
-        state.contextUtilization = estimateUtilization(state.messages)
+        applyPressureEstimate(to: &state)
         channels[channelId] = state
 
         await publish(channelId: channelId, messageType: .channelMessageReceived, payload: [
@@ -147,6 +174,7 @@ public actor ChannelRuntime {
             channelId: channelId,
             messages: state.messages,
             contextUtilization: state.contextUtilization,
+            contextPressureSource: state.contextPressureSource,
             activeWorkerIds: Array(state.activeWorkerIds),
             lastDecision: state.lastDecision
         )
@@ -159,6 +187,7 @@ public actor ChannelRuntime {
                 channelId: key,
                 messages: state.messages,
                 contextUtilization: state.contextUtilization,
+                contextPressureSource: state.contextPressureSource,
                 activeWorkerIds: Array(state.activeWorkerIds),
                 lastDecision: state.lastDecision
             )
@@ -188,7 +217,16 @@ public actor ChannelRuntime {
         }
         state.messages.append(message)
         state.messages.sort { $0.createdAt < $1.createdAt }
-        state.contextUtilization = estimateUtilization(state.messages)
+        applyPressureEstimate(to: &state)
+        channels[channelId] = state
+    }
+
+    /// Records provider-reported prompt usage for the latest channel request.
+    public func recordTokenUsage(channelId: String, usage: TokenUsage) {
+        guard usage.prompt > 0 else { return }
+        var state = channels[channelId, default: ChannelState()]
+        state.latestPromptUsage = usage
+        applyPressureEstimate(to: &state)
         channels[channelId] = state
     }
 
@@ -199,10 +237,13 @@ public actor ChannelRuntime {
         channels[channelId] = state
     }
 
-    private func estimateUtilization(_ messages: [ChannelMessageEntry]) -> Double {
-        let characters = messages.reduce(0) { $0 + $1.content.count }
-        let estimatedTokens = max(1, characters / 4)
-        return min(Double(estimatedTokens) / Double(contextWindowTokens), 1.0)
+    private func applyPressureEstimate(to state: inout ChannelState) {
+        let estimate = pressureEstimator.estimate(
+            messages: state.messages,
+            latestPromptUsage: state.latestPromptUsage
+        )
+        state.contextUtilization = estimate.utilization
+        state.contextPressureSource = estimate.source
     }
 
     private func decideRoute(for message: String, utilization: Double) -> ChannelRouteDecision {

@@ -19,7 +19,13 @@ func workflowDefinitionRoundTrips() throws {
             WorkflowNode(id: "approval", type: .humanApproval, title: "Approve", laneId: "owner", config: ["prompt": .string("Approve task?")], positionX: 360, positionY: 80)
         ],
         edges: [
-            WorkflowEdge(id: "edge_start_approval", sourceNodeId: "start", targetNodeId: "approval")
+            WorkflowEdge(
+                id: "edge_start_approval",
+                sourceNodeId: "start",
+                targetNodeId: "approval",
+                sourceSocket: "right",
+                targetSocket: "left"
+            )
         ],
         enabled: true,
         createdAt: now,
@@ -30,6 +36,8 @@ func workflowDefinitionRoundTrips() throws {
     let decoded = try JSONDecoder().decode(WorkflowDefinition.self, from: data)
 
     #expect(decoded == definition)
+    #expect(decoded.edges.first?.sourceSocket == "right")
+    #expect(decoded.edges.first?.targetSocket == "left")
 }
 
 @Test

@@ -48,15 +48,42 @@ public struct CompactionLevelConfiguration: Sendable, Equatable {
 public struct CompactorConfiguration: Sendable, Equatable {
     public var enabled: Bool
     public var contextWindowTokens: Int
+    public var summaryTargetRatio: Double
+    public var protectHeadMessages: Int
+    public var protectTailTokens: Int
+    public var protectTailMessages: Int
+    public var antiThrashMinSavingsPercent: Int
+    public var antiThrashMaxIneffectiveRuns: Int
+    public var abortOnSummaryFailure: Bool
+    public var maxContextInjectionPercent: Int
+    public var warnContextInjectionPercent: Int
     public var levels: [CompactionLevelConfiguration]
 
     public init(
         enabled: Bool = true,
         contextWindowTokens: Int = 32_000,
+        summaryTargetRatio: Double = 0.35,
+        protectHeadMessages: Int = 2,
+        protectTailTokens: Int = 2_000,
+        protectTailMessages: Int = 8,
+        antiThrashMinSavingsPercent: Int = 10,
+        antiThrashMaxIneffectiveRuns: Int = 2,
+        abortOnSummaryFailure: Bool = true,
+        maxContextInjectionPercent: Int = 20,
+        warnContextInjectionPercent: Int = 12,
         levels: [CompactionLevelConfiguration] = Self.defaultLevels
     ) {
         self.enabled = enabled
         self.contextWindowTokens = max(1, contextWindowTokens)
+        self.summaryTargetRatio = min(max(summaryTargetRatio, 0.05), 0.95)
+        self.protectHeadMessages = max(0, protectHeadMessages)
+        self.protectTailTokens = max(0, protectTailTokens)
+        self.protectTailMessages = max(0, protectTailMessages)
+        self.antiThrashMinSavingsPercent = min(max(antiThrashMinSavingsPercent, 0), 100)
+        self.antiThrashMaxIneffectiveRuns = max(1, antiThrashMaxIneffectiveRuns)
+        self.abortOnSummaryFailure = abortOnSummaryFailure
+        self.maxContextInjectionPercent = min(max(maxContextInjectionPercent, 1), 100)
+        self.warnContextInjectionPercent = min(max(warnContextInjectionPercent, 0), self.maxContextInjectionPercent)
         self.levels = levels.isEmpty ? Self.defaultLevels : levels
     }
 

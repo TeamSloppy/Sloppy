@@ -8,6 +8,9 @@ import { AgentPetIcon } from "../features/agents/components/AgentPetSprite";
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 const ACTIVE_WORKER_STATUSES = new Set(["queued", "running", "waitinginput", "waiting_input"]);
+const AGENT_USAGE_DAYS = 365;
+const AGENT_USAGE_TREND_WEEKS = 16;
+const AGENT_USAGE_MONTH_LABELS = 12;
 
 function formatRelativeTime(dateValue) {
   const date = new Date(dateValue);
@@ -40,6 +43,227 @@ function buildActivityData(sessions, agentId, days = 14) {
     }).length;
     return { dateStr: `${d.getMonth() + 1}/${d.getDate()}`, value: count };
   });
+}
+
+function startOfDay(dateValue) {
+  const date = new Date(dateValue);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
+function dayKey(dateValue) {
+  const date = startOfDay(dateValue);
+  if (!date) return "";
+  return date.toISOString().slice(0, 10);
+}
+
+function formatDurationCompact(totalMs) {
+  if (!Number.isFinite(totalMs) || totalMs <= 0) {
+    return "0m";
+  }
+  const totalMinutes = Math.round(totalMs / 60000);
+  if (totalMinutes < 60) {
+    return `${totalMinutes}m`;
+  }
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours < 24) {
+    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`;
+  }
+  const days = Math.floor(hours / 24);
+  const remainingHours = hours % 24;
+  return remainingHours > 0 ? `${days}d ${remainingHours}h` : `${days}d`;
+}
+
+function formatLargeNumber(value) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric)) return "0";
+  if (Math.abs(numeric) >= 1000000) {
+    return `${(numeric / 1000000).toFixed(numeric >= 10000000 ? 0 : 1)}M`;
+  }
+  if (Math.abs(numeric) >= 1000) {
+    return `${(numeric / 1000).toFixed(numeric >= 10000 ? 0 : 1)}K`;
+  }
+  return numeric.toLocaleString();
+}
+
+function computeStreaks(dayCounts) {
+  let current = 0;
+  let longest = 0;
+  let running = 0;
+
+  for (const day of dayCounts) {
+    if (day.value > 0) {
+      running += 1;
+      if (running > longest) {
+        longest = running;
+      }
+    } else {
+      running = 0;
+    }
+  }
+
+  for (let index = dayCounts.length - 1; index >= 0; index -= 1) {
+    if (dayCounts[index].value > 0) {
+      current += 1;
+    } else {
+      break;
+    }
+  }
+
+  return { current, longest };
+}
+
+function summarizeAgentUsage(sessions, selectedAgentId) {
+  const allSessions = Array.isArray(sessions) ? sessions : [];
+  const filteredSessions = selectedAgentId === "all"
+    ? allSessions
+    : allSessions.filter((session) => String(session?.agentId || "") === String(selectedAgentId));
+
+  const today = startOfDay(new Date());
+  const dailyWindowStart = new Date(today);
+  dailyWindowStart.setDate(today.getDate() - (AGENT_USAGE_DAYS - 1));
+
+  const byDay = new Map();
+  const weekData = Array.from({ length: AGENT_USAGE_TREND_WEEKS }, (_, index) => {
+    const start = new Date(today);
+    start.setDate(today.getDate() - ((AGENT_USAGE_TREND_WEEKS - 1 - index) * 7 + 6));
+    start.setHours(0, 0, 0, 0);
+    const end = new Date(start);
+    end.setDate(start.getDate() + 7);
+    return {
+      key: `week-${index}`,
+      start,
+      end,
+      label: `${start.toLocaleString(undefined, { month: "short" })} ${start.getDate()}`,
+      value: 0
+    };
+  });
+
+  let totalTurns = 0;
+  let totalMessages = 0;
+  let totalDurationMs = 0;
+  let longestDurationMs = 0;
+  let longestSession = null;
+  let mostRecentSessionAt = null;
+  const kindCounts = new Map();
+  const projectCounts = new Map();
+
+  for (const session of filteredSessions) {
+    const createdAt = new Date(session?.createdAt || "");
+    const updatedAt = new Date(session?.updatedAt || session?.createdAt || "");
+    if (Number.isNaN(createdAt.getTime())) {
+      continue;
+    }
+
+    const safeUpdatedAt = Number.isNaN(updatedAt.getTime()) ? createdAt : updatedAt;
+    const durationMs = Math.max(0, safeUpdatedAt.getTime() - createdAt.getTime());
+    totalDurationMs += durationMs;
+    totalTurns += Number(session?.userTurnCount || 0);
+    totalMessages += Number(session?.messageCount || 0);
+
+    if (durationMs > longestDurationMs) {
+      longestDurationMs = durationMs;
+      longestSession = session;
+    }
+    if (!mostRecentSessionAt || safeUpdatedAt.getTime() > mostRecentSessionAt.getTime()) {
+      mostRecentSessionAt = safeUpdatedAt;
+    }
+
+    const kind = String(session?.kind || "chat");
+    kindCounts.set(kind, (kindCounts.get(kind) || 0) + 1);
+
+    const projectId = String(session?.projectId || "").trim();
+    if (projectId) {
+      projectCounts.set(projectId, (projectCounts.get(projectId) || 0) + 1);
+    }
+
+    const key = dayKey(createdAt);
+    if (key) {
+      const current = byDay.get(key) || 0;
+      byDay.set(key, current + 1);
+    }
+
+    for (const week of weekData) {
+      if (createdAt >= week.start && createdAt < week.end) {
+        week.value += 1;
+        break;
+      }
+    }
+  }
+
+  const daily = [];
+  for (let offset = 0; offset < AGENT_USAGE_DAYS; offset += 1) {
+    const date = new Date(dailyWindowStart);
+    date.setDate(dailyWindowStart.getDate() + offset);
+    const key = dayKey(date);
+    daily.push({
+      key,
+      date,
+      value: byDay.get(key) || 0
+    });
+  }
+
+  const cumulative = [];
+  let runningTotal = 0;
+  for (const week of weekData) {
+    runningTotal += week.value;
+    cumulative.push({
+      ...week,
+      value: runningTotal
+    });
+  }
+
+  const streaks = computeStreaks(daily);
+  const maxDaily = Math.max(...daily.map((item) => item.value), 0);
+  const maxWeekly = Math.max(...weekData.map((item) => item.value), 0);
+  const maxCumulative = Math.max(...cumulative.map((item) => item.value), 0);
+  const activeDays = daily.filter((item) => item.value > 0).length;
+  const averagePerActiveDay = activeDays > 0 ? filteredSessions.length / activeDays : 0;
+  const monthStep = Math.floor(AGENT_USAGE_DAYS / AGENT_USAGE_MONTH_LABELS);
+  const monthLabels = daily
+    .filter((_, index) => index % monthStep === 0)
+    .slice(0, AGENT_USAGE_MONTH_LABELS)
+    .map((item) => item.date.toLocaleString(undefined, { month: "short" }));
+
+  let topKind = "chat";
+  let topKindCount = 0;
+  for (const [kind, count] of kindCounts.entries()) {
+    if (count > topKindCount) {
+      topKind = kind;
+      topKindCount = count;
+    }
+  }
+
+  return {
+    filteredSessions,
+    daily,
+    weekly: weekData,
+    cumulative,
+    monthLabels,
+    stats: {
+      totalSessions: filteredSessions.length,
+      totalTurns,
+      totalMessages,
+      totalDurationMs,
+      longestDurationMs,
+      activeDays,
+      currentStreak: streaks.current,
+      longestStreak: streaks.longest,
+      averagePerActiveDay,
+      topKind,
+      topKindCount,
+      projectCount: projectCounts.size,
+      mostRecentSessionAt,
+      longestSession
+    },
+    maxDaily,
+    maxWeekly,
+    maxCumulative
+  };
 }
 
 const CHANNEL_MESSAGES_LIMIT = 9;
@@ -451,6 +675,295 @@ function BotActivitySection({ agents, sessions, onNavigateToBots, onNavigateToAg
   );
 }
 
+function AgentUsageSection({ agents, sessions, onNavigateToAgent }) {
+  const [selectedAgentId, setSelectedAgentId] = useState("all");
+  const [agentFilterOpen, setAgentFilterOpen] = useState(false);
+  const [agentFilterQuery, setAgentFilterQuery] = useState("");
+  const [activityMode, setActivityMode] = useState("daily");
+
+  useEffect(() => {
+    if (selectedAgentId === "all") return;
+    if (!agents.some((agent) => String(agent?.id || "") === String(selectedAgentId))) {
+      setSelectedAgentId("all");
+    }
+  }, [agents, selectedAgentId]);
+
+  const selectedAgent = useMemo(() => {
+    if (selectedAgentId === "all") return null;
+    return agents.find((agent) => String(agent?.id || "") === String(selectedAgentId)) || null;
+  }, [agents, selectedAgentId]);
+
+  const agentOptions = useMemo(() => {
+    const normalizedQuery = agentFilterQuery.trim().toLowerCase();
+    const allOption = {
+      id: "all",
+      label: "All agents",
+      subtitle: `${agents.length} total`
+    };
+    const filtered = agents
+      .map((agent) => ({
+        id: String(agent?.id || ""),
+        label: String(agent?.displayName || agent?.id || "Agent"),
+        subtitle: String(agent?.id || "")
+      }))
+      .filter((agent) => {
+        if (!normalizedQuery) return true;
+        return agent.label.toLowerCase().includes(normalizedQuery) || agent.subtitle.toLowerCase().includes(normalizedQuery);
+      });
+    return [allOption, ...filtered];
+  }, [agentFilterQuery, agents]);
+
+  const usage = useMemo(() => summarizeAgentUsage(sessions, selectedAgentId), [selectedAgentId, sessions]);
+
+  const chartBars = activityMode === "daily"
+    ? usage.daily.map((item) => ({
+      key: item.key,
+      label: item.date.toLocaleDateString(undefined, { month: "short", day: "numeric" }),
+      value: item.value,
+      intensity: usage.maxDaily > 0 ? item.value / usage.maxDaily : 0
+    }))
+    : (activityMode === "weekly" ? usage.weekly : usage.cumulative).map((item) => ({
+      key: item.key,
+      label: item.label,
+      value: item.value,
+      intensity: (activityMode === "weekly" ? usage.maxWeekly : usage.maxCumulative) > 0
+        ? item.value / (activityMode === "weekly" ? usage.maxWeekly : usage.maxCumulative)
+        : 0
+    }));
+
+  const topStatCards = [
+    {
+      id: "sessions",
+      value: formatLargeNumber(usage.stats.totalSessions),
+      label: "Total runs"
+    },
+    {
+      id: "turns",
+      value: formatLargeNumber(usage.stats.totalTurns),
+      label: "User turns"
+    },
+    {
+      id: "time",
+      value: formatDurationCompact(usage.stats.totalDurationMs),
+      label: "Time in sessions"
+    },
+    {
+      id: "current",
+      value: `${usage.stats.currentStreak}d`,
+      label: "Current streak"
+    },
+    {
+      id: "longest",
+      value: `${usage.stats.longestStreak}d`,
+      label: "Longest streak"
+    }
+  ];
+
+  const selectedAgentLabel = selectedAgent?.displayName || selectedAgent?.id || "All agents";
+  const longestSessionTitle = usage.stats.longestSession?.title || usage.stats.longestSession?.id || "—";
+
+  return (
+    <section className="overview-section agent-usage-section">
+      <div className="overview-section-header agent-usage-header">
+        <h2>
+          <span className="material-symbols-rounded">schedule</span>
+          Agent Time
+          <span className="overview-section-period">Last 12 months</span>
+        </h2>
+        <div className="agent-usage-toolbar">
+          <div className="actor-team-search-wrap agent-usage-filter">
+            <input
+              className="actor-team-search"
+              value={agentFilterOpen ? agentFilterQuery : selectedAgentLabel}
+              onChange={(event) => {
+                setAgentFilterQuery(event.target.value);
+                setAgentFilterOpen(true);
+              }}
+              onFocus={() => {
+                setAgentFilterOpen(true);
+                setAgentFilterQuery("");
+              }}
+              onBlur={() => {
+                window.setTimeout(() => {
+                  setAgentFilterOpen(false);
+                  setAgentFilterQuery("");
+                }, 100);
+              }}
+              placeholder="Filter agent"
+            />
+            {agentFilterOpen ? (
+              <ul className="actor-team-dropdown">
+                {agentOptions.length === 0 ? (
+                  <li className="actor-team-dropdown-empty">No agents</li>
+                ) : agentOptions.map((agent) => (
+                  <li
+                    key={agent.id}
+                    className={`actor-team-dropdown-item ${selectedAgentId === agent.id ? "selected" : ""}`}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      setSelectedAgentId(agent.id);
+                      setAgentFilterQuery("");
+                      setAgentFilterOpen(false);
+                    }}
+                  >
+                    <span className="actor-team-dropdown-name">{agent.label}</span>
+                    <span className="actor-team-dropdown-id">{agent.subtitle}</span>
+                    {selectedAgentId === agent.id ? <span className="actor-team-dropdown-check">✓</span> : null}
+                  </li>
+                ))}
+              </ul>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      <div className="agent-usage-hero">
+        <div className="agent-usage-identity">
+          <span className="agent-usage-avatar">
+            {selectedAgent?.pet?.parts
+              ? <AgentPetIcon pet={selectedAgent.pet} parts={selectedAgent.pet.parts} genomeHex={selectedAgent.pet.genomeHex} />
+              : selectedAgent
+                ? agentInitials(selectedAgent.displayName || selectedAgent.id)
+                : "AI"}
+          </span>
+          <div className="agent-usage-copy">
+            <h3>{selectedAgent ? selectedAgentLabel : "All agents"}</h3>
+            <p>
+              {selectedAgent
+                ? `Tracking hands-on time, streaks, and session cadence for ${selectedAgentLabel}.`
+                : "Tracking aggregate session time, streaks, and activity cadence across the whole agent fleet."}
+            </p>
+          </div>
+          {selectedAgent ? (
+            <button type="button" className="overview-show-all-btn agent-usage-link" onClick={() => onNavigateToAgent?.(selectedAgent.id)}>
+              Open agent
+              <span className="material-symbols-rounded">arrow_forward</span>
+            </button>
+          ) : null}
+        </div>
+
+        <div className="agent-usage-stats">
+          {topStatCards.map((stat) => (
+            <div key={stat.id} className="agent-usage-stat-card">
+              <strong>{stat.value}</strong>
+              <span>{stat.label}</span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {usage.stats.totalSessions === 0 ? (
+        <div className="overview-empty-state">
+          <span className="material-symbols-rounded overview-empty-icon">schedule</span>
+          <p>No session history for this filter yet.</p>
+        </div>
+      ) : (
+        <>
+          <div className="agent-usage-chart-shell">
+            <div className="agent-usage-chart-head">
+              <h3>Activity</h3>
+              <div className="agent-usage-mode-toggle" role="tablist" aria-label="Activity mode">
+                {[
+                  { id: "daily", label: "Daily" },
+                  { id: "weekly", label: "Weekly" },
+                  { id: "cumulative", label: "Cumulative" }
+                ].map((mode) => (
+                  <button
+                    key={mode.id}
+                    type="button"
+                    className={activityMode === mode.id ? "active" : ""}
+                    onClick={() => setActivityMode(mode.id)}
+                  >
+                    {mode.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+
+            {activityMode === "daily" ? (
+              <>
+                <div className="agent-usage-heatmap" aria-label="Daily activity heatmap">
+                  {chartBars.map((item) => (
+                    <span
+                      key={item.key}
+                      className="agent-usage-day"
+                      title={`${item.label}: ${item.value} run${item.value === 1 ? "" : "s"}`}
+                      style={{
+                        opacity: item.value > 0 ? 0.22 + item.intensity * 0.78 : 0.12
+                      }}
+                    />
+                  ))}
+                </div>
+                <div className="agent-usage-months">
+                  {usage.monthLabels.map((label, index) => (
+                    <span key={`${label}-${index}`}>{label}</span>
+                  ))}
+                </div>
+              </>
+            ) : (
+              <div className="agent-usage-trend">
+                {chartBars.map((item) => (
+                  <div key={item.key} className="agent-usage-trend-bar-wrap">
+                    <div
+                      className="agent-usage-trend-bar"
+                      title={`${item.label}: ${item.value} run${item.value === 1 ? "" : "s"}`}
+                      style={{ height: `${item.value > 0 ? Math.max(10, Math.round(item.intensity * 100)) : 0}%` }}
+                    />
+                    <span>{item.label}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="agent-usage-insights-grid">
+            <section className="agent-usage-insights-card">
+              <h3>Work summary</h3>
+              <dl className="agent-usage-definition-list">
+                <div>
+                  <dt>Messages processed</dt>
+                  <dd>{formatLargeNumber(usage.stats.totalMessages)}</dd>
+                </div>
+                <div>
+                  <dt>Active days</dt>
+                  <dd>{usage.stats.activeDays}</dd>
+                </div>
+                <div>
+                  <dt>Avg runs per active day</dt>
+                  <dd>{usage.stats.averagePerActiveDay.toFixed(1)}</dd>
+                </div>
+                <div>
+                  <dt>Projects touched</dt>
+                  <dd>{usage.stats.projectCount}</dd>
+                </div>
+                <div>
+                  <dt>Top session kind</dt>
+                  <dd>{usage.stats.topKind} · {usage.stats.topKindCount}</dd>
+                </div>
+                <div>
+                  <dt>Last activity</dt>
+                  <dd>{usage.stats.mostRecentSessionAt ? formatRelativeTime(usage.stats.mostRecentSessionAt) : "—"}</dd>
+                </div>
+              </dl>
+            </section>
+
+            <section className="agent-usage-insights-card">
+              <h3>Longest run</h3>
+              <div className="agent-usage-run-highlight">
+                <strong>{formatDurationCompact(usage.stats.longestDurationMs)}</strong>
+                <p>{longestSessionTitle}</p>
+                {usage.stats.longestSession?.updatedAt ? (
+                  <span>{formatRelativeTime(usage.stats.longestSession.updatedAt)}</span>
+                ) : null}
+              </div>
+            </section>
+          </div>
+        </>
+      )}
+    </section>
+  );
+}
+
 // ─── Section 4 — Closed Tasks ─────────────────────────────────────────────────
 
 function ClosedTasksSection({ projects }) {
@@ -587,6 +1100,8 @@ export function RuntimeOverviewView({ workers, events, onNavigateToProject, onNa
           />
 
           <CountersSection agents={agents} workers={normalizedWorkers} />
+
+          <AgentUsageSection agents={agents} sessions={sessions} onNavigateToAgent={onNavigateToAgent} />
 
           <BotActivitySection agents={agents} sessions={sessions} onNavigateToBots={onNavigateToBots} onNavigateToAgent={onNavigateToAgent} />
 

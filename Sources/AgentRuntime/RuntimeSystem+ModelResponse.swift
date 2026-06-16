@@ -453,20 +453,24 @@ extension RuntimeSystem {
                 return
             }
 
-            if let observationHandler {
-                let reasoningText = modelProvider.reasoningCapture(for: activeModel)?.consume() ?? ""
-                if !reasoningText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            let reasoningText = modelProvider.reasoningCapture(for: activeModel)?.consume() ?? ""
+            if !reasoningText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                if let observationHandler {
                     await observationHandler(.thinking(reasoningText))
                 }
+            }
 
-                if let captured = modelProvider.tokenUsageCapture(for: activeModel)?.consume() {
-                    await observationHandler(.usage(TokenUsage(
-                        prompt: captured.prompt,
-                        completion: captured.completion,
-                        cachedInputTokens: captured.cachedInputTokens,
-                        cacheCreationInputTokens: captured.cacheCreationInputTokens,
-                        reasoningTokens: captured.reasoningTokens
-                    )))
+            if let captured = modelProvider.tokenUsageCapture(for: activeModel)?.consume() {
+                let tokenUsage = TokenUsage(
+                    prompt: captured.prompt,
+                    completion: captured.completion,
+                    cachedInputTokens: captured.cachedInputTokens,
+                    cacheCreationInputTokens: captured.cacheCreationInputTokens,
+                    reasoningTokens: captured.reasoningTokens
+                )
+                await channels.recordTokenUsage(channelId: channelId, usage: tokenUsage)
+                if let observationHandler {
+                    await observationHandler(.usage(tokenUsage))
                 }
             }
 

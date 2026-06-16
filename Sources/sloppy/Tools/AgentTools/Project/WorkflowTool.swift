@@ -10,18 +10,42 @@ struct WorkflowTool: CoreTool {
     let description = "Create, start, link, and inspect project-scoped visual workflows. Use only when the built-in workflow skill is active."
 
     var parameters: GenerationSchema {
-        .objectSchema([
-            .init(name: "operation", description: "Operation: propose, start, link_agent_step, status.", schema: DynamicGenerationSchema(type: String.self)),
+        let laneSchema = DynamicGenerationSchema(name: "WorkflowLaneInput", properties: [
+            .init(name: "id", description: "Stable lane identifier.", schema: DynamicGenerationSchema(type: String.self)),
+            .init(name: "title", description: "Human-readable lane title.", schema: DynamicGenerationSchema(type: String.self)),
+            .init(name: "kind", description: "Lane kind: system, human, agent, or team.", schema: DynamicGenerationSchema(type: String.self)),
+            .init(name: "actorId", description: "Optional actor ID for this lane.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "teamId", description: "Optional team ID for this lane.", schema: DynamicGenerationSchema(type: String.self), isOptional: true)
+        ])
+        let nodeSchema = DynamicGenerationSchema(name: "WorkflowNodeInput", properties: [
+            .init(name: "id", description: "Stable node identifier.", schema: DynamicGenerationSchema(type: String.self)),
+            .init(name: "type", description: "Node type: trigger, project_task, agent_step, human_approval, human_input, tool_check, condition, update_task, notify, or end.", schema: DynamicGenerationSchema(type: String.self)),
+            .init(name: "title", description: "Human-readable node title.", schema: DynamicGenerationSchema(type: String.self)),
+            .init(name: "laneId", description: "Lane ID containing this node.", schema: DynamicGenerationSchema(type: String.self)),
+            .init(name: "config", description: "Typed node configuration object.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "positionX", description: "Canvas X coordinate.", schema: DynamicGenerationSchema(type: Double.self), isOptional: true),
+            .init(name: "positionY", description: "Canvas Y coordinate.", schema: DynamicGenerationSchema(type: Double.self), isOptional: true)
+        ])
+        let edgeSchema = DynamicGenerationSchema(name: "WorkflowEdgeInput", properties: [
+            .init(name: "id", description: "Stable edge identifier.", schema: DynamicGenerationSchema(type: String.self)),
+            .init(name: "sourceNodeId", description: "Source node ID.", schema: DynamicGenerationSchema(type: String.self)),
+            .init(name: "targetNodeId", description: "Target node ID.", schema: DynamicGenerationSchema(type: String.self)),
+            .init(name: "conditionKey", description: "Optional branch label matched against step output.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "sourceSocket", description: "Optional source socket: top, right, bottom, or left.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "targetSocket", description: "Optional target socket: top, right, bottom, or left.", schema: DynamicGenerationSchema(type: String.self), isOptional: true)
+        ])
+        return .objectSchema([
+            .init(name: "operation", description: "Operation: propose, start, link_agent_step, status, or list.", schema: DynamicGenerationSchema(type: String.self)),
             .init(name: "projectId", description: "Project ID.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "taskId", description: "Optional project task ID.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "workflowId", description: "Workflow definition ID for update/start/status/link operations.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "runId", description: "Workflow run ID for status operations.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "nodeId", description: "Workflow node ID for link_agent_step.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
-            .init(name: "name", description: "Workflow name for propose.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "name", description: "Workflow name for propose/start/status lookup.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "rationale", description: "Short rationale for the visual workflow plan.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
-            .init(name: "lanes", description: "Workflow lanes.", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)), isOptional: true),
-            .init(name: "nodes", description: "Workflow nodes.", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)), isOptional: true),
-            .init(name: "edges", description: "Workflow edges.", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)), isOptional: true),
+            .init(name: "lanes", description: "Workflow lanes.", schema: DynamicGenerationSchema(arrayOf: laneSchema), isOptional: true),
+            .init(name: "nodes", description: "Workflow nodes.", schema: DynamicGenerationSchema(arrayOf: nodeSchema), isOptional: true),
+            .init(name: "edges", description: "Workflow edges.", schema: DynamicGenerationSchema(arrayOf: edgeSchema), isOptional: true),
             .init(name: "startedBy", description: "Actor starting the workflow run.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "agentId", description: "Agent ID to link to an agent_step node.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "sessionId", description: "Agent session ID to link to an agent_step node.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
@@ -48,7 +72,7 @@ struct WorkflowTool: CoreTool {
             return await start(arguments: arguments, projectID: projectID, service: svc, context: context)
         case "link_agent_step":
             return await linkAgentStep(arguments: arguments, projectID: projectID, service: svc)
-        case "status":
+        case "status", "list":
             return await status(arguments: arguments, projectID: projectID, service: svc)
         default:
             return toolFailure(tool: name, code: "invalid_operation", message: "Unsupported workflow operation.", retryable: false)
@@ -100,12 +124,18 @@ struct WorkflowTool: CoreTool {
         service: any ProjectToolService,
         context: ToolContext
     ) async -> ToolInvocationResult {
-        guard let workflowID = trimmedStringArgument(arguments, "workflowId") else {
-            return toolFailure(tool: name, code: "invalid_arguments", message: "`workflowId` is required.", retryable: false)
-        }
         let startedBy = trimmedStringArgument(arguments, "startedBy") ?? "agent:\(context.agentID)"
-        let input = arguments["input"]?.asObject ?? [:]
+        var input = arguments["input"]?.asObject ?? [:]
+        if input["sessionId"] == nil {
+            input["sessionId"] = .string(context.sessionID)
+        }
         do {
+            guard let workflowID = try await resolveWorkflowID(arguments: arguments, projectID: projectID, service: service) else {
+                if trimmedStringArgument(arguments, "name") != nil {
+                    return toolFailure(tool: name, code: "workflow_not_found", message: "Workflow with this name was not found.", retryable: false)
+                }
+                return toolFailure(tool: name, code: "invalid_arguments", message: "`workflowId` or `name` is required.", retryable: false)
+            }
             let detail = try await service.startWorkflowRun(
                 projectID: projectID,
                 workflowID: workflowID,
@@ -185,7 +215,7 @@ struct WorkflowTool: CoreTool {
                 let detail = try await service.getWorkflowRunDetail(projectID: projectID, runID: runID)
                 return toolSuccess(tool: name, data: responseJSON(projectID: projectID, workflowID: detail.run.workflowId, runID: detail.run.id, issues: []))
             }
-            if let workflowID = trimmedStringArgument(arguments, "workflowId") {
+            if let workflowID = try await resolveWorkflowID(arguments: arguments, projectID: projectID, service: service) {
                 _ = try await service.getWorkflowDefinition(projectID: projectID, workflowID: workflowID)
                 return toolSuccess(tool: name, data: responseJSON(projectID: projectID, workflowID: workflowID, runID: nil, issues: []))
             }
@@ -249,7 +279,7 @@ struct WorkflowTool: CoreTool {
                 type: type,
                 title: title,
                 laneId: laneID,
-                config: object["config"]?.asObject ?? [:],
+                config: try workflowConfig(from: object["config"]),
                 positionX: object["positionX"]?.asNumber ?? 0,
                 positionY: object["positionY"]?.asNumber ?? 0
             )
@@ -268,7 +298,9 @@ struct WorkflowTool: CoreTool {
                 id: id,
                 sourceNodeId: sourceNodeID,
                 targetNodeId: targetNodeID,
-                conditionKey: object["conditionKey"]?.asString
+                conditionKey: object["conditionKey"]?.asString,
+                sourceSocket: object["sourceSocket"]?.asString,
+                targetSocket: object["targetSocket"]?.asString
             )
         }
     }
@@ -281,6 +313,42 @@ struct WorkflowTool: CoreTool {
             }
             return object
         }
+    }
+
+    private func workflowConfig(from value: JSONValue?) throws -> [String: JSONValue] {
+        guard let value else { return [:] }
+        if let object = value.asObject {
+            return object
+        }
+        guard let string = value.asString else {
+            throw WorkflowToolParseError.invalidPayload
+        }
+        let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return [:] }
+        guard let data = trimmed.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode(JSONValue.self, from: data),
+              let object = decoded.asObject
+        else {
+            throw WorkflowToolParseError.invalidPayload
+        }
+        return object
+    }
+
+    private func resolveWorkflowID(
+        arguments: [String: JSONValue],
+        projectID: String,
+        service: any ProjectToolService
+    ) async throws -> String? {
+        if let workflowID = trimmedStringArgument(arguments, "workflowId") {
+            return workflowID
+        }
+        guard let workflowName = trimmedStringArgument(arguments, "name") else {
+            return nil
+        }
+        let definitions = try await service.listWorkflowDefinitions(projectID: projectID)
+        return definitions.first { definition in
+            definition.id == workflowName || definition.name.caseInsensitiveCompare(workflowName) == .orderedSame
+        }?.id
     }
 
     private func responseJSON(projectID: String, workflowID: String, runID: String?, issues: [WorkflowValidationIssue]) -> JSONValue {

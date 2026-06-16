@@ -117,6 +117,53 @@ func compactorConfigurationClampsUnsafeValues() {
 }
 
 @Test
+func tokenPressureEstimatorCountsAttachmentsAsBoundedPlaceholders() {
+    let estimator = TokenPressureEstimator(contextWindowTokens: 2_000)
+    let request = ChannelMessageRequest(
+        userId: "u1",
+        content: "hello",
+        attachments: [
+            ChannelAttachment(
+                id: "img-1",
+                type: .image,
+                mimeType: "image/png",
+                filename: "screenshot.png",
+                sizeBytes: 6_000_000,
+                platformMetadata: ["base64": String(repeating: "a", count: 10_000)]
+            )
+        ]
+    )
+
+    let estimate = estimator.estimate(request: request)
+
+    #expect(estimate.source == .roughRequest)
+    #expect(estimate.tokens > 768)
+    #expect(estimate.tokens < 4_000)
+}
+
+@Test
+func channelPressureUsesProviderPromptUsageWhenAvailable() async {
+    let channel = ChannelRuntime(eventBus: EventBus(), contextWindowTokens: 1_000)
+
+    _ = await channel.ingest(
+        channelId: "c1",
+        request: ChannelMessageRequest(userId: "u1", content: String(repeating: "x", count: 40))
+    )
+    let rough = await channel.snapshot(channelId: "c1")
+    #expect(rough?.contextPressureSource == .roughMessages)
+    #expect((rough?.contextUtilization ?? 0) < 0.20)
+
+    await channel.recordTokenUsage(
+        channelId: "c1",
+        usage: TokenUsage(prompt: 800, completion: 2, reasoningTokens: 5)
+    )
+    let real = await channel.snapshot(channelId: "c1")
+
+    #expect(real?.contextPressureSource == .realUsage)
+    #expect(real?.contextUtilization == 0.8)
+}
+
+@Test
 func compactorDeduplicatesInFlightJobsByChannelAndLevel() async {
     let bus = EventBus()
     let workers = WorkerRuntime(eventBus: bus)

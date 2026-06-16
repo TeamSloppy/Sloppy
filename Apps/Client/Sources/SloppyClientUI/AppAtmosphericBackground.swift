@@ -73,13 +73,19 @@ private struct AppAtmosphericBackgroundMaterial: UIShaderMaterial {
         self.time = time
         self.accentColor = accentColor
     }
+
+    static func vertexShader() throws -> AssetHandle<ShaderSource> {
+        try UIShaderMaterialVertexSource.makeShader(entryPoint: "app_atmospheric_background_vertex")
+    }
     
     static func fragmentShader() throws -> AssetHandle<ShaderSource> {
         let source = """
             #version 450 core
             #pragma stage : frag
             
-            #include <AdaEngine/UIShaderMaterial.frag>
+            layout (location = 0) in vec4 Input_Color;
+            layout (location = 1) in vec2 Input_UV;
+            layout (location = 0) out vec4 COLOR;
             
             layout (binding = 0) uniform AppAtmosphericBackgroundMaterial {
                 float u_Time;
@@ -124,7 +130,7 @@ private struct AppAtmosphericBackgroundMaterial: UIShaderMaterial {
             [[main]]
             void app_atmospheric_background_fragment()
             {
-                vec2 uv = Input.UV;
+                vec2 uv = Input_UV;
                 float bottom = 1.0 - uv.y;
             
                 // Limit the effect to the lower part of the screen, with a soft fade up.
@@ -155,7 +161,7 @@ private struct AppAtmosphericBackgroundMaterial: UIShaderMaterial {
             
                 // Slightly lift the color in highlights while keeping it based on accentColor.
                 vec3 highlight = mix(u_AccentColor.rgb, vec3(0.78, 0.93, 1.0), 0.22 * shimmer);
-                COLOR = vec4(highlight, alpha * u_AccentColor.a);
+                COLOR = vec4(highlight * Input_Color.rgb, alpha * u_AccentColor.a * Input_Color.a);
             }
             """
         
@@ -174,13 +180,19 @@ private struct AppBottomWaveMaterial: UIShaderMaterial {
         self.time = time
         self.accentColor = accentColor
     }
+
+    static func vertexShader() throws -> AssetHandle<ShaderSource> {
+        try UIShaderMaterialVertexSource.makeShader(entryPoint: "app_bottom_wave_vertex")
+    }
     
     static func fragmentShader() throws -> AssetHandle<ShaderSource> {
         let source = """
             #version 450 core
             #pragma stage : frag
             
-            #include <AdaEngine/UIShaderMaterial.frag>
+            layout (location = 0) in vec4 Input_Color;
+            layout (location = 1) in vec2 Input_UV;
+            layout (location = 0) out vec4 COLOR;
             
             layout (binding = 0) uniform AppBottomWaveMaterial {
                 float u_Time;
@@ -190,7 +202,7 @@ private struct AppBottomWaveMaterial: UIShaderMaterial {
             [[main]]
             void app_bottom_wave_fragment()
             {
-                vec2 uv = Input.UV;
+                vec2 uv = Input_UV;
                 float t = u_Time;
             
                 // The view itself is only ~190pt tall and anchored to the bottom.
@@ -218,10 +230,38 @@ private struct AppBottomWaveMaterial: UIShaderMaterial {
                 alpha = clamp(alpha, 0.0, 0.66);
             
                 vec3 waveColor = mix(u_AccentColor.rgb, vec3(0.72, 0.92, 1.0), 0.34 + edge * 0.22);
-                COLOR = vec4(waveColor, alpha * u_AccentColor.a);
+                COLOR = vec4(waveColor * Input_Color.rgb, alpha * u_AccentColor.a * Input_Color.a);
             }
             """
         
+        return AssetHandle(try ShaderSource(source: source))
+    }
+}
+
+private enum UIShaderMaterialVertexSource {
+    static func makeShader(entryPoint: String) throws -> AssetHandle<ShaderSource> {
+        let source = """
+            #version 450 core
+            #pragma stage : vert
+            
+            #include <AdaEngine/View.glsl>
+            
+            layout (location = 0) in vec4 a_Position;
+            layout (location = 1) in vec4 a_Color;
+            layout (location = 2) in vec2 a_TexCoordinate;
+            
+            layout (location = 0) out vec4 Output_Color;
+            layout (location = 1) out vec2 Output_UV;
+            
+            [[main]]
+            void \(entryPoint)()
+            {
+                Output_Color = a_Color;
+                Output_UV = a_TexCoordinate;
+                gl_Position = u_ViewProjection * a_Position;
+            }
+            """
+
         return AssetHandle(try ShaderSource(source: source))
     }
 }

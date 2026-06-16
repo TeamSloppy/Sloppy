@@ -210,6 +210,8 @@ enum BuiltInSkillCatalog {
             - create a draft workflow proposal before substantial work
             - model work as lanes, nodes, and edges
             - use `project.workflow` for workflow state; do not write workflow files directly
+            - list saved workflows with `project.workflow` operation `list` or `status`
+            - start saved workflows by `workflowId` or exact `name`; pass `taskId` and input when useful
             - link `agent_step` nodes to agent/session/delegated-task IDs through typed metadata
             - update workflow state from runtime events and tool results, not model-output text
             - after creating or completing a workflow, provide the Dashboard workflow URL

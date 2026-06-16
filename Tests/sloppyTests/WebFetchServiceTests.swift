@@ -27,4 +27,20 @@ struct WebFetchServiceTests {
     func blocksIPv6Loopback() {
         #expect(WebFetchService.policyBlocksHost(host: "[::1]", blockPrivateNetworks: true))
     }
+
+    @Test("allows expected HTTP methods")
+    func allowsExpectedMethods() {
+        #expect(WebFetchService.allowedMethods.contains("GET"))
+        #expect(WebFetchService.allowedMethods.contains("POST"))
+        #expect(!WebFetchService.allowedMethods.contains("CONNECT"))
+    }
+
+    @Test("blocks unsafe request headers")
+    func blocksUnsafeHeaders() {
+        #expect(WebFetchService.isAllowedHeaderName("Authorization"))
+        #expect(!WebFetchService.isAllowedHeaderName("Host"))
+        #expect(!WebFetchService.isAllowedHeaderName("Content-Length"))
+        #expect(!WebFetchService.isAllowedHeaderName("Proxy-Authorization"))
+        #expect(!WebFetchService.isAllowedHeaderName("Sec-Fetch-Site"))
+    }
 }

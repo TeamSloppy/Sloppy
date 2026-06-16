@@ -111,6 +111,9 @@ extension CoreService {
                     taskID: taskId,
                     request: ProjectTaskUpdateRequest(status: status, changedBy: "user")
                 )
+            },
+            executeTool: { [weak self] node, context, input in
+                await self?.executeWorkflowToolNode(node: node, context: context, input: input)
             }
         )
         guard let run = (await store.listWorkflowRuns(projectId: projectID)).first(where: { $0.workflowId == workflowID }) else {
@@ -167,6 +170,9 @@ extension CoreService {
                     taskID: taskId,
                     request: ProjectTaskUpdateRequest(status: status, changedBy: "user")
                 )
+            },
+            executeTool: { [weak self] node, context, input in
+                await self?.executeWorkflowToolNode(node: node, context: context, input: input)
             }
         )
         guard let updatedRun = await store.getWorkflowRun(id: run.id) else {
@@ -181,5 +187,178 @@ extension CoreService {
             steps: await store.listWorkflowRunSteps(runId: run.id),
             pendingActions: await store.listWorkflowPendingActions(runId: run.id)
         )
+    }
+
+    private func executeWorkflowToolNode(
+        node: WorkflowNode,
+        context: WorkflowRunner.Context,
+        input: [String: JSONValue]
+    ) async -> ToolInvocationResult? {
+        guard let request = workflowToolInvocationRequest(node: node, context: context, input: input) else {
+            return nil
+        }
+        if let workflowError = stringValue(request.arguments["__workflow_error"]) {
+            return ToolInvocationResult(
+                tool: request.tool,
+                ok: false,
+                error: ToolErrorPayload(code: "workflow_block_invalid", message: workflowError, retryable: false)
+            )
+        }
+        guard let agentID = workflowAgentID(startedBy: context.startedBy),
+              let sessionID = workflowSessionID(node: node, context: context)
+        else {
+            return ToolInvocationResult(
+                tool: request.tool,
+                ok: false,
+                error: ToolErrorPayload(
+                    code: "workflow_tool_context_missing",
+                    message: "Workflow executable block requires an agent run with sessionId.",
+                    retryable: false
+                )
+            )
+        }
+        return await invokeToolFromRuntime(
+            agentID: agentID,
+            sessionID: sessionID,
+            request: request,
+            recordSessionEvents: true,
+            requireApproval: false,
+            chatMode: nil
+        )
+    }
+
+    private func workflowToolInvocationRequest(
+        node: WorkflowNode,
+        context: WorkflowRunner.Context,
+        input: [String: JSONValue]
+    ) -> ToolInvocationRequest? {
+        let blockKind = stringValue(node.config["blockKind"]) ?? stringValue(node.config["block_kind"]) ?? node.type.rawValue
+        switch blockKind {
+        case "bash":
+            guard let command = stringValue(node.config["command"]) else {
+                return workflowInvalidToolRequest(tool: "runtime.exec", message: "`command` is required for bash workflow block.")
+            }
+            return ToolInvocationRequest(
+                tool: "runtime.exec",
+                arguments: [
+                    "command": .string("bash"),
+                    "arguments": .array([.string("-lc"), .string(command)]),
+                    "cwd": node.config["cwd"] ?? input["cwd"] ?? .null
+                ],
+                reason: "Workflow node \(node.id): \(node.title)"
+            )
+
+        case "code":
+            let language = (stringValue(node.config["language"]) ?? "javascript").lowercased()
+            let source = stringValue(node.config["source"])
+            let filePath = stringValue(node.config["filePath"])
+            let command: String
+            let arguments: [JSONValue]
+            if let filePath {
+                command = language == "python" ? "python3" : "node"
+                arguments = [.string(filePath)]
+            } else if let source {
+                command = language == "python" ? "python3" : "node"
+                arguments = [.string(language == "python" ? "-c" : "-e"), .string(source)]
+            } else {
+                return workflowInvalidToolRequest(tool: "runtime.exec", message: "`source` or `filePath` is required for code workflow block.")
+            }
+            return ToolInvocationRequest(
+                tool: "runtime.exec",
+                arguments: [
+                    "command": .string(command),
+                    "arguments": .array(arguments),
+                    "cwd": node.config["cwd"] ?? input["cwd"] ?? .null
+                ],
+                reason: "Workflow node \(node.id): \(node.title)"
+            )
+
+        case "web_request":
+            guard let url = stringValue(node.config["url"]) else {
+                return workflowInvalidToolRequest(tool: "web.request", message: "`url` is required for web request workflow block.")
+            }
+            return ToolInvocationRequest(
+                tool: "web.request",
+                arguments: [
+                    "url": .string(url),
+                    "method": .string((stringValue(node.config["method"]) ?? "GET").uppercased()),
+                    "headers": node.config["headers"] ?? .object([:]),
+                    "body": node.config["body"] ?? .null
+                ],
+                reason: "Workflow node \(node.id): \(node.title)"
+            )
+
+        case "tool":
+            guard let toolName = stringValue(node.config["toolName"]) else {
+                return workflowInvalidToolRequest(tool: "project.workflow", message: "`toolName` is required for tool workflow block.")
+            }
+            return ToolInvocationRequest(
+                tool: toolName,
+                arguments: workflowArguments(from: node.config["arguments"]),
+                reason: "Workflow node \(node.id): \(node.title)"
+            )
+
+        case "sub_workflow":
+            guard let workflowID = stringValue(node.config["workflowId"]) else {
+                return workflowInvalidToolRequest(tool: "project.workflow", message: "`workflowId` is required for sub-workflow block.")
+            }
+            return ToolInvocationRequest(
+                tool: "project.workflow",
+                arguments: [
+                    "operation": .string("start"),
+                    "projectId": .string(context.projectId),
+                    "workflowId": .string(workflowID),
+                    "taskId": context.taskId.map(JSONValue.string) ?? .null
+                ],
+                reason: "Workflow node \(node.id): \(node.title)"
+            )
+
+        default:
+            return nil
+        }
+    }
+
+    private func workflowInvalidToolRequest(tool: String, message: String) -> ToolInvocationRequest {
+        ToolInvocationRequest(
+            tool: tool,
+            arguments: ["__workflow_error": .string(message)],
+            reason: message
+        )
+    }
+
+    private func workflowAgentID(startedBy: String) -> String? {
+        let trimmed = startedBy.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.hasPrefix("agent:") else {
+            return nil
+        }
+        let id = String(trimmed.dropFirst("agent:".count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return id.isEmpty ? nil : id
+    }
+
+    private func workflowSessionID(node: WorkflowNode, context: WorkflowRunner.Context) -> String? {
+        let sessionID = stringValue(node.config["sessionId"]) ?? stringValue(context.input["sessionId"])
+        return sessionID
+    }
+
+    private func workflowArguments(from value: JSONValue?) -> [String: JSONValue] {
+        if let object = value?.asObject {
+            return object
+        }
+        guard let raw = stringValue(value),
+              let data = raw.data(using: .utf8),
+              let decoded = try? JSONDecoder().decode(JSONValue.self, from: data),
+              let object = decoded.asObject
+        else {
+            return [:]
+        }
+        return object
+    }
+
+    private func stringValue(_ value: JSONValue?) -> String? {
+        guard case .string(let raw)? = value else {
+            return nil
+        }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? nil : trimmed
     }
 }

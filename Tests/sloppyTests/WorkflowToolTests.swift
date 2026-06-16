@@ -10,6 +10,7 @@ func workflowToolIsRegisteredInDefaultRegistry() {
     let registry = ToolRegistry.makeDefault()
 
     #expect(registry.knownToolIDs.contains("project.workflow"))
+    #expect(registry.knownToolIDs.contains("web.request"))
 }
 
 @Test
@@ -33,6 +34,9 @@ func workflowToolProposesWorkflowAndReturnsDashboardUrl() async throws {
     let definitions = try await fixture.service.listWorkflowDefinitions(projectID: fixture.projectID)
     #expect(definitions.map(\.id) == [workflowID])
     #expect(definitions.first?.nodes.contains { $0.type == .agentStep } == true)
+    #expect(definitions.first?.nodes.first { $0.id == "implement" }?.config["agentId"]?.asString == "test-agent")
+    #expect(definitions.first?.edges.first?.sourceSocket == "right")
+    #expect(definitions.first?.edges.first?.targetSocket == "left")
 }
 
 @Test
@@ -94,6 +98,44 @@ func workflowToolStartsAndReportsWorkflowRunUrl() async throws {
 
     #expect(status.ok == true)
     #expect(status.data?.asObject?["runUrl"]?.asString == "/projects/\(fixture.projectID)/workflow-runs/\(runID)")
+}
+
+@Test
+func workflowToolListsAndStartsWorkflowByName() async throws {
+    let fixture = try await makeWorkflowToolFixture()
+    let tool = WorkflowTool()
+    let proposed = await tool.invoke(
+        arguments: starterWorkflowArguments(projectID: fixture.projectID, taskID: fixture.taskID),
+        context: fixture.context
+    )
+    let workflowID = try #require(proposed.data?.asObject?["workflowId"]?.asString)
+
+    let listed = await tool.invoke(
+        arguments: [
+            "operation": .string("list"),
+            "projectId": .string(fixture.projectID)
+        ],
+        context: fixture.context
+    )
+
+    #expect(listed.ok == true)
+    let workflows = try #require(listed.data?.asObject?["workflows"]?.asArray)
+    #expect(workflows.first?.asObject?["workflowId"]?.asString == workflowID)
+    #expect(workflows.first?.asObject?["name"]?.asString == "Implement feature workflow")
+
+    let started = await tool.invoke(
+        arguments: [
+            "operation": .string("start"),
+            "projectId": .string(fixture.projectID),
+            "name": .string("Implement feature workflow"),
+            "taskId": .string(fixture.taskID)
+        ],
+        context: fixture.context
+    )
+
+    #expect(started.ok == true)
+    #expect(started.data?.asObject?["workflowId"]?.asString == workflowID)
+    #expect(started.data?.asObject?["runId"]?.asString?.isEmpty == false)
 }
 
 private struct WorkflowToolFixture {
@@ -177,15 +219,27 @@ private func starterWorkflowArguments(projectID: String, taskID: String) -> [Str
                 "type": .string("agent_step"),
                 "title": .string("Implement"),
                 "laneId": .string("agent"),
-                "config": .object(["agentId": .string("test-agent"), "sessionId": .string("session-workflow-tool")]),
+                "config": .string(#"{"agentId":"test-agent","sessionId":"session-workflow-tool"}"#),
                 "positionX": .number(360),
                 "positionY": .number(80)
             ]),
             .object(["id": .string("done"), "type": .string("end"), "title": .string("Done"), "laneId": .string("system"), "config": .object(["status": .string("completed")]), "positionX": .number(640), "positionY": .number(80)])
         ]),
         "edges": .array([
-            .object(["id": .string("e_start_implement"), "sourceNodeId": .string("start"), "targetNodeId": .string("implement")]),
-            .object(["id": .string("e_implement_done"), "sourceNodeId": .string("implement"), "targetNodeId": .string("done")])
+            .object([
+                "id": .string("e_start_implement"),
+                "sourceNodeId": .string("start"),
+                "targetNodeId": .string("implement"),
+                "sourceSocket": .string("right"),
+                "targetSocket": .string("left")
+            ]),
+            .object([
+                "id": .string("e_implement_done"),
+                "sourceNodeId": .string("implement"),
+                "targetNodeId": .string("done"),
+                "sourceSocket": .string("bottom"),
+                "targetSocket": .string("top")
+            ])
         ])
     ]
 }

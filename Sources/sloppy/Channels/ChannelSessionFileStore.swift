@@ -395,9 +395,12 @@ actor ChannelSessionFileStore {
 
         let events = try loadSession(sessionID: openSession.sessionId)
         let messageEvents = events.filter {
-            $0.type == .userMessage || $0.type == .assistantMessage
+            $0.type == .userMessage ||
+                $0.type == .assistantMessage ||
+                ($0.type == .systemMessage && $0.metadata?["compactionHandoff"] == "true")
         }
-        let recent = messageEvents.suffix(max(1, limit))
+        let compactedTail = Self.eventsAfterLatestHandoff(in: messageEvents)
+        let recent = compactedTail.suffix(max(1, limit))
 
         return recent.map { event in
             ChannelMessageEntry(
@@ -422,13 +425,16 @@ actor ChannelSessionFileStore {
         }
 
         let events = try loadSession(sessionID: openSession.sessionId)
-        return events
+        let messageEvents = events
             .filter { event in
-                (event.type == .userMessage || event.type == .assistantMessage) &&
+                (event.type == .userMessage ||
+                    event.type == .assistantMessage ||
+                    (event.type == .systemMessage && event.metadata?["compactionHandoff"] == "true")) &&
                     event.createdAt >= startDate &&
                     event.createdAt < endDate
             }
             .sorted { $0.createdAt < $1.createdAt }
+        return Self.eventsAfterLatestHandoff(in: messageEvents)
             .map { event in
                 ChannelMessageEntry(
                     id: event.id,
@@ -437,6 +443,98 @@ actor ChannelSessionFileStore {
                     createdAt: event.createdAt
                 )
             }
+    }
+
+    private static func eventsAfterLatestHandoff(in events: [ChannelSessionEvent]) -> ArraySlice<ChannelSessionEvent> {
+        guard let handoffIndex = events.lastIndex(where: { $0.metadata?["compactionHandoff"] == "true" }) else {
+            return events[...]
+        }
+        return events[handoffIndex...]
+    }
+
+    @discardableResult
+    func compactOpenSession(
+        channelId: String,
+        reason: String,
+        protectHeadMessages: Int,
+        protectTailMessages: Int,
+        protectTailTokens: Int,
+        summaryTargetRatio: Double,
+        createdAt: Date = Date()
+    ) throws -> ChannelSessionCompactionResult {
+        let normalizedChannelID = try normalizedChannelID(channelId)
+        guard let openSession = try currentOpenSession(channelId: normalizedChannelID) else {
+            return ChannelSessionCompactionResult(applied: false)
+        }
+
+        let fileURL = try existingSessionFileURL(sessionID: openSession.sessionId)
+        let events = try readEvents(fileURL: fileURL).sorted { $0.createdAt < $1.createdAt }
+        let messageIndices = events.indices.filter { index in
+            switch events[index].type {
+            case .userMessage, .assistantMessage, .systemMessage:
+                return true
+            default:
+                return false
+            }
+        }
+
+        let protectedHead = Set(messageIndices.prefix(max(0, protectHeadMessages)))
+        let protectedTail = protectedTailIndices(
+            messageIndices: messageIndices,
+            events: events,
+            protectTailMessages: protectTailMessages,
+            protectTailTokens: protectTailTokens
+        )
+        let middleIndices = messageIndices.filter { index in
+            !protectedHead.contains(index) && !protectedTail.contains(index)
+        }
+        guard !middleIndices.isEmpty else {
+            return ChannelSessionCompactionResult(applied: false)
+        }
+
+        let handoffIndex = middleIndices.first { events[$0].metadata?["compactionHandoff"] == "true" }
+        let summarizedEvents = middleIndices.map { events[$0] }
+        let handoffContent = ChannelSessionCompaction.makeHandoffSummary(from: summarizedEvents)
+        let originalApproxTokens = summarizedEvents.reduce(0) { $0 + approximateEventTokens($1) }
+        let summaryApproxTokens = approximateTokens(handoffContent)
+
+        var rewritten: [ChannelSessionEvent] = []
+        rewritten.reserveCapacity(events.count - middleIndices.count + 1)
+        let middleSet = Set(middleIndices)
+        for index in events.indices {
+            if middleSet.contains(index) {
+                if index == (handoffIndex ?? middleIndices.first) {
+                    var handoff = ChannelSessionEvent(
+                        channelId: normalizedChannelID,
+                        type: .systemMessage,
+                        userId: "system",
+                        content: handoffContent,
+                        createdAt: createdAt,
+                        metadata: [
+                            "compactionHandoff": "true",
+                            "reason": reason,
+                            "summaryTargetRatio": String(summaryTargetRatio),
+                        ]
+                    )
+                    if let handoffIndex {
+                        handoff.id = events[handoffIndex].id
+                        handoff.createdAt = events[handoffIndex].createdAt
+                    }
+                    rewritten.append(handoff)
+                }
+                continue
+            }
+            rewritten.append(events[index])
+        }
+
+        try write(events: rewritten, to: fileURL)
+        removeSummaryCache(sessionID: openSession.sessionId)
+
+        return ChannelSessionCompactionResult(
+            applied: true,
+            summarizedEventCount: summarizedEvents.count,
+            savedApproxTokens: max(0, originalApproxTokens - summaryApproxTokens)
+        )
     }
 
     func hasPendingInputRequest(channelId: String) throws -> Bool {
@@ -795,6 +893,53 @@ actor ChannelSessionFileStore {
         }
     }
 
+    private func write(events: [ChannelSessionEvent], to fileURL: URL) throws {
+        guard fileManager.fileExists(atPath: fileURL.path) else {
+            throw StoreError.storageFailure
+        }
+        var payload = Data()
+        for event in events {
+            var eventPayload = try encoder.encode(event)
+            eventPayload.append(0x0A)
+            payload.append(eventPayload)
+        }
+        try payload.write(to: fileURL, options: .atomic)
+    }
+
+    private func protectedTailIndices(
+        messageIndices: [Int],
+        events: [ChannelSessionEvent],
+        protectTailMessages: Int,
+        protectTailTokens: Int
+    ) -> Set<Int> {
+        guard protectTailMessages > 0, !messageIndices.isEmpty else {
+            return []
+        }
+
+        var protected: [Int] = []
+        var tokens = 0
+        for index in messageIndices.reversed() {
+            let nextTokens = approximateTokens(events[index].content)
+            if protected.count >= protectTailMessages {
+                break
+            }
+            if protectTailTokens > 0, !protected.isEmpty, tokens + nextTokens > protectTailTokens {
+                break
+            }
+            protected.append(index)
+            tokens += nextTokens
+        }
+        return Set(protected)
+    }
+
+    private func approximateTokens(_ text: String) -> Int {
+        max(1, Int((Double(text.count) / 4.0).rounded(.up)))
+    }
+
+    private func approximateEventTokens(_ event: ChannelSessionEvent) -> Int {
+        approximateTokens(event.content) + 64
+    }
+
     private func previewText(for content: String) -> String? {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else {
@@ -840,6 +985,49 @@ actor ChannelSessionFileStore {
             return nil
         }
         return channelId.isEmpty ? nil : channelId
+    }
+}
+
+public struct ChannelSessionCompactionResult: Sendable, Equatable {
+    public var applied: Bool
+    public var summarizedEventCount: Int
+    public var savedApproxTokens: Int
+
+    public init(
+        applied: Bool,
+        summarizedEventCount: Int = 0,
+        savedApproxTokens: Int = 0
+    ) {
+        self.applied = applied
+        self.summarizedEventCount = max(0, summarizedEventCount)
+        self.savedApproxTokens = max(0, savedApproxTokens)
+    }
+}
+
+public enum ChannelSessionCompaction {
+    public static let handoffSummaryPrefix = "[Compaction handoff summary]"
+
+    static func makeHandoffSummary(from events: [ChannelSessionEvent]) -> String {
+        let lines = events.map { event in
+            "- \(speakerLabel(for: event)): \(event.content)"
+        }
+        return handoffSummaryPrefix
+            + "\nThis is a system-generated summary of earlier channel transcript, not a new user request."
+            + "\n\n"
+            + lines.joined(separator: "\n")
+    }
+
+    private static func speakerLabel(for event: ChannelSessionEvent) -> String {
+        switch event.type {
+        case .userMessage:
+            return "User \(event.userId)"
+        case .assistantMessage:
+            return "Assistant"
+        case .systemMessage:
+            return "System"
+        default:
+            return event.userId
+        }
     }
 }
 

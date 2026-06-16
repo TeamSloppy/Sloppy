@@ -6218,12 +6218,23 @@ public struct WorkflowEdge: Codable, Sendable, Equatable {
     public var sourceNodeId: String
     public var targetNodeId: String
     public var conditionKey: String?
+    public var sourceSocket: String?
+    public var targetSocket: String?
 
-    public init(id: String, sourceNodeId: String, targetNodeId: String, conditionKey: String? = nil) {
+    public init(
+        id: String,
+        sourceNodeId: String,
+        targetNodeId: String,
+        conditionKey: String? = nil,
+        sourceSocket: String? = nil,
+        targetSocket: String? = nil
+    ) {
         self.id = id
         self.sourceNodeId = sourceNodeId
         self.targetNodeId = targetNodeId
         self.conditionKey = conditionKey
+        self.sourceSocket = sourceSocket
+        self.targetSocket = targetSocket
     }
 }
 

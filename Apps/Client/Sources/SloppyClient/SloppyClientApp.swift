@@ -41,24 +41,24 @@ struct SloppyClientApp: App {
             ))
     }
 
-    #if DEBUG
-        private var hotReloadPlugin: AdaUIHotReloadPlugin {
-            AdaUIHotReloadPlugin(
-                sourcePaths: [
-                    "Sources/SloppyClient",
-                    "Sources/SloppyClientCore",
-                    "Sources/SloppyClientUI",
-                    "Sources/SloppyFeatureOverview",
-                    "Sources/SloppyFeatureProjects",
-                    "Sources/SloppyFeatureAgents",
-                    "Sources/SloppyFeatureChat",
-                    "Sources/SloppyFeatureSettings",
-                ],
-                watchPaths: ["Sources"],
-                reloadStrategy: .automatic
-            )
-        }
-    #endif
+//    #if DEBUG
+//        private var hotReloadPlugin: AdaUIHotReloadPlugin {
+//            AdaUIHotReloadPlugin(
+//                sourcePaths: [
+//                    "Sources/SloppyClient",
+//                    "Sources/SloppyClientCore",
+//                    "Sources/SloppyClientUI",
+//                    "Sources/SloppyFeatureOverview",
+//                    "Sources/SloppyFeatureProjects",
+//                    "Sources/SloppyFeatureAgents",
+//                    "Sources/SloppyFeatureChat",
+//                    "Sources/SloppyFeatureSettings",
+//                ],
+//                watchPaths: ["Sources"],
+//                reloadStrategy: .automatic
+//            )
+//        }
+//    #endif
 
     var body: some AppScene {
         #if canImport(AdaMCPPlugin)
@@ -99,7 +99,7 @@ struct SloppyClientApp: App {
             #if DEBUG
                 baseScene.addPlugins(
                     AdaUIDebug3DPlugin(presentation: .primaryWindowOverlay),
-                    hotReloadPlugin
+//                    hotReloadPlugin
                 )
             #else
                 baseScene.addPlugins(

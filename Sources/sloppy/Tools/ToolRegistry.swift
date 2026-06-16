@@ -87,6 +87,7 @@ struct ToolRegistry: Sendable {
             DebugReadLogsTool(),
             WebSearchTool(),
             WebFetchTool(),
+            WebRequestTool(),
             BranchesSpawnTool(),
             WorkersSpawnTool(),
             AgentsDelegateTaskTool(),

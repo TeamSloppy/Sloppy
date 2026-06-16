@@ -255,6 +255,21 @@
     gap: 6px;
   }
 
+  .agent-usage-stats,
+  .agent-usage-definition-list,
+  .agent-usage-insights-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .agent-usage-trend {
+    grid-template-columns: repeat(8, minmax(0, 1fr));
+  }
+
+  .agent-usage-months {
+    grid-template-columns: repeat(6, minmax(0, 1fr));
+    row-gap: 8px;
+  }
+
   .project-kanban-head {
     flex-direction: column;
     align-items: flex-start;

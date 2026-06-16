@@ -477,6 +477,16 @@ enum ToolCatalog {
             ]),
             "required": .array([.string("url")])
         ]),
+        "web.request": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "url": .object(["type": .string("string")]),
+                "method": .object(["type": .string("string")]),
+                "headers": .object(["type": .string("object")]),
+                "body": .object(["type": .string("string")])
+            ]),
+            "required": .array([.string("url")])
+        ]),
         "cron": .object([
             "type": .string("object"),
             "properties": .object([

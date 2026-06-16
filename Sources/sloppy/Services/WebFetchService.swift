@@ -22,6 +22,7 @@ struct WebFetchService: Sendable {
     enum Failure: Error, Sendable, Equatable {
         case invalidURL
         case schemeNotAllowed
+        case methodNotAllowed
         case hostBlocked
         case responseTooLarge
         case transport
@@ -29,6 +30,22 @@ struct WebFetchService: Sendable {
 
     func fetch(
         urlString: String,
+        guardrails: AgentToolsGuardrails
+    ) async -> Result<Response, Failure> {
+        await request(
+            urlString: urlString,
+            method: "GET",
+            headers: [:],
+            body: nil,
+            guardrails: guardrails
+        )
+    }
+
+    func request(
+        urlString: String,
+        method: String,
+        headers: [String: String],
+        body: String?,
         guardrails: AgentToolsGuardrails
     ) async -> Result<Response, Failure> {
         let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -44,14 +61,24 @@ struct WebFetchService: Sendable {
         if Self.policyBlocksHost(host: host, blockPrivateNetworks: guardrails.webBlockPrivateNetworks) {
             return .failure(.hostBlocked)
         }
+        let method = method.trimmingCharacters(in: .whitespacesAndNewlines).uppercased()
+        guard Self.allowedMethods.contains(method) else {
+            return .failure(.methodNotAllowed)
+        }
 
         var request = URLRequest(url: url)
-        request.httpMethod = "GET"
+        request.httpMethod = method
         request.setValue(
             "Mozilla/5.0 (compatible; SloppyBot/1.0; +https://sloppy.team)",
             forHTTPHeaderField: "User-Agent"
         )
         request.setValue("gzip, deflate", forHTTPHeaderField: "Accept-Encoding")
+        for (name, value) in headers where Self.isAllowedHeaderName(name) {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
+        if let body {
+            request.httpBody = Data(body.utf8)
+        }
         request.timeoutInterval = max(0.2, Double(guardrails.webTimeoutMs) / 1000.0)
 
         let configuration = URLSessionConfiguration.ephemeral
@@ -81,6 +108,22 @@ struct WebFetchService: Sendable {
             )
         } catch {
             return .failure(.transport)
+        }
+    }
+
+    internal static let allowedMethods: Set<String> = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD"]
+
+    internal static func isAllowedHeaderName(_ name: String) -> Bool {
+        let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalized.isEmpty else { return false }
+        if normalized == "host" || normalized == "content-length" || normalized == "connection" {
+            return false
+        }
+        if normalized.hasPrefix("proxy-") || normalized.hasPrefix("sec-") {
+            return false
+        }
+        return normalized.allSatisfy { character in
+            character.isLetter || character.isNumber || character == "-"
         }
     }
 
