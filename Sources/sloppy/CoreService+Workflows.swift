@@ -204,27 +204,18 @@ extension CoreService {
                 error: ToolErrorPayload(code: "workflow_block_invalid", message: workflowError, retryable: false)
             )
         }
-        guard let agentID = workflowAgentID(startedBy: context.startedBy),
-              let sessionID = workflowSessionID(node: node, context: context)
-        else {
-            return ToolInvocationResult(
-                tool: request.tool,
-                ok: false,
-                error: ToolErrorPayload(
-                    code: "workflow_tool_context_missing",
-                    message: "Workflow executable block requires an agent run with sessionId.",
-                    retryable: false
-                )
+        if let agentID = workflowAgentID(startedBy: context.startedBy),
+           let sessionID = workflowSessionID(node: node, context: context) {
+            return await invokeToolFromRuntime(
+                agentID: agentID,
+                sessionID: sessionID,
+                request: request,
+                recordSessionEvents: true,
+                requireApproval: false,
+                chatMode: nil
             )
         }
-        return await invokeToolFromRuntime(
-            agentID: agentID,
-            sessionID: sessionID,
-            request: request,
-            recordSessionEvents: true,
-            requireApproval: false,
-            chatMode: nil
-        )
+        return await invokeStandaloneWorkflowTool(request: request, context: context)
     }
 
     private func workflowToolInvocationRequest(
@@ -339,6 +330,31 @@ extension CoreService {
     private func workflowSessionID(node: WorkflowNode, context: WorkflowRunner.Context) -> String? {
         let sessionID = stringValue(node.config["sessionId"]) ?? stringValue(context.input["sessionId"])
         return sessionID
+    }
+
+    private func invokeStandaloneWorkflowTool(
+        request: ToolInvocationRequest,
+        context: WorkflowRunner.Context
+    ) async -> ToolInvocationResult {
+        let agentID = workflowAgentID(startedBy: context.startedBy) ?? "workflow"
+        let sessionID = workflowSessionID(context: context)
+        return await toolExecution.invoke(
+            agentID: agentID,
+            sessionID: sessionID,
+            request: request,
+            policy: AgentToolsPolicy(),
+            currentProjectID: context.projectId
+        )
+    }
+
+    private func workflowSessionID(context: WorkflowRunner.Context) -> String {
+        if let sessionID = stringValue(context.input["sessionId"]) {
+            return sessionID
+        }
+        if let runID = context.runId?.trimmingCharacters(in: .whitespacesAndNewlines), !runID.isEmpty {
+            return "workflow-\(runID)"
+        }
+        return "workflow-\(context.projectId)"
     }
 
     private func workflowArguments(from value: JSONValue?) -> [String: JSONValue] {

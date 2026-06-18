@@ -194,7 +194,13 @@ struct MainView: View {
     }
     
     var body: some View {
-        regularSplitLayout()
+        Group {
+            if idiom == .phone {
+                fullScreenCompactLayout()
+            } else {
+                regularSplitLayout()
+            }
+        }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onAppear {
                 Task { await viewModel.loadProjects() }
@@ -205,7 +211,6 @@ struct MainView: View {
     private func regularSplitLayout() -> some View {
         return NavigationSplitView {
             sidebarView(isOverlay: false)
-                .padding(.all, 4)
                 .navigationSplitViewColumnWidth(
                     min: viewModel.sidebarMinimumWidth,
                     ideal: viewModel.sidebarWidth,

@@ -1003,9 +1003,10 @@ enum SloppyTUITheme {
         return preview.replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
     }
 
-    static func waitingIndicator(frame: Int, word: String) -> String {
+    static func waitingIndicator(frame: Int, word: String, tokenUsage: TokenUsage? = nil) -> String {
         let spinner = waitingFrames[frame % waitingFrames.count]
-        return muted("\(spinner) ") + shimmeringText(word, frame: frame)
+        let usage = tokenUsage.map { " \(turnTokenUsageBadge($0))" } ?? ""
+        return muted("\(spinner) ") + shimmeringText(word, frame: frame) + muted(usage)
     }
 
     static func shimmeringText(_ text: String, frame: Int) -> String {
@@ -1085,8 +1086,8 @@ enum SloppyTUITheme {
         return paddedBackgroundBlock(contentLines, width: width, background: userMessageBackground)
     }
 
-    static func thinkingLines(_ text: String, width: Int, tokenUsage: TokenUsage? = nil) -> [String] {
-        let header = tokenUsage.map { "thought \(turnTokenUsageBadge($0)) " } ?? "thought "
+    static func thinkingLines(_ text: String, width: Int) -> [String] {
+        let header = "thought "
         let prefixWidth = VisibleWidth.measure(header)
         let contentWidth = paddedBlockContentWidth(width: width, prefixWidth: prefixWidth)
         let rawLines = text

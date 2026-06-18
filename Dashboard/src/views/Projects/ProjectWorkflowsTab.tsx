@@ -1265,9 +1265,8 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
                               }}
                               onPointerUp={(event) => onSocketPointerUp(event, node, port.id)}
                               title={`${port.direction}: ${port.label}`}
-                            >
-                              <span>{port.label}</span>
-                            </button>
+                              aria-label={`${port.direction}: ${port.label}`}
+                            />
                           );
                         })}
                         <span className="material-symbols-rounded">{workflowNodeIcon(node.type, node.config)}</span>

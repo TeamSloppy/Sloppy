@@ -7,6 +7,7 @@ struct WorkflowRunner {
         var taskId: String?
         var startedBy: String
         var input: [String: JSONValue]
+        var runId: String? = nil
     }
 
     struct Persistence: Sendable {
@@ -65,12 +66,14 @@ struct WorkflowRunner {
             return .failed(run, "Workflow has no trigger node.")
         }
         let run = makeRun(definition: definition, context: context, status: .running, currentNodeIds: [startNode.id])
+        var runContext = context
+        runContext.runId = run.id
         await persistence.saveRun(run)
         return await walk(
             definition: definition,
             run: run,
             currentNodeID: startNode.id,
-            context: context,
+            context: runContext,
             initialOutput: context.input,
             persistence: persistence,
             updateTask: updateTask,
@@ -87,7 +90,7 @@ struct WorkflowRunner {
         updateTask: @Sendable (String, String, String) async throws -> Void,
         executeTool: ToolExecutor? = nil
     ) async -> Result {
-        let context = Context(projectId: run.projectId, taskId: run.taskId, startedBy: run.startedBy, input: output)
+        let context = Context(projectId: run.projectId, taskId: run.taskId, startedBy: run.startedBy, input: output, runId: run.id)
         let waitingStep = WorkflowRunStep(
             id: "step_\(UUID().uuidString.lowercased())",
             runId: run.id,

@@ -20,6 +20,13 @@ const dashboardRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const projectWorkflowsTabSource = readFileSync(join(dashboardRoot, "src", "views", "Projects", "ProjectWorkflowsTab.tsx"), "utf8");
 const projectsCss = readFileSync(join(dashboardRoot, "src", "styles", "projects.css"), "utf8");
 
+function cssRule(selector) {
+  const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const match = projectsCss.match(new RegExp(`${escapedSelector}\\s*\\{([^}]*)\\}`));
+  assert.ok(match, `Missing CSS rule for ${selector}`);
+  return match[1];
+}
+
 test("selectWorkflowAfterDelete picks the next workflow after deleting the selected one", () => {
   const workflows = [
     { id: "wf-a" },
@@ -116,6 +123,18 @@ test("workflow side panels use the custom thin scrollbar styling", () => {
   assert.match(projectsCss, /\.project-workflows-list::-webkit-scrollbar-thumb,\n\.project-workflows-inspector::-webkit-scrollbar-thumb\s*\{[\s\S]*?background:\s*rgba\(138, 153, 180, 0\.45\)/);
 });
 
+test("workflow shell stays within the workspace while side panels own vertical scroll", () => {
+  const shellRule = cssRule(".project-workflows-shell");
+  const gridRule = cssRule(".project-workflows-grid");
+
+  assert.doesNotMatch(shellRule, /height:\s*100%/);
+  assert.doesNotMatch(gridRule, /height:\s*100%/);
+  assert.match(shellRule, /overflow:\s*hidden/);
+  assert.match(gridRule, /flex:\s*1 1 0/);
+  assert.match(projectsCss, /\.project-workflows-list,\n\.project-workflows-inspector\s*\{[\s\S]*?overflow-y:\s*auto/);
+  assert.match(projectsCss, /\.project-workflows-list,\n\.project-workflows-inspector\s*\{[\s\S]*?overscroll-behavior:\s*contain/);
+});
+
 test("workflow board status highlights unsaved changes with the accent treatment", () => {
   assert.match(projectWorkflowsTabSource, /className=\{`project-workflows-board-status \$\{isDirty \? "is-dirty" : ""\}`\.trim\(\)\}/);
   assert.match(projectsCss, /\.project-workflows-board-status\.is-dirty\s*\{[\s\S]*?color:\s*var\(--accent\)/);
@@ -126,6 +145,13 @@ test("workflow node ports default to one input and one output", () => {
     { id: "input", label: "input", direction: "input", socket: "left" },
     { id: "output", label: "output", direction: "output", socket: "right" }
   ]);
+});
+
+test("workflow sockets render as color coded ports without visible labels", () => {
+  assert.doesNotMatch(projectWorkflowsTabSource, /<span>\{port\.label\}<\/span>/);
+  assert.match(projectWorkflowsTabSource, /aria-label=\{`\$\{port\.direction\}: \$\{port\.label\}`\}/);
+  assert.match(projectsCss, /\.project-workflow-socket\.port-input\s*\{[\s\S]*?border-color:\s*#4ade80/);
+  assert.match(projectsCss, /\.project-workflow-socket\.port-output\s*\{[\s\S]*?border-color:\s*#fb7185/);
 });
 
 test("workflow condition nodes expose named route outputs without adding extra inputs", () => {

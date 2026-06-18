@@ -62,7 +62,11 @@ extension SloppyTUIScreen {
             return []
         }
 
-        let spinner = SloppyTUITheme.waitingIndicator(frame: thinkingFrame, word: thinkingWord)
+        let spinner = SloppyTUITheme.waitingIndicator(
+            frame: thinkingFrame,
+            word: thinkingWord,
+            tokenUsage: lastTurnTokenUsage
+        )
         let body = liveAssistantDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         if body.isEmpty {
             return [.local(spinner)]
@@ -191,8 +195,8 @@ extension SloppyTUIScreen {
                 lines.append(contentsOf: SloppyTUITheme.queuedMessageLines(message, width: width))
             case .error(let text):
                 lines.append(contentsOf: renderMarkdown(SloppyTUITheme.errorBlock(text), width: width))
-            case .thinking(let text, let tokenUsage):
-                lines.append(contentsOf: SloppyTUITheme.thinkingLines(text, width: width, tokenUsage: tokenUsage))
+            case .thinking(let text):
+                lines.append(contentsOf: SloppyTUITheme.thinkingLines(text, width: width))
             case .attachment(let name, let mimeType, let sizeBytes):
                 lines.append(SloppyTUITheme.attachmentLine(name: name, mimeType: mimeType, sizeBytes: sizeBytes, width: width))
             case .subSession(let childSessionId, let title, let status):

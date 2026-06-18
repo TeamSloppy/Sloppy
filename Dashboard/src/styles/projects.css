@@ -6055,6 +6055,7 @@
   flex: 1;
   min-height: 0 !important;
   gap: 16px;
+  overflow: hidden;
 }
 
 .project-workflows-toolbar {
@@ -6089,8 +6090,9 @@
 .project-workflows-grid {
   display: grid;
   grid-template-columns: 280px minmax(420px, 1fr) 340px;
-  flex: 1;
+  flex: 1 1 0;
   min-height: 0 !important;
+  min-width: 0;
   border: 1px solid var(--line);
   background: var(--surface);
   overflow: hidden;
@@ -6104,7 +6106,9 @@
   min-height: 0;
   padding: 12px;
   background: var(--surface-2);
-  overflow: auto;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: var(--line-strong) transparent;
 }
@@ -6432,18 +6436,15 @@
 
 .project-workflow-socket {
   position: absolute;
-  min-width: 12px;
-  height: 18px;
+  width: 14px;
+  height: 14px;
   padding: 0;
-  border: 1px solid var(--line);
+  border: 2px solid var(--line);
   border-radius: 0;
   background: var(--bg);
   cursor: crosshair;
   transform: translate(-50%, -50%);
-  color: var(--muted);
-  font-size: 9px;
-  line-height: 1;
-  white-space: nowrap;
+  box-shadow: 0 0 0 2px var(--bg);
 }
 
 .project-workflow-socket:hover {
@@ -6459,21 +6460,14 @@
   transform: translate(calc(-100% + 4px), -50%);
 }
 
-.project-workflow-socket span {
-  display: block;
-  max-width: 42px;
-  overflow: hidden;
-  padding: 0 4px;
-  text-overflow: ellipsis;
-  pointer-events: none;
+.project-workflow-socket.port-input {
+  border-color: #4ade80;
+  background: #06170d;
 }
 
-.project-workflow-socket.port-input span {
-  text-align: right;
-}
-
-.project-workflow-socket.port-output span {
-  text-align: left;
+.project-workflow-socket.port-output {
+  border-color: #fb7185;
+  background: #21070d;
 }
 
 .project-workflow-socket.source {

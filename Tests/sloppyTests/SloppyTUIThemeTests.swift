@@ -73,15 +73,14 @@ func waitingIndicatorKeepsSpinnerBeforeWaitingWord() {
 }
 
 @Test
-func thinkingLinesIncludeTurnTokenUsageInHeader() {
-    let lines = SloppyTUITheme.thinkingLines(
-        "Execution plan for executor:",
-        width: 80,
-        tokenUsage: .init(prompt: 1_002, completion: 3_232)
+func waitingIndicatorIncludesTurnTokenUsageAfterWaitingWord() {
+    let line = SloppyTUITheme.waitingIndicator(
+        frame: 0,
+        word: "recursing",
+        tokenUsage: .init(prompt: 8_625, completion: 11)
     )
-    let plain = stripANSI(lines.joined(separator: "\n"))
 
-    #expect(plain.contains("thought (1002 ↑ / 3232 ↓) Execution plan for executor:"))
+    #expect(stripANSI(line).hasPrefix("⠋ recursing (8625 ↑ / 11 ↓)"))
 }
 
 @Test

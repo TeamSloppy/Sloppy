@@ -16,6 +16,7 @@ struct MainSidebarView: View {
     static let maximumWidth: Float = 520
 
     private static let rowRadius: Float = 18
+    private static let rowMinimumHeight: Float = 48
 
     let viewModel: MainViewModel
     let isOverlay: Bool
@@ -58,7 +59,8 @@ struct MainSidebarView: View {
             }
             .frame(minHeight: 0, maxHeight: .infinity)
         }
-        .padding(sp.m)
+        .padding(.horizontal, sp.xs)
+        .padding(.vertical, sp.s)
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
 
         return sidebarSurface(content, c: c)
@@ -328,6 +330,7 @@ struct MainSidebarView: View {
             c: c,
             sp: sp
         ) {
+            viewModel.expandedTaskLists.remove(project.id)
             viewModel.selectProject(project)
         }
         .font(.system(size: ty.body))
@@ -386,6 +389,7 @@ struct MainSidebarView: View {
         .padding(.leading, 42)
         .padding(.trailing, sp.m)
         .padding(.vertical, sp.s)
+        .frame(minHeight: Self.rowMinimumHeight, alignment: .leading)
     }
 
     @ViewBuilder
@@ -411,6 +415,7 @@ struct MainSidebarView: View {
             titleColor: titleColor,
             leadingInset: leadingInset,
             rowRadius: Self.rowRadius,
+            rowMinimumHeight: Self.rowMinimumHeight,
             usesLiquidGlass: usesLiquidGlass,
             action: action
         )
@@ -463,7 +468,7 @@ struct MainSidebarView: View {
     private func sidebarSurface<Content: View>(_ content: Content, c: AppColors) -> some View {
         if usesLiquidGlass {
             content
-                .padding(8)
+                .padding(4)
                 .glassEffect(.regular.tint(Color.black.opacity(0.14 as Float)), in: RoundedRectangle(cornerRadius: 28))
         } else {
             content
@@ -528,6 +533,7 @@ private struct HoverableSidebarRow: View {
     let titleColor: Color?
     let leadingInset: Float
     let rowRadius: Float
+    let rowMinimumHeight: Float
     let usesLiquidGlass: Bool
     let action: @MainActor () -> Void
 
@@ -569,7 +575,7 @@ private struct HoverableSidebarRow: View {
                         .multilineTextAlignment(.trailing)
                 }
             }
-            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+            .frame(minWidth: 0, maxWidth: .infinity, minHeight: rowMinimumHeight, alignment: .leading)
             .padding(EdgeInsets(top: 0, leading: leadingInset + spacing.s, bottom: 0, trailing: spacing.m + spacing.s))
             .glassEffect(
                 isActive ? .regular.tint(Color.white.opacity(isSelected ? 0.07 as Float : 0.035 as Float)) : .identity,

@@ -68,6 +68,41 @@ func projectWorkflowRoutesCreateRunAndResolveHumanAction() async throws {
     #expect(resolved.run.status == .completed)
 }
 
+@Test
+func manualProjectWorkflowRunExecutesToolBlocksWithoutAgentSession() async throws {
+    let service = CoreService(config: CoreConfig.test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let projectId = "workflow-manual-tool-\(UUID().uuidString)"
+    let createProjectBody = try encoder.encode(
+        ProjectCreateRequest(id: projectId, name: "Manual Workflow Tool", description: "Test", channels: [])
+    )
+    let projectResponse = await router.handle(method: "POST", path: "/v1/projects", body: createProjectBody)
+    #expect(projectResponse.status == 201)
+
+    let createWorkflow = await router.handle(
+        method: "POST",
+        path: "/v1/projects/\(projectId)/workflows",
+        body: try encoder.encode(manualToolWorkflowRequest())
+    )
+    #expect(createWorkflow.status == 201)
+    let workflow = try decoder.decode(WorkflowDefinition.self, from: createWorkflow.body)
+
+    let runBody = try encoder.encode(WorkflowRunCreateRequest(taskId: nil, startedBy: "human:admin", input: [:]))
+    let startRun = await router.handle(method: "POST", path: "/v1/projects/\(projectId)/workflows/\(workflow.id)/runs", body: runBody)
+    #expect(startRun.status == 201)
+    let runDetail = try decoder.decode(WorkflowRunDetail.self, from: startRun.body)
+
+    #expect(runDetail.run.status == .completed)
+    let bashStep = try #require(runDetail.steps.first { $0.nodeId == "bash" })
+    #expect(bashStep.status == .succeeded)
+    #expect(bashStep.output["stdout"]?.asString == "ok")
+}
+
 private func starterWorkflowRequest() -> WorkflowDefinitionUpsertRequest {
     WorkflowDefinitionUpsertRequest(
         name: "Dashboard Approval",
@@ -83,6 +118,27 @@ private func starterWorkflowRequest() -> WorkflowDefinitionUpsertRequest {
         edges: [
             WorkflowEdge(id: "e_start_approval", sourceNodeId: "start", targetNodeId: "approval"),
             WorkflowEdge(id: "e_approval_done", sourceNodeId: "approval", targetNodeId: "done", conditionKey: "approved")
+        ]
+    )
+}
+
+private func manualToolWorkflowRequest() -> WorkflowDefinitionUpsertRequest {
+    WorkflowDefinitionUpsertRequest(
+        name: "Manual Tool Workflow",
+        lanes: [
+            WorkflowLane(id: "system", title: "System", kind: .system)
+        ],
+        nodes: [
+            WorkflowNode(id: "start", type: .trigger, title: "Manual start", laneId: "system", config: ["mode": .string("manual")], positionX: 80, positionY: 80),
+            WorkflowNode(id: "bash", type: .toolCheck, title: "Bash", laneId: "system", config: [
+                "blockKind": .string("bash"),
+                "command": .string("printf ok")
+            ], positionX: 360, positionY: 80),
+            WorkflowNode(id: "done", type: .end, title: "Done", laneId: "system", config: ["status": .string("completed")], positionX: 640, positionY: 80)
+        ],
+        edges: [
+            WorkflowEdge(id: "e_start_bash", sourceNodeId: "start", targetNodeId: "bash"),
+            WorkflowEdge(id: "e_bash_done", sourceNodeId: "bash", targetNodeId: "done")
         ]
     )
 }
