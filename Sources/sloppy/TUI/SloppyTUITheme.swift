@@ -569,6 +569,7 @@ enum SloppyTUITheme {
         agent: String,
         provider: String,
         tokenUsage: SloppyTUITokenUsageSummary? = nil,
+        lastTurnTokenUsage: TokenUsage? = nil,
         runElapsed: TimeInterval? = nil,
         stageElapsed: TimeInterval? = nil,
         animationFrame: Int = 0
@@ -582,6 +583,7 @@ enum SloppyTUITheme {
                 + contextIndicator(
                     model: modelText,
                     summary: tokenUsage,
+                    lastTurnUsage: lastTurnTokenUsage,
                     runElapsed: runElapsed,
                     stageElapsed: stageElapsed
                 )
@@ -835,17 +837,24 @@ enum SloppyTUITheme {
     private static func contextIndicator(
         model: String,
         summary: SloppyTUITokenUsageSummary,
+        lastTurnUsage: TokenUsage?,
         runElapsed: TimeInterval?,
         stageElapsed: TimeInterval?
     ) -> String {
         var parts: [String] = [foreground(model)]
         if summary.contextWindowTokens > 0 {
-            parts.append(foreground("\(formatTokenCountCompact(summary.totalTokens))/\(formatTokenCountCompact(summary.contextWindowTokens))"))
-            if let percent = summary.usagePercent {
-                parts.append(contextIndicatorBar(summary, width: 10) + muted(" ") + contextIndicatorPercent(percent))
+            let contextTokens = lastTurnUsage.map { $0.prompt + $0.completion } ?? summary.totalTokens
+            let contextPercent = min(100, Int(((Double(contextTokens) / Double(summary.contextWindowTokens)) * 100).rounded()))
+            parts.append(foreground("ctx \(formatTokenCountCompact(contextTokens))/\(formatTokenCountCompact(summary.contextWindowTokens))"))
+            parts.append(contextIndicatorBar(tokens: contextTokens, contextWindowTokens: summary.contextWindowTokens, percent: contextPercent, width: 10) + muted(" ") + contextIndicatorPercent(contextPercent))
+            if summary.totalTokens > 0 {
+                parts.append(muted("spent \(formatTokenCountCompact(summary.totalTokens))"))
             }
         } else {
-            parts.append(foreground("\(formatTokenCountCompact(summary.totalTokens))"))
+            if let lastTurnUsage {
+                parts.append(foreground("last \(formatTokenCountCompact(lastTurnUsage.prompt))↑/\(formatTokenCountCompact(lastTurnUsage.completion))↓"))
+            }
+            parts.append(foreground("spent \(formatTokenCountCompact(summary.totalTokens))"))
             parts.append(muted("context unknown"))
         }
         if let runElapsed {
@@ -861,23 +870,32 @@ enum SloppyTUITheme {
     }
 
     private static func contextIndicatorBar(_ summary: SloppyTUITokenUsageSummary, width: Int) -> String {
+        let percent = summary.usagePercent ?? 0
+        return contextIndicatorBar(
+            tokens: summary.totalTokens,
+            contextWindowTokens: summary.contextWindowTokens,
+            percent: percent,
+            width: width
+        )
+    }
+
+    private static func contextIndicatorBar(tokens: Int, contextWindowTokens: Int, percent: Int, width: Int) -> String {
         guard width > 0 else {
             return ""
         }
-        guard summary.contextWindowTokens > 0 else {
+        guard contextWindowTokens > 0 else {
             return muted("[\(String(repeating: "░", count: width))]")
         }
 
         var filled = min(
             width,
-            max(0, Int((Double(summary.totalTokens) / Double(summary.contextWindowTokens) * Double(width)).rounded()))
+            max(0, Int((Double(tokens) / Double(contextWindowTokens) * Double(width)).rounded()))
         )
-        if summary.totalTokens > 0, filled == 0 {
+        if tokens > 0, filled == 0 {
             filled = 1
         }
         let empty = max(0, width - filled)
         let content = String(repeating: "█", count: filled) + String(repeating: "░", count: empty)
-        let percent = summary.usagePercent ?? 0
         return muted("[") + contextIndicatorPercentStyle(percent)(content) + muted("]")
     }
 

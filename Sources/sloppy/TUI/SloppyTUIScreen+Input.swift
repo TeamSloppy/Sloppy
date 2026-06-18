@@ -290,6 +290,7 @@ extension SloppyTUIScreen {
                 agent: agent.displayName,
                 provider: providerLabel(from: selectedModel),
                 tokenUsage: tokenUsageSummary,
+                lastTurnTokenUsage: lastTurnTokenUsage,
                 runElapsed: timing.runElapsed,
                 stageElapsed: timing.stageElapsed,
                 animationFrame: thinkingFrame

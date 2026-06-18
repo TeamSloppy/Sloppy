@@ -22,6 +22,7 @@ struct MainSidebarView: View {
     let isOverlay: Bool
 
     @Environment(\.theme) private var theme
+    @Environment(\.userInterfaceIdiom) private var userInterfaceIdiom
 
     private var usesLiquidGlass: Bool {
         #if os(iOS)
@@ -34,12 +35,8 @@ struct MainSidebarView: View {
     var body: some View {
         NavigationStack {
             let c = theme.colors
-            
-            if viewModel.isSidebarCollapsed && !isOverlay {
-                collapsedSidebar(c: c)
-            } else {
-                expandedSidebar(c: c)
-            }
+
+            expandedSidebar(c: c)
         }
     }
 
@@ -47,9 +44,6 @@ struct MainSidebarView: View {
         let sp = theme.spacing
 
         let content = VStack(alignment: .leading, spacing: 0) {
-            windowHeader(c: c, sp: sp)
-                .padding(.bottom, isOverlay ? sp.l : sp.m)
-
             ScrollView {
                 VStack(alignment: .leading, spacing: sp.l) {
                     chatActions(c: c, sp: sp)
@@ -62,88 +56,25 @@ struct MainSidebarView: View {
         .padding(.horizontal, sp.xs)
         .padding(.vertical, sp.s)
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
+        .overlay(anchor: .bottomTrailing) {
+            if userInterfaceIdiom == .phone {
+                newChatFloatingButton(c: c, sp: sp)
+                    .padding(
+                        EdgeInsets(
+                            top: 0,
+                            leading: 0,
+                            bottom: isOverlay ? sp.xl + sp.s : sp.m,
+                            trailing: sp.s
+                        )
+                    )
+            }
+        }
 
         return sidebarSurface(content, c: c)
     }
 
-    private func collapsedSidebar(c: AppColors) -> some View {
-        let sp = theme.spacing
-
-        return VStack(alignment: .center, spacing: sp.m) {
-            sidebarIconButton(.collapseContent, isActive: false, c: c) {
-                viewModel.isSidebarCollapsed = false
-            }
-
-            Color.clear
-                .frame(height: theme.borders.thin)
-                .background(c.border.opacity(0.45 as Float))
-                .padding(.horizontal, sp.m)
-
-            ForEach(viewModel.projects.prefix(5)) { project in
-                sidebarIconButton(projectMonogram(project.name), isActive: isProjectSelected(project.id), c: c) {
-                    viewModel.selectProject(project)
-                }
-            }
-
-            Spacer(minLength: 0)
-
-            sidebarIconButton(.chatAddOn, isActive: viewModel.selectedSidebarItem == .chats && viewModel.chatViewModel.selectedSessionId == nil, c: c) {
-                viewModel.selectNewChat()
-            }
-
-            sidebarIconButton(.settings, isActive: false, c: c, action: viewModel.onOpenSettings)
-        }
-        .frame(width: Self.collapsedWidth)
-        .frame(maxHeight: .infinity)
-        .padding(.vertical, sp.l)
-    }
-
-    @ViewBuilder
-    private func windowHeader(c: AppColors, sp: AppSpacing) -> some View {
-        if isOverlay {
-            overlayWindowHeader(c: c, sp: sp)
-        } else {
-            desktopWindowHeader(c: c, sp: sp)
-        }
-    }
-
-    private func desktopWindowHeader(c: AppColors, sp: AppSpacing) -> some View {
-        HStack(spacing: sp.s) {
-            Spacer(minLength: 0)
-
-            headerIconButton(.collapseContent, c: c) {
-                viewModel.isSidebarCollapsed = true
-            }
-        }
-        .padding(.top, sp.l)
-    }
-
-    private func overlayWindowHeader(c: AppColors, sp: AppSpacing) -> some View {
-        HStack(spacing: 0) {
-            Spacer(minLength: 0)
-
-            headerIconButton(.close, c: c) {
-                viewModel.dismissMobileSidebar()
-            }
-        }
-        .frame(maxWidth: .infinity, alignment: .trailing)
-        .padding(.top, sp.xl + sp.s)
-        .padding(.trailing, sp.xs)
-    }
-
     private func chatActions(c: AppColors, sp: AppSpacing) -> some View {
         VStack(alignment: .leading, spacing: sp.xs) {
-            sidebarPlainRow(
-                icon: .chatAddOn,
-                title: "New chat",
-                trailing: nil,
-                isSelected: viewModel.selectedSidebarItem == .chats && viewModel.chatViewModel.selectedSessionId == nil,
-                c: c,
-                sp: sp
-            ) {
-                viewModel.selectNewChat()
-            }
-
             sidebarPlainRow(
                 icon: .autoAwesome,
                 title: "Search chats",
@@ -162,6 +93,20 @@ struct MainSidebarView: View {
                 sp: sp
             ) {}
         }
+    }
+
+    private func newChatFloatingButton(c: AppColors, sp: AppSpacing) -> some View {
+        let ty = theme.typography
+
+        return Button {
+            viewModel.selectNewChat()
+        } label: {
+            Icons.symbol(.add, size: ty.body)
+                .foregroundColor(c.textPrimary)
+        }
+        .frame(width: 48, height: 48)
+        .background(c.surfaceRaised.opacity(0.92 as Float))
+        .glassEffect(.regular.tint(c.surfaceRaised.opacity(0.34 as Float)), in: Circle())
     }
 
     private func recentsSection(c: AppColors, sp: AppSpacing) -> some View {
@@ -421,49 +366,6 @@ struct MainSidebarView: View {
         )
     }
 
-    private func headerIconButton(
-        _ icon: MaterialSymbol,
-        c: AppColors,
-        action: @escaping @MainActor () -> Void
-    ) -> some View {
-        let ty = theme.typography
-
-        return Button(action: action) {
-            Icons.symbol(icon, size: ty.body)
-                .foregroundColor(c.textMuted)
-                .frame(width: 30, height: 30)
-        }
-    }
-
-    private func sidebarIconButton(
-        _ icon: MaterialSymbol,
-        isActive: Bool,
-        c: AppColors,
-        action: @escaping @MainActor () -> Void
-    ) -> some View {
-        let ty = theme.typography
-
-        return Button(action: action) {
-            Icons.symbol(icon, size: ty.body)
-                .foregroundColor(isActive ? c.textPrimary : c.textMuted)
-        }
-    }
-
-    private func sidebarIconButton(
-        _ title: String,
-        isActive: Bool,
-        c: AppColors,
-        action: @escaping @MainActor () -> Void
-    ) -> some View {
-        let ty = theme.typography
-
-        return Button(action: action) {
-            Text(title)
-                .font(.system(size: title.count <= 2 ? ty.caption : ty.micro))
-                .foregroundColor(isActive ? c.textPrimary : c.textMuted)
-        }
-    }
-
     @ViewBuilder
     private func sidebarSurface<Content: View>(_ content: Content, c: AppColors) -> some View {
         if usesLiquidGlass {
@@ -491,25 +393,6 @@ struct MainSidebarView: View {
         }
     }
 
-    private func isProjectSelected(_ projectId: String) -> Bool {
-        switch viewModel.selectedSidebarItem {
-        case .project(let selectedProjectId):
-            return selectedProjectId == projectId
-        case .task(let selectedProjectId, _):
-            return selectedProjectId == projectId
-        case .chats, nil:
-            return false
-        }
-    }
-
-    private func projectMonogram(_ value: String) -> String {
-        let letters = value
-            .split(separator: " ")
-            .prefix(2)
-            .compactMap { $0.first }
-        let monogram = String(letters)
-        return monogram.isEmpty ? "SL" : monogram.uppercased()
-    }
 }
 
 private struct MobileSidebarOverlayIconButtonStyle: ButtonStyle {

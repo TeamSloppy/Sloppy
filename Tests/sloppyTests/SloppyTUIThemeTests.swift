@@ -480,11 +480,37 @@ func composerMetaLineShowsCompactContextIndicator() {
     let plain = stripANSI(line)
 
     #expect(plain.contains("gpt-5.5"))
-    #expect(plain.contains("38K/272K"))
+    #expect(plain.contains("ctx 38K/272K"))
+    #expect(plain.contains("spent 38K"))
     #expect(plain.contains("[█░░░░░░░░░] 14%"))
     #expect(plain.contains("57s"))
     #expect(plain.contains("⏱ 27s"))
     #expect(!plain.contains("tokens:"))
+    #expect(VisibleWidth.measure(line) <= 120)
+}
+
+@Test
+func composerMetaLineSeparatesLastContextFromAggregateSpend() {
+    let line = SloppyTUITheme.composerMetaLine(
+        width: 120,
+        mode: .auto,
+        model: "gpt-5.5",
+        agent: "Anton",
+        provider: "openai",
+        tokenUsage: .init(
+            promptTokens: 40_962,
+            completionTokens: 38,
+            totalTokens: 41_000,
+            contextWindowTokens: 272_000,
+            costUSD: 3.22
+        ),
+        lastTurnTokenUsage: .init(prompt: 11_358, completion: 38)
+    )
+    let plain = stripANSI(line)
+
+    #expect(plain.contains("ctx 11K/272K"))
+    #expect(plain.contains("spent 41K"))
+    #expect(!plain.contains("41K/272K"))
     #expect(VisibleWidth.measure(line) <= 120)
 }
 
