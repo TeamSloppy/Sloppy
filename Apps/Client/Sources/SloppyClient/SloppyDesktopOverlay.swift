@@ -339,12 +339,12 @@ private struct NotchIslandShape: Shape {
 private struct ActivityGlyph: View {
     var body: some View {
         ZStack {
-            CircleShape()
+            Circle()
                 .fill(Color.fromHex(0xFF4D6D).opacity(0.18 as Float))
-            RectangleShape()
+            Rectangle()
                 .fill(Color.fromHex(0xFF6B7F))
                 .frame(width: 14, height: 14)
-            RectangleShape()
+            Rectangle()
                 .fill(Color.fromHex(0xFFA1AA).opacity(0.75 as Float))
                 .frame(width: 7, height: 7)
                 .offset(x: -4, y: -4)

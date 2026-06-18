@@ -6105,6 +6105,31 @@
   padding: 12px;
   background: var(--surface-2);
   overflow: auto;
+  scrollbar-width: thin;
+  scrollbar-color: var(--line-strong) transparent;
+}
+
+.project-workflows-list::-webkit-scrollbar,
+.project-workflows-inspector::-webkit-scrollbar {
+  width: 10px;
+}
+
+.project-workflows-list::-webkit-scrollbar-track,
+.project-workflows-inspector::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.project-workflows-list::-webkit-scrollbar-thumb,
+.project-workflows-inspector::-webkit-scrollbar-thumb {
+  background: rgba(138, 153, 180, 0.45);
+  border-radius: 0;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.project-workflows-list:hover::-webkit-scrollbar-thumb,
+.project-workflows-inspector:hover::-webkit-scrollbar-thumb {
+  background: rgba(163, 182, 214, 0.65);
 }
 
 .project-workflows-list {
@@ -6494,6 +6519,10 @@
   background: var(--surface-2);
   color: var(--muted);
   font-size: 0.76rem;
+}
+
+.project-workflows-board-status.is-dirty {
+  color: var(--accent);
 }
 
 .project-workflows-inspector section {

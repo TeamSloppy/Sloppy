@@ -259,6 +259,16 @@ func meshAPIConfiguresNetworkInvitesAndRegisteredNodes() async throws {
     let state = try decoder.decode(MeshState.self, from: stateResponse.body)
     #expect(state.nodes.map(\.id) == ["node_render"])
     #expect(state.invites.map(\.token) == [invite.token])
+
+    let revokeResponse = await router.handle(method: "DELETE", path: "/v1/node/mesh/invites/\(invite.token)", body: nil)
+    #expect(revokeResponse.status == 200)
+    let revokeObject = try #require(JSONSerialization.jsonObject(with: revokeResponse.body) as? [String: Any])
+    #expect(revokeObject["status"] as? String == "deleted")
+
+    let revokedStateResponse = await router.handle(method: "GET", path: "/v1/node/mesh", body: nil)
+    #expect(revokedStateResponse.status == 200)
+    let revokedState = try decoder.decode(MeshState.self, from: revokedStateResponse.body)
+    #expect(revokedState.invites.isEmpty)
 }
 
 @Test

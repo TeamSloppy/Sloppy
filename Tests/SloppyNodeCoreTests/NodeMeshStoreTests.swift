@@ -92,6 +92,26 @@ struct NodeMeshStoreTests {
         }
     }
 
+    @Test("invite revoke removes pending invite and records audit entry")
+    func inviteRevokeRemovesPendingInviteAndRecordsAuditEntry() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let invite = try store.createInvite(
+            networkId: "personal",
+            name: "Home Mac",
+            roles: ["worker"],
+            capabilities: ["run_agent"],
+            ttlSeconds: 60
+        )
+
+        try store.revokeInvite(token: invite.token, actor: "api")
+
+        let state = try store.load()
+        #expect(state.invites.isEmpty)
+        #expect(state.auditLog.last?.action == "node.invite.revoke")
+        #expect(state.auditLog.last?.actor == "api")
+        #expect(state.auditLog.last?.message == invite.token)
+    }
+
     @Test("bundled invite token carries relay URL and worker public key")
     func bundledInviteTokenCarriesRelayURLAndWorkerPublicKey() throws {
         let store = NodeMeshStore(stateURL: temporaryStateURL())

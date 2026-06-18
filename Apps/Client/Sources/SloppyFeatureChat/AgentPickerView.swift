@@ -25,58 +25,122 @@ public struct AgentPickerView: View {
     public var body: some View {
         let c = theme.colors
         let sp = theme.spacing
-        let bo = theme.borders
         let ty = theme.typography
 
-        return VStack(alignment: .leading, spacing: 0) {
+        return VStack(alignment: .leading, spacing: sp.s) {
             HStack {
                 Text("SELECT AGENT")
                     .font(.system(size: ty.caption))
                     .foregroundColor(c.textMuted)
                 Spacer()
-                Button("CLOSE") { onDismiss() }
-                    .font(.system(size: ty.caption))
-                    .foregroundColor(c.textMuted)
+                Button(action: onDismiss) {
+                    HStack(spacing: sp.xs) {
+                        Icons.symbol(.close, size: ty.caption)
+                        Text("CLOSE")
+                            .font(.system(size: ty.caption))
+                    }
+                    .foregroundColor(c.textSecondary)
+                    .padding(.horizontal, sp.s)
+                    .padding(.vertical, sp.xs)
+                    .background {
+                        Capsule()
+                            .fill(c.surfaceRaised.opacity(0.82 as Float))
+                    }
+                    .glassEffect(.regular.tint(c.surfaceGlow.opacity(0.14 as Float)), in: Capsule())
+                }
             }
             .padding(.horizontal, sp.l)
             .padding(.vertical, sp.m)
-            .border(c.border, lineWidth: bo.thin)
 
             ScrollView {
                 LazyVStack(
                     agents,
                     alignment: .leading,
-                    spacing: 0,
+                    spacing: sp.xs,
                     estimatedRowHeight: 62,
                     overscan: 12
                 ) { agent in
-                        let isSelected = agent.id == selectedAgent?.id
-                        Button(action: { onSelect(agent) }) {
-                            HStack(spacing: sp.m) {
-                                VStack(alignment: .leading, spacing: sp.xs) {
-                                    Text(agent.displayName)
-                                        .font(.system(size: ty.body))
-                                        .foregroundColor(isSelected ? c.accentCyan : c.textPrimary)
-                                    if !agent.role.isEmpty {
-                                        Text(agent.role.uppercased())
-                                            .font(.system(size: ty.micro))
-                                            .foregroundColor(c.textMuted)
-                                    }
-                                }
-                                Spacer()
-                                if isSelected {
-                                    Icons.symbol(.radioButtonChecked, size: ty.caption)
-                                        .foregroundColor(c.accentCyan)
-                                }
-                            }
-                            .padding(.horizontal, sp.l)
-                            .padding(.vertical, sp.m)
-                            .background(isSelected ? c.accentCyan.opacity(0.05 as Float) : Color.clear)
-                        }
-                        .border(c.border, lineWidth: bo.thin)
+                    AgentPickerRow(
+                        agent: agent,
+                        isSelected: agent.id == selectedAgent?.id,
+                        onSelect: onSelect,
+                        colors: c,
+                        spacing: sp,
+                        typography: ty
+                    )
                 }
             }
+            .padding(.horizontal, sp.s)
         }
-        .background(c.surface)
+        .padding(.vertical, sp.s)
+        .background {
+            RoundedRectangle(cornerRadius: 28)
+                .fill(c.surfaceGlass.opacity(0.96 as Float))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 28)
+                        .stroke(c.border.opacity(0.82 as Float), lineWidth: theme.borders.thin)
+                }
+        }
+        .glassEffect(.regular.tint(c.surfaceGlow.opacity(0.12 as Float)), in: RoundedRectangle(cornerRadius: 28))
+    }
+}
+
+private struct AgentPickerRow: View {
+    let agent: APIAgentRecord
+    let isSelected: Bool
+    let onSelect: (APIAgentRecord) -> Void
+    let colors: AppColors
+    let spacing: AppSpacing
+    let typography: AppTypography
+
+    var body: some View {
+        Button(action: { onSelect(agent) }) {
+            HStack(spacing: spacing.m) {
+                Circle()
+                    .fill(isSelected ? colors.accentAcid : colors.surfaceRaised)
+                    .frame(width: 18, height: 18)
+                    .overlay {
+                        Circle()
+                            .stroke(Color.white.opacity(isSelected ? 0.20 as Float : 0.08 as Float), lineWidth: 1)
+                    }
+
+                VStack(alignment: .leading, spacing: spacing.xs) {
+                    Text(agent.displayName)
+                        .font(.system(size: typography.body))
+                        .foregroundColor(isSelected ? colors.textPrimary : colors.textSecondary)
+                    if !agent.role.isEmpty {
+                        Text(agent.role.uppercased())
+                            .font(.system(size: typography.micro))
+                            .foregroundColor(colors.textMuted)
+                    }
+                }
+
+                Spacer()
+
+                if isSelected {
+                    Icons.symbol(.radioButtonChecked, size: typography.caption)
+                        .foregroundColor(colors.accentCyan)
+                }
+            }
+            .padding(.horizontal, spacing.l)
+            .padding(.vertical, spacing.m)
+            .background {
+                RoundedRectangle(cornerRadius: 22)
+                    .fill(isSelected ? colors.accentCyan.opacity(0.12 as Float) : colors.surfaceRaised.opacity(0.52 as Float))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 22)
+                            .stroke(
+                                isSelected ? colors.accentCyan.opacity(0.42 as Float) : colors.border.opacity(0.72 as Float),
+                                lineWidth: 1
+                            )
+                    }
+            }
+        }
+        .glassEffect(
+            .regular.tint(
+                isSelected ? colors.accentCyan.opacity(0.06 as Float) : colors.surfaceGlow.opacity(0.08 as Float)
+            ),
+            in: RoundedRectangle(cornerRadius: 22)
+        )
     }
 }

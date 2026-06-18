@@ -16,7 +16,7 @@ struct SessionsStatusTool: CoreTool {
     }
 
     func invoke(arguments: [String: JSONValue], context: ToolContext) async -> ToolInvocationResult {
-        let targetSession = resolveSessionID(arguments["sessionId"]?.asString, context: context)
+        let targetSession = await resolveSessionIDForStatus(arguments["sessionId"]?.asString, context: context)
         do {
             let detail = try context.sessionStore.loadSession(agentID: context.agentID, sessionID: targetSession)
             let activeProcesses = await context.processRegistry.activeCount(sessionID: targetSession)
@@ -29,7 +29,59 @@ struct SessionsStatusTool: CoreTool {
             )
             return toolSuccess(tool: name, data: encodeJSONValue(sessionStatus))
         } catch {
+            if let channelStatus = await loadChannelSessionStatusIfAvailable(
+                sessionID: targetSession,
+                context: context
+            ) {
+                return toolSuccess(tool: name, data: encodeJSONValue(channelStatus))
+            }
             return toolFailure(tool: name, code: "session_status_failed", message: "Failed to load session status.", retryable: true)
         }
+    }
+
+    private func resolveSessionIDForStatus(_ raw: String?, context: ToolContext) async -> String {
+        let resolved = resolveSessionID(raw, context: context)
+        guard resolved == context.sessionID,
+              let channelID = context.channelID,
+              !channelID.isEmpty,
+              !resolved.hasPrefix("session-")
+        else {
+            return resolved
+        }
+
+        let sessions = (try? await context.channelSessionStore.listSessions(
+            status: .open,
+            channelIds: Set([channelID]),
+            limit: 1
+        )) ?? []
+        return sessions.first?.sessionId ?? resolved
+    }
+
+    private func loadChannelSessionStatusIfAvailable(
+        sessionID: String,
+        context: ToolContext
+    ) async -> SessionStatusResponse? {
+        guard let channelID = context.channelID,
+              !channelID.isEmpty
+        else {
+            return nil
+        }
+        let sessions = (try? await context.channelSessionStore.listSessions(
+            status: .open,
+            channelIds: Set([channelID]),
+            limit: 1
+        )) ?? []
+        guard let summary = sessions.first,
+              summary.sessionId == sessionID
+        else {
+            return nil
+        }
+        return SessionStatusResponse(
+            sessionId: summary.sessionId,
+            status: summary.status.rawValue,
+            messageCount: summary.messageCount,
+            updatedAt: summary.updatedAt,
+            activeProcessCount: 0
+        )
     }
 }

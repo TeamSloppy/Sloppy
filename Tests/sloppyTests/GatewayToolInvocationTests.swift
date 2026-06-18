@@ -216,6 +216,62 @@ struct GatewayToolInvocationTests {
         #expect(task.description.contains("Potential risks from planning"))
     }
 
+    @Test("gateway sessions.history resolves current open channel session")
+    func gatewaySessionsHistoryResolvesCurrentOpenChannelSession() async throws {
+        let service = makeService()
+        let agentID = "gateway-session-history-\(UUID().uuidString)"
+        let channelID = "agent:sloppy\u{001E}tgthread:161"
+        try await makeAgent(service: service, agentID: agentID)
+
+        _ = try await service.channelSessionStore.recordUserMessage(
+            channelId: channelID,
+            userId: "tg:84480308",
+            content: "Restore this channel session"
+        )
+
+        let result = await service.invokeToolFromChannelRuntime(
+            agentID: agentID,
+            channelID: channelID,
+            request: ToolInvocationRequest(
+                tool: "sessions.history",
+                arguments: [:],
+                reason: "Read current channel-backed session"
+            )
+        )
+
+        #expect(result.ok == true, "sessions.history via channel runtime should succeed, got: \(result.error?.message ?? "nil") code: \(result.error?.code ?? "nil")")
+        #expect(result.data?.asObject?["summary"]?.asObject?["channelId"]?.asString == channelID)
+        #expect((result.data?.asObject?["events"]?.asArray?.count ?? 0) >= 2)
+    }
+
+    @Test("gateway sessions.status resolves current open channel session")
+    func gatewaySessionsStatusResolvesCurrentOpenChannelSession() async throws {
+        let service = makeService()
+        let agentID = "gateway-session-status-\(UUID().uuidString)"
+        let channelID = "agent:sloppy\u{001E}tgthread:161"
+        try await makeAgent(service: service, agentID: agentID)
+
+        _ = try await service.channelSessionStore.recordUserMessage(
+            channelId: channelID,
+            userId: "tg:84480308",
+            content: "Status for this channel session"
+        )
+
+        let result = await service.invokeToolFromChannelRuntime(
+            agentID: agentID,
+            channelID: channelID,
+            request: ToolInvocationRequest(
+                tool: "sessions.status",
+                arguments: [:],
+                reason: "Read current channel-backed session status"
+            )
+        )
+
+        #expect(result.ok == true, "sessions.status via channel runtime should succeed, got: \(result.error?.message ?? "nil") code: \(result.error?.code ?? "nil")")
+        #expect(result.data?.asObject?["status"]?.asString == "open")
+        #expect(result.data?.asObject?["messageCount"]?.asNumber == 1)
+    }
+
     @Test("core API still accepts short manual task descriptions")
     func coreAPIStillAcceptsShortManualTaskDescriptions() async throws {
         let service = makeService()

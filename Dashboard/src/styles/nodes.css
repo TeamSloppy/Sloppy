@@ -236,7 +236,7 @@
 .nodes-row {
   width: 100%;
   border: 1px solid var(--line);
-  background: var(--background);
+  background: var(--surface);
   color: var(--text);
   text-align: left;
   cursor: pointer;
@@ -257,7 +257,7 @@
 .nodes-row:hover,
 .nodes-row.selected {
   border-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 7%, var(--background));
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
 }
 
 .nodes-system-list strong,
@@ -619,13 +619,23 @@
 
 .nodes-audit-row,
 .nodes-invite-row {
-  border-bottom: 1px solid var(--line);
-  padding: 6px 0 9px;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+  padding: 10px;
 }
 
 .nodes-audit-row:last-child,
 .nodes-invite-row:last-child {
-  border-bottom: 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.nodes-invite-main {
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .nodes-invite-row code {
@@ -634,6 +644,13 @@
   color: var(--accent);
   font-size: 0.68rem;
   overflow-wrap: anywhere;
+}
+
+.nodes-inline-action {
+  min-height: 32px;
+  padding: 0 10px;
+  font-size: 0.72rem;
+  white-space: nowrap;
 }
 
 .nodes-modal-backdrop {

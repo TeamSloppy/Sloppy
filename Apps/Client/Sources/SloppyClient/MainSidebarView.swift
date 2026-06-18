@@ -31,12 +31,14 @@ struct MainSidebarView: View {
     }
 
     var body: some View {
-        let c = theme.colors
-
-        if viewModel.isSidebarCollapsed && !isOverlay {
-            collapsedSidebar(c: c)
-        } else {
-            expandedSidebar(c: c)
+        NavigationStack {
+            let c = theme.colors
+            
+            if viewModel.isSidebarCollapsed && !isOverlay {
+                collapsedSidebar(c: c)
+            } else {
+                expandedSidebar(c: c)
+            }
         }
     }
 
@@ -44,8 +46,8 @@ struct MainSidebarView: View {
         let sp = theme.spacing
 
         let content = VStack(alignment: .leading, spacing: 0) {
-            desktopWindowHeader(c: c, sp: sp)
-                .padding(.bottom, sp.m)
+            windowHeader(c: c, sp: sp)
+                .padding(.bottom, isOverlay ? sp.l : sp.m)
 
             ScrollView {
                 VStack(alignment: .leading, spacing: sp.l) {
@@ -94,19 +96,37 @@ struct MainSidebarView: View {
         .padding(.vertical, sp.l)
     }
 
+    @ViewBuilder
+    private func windowHeader(c: AppColors, sp: AppSpacing) -> some View {
+        if isOverlay {
+            overlayWindowHeader(c: c, sp: sp)
+        } else {
+            desktopWindowHeader(c: c, sp: sp)
+        }
+    }
+
     private func desktopWindowHeader(c: AppColors, sp: AppSpacing) -> some View {
         HStack(spacing: sp.s) {
             Spacer(minLength: 0)
 
-            headerIconButton(isOverlay ? .close : .collapseContent, c: c) {
-                if isOverlay {
-                    viewModel.dismissMobileSidebar()
-                } else {
-                    viewModel.isSidebarCollapsed = true
-                }
+            headerIconButton(.collapseContent, c: c) {
+                viewModel.isSidebarCollapsed = true
             }
         }
         .padding(.top, sp.l)
+    }
+
+    private func overlayWindowHeader(c: AppColors, sp: AppSpacing) -> some View {
+        HStack(spacing: 0) {
+            Spacer(minLength: 0)
+
+            headerIconButton(.close, c: c) {
+                viewModel.dismissMobileSidebar()
+            }
+        }
+        .frame(maxWidth: .infinity, alignment: .trailing)
+        .padding(.top, sp.xl + sp.s)
+        .padding(.trailing, sp.xs)
     }
 
     private func chatActions(c: AppColors, sp: AppSpacing) -> some View {
@@ -421,8 +441,6 @@ struct MainSidebarView: View {
         return Button(action: action) {
             Icons.symbol(icon, size: ty.body)
                 .foregroundColor(isActive ? c.textPrimary : c.textMuted)
-                .frame(width: 40, height: 40)
-                .applySidebarGlass(usesLiquidGlass, cornerRadius: 14)
         }
     }
 
@@ -438,8 +456,6 @@ struct MainSidebarView: View {
             Text(title)
                 .font(.system(size: title.count <= 2 ? ty.caption : ty.micro))
                 .foregroundColor(isActive ? c.textPrimary : c.textMuted)
-                .frame(width: 40, height: 40)
-                .applySidebarGlass(usesLiquidGlass, cornerRadius: 14)
         }
     }
 
@@ -448,7 +464,7 @@ struct MainSidebarView: View {
         if usesLiquidGlass {
             content
                 .padding(8)
-                .glassEffect(.regular.tint(Color.black.opacity(0.14 as Float)), in: RoundedRectangleShape(cornerRadius: 28))
+                .glassEffect(.regular.tint(Color.black.opacity(0.14 as Float)), in: RoundedRectangle(cornerRadius: 28))
         } else {
             content
                 .background(c.background)
@@ -488,6 +504,15 @@ struct MainSidebarView: View {
             .compactMap { $0.first }
         let monogram = String(letters)
         return monogram.isEmpty ? "SL" : monogram.uppercased()
+    }
+}
+
+private struct MobileSidebarOverlayIconButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .frame(width: 48, height: 48)
+            .glassEffect(.regular, in: Circle())
+            .opacity(configuration.isPressed ? 0.78 as Float : 1)
     }
 }
 
@@ -546,10 +571,9 @@ private struct HoverableSidebarRow: View {
             }
             .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
             .padding(EdgeInsets(top: 0, leading: leadingInset + spacing.s, bottom: 0, trailing: spacing.m + spacing.s))
-            .applySidebarGlass(
-                usesLiquidGlass,
-                style: isActive ? .regular.tint(Color.white.opacity(isSelected ? 0.07 as Float : 0.035 as Float)) : .identity,
-                cornerRadius: rowRadius
+            .glassEffect(
+                isActive ? .regular.tint(Color.white.opacity(isSelected ? 0.07 as Float : 0.035 as Float)) : .identity,
+                in: Capsule()
             )
         }
         .onHover {

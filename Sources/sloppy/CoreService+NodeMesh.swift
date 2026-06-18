@@ -30,6 +30,10 @@ extension CoreService {
         )
     }
 
+    public func deleteMeshInvite(token: String) throws {
+        try nodeMeshStore.revokeInvite(token: token, actor: "api")
+    }
+
     public func acceptMeshInvite(_ request: MeshInviteAcceptRequest) throws -> MeshNodeRecord {
         do {
             return try nodeMeshStore.acceptInvite(token: request.token, endpoint: request.endpoint)

@@ -89,6 +89,7 @@ export interface CoreApi {
   fetchMeshState: () => Promise<AnyRecord | null>;
   configureMeshNetwork: (payload: AnyRecord) => Promise<AnyRecord | null>;
   createMeshInvite: (payload: AnyRecord) => Promise<AnyRecord | null>;
+  deleteMeshInvite: (token: string) => Promise<boolean>;
   acceptMeshInvite: (payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchMeshNodes: () => Promise<AnyRecord[]>;
   registerMeshNode: (payload: AnyRecord) => Promise<AnyRecord | null>;
@@ -556,6 +557,14 @@ export function createCoreApi(): CoreApi {
         return null;
       }
       return response.data;
+    },
+
+    deleteMeshInvite: async (token) => {
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/node/mesh/invites/${encodeURIComponent(token)}`,
+        method: "DELETE"
+      });
+      return response.ok;
     },
 
     acceptMeshInvite: async (payload) => {

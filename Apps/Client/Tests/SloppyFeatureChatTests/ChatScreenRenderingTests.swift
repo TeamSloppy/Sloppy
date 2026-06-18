@@ -26,4 +26,25 @@ struct ChatScreenRenderingTests {
 
         #expect(!contentSource.contains("viewModel."))
     }
+
+    @Test("phone navigation uses a dedicated mobile header capsule")
+    func phoneNavigationUsesDedicatedMobileHeaderCapsule() throws {
+        let source = try chatScreenSource
+
+        #expect(source.contains("MobileChatNavigationHeader"))
+        #expect(source.contains("MobileChatNavigationCenterCapsule"))
+        #expect(source.contains("mobileNavigationCapsuleWidth"))
+        #expect(source.contains(".frame(width: mobileNavigationCapsuleWidth"))
+        #expect(source.contains(".glassEffect(.regular.tint(Color.white.opacity(0.03 as Float)), in: Capsule())"))
+        #expect(source.contains("Icons.symbol(.menu"))
+    }
+
+    @Test("empty mobile chat keeps composer pinned to bottom")
+    func emptyMobileChatKeepsComposerPinnedToBottom() throws {
+        let source = try chatScreenSource
+
+        #expect(source.contains("let showsComposer = true"))
+        #expect(source.contains("bottomClearance: composerScrollInset"))
+        #expect(source.contains("Spacer(minLength: bottomClearance)"))
+    }
 }

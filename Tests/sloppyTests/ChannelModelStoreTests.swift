@@ -1,4 +1,5 @@
 import Foundation
+import PluginSDK
 import Protocols
 import Testing
 @testable import sloppy
@@ -215,6 +216,19 @@ func statusCommandReturnsChannelInfo() async throws {
 
     let ok = await service.postMessage(channelId: channelId, userId: "tg:1", content: "/status")
     #expect(ok)
+}
+
+@Test
+func normalizeWhitespacePreservesTopicScopedChannelSeparator() async {
+    let service = CoreService(config: .test)
+    let raw = "  agent:sloppy\u{001E}tgthread:161  "
+
+    let normalized = await service.normalizeWhitespace(raw)
+    let parsed = ChannelGatewayScope.parse(normalized)
+
+    #expect(normalized == "agent:sloppy\u{001E}tgthread:161")
+    #expect(parsed.baseChannelId == "agent:sloppy")
+    #expect(parsed.topicKey == "161")
 }
 
 #if DEBUG

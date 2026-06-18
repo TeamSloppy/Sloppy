@@ -410,6 +410,23 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
     });
   }
 
+  async function revokeInvite(invite: AnyRecord) {
+    const token = meshInviteToken(invite);
+    if (!token) {
+      setError("Invite token is required.");
+      return;
+    }
+    await runAction("revoke-invite", async () => {
+      const deleted = await coreApi.deleteMeshInvite(token);
+      if (!deleted) {
+        setError("Invite could not be revoked.");
+        return false;
+      }
+      setLatestInvite((current) => text(current?.token) === text(invite.token) ? null : current);
+      return true;
+    });
+  }
+
   async function registerNode() {
     const id = nodeId.trim();
     const publicKey = nodePublicKey.trim();
@@ -792,9 +809,19 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
               <div className="nodes-list">
                 {activeInvites.length === 0 ? <p className="nodes-empty">No invites for this system.</p> : activeInvites.map((invite) => (
                   <article key={text(invite.token)} className="nodes-invite-row">
-                    <strong>{text(invite.name, "unnamed node")}</strong>
-                    <small>{list(invite.roles).join(", ") || "worker"} / {list(invite.capabilities).join(", ") || "no capabilities"}</small>
-                    <code>{meshInviteToken(invite)}</code>
+                    <div className="nodes-invite-main">
+                      <strong>{text(invite.name, "unnamed node")}</strong>
+                      <small>{list(invite.roles).join(", ") || "worker"} / {list(invite.capabilities).join(", ") || "no capabilities"}</small>
+                      <code>{meshInviteToken(invite)}</code>
+                    </div>
+                    <button
+                      type="button"
+                      className="nodes-secondary-button nodes-inline-action"
+                      disabled={!!busyAction}
+                      onClick={() => void revokeInvite(invite)}
+                    >
+                      {busyAction === "revoke-invite" ? "Revoking" : "Revoke"}
+                    </button>
                   </article>
                 ))}
               </div>

@@ -56,7 +56,7 @@ public struct ChatBubbleView: View {
                 .padding(.horizontal, sp.m)
                 .padding(.vertical, sp.s)
                 .background {
-                    RoundedRectangleShape(cornerRadius: Self.userBubbleRadius)
+                    RoundedRectangle(cornerRadius: Self.userBubbleRadius)
                         .fill(c.accent.opacity(0.20 as Float))
                 }
         }
@@ -75,7 +75,7 @@ public struct ChatBubbleView: View {
             .padding(.horizontal, sp.s)
             .padding(.vertical, sp.s)
             .background {
-                RoundedRectangleShape(cornerRadius: Self.userBubbleRadius)
+                RoundedRectangle(cornerRadius: Self.userBubbleRadius)
                     .fill(c.accent.opacity(0.20 as Float))
             }
     }

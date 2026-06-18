@@ -730,7 +730,7 @@ public actor CoreService {
 
     func normalizeWhitespace(_ value: String) -> String {
         value
-            .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            .replacingOccurrences(of: #"[ \t\r\n]+"#, with: " ", options: .regularExpression)
             .trimmingCharacters(in: .whitespacesAndNewlines)
     }
 

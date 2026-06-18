@@ -18,7 +18,7 @@ struct SloppyShellRenderingTests {
         let shell = try source("Sources", "SloppyClient", "SloppyGlassShell.swift")
 
         #expect(mainView.contains("SloppyGlassShell"))
-        #expect(shell.contains("RoundedRectangleShape(cornerRadius: Self.cornerRadius)"))
+        #expect(shell.contains("RoundedRectangle(cornerRadius: Self.cornerRadius)"))
         #expect(shell.contains(".mask(shape)"))
         #expect(shell.contains(".allowsHitTesting(false)"))
     }

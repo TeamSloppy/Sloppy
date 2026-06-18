@@ -97,6 +97,7 @@ final class ToolExecutionService: @unchecked Sendable {
     func invoke(
         agentID: String,
         sessionID: String,
+        currentChannelID: String? = nil,
         request: ToolInvocationRequest,
         policy: AgentToolsPolicy,
         currentProjectID: String? = nil,
@@ -105,6 +106,7 @@ final class ToolExecutionService: @unchecked Sendable {
         let context = makeContext(
             agentID: agentID,
             sessionID: sessionID,
+            channelID: currentChannelID,
             policy: policy,
             currentProjectID: currentProjectID,
             currentDirectoryURL: currentDirectoryURL,
@@ -130,6 +132,7 @@ final class ToolExecutionService: @unchecked Sendable {
     func makeContext(
         agentID: String,
         sessionID: String,
+        channelID: String? = nil,
         policy: AgentToolsPolicy,
         currentProjectID: String? = nil,
         currentDirectoryURL: URL? = nil,
@@ -143,6 +146,7 @@ final class ToolExecutionService: @unchecked Sendable {
         return ToolContext(
             agentID: agentID,
             sessionID: sessionID,
+            channelID: channelID,
             policy: policy,
             workspaceRootURL: workspaceRootURL,
             readOnlyRoots: agentSkillsStore?.sharedSkillsRootPaths() ?? [],

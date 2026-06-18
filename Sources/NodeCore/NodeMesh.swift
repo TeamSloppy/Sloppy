@@ -811,6 +811,21 @@ public struct NodeMeshStore: Sendable {
         return invite
     }
 
+    public func revokeInvite(token: String, actor: String = "local") throws {
+        var state = try load()
+        let bundle = try? MeshInviteBundle.parse(token)
+        let inviteToken = bundle?.inviteToken ?? token
+        guard let index = state.invites.firstIndex(where: { $0.token == inviteToken }) else {
+            throw NodeMeshStoreError.inviteMissing
+        }
+
+        let invite = state.invites[index]
+        guard invite.consumedAt == nil else { throw NodeMeshStoreError.inviteConsumed }
+        state.invites.remove(at: index)
+        state.auditLog.append(MeshAuditLogEntry(actor: actor, action: "node.invite.revoke", allowed: true, message: invite.token))
+        try save(state)
+    }
+
     @discardableResult
     public func acceptInvite(token: String, endpoint: String? = nil) throws -> MeshNodeRecord {
         var state = try load()

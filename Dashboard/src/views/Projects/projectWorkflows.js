@@ -11,10 +11,52 @@ export function selectWorkflowAfterDelete(workflows, deletedWorkflowId) {
 const NODE_WIDTH = 190;
 const NODE_HEIGHT = 92;
 const CANVAS_PADDING = 96;
+const WORKFLOW_COMPACT_BREAKPOINT = 1040;
 
 function asNumber(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
+}
+
+export function workflowCanvasViewportStyle(viewportWidth, viewportHeight) {
+  const width = asNumber(viewportWidth, 0);
+  const height = asNumber(viewportHeight, 0);
+  if (width <= 0 || height <= 0 || width > WORKFLOW_COMPACT_BREAKPOINT) {
+    return {};
+  }
+  return { height: `${Math.round(height)}px` };
+}
+
+export function workflowBoardSurfaceStyle(workflow) {
+  const nodes = Array.isArray(workflow?.nodes) ? workflow.nodes : [];
+  if (nodes.length === 0) {
+    return { width: "100%", height: "100%" };
+  }
+  const maxX = nodes.reduce((value, node) => Math.max(value, asNumber(node?.positionX, 0) + NODE_WIDTH), 0);
+  const maxY = nodes.reduce((value, node) => Math.max(value, asNumber(node?.positionY, 0) + NODE_HEIGHT), 0);
+  return {
+    width: `${Math.max(900, maxX + CANVAS_PADDING)}px`,
+    height: `${Math.max(420, maxY + CANVAS_PADDING)}px`
+  };
+}
+
+export function createBlankWorkflowRequest(nextIndex) {
+  const index = Math.max(1, asNumber(nextIndex, 1));
+  return {
+    name: `Workflow ${index}`,
+    enabled: true,
+    lanes: [{ id: "system", title: "System", kind: "system" }],
+    nodes: [{
+      id: "start",
+      type: "trigger",
+      title: "User Message",
+      laneId: "system",
+      config: { mode: "manual", blockKind: "user_message", accepts: "text, attachment, artifact" },
+      positionX: 120,
+      positionY: 140
+    }],
+    edges: []
+  };
 }
 
 function workflowNodePoint(node, side) {

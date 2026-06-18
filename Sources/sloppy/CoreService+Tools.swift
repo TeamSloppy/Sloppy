@@ -723,6 +723,7 @@ extension CoreService {
                             return await toolExecution.invoke(
                                 agentID: normalizedAgentID,
                                 sessionID: channelID,
+                                currentChannelID: channelID,
                                 request: invocationRequest,
                                 policy: invocationPolicy,
                                 currentDirectoryURL: currentDirectoryURL

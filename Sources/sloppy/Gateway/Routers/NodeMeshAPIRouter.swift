@@ -43,6 +43,16 @@ struct NodeMeshAPIRouter: APIRouter {
             }
         }
 
+        router.delete("/v1/node/mesh/invites/:token", metadata: RouteMetadata(summary: "Revoke mesh invite", description: "Removes a pending SloppyNode mesh invite token before it is consumed", tags: ["Node Mesh"])) { request in
+            do {
+                let token = request.pathParam("token") ?? ""
+                try await service.deleteMeshInvite(token: token)
+                return CoreRouter.json(status: HTTPStatus.ok, payload: ["status": "deleted"])
+            } catch {
+                return meshErrorResponse(error)
+            }
+        }
+
         router.post("/v1/node/mesh/invites/accept", metadata: RouteMetadata(summary: "Accept mesh invite", description: "Consumes a bundled SloppyNode mesh invite token and registers the invited node identity", tags: ["Node Mesh"])) { request in
             guard let body = request.body,
                   let payload = CoreRouter.decode(body, as: MeshInviteAcceptRequest.self) else {

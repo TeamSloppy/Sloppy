@@ -11,7 +11,7 @@ import {
   startProjectWorkflowRun,
   updateProjectWorkflow
 } from "../../api";
-import { selectWorkflowAfterDelete } from "./projectWorkflows";
+import { createBlankWorkflowRequest, selectWorkflowAfterDelete, workflowBoardSurfaceStyle, workflowCanvasViewportStyle } from "./projectWorkflows";
 
 type AnyRecord = Record<string, any>;
 
@@ -455,6 +455,10 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
   const [nodeConfigText, setNodeConfigText] = useState("{}");
   const [agentSearch, setAgentSearch] = useState("");
   const [agentDropdownOpen, setAgentDropdownOpen] = useState(false);
+  const [viewportSize, setViewportSize] = useState(() => ({
+    width: typeof window !== "undefined" ? window.innerWidth : 0,
+    height: typeof window !== "undefined" ? window.innerHeight : 0
+  }));
   const agentSearchRef = useRef<HTMLDivElement | null>(null);
 
   const selectedWorkflow = useMemo(
@@ -488,6 +492,14 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
   );
   const selectedNode: AnyRecord | null = selectedNodeId ? nodeMap.get(selectedNodeId) || null : null;
   const selectedEdge: AnyRecord | null = selectedEdgeId ? (draft?.edges || []).find((edge: AnyRecord) => edge.id === selectedEdgeId) || null : null;
+  const canvasViewportStyle = useMemo(
+    () => workflowCanvasViewportStyle(viewportSize.width, viewportSize.height),
+    [viewportSize.height, viewportSize.width]
+  );
+  const boardSurfaceStyle = useMemo(
+    () => workflowBoardSurfaceStyle(draft),
+    [draft]
+  );
 
   function applyViewTransform(next: { x: number; y: number; scale: number }) {
     viewTransformRef.current = next;
@@ -602,6 +614,14 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
       isCancelled = true;
     };
   }, [project.id, selectedRunId]);
+
+  useEffect(() => {
+    function handleResize() {
+      setViewportSize({ width: window.innerWidth, height: window.innerHeight });
+    }
+    window.addEventListener("resize", handleResize);
+    return () => window.removeEventListener("resize", handleResize);
+  }, []);
 
   useEffect(() => {
     if (!selectedNode) {
@@ -854,6 +874,7 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
       const created = await createProjectWorkflow(project.id, STARTER_WORKFLOW);
       await load({ keepSelection: true });
       if (created?.id) setSelectedWorkflowId(String(created.id));
+      else setStatusText("Failed to create starter workflow");
     } finally {
       setIsBusy(false);
     }
@@ -862,15 +883,10 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
   async function createBlankWorkflow() {
     setIsBusy(true);
     try {
-      const created = await createProjectWorkflow(project.id, {
-        name: `Workflow ${workflows.length + 1}`,
-        enabled: true,
-        lanes: [{ id: "system", title: "System", kind: "system" }],
-        nodes: [],
-        edges: []
-      });
+      const created = await createProjectWorkflow(project.id, createBlankWorkflowRequest(workflows.length + 1));
       await load({ keepSelection: true });
       if (created?.id) setSelectedWorkflowId(String(created.id));
+      else setStatusText("Failed to create workflow");
     } finally {
       setIsBusy(false);
     }
@@ -1078,7 +1094,7 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
           </div>
         </aside>
 
-        <section className="project-workflows-board-pane" aria-label="Workflow board">
+        <section className="project-workflows-board-pane" aria-label="Workflow board" style={canvasViewportStyle}>
           <div
             className={`project-workflows-board-scroller ${panState ? "is-panning" : ""}`}
             ref={scrollerRef}
@@ -1100,6 +1116,7 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
             <div
               className="project-workflows-board"
               style={{
+                ...boardSurfaceStyle,
                 transform: `translate(${viewTransform.x}px, ${viewTransform.y}px) scale(${viewTransform.scale})`,
                 transformOrigin: "0 0"
               }}
@@ -1110,7 +1127,6 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
                     {draft.lanes.map((lane: AnyRecord) => (
                       <span key={lane.id}>
                         <strong>{lane.title}</strong>
-                        <small>{lane.kind}</small>
                       </span>
                     ))}
                   </div>
@@ -1226,7 +1242,7 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
             <p>Wheel pans · Shift/Ctrl wheel zooms</p>
           </div>
 
-          <div className="project-workflows-board-status">
+          <div className={`project-workflows-board-status ${isDirty ? "is-dirty" : ""}`.trim()}>
             {isBusy ? "Working..." : isDirty ? "Unsaved changes" : statusText}
           </div>
         </section>

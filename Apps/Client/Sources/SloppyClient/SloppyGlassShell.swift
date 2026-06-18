@@ -12,7 +12,7 @@ struct SloppyGlassShell<Content: View>: View {
     }
 
     var body: some View {
-        let shape = RoundedRectangleShape(cornerRadius: Self.cornerRadius)
+        let shape = RoundedRectangle(cornerRadius: Self.cornerRadius)
 
         return content
             .background {
