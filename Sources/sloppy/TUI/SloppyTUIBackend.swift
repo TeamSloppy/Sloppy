@@ -1,3 +1,4 @@
+import AgentRuntime
 import Foundation
 import Protocols
 
@@ -54,6 +55,7 @@ protocol SloppyTUIBackend: Sendable {
     func listMCPServerStatuses() async -> [MCPServerStatus]
     func getAgentTokenUsage(agentID: String) async throws -> AgentTokenUsageResponse
     func listTokenUsage(channelId: String?, taskId: String?, from: Date?, to: Date?) async -> TokenUsageResponse
+    func contextLedgerSnapshot(channelId: String) async -> ContextLedgerSnapshot?
     func hasLiveAgentRuntimeSession(agentID: String, sessionID: String) async -> Bool
     func requestAgentMemoryCheckpoint(agentID: String, sessionID: String, reason: String?) async throws -> AgentMemoryCheckpointResponse
     func probeProvider(request: ProviderProbeRequest) async -> ProviderProbeResponse
@@ -232,6 +234,9 @@ struct LocalSloppyTUIBackend: SloppyTUIBackend {
     }
     func listTokenUsage(channelId: String?, taskId: String?, from: Date?, to: Date?) async -> TokenUsageResponse {
         await service.listTokenUsage(channelId: channelId, taskId: taskId, from: from, to: to)
+    }
+    func contextLedgerSnapshot(channelId: String) async -> ContextLedgerSnapshot? {
+        await service.runtime.contextLedgerSnapshot(channelId: channelId)
     }
     func hasLiveAgentRuntimeSession(agentID: String, sessionID: String) async -> Bool {
         (try? await service.hasLiveAgentRuntimeSession(agentID: agentID, sessionID: sessionID)) ?? false
@@ -417,6 +422,9 @@ struct RemoteSloppyTUIBackend: SloppyTUIBackend {
         if let channelId { query["channelId"] = channelId }
         if let taskId { query["taskId"] = taskId }
         return (try? await get("/v1/token-usage", query: query, as: TokenUsageResponse.self)) ?? TokenUsageResponse(items: [])
+    }
+    func contextLedgerSnapshot(channelId: String) async -> ContextLedgerSnapshot? {
+        nil
     }
     func hasLiveAgentRuntimeSession(agentID: String, sessionID: String) async -> Bool { false }
     func requestAgentMemoryCheckpoint(agentID: String, sessionID: String, reason: String?) async throws -> AgentMemoryCheckpointResponse {

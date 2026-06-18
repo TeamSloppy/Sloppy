@@ -607,6 +607,11 @@ struct SloppyTUIMCPStatusSummary: Equatable {
     }
 }
 
+struct SloppyTUIContextCategorySummary: Equatable {
+    var label: String
+    var tokens: Int
+}
+
 struct SloppyTUIContextUsageSummary: Equatable {
     var modelTitle: String
     var modelID: String
@@ -617,6 +622,13 @@ struct SloppyTUIContextUsageSummary: Equatable {
     var contextWindowTokens: Int
     var pendingContextAttached: Bool
     var pendingUploadCount: Int
+    var ledgerCategories: [SloppyTUIContextCategorySummary] = []
+    var lastTurnInputTokens: Int = 0
+    var lastTurnCachedInputTokens: Int = 0
+    var lastTurnUncachedInputTokens: Int = 0
+    var lastTurnCacheCreationInputTokens: Int = 0
+    var lastTurnCompletionTokens: Int = 0
+    var lastTurnReasoningTokens: Int = 0
 
     var usagePercent: Int? {
         guard contextWindowTokens > 0 else {

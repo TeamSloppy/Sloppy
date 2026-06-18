@@ -1,3 +1,4 @@
+import AgentRuntime
 import Foundation
 import Protocols
 import Testing
@@ -617,18 +618,134 @@ func contextUsageMarkdownShowsReadableTokenBreakdown() {
     #expect(plainMarkdown.contains("Claude Opus 4.7 · 8.0K/1m tokens"))
     #expect(plainMarkdown.contains("claude-opus-4-7 · 1M context"))
     #expect(plainMarkdown.contains("used 1% · free 992.0K tokens"))
-    #expect(plainMarkdown.contains("Estimated usage by category"))
-    #expect(plainMarkdown.contains("◉ System prompt: not recorded"))
-    #expect(plainMarkdown.contains("◉ System tools:  not recorded"))
+    #expect(plainMarkdown.contains("Context window"))
+    #expect(plainMarkdown.contains("No context ledger yet; using token usage fallback."))
+    #expect(plainMarkdown.contains("Last turn"))
+    #expect(plainMarkdown.contains("- Cached input: 0 tokens"))
+    #expect(plainMarkdown.contains("- Uncached input: 0 tokens"))
     #expect(plainMarkdown.contains("● Input prompt:  6.0K tokens (0.6%)"))
     #expect(plainMarkdown.contains("● Completion: 2.0K tokens (0.2%)"))
     #expect(plainMarkdown.contains("□ Free space: 992.0K tokens"))
-    #expect(!plainMarkdown.contains("● Prompt:"))
+    #expect(!plainMarkdown.contains("Estimated usage by category"))
     #expect(plainMarkdown.contains("□ □ □ □ □ □ □ □ □ □"))
     #expect(plainMarkdown.contains("Pending next-message context: yes"))
     #expect(plainMarkdown.contains("Pending uploads: 2"))
     #expect(plainMarkdown.contains("/context changes"))
     #expect(plainMarkdown.contains("/context diff"))
+}
+
+@Test
+func contextUsageMarkdownSeparatesWindowAndLastTurnEconomics() {
+    let summary = SloppyTUIContextUsageSummary(
+        modelTitle: "GPT Test",
+        modelID: "openai-oauth:gpt-test",
+        contextWindowLabel: "10K",
+        promptTokens: 3_700,
+        completionTokens: 80,
+        totalTokens: 3_780,
+        contextWindowTokens: 10_000,
+        pendingContextAttached: false,
+        pendingUploadCount: 0,
+        ledgerCategories: [
+            .init(label: "Bootstrap", tokens: 2_000),
+            .init(label: "Tools", tokens: 1_500),
+            .init(label: "Current turn", tokens: 100),
+        ],
+        lastTurnInputTokens: 3_700,
+        lastTurnCachedInputTokens: 3_000,
+        lastTurnUncachedInputTokens: 700,
+        lastTurnCacheCreationInputTokens: 400,
+        lastTurnCompletionTokens: 80,
+        lastTurnReasoningTokens: 12
+    )
+
+    let markdown = SloppyTUITheme.contextUsageMarkdown(summary)
+    let plainMarkdown = stripANSI(markdown)
+    #expect(plainMarkdown.contains("Context window"))
+    #expect(plainMarkdown.contains("- Bootstrap: 2.0K tokens"))
+    #expect(plainMarkdown.contains("- Tools: 1.5K tokens"))
+    #expect(plainMarkdown.contains("- Current turn: 100 tokens"))
+    #expect(plainMarkdown.contains("Last turn"))
+    #expect(plainMarkdown.contains("- Input: 3.7K tokens"))
+    #expect(plainMarkdown.contains("- Cached input: 3.0K tokens"))
+    #expect(plainMarkdown.contains("- Uncached input: 700 tokens"))
+    #expect(plainMarkdown.contains("- Cache creation: 400 tokens"))
+    #expect(plainMarkdown.contains("- Output: 80 tokens"))
+    #expect(plainMarkdown.contains("- Reasoning: 12 tokens"))
+}
+
+@Test
+func contextUsageSummaryPrefersLedgerOverAggregateTokenUsageAndFallsBackWithoutIt() {
+    let usage = TokenUsageResponse(
+        items: [],
+        totalPromptTokens: 9_500,
+        totalCompletionTokens: 220,
+        totalTokens: 9_720,
+        totalCachedInputTokens: 700,
+        totalCacheCreationInputTokens: 120,
+        totalReasoningTokens: 33
+    )
+    let ledger = ContextLedgerSnapshot(
+        channelId: "agent:test:session:test",
+        contextWindowTokens: 32_000,
+        reservedOutputTokens: 1_000,
+        entries: [
+            .init(category: .bootstrapStatic, label: "Bootstrap", estimatedTokens: 2_000),
+            .init(category: .toolResults, label: "Tool results", estimatedTokens: 1_600),
+        ],
+        lastTurnUsage: .init(
+            prompt: 3_600,
+            completion: 180,
+            cachedInputTokens: 2_400,
+            cacheCreationInputTokens: 300,
+            reasoningTokens: 44
+        )
+    )
+
+    let preferredSummary = SloppyTUIContextUsageSummaryBuilder.makeSummary(
+        modelTitle: "GPT Test",
+        modelID: "openai:gpt-test",
+        contextWindowLabel: "32K",
+        contextWindowTokens: 32_000,
+        usage: usage,
+        ledger: ledger,
+        pendingContextAttached: true,
+        pendingUploadCount: 2
+    )
+
+    #expect(preferredSummary.promptTokens == 3_600)
+    #expect(preferredSummary.totalTokens == 3_600)
+    #expect(preferredSummary.ledgerCategories == [
+        .init(label: "bootstrap_static", tokens: 2_000),
+        .init(label: "tool_results", tokens: 1_600),
+    ])
+    #expect(preferredSummary.lastTurnInputTokens == 3_600)
+    #expect(preferredSummary.lastTurnCachedInputTokens == 2_400)
+    #expect(preferredSummary.lastTurnUncachedInputTokens == 1_200)
+    #expect(preferredSummary.lastTurnCacheCreationInputTokens == 300)
+    #expect(preferredSummary.lastTurnCompletionTokens == 180)
+    #expect(preferredSummary.lastTurnReasoningTokens == 44)
+
+    let fallbackSummary = SloppyTUIContextUsageSummaryBuilder.makeSummary(
+        modelTitle: "GPT Test",
+        modelID: "openai:gpt-test",
+        contextWindowLabel: "32K",
+        contextWindowTokens: 32_000,
+        usage: usage,
+        ledger: nil,
+        pendingContextAttached: false,
+        pendingUploadCount: 0
+    )
+
+    #expect(fallbackSummary.promptTokens == 9_500)
+    #expect(fallbackSummary.totalTokens == 9_720)
+    #expect(fallbackSummary.ledgerCategories.isEmpty)
+    #expect(fallbackSummary.lastTurnInputTokens == 0)
+    #expect(fallbackSummary.lastTurnCachedInputTokens == 0)
+    #expect(fallbackSummary.lastTurnUncachedInputTokens == 0)
+    #expect(fallbackSummary.lastTurnCacheCreationInputTokens == 0)
+    #expect(fallbackSummary.lastTurnCompletionTokens == 0)
+    #expect(fallbackSummary.lastTurnReasoningTokens == 0)
 }
 
 @Test

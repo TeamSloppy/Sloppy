@@ -1,3 +1,4 @@
+import AgentRuntime
 import Foundation
 #if canImport(AppKit)
 import AppKit
@@ -6,6 +7,43 @@ import ChannelPluginSupport
 import Logging
 import Protocols
 import TauTUI
+
+enum SloppyTUIContextUsageSummaryBuilder {
+    static func makeSummary(
+        modelTitle: String,
+        modelID: String,
+        contextWindowLabel: String,
+        contextWindowTokens: Int,
+        usage: TokenUsageResponse,
+        ledger: ContextLedgerSnapshot?,
+        pendingContextAttached: Bool,
+        pendingUploadCount: Int
+    ) -> SloppyTUIContextUsageSummary {
+        let ledgerCategories = ledger?.entries.map {
+            SloppyTUIContextCategorySummary(label: $0.category.rawValue, tokens: $0.estimatedTokens)
+        } ?? []
+        let effectivePromptTokens = ledger?.contextWindowUsedTokens ?? usage.totalPromptTokens
+        let effectiveTotalTokens = ledger.map { _ in effectivePromptTokens } ?? usage.totalTokens
+        return SloppyTUIContextUsageSummary(
+            modelTitle: modelTitle,
+            modelID: modelID,
+            contextWindowLabel: contextWindowLabel,
+            promptTokens: effectivePromptTokens,
+            completionTokens: usage.totalCompletionTokens,
+            totalTokens: effectiveTotalTokens,
+            contextWindowTokens: contextWindowTokens,
+            pendingContextAttached: pendingContextAttached,
+            pendingUploadCount: pendingUploadCount,
+            ledgerCategories: ledgerCategories,
+            lastTurnInputTokens: ledger?.lastTurnInputTokens ?? 0,
+            lastTurnCachedInputTokens: ledger?.lastTurnCachedInputTokens ?? 0,
+            lastTurnUncachedInputTokens: ledger?.lastTurnUncachedInputTokens ?? 0,
+            lastTurnCacheCreationInputTokens: ledger?.lastTurnCacheCreationInputTokens ?? 0,
+            lastTurnCompletionTokens: ledger?.lastTurnCompletionTokens ?? 0,
+            lastTurnReasoningTokens: ledger?.lastTurnReasoningTokens ?? 0
+        )
+    }
+}
 
 @MainActor
 extension SloppyTUIScreen {
@@ -999,14 +1037,14 @@ extension SloppyTUIScreen {
         }
 
         let usage = await service.listTokenUsage(channelId: currentSessionChannelID())
-        let summary = SloppyTUIContextUsageSummary(
+        let ledger = await service.contextLedgerSnapshot(channelId: currentSessionChannelID())
+        let summary = SloppyTUIContextUsageSummaryBuilder.makeSummary(
             modelTitle: option.title,
             modelID: model,
             contextWindowLabel: option.contextWindow ?? (contextWindow > 0 ? formatContextWindowLabel(contextWindow) : "unknown"),
-            promptTokens: usage.totalPromptTokens,
-            completionTokens: usage.totalCompletionTokens,
-            totalTokens: usage.totalTokens,
             contextWindowTokens: contextWindow,
+            usage: usage,
+            ledger: ledger,
             pendingContextAttached: pendingContext?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
             pendingUploadCount: pendingUploads.count
         )

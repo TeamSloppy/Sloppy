@@ -751,6 +751,19 @@ enum SloppyTUITheme {
         }
         let pendingContext = summary.pendingContextAttached ? "yes" : "no"
         let pendingUploads = summary.pendingUploadCount > 0 ? "\(summary.pendingUploadCount)" : "none"
+        let categoryLines = summary.ledgerCategories.isEmpty
+            ? "\(muted("No context ledger yet; using token usage fallback."))"
+            : summary.ledgerCategories.map { item in
+                "\(muted("-")) \(foreground(item.label)): \(foreground(formatTokenCountShort(item.tokens) + " tokens"))"
+            }.joined(separator: "\n")
+        let lastTurnLines = [
+            "\(muted("-")) Input: \(foreground(formatTokenCountShort(summary.lastTurnInputTokens) + " tokens"))",
+            "\(muted("-")) Cached input: \(foreground(formatTokenCountShort(summary.lastTurnCachedInputTokens) + " tokens"))",
+            "\(muted("-")) Uncached input: \(foreground(formatTokenCountShort(summary.lastTurnUncachedInputTokens) + " tokens"))",
+            "\(muted("-")) Cache creation: \(foreground(formatTokenCountShort(summary.lastTurnCacheCreationInputTokens) + " tokens"))",
+            "\(muted("-")) Output: \(foreground(formatTokenCountShort(summary.lastTurnCompletionTokens) + " tokens"))",
+            "\(muted("-")) Reasoning: \(foreground(formatTokenCountShort(summary.lastTurnReasoningTokens) + " tokens"))",
+        ].joined(separator: "\n")
         let usageVisual = zip(
             grid,
             [
@@ -758,12 +771,12 @@ enum SloppyTUITheme {
                 "\(muted(summary.modelID)) \(muted("·")) \(foreground(contextLabel)) context",
                 "\(foreground("used \(usagePercent)")) \(muted("·")) \(foreground("free \(freeText)"))",
                 "",
-                "\(muted("Estimated usage by category"))",
-                "\(muted("◉")) System prompt: \(muted("not recorded"))",
-                "\(muted("◉")) System tools:  \(muted("not recorded"))",
                 "\(blue("●")) Input prompt:  \(foreground(formatTokenCountShort(summary.promptTokens) + " tokens")) \(muted("(\(promptPercent))"))",
                 "\(green("●")) Completion: \(foreground(formatTokenCountShort(summary.completionTokens) + " tokens")) \(muted("(\(completionPercent))"))",
                 "\(muted("□")) Free space: \(foreground(freeText))",
+                "",
+                "",
+                "",
             ]
         ).map { row, detail in
             detail.isEmpty ? row : row + String(repeating: " ", count: 4) + detail
@@ -773,6 +786,12 @@ enum SloppyTUITheme {
         ## Context Usage
         ```text
         \(usageVisual)
+
+        \(muted("Context window"))
+        \(categoryLines)
+
+        \(muted("Last turn"))
+        \(lastTurnLines)
 
         \(muted("Pending next-message context:")) \(foreground(pendingContext))
         \(muted("Pending uploads:")) \(foreground(pendingUploads))
