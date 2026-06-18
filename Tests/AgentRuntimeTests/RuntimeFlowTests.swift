@@ -142,6 +142,30 @@ func tokenPressureEstimatorCountsAttachmentsAsBoundedPlaceholders() {
 }
 
 @Test
+func contextLedgerSeparatesOccupancyFromLastTurnEconomics() {
+    let snapshot = ContextLedgerSnapshot(
+        channelId: "ledger-channel",
+        contextWindowTokens: 10_000,
+        reservedOutputTokens: 1_000,
+        entries: [
+            ContextLedgerEntry(category: .bootstrapStatic, label: "AGENTS.md", estimatedTokens: 2_000, cachePolicy: .cacheable),
+            ContextLedgerEntry(category: .toolsSchema, label: "native tools", estimatedTokens: 1_500, cachePolicy: .cacheable),
+            ContextLedgerEntry(category: .currentTurn, label: "user", estimatedTokens: 100, cachePolicy: .uncacheable),
+        ],
+        lastTurnUsage: TokenUsage(prompt: 3_700, completion: 80, cachedInputTokens: 3_000, cacheCreationInputTokens: 400, reasoningTokens: 12)
+    )
+
+    #expect(snapshot.contextWindowUsedTokens == 3_600)
+    #expect(snapshot.contextWindowFreeTokens == 5_400)
+    #expect(snapshot.lastTurnInputTokens == 3_700)
+    #expect(snapshot.lastTurnCachedInputTokens == 3_000)
+    #expect(snapshot.lastTurnUncachedInputTokens == 700)
+    #expect(snapshot.lastTurnCacheCreationInputTokens == 400)
+    #expect(snapshot.lastTurnCompletionTokens == 80)
+    #expect(snapshot.lastTurnReasoningTokens == 12)
+}
+
+@Test
 func channelPressureUsesProviderPromptUsageWhenAvailable() async {
     let channel = ChannelRuntime(eventBus: EventBus(), contextWindowTokens: 1_000)
 

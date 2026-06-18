@@ -2,6 +2,7 @@ import Foundation
 import Protocols
 
 public enum ContextPressureSource: String, Codable, Sendable, Equatable {
+    case contextLedger = "context_ledger"
     case realUsage = "real_usage"
     case roughRequest = "rough_request"
     case roughMessages = "rough_messages"
