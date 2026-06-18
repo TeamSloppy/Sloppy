@@ -84,6 +84,7 @@ private struct ChannelState: Sendable {
     var contextUtilization: Double = 0
     var contextPressureSource: ContextPressureSource = .roughMessages
     var latestPromptUsage: TokenUsage?
+    var latestContextLedger: ContextLedgerSnapshot?
     var activeWorkerIds: Set<String> = []
     var lastDecision: ChannelRouteDecision?
 }
@@ -104,6 +105,7 @@ public actor ChannelRuntime {
         let message = ChannelMessageEntry(userId: request.userId, content: request.content, attachments: request.attachments)
         state.messages.append(message)
         state.latestPromptUsage = nil
+        invalidateLatestContextLedger(in: &state)
         applyPressureEstimate(to: &state)
 
         let decision = decideRoute(for: request.content, utilization: state.contextUtilization)
@@ -130,6 +132,7 @@ public actor ChannelRuntime {
     public func appendSystemMessage(channelId: String, content: String) async {
         var state = channels[channelId, default: ChannelState()]
         state.messages.append(ChannelMessageEntry(userId: "system", content: content))
+        invalidateLatestContextLedger(in: &state)
         applyPressureEstimate(to: &state)
         channels[channelId] = state
 
@@ -217,6 +220,7 @@ public actor ChannelRuntime {
         }
         state.messages.append(message)
         state.messages.sort { $0.createdAt < $1.createdAt }
+        invalidateLatestContextLedger(in: &state)
         applyPressureEstimate(to: &state)
         channels[channelId] = state
     }
@@ -226,6 +230,13 @@ public actor ChannelRuntime {
         guard usage.prompt > 0 else { return }
         var state = channels[channelId, default: ChannelState()]
         state.latestPromptUsage = usage
+        applyPressureEstimate(to: &state)
+        channels[channelId] = state
+    }
+
+    public func recordContextLedger(channelId: String, snapshot: ContextLedgerSnapshot) {
+        var state = channels[channelId, default: ChannelState()]
+        state.latestContextLedger = snapshot
         applyPressureEstimate(to: &state)
         channels[channelId] = state
     }
@@ -244,10 +255,15 @@ public actor ChannelRuntime {
     private func applyPressureEstimate(to state: inout ChannelState) {
         let estimate = pressureEstimator.estimate(
             messages: state.messages,
-            latestPromptUsage: state.latestPromptUsage
+            latestPromptUsage: state.latestPromptUsage,
+            ledgerSnapshot: state.latestContextLedger
         )
         state.contextUtilization = estimate.utilization
         state.contextPressureSource = estimate.source
+    }
+
+    private func invalidateLatestContextLedger(in state: inout ChannelState) {
+        state.latestContextLedger = nil
     }
 
     private func decideRoute(for message: String, utilization: Double) -> ChannelRouteDecision {

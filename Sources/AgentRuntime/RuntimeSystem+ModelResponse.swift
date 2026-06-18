@@ -91,6 +91,9 @@ extension RuntimeSystem {
                 includeTools: toolInvoker != nil,
                 maxOutputTokens: 1024
             )
+            if let ledger = contextLedgerByChannel[channelId] {
+                await channels.recordContextLedger(channelId: channelId, snapshot: ledger)
+            }
 
             logger.info(
                 "Model stream started",
@@ -870,6 +873,9 @@ extension RuntimeSystem {
             contextLedgerByChannel[channelId] = existingLedger.withProviderUsage(tokenUsage)
         }
         await channels.recordTokenUsage(channelId: channelId, usage: tokenUsage)
+        if let updatedLedger = contextLedgerByChannel[channelId] {
+            await channels.recordContextLedger(channelId: channelId, snapshot: updatedLedger)
+        }
         if let observationHandler {
             await observationHandler(.usage(tokenUsage))
         }

@@ -99,7 +99,15 @@ public extension RuntimeSystem {
             await channels.attachWorker(channelId: channelId, workerId: workerId)
         }
 
-        if let job = await compactor.evaluate(channelId: channelId, utilization: ingest.contextUtilization) {
+        let effectiveUtilization: Double
+        if let channelUtilization = await channels.snapshot(channelId: channelId)?.contextUtilization {
+            effectiveUtilization = channelUtilization
+        } else if let ledgerUtilization = contextLedgerByChannel[channelId]?.utilization {
+            effectiveUtilization = ledgerUtilization
+        } else {
+            effectiveUtilization = ingest.contextUtilization
+        }
+        if let job = await compactor.evaluate(channelId: channelId, utilization: effectiveUtilization) {
             await compactor.apply(job: job, workers: workers)
             await channels.appendSystemMessage(channelId: channelId, content: "Compactor scheduled \(job.level.rawValue) policy")
         }

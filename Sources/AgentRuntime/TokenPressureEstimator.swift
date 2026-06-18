@@ -40,10 +40,18 @@ public struct TokenPressureEstimator: Sendable, Equatable {
 
     public func estimate(
         messages: [ChannelMessageEntry],
-        latestPromptUsage: TokenUsage? = nil
+        latestPromptUsage: TokenUsage? = nil,
+        ledgerSnapshot: ContextLedgerSnapshot? = nil
     ) -> ContextPressureEstimate {
-        if let latestPromptUsage, latestPromptUsage.prompt > 0 {
-            return pressure(tokens: latestPromptUsage.prompt, source: .realUsage)
+        if let ledgerSnapshot {
+            return pressure(
+                tokens: ledgerSnapshot.contextWindowUsedTokens + ledgerSnapshot.reservedOutputTokens,
+                source: .contextLedger
+            )
+        }
+
+        if let latestPromptUsage, latestPromptUsage.total > 0 {
+            return pressure(tokens: latestPromptUsage.total, source: .realUsage)
         }
 
         let tokens = messages.reduce(0) { total, message in

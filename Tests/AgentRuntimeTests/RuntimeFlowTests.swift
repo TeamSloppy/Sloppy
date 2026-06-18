@@ -166,6 +166,31 @@ func contextLedgerSeparatesOccupancyFromLastTurnEconomics() {
 }
 
 @Test
+func tokenPressurePrefersLedgerOccupancyOverLastPromptUsage() {
+    let estimator = TokenPressureEstimator(contextWindowTokens: 10_000)
+    let ledger = ContextLedgerSnapshot(
+        channelId: "pressure-ledger",
+        contextWindowTokens: 10_000,
+        reservedOutputTokens: 1_000,
+        entries: [
+            ContextLedgerEntry(category: .bootstrapStatic, label: "bootstrap", estimatedTokens: 2_000),
+            ContextLedgerEntry(category: .currentTurn, label: "turn", estimatedTokens: 500),
+        ],
+        lastTurnUsage: TokenUsage(prompt: 9_500, completion: 100, cachedInputTokens: 8_000)
+    )
+
+    let pressure = estimator.estimate(
+        messages: [],
+        latestPromptUsage: ledger.lastTurnUsage,
+        ledgerSnapshot: ledger
+    )
+
+    #expect(pressure.source == .contextLedger)
+    #expect(pressure.tokens == 3_500)
+    #expect(pressure.utilization == 0.35)
+}
+
+@Test
 func channelPressureUsesProviderPromptUsageWhenAvailable() async {
     let channel = ChannelRuntime(eventBus: EventBus(), contextWindowTokens: 1_000)
 
@@ -184,7 +209,130 @@ func channelPressureUsesProviderPromptUsageWhenAvailable() async {
     let real = await channel.snapshot(channelId: "c1")
 
     #expect(real?.contextPressureSource == .realUsage)
-    #expect(real?.contextUtilization == 0.8)
+    #expect(real?.contextUtilization == 0.802)
+}
+
+@Test
+func channelPressureFallsBackToRealUsageWhenLedgerBecomesStaleAfterSystemAppend() async throws {
+    let channel = ChannelRuntime(eventBus: EventBus(), contextWindowTokens: 1_000)
+    let ledger = ContextLedgerSnapshot(
+        channelId: "c1",
+        contextWindowTokens: 1_000,
+        reservedOutputTokens: 100,
+        entries: [
+            ContextLedgerEntry(category: .bootstrapStatic, label: "bootstrap", estimatedTokens: 200),
+        ]
+    )
+
+    _ = await channel.ingest(
+        channelId: "c1",
+        request: ChannelMessageRequest(userId: "u1", content: "hello")
+    )
+    await channel.recordTokenUsage(
+        channelId: "c1",
+        usage: TokenUsage(prompt: 800, completion: 2)
+    )
+    await channel.recordContextLedger(channelId: "c1", snapshot: ledger)
+
+    let ledgerBacked = try #require(await channel.snapshot(channelId: "c1"))
+    #expect(ledgerBacked.contextPressureSource == .contextLedger)
+    #expect(ledgerBacked.contextUtilization == 0.3)
+
+    await channel.appendSystemMessage(channelId: "c1", content: "Assistant reply not represented in ledger.")
+    let invalidated = try #require(await channel.snapshot(channelId: "c1"))
+
+    #expect(invalidated.contextPressureSource == .realUsage)
+    #expect(invalidated.contextUtilization == 0.802)
+}
+
+@Test
+func channelPressureFallsBackToRoughMessagesWhenNewUserMessageInvalidatesLedger() async throws {
+    let channel = ChannelRuntime(eventBus: EventBus(), contextWindowTokens: 1_000)
+    let ledger = ContextLedgerSnapshot(
+        channelId: "c1",
+        contextWindowTokens: 1_000,
+        reservedOutputTokens: 100,
+        entries: [
+            ContextLedgerEntry(category: .bootstrapStatic, label: "bootstrap", estimatedTokens: 200),
+        ]
+    )
+
+    _ = await channel.ingest(
+        channelId: "c1",
+        request: ChannelMessageRequest(userId: "u1", content: "hello")
+    )
+    await channel.recordTokenUsage(
+        channelId: "c1",
+        usage: TokenUsage(prompt: 800, completion: 2)
+    )
+    await channel.recordContextLedger(channelId: "c1", snapshot: ledger)
+
+    _ = await channel.ingest(
+        channelId: "c1",
+        request: ChannelMessageRequest(userId: "u2", content: "follow up")
+    )
+    let invalidated = try #require(await channel.snapshot(channelId: "c1"))
+
+    #expect(invalidated.contextPressureSource == .roughMessages)
+    #expect(invalidated.contextUtilization < 0.1)
+}
+
+@Test
+func restoreMessageInvalidatesLiveLedgerAndRecomputesFallbackPressure() async throws {
+    let channel = ChannelRuntime(eventBus: EventBus(), contextWindowTokens: 1_000)
+    let ledger = ContextLedgerSnapshot(
+        channelId: "restore-live-ledger",
+        contextWindowTokens: 1_000,
+        reservedOutputTokens: 100,
+        entries: [
+            ContextLedgerEntry(category: .bootstrapStatic, label: "bootstrap", estimatedTokens: 200),
+        ]
+    )
+
+    _ = await channel.ingest(
+        channelId: "restore-live-ledger",
+        request: ChannelMessageRequest(userId: "u1", content: "hello")
+    )
+    await channel.recordTokenUsage(
+        channelId: "restore-live-ledger",
+        usage: TokenUsage(prompt: 800, completion: 40)
+    )
+    await channel.recordContextLedger(channelId: "restore-live-ledger", snapshot: ledger)
+
+    let ledgerBacked = try #require(await channel.snapshot(channelId: "restore-live-ledger"))
+    #expect(ledgerBacked.contextPressureSource == .contextLedger)
+    #expect(ledgerBacked.contextUtilization == 0.3)
+
+    await channel.restoreMessage(
+        channelId: "restore-live-ledger",
+        message: ChannelMessageEntry(
+            id: "restored-assistant",
+            userId: "system",
+            content: "Recovered assistant reply.",
+            createdAt: Date(timeIntervalSince1970: 1)
+        )
+    )
+    let invalidated = try #require(await channel.snapshot(channelId: "restore-live-ledger"))
+
+    #expect(invalidated.contextPressureSource == .realUsage)
+    #expect(invalidated.contextUtilization == 0.84)
+
+    let roughOnlyChannel = ChannelRuntime(eventBus: EventBus(), contextWindowTokens: 1_000)
+    await roughOnlyChannel.recordContextLedger(channelId: "restore-rough", snapshot: ledger)
+    await roughOnlyChannel.restoreMessage(
+        channelId: "restore-rough",
+        message: ChannelMessageEntry(
+            id: "restored-user",
+            userId: "u2",
+            content: "Recovered history entry.",
+            createdAt: Date(timeIntervalSince1970: 2)
+        )
+    )
+    let roughFallback = try #require(await roughOnlyChannel.snapshot(channelId: "restore-rough"))
+
+    #expect(roughFallback.contextPressureSource == .roughMessages)
+    #expect(roughFallback.contextUtilization > 0)
+    #expect(roughFallback.contextUtilization < 0.1)
 }
 
 @Test
@@ -1268,6 +1416,7 @@ func runtimeRecordsContextLedgerForNativeModelCall() async throws {
         compactorConfiguration: CompactorConfiguration(contextWindowTokens: 8_000)
     )
     let usageCollector = UsageCollector()
+    let ledgerSnapshotCollector = ChannelSnapshotCollector()
     await system.setChannelBootstrap(
         channelId: "ledger-runtime",
         content: "Stable bootstrap instructions."
@@ -1279,12 +1428,13 @@ func runtimeRecordsContextLedgerForNativeModelCall() async throws {
         observationHandler: { observation in
             if case .usage(let usage) = observation {
                 await usageCollector.append(usage)
+                await ledgerSnapshotCollector.append(await system.channelState(channelId: "ledger-runtime"))
             }
         }
     )
 
     let snapshot = try #require(await system.contextLedgerSnapshot(channelId: "ledger-runtime"))
-    let channelSnapshot = try #require(await system.channelState(channelId: "ledger-runtime"))
+    let observedLedgerSnapshot = try #require(await ledgerSnapshotCollector.all().last)
     #expect(snapshot.channelId == "ledger-runtime")
     #expect(snapshot.entries.contains { $0.category == .bootstrapStatic })
     #expect(snapshot.entries.contains { $0.category == .currentTurn })
@@ -1294,7 +1444,7 @@ func runtimeRecordsContextLedgerForNativeModelCall() async throws {
     #expect(snapshot.lastTurnUncachedInputTokens == 96)
     #expect(snapshot.lastTurnCacheCreationInputTokens == 24)
     #expect(snapshot.lastTurnReasoningTokens == 5)
-    #expect(channelSnapshot.contextPressureSource == .realUsage)
+    #expect(observedLedgerSnapshot.contextPressureSource == .contextLedger)
     #expect(await usageCollector.all() == [expectedUsage])
 }
 
@@ -1321,6 +1471,7 @@ func runtimeRecordsContextLedgerForFallbackCompletionUsage() async throws {
         compactorConfiguration: CompactorConfiguration(contextWindowTokens: 8_000)
     )
     let usageCollector = UsageCollector()
+    let ledgerSnapshotCollector = ChannelSnapshotCollector()
 
     _ = await system.postMessage(
         channelId: "ledger-runtime-fallback",
@@ -1328,12 +1479,14 @@ func runtimeRecordsContextLedgerForFallbackCompletionUsage() async throws {
         observationHandler: { observation in
             if case .usage(let usage) = observation {
                 await usageCollector.append(usage)
+                await ledgerSnapshotCollector.append(await system.channelState(channelId: "ledger-runtime-fallback"))
             }
         }
     )
 
     let snapshot = try #require(await system.contextLedgerSnapshot(channelId: "ledger-runtime-fallback"))
     let channelSnapshot = try #require(await system.channelState(channelId: "ledger-runtime-fallback"))
+    let observedLedgerSnapshot = try #require(await ledgerSnapshotCollector.all().last)
     let finalMessage = channelSnapshot.messages.last(where: { $0.userId == "system" })?.content
 
     #expect(finalMessage == "Captured from fallback.")
@@ -1342,8 +1495,47 @@ func runtimeRecordsContextLedgerForFallbackCompletionUsage() async throws {
     #expect(snapshot.lastTurnUncachedInputTokens == 60)
     #expect(snapshot.lastTurnCacheCreationInputTokens == 18)
     #expect(snapshot.lastTurnReasoningTokens == 4)
-    #expect(channelSnapshot.contextPressureSource == .realUsage)
+    #expect(observedLedgerSnapshot.contextPressureSource == .contextLedger)
     #expect(await usageCollector.all() == [expectedUsage])
+}
+
+@Test
+func compactionUsesLedgerBackedUtilizationAfterResponse() async throws {
+    let provider = PromptCapturingModelProvider(
+        models: ["prompt-capturing"],
+        streamOutput: "Streamed.",
+        tokenUsageCapture: TokenUsageCapture(),
+        streamUsage: TokenUsage(prompt: 1_500, completion: 1_000)
+    )
+    let system = RuntimeSystem(
+        modelProvider: provider,
+        defaultModel: "prompt-capturing",
+        compactorConfiguration: CompactorConfiguration(
+            contextWindowTokens: 6_000,
+            levels: [
+                CompactionLevelConfiguration(
+                    level: .soft,
+                    utilizationThreshold: 0.40,
+                    targetReductionPercent: 30
+                )
+            ]
+        )
+    )
+
+    _ = await system.postMessage(
+        channelId: "ledger-compaction",
+        request: ChannelMessageRequest(userId: "user", content: "hi")
+    )
+
+    let ledgerSnapshot = try #require(await system.contextLedgerSnapshot(channelId: "ledger-compaction"))
+    let snapshot = try #require(await system.channelState(channelId: "ledger-compaction"))
+    let finalMessages = snapshot.messages.suffix(2).map(\.content)
+
+    #expect(ledgerSnapshot.utilization < 0.40)
+    #expect(snapshot.contextPressureSource == .realUsage)
+    #expect(snapshot.contextUtilization > 0.40)
+    #expect(finalMessages.contains("Streamed."))
+    #expect(finalMessages.contains("Compactor scheduled soft policy"))
 }
 
 @Test
@@ -2190,6 +2382,17 @@ private actor UsageCollector {
     var items: [TokenUsage] = []
     func append(_ usage: TokenUsage) { items.append(usage) }
     func all() -> [TokenUsage] { items }
+}
+
+private actor ChannelSnapshotCollector {
+    private var snapshots: [ChannelSnapshot] = []
+
+    func append(_ snapshot: ChannelSnapshot?) {
+        guard let snapshot else { return }
+        snapshots.append(snapshot)
+    }
+
+    func all() -> [ChannelSnapshot] { snapshots }
 }
 
 @Test
