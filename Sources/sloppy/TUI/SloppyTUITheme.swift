@@ -239,26 +239,26 @@ enum SloppyTUITheme {
         activeTheme
     }
 
-    private static func accent(_ text: String) -> String {
+    static func accent(_ text: String) -> String {
         activeTheme.accent.foregroundStyle(text)
     }
 
-    private static func accentBright(_ text: String) -> String {
+    static func accentBright(_ text: String) -> String {
         activeTheme.accentBright.foregroundStyle(text)
     }
 
-    private static func blue(_ text: String) -> String { activeTheme.blue.foregroundStyle(text) }
-    private static func green(_ text: String) -> String { activeTheme.green.foregroundStyle(text) }
-    private static func yellow(_ text: String) -> String { activeTheme.yellow.foregroundStyle(text) }
-    private static func orange(_ text: String) -> String { activeTheme.orange.foregroundStyle(text) }
-    private static func red(_ text: String) -> String { activeTheme.red.foregroundStyle(text) }
-    private static func muted(_ text: String) -> String { activeTheme.muted.foregroundStyle(text) }
-    private static func foreground(_ text: String) -> String { activeTheme.foreground.foregroundStyle(text) }
-    private static func rainbow(_ text: String) -> String {
+    static func blue(_ text: String) -> String { activeTheme.blue.foregroundStyle(text) }
+    static func green(_ text: String) -> String { activeTheme.green.foregroundStyle(text) }
+    static func yellow(_ text: String) -> String { activeTheme.yellow.foregroundStyle(text) }
+    static func orange(_ text: String) -> String { activeTheme.orange.foregroundStyle(text) }
+    static func red(_ text: String) -> String { activeTheme.red.foregroundStyle(text) }
+    static func muted(_ text: String) -> String { activeTheme.muted.foregroundStyle(text) }
+    static func foreground(_ text: String) -> String { activeTheme.foreground.foregroundStyle(text) }
+    static func rainbow(_ text: String) -> String {
         rainbow(text, frame: 0)
     }
 
-    private static func rainbow(_ text: String, frame: Int) -> String {
+    static func rainbow(_ text: String, frame: Int) -> String {
         let colors: [(String) -> String] = [red, orange, yellow, green, blue, accentBright]
         guard !colors.isEmpty else { return text }
         let offset = ((frame % colors.count) + colors.count) % colors.count
@@ -605,9 +605,8 @@ enum SloppyTUITheme {
     }
 
     static func interruptControlLine(width: Int, frame: Int, isInterrupting: Bool) -> String {
-        let bars = interruptBars(frame: frame)
         let action = isInterrupting ? "interrupting" : "interrupt"
-        let text = "  " + orange(bars) + muted("  ") + foreground("esc") + muted(" \(action)")
+        let text = "  " + foreground("esc") + muted(" \(action)")
         return applyPanelBackground(padded(fittedLine(text, width: width), width: width), width: width)
     }
 
@@ -986,11 +985,31 @@ enum SloppyTUITheme {
     }
 
     static func waitingIndicator(frame: Int, word: String) -> String {
-        shimmeringText(word, frame: frame)
+        let spinner = waitingFrames[frame % waitingFrames.count]
+        return muted("\(spinner) ") + shimmeringText(word, frame: frame)
     }
 
     static func shimmeringText(_ text: String, frame: Int) -> String {
-        rainbow(text, frame: frame)
+        let characters = Array(text)
+        guard !characters.isEmpty else { return text }
+
+        let shoulder = SloppyTUIColor(red: 186, green: 194, blue: 207)
+        let period = characters.count + 4
+        let normalizedFrame = ((frame % period) + period) % period
+        let highlightCenter = normalizedFrame - 2
+
+        return characters.enumerated().map { index, character in
+            let distance = abs(index - highlightCenter)
+            let text = String(character)
+            switch distance {
+            case 0:
+                return foreground(text)
+            case 1:
+                return shoulder.foregroundStyle(text)
+            default:
+                return muted(text)
+            }
+        }.joined()
     }
 
     static func waitingWord(seed: String) -> String {
@@ -1047,8 +1066,9 @@ enum SloppyTUITheme {
         return paddedBackgroundBlock(contentLines, width: width, background: userMessageBackground)
     }
 
-    static func thinkingLines(_ text: String, width: Int) -> [String] {
-        let prefixWidth = VisibleWidth.measure("thought ")
+    static func thinkingLines(_ text: String, width: Int, tokenUsage: TokenUsage? = nil) -> [String] {
+        let header = tokenUsage.map { "thought \(turnTokenUsageBadge($0)) " } ?? "thought "
+        let prefixWidth = VisibleWidth.measure(header)
         let contentWidth = paddedBlockContentWidth(width: width, prefixWidth: prefixWidth)
         let rawLines = text
             .trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1058,7 +1078,7 @@ enum SloppyTUITheme {
             }
         let lines = rawLines.isEmpty ? [""] : rawLines
         let contentLines = lines.enumerated().map { index, line in
-            let prefix = index == 0 ? "thought " : "        "
+            let prefix = index == 0 ? header : String(repeating: " ", count: prefixWidth)
             return applyBackground(
                 blockLeftPadding + muted(prefix) + foreground(line),
                 width: width,

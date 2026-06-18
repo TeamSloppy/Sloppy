@@ -7,6 +7,10 @@ import { fileURLToPath } from "node:url";
 import {
   buildWorkflowGraphLayout,
   createBlankWorkflowRequest,
+  describeWorkflowStep,
+  workflowInputNodeReferences,
+  workflowDataReferences,
+  workflowNodePorts,
   workflowBoardSurfaceStyle,
   selectWorkflowAfterDelete,
   workflowCanvasViewportStyle
@@ -100,9 +104,9 @@ test("workflowBoardSurfaceStyle expands to the workflow graph bounds when nodes 
   );
 });
 
-test("workflow lane strip shows only the lane title without duplicating the kind label", () => {
-  assert.match(projectWorkflowsTabSource, /<strong>\{lane.title\}<\/strong>/);
-  assert.doesNotMatch(projectWorkflowsTabSource, /<small>\{lane.kind\}<\/small>/);
+test("workflow canvas does not render a separate lane strip label", () => {
+  assert.doesNotMatch(projectWorkflowsTabSource, /project-workflows-lane-strip/);
+  assert.match(projectWorkflowsTabSource, /lane\?\.title \|\| node\.laneId \|\| "Unassigned"/);
 });
 
 test("workflow side panels use the custom thin scrollbar styling", () => {
@@ -115,4 +119,78 @@ test("workflow side panels use the custom thin scrollbar styling", () => {
 test("workflow board status highlights unsaved changes with the accent treatment", () => {
   assert.match(projectWorkflowsTabSource, /className=\{`project-workflows-board-status \$\{isDirty \? "is-dirty" : ""\}`\.trim\(\)\}/);
   assert.match(projectsCss, /\.project-workflows-board-status\.is-dirty\s*\{[\s\S]*?color:\s*var\(--accent\)/);
+});
+
+test("workflow node ports default to one input and one output", () => {
+  assert.deepEqual(workflowNodePorts({ type: "tool_check", config: { blockKind: "bash" } }), [
+    { id: "input", label: "input", direction: "input", socket: "left" },
+    { id: "output", label: "output", direction: "output", socket: "right" }
+  ]);
+});
+
+test("workflow condition nodes expose named route outputs without adding extra inputs", () => {
+  assert.deepEqual(workflowNodePorts({ type: "condition", config: { blockKind: "expression" } }), [
+    { id: "input", label: "input", direction: "input", socket: "left" },
+    { id: "true", label: "true", direction: "output", socket: "right" },
+    { id: "false", label: "false", direction: "output", socket: "right" }
+  ]);
+});
+
+test("workflow data references show how to address previous node outputs", () => {
+  assert.deepEqual(
+    workflowDataReferences(
+      [
+        { id: "user-message", title: "User Message" },
+        { id: "web-request", title: "Web Request" },
+        { id: "bash", title: "Bash" }
+      ],
+      "bash"
+    ),
+    [
+      { nodeId: "user-message", title: "User Message", output: "{{nodes.user-message.output}}", error: "{{nodes.user-message.error}}" },
+      { nodeId: "web-request", title: "Web Request", output: "{{nodes.web-request.output}}", error: "{{nodes.web-request.error}}" }
+    ]
+  );
+});
+
+test("workflow input node references follow incoming graph edges for editor suggestions", () => {
+  assert.deepEqual(
+    workflowInputNodeReferences({
+      nodes: [
+        { id: "user-message", title: "User Message" },
+        { id: "web-request", title: "Web Request" },
+        { id: "code", title: "Code" },
+        { id: "unrelated", title: "Unrelated" }
+      ],
+      edges: [
+        { id: "e1", sourceNodeId: "user-message", targetNodeId: "web-request" },
+        { id: "e2", sourceNodeId: "web-request", targetNodeId: "code" }
+      ]
+    }, "code"),
+    [
+      { nodeId: "user-message", title: "User Message", output: "{{nodes.user-message.output}}", error: "{{nodes.user-message.error}}" },
+      { nodeId: "web-request", title: "Web Request", output: "{{nodes.web-request.output}}", error: "{{nodes.web-request.error}}" }
+    ]
+  );
+});
+
+test("workflow editor marks connected input nodes on the canvas", () => {
+  assert.match(projectWorkflowsTabSource, /availableInputNodeIds\.has\(String\(node\.id\)\)/);
+  assert.match(projectsCss, /\.project-workflow-node\.available-input/);
+});
+
+test("describeWorkflowStep includes output and error detail instead of only failed", () => {
+  assert.deepEqual(
+    describeWorkflowStep({
+      nodeId: "web-request",
+      status: "failed",
+      output: { status: 404, body: "Not found" },
+      error: "HTTP 404"
+    }),
+    {
+      title: "web-request: failed",
+      detail: "HTTP 404",
+      output: "status: 404, body: Not found"
+    }
+  );
 });

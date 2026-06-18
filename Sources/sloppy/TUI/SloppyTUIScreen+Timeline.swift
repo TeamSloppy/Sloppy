@@ -191,8 +191,8 @@ extension SloppyTUIScreen {
                 lines.append(contentsOf: SloppyTUITheme.queuedMessageLines(message, width: width))
             case .error(let text):
                 lines.append(contentsOf: renderMarkdown(SloppyTUITheme.errorBlock(text), width: width))
-            case .thinking(let text):
-                lines.append(contentsOf: SloppyTUITheme.thinkingLines(text, width: width))
+            case .thinking(let text, let tokenUsage):
+                lines.append(contentsOf: SloppyTUITheme.thinkingLines(text, width: width, tokenUsage: tokenUsage))
             case .attachment(let name, let mimeType, let sizeBytes):
                 lines.append(SloppyTUITheme.attachmentLine(name: name, mimeType: mimeType, sizeBytes: sizeBytes, width: width))
             case .subSession(let childSessionId, let title, let status):

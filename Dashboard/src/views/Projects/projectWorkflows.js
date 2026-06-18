@@ -13,9 +13,115 @@ const NODE_HEIGHT = 92;
 const CANVAS_PADDING = 96;
 const WORKFLOW_COMPACT_BREAKPOINT = 1040;
 
+function asString(value, fallback = "") {
+  const text = String(value ?? "").trim();
+  return text || fallback;
+}
+
 function asNumber(value, fallback) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
+}
+
+function workflowBlockKind(node) {
+  return asString(node?.config?.blockKind || node?.config?.block_kind);
+}
+
+export function workflowNodePorts(node) {
+  const blockKind = workflowBlockKind(node);
+  const type = asString(node?.type);
+  const input = { id: "input", label: "input", direction: "input", socket: "left" };
+  const output = { id: "output", label: "output", direction: "output", socket: "right" };
+
+  if (type === "condition" || blockKind === "expression" || blockKind === "loop") {
+    return [
+      input,
+      { id: "true", label: "true", direction: "output", socket: "right" },
+      { id: "false", label: "false", direction: "output", socket: "right" }
+    ];
+  }
+
+  if (type === "end" || blockKind === "stop" || blockKind === "error") {
+    return [input];
+  }
+
+  return [input, output];
+}
+
+export function workflowDataReferences(nodes, currentNodeId) {
+  const list = Array.isArray(nodes) ? nodes : [];
+  const currentIndex = list.findIndex((node) => String(node?.id || "") === String(currentNodeId || ""));
+  const candidates = currentIndex >= 0 ? list.slice(0, currentIndex) : list.filter((node) => String(node?.id || "") !== String(currentNodeId || ""));
+  return workflowNodeReferences(candidates);
+}
+
+export function workflowInputNodeReferences(workflow, currentNodeId) {
+  const nodes = Array.isArray(workflow?.nodes) ? workflow.nodes : [];
+  const edges = Array.isArray(workflow?.edges) ? workflow.edges : [];
+  const nodeById = new Map(nodes.map((node) => [String(node?.id || ""), node]));
+  const incomingByTarget = new Map();
+  for (const edge of edges) {
+    const sourceNodeId = asString(edge?.sourceNodeId);
+    const targetNodeId = asString(edge?.targetNodeId);
+    if (!sourceNodeId || !targetNodeId) continue;
+    incomingByTarget.set(targetNodeId, [...(incomingByTarget.get(targetNodeId) || []), sourceNodeId]);
+  }
+
+  const ordered = [];
+  const visited = new Set();
+  function visit(nodeId) {
+    for (const sourceNodeId of incomingByTarget.get(nodeId) || []) {
+      if (visited.has(sourceNodeId)) continue;
+      visited.add(sourceNodeId);
+      visit(sourceNodeId);
+      const node = nodeById.get(sourceNodeId);
+      if (node) ordered.push(node);
+    }
+  }
+  visit(asString(currentNodeId));
+  return workflowNodeReferences(ordered);
+}
+
+function workflowNodeReferences(nodes) {
+  const candidates = Array.isArray(nodes) ? nodes : [];
+  return candidates.map((node) => {
+    const nodeId = asString(node?.id);
+    return {
+      nodeId,
+      title: asString(node?.title, nodeId),
+      output: `{{nodes.${nodeId}.output}}`,
+      error: `{{nodes.${nodeId}.error}}`
+    };
+  }).filter((entry) => entry.nodeId);
+}
+
+function formatWorkflowValue(value) {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (Array.isArray(value)) {
+    return value.map(formatWorkflowValue).filter(Boolean).join(", ");
+  }
+  if (typeof value === "object") {
+    return Object.entries(value)
+      .slice(0, 4)
+      .map(([key, entry]) => `${key}: ${formatWorkflowValue(entry)}`)
+      .filter(Boolean)
+      .join(", ");
+  }
+  return String(value);
+}
+
+export function describeWorkflowStep(step) {
+  const nodeId = asString(step?.nodeId, "node");
+  const status = asString(step?.status, "unknown").replace(/_/g, " ");
+  const error = asString(step?.error);
+  const output = formatWorkflowValue(step?.output);
+  return {
+    title: `${nodeId}: ${status}`,
+    detail: error || output || "",
+    output
+  };
 }
 
 export function workflowCanvasViewportStyle(viewportWidth, viewportHeight) {

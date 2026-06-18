@@ -702,7 +702,7 @@ enum SloppyTUITimelineBlock {
     case local(String)
     case queuedMessage(SloppyTUIQueuedMessage)
     case error(String)
-    case thinking(String)
+    case thinking(String, tokenUsage: TokenUsage? = nil)
     case attachment(name: String, mimeType: String, sizeBytes: Int)
     case subSession(childSessionId: String, title: String, status: SloppyTUISubSessionStatus)
     case memoryCheckpoint(AgentMemoryCheckpointEvent)
@@ -721,7 +721,7 @@ enum SloppyTUITimelineBlock {
             return text
         case .queuedMessage(let message):
             return "Queued message\n\(message.displayText)"
-        case .thinking(let text):
+        case .thinking(let text, _):
             return text
         case .attachment(let name, let mimeType, _):
             return "\(name) \(mimeType)"

@@ -11,7 +11,15 @@ import {
   startProjectWorkflowRun,
   updateProjectWorkflow
 } from "../../api";
-import { createBlankWorkflowRequest, selectWorkflowAfterDelete, workflowBoardSurfaceStyle, workflowCanvasViewportStyle } from "./projectWorkflows";
+import {
+  createBlankWorkflowRequest,
+  describeWorkflowStep,
+  selectWorkflowAfterDelete,
+  workflowBoardSurfaceStyle,
+  workflowCanvasViewportStyle,
+  workflowInputNodeReferences,
+  workflowNodePorts
+} from "./projectWorkflows";
 
 type AnyRecord = Record<string, any>;
 
@@ -46,7 +54,9 @@ interface WorkflowPortDragState {
 
 const NODE_WIDTH = 220;
 const NODE_HEIGHT = 104;
-const SOCKETS = ["top", "right", "bottom", "left"];
+const SOCKETS = ["top", "right", "bottom", "left", "input", "output", "true", "false"];
+const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
+const CODE_LANGUAGES = ["javascript", "typescript", "python", "swift", "bash"];
 
 const BLOCK_PRESETS = [
   {
@@ -228,6 +238,10 @@ function asString(value: unknown, fallback = "") {
   return text || fallback;
 }
 
+function rawString(value: unknown, fallback = "") {
+  return value == null ? fallback : String(value);
+}
+
 function asNumber(value: unknown, fallback = 0) {
   const number = Number(value);
   return Number.isFinite(number) ? number : fallback;
@@ -299,7 +313,25 @@ function workflowNodeIcon(type: unknown, config: AnyRecord = {}) {
   }
 }
 
-function socketPoint(node: AnyRecord, socket: string) {
+function socketPoint(node: AnyRecord, socket: string, direction = "output") {
+  const ports = workflowNodePorts(node);
+  const normalizedSocket = socket === "left" ? "input" : socket === "right" ? "output" : socket;
+  const port = ports.find((entry: AnyRecord) => entry.id === normalizedSocket)
+    || ports.find((entry: AnyRecord) => entry.socket === socket && entry.direction === direction)
+    || ports.find((entry: AnyRecord) => entry.direction === direction)
+    || ports[0];
+  if (port?.socket === "left") {
+    const inputPorts = ports.filter((entry: AnyRecord) => entry.socket === "left");
+    const index = Math.max(0, inputPorts.findIndex((entry: AnyRecord) => entry.id === port.id));
+    const gap = NODE_HEIGHT / (inputPorts.length + 1);
+    return { x: node.positionX, y: node.positionY + gap * (index + 1) };
+  }
+  if (port?.socket === "right") {
+    const outputPorts = ports.filter((entry: AnyRecord) => entry.socket === "right");
+    const index = Math.max(0, outputPorts.findIndex((entry: AnyRecord) => entry.id === port.id));
+    const gap = NODE_HEIGHT / (outputPorts.length + 1);
+    return { x: node.positionX + NODE_WIDTH, y: node.positionY + gap * (index + 1) };
+  }
   switch (socket) {
     case "top":
       return { x: node.positionX + NODE_WIDTH / 2, y: node.positionY };
@@ -314,7 +346,8 @@ function socketPoint(node: AnyRecord, socket: string) {
 }
 
 function socketTangent(socket: string) {
-  switch (socket) {
+  const side = socket === "input" ? "left" : socket === "output" || socket === "true" || socket === "false" ? "right" : socket;
+  switch (side) {
     case "top":
       return { x: 0, y: -1 };
     case "right":
@@ -328,7 +361,8 @@ function socketTangent(socket: string) {
 }
 
 function oppositeSocket(socket: string) {
-  switch (socket) {
+  const side = socket === "input" ? "left" : socket === "output" || socket === "true" || socket === "false" ? "right" : socket;
+  switch (side) {
     case "top":
       return "bottom";
     case "right":
@@ -339,6 +373,14 @@ function oppositeSocket(socket: string) {
     default:
       return "right";
   }
+}
+
+function nodePrimaryTextKey(node: AnyRecord) {
+  const blockKind = asString(node.config?.blockKind || node.config?.block_kind);
+  if (blockKind === "bash") return "command";
+  if (blockKind === "expression" || blockKind === "loop") return "expression";
+  if (blockKind === "channel" || blockKind === "error") return "message";
+  return "prompt";
 }
 
 function buildBezierPath(source: AnyRecord, target: AnyRecord, sourceSocket: string, targetSocket: string) {
@@ -815,7 +857,7 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
           targetNodeId,
           sourceSocket,
           targetSocket,
-          conditionKey: ""
+          conditionKey: sourceSocket === "true" || sourceSocket === "false" ? sourceSocket : ""
         }
       ]
     });
@@ -834,7 +876,9 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
 
   function updateSelectedNodeConfig(key: string, value: unknown) {
     if (!selectedNode) return;
-    updateSelectedNode({ config: { ...(selectedNode.config || {}), [key]: value } });
+    const config = { ...(selectedNode.config || {}), [key]: value };
+    setNodeConfigText(JSON.stringify(config, null, 2));
+    updateSelectedNode({ config });
   }
 
   function updateSelectedEdge(patch: AnyRecord) {
@@ -1014,10 +1058,10 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
     if (!portDrag) return null;
     const sourceNode = nodeMap.get(portDrag.sourceNodeId);
     if (!sourceNode) return null;
-    const source = socketPoint(sourceNode, portDrag.sourceSocket);
+    const source = socketPoint(sourceNode, portDrag.sourceSocket, "output");
     const targetSocket = hoverInputPort?.targetSocket ? normalizeSocket(hoverInputPort.targetSocket, oppositeSocket(portDrag.sourceSocket)) : oppositeSocket(portDrag.sourceSocket);
     const target = hoverInputPort?.targetNodeId && nodeMap.get(hoverInputPort.targetNodeId)
-      ? socketPoint(nodeMap.get(hoverInputPort.targetNodeId), targetSocket)
+      ? socketPoint(nodeMap.get(hoverInputPort.targetNodeId), targetSocket, "input")
       : { x: portDrag.pointerX, y: portDrag.pointerY };
     return { source, target, sourceSocket: portDrag.sourceSocket, targetSocket };
   }, [portDrag, hoverInputPort, nodeMap]);
@@ -1029,6 +1073,17 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
       return !query || label.includes(query);
     }).slice(0, 8);
   }, [agents, agentSearch]);
+  const selectedNodeBlockKind = asString(selectedNode?.config?.blockKind || selectedNode?.config?.block_kind);
+  const selectedNodeTextKey = selectedNode ? nodePrimaryTextKey(selectedNode) : "prompt";
+  const selectedNodeTextValue = selectedNode ? rawString(selectedNode.config?.[selectedNodeTextKey]) : "";
+  const selectedNodeReferences = useMemo(
+    () => selectedNode ? workflowInputNodeReferences(draft || {}, selectedNode.id) : [],
+    [draft, selectedNode?.id]
+  );
+  const availableInputNodeIds = useMemo(
+    () => new Set<string>(selectedNodeReferences.map((entry: AnyRecord) => String(entry.nodeId))),
+    [selectedNodeReferences]
+  );
 
   return (
     <section className="project-tab-layout project-workflows-shell">
@@ -1123,14 +1178,6 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
             >
               {draft ? (
                 <>
-                  <div className="project-workflows-lane-strip" aria-label="Workflow lanes">
-                    {draft.lanes.map((lane: AnyRecord) => (
-                      <span key={lane.id}>
-                        <strong>{lane.title}</strong>
-                      </span>
-                    ))}
-                  </div>
-
                   <svg className="project-workflows-links-layer">
                     {draft.edges.map((edge: AnyRecord) => {
                       const sourceNode = nodeMap.get(edge.sourceNodeId);
@@ -1138,8 +1185,8 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
                       if (!sourceNode || !targetNode) return null;
                       const sourceSocket = normalizeSocket(edge.sourceSocket, "right");
                       const targetSocket = normalizeSocket(edge.targetSocket, "left");
-                      const source = socketPoint(sourceNode, sourceSocket);
-                      const target = socketPoint(targetNode, targetSocket);
+                      const source = socketPoint(sourceNode, sourceSocket, "output");
+                      const target = socketPoint(targetNode, targetSocket, "input");
                       const path = buildBezierPath(source, target, sourceSocket, targetSocket);
                       const midX = (source.x + target.x) / 2;
                       const midY = (source.y + target.y) / 2;
@@ -1178,11 +1225,12 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
                     const lane = laneMap.get(String(node.laneId || ""));
                     const blockKind = asString(node.config?.blockKind || node.config?.block_kind, formatStatus(node.type));
                     const isSelected = selectedNodeId === node.id;
+                    const isAvailableInput = selectedNodeId && availableInputNodeIds.has(String(node.id));
                     const isActive = activeNodeIds.has(String(node.id));
                     const stepStatus = stepStatusByNode.get(String(node.id));
                     return (
                       <article
-                        className={`project-workflow-node ${formatStatus(node.type).replace(/\s+/g, "-")} ${isSelected ? "selected" : ""} ${isActive ? "active" : ""} ${stepStatus ? `step-${stepStatus}` : ""}`}
+                        className={`project-workflow-node ${formatStatus(node.type).replace(/\s+/g, "-")} ${isSelected ? "selected" : ""} ${isAvailableInput ? "available-input" : ""} ${isActive ? "active" : ""} ${stepStatus ? `step-${stepStatus}` : ""}`}
                         key={node.id}
                         style={{ left: node.positionX, top: node.positionY }}
                         onPointerDown={(event) => onNodePointerDown(event, node)}
@@ -1192,24 +1240,34 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
                           setSelectedEdgeId(null);
                         }}
                       >
-                        {SOCKETS.map((socket) => {
-                          const isHover = hoverInputPort?.targetNodeId === node.id && hoverInputPort?.targetSocket === socket;
-                          const isSource = portDrag?.sourceNodeId === node.id && portDrag?.sourceSocket === socket;
+                        {workflowNodePorts(node).map((port: AnyRecord) => {
+                          const point = socketPoint({ ...node, positionX: 0, positionY: 0 }, port.id, port.direction);
+                          const isHover = hoverInputPort?.targetNodeId === node.id && hoverInputPort?.targetSocket === port.id;
+                          const isSource = portDrag?.sourceNodeId === node.id && portDrag?.sourceSocket === port.id;
                           return (
                             <button
-                              key={socket}
+                              key={port.id}
                               type="button"
-                              className={`project-workflow-socket side-${socket} ${isSource ? "source" : ""} ${isHover ? "hover" : ""}`}
-                              onPointerDown={(event) => onSocketPointerDown(event, node, socket)}
+                              className={`project-workflow-socket side-${port.socket} port-${port.direction} ${isSource ? "source" : ""} ${isHover ? "hover" : ""}`}
+                              style={{ left: point.x, top: point.y }}
+                              onPointerDown={(event) => {
+                                if (port.direction === "output") {
+                                  onSocketPointerDown(event, node, port.id);
+                                  return;
+                                }
+                                event.stopPropagation();
+                              }}
                               onPointerEnter={() => {
-                                if (portDrag) setHoverInputPort({ targetNodeId: node.id, targetSocket: socket });
+                                if (portDrag && port.direction === "input") setHoverInputPort({ targetNodeId: node.id, targetSocket: port.id });
                               }}
                               onPointerLeave={() => {
-                                if (hoverInputPort?.targetNodeId === node.id && hoverInputPort?.targetSocket === socket) setHoverInputPort(null);
+                                if (hoverInputPort?.targetNodeId === node.id && hoverInputPort?.targetSocket === port.id) setHoverInputPort(null);
                               }}
-                              onPointerUp={(event) => onSocketPointerUp(event, node, socket)}
-                              title={`Socket ${socket}`}
-                            />
+                              onPointerUp={(event) => onSocketPointerUp(event, node, port.id)}
+                              title={`${port.direction}: ${port.label}`}
+                            >
+                              <span>{port.label}</span>
+                            </button>
                           );
                         })}
                         <span className="material-symbols-rounded">{workflowNodeIcon(node.type, node.config)}</span>
@@ -1321,19 +1379,104 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
                   </label>
                 ) : null}
                 <label>
-                  Prompt / Expression / Command
+                  {selectedNodeTextKey === "command" ? "Command" : selectedNodeTextKey === "expression" ? "Expression" : selectedNodeTextKey === "message" ? "Message" : "Prompt"}
                   <textarea
-                    value={asString(selectedNode.config?.prompt || selectedNode.config?.expression || selectedNode.config?.command || selectedNode.config?.message)}
-                    onChange={(event) => {
-                      const blockKind = asString(selectedNode.config?.blockKind);
-                      const key = blockKind === "bash" ? "command" : blockKind === "expression" || blockKind === "loop" ? "expression" : "prompt";
-                      updateSelectedNodeConfig(key, event.target.value);
-                    }}
+                    value={selectedNodeTextValue}
+                    onChange={(event) => updateSelectedNodeConfig(selectedNodeTextKey, event.target.value)}
                     rows={4}
                   />
                 </label>
+                <div className="project-workflow-data-hints">
+                  <strong>Data</strong>
+                  <code>{"{{input}}"}</code>
+                  {selectedNodeReferences.map((entry: AnyRecord) => (
+                    <span key={entry.nodeId}>
+                      <small>{entry.title}</small>
+                      <code>{entry.output}</code>
+                      <code>{entry.error}</code>
+                    </span>
+                  ))}
+                </div>
+                {selectedNodeBlockKind === "web_request" ? (
+                  <>
+                    <label>
+                      HTTP method
+                      <div className="project-workflow-choice-grid project-workflow-choice-grid--compact">
+                        {HTTP_METHODS.map((method) => (
+                          <button
+                            key={method}
+                            type="button"
+                            className={asString(selectedNode.config?.method, "GET").toUpperCase() === method ? "active" : ""}
+                            onClick={() => updateSelectedNodeConfig("method", method)}
+                          >
+                            {method}
+                          </button>
+                        ))}
+                      </div>
+                    </label>
+                    <label>
+                      URL
+                      <input
+                        value={rawString(selectedNode.config?.url)}
+                        onChange={(event) => updateSelectedNodeConfig("url", event.target.value)}
+                        placeholder="https://api.example.com"
+                      />
+                    </label>
+                    <label>
+                      Headers JSON
+                      <textarea
+                        value={rawString(selectedNode.config?.headers, "{}")}
+                        onChange={(event) => updateSelectedNodeConfig("headers", event.target.value)}
+                        rows={3}
+                      />
+                    </label>
+                    <label>
+                      Body
+                      <textarea
+                        value={rawString(selectedNode.config?.body)}
+                        onChange={(event) => updateSelectedNodeConfig("body", event.target.value)}
+                        rows={4}
+                      />
+                    </label>
+                  </>
+                ) : null}
+                {selectedNodeBlockKind === "code" ? (
+                  <>
+                    <label>
+                      Language
+                      <div className="project-workflow-choice-grid project-workflow-choice-grid--compact">
+                        {CODE_LANGUAGES.map((language) => (
+                          <button
+                            key={language}
+                            type="button"
+                            className={asString(selectedNode.config?.language, "javascript") === language ? "active" : ""}
+                            onClick={() => updateSelectedNodeConfig("language", language)}
+                          >
+                            {language}
+                          </button>
+                        ))}
+                      </div>
+                    </label>
+                    <label>
+                      Local file path
+                      <input
+                        value={rawString(selectedNode.config?.filePath)}
+                        onChange={(event) => updateSelectedNodeConfig("filePath", event.target.value)}
+                        placeholder="/absolute/path/to/script"
+                      />
+                    </label>
+                    <label>
+                      Source code
+                      <textarea
+                        value={rawString(selectedNode.config?.source)}
+                        onChange={(event) => updateSelectedNodeConfig("source", event.target.value)}
+                        rows={6}
+                      />
+                    </label>
+                  </>
+                ) : null}
                 <label>
-                  Config JSON
+                  Advanced JSON
                   <textarea
                     value={nodeConfigText}
                     onChange={(event) => setNodeConfigText(event.target.value)}
@@ -1393,11 +1536,16 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
                 <strong>{formatStatus(selectedRun.status)}</strong>
                 <small>{formatDate(selectedRun.startedAt)}</small>
                 <div className="project-workflow-step-list">
-                  {runSteps.length === 0 ? <small>No step detail.</small> : runSteps.map((step: AnyRecord) => (
-                    <span key={step.id} className={`project-workflow-step-pill ${step.status}`}>
-                      {step.nodeId}: {formatStatus(step.status)}
-                    </span>
-                  ))}
+                  {runSteps.length === 0 ? <small>No step detail.</small> : runSteps.map((step: AnyRecord) => {
+                    const description = describeWorkflowStep(step);
+                    return (
+                      <span key={step.id} className={`project-workflow-step-pill ${step.status}`}>
+                        <strong>{description.title}</strong>
+                        {description.detail ? <small>{description.detail}</small> : null}
+                        {description.output && description.output !== description.detail ? <code>{description.output}</code> : null}
+                      </span>
+                    );
+                  })}
                 </div>
               </article>
             ) : (

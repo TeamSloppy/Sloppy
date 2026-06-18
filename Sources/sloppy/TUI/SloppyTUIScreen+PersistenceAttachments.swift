@@ -466,7 +466,7 @@ extension SloppyTUIScreen {
     func insertImageMarkersIntoEditor(_ markers: [String]) {
         let text = markers.joined(separator: "\n")
         guard !text.isEmpty else { return }
-        editor.handle(input: .paste(text))
+        editor.handle(input: .paste(SloppyTUITheme.orange(text)))
     }
 
     func imageMarkers(fromPastedText text: String) -> [String] {

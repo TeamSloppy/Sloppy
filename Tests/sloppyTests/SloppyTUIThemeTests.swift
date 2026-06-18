@@ -65,6 +65,25 @@ func runStatusLineIncludesTurnTokenUsage() {
 }
 
 @Test
+func waitingIndicatorKeepsSpinnerBeforeWaitingWord() {
+    let line = SloppyTUITheme.waitingIndicator(frame: 0, word: "recombobulating")
+
+    #expect(stripANSI(line).hasPrefix("⠋ recombobulating"))
+}
+
+@Test
+func thinkingLinesIncludeTurnTokenUsageInHeader() {
+    let lines = SloppyTUITheme.thinkingLines(
+        "Execution plan for executor:",
+        width: 80,
+        tokenUsage: .init(prompt: 1_002, completion: 3_232)
+    )
+    let plain = stripANSI(lines.joined(separator: "\n"))
+
+    #expect(plain.contains("thought (1002 ↑ / 3232 ↓) Execution plan for executor:"))
+}
+
+@Test
 func composerContinuesAtPathHighlightAcrossWrappedLines() {
     let lines = [
         "\u{001B}[38;2;82;211;194m────────\u{001B}[39m",
@@ -379,6 +398,23 @@ func operationStatusFooterRendersMultipleBusyStatuses() {
     #expect(plain.contains("Indexing search"))
     #expect(plain.contains("Loading models"))
     #expect(VisibleWidth.measure(line) == 80)
+}
+
+@Test
+func shimmeringTextUsesSkeletonPaletteInsteadOfRainbow() {
+    let firstFrame = SloppyTUITheme.shimmeringText("brewing...", frame: 2)
+    let laterFrame = SloppyTUITheme.shimmeringText("brewing...", frame: 5)
+
+    #expect(stripANSI(firstFrame) == "brewing...")
+    #expect(stripANSI(laterFrame) == "brewing...")
+    #expect(VisibleWidth.measure(firstFrame) == 10)
+    #expect(firstFrame != laterFrame)
+    #expect(firstFrame.contains("\u{001B}[38;2;148;163;184m"))
+    #expect(firstFrame.contains("\u{001B}[38;2;226;232;240m"))
+    #expect(!firstFrame.contains("\u{001B}[38;2;248;113;113m"))
+    #expect(!firstFrame.contains("\u{001B}[38;2;250;204;21m"))
+    #expect(!firstFrame.contains("\u{001B}[38;2;74;222;128m"))
+    #expect(!firstFrame.contains("\u{001B}[38;2;96;165;250m"))
 }
 
 @Test

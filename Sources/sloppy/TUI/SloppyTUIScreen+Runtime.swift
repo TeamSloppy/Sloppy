@@ -415,6 +415,7 @@ extension SloppyTUIScreen {
         let latestBuildProgressID = events.reversed().first { event in
             event.type == .buildProgress && event.buildProgress != nil
         }?.id
+        let latestTurnTokenUsage = events.reversed().compactMap(\.runStatus?.tokenUsage).first
         lastRenderedSessionEventIDs = Set(events.map(\.id))
         for event in events {
             if let message = event.message {
@@ -479,6 +480,14 @@ extension SloppyTUIScreen {
             } else if event.type == .planArtifact, let artifact = event.planArtifact?.artifact {
                 blocks.append(.planArtifact(artifact))
             }
+        }
+        if let latestTurnTokenUsage,
+           let index = blocks.lastIndex(where: { block in
+               if case .thinking = block { return true }
+               return false
+           }),
+           case .thinking(let text, _) = blocks[index] {
+            blocks[index] = .thinking(text, tokenUsage: latestTurnTokenUsage)
         }
         sessionCards = blocks
         subSessionCards = children

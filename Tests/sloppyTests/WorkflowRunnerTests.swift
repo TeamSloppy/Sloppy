@@ -194,6 +194,64 @@ func workflowRunnerExecutesToolCheckThroughInjectedExecutor() async throws {
 }
 
 @Test
+func workflowRunnerPassesPreviousNodeOutputsToLaterToolInputs() async throws {
+    let runner = WorkflowRunner()
+    let definition = workflowDefinition(nodes: [
+        WorkflowNode(id: "start", type: .trigger, title: "Start", laneId: "system"),
+        WorkflowNode(id: "first", type: .toolCheck, title: "First", laneId: "system", config: ["blockKind": .string("tool")]),
+        WorkflowNode(id: "second", type: .toolCheck, title: "Second", laneId: "system", config: ["blockKind": .string("tool")]),
+        WorkflowNode(id: "done", type: .end, title: "Done", laneId: "system")
+    ], edges: [
+        WorkflowEdge(id: "e1", sourceNodeId: "start", targetNodeId: "first"),
+        WorkflowEdge(id: "e2", sourceNodeId: "first", targetNodeId: "second"),
+        WorkflowEdge(id: "e3", sourceNodeId: "second", targetNodeId: "done")
+    ])
+    let recorder = WorkflowRecorder()
+
+    let result = await runner.start(
+        definition: definition,
+        context: .init(projectId: "project-1", taskId: nil, startedBy: "agent:test", input: ["message": .string("hello")]),
+        persistence: recorder.persistence,
+        updateTask: recorder.updateTask,
+        executeTool: { node, _, input in
+            if node.id == "first" {
+                return ToolInvocationResult(tool: "project.first", ok: true, data: .object(["value": .string("from-first")]))
+            }
+            let nodes = input["nodes"]?.asObject
+            let firstOutput = nodes?["first"]?.asObject?["output"]?.asObject
+            #expect(firstOutput?["value"] == .string("from-first"))
+            #expect(input["input"]?.asObject?["message"] == .string("hello"))
+            return ToolInvocationResult(tool: "project.second", ok: true, data: .object(["value": .string("from-second")]))
+        }
+    )
+
+    guard case .completed(let run) = result else {
+        Issue.record("Expected completed workflow run.")
+        return
+    }
+    #expect(run.status == .completed)
+}
+
+@Test
+func workflowTemplateResolverSubstitutesNodeOutputPaths() throws {
+    let input: [String: JSONValue] = [
+        "input": .object(["message": .string("hello")]),
+        "nodes": .object([
+            "web-request": .object([
+                "output": .object([
+                    "status": .number(200),
+                    "body": .string("ok")
+                ])
+            ])
+        ])
+    ]
+
+    #expect(resolveWorkflowTemplateString("echo {{nodes.web-request.output.body}}", input: input) == "echo ok")
+    #expect(resolveWorkflowTemplateString("status={{nodes.web-request.output.status}}", input: input) == "status=200")
+    #expect(resolveWorkflowTemplateString("msg={{input.message}}", input: input) == "msg=hello")
+}
+
+@Test
 func workflowRunnerFailsWhenInjectedExecutorFails() async throws {
     let runner = WorkflowRunner()
     let definition = workflowDefinition(nodes: [

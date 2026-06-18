@@ -238,11 +238,12 @@ extension CoreService {
             guard let command = stringValue(node.config["command"]) else {
                 return workflowInvalidToolRequest(tool: "runtime.exec", message: "`command` is required for bash workflow block.")
             }
+            let resolvedCommand = resolveWorkflowTemplateString(command, input: input)
             return ToolInvocationRequest(
                 tool: "runtime.exec",
                 arguments: [
                     "command": .string("bash"),
-                    "arguments": .array([.string("-lc"), .string(command)]),
+                    "arguments": .array([.string("-lc"), .string(resolvedCommand)]),
                     "cwd": node.config["cwd"] ?? input["cwd"] ?? .null
                 ],
                 reason: "Workflow node \(node.id): \(node.title)"
@@ -250,8 +251,8 @@ extension CoreService {
 
         case "code":
             let language = (stringValue(node.config["language"]) ?? "javascript").lowercased()
-            let source = stringValue(node.config["source"])
-            let filePath = stringValue(node.config["filePath"])
+            let source = stringValue(node.config["source"]).map { resolveWorkflowTemplateString($0, input: input) }
+            let filePath = stringValue(node.config["filePath"]).map { resolveWorkflowTemplateString($0, input: input) }
             let command: String
             let arguments: [JSONValue]
             if let filePath {
@@ -280,10 +281,10 @@ extension CoreService {
             return ToolInvocationRequest(
                 tool: "web.request",
                 arguments: [
-                    "url": .string(url),
+                    "url": .string(resolveWorkflowTemplateString(url, input: input)),
                     "method": .string((stringValue(node.config["method"]) ?? "GET").uppercased()),
-                    "headers": node.config["headers"] ?? .object([:]),
-                    "body": node.config["body"] ?? .null
+                    "headers": resolveWorkflowTemplateValue(node.config["headers"] ?? .object([:]), input: input),
+                    "body": resolveWorkflowTemplateValue(node.config["body"] ?? .null, input: input)
                 ],
                 reason: "Workflow node \(node.id): \(node.title)"
             )
@@ -294,7 +295,7 @@ extension CoreService {
             }
             return ToolInvocationRequest(
                 tool: toolName,
-                arguments: workflowArguments(from: node.config["arguments"]),
+                arguments: workflowArguments(from: resolveWorkflowTemplateValue(node.config["arguments"] ?? .object([:]), input: input)),
                 reason: "Workflow node \(node.id): \(node.title)"
             )
 
@@ -360,5 +361,70 @@ extension CoreService {
         }
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         return trimmed.isEmpty ? nil : trimmed
+    }
+}
+
+func resolveWorkflowTemplateValue(_ value: JSONValue, input: [String: JSONValue]) -> JSONValue {
+    switch value {
+    case .string(let raw):
+        return .string(resolveWorkflowTemplateString(raw, input: input))
+    case .array(let values):
+        return .array(values.map { resolveWorkflowTemplateValue($0, input: input) })
+    case .object(let object):
+        return .object(object.mapValues { resolveWorkflowTemplateValue($0, input: input) })
+    case .number, .bool, .null:
+        return value
+    }
+}
+
+func resolveWorkflowTemplateString(_ raw: String, input: [String: JSONValue]) -> String {
+    var result = ""
+    var cursor = raw.startIndex
+    while let start = raw[cursor...].range(of: "{{") {
+        result += raw[cursor..<start.lowerBound]
+        let afterStart = start.upperBound
+        guard let end = raw[afterStart...].range(of: "}}") else {
+            result += raw[start.lowerBound...]
+            return result
+        }
+        let path = raw[afterStart..<end.lowerBound].trimmingCharacters(in: .whitespacesAndNewlines)
+        if let value = workflowTemplateValue(path: path, input: input) {
+            result += workflowTemplateString(value)
+        } else {
+            result += raw[start.lowerBound..<end.upperBound]
+        }
+        cursor = end.upperBound
+    }
+    result += raw[cursor...]
+    return result
+}
+
+private func workflowTemplateValue(path: String, input: [String: JSONValue]) -> JSONValue? {
+    let parts = path.split(separator: ".").map(String.init).filter { !$0.isEmpty }
+    guard let first = parts.first, var value = input[first] else {
+        return nil
+    }
+    for part in parts.dropFirst() {
+        guard case .object(let object) = value, let next = object[part] else {
+            return nil
+        }
+        value = next
+    }
+    return value
+}
+
+private func workflowTemplateString(_ value: JSONValue) -> String {
+    switch value {
+    case .string(let raw):
+        return raw
+    case .number(let number):
+        return number.rounded() == number ? String(Int(number)) : String(number)
+    case .bool(let bool):
+        return bool ? "true" : "false"
+    case .null:
+        return "null"
+    case .array, .object:
+        let data = try? JSONEncoder().encode(value)
+        return data.flatMap { String(data: $0, encoding: .utf8) } ?? ""
     }
 }

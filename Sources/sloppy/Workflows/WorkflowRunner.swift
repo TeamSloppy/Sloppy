@@ -135,6 +135,7 @@ struct WorkflowRunner {
         var run = run
         var nodeID: String? = currentNodeID
         var previousOutput = initialOutput
+        var nodeOutputs: [String: JSONValue] = [:]
         var visitedCounts: [String: Int] = [:]
 
         while let activeNodeID = nodeID {
@@ -149,6 +150,7 @@ struct WorkflowRunner {
             run.status = .running
             run.currentNodeIds = [node.id]
             await persistence.saveRun(run)
+            let scopedInput = workflowScopedInput(current: previousOutput, contextInput: context.input, nodeOutputs: nodeOutputs)
 
             switch node.type {
             case .humanApproval, .humanInput:
@@ -158,7 +160,7 @@ struct WorkflowRunner {
                     runId: run.id,
                     nodeId: node.id,
                     status: .waiting,
-                    input: previousOutput,
+                    input: scopedInput,
                     output: ["status": .string("waiting")],
                     startedAt: Date()
                 )
@@ -176,7 +178,7 @@ struct WorkflowRunner {
                     runId: run.id,
                     nodeId: node.id,
                     status: .succeeded,
-                    input: previousOutput,
+                    input: scopedInput,
                     output: output,
                     startedAt: Date(),
                     finishedAt: Date()
@@ -202,7 +204,7 @@ struct WorkflowRunner {
                 previousOutput = context.input.merging(node.config) { _, new in new }
 
             case .agentStep, .toolCheck:
-                if let toolResult = await executeTool?(node, context, previousOutput) {
+                if let toolResult = await executeTool?(node, context, scopedInput) {
                     guard toolResult.ok else {
                         let message = toolResult.error?.message ?? "Workflow tool node failed."
                         let failedStep = WorkflowRunStep(
@@ -210,7 +212,7 @@ struct WorkflowRunner {
                             runId: run.id,
                             nodeId: node.id,
                             status: .failed,
-                            input: previousOutput,
+                            input: scopedInput,
                             output: toolResult.dataObject,
                             error: message,
                             startedAt: Date(),
@@ -236,12 +238,13 @@ struct WorkflowRunner {
                 runId: run.id,
                 nodeId: node.id,
                 status: .succeeded,
-                input: context.input,
+                input: scopedInput,
                 output: previousOutput,
                 startedAt: Date(),
                 finishedAt: Date()
             )
             await persistence.saveStep(step)
+            nodeOutputs[node.id] = .object(["output": .object(previousOutput)])
             nodeID = nextNodeID(after: node.id, output: previousOutput, definition: definition)
         }
 
@@ -294,6 +297,17 @@ struct WorkflowRunner {
         failed.finishedAt = Date()
         await persistence.saveRun(failed)
         return .failed(failed, message)
+    }
+
+    private func workflowScopedInput(
+        current: [String: JSONValue],
+        contextInput: [String: JSONValue],
+        nodeOutputs: [String: JSONValue]
+    ) -> [String: JSONValue] {
+        current.merging([
+            "input": .object(contextInput),
+            "nodes": .object(nodeOutputs)
+        ]) { current, _ in current }
     }
 
     private func nextNodeID(after nodeID: String, output: [String: JSONValue], definition: WorkflowDefinition) -> String? {
