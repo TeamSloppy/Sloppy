@@ -1883,18 +1883,27 @@ actor AgentSessionOrchestrator {
         }
         let installedSkills = loadInstalledSkills(agentID: agentID)
         let agentDirectoryPath = (try? agentCatalogStore.directoryURL(agentID: agentID).path)
+        let runtimeContext = persistedModelContext.config.agentRuntimeContext
         let bootstrapPrompt: Prompt
         do {
-            bootstrapPrompt = try promptComposer.compose(
-                context: .agentSessionBootstrap(
-                    agentID: agentID,
-                    sessionID: sessionID,
-                    bootstrapMarker: Self.sessionContextBootstrapMarker,
-                    documents: documents,
-                    installedSkills: installedSkills,
-                    agentDirectoryPath: agentDirectoryPath
-                )
+            let promptContext = PromptRenderContext.agentSessionBootstrap(
+                agentID: agentID,
+                sessionID: sessionID,
+                bootstrapMarker: Self.sessionContextBootstrapMarker,
+                documents: documents,
+                installedSkills: installedSkills,
+                agentDirectoryPath: agentDirectoryPath
             )
+            if runtimeContext.bootstrapMode == .lean {
+                bootstrapPrompt = try promptComposer.composeLeanAgentSessionBootstrap(
+                    context: promptContext,
+                    inlineTokenLimit: runtimeContext.leanInlineTokenLimit
+                )
+            } else {
+                bootstrapPrompt = try promptComposer.compose(
+                    context: promptContext
+                )
+            }
         } catch {
             logger.warning(
                 "Prompt composer failed, using fallback bootstrap prompt",

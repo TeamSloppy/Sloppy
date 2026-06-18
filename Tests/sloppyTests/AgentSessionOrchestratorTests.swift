@@ -400,6 +400,7 @@ private func makeAgentSessionFixture(
     agentID: String,
     selectedModel: String,
     plannerModel: String? = nil,
+    documents: AgentDocumentBundle? = nil,
     availableModels: [ProviderModelOption]
 ) throws -> (AgentCatalogFileStore, AgentSessionFileStore, URL) {
     let agentsRootURL = FileManager.default.temporaryDirectory
@@ -422,7 +423,7 @@ private func makeAgentSessionFixture(
             role: nil,
             selectedModel: selectedModel,
             plannerModel: plannerModel,
-            documents: AgentDocumentBundle(
+            documents: documents ?? AgentDocumentBundle(
                 userMarkdown: "# User\nTest user\n",
                 agentsMarkdown: "# Agent\nTest agent\n",
                 soulMarkdown: "# Soul\nTest soul\n",
@@ -471,6 +472,48 @@ func nativeAgentRunPlansWithPlannerModelThenExecutesWithExecutorModel() async th
     #expect(prompts.count == 2)
     #expect(prompts.last?.contains("[Planner output]") == true)
     #expect(prompts.last?.contains("Captured.") == true)
+}
+
+@Test
+func agentSessionLeanBootstrapUsesManifestInsteadOfLargeDocuments() async throws {
+    let agentID = "lean-bootstrap-agent"
+    let modelID = "mock:default"
+    let largeAgents = String(repeating: "Large AGENTS body.\n", count: 500)
+    let availableModels = [
+        ProviderModelOption(id: modelID, title: "Mock")
+    ]
+    let (catalogStore, sessionStore, agentsRootURL) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: modelID,
+        documents: AgentDocumentBundle(
+            userMarkdown: "User preferences",
+            agentsMarkdown: largeAgents,
+            soulMarkdown: "Soul",
+            identityMarkdown: "Identity"
+        ),
+        availableModels: availableModels
+    )
+    let provider = SessionCapturingModelProvider(models: [modelID])
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: modelID)
+    var config = CoreConfig.default
+    config.agentRuntimeContext.bootstrapMode = .lean
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        agentSkillsStore: AgentSkillsFileStore(agentsRootURL: agentsRootURL),
+        availableModels: availableModels,
+        persistedModelContext: (config, false)
+    )
+
+    let session = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest())
+    let channelID = "agent:\(agentID):session:\(session.id)"
+    let bootstrap = try #require(await runtime.channelBootstrapContent(channelId: channelID))
+
+    #expect(bootstrap.contains("[Agent context manifest]"))
+    #expect(bootstrap.contains("AGENTS.md"))
+    #expect(bootstrap.contains("available in agent directory"))
+    #expect(!bootstrap.contains(String(repeating: "Large AGENTS body.\n", count: 20)))
 }
 
 private func expectedFallbackBootstrapMessage(

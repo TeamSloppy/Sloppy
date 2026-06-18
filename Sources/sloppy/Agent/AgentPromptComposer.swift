@@ -1,4 +1,5 @@
 import Foundation
+import AgentRuntime
 import AnyLanguageModel
 import Protocols
 
@@ -21,6 +22,61 @@ struct AgentPromptComposer {
             return try composeAgentSessionBootstrap(context: context)
         case .swarmPlanner:
             throw ComposerError.unsupportedProcess
+        }
+    }
+
+    func composeLeanAgentSessionBootstrap(context: PromptRenderContext, inlineTokenLimit: Int) throws -> Prompt {
+        guard let sessionID = context.sessionID,
+              let bootstrapMarker = context.bootstrapMarker,
+              let documents = context.documents
+        else {
+            throw ComposerError.unsupportedProcess
+        }
+
+        let estimator = TokenPressureEstimator()
+        let effectiveInlineTokenLimit = max(0, inlineTokenLimit)
+        func documentLine(_ name: String, _ content: String) -> String? {
+            let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else {
+                return nil
+            }
+            let tokens = estimator.estimateTextTokens(trimmed)
+            if tokens <= effectiveInlineTokenLimit {
+                return "- \(name): inline below\n\n[\(name)]\n\(trimmed)"
+            }
+            return "- \(name): available in agent directory; load it with `files.read` when relevant (\(tokens) estimated tokens)."
+        }
+
+        let documentEntries = [
+            documentLine("AGENTS.md", documents.agentsMarkdown),
+            documentLine("USER.md", documents.userMarkdown),
+            documentLine("IDENTITY.md", documents.identityMarkdown),
+            documentLine("SOUL.md", documents.soulMarkdown),
+            documentLine("MEMORY.md", documents.memoryMarkdown)
+        ].compactMap { $0 }
+        let skillsEntries = buildSkillsEntries(skills: context.installedSkills)
+
+        return try Prompt {
+            bootstrapMarker
+            "Session context initialized."
+            "Agent: \(context.agentID)"
+            if let agentDirectoryPath = context.agentDirectoryPath,
+               !agentDirectoryPath.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                "Agent directory: \(agentDirectoryPath)"
+            }
+            "Current session ID: \(sessionID)"
+            ""
+            "[Agent context manifest]"
+            documentEntries.joined(separator: "\n")
+            if !context.installedSkills.isEmpty {
+                ""
+                "[Skills manifest]"
+                skillsEntries
+            }
+            ""
+            try templateLoader.loadPartial(named: "session_capabilities")
+            ""
+            try templateLoader.loadPartial(named: "tools_instruction")
         }
     }
 

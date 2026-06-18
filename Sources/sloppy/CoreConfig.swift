@@ -219,6 +219,24 @@ public struct CoreConfig: Codable, Sendable {
         }
     }
 
+    public struct AgentRuntimeContextConfig: Codable, Sendable, Equatable {
+        public enum BootstrapMode: String, Codable, Sendable, Equatable {
+            case full
+            case lean
+        }
+
+        public var bootstrapMode: BootstrapMode
+        public var leanInlineTokenLimit: Int
+
+        public init(
+            bootstrapMode: BootstrapMode = .full,
+            leanInlineTokenLimit: Int = 512
+        ) {
+            self.bootstrapMode = bootstrapMode
+            self.leanInlineTokenLimit = max(0, leanInlineTokenLimit)
+        }
+    }
+
     public struct Memory: Codable, Sendable, Equatable {
         public struct Provider: Codable, Sendable, Equatable {
             public struct MCPTools: Codable, Sendable, Equatable {
@@ -1749,6 +1767,7 @@ public struct CoreConfig: Codable, Sendable {
     public var opencode: OpenCode
     public var disableModelInference: Bool
     public var sessionRetention: SessionRetention
+    public var agentRuntimeContext: AgentRuntimeContextConfig
     public var memory: Memory
     public var nodes: [Node]
     public var gateways: [String]
@@ -1783,6 +1802,7 @@ public struct CoreConfig: Codable, Sendable {
         models: [ModelConfig],
         opencode: OpenCode = OpenCode(),
         sessionRetention: SessionRetention = SessionRetention(),
+        agentRuntimeContext: AgentRuntimeContextConfig = AgentRuntimeContextConfig(),
         memory: Memory,
         nodes: [Node],
         gateways: [String],
@@ -1816,6 +1836,7 @@ public struct CoreConfig: Codable, Sendable {
         self.models = models
         self.opencode = opencode
         self.sessionRetention = sessionRetention
+        self.agentRuntimeContext = agentRuntimeContext
         self.memory = memory
         self.nodes = nodes
         self.gateways = gateways
@@ -1864,6 +1885,7 @@ public struct CoreConfig: Codable, Sendable {
             ],
             opencode: .init(),
             sessionRetention: .init(),
+            agentRuntimeContext: .init(),
             memory: .init(backend: "sqlite-local-vectors"),
             nodes: [.init(id: "local", title: "Local", kind: .local)],
             gateways: [],
@@ -1940,6 +1962,7 @@ public struct CoreConfig: Codable, Sendable {
         case models
         case opencode
         case sessionRetention
+        case agentRuntimeContext
         case memory
         case nodes
         case gateways
@@ -1976,6 +1999,7 @@ public struct CoreConfig: Codable, Sendable {
         coffeeMode = try container.decodeIfPresent(CoffeeMode.self, forKey: .coffeeMode) ?? .init()
         memory = try container.decode(Memory.self, forKey: .memory)
         sessionRetention = try container.decodeIfPresent(SessionRetention.self, forKey: .sessionRetention) ?? .init()
+        agentRuntimeContext = try container.decodeIfPresent(AgentRuntimeContextConfig.self, forKey: .agentRuntimeContext) ?? .init()
         nodes = try container.decodeIfPresent([Node].self, forKey: .nodes) ?? []
         gateways = try container.decodeIfPresent([String].self, forKey: .gateways) ?? []
         channels = try container.decodeIfPresent(ChannelConfig.self, forKey: .channels) ?? .init()
@@ -2016,6 +2040,7 @@ public struct CoreConfig: Codable, Sendable {
         try container.encode(models, forKey: .models)
         try container.encode(opencode, forKey: .opencode)
         try container.encode(sessionRetention, forKey: .sessionRetention)
+        try container.encode(agentRuntimeContext, forKey: .agentRuntimeContext)
         try container.encode(memory, forKey: .memory)
         try container.encode(nodes, forKey: .nodes)
         try container.encode(gateways, forKey: .gateways)
