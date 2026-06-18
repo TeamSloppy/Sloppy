@@ -95,6 +95,83 @@ extension RuntimeSystem {
         ).tools
     }
 
+    func makeContextLedgerSnapshot(
+        channelId: String,
+        userMessage: String,
+        modelProvider: any ModelProvider,
+        includeTools: Bool,
+        maxOutputTokens: Int
+    ) async -> ContextLedgerSnapshot {
+        let contextWindowTokens = await channels.configuredContextWindowTokens()
+        let builder = ContextLedgerBuilder(
+            estimator: TokenPressureEstimator(contextWindowTokens: contextWindowTokens)
+        )
+        var entries: [ContextLedgerEntry] = []
+
+        if let systemInstructions = modelProvider.systemInstructions?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !systemInstructions.isEmpty
+        {
+            entries.append(
+                builder.entry(
+                    category: .systemInstructions,
+                    label: "provider system instructions",
+                    text: systemInstructions,
+                    cachePolicy: .cacheable
+                )
+            )
+        }
+
+        if let bootstrap = bootstrapByChannel[channelId]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !bootstrap.isEmpty
+        {
+            entries.append(
+                builder.entry(
+                    category: .bootstrapStatic,
+                    label: "channel bootstrap",
+                    text: bootstrap,
+                    cachePolicy: .cacheable
+                )
+            )
+        }
+
+        let tools = sanitizedModelTools(
+            channelId: channelId,
+            modelProvider: modelProvider,
+            includeTools: includeTools
+        )
+        let toolSchemaTokens = tools.reduce(0) { partial, tool in
+            partial
+                + builder.estimateTextTokens(tool.name)
+                + builder.estimateTextTokens(tool.description)
+        }
+        if toolSchemaTokens > 0 {
+            entries.append(
+                ContextLedgerEntry(
+                    category: .toolsSchema,
+                    label: "native tool schemas",
+                    estimatedTokens: toolSchemaTokens,
+                    cachePolicy: .cacheable
+                )
+            )
+        }
+
+        entries.append(
+            builder.entry(
+                category: .currentTurn,
+                label: "current user message",
+                text: userMessage,
+                cachePolicy: .uncacheable
+            )
+        )
+
+        return builder.snapshot(
+            channelId: channelId,
+            contextWindowTokens: contextWindowTokens,
+            reservedOutputTokens: maxOutputTokens,
+            entries: entries
+        )
+    }
+
     func makeToolExecutionDelegate(
         for session: LanguageModelSession,
         channelId: String? = nil,

@@ -16,8 +16,13 @@ public extension RuntimeSystem {
     func discardEphemeralCheckpointChannel(channelId: String) async {
         sessionsByChannel.removeValue(forKey: channelId)
         bootstrapByChannel.removeValue(forKey: channelId)
+        contextLedgerByChannel.removeValue(forKey: channelId)
         recoveryTranscriptByChannel.removeValue(forKey: channelId)
         await channels.removeChannel(channelId: channelId)
+    }
+
+    func contextLedgerSnapshot(channelId: String) async -> ContextLedgerSnapshot? {
+        contextLedgerByChannel[channelId]
     }
 
     /// Routes interactive payload to worker bound to the channel.

@@ -230,6 +230,10 @@ public actor ChannelRuntime {
         channels[channelId] = state
     }
 
+    public func configuredContextWindowTokens() -> Int {
+        pressureEstimator.contextWindowTokens
+    }
+
     /// Restores last route decision from persistence replay.
     public func restoreDecision(channelId: String, decision: ChannelRouteDecision) {
         var state = channels[channelId, default: ChannelState()]

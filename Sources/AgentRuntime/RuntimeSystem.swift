@@ -188,6 +188,10 @@ public actor RuntimeSystem {
     /// context overflow or model hot-swap.
     var bootstrapByChannel: [String: String] = [:]
 
+    /// Latest context accounting snapshot per channel. This is diagnostic and
+    /// compaction input; it does not store full prompt text.
+    var contextLedgerByChannel: [String: ContextLedgerSnapshot] = [:]
+
     /// Durable transcript seed per channel, rebuilt from persisted session events
     /// by the owner layer when the cached in-memory LLM session is gone.
     var recoveryTranscriptByChannel: [String: Transcript] = [:]
@@ -256,6 +260,7 @@ public actor RuntimeSystem {
         self.modelProvider = modelProvider
         sessionsByChannel.removeAll()
         channelToolAllowList.removeAll()
+        contextLedgerByChannel.removeAll()
 
         guard let modelProvider else {
             self.defaultModel = nil

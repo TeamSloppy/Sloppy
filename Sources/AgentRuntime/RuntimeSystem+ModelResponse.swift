@@ -84,6 +84,13 @@ extension RuntimeSystem {
                 channelId: channelId,
                 userMessage: userMessage
             )
+            contextLedgerByChannel[channelId] = await makeContextLedgerSnapshot(
+                channelId: channelId,
+                userMessage: modelUserMessage,
+                modelProvider: modelProvider,
+                includeTools: toolInvoker != nil,
+                maxOutputTokens: 1024
+            )
 
             logger.info(
                 "Model stream started",
@@ -203,6 +210,12 @@ extension RuntimeSystem {
                     }
                     let fallbackResponse = try await freshSession.respond(to: modelUserMessage, options: options)
                     var fallbackContent = fallbackResponse.content
+                    await consumeProviderUsageIfAvailable(
+                        channelId: channelId,
+                        activeModel: activeModel,
+                        modelProvider: modelProvider,
+                        observationHandler: observationHandler
+                    )
                     logger.info(
                         "Non-streaming fallback succeeded",
                         metadata: modelCallMetadata(
@@ -460,19 +473,12 @@ extension RuntimeSystem {
                 }
             }
 
-            if let captured = modelProvider.tokenUsageCapture(for: activeModel)?.consume() {
-                let tokenUsage = TokenUsage(
-                    prompt: captured.prompt,
-                    completion: captured.completion,
-                    cachedInputTokens: captured.cachedInputTokens,
-                    cacheCreationInputTokens: captured.cacheCreationInputTokens,
-                    reasoningTokens: captured.reasoningTokens
-                )
-                await channels.recordTokenUsage(channelId: channelId, usage: tokenUsage)
-                if let observationHandler {
-                    await observationHandler(.usage(tokenUsage))
-                }
-            }
+            await consumeProviderUsageIfAvailable(
+                channelId: channelId,
+                activeModel: activeModel,
+                modelProvider: modelProvider,
+                observationHandler: observationHandler
+            )
 
             if latest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 let completionStartedAt = Date()
@@ -489,6 +495,12 @@ extension RuntimeSystem {
                 do {
                     let response = try await session.respond(to: modelUserMessage, options: options)
                     latest = response.content
+                    await consumeProviderUsageIfAvailable(
+                        channelId: channelId,
+                        activeModel: activeModel,
+                        modelProvider: modelProvider,
+                        observationHandler: observationHandler
+                    )
                 } catch {
                     logger.warning(
                         "Model completion failed",
@@ -787,6 +799,12 @@ extension RuntimeSystem {
             if let onResponseChunk {
                 _ = await onResponseChunk(repaired)
             }
+            await consumeProviderUsageIfAvailable(
+                channelId: channelId,
+                activeModel: activeModel,
+                modelProvider: modelProvider,
+                observationHandler: nil
+            )
             return repaired
         } catch {
             logger.warning(
@@ -829,6 +847,32 @@ extension RuntimeSystem {
 
         [Final answer]
         """
+    }
+
+    func consumeProviderUsageIfAvailable(
+        channelId: String,
+        activeModel: String,
+        modelProvider: any ModelProvider,
+        observationHandler: (@Sendable (RuntimeResponseObservation) async -> Void)?
+    ) async {
+        guard let captured = modelProvider.tokenUsageCapture(for: activeModel)?.consume() else {
+            return
+        }
+
+        let tokenUsage = TokenUsage(
+            prompt: captured.prompt,
+            completion: captured.completion,
+            cachedInputTokens: captured.cachedInputTokens,
+            cacheCreationInputTokens: captured.cacheCreationInputTokens,
+            reasoningTokens: captured.reasoningTokens
+        )
+        if let existingLedger = contextLedgerByChannel[channelId] {
+            contextLedgerByChannel[channelId] = existingLedger.withProviderUsage(tokenUsage)
+        }
+        await channels.recordTokenUsage(channelId: channelId, usage: tokenUsage)
+        if let observationHandler {
+            await observationHandler(.usage(tokenUsage))
+        }
     }
 
     func formatChannelMessagesForRepair(channelId: String, maxCharacters: Int = 6000) async -> String {

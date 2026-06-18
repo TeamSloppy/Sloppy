@@ -777,6 +777,10 @@ private struct PromptCapturingMockLanguageModel: LanguageModel {
     typealias UnavailableReason = Never
     let callStore: MockCallStore
     let streamOutput: String?
+    let respondOutput: String
+    let usageCapture: TokenUsageCapture?
+    let streamUsage: TokenUsage?
+    let respondUsage: TokenUsage?
 
     func respond<Content>(
         within session: LanguageModelSession,
@@ -788,9 +792,18 @@ private struct PromptCapturingMockLanguageModel: LanguageModel {
         guard type == String.self else { fatalError("PromptCapturingMockLanguageModel: only String supported") }
         callStore.recordInstructions(session.instructions?.description)
         callStore.recordPrompt(extractPromptText(from: prompt))
+        if let respondUsage {
+            usageCapture?.store(
+                promptTokens: respondUsage.prompt,
+                completionTokens: respondUsage.completion,
+                cachedInputTokens: respondUsage.cachedInput,
+                cacheCreationInputTokens: respondUsage.cacheCreationInput,
+                reasoningTokens: respondUsage.reasoning
+            )
+        }
         return LanguageModelSession.Response(
-            content: "Captured." as! Content,
-            rawContent: GeneratedContent("Captured."),
+            content: respondOutput as! Content,
+            rawContent: GeneratedContent(respondOutput),
             transcriptEntries: []
         )
     }
@@ -813,6 +826,15 @@ private struct PromptCapturingMockLanguageModel: LanguageModel {
             Task {
                 store.recordInstructions(instructions)
                 store.recordPrompt(text)
+                if let streamUsage {
+                    usageCapture?.store(
+                        promptTokens: streamUsage.prompt,
+                        completionTokens: streamUsage.completion,
+                        cachedInputTokens: streamUsage.cachedInput,
+                        cacheCreationInputTokens: streamUsage.cacheCreationInput,
+                        reasoningTokens: streamUsage.reasoning
+                    )
+                }
                 continuation.yield(.init(content: output as! Content.PartiallyGenerated, rawContent: GeneratedContent(output)))
                 continuation.finish()
             }
@@ -825,21 +847,47 @@ private final class PromptCapturingModelProvider: ModelProvider, @unchecked Send
     let id: String = "prompt-capturing"
     let supportedModels: [String]
     private let streamOutput: String?
+    private let respondOutput: String
+    private let usageCapture: TokenUsageCapture?
+    private let streamUsage: TokenUsage?
+    private let respondUsage: TokenUsage?
     let callStore = MockCallStore()
 
-    init(models: [String] = ["mock-model"], streamOutput: String? = nil) {
+    init(
+        models: [String] = ["mock-model"],
+        streamOutput: String? = nil,
+        respondOutput: String = "Captured.",
+        tokenUsageCapture: TokenUsageCapture? = nil,
+        streamUsage: TokenUsage? = nil,
+        respondUsage: TokenUsage? = nil
+    ) {
         self.supportedModels = models
         self.streamOutput = streamOutput
+        self.respondOutput = respondOutput
+        self.usageCapture = tokenUsageCapture
+        self.streamUsage = streamUsage
+        self.respondUsage = respondUsage
     }
 
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
         callStore.recordModel(modelName)
-        return PromptCapturingMockLanguageModel(callStore: callStore, streamOutput: streamOutput)
+        return PromptCapturingMockLanguageModel(
+            callStore: callStore,
+            streamOutput: streamOutput,
+            respondOutput: respondOutput,
+            usageCapture: usageCapture,
+            streamUsage: streamUsage,
+            respondUsage: respondUsage
+        )
     }
 
     func generationOptions(for modelName: String, maxTokens: Int, reasoningEffort: ReasoningEffort?) -> GenerationOptions {
         callStore.recordEffort(reasoningEffort)
         return GenerationOptions(maximumResponseTokens: maxTokens)
+    }
+
+    func tokenUsageCapture(for modelName: String) -> TokenUsageCapture? {
+        usageCapture
     }
 
     func lastPrompt() async -> String? { callStore.lastPrompt }
@@ -1196,6 +1244,106 @@ func respondInlineForwardsReasoningEffortToFallbackCompletion() async {
     )
 
     #expect(await provider.requestedReasoningEffortsSnapshot().last == .low)
+}
+
+@Test
+func runtimeRecordsContextLedgerForNativeModelCall() async throws {
+    let expectedUsage = TokenUsage(
+        prompt: 240,
+        completion: 32,
+        cachedInputTokens: 144,
+        cacheCreationInputTokens: 24,
+        reasoningTokens: 5
+    )
+    let usageCapture = TokenUsageCapture()
+    let provider = PromptCapturingModelProvider(
+        models: ["prompt-capturing"],
+        streamOutput: "Streamed.",
+        tokenUsageCapture: usageCapture,
+        streamUsage: expectedUsage
+    )
+    let system = RuntimeSystem(
+        modelProvider: provider,
+        defaultModel: "prompt-capturing",
+        compactorConfiguration: CompactorConfiguration(contextWindowTokens: 8_000)
+    )
+    let usageCollector = UsageCollector()
+    await system.setChannelBootstrap(
+        channelId: "ledger-runtime",
+        content: "Stable bootstrap instructions."
+    )
+
+    _ = await system.postMessage(
+        channelId: "ledger-runtime",
+        request: ChannelMessageRequest(userId: "user", content: "Hello"),
+        observationHandler: { observation in
+            if case .usage(let usage) = observation {
+                await usageCollector.append(usage)
+            }
+        }
+    )
+
+    let snapshot = try #require(await system.contextLedgerSnapshot(channelId: "ledger-runtime"))
+    let channelSnapshot = try #require(await system.channelState(channelId: "ledger-runtime"))
+    #expect(snapshot.channelId == "ledger-runtime")
+    #expect(snapshot.entries.contains { $0.category == .bootstrapStatic })
+    #expect(snapshot.entries.contains { $0.category == .currentTurn })
+    #expect(snapshot.contextWindowTokens == 8_000)
+    #expect(snapshot.lastTurnUsage == expectedUsage)
+    #expect(snapshot.lastTurnCachedInputTokens == 144)
+    #expect(snapshot.lastTurnUncachedInputTokens == 96)
+    #expect(snapshot.lastTurnCacheCreationInputTokens == 24)
+    #expect(snapshot.lastTurnReasoningTokens == 5)
+    #expect(channelSnapshot.contextPressureSource == .realUsage)
+    #expect(await usageCollector.all() == [expectedUsage])
+}
+
+@Test
+func runtimeRecordsContextLedgerForFallbackCompletionUsage() async throws {
+    let expectedUsage = TokenUsage(
+        prompt: 180,
+        completion: 28,
+        cachedInputTokens: 120,
+        cacheCreationInputTokens: 18,
+        reasoningTokens: 4
+    )
+    let usageCapture = TokenUsageCapture()
+    let provider = PromptCapturingModelProvider(
+        models: ["prompt-capturing"],
+        streamOutput: nil,
+        respondOutput: "Captured from fallback.",
+        tokenUsageCapture: usageCapture,
+        respondUsage: expectedUsage
+    )
+    let system = RuntimeSystem(
+        modelProvider: provider,
+        defaultModel: "prompt-capturing",
+        compactorConfiguration: CompactorConfiguration(contextWindowTokens: 8_000)
+    )
+    let usageCollector = UsageCollector()
+
+    _ = await system.postMessage(
+        channelId: "ledger-runtime-fallback",
+        request: ChannelMessageRequest(userId: "user", content: "Hello"),
+        observationHandler: { observation in
+            if case .usage(let usage) = observation {
+                await usageCollector.append(usage)
+            }
+        }
+    )
+
+    let snapshot = try #require(await system.contextLedgerSnapshot(channelId: "ledger-runtime-fallback"))
+    let channelSnapshot = try #require(await system.channelState(channelId: "ledger-runtime-fallback"))
+    let finalMessage = channelSnapshot.messages.last(where: { $0.userId == "system" })?.content
+
+    #expect(finalMessage == "Captured from fallback.")
+    #expect(snapshot.lastTurnUsage == expectedUsage)
+    #expect(snapshot.lastTurnCachedInputTokens == 120)
+    #expect(snapshot.lastTurnUncachedInputTokens == 60)
+    #expect(snapshot.lastTurnCacheCreationInputTokens == 18)
+    #expect(snapshot.lastTurnReasoningTokens == 4)
+    #expect(channelSnapshot.contextPressureSource == .realUsage)
+    #expect(await usageCollector.all() == [expectedUsage])
 }
 
 @Test
@@ -2036,6 +2184,12 @@ private actor ThinkingCollector {
     var items: [String] = []
     func append(_ text: String) { items.append(text) }
     func all() -> [String] { items }
+}
+
+private actor UsageCollector {
+    var items: [TokenUsage] = []
+    func append(_ usage: TokenUsage) { items.append(usage) }
+    func all() -> [TokenUsage] { items }
 }
 
 @Test
