@@ -118,6 +118,7 @@ extension SloppyTUIScreen {
         pendingPlanInputRequest = nil
         tokenUsageSummary = nil
         tokenUsageCostUSD = nil
+        lastTurnTokenUsage = nil
         taskStartedAt = nil
         lastTaskElapsed = nil
         liveRunStage = nil
@@ -342,6 +343,8 @@ extension SloppyTUIScreen {
             appendLocalCard("No session yet. Send a message first or open an existing session with `/sessions`.")
             return
         }
+        beginOperationStatus(.compacting, label: "Compacting context", detail: "current session")
+        defer { endOperationStatus(.compacting) }
         refreshStaticChrome(statusLine: "compacting context...")
         do {
             _ = try await service.requestAgentMemoryCheckpoint(

@@ -139,6 +139,45 @@ extension SloppyTUIScreen {
         }
     }
 
+    func beginOperationStatus(
+        _ kind: SloppyTUIOperationStatusKind,
+        label: String,
+        detail: String? = nil
+    ) {
+        operationStatuses[kind] = SloppyTUIOperationStatus(kind: kind, label: label, detail: detail)
+        startOperationStatusAnimationIfNeeded()
+        refreshStaticChrome()
+    }
+
+    func endOperationStatus(_ kind: SloppyTUIOperationStatusKind) {
+        operationStatuses.removeValue(forKey: kind)
+        if operationStatuses.isEmpty {
+            operationStatusAnimationTask?.cancel()
+            operationStatusAnimationTask = nil
+        }
+        refreshStaticChrome()
+    }
+
+    func orderedOperationStatuses() -> [SloppyTUIOperationStatus] {
+        let order: [SloppyTUIOperationStatusKind] = [.indexing, .compacting, .modelLoading, .remote]
+        return order.compactMap { operationStatuses[$0] }
+    }
+
+    func startOperationStatusAnimationIfNeeded() {
+        guard operationStatusAnimationTask == nil else { return }
+        operationStatusAnimationTask = Task { [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: 220_000_000)
+                guard !Task.isCancelled else { break }
+                await MainActor.run {
+                    guard let self, !self.operationStatuses.isEmpty else { return }
+                    self.thinkingFrame += 1
+                    self.refreshStaticChrome()
+                }
+            }
+        }
+    }
+
     func updateSendProgress(_ progress: SloppyTUISendProgress) {
         liveRunStage = nil
         liveRunStatusLine = progress.statusLine
@@ -330,9 +369,10 @@ extension SloppyTUIScreen {
         let pet = state.petEnabled ? "  pet: \(terminalPetFace())" : ""
         let transcript = transcriptExpanded ? "  transcript: full" : ""
         let parent = session.parentSessionId == nil ? "" : "  parent: ctrl+p"
+        let lastTurn = lastTurnTokenUsage.map { "  last: \(SloppyTUITheme.turnTokenUsageBadge($0))" } ?? ""
         let elapsed = elapsedStatusContext()
         let defaultStatus = SloppyTUITheme.sessionStatusLine(
-            context: context + queue + pet + transcript + parent + elapsed.idleSuffix,
+            context: context + queue + pet + transcript + parent + lastTurn + elapsed.idleSuffix,
             attachments: attachments,
             sessionID: hasPersistedSession ? session.id : "not created"
         )
@@ -371,6 +411,9 @@ extension SloppyTUIScreen {
         if isPosting {
             return "sending"
         }
+        if !operationStatuses.isEmpty {
+            return orderedOperationStatuses().first?.label.lowercased() ?? "busy"
+        }
         if shellModeEnabled {
             return "shell"
         }
@@ -389,15 +432,7 @@ extension SloppyTUIScreen {
     }
 
     func runStatusLine(_ status: AgentRunStatusEvent) -> String {
-        let label = status.label.trimmingCharacters(in: .whitespacesAndNewlines)
-        let details = status.details?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        if !label.isEmpty, !details.isEmpty {
-            return "\(label) - \(details)"
-        }
-        if !label.isEmpty {
-            return label
-        }
-        return status.stage.rawValue
+        SloppyTUITheme.runStatusLine(status)
     }
 
     func notifyForRunStatus(_ status: AgentRunStatusEvent) {

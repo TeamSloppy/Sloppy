@@ -174,7 +174,21 @@ func telegramAttachmentProcessorDownloadsVoiceAndAddsTranscript() async throws {
     #expect(try Data(contentsOf: URL(fileURLWithPath: #require(voice.localPath))) == Data([0x4f, 0x67, 0x67]))
 
     let content = TelegramAttachmentProcessor.contentWithTranscripts(content: "[Attachment]", attachments: processed)
-    #expect(content == "Voice message transcript:\nпривет из войса")
+    #expect(content == "Voice message attached: voice.oga\n\nVoice message transcript:\nпривет из войса")
+}
+
+@Test
+func telegramAttachmentProcessorSummarizesAttachmentOnlyDocumentWithoutTranscript() async throws {
+    let attachment = ChannelAttachment(
+        id: "doc-1",
+        type: .document,
+        mimeType: "application/pdf",
+        filename: "brief.pdf",
+        platformMetadata: [:]
+    )
+
+    let content = TelegramAttachmentProcessor.contentWithTranscripts(content: "[Attachment]", attachments: [attachment])
+    #expect(content == "Document attached: brief.pdf")
 }
 }
 

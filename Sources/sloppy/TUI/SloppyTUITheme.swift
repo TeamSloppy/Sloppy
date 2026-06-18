@@ -68,6 +68,7 @@ struct SloppyTUIResolvedTheme: Equatable, Sendable {
     var yellow: SloppyTUIColor
     var orange: SloppyTUIColor
     var red: SloppyTUIColor
+    var screenBackground: SloppyTUIColor
     var panelBackground: SloppyTUIColor
     var userMessageBackground: SloppyTUIColor
     var toolBackground: SloppyTUIColor
@@ -89,6 +90,7 @@ struct SloppyTUIResolvedTheme: Equatable, Sendable {
         yellow: .init(red: 250, green: 204, blue: 21),
         orange: .init(red: 251, green: 178, blue: 123),
         red: .init(red: 248, green: 113, blue: 113),
+        screenBackground: .init(red: 12, green: 16, blue: 22),
         panelBackground: .init(red: 24, green: 24, blue: 24),
         userMessageBackground: .init(red: 55, green: 55, blue: 55),
         toolBackground: .init(red: 31, green: 41, blue: 55),
@@ -268,6 +270,7 @@ enum SloppyTUITheme {
     }
 
     private static var panelBackground: AnsiStyling.Background { activeTheme.panelBackground.background }
+    private static var screenBackground: AnsiStyling.Background { activeTheme.screenBackground.background }
     private static var userMessageBackground: AnsiStyling.Background { activeTheme.userMessageBackground.background }
     private static var toolBackground: AnsiStyling.Background { activeTheme.toolBackground.background }
     private static var thinkingBackground: AnsiStyling.Background { activeTheme.thinkingBackground.background }
@@ -357,6 +360,30 @@ enum SloppyTUITheme {
             return text
         }
         return muted(text)
+    }
+
+    static func screenBackgroundLines(_ lines: [String], width: Int) -> [String] {
+        lines.map { line in
+            applyBackground(padded(line, width: width), width: width, background: screenBackground)
+        }
+    }
+
+    static func operationStatusFooterLine(
+        width: Int,
+        statuses: [SloppyTUIOperationStatus],
+        frame: Int
+    ) -> String {
+        guard !statuses.isEmpty else {
+            return applyPanelBackground(padded("", width: width), width: width)
+        }
+        let parts = statuses.map { status in
+            let detail = status.detail?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            let suffix = detail?.isEmpty == false ? muted(" · \(detail ?? "")") : ""
+            return shimmeringText(status.label, frame: frame) + suffix
+        }
+        let text = "  " + parts.joined(separator: muted("  |  "))
+        return applyPanelBackground(padded(fittedLine(text, width: width), width: width), width: width)
     }
 
     static func noticeToastLines(_ text: String, width: Int) -> [String] {
@@ -599,6 +626,26 @@ enum SloppyTUITheme {
             text += " · \(formatUSD(costUSD))"
         }
         return muted("tokens: ") + foreground(text)
+    }
+
+    static func turnTokenUsageBadge(_ usage: TokenUsage) -> String {
+        "(\(usage.prompt) ↑ / \(usage.completion) ↓)"
+    }
+
+    static func runStatusLine(_ status: AgentRunStatusEvent) -> String {
+        var label = status.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        if label.isEmpty {
+            label = status.stage.rawValue
+        }
+        if let usage = status.tokenUsage {
+            label += " \(turnTokenUsageBadge(usage))"
+        }
+
+        let details = status.details?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if !details.isEmpty {
+            return "\(label) - \(details)"
+        }
+        return label
     }
 
     static func tokenUsageFooterLine(width: Int, summary: SloppyTUITokenUsageSummary) -> String {
@@ -939,8 +986,11 @@ enum SloppyTUITheme {
     }
 
     static func waitingIndicator(frame: Int, word: String) -> String {
-        let spinner = waitingFrames[frame % waitingFrames.count]
-        return muted("\(spinner) ") + accentBright(word)
+        shimmeringText(word, frame: frame)
+    }
+
+    static func shimmeringText(_ text: String, frame: Int) -> String {
+        rainbow(text, frame: frame)
     }
 
     static func waitingWord(seed: String) -> String {
@@ -1491,7 +1541,8 @@ enum SloppyTUITheme {
         let paletteWidth = max(1, min(max(1, width - 4), 96))
         let left = max(0, (width - paletteWidth) / 2)
         let indent = String(repeating: " ", count: left)
-        let visibleCount = max(1, min(maxVisible, picker.items.count))
+        let visibleLimit = max(1, maxVisible)
+        let visibleCount = max(1, min(visibleLimit, picker.items.count))
         let start = max(0, min(picker.selectedIndex - visibleCount / 2, picker.items.count - visibleCount))
         let end = min(picker.items.count, start + visibleCount)
         let prompt: String
@@ -1506,13 +1557,14 @@ enum SloppyTUITheme {
             indent + padded("  " + foreground(AnsiStyling.bold(picker.title)) + "  " + muted(prompt), width: paletteWidth),
         ]
         if picker.supportsSearch {
-            let query = picker.searchQuery.isEmpty ? muted("type to filter") : foreground(picker.searchQuery)
+            let query = picker.searchQuery.isEmpty ? muted("type to filter") : accentBright(picker.searchQuery)
             let count = muted("\(picker.items.count)/\(picker.totalItemCount)")
             lines.append(indent + padded("  " + muted("Search: ") + query + muted("  matches ") + count, width: paletteWidth))
         }
 
         let groupCounts = pickerGroupCounts(picker.items)
         var lastGroup: String?
+        var bodyRows = 0
         for index in start..<end {
             let item = picker.items[index]
             if let group = item.group?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -1520,6 +1572,7 @@ enum SloppyTUITheme {
                group != lastGroup {
                 let suffix = groupCounts[group].map { " (\($0))" } ?? ""
                 lines.append(indent + padded("  " + muted(group + suffix), width: paletteWidth))
+                bodyRows += 1
                 lastGroup = group
             }
             let raw: String
@@ -1541,9 +1594,18 @@ enum SloppyTUITheme {
             } else {
                 lines.append(indent + foreground(line))
             }
+            bodyRows += 1
         }
         if picker.items.isEmpty, picker.supportsSearch {
             lines.append(indent + padded("  " + muted("No matching models"), width: paletteWidth))
+            bodyRows += 1
+        }
+        if picker.supportsSearch {
+            let targetRows = visibleLimit * 2
+            while bodyRows < targetRows {
+                lines.append(indent + padded("", width: paletteWidth))
+                bodyRows += 1
+            }
         }
         if picker.items.count > visibleCount {
             let info = "  " + muted("\(picker.selectedIndex + 1)/\(picker.items.count)")

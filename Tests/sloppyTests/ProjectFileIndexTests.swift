@@ -11,6 +11,22 @@ private func temporaryIndexRoot() throws -> URL {
 }
 
 @Test
+func projectFileIndexStatusOnlyShowsForInitialBuildWithoutCache() {
+    #expect(SloppyTUIProjectFileIndexStatusPolicy.shouldShowIndexingStatus(
+        hasCachedIndex: false,
+        reason: .initialBuild
+    ))
+    #expect(!SloppyTUIProjectFileIndexStatusPolicy.shouldShowIndexingStatus(
+        hasCachedIndex: true,
+        reason: .initialBuild
+    ))
+    #expect(!SloppyTUIProjectFileIndexStatusPolicy.shouldShowIndexingStatus(
+        hasCachedIndex: false,
+        reason: .scheduledRebuild
+    ))
+}
+
+@Test
 func projectFileIndexBuildsFilesAndDirectoriesAndSkipsExcludedDirectories() throws {
     let root = try temporaryIndexRoot()
     defer { try? FileManager.default.removeItem(at: root) }

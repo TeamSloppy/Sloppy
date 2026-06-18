@@ -135,7 +135,7 @@ func agentSessionOrchestratorForwardsModelTokenUsage() async throws {
     )
 
     let session = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest())
-    _ = try await orchestrator.postMessage(
+    let response = try await orchestrator.postMessage(
         agentID: agentID,
         sessionID: session.id,
         request: AgentSessionPostMessageRequest(userId: "dashboard", content: "Count this")
@@ -147,4 +147,16 @@ func agentSessionOrchestratorForwardsModelTokenUsage() async throws {
     #expect(records.first?.sessionID == session.id)
     #expect(records.first?.usage.prompt == 123)
     #expect(records.first?.usage.completion == 45)
+
+    let responseUsageStatuses = response.appendedEvents.compactMap(\.runStatus).filter { $0.tokenUsage != nil }
+    #expect(responseUsageStatuses.last?.stage == .done)
+    #expect(responseUsageStatuses.last?.tokenUsage?.prompt == 123)
+    #expect(responseUsageStatuses.last?.tokenUsage?.completion == 45)
+
+    let detail = try sessionStore.loadSession(agentID: agentID, sessionID: session.id)
+    let persistedUsageStatuses = detail.events.compactMap(\.runStatus).filter { $0.tokenUsage != nil }
+    #expect(persistedUsageStatuses.contains { $0.stage == .responding && $0.tokenUsage?.prompt == 123 && $0.tokenUsage?.completion == 45 })
+    #expect(persistedUsageStatuses.last?.stage == .done)
+    #expect(persistedUsageStatuses.last?.tokenUsage?.prompt == 123)
+    #expect(persistedUsageStatuses.last?.tokenUsage?.completion == 45)
 }

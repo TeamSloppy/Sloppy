@@ -252,22 +252,30 @@ extension SloppyTUIScreen {
             mcpSummary: mcpStatusSummary,
             sourceControl: projectSourceControlFooterStatus
         )
-        var composer: [String] = []
+        var preInputLines: [String] = []
         if isPosting {
-            composer.append(SloppyTUITheme.interruptControlLine(
+            preInputLines.append(SloppyTUITheme.interruptControlLine(
                 width: width,
                 frame: thinkingFrame,
                 isInterrupting: isInterruptingRun
             ))
         }
+        let operationStatuses = orderedOperationStatuses()
+        let operationStatusLine = operationStatuses.isEmpty ? nil : SloppyTUITheme.operationStatusFooterLine(
+            width: width,
+            statuses: operationStatuses,
+            frame: thinkingFrame
+        )
+        let inputLines: [String]
         let editorLines = editor.render(width: width)
         if sessionListMode != .hidden, editor.getText().isEmpty {
-            composer.append(contentsOf: SloppyTUITheme.sessionListComposerPlaceholderLines(editorLines, width: width))
+            inputLines = SloppyTUITheme.sessionListComposerPlaceholderLines(editorLines, width: width)
         } else {
-            composer.append(contentsOf: SloppyTUITheme.highlightedComposerLines(editorLines, shellMode: shellModeEnabled))
+            inputLines = SloppyTUITheme.highlightedComposerLines(editorLines, shellMode: shellModeEnabled)
         }
+        var metaLines: [String] = []
         if shellModeEnabled {
-            composer.append(SloppyTUITheme.composerShellMetaLine(
+            metaLines.append(SloppyTUITheme.composerShellMetaLine(
                 width: width,
                 cwd: runtime.cwd,
                 agent: agent.displayName,
@@ -275,7 +283,7 @@ extension SloppyTUIScreen {
             ))
         } else {
             let timing = composerContextTiming()
-            composer.append(SloppyTUITheme.composerMetaLine(
+            metaLines.append(SloppyTUITheme.composerMetaLine(
                 width: width,
                 mode: chatMode,
                 model: selectedModel,
@@ -287,7 +295,13 @@ extension SloppyTUIScreen {
                 animationFrame: thinkingFrame
             ))
         }
-        composer.append(footer)
+        var composer = SloppyTUIComposerLayout.lines(
+            preInputLines: preInputLines,
+            operationStatusLine: operationStatusLine,
+            inputLines: inputLines,
+            metaLines: metaLines,
+            footerLine: footer
+        )
 
         if let picker = activePicker {
             composer.insert(contentsOf: SloppyTUITheme.pickerLines(width: width, picker: picker, maxVisible: 9), at: 0)
@@ -436,7 +450,9 @@ extension SloppyTUIScreen {
         if picker.supportsSearch {
             rowCount += 1
         }
-        rowCount += visiblePickerRowCount(picker: picker, visibleCount: visibleCount)
+        rowCount += picker.supportsSearch
+            ? 18
+            : visiblePickerRowCount(picker: picker, visibleCount: visibleCount)
         if picker.items.count > visibleCount {
             rowCount += 1
         }

@@ -44,6 +44,9 @@ extension SloppyTUIScreen {
                             }
                             var shouldRefreshTokenUsageAfterRun = false
                             if let status = event.runStatus {
+                                if let tokenUsage = status.tokenUsage {
+                                    self.lastTurnTokenUsage = tokenUsage
+                                }
                                 if status.stage == .done || status.stage == .interrupted {
                                     self.liveRunStage = nil
                                     self.liveRunStatusLine = nil
@@ -279,7 +282,7 @@ extension SloppyTUIScreen {
                     return
                 }
 
-                rebuildProjectFileIndex(rootURL: rootURL)
+                rebuildProjectFileIndex(rootURL: rootURL, reason: .initialBuild)
             } catch {
                 projectFileRootURL = nil
                 applyProjectFileIndex(nil)
@@ -297,13 +300,23 @@ extension SloppyTUIScreen {
         projectFileReindexTask = Task { [weak self] in
             try? await Task.sleep(nanoseconds: delay)
             guard !Task.isCancelled else { return }
-            self?.rebuildProjectFileIndex(rootURL: rootURL)
+            self?.rebuildProjectFileIndex(rootURL: rootURL, reason: .scheduledRebuild)
         }
     }
 
-    func rebuildProjectFileIndex(rootURL: URL) {
+    func rebuildProjectFileIndex(
+        rootURL: URL,
+        reason: SloppyTUIProjectFileIndexStatusPolicy.RebuildReason
+    ) {
         projectFileReindexTask?.cancel()
         projectFileIndexLoading = true
+        let showsIndexingStatus = SloppyTUIProjectFileIndexStatusPolicy.shouldShowIndexingStatus(
+            hasCachedIndex: projectFileIndex != nil,
+            reason: reason
+        )
+        if showsIndexingStatus {
+            beginOperationStatus(.indexing, label: "Indexing search", detail: project.name)
+        }
         requestRender()
         let projectID = project.id
         let workspaceRoot = runtime.workspaceRoot
@@ -340,6 +353,7 @@ extension SloppyTUIScreen {
         projectFileIndexLoading = false
         projectFileIndexGeneration += 1
         projectFileSearchCache = nil
+        endOperationStatus(.indexing)
         requestRender()
     }
 

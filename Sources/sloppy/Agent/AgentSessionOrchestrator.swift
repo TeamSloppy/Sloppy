@@ -17,6 +17,18 @@ private actor NativeAgentLoopOutcomeBox {
     }
 }
 
+private actor LastTokenUsageBox {
+    private var value: TokenUsage?
+
+    func set(_ value: TokenUsage) {
+        self.value = value
+    }
+
+    func get() -> TokenUsage? {
+        value
+    }
+}
+
 actor AgentSessionOrchestrator {
     private static let sessionContextBootstrapMarker = "[agent_session_context_bootstrap_v1]"
     typealias ToolInvoker = @Sendable (String, String, ToolInvocationRequest, AgentChatMode?) async -> ToolInvocationResult
@@ -449,7 +461,8 @@ actor AgentSessionOrchestrator {
                     finishedNaturally: result.stopReason != .cancelled,
                     hitTurnLimit: false,
                     toolErrors: [],
-                    lastAssistantText: result.assistantText
+                    lastAssistantText: result.assistantText,
+                    tokenUsage: nil
                 )
             } catch {
                 throw OrchestratorError.storageFailure
@@ -615,25 +628,29 @@ actor AgentSessionOrchestrator {
             completionStatus = AgentRunStatusEvent(
                 stage: .interrupted,
                 label: "Interrupted",
-                details: "Response generation stopped."
+                details: "Response generation stopped.",
+                tokenUsage: runtimeOutcome.tokenUsage
             )
         } else if isAssistantErrorText(runtimeOutcome.assistantText) {
             completionStatus = AgentRunStatusEvent(
                 stage: .interrupted,
                 label: "Error",
-                details: runtimeOutcome.assistantText
+                details: runtimeOutcome.assistantText,
+                tokenUsage: runtimeOutcome.tokenUsage
             )
         } else if runtimeOutcome.hitTurnLimit {
             completionStatus = AgentRunStatusEvent(
                 stage: .interrupted,
                 label: "Incomplete",
-                details: "Agent reached the tool turn limit before producing a final answer."
+                details: "Agent reached the tool turn limit before producing a final answer.",
+                tokenUsage: runtimeOutcome.tokenUsage
             )
         } else {
             completionStatus = AgentRunStatusEvent(
                 stage: .done,
                 label: "Done",
-                details: "Response is ready."
+                details: "Response is ready.",
+                tokenUsage: runtimeOutcome.tokenUsage
             )
         }
         finalEvents.append(
@@ -902,6 +919,7 @@ actor AgentSessionOrchestrator {
         var hitTurnLimit: Bool
         var toolErrors: [ToolInvocationResult]
         var lastAssistantText: String
+        var tokenUsage: TokenUsage?
         var turnExitReason: NativeAgentLoopTurnExitReason = .completed
     }
 
@@ -1078,6 +1096,7 @@ actor AgentSessionOrchestrator {
             isDelegatedSubagent: delegatedSubagentSessionIDs.contains(sessionID)
         )
         let nativeLoopOutcomeBox = NativeAgentLoopOutcomeBox()
+        let lastTokenUsageBox = LastTokenUsageBox()
         let routeDecision = await runtime.postMessage(
             channelId: channelID,
             request: ChannelMessageRequest(
@@ -1286,7 +1305,20 @@ actor AgentSessionOrchestrator {
                     )
                     await self.appendEventsSafely(agentID: agentID, sessionID: sessionID, events: [thinkingEvent])
                 case .usage(let tokenUsage):
+                    await lastTokenUsageBox.set(tokenUsage)
                     await self.tokenUsageObserver?(agentID, sessionID, tokenUsage)
+                    let usageStatus = AgentSessionEvent(
+                        agentId: agentID,
+                        sessionId: sessionID,
+                        type: .runStatus,
+                        runStatus: AgentRunStatusEvent(
+                            stage: .responding,
+                            label: "Responding",
+                            details: "Generating response...",
+                            tokenUsage: tokenUsage
+                        )
+                    )
+                    await self.appendEventsSafely(agentID: agentID, sessionID: sessionID, events: [usageStatus])
                 case .toolCall, .toolResult:
                     break
                 }
@@ -1299,6 +1331,7 @@ actor AgentSessionOrchestrator {
 
         let snapshot = await runtime.channelState(channelId: channelID)
         let nativeLoopOutcome = await nativeLoopOutcomeBox.get()
+        let tokenUsage = await lastTokenUsageBox.get()
         let selectedAutoRouteMode = selectedAutoRouteModeByChannel[channelID]
         let streamedAssistantText = streamedAssistantByChannel[channelID]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let assistantTextFromSnapshot = snapshot?.messages.reversed().first(where: {
@@ -1329,6 +1362,7 @@ actor AgentSessionOrchestrator {
             hitTurnLimit: nativeLoopOutcome?.hitTurnLimit ?? false,
             toolErrors: nativeLoopOutcome?.toolErrors ?? [],
             lastAssistantText: nativeLoopOutcome?.lastAssistantText ?? "",
+            tokenUsage: tokenUsage,
             turnExitReason: nativeLoopOutcome?.turnExitReason ?? .completed
         )
     }

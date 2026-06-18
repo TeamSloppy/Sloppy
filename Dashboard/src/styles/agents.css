@@ -2439,6 +2439,13 @@ body.agent-chat-no-page-scroll .page {
   animation-delay: 0.4s;
 }
 
+.agent-chat-stream-usage {
+  color: var(--muted);
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  margin-left: 4px;
+}
+
 @keyframes agentStreamPulse {
   0%, 80%, 100% { opacity: 0.3; transform: scale(0.8); }
   40% { opacity: 1; transform: scale(1); }

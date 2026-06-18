@@ -88,6 +88,23 @@ struct TelegramAttachmentProcessor: Sendable {
     }
 
     static func contentWithTranscripts(content: String, attachments: [ChannelAttachment]) -> String {
+        let summaries = attachments.compactMap { attachment -> String? in
+            let name = attachment.filename?.trimmingCharacters(in: .whitespacesAndNewlines)
+            switch attachment.type {
+            case .voice:
+                return name?.isEmpty == false ? "Voice message attached: \(name!)" : "Voice message attached."
+            case .audio:
+                return name?.isEmpty == false ? "Audio attachment: \(name!)" : "Audio attachment."
+            case .document:
+                return name?.isEmpty == false ? "Document attached: \(name!)" : "Document attached."
+            case .image:
+                return name?.isEmpty == false ? "Image attached: \(name!)" : "Image attached."
+            case .video:
+                return name?.isEmpty == false ? "Video attached: \(name!)" : "Video attached."
+            case .file, .unknown:
+                return name?.isEmpty == false ? "File attached: \(name!)" : "File attached."
+            }
+        }
         let transcripts = attachments.compactMap { attachment -> String? in
             guard Self.isTranscribableAudio(attachment),
                   let transcript = attachment.platformMetadata["transcript"]?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -96,10 +113,13 @@ struct TelegramAttachmentProcessor: Sendable {
             let label = attachment.type == .voice ? "Voice message" : "Audio attachment"
             return "\(label) transcript:\n\(transcript)"
         }
-        guard !transcripts.isEmpty else { return content }
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         if trimmed == "[Attachment]" {
-            return transcripts.joined(separator: "\n\n")
+            let parts = summaries + transcripts
+            return parts.isEmpty ? content : parts.joined(separator: "\n\n")
+        }
+        guard !transcripts.isEmpty else {
+            return content
         }
         return ([content] + transcripts).joined(separator: "\n\n")
     }

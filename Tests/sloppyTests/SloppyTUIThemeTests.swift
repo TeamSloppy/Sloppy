@@ -51,6 +51,20 @@ func shellModeMetaLineUsesRedShellTitle() {
 }
 
 @Test
+func runStatusLineIncludesTurnTokenUsage() {
+    let status = AgentRunStatusEvent(
+        stage: .responding,
+        label: "Brewing",
+        details: "Generating response...",
+        tokenUsage: .init(prompt: 1_002, completion: 3_232)
+    )
+
+    let line = SloppyTUITheme.runStatusLine(status)
+
+    #expect(line == "Brewing (1002 ↑ / 3232 ↓) - Generating response...")
+}
+
+@Test
 func composerContinuesAtPathHighlightAcrossWrappedLines() {
     let lines = [
         "\u{001B}[38;2;82;211;194m────────\u{001B}[39m",
@@ -306,6 +320,85 @@ func chromeRowsFitNarrowTerminalWidth() {
     for row in rows {
         #expect(VisibleWidth.measure(row) <= width)
     }
+}
+
+@Test
+func pickerSearchLineStylesSearchValueAndKeepsHeightStable() {
+    let allItems = (0..<24).map { index in
+        SloppyTUIPickerItem(
+            value: "model-\(index)",
+            label: "model-\(index)",
+            description: "Model \(index)",
+            isCurrent: index == 0,
+            group: index < 12 ? "OpenAI" : "Provider \(index)"
+        )
+    }
+    var picker = SloppyTUIPicker(
+        kind: .model,
+        title: "Select model",
+        items: allItems,
+        selectedIndex: 0,
+        allItems: allItems,
+        searchQuery: "model",
+        supportsSearch: true
+    )
+
+    let firstPage = SloppyTUITheme.pickerLines(width: 100, picker: picker, maxVisible: 9)
+    picker.selectedIndex = 18
+    let laterPage = SloppyTUITheme.pickerLines(width: 100, picker: picker, maxVisible: 9)
+
+    #expect(firstPage.count == laterPage.count)
+    #expect(firstPage.joined(separator: "\n").contains("\u{001B}[38;2;103;232;249mmodel"))
+}
+
+@Test
+func backgroundWrapAppliesThemeScreenBackground() {
+    var theme = SloppyTUIResolvedTheme.default
+    theme.screenBackground = SloppyTUIColor(red: 1, green: 2, blue: 3)
+    SloppyTUITheme.apply(theme)
+    defer { SloppyTUITheme.resetDefault() }
+
+    let lines = SloppyTUITheme.screenBackgroundLines(["hello"], width: 10)
+
+    #expect(lines[0].hasPrefix("\u{001B}[48;2;1;2;3m"))
+    #expect(VisibleWidth.measure(lines[0]) == 10)
+}
+
+@Test
+func operationStatusFooterRendersMultipleBusyStatuses() {
+    let line = SloppyTUITheme.operationStatusFooterLine(
+        width: 80,
+        statuses: [
+            SloppyTUIOperationStatus(kind: .indexing, label: "Indexing search", detail: "new project"),
+            SloppyTUIOperationStatus(kind: .modelLoading, label: "Loading models", detail: "providers"),
+        ],
+        frame: 2
+    )
+    let plain = stripANSI(line)
+
+    #expect(plain.contains("Indexing search"))
+    #expect(plain.contains("Loading models"))
+    #expect(VisibleWidth.measure(line) == 80)
+}
+
+@Test
+func composerLayoutPlacesOperationStatusAboveInputLines() {
+    let lines = SloppyTUIComposerLayout.lines(
+        preInputLines: ["picker"],
+        operationStatusLine: "Indexing search",
+        inputLines: ["editor top", "editor body"],
+        metaLines: ["Auto | model"],
+        footerLine: "cwd"
+    )
+
+    #expect(lines == [
+        "picker",
+        "Indexing search",
+        "editor top",
+        "editor body",
+        "Auto | model",
+        "cwd",
+    ])
 }
 
 @Test

@@ -526,6 +526,8 @@ extension SloppyTUIScreen {
 
     func showModelPicker(exitAfterSelection: Bool = false) async {
         exitAfterModelSelection = exitAfterSelection
+        beginOperationStatus(.modelLoading, label: "Loading models", detail: "providers")
+        defer { endOperationStatus(.modelLoading) }
         refreshStaticChrome(statusLine: "loading models from providers...")
         do {
             let config = try await service.getAgentConfig(agentID: agent.id)

@@ -87,6 +87,27 @@ function previewText(value, fallback = "No details") {
   return normalized;
 }
 
+function formatTurnTokenCount(value) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric) || numeric <= 0) return "0";
+  return String(Math.round(numeric));
+}
+
+function formatRunStatusTokenUsage(runStatus) {
+  const usage = runStatus?.tokenUsage;
+  if (!usage || typeof usage !== "object") return "";
+  const prompt = usage.prompt ?? usage.promptTokens ?? usage.inputTokens ?? 0;
+  const completion = usage.completion ?? usage.completionTokens ?? usage.outputTokens ?? 0;
+  if (!Number(prompt) && !Number(completion)) return "";
+  return `(${formatTurnTokenCount(prompt)} ↑ / ${formatTurnTokenCount(completion)} ↓)`;
+}
+
+function formatRunStatusLabel(runStatus) {
+  const label = String(runStatus?.label || runStatus?.stage || "Status").trim();
+  const usage = formatRunStatusTokenUsage(runStatus);
+  return usage ? `${label} ${usage}` : label;
+}
+
 function formatStructuredData(value) {
   if (value == null) {
     return "";
@@ -601,6 +622,7 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
       content: String(eventItem?.content || ""),
       createdAt: eventItem?.createdAt || "",
       metadata: eventItem?.metadata || null,
+      runStatus: eventItem?.runStatus || null,
       inputRequest: eventItem?.inputRequest || null,
       inputAnswered: answeredInputs.has(String(eventItem?.inputRequest?.id || "")),
       isMessage: isMessageEvent(String(eventItem?.type || ""))
@@ -979,16 +1001,20 @@ export function ChannelSessionView({ sessionId, onNavigateBack }) {
                   }
 
                   if (!item.isMessage) {
+                    const technicalTitle = item.runStatus
+                      ? formatRunStatusLabel(item.runStatus)
+                      : normalizeEventTypeLabel(item.type);
                     return (
                       <article key={item.id} className="agent-chat-technical">
                         <div className="agent-chat-technical-body">
                           <div className="channel-session-technical-copy">
-                            <strong>{normalizeEventTypeLabel(item.type)}</strong>
+                            <strong>{technicalTitle}</strong>
                             <small>{formatEventTime(item.createdAt)}</small>
                           </div>
                           <pre className="agent-chat-expandable-pre">
                             {[
                               item.content ? `Content:\n${item.content}` : "",
+                              item.runStatus ? `Run status:\n${formatStructuredData(item.runStatus)}` : "",
                               item.userId ? `User: ${item.userId}` : "",
                               item.metadata ? `Metadata:\n${formatStructuredData(item.metadata)}` : ""
                             ]

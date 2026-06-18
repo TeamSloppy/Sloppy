@@ -289,6 +289,8 @@ extension SloppyTUIScreen {
     }
 
     func showRemoteProjectPicker(node: CoreConfig.Node) async {
+        beginOperationStatus(.remote, label: "Loading remote", detail: node.displayTitle)
+        defer { endOperationStatus(.remote) }
         refreshStaticChrome(statusLine: "loading remote projects from \(node.displayTitle)...")
         let backend = RemoteSloppyTUIBackend(node: node)
         do {
@@ -336,12 +338,15 @@ extension SloppyTUIScreen {
     }
 
     func switchBackend(_ nextService: any SloppyTUIBackend, projectID: String?, statusPrefix: String) async {
+        beginOperationStatus(.remote, label: "Connecting remote", detail: statusPrefix)
+        defer { endOperationStatus(.remote) }
         streamTask?.cancel()
         changeTask?.cancel()
         autoDiffTask?.cancel()
         projectSourceControlFooterTask?.cancel()
         projectFileIndexTask?.cancel()
         projectFileReindexTask?.cancel()
+        endOperationStatus(.indexing)
         projectTaskAutocompleteTask?.cancel()
         pendingRemoteProjectBackend = nil
         activePicker = nil

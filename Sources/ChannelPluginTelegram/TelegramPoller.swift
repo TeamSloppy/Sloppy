@@ -6,11 +6,17 @@ import Protocols
 
 /// Long-polls Telegram for updates and forwards messages to sloppy via InboundMessageReceiver.
 actor TelegramPoller {
+    private enum PickerScreen: Sendable {
+        case providers(page: Int)
+        case models(providerId: String, providerPage: Int, page: Int)
+    }
+
     private struct PickerSession: Sendable {
         let bindingChannelId: String
         let messageThreadId: Int?
         let filter: String
-        let models: [ProviderModelOption]
+        let allModels: [ProviderModelOption]
+        var screen: PickerScreen
     }
 
     private struct ProjectLinkSession: Sendable {
@@ -38,6 +44,9 @@ actor TelegramPoller {
     /// Picker UI state keyed by the Telegram message id that hosts the keyboard.
     private var modelPickerSessions: [Int64: PickerSession] = [:]
     private var projectLinkSessions: [Int64: ProjectLinkSession] = [:]
+    private var forwardBatcher = TelegramForwardBatcher()
+    private var batchFlushTasks: [TelegramForwardBatcher.Key: Task<Void, Never>] = [:]
+    private let batchFlushDelay: Duration = .milliseconds(900)
 
     init(
         bot: TelegramBotAPI,
@@ -190,8 +199,8 @@ actor TelegramPoller {
         switch TelegramModelPicker.parseCallback(data) {
         case .unknown:
             try? await bot.answerCallbackQuery(callbackQueryId: query.id)
-        case .page(let messageId, let page):
-            guard let session = modelPickerSessions[messageId] else {
+        case .providersPage(let messageId, let page):
+            guard var session = modelPickerSessions[messageId] else {
                 try? await bot.answerCallbackQuery(
                     callbackQueryId: query.id,
                     text: "Список устарел. Отправьте /model снова.",
@@ -199,35 +208,87 @@ actor TelegramPoller {
                 )
                 return
             }
-            let currentId = await modelPickerBridge?.telegramPickerCurrentModelId(bindingChannelId: bindingChannelId)
-            let totalPages = max(1, session.models.isEmpty ? 1 : Int(ceil(Double(session.models.count) / Double(TelegramModelPicker.pageSize))))
-            let clamped = min(max(0, page), totalPages - 1)
-            let body = TelegramModelPicker.buildPickerText(
-                currentModelId: currentId,
-                filter: session.filter,
-                page: clamped,
-                totalPages: totalPages,
-                totalMatches: session.models.count
-            )
-            let keyboard = TelegramModelPicker.buildKeyboard(
-                models: session.models,
+            session.screen = .providers(page: page)
+            modelPickerSessions[messageId] = session
+            await renderModelPicker(
+                session: session,
                 messageId: messageId,
-                page: clamped
+                chatId: chatId,
+                telegramMessageId: message.messageId,
+                messageThreadId: messageThreadId,
+                callbackQueryId: query.id
             )
-            do {
-                _ = try await bot.editMessageText(
-                    chatId: chatId,
-                    messageId: message.messageId,
-                    text: body,
-                    messageThreadId: messageThreadId,
-                    replyMarkup: keyboard
+        case .backToProviders(let messageId, let page):
+            guard var session = modelPickerSessions[messageId] else {
+                try? await bot.answerCallbackQuery(
+                    callbackQueryId: query.id,
+                    text: "Список устарел. Отправьте /model снова.",
+                    showAlert: true
                 )
-                try await bot.answerCallbackQuery(callbackQueryId: query.id)
-            } catch {
-                logger.warning("Failed to edit model picker: \(error)")
-                try? await bot.answerCallbackQuery(callbackQueryId: query.id, text: "Не удалось обновить список.", showAlert: true)
+                return
             }
-
+            session.screen = .providers(page: page)
+            modelPickerSessions[messageId] = session
+            await renderModelPicker(
+                session: session,
+                messageId: messageId,
+                chatId: chatId,
+                telegramMessageId: message.messageId,
+                messageThreadId: messageThreadId,
+                callbackQueryId: query.id
+            )
+        case .provider(let messageId, let providerId, let page):
+            guard var session = modelPickerSessions[messageId] else {
+                try? await bot.answerCallbackQuery(
+                    callbackQueryId: query.id,
+                    text: "Список устарел. Отправьте /model снова.",
+                    showAlert: true
+                )
+                return
+            }
+            let matches = TelegramModelPicker.filterModels(
+                session.allModels,
+                query: session.filter,
+                providerId: providerId
+            )
+            guard !matches.isEmpty else {
+                try? await bot.answerCallbackQuery(callbackQueryId: query.id, text: "У этого провайдера нет моделей по фильтру.", showAlert: true)
+                return
+            }
+            session.screen = .models(providerId: providerId, providerPage: page, page: 0)
+            modelPickerSessions[messageId] = session
+            await renderModelPicker(
+                session: session,
+                messageId: messageId,
+                chatId: chatId,
+                telegramMessageId: message.messageId,
+                messageThreadId: messageThreadId,
+                callbackQueryId: query.id
+            )
+        case .page(let messageId, let page):
+            guard var session = modelPickerSessions[messageId] else {
+                try? await bot.answerCallbackQuery(
+                    callbackQueryId: query.id,
+                    text: "Список устарел. Отправьте /model снова.",
+                    showAlert: true
+                )
+                return
+            }
+            switch session.screen {
+            case .models(let providerId, let providerPage, _):
+                session.screen = .models(providerId: providerId, providerPage: providerPage, page: page)
+                modelPickerSessions[messageId] = session
+                await renderModelPicker(
+                    session: session,
+                    messageId: messageId,
+                    chatId: chatId,
+                    telegramMessageId: message.messageId,
+                    messageThreadId: messageThreadId,
+                    callbackQueryId: query.id
+                )
+            case .providers:
+                try? await bot.answerCallbackQuery(callbackQueryId: query.id)
+            }
         case .select(let messageId, let index):
             guard let session = modelPickerSessions[messageId] else {
                 try? await bot.answerCallbackQuery(
@@ -237,11 +298,20 @@ actor TelegramPoller {
                 )
                 return
             }
-            guard session.models.indices.contains(index) else {
+            guard case .models(let providerId, _, _) = session.screen else {
+                try? await bot.answerCallbackQuery(callbackQueryId: query.id, text: "Сначала выберите провайдера.", showAlert: true)
+                return
+            }
+            let models = TelegramModelPicker.filterModels(
+                session.allModels,
+                query: session.filter,
+                providerId: providerId
+            )
+            guard models.indices.contains(index) else {
                 try? await bot.answerCallbackQuery(callbackQueryId: query.id, text: "Неверный индекс.", showAlert: true)
                 return
             }
-            let modelId = session.models[index].id
+            let modelId = models[index].id
             guard let bridge = modelPickerBridge else {
                 try? await bot.answerCallbackQuery(callbackQueryId: query.id)
                 return
@@ -443,24 +513,74 @@ actor TelegramPoller {
             message: message
         )
 
-        let ok = await receiver.postMessage(
+        let batchAction = forwardBatcher.consume(
             channelId: channelId,
             userId: userIdString,
-            content: processedText,
             topicId: topicId,
+            message: message,
+            processedText: processedText,
             inboundContext: inboundContext,
             attachments: processedAttachments
         )
 
-        if ok {
-            logger.debug("Message forwarded to sloppy: channelId=\(channelId) userId=\(userIdString)")
-        } else {
-            logger.warning("Failed to forward message to sloppy: channelId=\(channelId)")
-            _ = try? await bot.sendMessage(
-                chatId: chatId,
-                text: "Failed to reach Sloppy. Please try again later.",
-                messageThreadId: messageThreadId
+        switch batchAction {
+        case .buffered(let key):
+            scheduleBatchFlush(for: key)
+            logger.debug("Buffered forwarded Telegram message: channelId=\(channelId) userId=\(userIdString)")
+            return
+        case .dispatch(let batch):
+            cancelBatchFlush(for: batch.key)
+            let ok = await receiver.postMessage(
+                channelId: channelId,
+                userId: userIdString,
+                content: batch.content,
+                topicId: topicId,
+                inboundContext: batch.inboundContext,
+                attachments: batch.attachments
             )
+            if ok {
+                logger.debug("Message forwarded to sloppy: channelId=\(channelId) userId=\(userIdString)")
+            } else {
+                logger.warning("Failed to forward message to sloppy: channelId=\(channelId)")
+                _ = try? await bot.sendMessage(
+                    chatId: chatId,
+                    text: "Failed to reach Sloppy. Please try again later.",
+                    messageThreadId: messageThreadId
+                )
+            }
+        }
+    }
+
+    private func scheduleBatchFlush(for key: TelegramForwardBatcher.Key) {
+        batchFlushTasks[key]?.cancel()
+        batchFlushTasks[key] = Task {
+            try? await Task.sleep(for: batchFlushDelay)
+            await flushBufferedBatch(for: key)
+        }
+    }
+
+    private func cancelBatchFlush(for key: TelegramForwardBatcher.Key) {
+        batchFlushTasks[key]?.cancel()
+        batchFlushTasks[key] = nil
+    }
+
+    private func flushBufferedBatch(for key: TelegramForwardBatcher.Key) async {
+        batchFlushTasks[key] = nil
+        guard let batch = forwardBatcher.flush(key: key) else {
+            return
+        }
+        let ok = await receiver.postMessage(
+            channelId: key.channelId,
+            userId: key.userId,
+            content: batch.content,
+            topicId: key.topicId,
+            inboundContext: batch.inboundContext,
+            attachments: batch.attachments
+        )
+        if ok {
+            logger.debug("Flushed buffered Telegram batch: channelId=\(key.channelId) userId=\(key.userId)")
+        } else {
+            logger.warning("Failed to flush buffered Telegram batch: channelId=\(key.channelId)")
         }
     }
 
@@ -782,40 +902,28 @@ actor TelegramPoller {
             return
         }
 
-        let current = await bridge.telegramPickerCurrentModelId(bindingChannelId: bindingChannelId)
-        let totalPages = max(1, Int(ceil(Double(filtered.count) / Double(TelegramModelPicker.pageSize))))
-        let body = TelegramModelPicker.buildPickerText(
-            currentModelId: current,
-            filter: filter,
-            page: 0,
-            totalPages: totalPages,
-            totalMatches: filtered.count
-        )
-
         do {
             let sent = try await bot.sendMessage(
                 chatId: chatId,
-                text: body,
+                text: "Открываю список провайдеров…",
                 messageThreadId: messageThreadId,
                 showTyping: true
             )
-            modelPickerSessions[sent.messageId] = PickerSession(
+            let session = PickerSession(
                 bindingChannelId: bindingChannelId,
                 messageThreadId: messageThreadId,
                 filter: filter,
-                models: filtered
+                allModels: filtered,
+                screen: .providers(page: 0)
             )
-            let keyboard = TelegramModelPicker.buildKeyboard(
-                models: filtered,
+            modelPickerSessions[sent.messageId] = session
+            await renderModelPicker(
+                session: session,
                 messageId: sent.messageId,
-                page: 0
-            )
-            _ = try await bot.editMessageText(
                 chatId: chatId,
-                messageId: sent.messageId,
-                text: body,
+                telegramMessageId: sent.messageId,
                 messageThreadId: messageThreadId,
-                replyMarkup: keyboard
+                callbackQueryId: nil
             )
         } catch {
             logger.warning("Failed to present model picker: \(error)")
@@ -824,6 +932,78 @@ actor TelegramPoller {
                 text: "Не удалось показать список моделей. Попробуйте /model снова.",
                 messageThreadId: messageThreadId
             )
+        }
+    }
+
+    private func renderModelPicker(
+        session: PickerSession,
+        messageId: Int64,
+        chatId: Int64,
+        telegramMessageId: Int64,
+        messageThreadId: Int?,
+        callbackQueryId: String?
+    ) async {
+        let currentId = await modelPickerBridge?.telegramPickerCurrentModelId(bindingChannelId: session.bindingChannelId)
+        let body: String
+        let keyboard: [[[String: String]]]
+
+        switch session.screen {
+        case .providers(let page):
+            let providers = TelegramModelPicker.providerEntries(from: session.allModels)
+            let totalPages = max(1, providers.isEmpty ? 1 : Int(ceil(Double(providers.count) / Double(TelegramModelPicker.providerPageSize))))
+            let clamped = providers.isEmpty ? 0 : min(max(0, page), totalPages - 1)
+            body = TelegramModelPicker.buildProviderPickerText(
+                currentModelId: currentId,
+                filter: session.filter,
+                page: clamped,
+                totalPages: totalPages,
+                totalProviders: providers.count
+            )
+            keyboard = TelegramModelPicker.buildProviderKeyboard(
+                providers: providers,
+                messageId: messageId,
+                page: clamped
+            )
+        case .models(let providerId, let providerPage, let page):
+            let models = TelegramModelPicker.filterModels(
+                session.allModels,
+                query: session.filter,
+                providerId: providerId
+            )
+            let totalPages = max(1, models.isEmpty ? 1 : Int(ceil(Double(models.count) / Double(TelegramModelPicker.pageSize))))
+            let clamped = models.isEmpty ? 0 : min(max(0, page), totalPages - 1)
+            body = TelegramModelPicker.buildPickerText(
+                currentModelId: currentId,
+                filter: session.filter,
+                providerTitle: TelegramModelPicker.providerTitle(providerId),
+                page: clamped,
+                totalPages: totalPages,
+                totalMatches: models.count
+            )
+            keyboard = TelegramModelPicker.buildKeyboard(
+                models: models,
+                messageId: messageId,
+                providerPage: providerPage,
+                page: clamped
+            )
+        }
+
+        do {
+            _ = try await bot.editMessageText(
+                chatId: chatId,
+                messageId: telegramMessageId,
+                text: body,
+                messageThreadId: messageThreadId,
+                replyMarkup: keyboard
+            )
+            if let callbackQueryId {
+                try await bot.answerCallbackQuery(callbackQueryId: callbackQueryId)
+            }
+        } catch {
+            logger.warning("Failed to edit model picker: \(error)")
+            if let callbackQueryId {
+                try? await bot.answerCallbackQuery(callbackQueryId: callbackQueryId, text: "Не удалось обновить список.", showAlert: true)
+            }
         }
     }
 

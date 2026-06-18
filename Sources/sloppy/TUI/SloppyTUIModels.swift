@@ -19,6 +19,60 @@ enum SloppyTUIPickerKind: Equatable {
     case theme
 }
 
+enum SloppyTUIOperationStatusKind: String, Equatable, Hashable, Sendable {
+    case indexing
+    case compacting
+    case modelLoading
+    case remote
+}
+
+struct SloppyTUIOperationStatus: Equatable, Sendable {
+    var kind: SloppyTUIOperationStatusKind
+    var label: String
+    var detail: String?
+
+    init(kind: SloppyTUIOperationStatusKind, label: String, detail: String? = nil) {
+        self.kind = kind
+        self.label = label
+        self.detail = detail
+    }
+}
+
+enum SloppyTUIComposerLayout {
+    static func lines(
+        preInputLines: [String],
+        operationStatusLine: String?,
+        inputLines: [String],
+        metaLines: [String],
+        footerLine: String
+    ) -> [String] {
+        var result = preInputLines
+        if let operationStatusLine {
+            result.append(operationStatusLine)
+        }
+        result.append(contentsOf: inputLines)
+        result.append(contentsOf: metaLines)
+        result.append(footerLine)
+        return result
+    }
+}
+
+enum SloppyTUIProjectFileIndexStatusPolicy {
+    enum RebuildReason {
+        case initialBuild
+        case scheduledRebuild
+    }
+
+    static func shouldShowIndexingStatus(hasCachedIndex: Bool, reason: RebuildReason) -> Bool {
+        switch reason {
+        case .initialBuild:
+            return !hasCachedIndex
+        case .scheduledRebuild:
+            return false
+        }
+    }
+}
+
 enum SloppyTUISessionListMode: Equatable {
     case hidden
     case side

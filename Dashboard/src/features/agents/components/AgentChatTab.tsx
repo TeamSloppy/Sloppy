@@ -1206,6 +1206,33 @@ function previewText(value, fallback = "No details") {
   return normalized;
 }
 
+function formatTurnTokenCount(value) {
+  const numeric = Number(value || 0);
+  if (!Number.isFinite(numeric) || numeric <= 0) {
+    return "0";
+  }
+  return String(Math.round(numeric));
+}
+
+function formatRunStatusTokenUsage(runStatus) {
+  const usage = runStatus?.tokenUsage;
+  if (!usage || typeof usage !== "object") {
+    return "";
+  }
+  const prompt = usage.prompt ?? usage.promptTokens ?? usage.inputTokens ?? 0;
+  const completion = usage.completion ?? usage.completionTokens ?? usage.outputTokens ?? 0;
+  if (!Number(prompt) && !Number(completion)) {
+    return "";
+  }
+  return `(${formatTurnTokenCount(prompt)} ↑ / ${formatTurnTokenCount(completion)} ↓)`;
+}
+
+function formatRunStatusLabel(runStatus) {
+  const label = String(runStatus?.label || runStatus?.stage || "Status").trim();
+  const usage = formatRunStatusTokenUsage(runStatus);
+  return usage ? `${label} ${usage}` : label;
+}
+
 const OAUTH_ERROR_PATTERNS = [
   "oauth token is invalid",
   "oauth token is expired",
@@ -1345,7 +1372,7 @@ function buildTechnicalRecord(
       return null;
     }
 
-    const label = eventItem.runStatus.label || eventItem.runStatus.stage || "Status";
+    const label = formatRunStatusLabel(eventItem.runStatus);
     const summary = eventItem.runStatus.details || eventItem.runStatus.expandedText || label;
     const detailParts = [];
     if (eventItem.runStatus.stage) {
@@ -2662,6 +2689,9 @@ function AgentChatEvents({
               <span className="agent-chat-stream-dot" />
               <span className="agent-chat-stream-dot" />
               <span className="agent-chat-stream-dot" />
+              {formatRunStatusTokenUsage(latestRunStatus) ? (
+                <span className="agent-chat-stream-usage">{formatRunStatusTokenUsage(latestRunStatus)}</span>
+              ) : null}
             </div>
           ) : null}
         </>
@@ -5144,7 +5174,7 @@ export function AgentChatTab({
 
       if (streamEvent.type === "run_status" && streamEvent.runStatus) {
         const detailsText = streamEvent.runStatus.details ? ` - ${streamEvent.runStatus.details}` : "";
-        setStatusText(`Status: ${streamEvent.runStatus.label || streamEvent.runStatus.stage}${detailsText}`);
+        setStatusText(`Status: ${formatRunStatusLabel(streamEvent.runStatus)}${detailsText}`);
 
         if (streamEvent.runStatus.stage === "responding" && streamEvent.runStatus.expandedText) {
           pushOptimisticAssistantText(String(streamEvent.runStatus.expandedText));

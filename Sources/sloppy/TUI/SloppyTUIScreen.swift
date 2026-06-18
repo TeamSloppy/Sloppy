@@ -329,6 +329,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     var devicePollTask: Task<Void, Never>?
     var thinkingAnimationTask: Task<Void, Never>?
     var autoModeAnimationTask: Task<Void, Never>?
+    var operationStatusAnimationTask: Task<Void, Never>?
     var projectFileIndexTask: Task<Void, Never>?
     var projectFileReindexTask: Task<Void, Never>?
     var lastChangeBatch: ProjectWorkingTreeChangeBatch?
@@ -372,7 +373,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     var liveAssistantInterpolationTask: Task<Void, Never>?
     var liveRunStage: AgentRunStage?
     var liveRunStatusLine: String?
+    var lastTurnTokenUsage: TokenUsage?
     var shellRunStatusLine: String?
+    var operationStatuses: [SloppyTUIOperationStatusKind: SloppyTUIOperationStatus] = [:]
     let tuiStartedAt = Date()
     var taskStartedAt: Date?
     var lastTaskElapsed: TimeInterval?
@@ -543,6 +546,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         thinkingAnimationTask?.cancel()
         autoModeAnimationTask?.cancel()
         autoModeAnimationTask = nil
+        operationStatusAnimationTask?.cancel()
+        operationStatusAnimationTask = nil
+        operationStatuses.removeAll()
         projectFileIndexTask?.cancel()
         projectSourceControlFooterTask?.cancel()
         projectSourceControlFooterTask = nil
@@ -562,14 +568,15 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         let height = max(terminal?.rows ?? 24, 12)
         let lines = renderBaseScreen(width: width, height: height)
         let normalized = SloppyTUITheme.normalize(lines: lines, width: width, height: max(height, lines.count))
-        registerTextHitRegions(lines: normalized, width: width)
-        lastRenderedSelectionLines = normalized
+        let backgroundLines = SloppyTUITheme.screenBackgroundLines(normalized, width: width)
+        registerTextHitRegions(lines: backgroundLines, width: width)
+        lastRenderedSelectionLines = backgroundLines
         let hoverRegion = mouseHoverCell.flatMap(hitRegion(at:))
         mouseHoverRegion = hoverRegion
         mouseHoverAction = hoverRegion?.action
         let hoverLines = selectionState.activeRange == nil
-            ? SloppyTUISelectionRenderer.applyHitRegionOverlay(lines: normalized, region: hoverRegion)
-            : normalized
+            ? SloppyTUISelectionRenderer.applyHitRegionOverlay(lines: backgroundLines, region: hoverRegion)
+            : backgroundLines
         return SloppyTUISelectionRenderer.applySelectionOverlay(lines: hoverLines, range: selectionState.activeRange)
     }
 

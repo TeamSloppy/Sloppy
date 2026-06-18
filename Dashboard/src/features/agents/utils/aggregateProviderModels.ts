@@ -1,4 +1,5 @@
 import { probeProvider } from "../../../api";
+import { filterProviderRoutedModelOptions, isProviderRoutedModelId } from "./modelRoutingIds";
 
 export type AggregatedModelOption = {
   id: string;
@@ -25,7 +26,7 @@ export function mergeModelOptions(
       continue;
     }
 
-    for (const model of group) {
+    for (const model of filterProviderRoutedModelOptions(group)) {
       const id = String(model?.id || "").trim();
       if (!id || seen.has(id)) {
         continue;
@@ -96,12 +97,7 @@ export function prefixedRuntimeModelId(providerCatalogId: string, rawId: string)
     return trimmed;
   }
   if (
-    trimmed.startsWith("openai-api:") ||
-    trimmed.startsWith("openai-oauth:") ||
-    trimmed.startsWith("openrouter:") ||
-    trimmed.startsWith("ollama:") ||
-    trimmed.startsWith("gemini:") ||
-    trimmed.startsWith("anthropic:")
+    isProviderRoutedModelId(trimmed)
   ) {
     return trimmed;
   }
@@ -135,12 +131,7 @@ export function coerceLegacySloppyModelId(modelId: string): string {
     return t;
   }
   if (
-    t.startsWith("openai-api:") ||
-    t.startsWith("openai-oauth:") ||
-    t.startsWith("openrouter:") ||
-    t.startsWith("ollama:") ||
-    t.startsWith("gemini:") ||
-    t.startsWith("anthropic:")
+    isProviderRoutedModelId(t)
   ) {
     return t;
   }

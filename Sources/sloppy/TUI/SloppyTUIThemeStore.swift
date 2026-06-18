@@ -32,6 +32,7 @@ struct SloppyTUIThemeStore {
         "yellow": "#e0af68",
         "orange": "#ff9e64",
         "red": "#f7768e",
+        "screenBackground": "#000000",
         "panelBackground": "#000000",
         "userMessageBackground": "#242424",
         "toolBackground": "#1e2428",
@@ -133,6 +134,7 @@ private struct CustomThemeColors: Decodable {
     var yellow: String?
     var orange: String?
     var red: String?
+    var screenBackground: String?
     var panelBackground: String?
     var userMessageBackground: String?
     var toolBackground: String?
@@ -162,6 +164,7 @@ private struct CustomThemeColors: Decodable {
             yellow: try color(yellow, fallback: base.yellow),
             orange: try color(orange, fallback: base.orange),
             red: try color(red, fallback: base.red),
+            screenBackground: try color(screenBackground, fallback: base.screenBackground),
             panelBackground: try color(panelBackground, fallback: base.panelBackground),
             userMessageBackground: try color(userMessageBackground, fallback: base.userMessageBackground),
             toolBackground: try color(toolBackground, fallback: base.toolBackground),
