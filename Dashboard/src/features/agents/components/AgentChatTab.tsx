@@ -28,11 +28,11 @@ import {
 import { navigateToTaskScreen } from "../../../app/routing/navigateToTaskScreen";
 import { ProjectSourceControlDiffPanel } from "./ProjectSourceControlDiffPanel";
 import { PlanInputPanel } from "../../../components/PlanInputPanel/PlanInputPanel";
+import { AggregatedModelPicker } from "../../config/components/AggregatedModelPicker";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { Prism as SyntaxHighlighter } from "react-syntax-highlighter";
 import { oneDark } from "react-syntax-highlighter/dist/esm/styles/prism";
-import { filterModelsByQuery } from "../utils/aggregateProviderModels";
 import {
   DEEP_RESEARCH_DEFAULT_MODE,
   DEEP_RESEARCH_DEFAULT_ROUNDS,
@@ -3829,8 +3829,6 @@ export function AgentChatTab({
   const [sessionDirectoryOpenById, setSessionDirectoryOpenById] = useState({});
   const [sessionWorktreeOpenById, setSessionWorktreeOpenById] = useState({});
   const [sessionPastOpenByDirectory, setSessionPastOpenByDirectory] = useState({});
-  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
-  const [modelSearch, setModelSearch] = useState("");
   const [isNarrowChatViewport, setIsNarrowChatViewport] = useState(() =>
     typeof window !== "undefined" ? window.matchMedia(AGENT_CHAT_SIDEBAR_NARROW_MQ).matches : false
   );
@@ -3859,7 +3857,6 @@ export function AgentChatTab({
   const composeInputRef = useRef(null);
   const shareMenuRef = useRef(null);
   const debugMenuRef = useRef(null);
-  const modelPickerRef = useRef<HTMLDivElement | null>(null);
   const runStateRef = useRef({ sessionId: null, abortController: null });
   const streamCleanupRef = useRef(() => { });
   const subagentStreamCleanupRef = useRef(() => { });
@@ -3879,19 +3876,6 @@ export function AgentChatTab({
     () => availableModels.find((model) => String(model?.id || "").trim() === selectedModel) || null,
     [availableModels, selectedModel]
   );
-  const modelOptions = useMemo(() => {
-    const selected = String(selectedModel || "").trim();
-    const base = availableModels.slice();
-    if (selected && !base.some((m) => m.id === selected)) {
-      base.unshift({ id: selected, title: selected });
-    }
-    return base;
-  }, [availableModels, selectedModel]);
-  const filteredModelOptions = useMemo(
-    () => filterModelsByQuery(modelOptions, modelSearch),
-    [modelOptions, modelSearch]
-  );
-
   const [slashCommands, setSlashCommands] = useState(() => mergeDashboardSlashCommands(null));
   const slashCommandNameSet = useMemo(
     () =>
@@ -4315,19 +4299,6 @@ export function AgentChatTab({
     document.addEventListener("mousedown", handleClickOutside);
     return () => document.removeEventListener("mousedown", handleClickOutside);
   }, [isDebugMenuOpen]);
-
-  useEffect(() => {
-    if (!isModelDropdownOpen) {
-      return;
-    }
-    function handleClickOutside(event) {
-      if (modelPickerRef.current && !modelPickerRef.current.contains(event.target)) {
-        setIsModelDropdownOpen(false);
-      }
-    }
-    document.addEventListener("mousedown", handleClickOutside);
-    return () => document.removeEventListener("mousedown", handleClickOutside);
-  }, [isModelDropdownOpen]);
 
   useEffect(() => {
     if (typeof window === "undefined") {
@@ -4948,13 +4919,10 @@ export function AgentChatTab({
     }
     const normalizedModelId = String(nextModelId || "").trim();
     if (!normalizedModelId || normalizedModelId === selectedModel) {
-      setIsModelDropdownOpen(false);
-      setModelSearch(String(selectedModel || ""));
       return;
     }
     const previousModelId = String(selectedModel || "").trim();
     setSelectedModel(normalizedModelId);
-    setIsModelDropdownOpen(false);
     setStatusText(`Switching model to ${normalizedModelId}...`);
 
     const previousSessionId = activeSessionIdRef.current;
@@ -6558,80 +6526,22 @@ export function AgentChatTab({
             </button>
             {activeSession ? getSessionDisplayLabel(activeSession) : "Select a session"}
             {isDebugSessionFlagOn ? <span className="agent-chat-debug-badge">Debug</span> : null}
-            <div ref={modelPickerRef} className="agent-chat-model-picker">
-              <div className="provider-model-picker">
-                <input
-                  className="agent-chat-head-model"
-                  value={isModelDropdownOpen ? modelSearch : String(selectedModel || "")}
-                  onFocus={() => {
-                    if (!isModelDropdownOpen) {
-                      setModelSearch(String(selectedModel || ""));
-                    }
-                    setIsModelDropdownOpen(true);
-                  }}
-                  onClick={() => {
-                    if (!isModelDropdownOpen) {
-                      setModelSearch(String(selectedModel || ""));
-                    }
-                    setIsModelDropdownOpen(true);
-                  }}
-                  onChange={(event) => {
-                    setModelSearch(event.target.value);
-                    setIsModelDropdownOpen(true);
-                  }}
-                  placeholder="Select model id..."
-                  autoComplete="off"
-                  disabled={isSending || availableModels.length === 0}
-                  aria-label="Select chat model"
-                />
-                {isModelDropdownOpen ? (
-                  <div className="provider-model-picker-menu agent-chat-model-dropdown">
-                    <div className="provider-model-picker-group">Available models</div>
-                    <div className="provider-model-options">
-                      {filteredModelOptions.length === 0 ? (
-                        <div className="placeholder-text" style={{ padding: "10px 12px" }}>
-                          No matching models
-                        </div>
-                      ) : (
-                        filteredModelOptions.map((model) => {
-                          const modelId = String(model?.id || "").trim();
-                          if (!modelId) {
-                            return null;
-                          }
-                          const isSelected = selectedModel === modelId;
-                          return (
-                            <button
-                              key={modelId}
-                              type="button"
-                              className={`provider-model-option ${isSelected ? "active" : ""}`}
-                              onMouseDown={(event) => event.preventDefault()}
-                              onClick={() => {
-                                setModelSearch(modelId);
-                                void handleModelSwitch(modelId);
-                              }}
-                            >
-                              <div className="provider-model-option-main">
-                                <strong>{String(model?.title || modelId).trim() || modelId}</strong>
-                                {model?.contextWindow ? (
-                                  <span className="provider-model-context">{String(model.contextWindow)}</span>
-                                ) : null}
-                              </div>
-                              <span>{modelId}</span>
-                              {Array.isArray(model?.capabilities) && model.capabilities.length > 0 ? (
-                                <div className="provider-model-capabilities">
-                                  {model.capabilities.map((capability) => (
-                                    <span key={`${modelId}-${capability}`}>{String(capability)}</span>
-                                  ))}
-                                </div>
-                              ) : null}
-                            </button>
-                          );
-                        })
-                      )}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
+            <div className="agent-chat-model-picker">
+              <AggregatedModelPicker
+                label={null}
+                value={String(selectedModel || "")}
+                onChange={(modelId) => {
+                  void handleModelSwitch(modelId);
+                }}
+                aggregatedModels={availableModels}
+                disabled={isSending || availableModels.length === 0}
+                className="provider-model-picker"
+                inputClassName="agent-chat-head-model"
+                menuClassName="agent-chat-model-dropdown"
+                floating={false}
+                includeEmptyOption={false}
+                aria-label="Select chat model"
+              />
             </div>
           </div>
           <div className="agent-chat-actions">

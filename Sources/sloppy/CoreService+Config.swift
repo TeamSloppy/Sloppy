@@ -15,6 +15,47 @@ struct WorkspaceGitSyncRunError: LocalizedError {
 }
 
 extension CoreService {
+    func refreshModelProviderAfterCredentialChange() async {
+        let config = currentConfig
+        let oauthSvc = self.openAIOAuthService
+        let anthropicOAuthSvc = self.anthropicOAuthService
+        let geminiOAuthSvc = self.geminiOAuthService
+        let workspaceRootURL = self.workspaceRootURL
+        let anthropicSettingsProvider: @Sendable () -> ClaudeSettingsEnvironment = {
+            ClaudeSettingsEnvironment.load(workspaceRootURL: workspaceRootURL)
+        }
+        let hasOAuth = oauthSvc.currentAccessToken() != nil
+        let resolvedModels = CoreModelProviderFactory.resolveModelIdentifiers(
+            config: config,
+            hasOAuthCredentials: hasOAuth,
+            currentDirectory: workspaceCurrentDirectory
+        )
+        let modelProvider = CoreModelProviderFactory.buildModelProvider(
+            config: config,
+            resolvedModels: resolvedModels,
+            tools: ToolRegistry.makeDefault().allTools,
+            oauthTokenProvider: { oauthSvc.currentAccessToken() },
+            oauthAccountId: oauthSvc.currentAccountId(),
+            oauthTokenRefresh: { try await oauthSvc.ensureValidToken() },
+            oauthTokenForceRefresh: { try await oauthSvc.ensureValidToken(forceRefresh: true) },
+            anthropicOAuthTokenProvider: { anthropicOAuthSvc.currentAccessToken() },
+            anthropicOAuthTokenRefresh: { try await anthropicOAuthSvc.ensureValidToken() },
+            anthropicSettingsProvider: anthropicSettingsProvider,
+            geminiOAuthCredentialsProvider: { geminiOAuthSvc.currentCredentials() },
+            systemInstructions: "You are Sloppy core channel assistant.",
+            proxySession: ProxySessionFactory.makeSession(proxy: config.proxy),
+            currentDirectory: workspaceCurrentDirectory
+        )
+        let defaultModel = modelProvider?.supportedModels.first ?? resolvedModels.first
+        self.modelProvider = modelProvider
+        await runtime.updateModelProvider(modelProvider: modelProvider, defaultModel: defaultModel)
+        await sessionOrchestrator.updateAvailableModels(availableAgentModels())
+        await sessionOrchestrator.updatePersistedModelContext(
+            config: config,
+            hasOAuthCredentials: hasOAuth
+        )
+    }
+
     public func updateConfig(_ config: CoreConfig) async throws -> CoreConfig {
         let previousOnboardingCompleted = currentConfig.onboarding.completed
         let encoder = JSONEncoder()
@@ -60,43 +101,7 @@ extension CoreService {
         readyTaskStartupDispatchCompleted = false
         readyTaskStartupDispatchInProgress = false
         await searchProviderService.updateConfig(config.searchTools)
-        let oauthSvc = self.openAIOAuthService
-        let anthropicOAuthSvc = self.anthropicOAuthService
-        let geminiOAuthSvc = self.geminiOAuthService
-        let workspaceRootURL = self.workspaceRootURL
-        let anthropicSettingsProvider: @Sendable () -> ClaudeSettingsEnvironment = {
-            ClaudeSettingsEnvironment.load(workspaceRootURL: workspaceRootURL)
-        }
-        let hasOAuth = oauthSvc.currentAccessToken() != nil
-        let resolvedModels = CoreModelProviderFactory.resolveModelIdentifiers(
-            config: config,
-            hasOAuthCredentials: hasOAuth,
-            currentDirectory: workspaceCurrentDirectory
-        )
-        let modelProvider = CoreModelProviderFactory.buildModelProvider(
-            config: config,
-            resolvedModels: resolvedModels,
-            tools: ToolRegistry.makeDefault().allTools,
-            oauthTokenProvider: { oauthSvc.currentAccessToken() },
-            oauthAccountId: oauthSvc.currentAccountId(),
-            oauthTokenRefresh: { try await oauthSvc.ensureValidToken() },
-            oauthTokenForceRefresh: { try await oauthSvc.ensureValidToken(forceRefresh: true) },
-            anthropicOAuthTokenProvider: { anthropicOAuthSvc.currentAccessToken() },
-            anthropicOAuthTokenRefresh: { try await anthropicOAuthSvc.ensureValidToken() },
-            anthropicSettingsProvider: anthropicSettingsProvider,
-            geminiOAuthCredentialsProvider: { geminiOAuthSvc.currentCredentials() },
-            systemInstructions: "You are Sloppy core channel assistant.",
-            proxySession: ProxySessionFactory.makeSession(proxy: config.proxy),
-            currentDirectory: workspaceCurrentDirectory
-        )
-        let defaultModel = modelProvider?.supportedModels.first ?? resolvedModels.first
-        self.modelProvider = modelProvider
-        await runtime.updateModelProvider(modelProvider: modelProvider, defaultModel: defaultModel)
-        await sessionOrchestrator.updateAvailableModels(availableAgentModels())
-        await sessionOrchestrator.updatePersistedModelContext(
-            config: config,
-            hasOAuthCredentials: hasOAuth
-        )
+        await refreshModelProviderAfterCredentialChange()
 
         if previousChannels.telegram != config.channels.telegram {
             var plugin: (any GatewayPlugin)?

@@ -45,7 +45,7 @@ struct SloppyTUIProviderDefinition {
             id = "openrouter"
             title = "openrouter"
             apiURL = "https://openrouter.ai/api/v1"
-            model = "openai/gpt-4o-mini"
+            model = "openai/gpt-5.4-mini"
             requiresAPIKey = true
             setupDescription = "OpenRouter API key"
         case "gemini":
@@ -80,7 +80,7 @@ struct SloppyTUIProviderDefinition {
             id = "openai-oauth"
             title = "OpenAI Codex"
             apiURL = "https://chatgpt.com/backend-api"
-            model = "gpt-5.3-codex"
+            model = "gpt-5.4"
             requiresAPIKey = false
             setupDescription = "Codex device auth"
         default:

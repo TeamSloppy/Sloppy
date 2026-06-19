@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { filterModelsByQuery } from "../../agents/utils/aggregateProviderModels";
 import type { AggregatedModelOption } from "../../agents/utils/aggregateProviderModels";
+import { groupModelsForPicker } from "../../agents/utils/modelPickerSections";
 
 type Props = {
   label: React.ReactNode;
@@ -11,8 +12,15 @@ type Props = {
   placeholder?: string;
   disabled?: boolean;
   hint?: React.ReactNode;
+  className?: string;
+  inputClassName?: string;
+  menuClassName?: string;
+  floating?: boolean;
+  includeEmptyOption?: boolean;
   emptyOptionTitle?: React.ReactNode;
   emptyOptionSubtitle?: React.ReactNode;
+  groupTitle?: string;
+  "aria-label"?: string;
 };
 
 /**
@@ -26,8 +34,15 @@ export function AggregatedModelPicker({
   placeholder = "Select model id...",
   disabled = false,
   hint = null,
+  className = "provider-model-picker",
+  inputClassName = "",
+  menuClassName = "",
+  floating = true,
+  includeEmptyOption = true,
   emptyOptionTitle = "None",
-  emptyOptionSubtitle = "Clear alias"
+  emptyOptionSubtitle = "Clear alias",
+  groupTitle = "",
+  "aria-label": ariaLabel
 }: Props) {
   const [menuOpen, setMenuOpen] = useState(false);
   const [menuRect, setMenuRect] = useState<{
@@ -112,98 +127,127 @@ export function AggregatedModelPicker({
   }, [aggregatedModels, value]);
 
   const filteredModels = useMemo(() => filterModelsByQuery(modelOptions, query), [modelOptions, query]);
+  const groupedModels = useMemo(
+    () => groupModelsForPicker(filteredModels, value, groupTitle),
+    [filteredModels, groupTitle, value]
+  );
+
+  const picker = (
+    <div ref={pickerRef} className={className}>
+      <input
+        className={inputClassName}
+        value={query}
+        onFocus={() => setMenuOpen(true)}
+        onClick={() => setMenuOpen(true)}
+        onChange={(event) => setQuery(event.target.value)}
+        placeholder={placeholder}
+        disabled={disabled}
+        autoComplete="off"
+        aria-label={ariaLabel}
+      />
+      {!floating && menuOpen ? renderMenu(null) : null}
+    </div>
+  );
 
   return (
     <>
-      <label style={{ gridColumn: "1 / -1" }}>
-        {label}
-        <div ref={pickerRef} className="provider-model-picker">
-          <input
-            value={query}
-            onFocus={() => setMenuOpen(true)}
-            onClick={() => setMenuOpen(true)}
-            onChange={(event) => setQuery(event.target.value)}
-            placeholder={placeholder}
-            disabled={disabled}
-            autoComplete="off"
-          />
-        </div>
-        {hint ? (
-          <span className="entry-form-hint" style={{ gridColumn: "1 / -1" }}>
-            {hint}
-          </span>
-        ) : null}
-      </label>
+      {label ? (
+        <label style={{ gridColumn: "1 / -1" }}>
+          {label}
+          {picker}
+          {hint ? (
+            <span className="entry-form-hint" style={{ gridColumn: "1 / -1" }}>
+              {hint}
+            </span>
+          ) : null}
+        </label>
+      ) : (
+        picker
+      )}
 
-      {menuOpen && menuRect
-        ? createPortal(
-            <div
-              ref={menuRef}
-              className="provider-model-picker-menu provider-model-picker-menu-floating"
-              style={{
-                top: `${menuRect.top}px`,
-                left: `${menuRect.left}px`,
-                width: `${menuRect.width}px`
-              }}
-            >
-              <div className="provider-model-picker-group">Available models</div>
-              <div className="provider-model-options" style={{ maxHeight: `${menuRect.maxHeight}px` }}>
-                <button
-                  type="button"
-                  className={`provider-model-option ${!value ? "active" : ""}`}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => {
-                    onChange("");
-                    setQuery("");
-                    setMenuOpen(false);
-                    setMenuRect(null);
-                  }}
-                >
-                  <div className="provider-model-option-main">
-                    <strong>{emptyOptionTitle}</strong>
-                  </div>
-                  {emptyOptionSubtitle ? <span className="placeholder-text">{emptyOptionSubtitle}</span> : null}
-                </button>
-                {filteredModels.length === 0 ? (
-                  <div className="placeholder-text" style={{ padding: "10px 12px" }}>
-                    No matching models
-                  </div>
-                ) : (
-                  filteredModels.map((model) => (
-                    <button
-                      key={model.id}
-                      type="button"
-                      className={`provider-model-option ${value === model.id ? "active" : ""}`}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onClick={() => {
-                        onChange(model.id);
-                        setQuery(model.id);
-                        setMenuOpen(false);
-                        setMenuRect(null);
-                      }}
-                    >
-                      <div className="provider-model-option-main">
-                        <strong>{model.title || model.id}</strong>
-                        {model.contextWindow ? (
-                          <span className="provider-model-context">{model.contextWindow}</span>
-                        ) : null}
-                      </div>
-                      <span>{model.id}</span>
-                      {Array.isArray(model.capabilities) && model.capabilities.length > 0 ? (
-                        <div className="provider-model-capabilities">
-                          {model.capabilities.map((capability) => (
-                            <span key={`${model.id}-${capability}`}>{capability}</span>
-                          ))}
-                        </div>
-                      ) : null}
-                    </button>
-                  ))
-                )}
-              </div>
-            </div>,
-            document.body
-          )
+      {floating && menuOpen && menuRect
+        ? createPortal(renderMenu(menuRect), document.body)
         : null}
     </>
   );
+
+  function renderMenu(rect: typeof menuRect) {
+    return (
+      <div
+        ref={menuRef}
+        className={`provider-model-picker-menu ${floating ? "provider-model-picker-menu-floating" : ""} ${menuClassName}`.trim()}
+        style={rect
+          ? {
+              top: `${rect.top}px`,
+              left: `${rect.left}px`,
+              width: `${rect.width}px`
+            }
+          : undefined}
+      >
+        <div className="provider-model-options" style={rect ? { maxHeight: `${rect.maxHeight}px` } : undefined}>
+          {includeEmptyOption ? (
+            <button
+              type="button"
+              className={`provider-model-option ${!value ? "active" : ""}`}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => {
+                onChange("");
+                setQuery("");
+                setMenuOpen(false);
+                setMenuRect(null);
+              }}
+            >
+              <div className="provider-model-option-main">
+                <strong>{emptyOptionTitle}</strong>
+              </div>
+              {emptyOptionSubtitle ? <span className="placeholder-text">{emptyOptionSubtitle}</span> : null}
+            </button>
+          ) : null}
+          {filteredModels.length === 0 ? (
+            <div className="placeholder-text" style={{ padding: "10px 12px" }}>
+              No matching models
+            </div>
+          ) : (
+            groupedModels.map((group) => (
+              <React.Fragment key={group.title}>
+                <div className="provider-model-picker-group">
+                  {group.title}
+                  <span className="provider-model-picker-group-count">({group.models.length})</span>
+                </div>
+                {group.models.map((model) => (
+                  <button
+                    key={model.id}
+                    type="button"
+                    className={`provider-model-option ${value === model.id ? "active" : ""}`}
+                    onMouseDown={(event) => event.preventDefault()}
+                    onClick={() => {
+                      onChange(model.id);
+                      setQuery(model.id);
+                      setMenuOpen(false);
+                      setMenuRect(null);
+                    }}
+                  >
+                    <div className="provider-model-option-main">
+                      <strong>{model.title || model.id}</strong>
+                      {model.contextWindow ? (
+                        <span className="provider-model-context">{model.contextWindow}</span>
+                      ) : null}
+                    </div>
+                    <span>{model.id}</span>
+                    {Array.isArray(model.capabilities) && model.capabilities.length > 0 ? (
+                      <div className="provider-model-capabilities">
+                        {model.capabilities.map((capability) => (
+                          <span key={`${model.id}-${capability}`}>{capability}</span>
+                        ))}
+                      </div>
+                    ) : null}
+                  </button>
+                ))}
+              </React.Fragment>
+            ))
+          )}
+        </div>
+      </div>
+    );
+  }
 }

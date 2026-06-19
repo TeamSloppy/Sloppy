@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import { Gemini, ProviderIcon } from "@lobehub/icons";
 import { QRCodeSVG } from "qrcode.react";
+import { AggregatedModelPicker } from "./AggregatedModelPicker";
 
 /** ProviderIcon resolves providers via keyword map; "gemini" is not registered (only "google"). */
 function ProviderBrandMark({ brandProviderKey, size }) {
@@ -50,10 +50,6 @@ export function ProviderEditor({
   providerForm,
   providerModelStatus,
   providerModelOptions,
-  providerModelMenuOpen,
-  providerModelMenuRect,
-  providerModelPickerRef,
-  providerModelMenuRef,
   modalActiveEntry,
   onOpenProviderAtIndex,
   onAppendProvider,
@@ -87,10 +83,7 @@ export function ProviderEditor({
   openCodeConfig,
   onUpdateOpenCodeConfig,
   parseConfigList,
-  onSetProviderModelMenuOpen,
-  onSetProviderModelMenuRect,
-  providerIsConfigured,
-  filterProviderModels
+  providerIsConfigured
 }) {
   const [addMenuOpen, setAddMenuOpen] = useState(false);
   const [openCodeExpanded, setOpenCodeExpanded] = useState(false);
@@ -111,7 +104,6 @@ export function ProviderEditor({
 
   const activeProviderStatus = providerModalMeta ? providerModelStatus[providerModalMeta.id] : "";
   const activeProviderModels = providerModalMeta ? providerModelOptions[providerModalMeta.id] || [] : [];
-  const filteredProviderModels = filterProviderModels(activeProviderModels, providerForm?.model);
   const isTestingActiveProvider = providerModalMeta
     ? Boolean(providerProbeTesting?.[providerModalMeta.id])
     : false;
@@ -628,18 +620,14 @@ export function ProviderEditor({
                 />
               </label>
 
-              <label>
-                Model
-                <div ref={providerModelPickerRef} className="provider-model-picker">
-                  <input
-                    value={providerForm.model}
-                    onFocus={() => onSetProviderModelMenuOpen(true)}
-                    onClick={() => onSetProviderModelMenuOpen(true)}
-                    onChange={(event) => onUpdateProviderForm("model", event.target.value)}
-                    placeholder="Select model id..."
-                  />
-                </div>
-              </label>
+              <AggregatedModelPicker
+                label="Model"
+                value={String(providerForm.model || "")}
+                onChange={(id) => onUpdateProviderForm("model", id)}
+                aggregatedModels={activeProviderModels}
+                includeEmptyOption={false}
+                groupTitle={providerModalMeta.title}
+              />
             </div>
 
             {providerModalMeta.supportsModelCatalog || providerModalMeta.id === "anthropic-oauth" ? (
@@ -872,50 +860,6 @@ export function ProviderEditor({
           </section>
         </div>
       ) : null}
-      {providerModalMeta && providerForm && providerModelMenuOpen && filteredProviderModels.length > 0 && providerModelMenuRect
-        ? createPortal(
-          <div
-            ref={providerModelMenuRef}
-            className="provider-model-picker-menu provider-model-picker-menu-floating"
-            style={{
-              top: `${providerModelMenuRect.top}px`,
-              left: `${providerModelMenuRect.left}px`,
-              width: `${providerModelMenuRect.width}px`
-            }}
-          >
-            <div className="provider-model-picker-group">{providerModalMeta.title}</div>
-            <div className="provider-model-options" style={{ maxHeight: `${providerModelMenuRect.maxHeight}px` }}>
-              {filteredProviderModels.map((model) => (
-                <button
-                  key={model.id}
-                  type="button"
-                  className={`provider-model-option ${providerForm.model === model.id ? "active" : ""}`}
-                  onMouseDown={(event) => event.preventDefault()}
-                  onClick={() => {
-                    onUpdateProviderForm("model", model.id);
-                    onSetProviderModelMenuOpen(false);
-                    onSetProviderModelMenuRect(null);
-                  }}
-                >
-                  <div className="provider-model-option-main">
-                    <strong>{model.title || model.id}</strong>
-                    {model.contextWindow ? <span className="provider-model-context">{model.contextWindow}</span> : null}
-                  </div>
-                  <span>{model.id}</span>
-                  {Array.isArray(model.capabilities) && model.capabilities.length > 0 ? (
-                    <div className="provider-model-capabilities">
-                      {model.capabilities.map((capability) => (
-                        <span key={`${model.id}-${capability}`}>{capability}</span>
-                      ))}
-                    </div>
-                  ) : null}
-                </button>
-              ))}
-            </div>
-          </div>,
-          document.body
-        )
-        : null}
     </div>
   );
 }

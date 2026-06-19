@@ -120,7 +120,7 @@ export const PROVIDER_CATALOG = [
     brandProviderKey: "openai",
     title: "OpenAI Codex",
     description: "ChatGPT/Codex login via OpenAI OAuth.",
-    modelHint: "gpt-5.3-codex",
+    modelHint: "gpt-5.4",
     authMethod: "deeplink",
     requiresApiKey: false,
     supportsModelCatalog: true,
@@ -128,7 +128,7 @@ export const PROVIDER_CATALOG = [
       title: "openai-oauth",
       apiKey: "",
       apiUrl: "https://chatgpt.com/backend-api",
-      model: "gpt-5.3-codex",
+      model: "gpt-5.4",
       disabled: false,
       providerCatalogId: "openai-oauth"
     }
@@ -138,7 +138,7 @@ export const PROVIDER_CATALOG = [
     brandProviderKey: null,
     title: "OpenRouter",
     description: "Unified API for many models (OpenAI-compatible Chat Completions).",
-    modelHint: "openai/gpt-4o-mini",
+    modelHint: "openai/gpt-5.4-mini",
     authMethod: "api_key",
     requiresApiKey: true,
     supportsModelCatalog: true,
@@ -146,7 +146,7 @@ export const PROVIDER_CATALOG = [
       title: "openrouter",
       apiKey: "",
       apiUrl: "https://openrouter.ai/api/v1",
-      model: "openai/gpt-4o-mini",
+      model: "openai/gpt-5.4-mini",
       disabled: false,
       providerCatalogId: "openrouter"
     }

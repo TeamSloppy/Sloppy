@@ -733,6 +733,10 @@ extension CoreService {
         await runtime.updateModelProvider(modelProvider: modelProvider, defaultModel: defaultModel)
     }
 
+    func modelProviderSupportsForTests(_ modelName: String) -> Bool {
+        modelProvider?.supports(modelName: modelName) == true
+    }
+
     func triggerHeartbeatRunnerForTests() async {
         await heartbeatRunner?.triggerImmediately()
     }

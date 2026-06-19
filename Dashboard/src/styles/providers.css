@@ -1135,6 +1135,12 @@
   padding: 2px 4px 0;
 }
 
+.provider-model-picker-group-count {
+  margin-left: 6px;
+  font-weight: 500;
+  opacity: 0.65;
+}
+
 .provider-model-options {
   display: grid;
   gap: 8px;

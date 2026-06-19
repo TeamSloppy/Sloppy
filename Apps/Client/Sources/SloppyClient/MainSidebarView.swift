@@ -22,6 +22,7 @@ struct MainSidebarView: View {
     let isOverlay: Bool
 
     @Environment(\.theme) private var theme
+    @State private var contextMenuSessionId: String?
     @Environment(\.userInterfaceIdiom) private var userInterfaceIdiom
 
     private var usesLiquidGlass: Bool {
@@ -180,20 +181,30 @@ struct MainSidebarView: View {
         let isPinned = viewModel.chatViewModel.pinnedSessionIds.contains(session.id)
         let isSelected = viewModel.selectedSidebarItem == .chats
             && viewModel.chatViewModel.selectedSessionId == session.id
+        let isContextMenuTarget = contextMenuSessionId == session.id
         let title = session.title.isEmpty ? "Chat" : session.title
         return sidebarPlainRow(
             icon: nil,
             title: title,
             trailing: isPinned ? "PIN" : nil,
-            isSelected: isSelected,
+            isSelected: isSelected || isContextMenuTarget,
             c: c,
             sp: sp,
-            titleColor: isSelected ? c.textPrimary : c.textSecondary,
+            titleColor: (isSelected || isContextMenuTarget) ? c.textPrimary : c.textSecondary,
             leadingInset: 12
         ) {
             viewModel.selectChatSession(session)
         }
-        .contextMenu {
+        .contextMenu(
+            onPresent: {
+                contextMenuSessionId = session.id
+            },
+            onDismiss: {
+                if contextMenuSessionId == session.id {
+                    contextMenuSessionId = nil
+                }
+            }
+        ) {
             Button(isPinned ? "Unpin Chat" : "Pin Chat") {
                 viewModel.togglePinChatSession(session)
             }

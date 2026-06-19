@@ -51,6 +51,25 @@ func projectsCommandIsRegisteredInTUI() {
 }
 
 @Test
+func providerDefinitionsDefaultToCurrentRoutableModels() {
+    let expectations = [
+        ("openai-api", "gpt-5.4-mini", "openai-api:gpt-5.4-mini"),
+        ("openai-oauth", "gpt-5.4", "openai-oauth:gpt-5.4"),
+        ("openrouter", "openai/gpt-5.4-mini", "openrouter:openai/gpt-5.4-mini"),
+        ("gemini", "gemini-2.5-flash", "gemini:gemini-2.5-flash"),
+        ("anthropic", "claude-sonnet-4-6", "anthropic:claude-sonnet-4-6"),
+        ("anthropic-oauth", "claude-sonnet-4-6", "anthropic:claude-sonnet-4-6"),
+        ("ollama", "qwen3", "ollama:qwen3"),
+    ]
+
+    for (providerID, model, runtimeID) in expectations {
+        let definition = SloppyTUIProviderDefinition(providerID)
+        #expect(definition.model == model)
+        #expect(definition.runtimeModelID(definition.model) == runtimeID)
+    }
+}
+
+@Test
 func projectPickerItemsSortNewestFirstAndMarkCurrent() {
     let older = ProjectRecord(
         id: "older",

@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { createPortal } from "react-dom";
 import {
   fetchActorsBoard,
   fetchAgentConfig,
@@ -13,7 +12,6 @@ import {
 import {
   coerceLegacySloppyModelId,
   collectAggregatedProviderModels,
-  filterModelsByQuery,
   mergeModelOptions
 } from "../utils/aggregateProviderModels";
 import { AggregatedModelPicker } from "../../config/components/AggregatedModelPicker";
@@ -301,13 +299,8 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
   const [isDeleting, setIsDeleting] = useState(false);
   const [aggregatedModels, setAggregatedModels] = useState([]);
   const [modelCatalogStatus, setModelCatalogStatus] = useState("");
-  const [defaultModelMenuOpen, setDefaultModelMenuOpen] = useState(false);
-  const [defaultModelMenuRect, setDefaultModelMenuRect] = useState(null);
-  const [modelPickerQuery, setModelPickerQuery] = useState("");
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
   const agentFileRequestRef = useRef(null);
-  const defaultModelPickerRef = useRef(null);
-  const defaultModelMenuRef = useRef(null);
   const narrowAgentFilesLayout = useNarrowAgentFilesLayout();
 
   useEffect(() => {
@@ -410,85 +403,9 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
     };
   }, [agentId]);
 
-  useEffect(() => {
-    if (!defaultModelMenuOpen) {
-      setModelPickerQuery(String(draft.selectedModel || ""));
-    }
-  }, [defaultModelMenuOpen, draft.selectedModel]);
-
-  useEffect(() => {
-    if (!defaultModelMenuOpen) {
-      return;
-    }
-
-    function syncDefaultModelMenuRect() {
-      const picker = defaultModelPickerRef.current;
-      if (!picker) {
-        return;
-      }
-      const rect = picker.getBoundingClientRect();
-      const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
-      const viewportPadding = 10;
-      const menuGap = 6;
-      const defaultMaxHeight = 260;
-      const minMaxHeight = 140;
-      const spaceBelow = viewportHeight - rect.bottom - viewportPadding;
-      const spaceAbove = rect.top - viewportPadding;
-
-      let maxHeight = Math.max(minMaxHeight, Math.min(defaultMaxHeight, spaceBelow));
-      let top = rect.bottom + menuGap;
-      if (spaceBelow < minMaxHeight && spaceAbove > spaceBelow) {
-        maxHeight = Math.max(minMaxHeight, Math.min(defaultMaxHeight, spaceAbove - menuGap));
-        top = rect.top - menuGap - maxHeight;
-      }
-      top = Math.max(viewportPadding, Math.round(top));
-
-      setDefaultModelMenuRect({
-        top,
-        left: Math.round(rect.left),
-        width: Math.round(rect.width),
-        maxHeight: Math.round(maxHeight)
-      });
-    }
-
-    function handlePointerDown(event) {
-      const target = event.target;
-      const pickerContainsTarget = defaultModelPickerRef.current?.contains(target);
-      const menuContainsTarget = defaultModelMenuRef.current?.contains(target);
-      if (!pickerContainsTarget && !menuContainsTarget) {
-        setDefaultModelMenuOpen(false);
-        setDefaultModelMenuRect(null);
-      }
-    }
-
-    syncDefaultModelMenuRect();
-    window.addEventListener("resize", syncDefaultModelMenuRect);
-    window.addEventListener("scroll", syncDefaultModelMenuRect, true);
-    window.addEventListener("pointerdown", handlePointerDown);
-    return () => {
-      window.removeEventListener("resize", syncDefaultModelMenuRect);
-      window.removeEventListener("scroll", syncDefaultModelMenuRect, true);
-      window.removeEventListener("pointerdown", handlePointerDown);
-    };
-  }, [defaultModelMenuOpen]);
-
   const hasChanges = useMemo(() => {
     return JSON.stringify(draft) !== JSON.stringify(savedDraft);
   }, [draft, savedDraft]);
-
-  const defaultModelOptions = useMemo(() => {
-    const selected = String(draft.selectedModel || "").trim();
-    const base = aggregatedModels.slice();
-    if (selected && !base.some((m) => m.id === selected)) {
-      base.unshift({ id: selected, title: selected });
-    }
-    return base;
-  }, [aggregatedModels, draft.selectedModel]);
-
-  const filteredDefaultModels = useMemo(
-    () => filterModelsByQuery(defaultModelOptions, modelPickerQuery),
-    [defaultModelOptions, modelPickerQuery]
-  );
 
   const activeDocFileId = useMemo(() => docIdForFilePath(selectedFilePath), [selectedFilePath]);
   const activeDocFile = useMemo(
@@ -908,25 +825,15 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
         <section className="entry-editor-card">
           <h3>Models</h3>
           <div className="entry-form-grid">
-            <label style={{ gridColumn: "1 / -1" }}>
-              Executor Model
-              <div ref={defaultModelPickerRef} className="provider-model-picker">
-                <input
-                  value={modelPickerQuery}
-                  onFocus={() => setDefaultModelMenuOpen(true)}
-                  onClick={() => setDefaultModelMenuOpen(true)}
-                  onChange={(event) => setModelPickerQuery(event.target.value)}
-                  placeholder="Select model id..."
-                  disabled={isSaving}
-                  autoComplete="off"
-                />
-              </div>
-              {modelCatalogStatus ? (
-                <span className="entry-form-hint" style={{ gridColumn: "1 / -1" }}>
-                  {modelCatalogStatus}
-                </span>
-              ) : null}
-            </label>
+            <AggregatedModelPicker
+              label="Executor Model"
+              value={String(draft.selectedModel || "")}
+              onChange={(id) => updateField("selectedModel", id)}
+              aggregatedModels={aggregatedModels}
+              disabled={isSaving}
+              hint={modelCatalogStatus}
+              includeEmptyOption={false}
+            />
             <AggregatedModelPicker
               label="Planner Model"
               value={String(draft.plannerModel || "")}
@@ -1328,62 +1235,6 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
         )}
       </section>
     </main>
-    {defaultModelMenuOpen && defaultModelMenuRect
-      ? createPortal(
-          <div
-            ref={defaultModelMenuRef}
-            className="provider-model-picker-menu provider-model-picker-menu-floating"
-            style={{
-              top: `${defaultModelMenuRect.top}px`,
-              left: `${defaultModelMenuRect.left}px`,
-              width: `${defaultModelMenuRect.width}px`
-            }}
-          >
-            <div className="provider-model-picker-group">Available models</div>
-            <div
-              className="provider-model-options"
-              style={{ maxHeight: `${defaultModelMenuRect.maxHeight}px` }}
-            >
-              {filteredDefaultModels.length === 0 ? (
-                <div className="placeholder-text" style={{ padding: "10px 12px" }}>
-                  No matching models
-                </div>
-              ) : (
-                filteredDefaultModels.map((model) => (
-                  <button
-                    key={model.id}
-                    type="button"
-                    className={`provider-model-option ${draft.selectedModel === model.id ? "active" : ""}`}
-                    onMouseDown={(event) => event.preventDefault()}
-                    onClick={() => {
-                      updateField("selectedModel", model.id);
-                      setModelPickerQuery(model.id);
-                      setDefaultModelMenuOpen(false);
-                      setDefaultModelMenuRect(null);
-                    }}
-                  >
-                    <div className="provider-model-option-main">
-                      <strong>{model.title || model.id}</strong>
-                      {model.contextWindow ? (
-                        <span className="provider-model-context">{model.contextWindow}</span>
-                      ) : null}
-                    </div>
-                    <span>{model.id}</span>
-                    {Array.isArray(model.capabilities) && model.capabilities.length > 0 ? (
-                      <div className="provider-model-capabilities">
-                        {model.capabilities.map((capability) => (
-                          <span key={`${model.id}-${capability}`}>{capability}</span>
-                        ))}
-                      </div>
-                    ) : null}
-                  </button>
-                ))
-              )}
-            </div>
-          </div>,
-          document.body
-        )
-      : null}
     </>
   );
 }

@@ -189,11 +189,19 @@ extension CoreService {
     }
 
     public func completeOpenAIOAuth(request: OpenAIOAuthCompleteRequest) async throws -> OpenAIOAuthCompleteResponse {
-        try await openAIOAuthService.completeLogin(request: request)
+        let response = try await openAIOAuthService.completeLogin(request: request)
+        if response.ok {
+            await refreshModelProviderAfterCredentialChange()
+        }
+        return response
     }
 
     public func importOpenAICodexCredentials() async throws -> OpenAIOAuthImportCodexResponse {
-        try await openAIOAuthService.importCodexCredentials()
+        let response = try await openAIOAuthService.importCodexCredentials()
+        if response.ok {
+            await refreshModelProviderAfterCredentialChange()
+        }
+        return response
     }
 
     public func startOpenAIDeviceCode() async throws -> OpenAIDeviceCodeStartResponse {
@@ -201,7 +209,11 @@ extension CoreService {
     }
 
     public func pollOpenAIDeviceCode(request: OpenAIDeviceCodePollRequest) async throws -> OpenAIDeviceCodePollResponse {
-        try await openAIOAuthService.pollDeviceToken(deviceAuthId: request.deviceAuthId, userCode: request.userCode)
+        let response = try await openAIOAuthService.pollDeviceToken(deviceAuthId: request.deviceAuthId, userCode: request.userCode)
+        if response.ok {
+            await refreshModelProviderAfterCredentialChange()
+        }
+        return response
     }
 
     public func disconnectOpenAIOAuth() throws {

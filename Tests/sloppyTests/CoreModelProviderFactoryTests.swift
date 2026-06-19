@@ -716,6 +716,51 @@ func availableAgentModelsIncludesCachedOpenAIOAuthCatalog() async throws {
 }
 
 @Test
+func refreshModelProviderAfterOpenAIOAuthCredentialsAppearMakesOAuthPickerModelsRoutable() async throws {
+    var config = CoreConfig.test
+    config.models = [
+        CoreConfig.ModelConfig(
+            title: "openai-oauth",
+            apiKey: "",
+            apiUrl: "https://chatgpt.com/backend-api",
+            model: "gpt-5.4",
+            providerCatalogId: "openai-oauth"
+        )
+    ]
+    config.workspace.basePath = FileManager.default.temporaryDirectory
+        .appendingPathComponent("openai-oauth-refresh-runtime-\(UUID().uuidString)", isDirectory: true)
+        .path
+
+    let service = CoreService(
+        config: config,
+        persistenceBuilder: InMemoryCorePersistenceBuilder()
+    )
+    #expect(await service.modelProviderSupportsForTests("openai-oauth:gpt-5.5") != true)
+
+    let authDirectoryURL = config.resolvedWorkspaceRootURL(
+        currentDirectory: FileManager.default.currentDirectoryPath
+    ).appendingPathComponent("auth", isDirectory: true)
+    try FileManager.default.createDirectory(at: authDirectoryURL, withIntermediateDirectories: true)
+    try Data(
+        """
+        {
+          "auth_mode": "chatgpt",
+          "OPENAI_API_KEY": null,
+          "tokens": {
+            "access_token": "oauth-token",
+            "account_id": "acct_test"
+          },
+          "last_refresh": "2026-05-07T00:00:00Z"
+        }
+        """.utf8
+    ).write(to: authDirectoryURL.appendingPathComponent("openai-oauth-auth.json"))
+
+    await service.refreshModelProviderAfterCredentialChange()
+
+    #expect(await service.modelProviderSupportsForTests("openai-oauth:gpt-5.5") == true)
+}
+
+@Test
 func geminiOAuthURLProtocolRewritesAPIKeyHeaderToBearerAuth() throws {
     var request = URLRequest(url: try #require(URL(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini:generateContent")))
     request.setValue("oauth-token", forHTTPHeaderField: "x-goog-api-key")

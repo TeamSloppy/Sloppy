@@ -28,7 +28,7 @@ import {
   selectDirectory,
   installPlugin
 } from "../../api";
-import { collectAggregatedProviderModels, filterModelsByQuery, mergeModelOptions } from "../agents/utils/aggregateProviderModels";
+import { collectAggregatedProviderModels, mergeModelOptions } from "../agents/utils/aggregateProviderModels";
 import { NodeHostEditor } from "./components/NodeHostEditor";
 import { MCPEditor } from "./components/MCPEditor";
 import { PluginEditor } from "./components/PluginEditor";
@@ -110,8 +110,6 @@ export function ConfigView({
   const [providerModelOptions, setProviderModelOptions] = useState({});
   const [providerModelStatus, setProviderModelStatus] = useState({});
   const [providerProbeTesting, setProviderProbeTesting] = useState({});
-  const [providerModelMenuOpen, setProviderModelMenuOpen] = useState(false);
-  const [providerModelMenuRect, setProviderModelMenuRect] = useState(null);
   const [openAIProviderStatus, setOpenAIProviderStatus] = useState({
     hasEnvironmentKey: false,
     hasConfiguredKey: false,
@@ -156,8 +154,6 @@ export function ConfigView({
   const providerModelLoadTokenRef = useRef(0);
   const providerAutoSaveTimerRef = useRef(null);
   const providerAutoSaveTokenRef = useRef(0);
-  const providerModelPickerRef = useRef(null);
-  const providerModelMenuRef = useRef(null);
   const anthropicOAuthPopupRef = useRef(null);
   const geminiOAuthPopupRef = useRef(null);
   const [anthropicOAuthAuthorizationURL, setAnthropicOAuthAuthorizationURL] = useState("");
@@ -993,7 +989,6 @@ export function ConfigView({
       title: entry.title || provider.defaultEntry.title,
       disabled: Boolean(entry.disabled)
     });
-    setProviderModelMenuOpen(false);
   }
 
   function appendProviderAndOpenModal(catalogId) {
@@ -1018,7 +1013,6 @@ export function ConfigView({
       title: entry.title || provider.defaultEntry.title,
       disabled: false
     });
-    setProviderModelMenuOpen(false);
     scheduleProviderConfigSave(next, {
       debounce: false,
       successMessage: "Provider added"
@@ -1043,8 +1037,6 @@ export function ConfigView({
     setProviderModalId(null);
     setProviderModalIndex(null);
     setProviderForm(null);
-    setProviderModelMenuOpen(false);
-    setProviderModelMenuRect(null);
   }
 
   function providerEntryFromForm(provider, form) {
@@ -1093,9 +1085,6 @@ export function ConfigView({
       successMessage: "Provider changes saved"
     });
 
-    if (field === "model") {
-      setProviderModelMenuOpen(true);
-    }
   }
 
   function selectAnthropicAuthMode(mode) {
@@ -1122,7 +1111,6 @@ export function ConfigView({
 
     setProviderModalId(nextProviderId);
     setProviderForm(nextForm);
-    setProviderModelMenuOpen(false);
     setProviderStatus(nextProviderId, "");
 
     const nextConfig = configWithProviderForm(provider, nextForm);
@@ -1341,62 +1329,6 @@ export function ConfigView({
       }
     };
   }, []);
-
-  useEffect(() => {
-    if (!providerModelMenuOpen) {
-      return;
-    }
-
-    function syncProviderModelMenuRect() {
-      const picker = providerModelPickerRef.current;
-      if (!picker) {
-        return;
-      }
-      const rect = picker.getBoundingClientRect();
-      const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
-      const viewportPadding = 10;
-      const menuGap = 6;
-      const defaultMaxHeight = 260;
-      const minMaxHeight = 140;
-      const spaceBelow = viewportHeight - rect.bottom - viewportPadding;
-      const spaceAbove = rect.top - viewportPadding;
-
-      let maxHeight = Math.max(minMaxHeight, Math.min(defaultMaxHeight, spaceBelow));
-      let top = rect.bottom + menuGap;
-      if (spaceBelow < minMaxHeight && spaceAbove > spaceBelow) {
-        maxHeight = Math.max(minMaxHeight, Math.min(defaultMaxHeight, spaceAbove - menuGap));
-        top = rect.top - menuGap - maxHeight;
-      }
-      top = Math.max(viewportPadding, Math.round(top));
-
-      setProviderModelMenuRect({
-        top,
-        left: Math.round(rect.left),
-        width: Math.round(rect.width),
-        maxHeight: Math.round(maxHeight)
-      });
-    }
-
-    function handlePointerDown(event) {
-      const target = event.target;
-      const pickerContainsTarget = providerModelPickerRef.current?.contains(target);
-      const menuContainsTarget = providerModelMenuRef.current?.contains(target);
-      if (!pickerContainsTarget && !menuContainsTarget) {
-        setProviderModelMenuOpen(false);
-        setProviderModelMenuRect(null);
-      }
-    }
-
-    syncProviderModelMenuRect();
-    window.addEventListener("resize", syncProviderModelMenuRect);
-    window.addEventListener("scroll", syncProviderModelMenuRect, true);
-    window.addEventListener("pointerdown", handlePointerDown);
-    return () => {
-      window.removeEventListener("resize", syncProviderModelMenuRect);
-      window.removeEventListener("scroll", syncProviderModelMenuRect, true);
-      window.removeEventListener("pointerdown", handlePointerDown);
-    };
-  }, [providerModelMenuOpen, providerModalMeta?.id]);
 
   async function saveProviderFromModal() {
     if (!providerModalMeta || !providerForm) {
@@ -1623,10 +1555,6 @@ export function ConfigView({
             providerForm={providerForm}
             providerModelStatus={providerModelStatus}
             providerModelOptions={providerModelOptions}
-            providerModelMenuOpen={providerModelMenuOpen}
-            providerModelMenuRect={providerModelMenuRect}
-            providerModelPickerRef={providerModelPickerRef}
-            providerModelMenuRef={providerModelMenuRef}
             modalActiveEntry={providerModalIndex != null ? draftConfig.models[providerModalIndex] : null}
             onOpenProviderAtIndex={openProviderModalAtIndex}
             onAppendProvider={appendProviderAndOpenModal}
@@ -1660,10 +1588,7 @@ export function ConfigView({
             openCodeConfig={draftConfig.opencode}
             onUpdateOpenCodeConfig={updateOpenCodeConfig}
             parseConfigList={parseConfigList}
-            onSetProviderModelMenuOpen={setProviderModelMenuOpen}
-            onSetProviderModelMenuRect={setProviderModelMenuRect}
             providerIsConfigured={providerIsConfigured}
-            filterProviderModels={filterModelsByQuery}
           />
           <GitHubAccessCard
             gitHubAuthStatus={gitHubAuthStatus}

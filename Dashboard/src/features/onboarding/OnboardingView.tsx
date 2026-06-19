@@ -54,7 +54,7 @@ const PROVIDERS: ProviderDefinition[] = [
       title: "openrouter",
       apiKey: "",
       apiUrl: "https://openrouter.ai/api/v1",
-      model: "openai/gpt-4o-mini"
+      model: "openai/gpt-5.4-mini"
     }
   },
   {
@@ -93,7 +93,7 @@ const PROVIDERS: ProviderDefinition[] = [
       title: "openai-oauth",
       apiKey: "",
       apiUrl: "https://chatgpt.com/backend-api",
-      model: "gpt-5.3-codex"
+      model: "gpt-5.4"
     }
   },
   {
