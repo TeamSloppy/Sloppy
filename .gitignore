@@ -28,6 +28,7 @@ logs/
 .meta/
 .env
 .sloppy/
+.worktrees/
 .sloppy-worktrees/
 
 # Cursor
