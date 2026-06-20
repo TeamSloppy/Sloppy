@@ -4,6 +4,7 @@ import Protocols
 public enum NodeMeshProjection {
     public static func project(events: [SignedMeshEvent], base: MeshState = MeshState()) throws -> MeshState {
         var state = base
+        state.nodes.removeAll()
         state.sharedProjects.removeAll()
         state.tasks.removeAll()
 

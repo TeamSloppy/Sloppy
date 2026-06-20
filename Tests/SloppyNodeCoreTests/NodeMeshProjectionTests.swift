@@ -150,6 +150,34 @@ struct NodeMeshProjectionTests {
         #expect(node.publicKey == work.publicKey)
     }
 
+    @Test("projection rebuilds nodes from signed events")
+    func projectionRebuildsNodesFromSignedEvents() throws {
+        let announced = NodeIdentityGenerator.makeIdentity(name: "Announced", roles: ["worker"], capabilities: ["git"])
+        let staleNode = MeshNodeRecord(
+            id: "node_stale",
+            name: "Stale",
+            publicKey: "ed25519:stale",
+            roles: ["worker"],
+            status: .online,
+            capabilities: ["git"]
+        )
+        let base = MeshState(nodes: [staleNode])
+        let events = try [
+            signed(.nodeAnnounced, actor: announced, projectId: nil, logicalTime: 1, payload: [
+                "name": .string("Announced"),
+                "roles": .array([.string("worker")]),
+                "capabilities": .array([.string("git")]),
+                "status": .string(MeshNodeStatus.online.rawValue),
+            ]),
+        ]
+
+        let state = try NodeMeshProjection.project(events: events, base: base)
+
+        #expect(state.nodes.map(\.id) == [announced.nodeId])
+        #expect(state.nodes.first?.publicKey == announced.publicKey)
+        #expect(state.nodes.contains(where: { $0.id == staleNode.id }) == false)
+    }
+
     @Test("invalid project policies do not abort projection")
     func invalidProjectPoliciesDoNotAbortProjection() throws {
         let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
