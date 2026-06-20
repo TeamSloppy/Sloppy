@@ -813,6 +813,17 @@ public struct NodeMeshStore: Sendable {
         #endif
     }
 
+    public func projectedState() throws -> MeshState {
+        let state = try load()
+        var projected = try NodeMeshProjection.project(events: state.events, base: state)
+        projected.events = state.events
+        projected.eventCursors = state.eventCursors
+        projected.invites = state.invites
+        projected.envelopes = state.envelopes
+        projected.auditLog = state.auditLog
+        return projected
+    }
+
     @discardableResult
     public func createInvite(
         networkId: String,
