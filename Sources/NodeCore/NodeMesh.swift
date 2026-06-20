@@ -692,16 +692,20 @@ public struct MeshState: Codable, Sendable, Equatable {
     public var tasks: [MeshTaskRecord]
     public var envelopes: [MeshEnvelope]
     public var auditLog: [MeshAuditLogEntry]
+    public var events: [SignedMeshEvent]
+    public var eventCursors: [String: String]
 
     public init(
         networkId: String = "personal",
-        networkName: String = "personal",
+        networkName: String = "Personal Mesh",
         nodes: [MeshNodeRecord] = [],
         invites: [MeshInvite] = [],
         sharedProjects: [SharedProjectRecord] = [],
         tasks: [MeshTaskRecord] = [],
         envelopes: [MeshEnvelope] = [],
-        auditLog: [MeshAuditLogEntry] = []
+        auditLog: [MeshAuditLogEntry] = [],
+        events: [SignedMeshEvent] = [],
+        eventCursors: [String: String] = [:]
     ) {
         self.networkId = networkId
         self.networkName = networkName
@@ -711,6 +715,35 @@ public struct MeshState: Codable, Sendable, Equatable {
         self.tasks = tasks
         self.envelopes = envelopes
         self.auditLog = auditLog
+        self.events = events
+        self.eventCursors = eventCursors
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case networkId
+        case networkName
+        case nodes
+        case invites
+        case sharedProjects
+        case tasks
+        case envelopes
+        case auditLog
+        case events
+        case eventCursors
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        networkId = try container.decodeIfPresent(String.self, forKey: .networkId) ?? "personal"
+        networkName = try container.decodeIfPresent(String.self, forKey: .networkName) ?? "Personal Mesh"
+        nodes = try container.decodeIfPresent([MeshNodeRecord].self, forKey: .nodes) ?? []
+        invites = try container.decodeIfPresent([MeshInvite].self, forKey: .invites) ?? []
+        sharedProjects = try container.decodeIfPresent([SharedProjectRecord].self, forKey: .sharedProjects) ?? []
+        tasks = try container.decodeIfPresent([MeshTaskRecord].self, forKey: .tasks) ?? []
+        envelopes = try container.decodeIfPresent([MeshEnvelope].self, forKey: .envelopes) ?? []
+        auditLog = try container.decodeIfPresent([MeshAuditLogEntry].self, forKey: .auditLog) ?? []
+        events = try container.decodeIfPresent([SignedMeshEvent].self, forKey: .events) ?? []
+        eventCursors = try container.decodeIfPresent([String: String].self, forKey: .eventCursors) ?? [:]
     }
 }
 
@@ -1100,6 +1133,57 @@ public struct NodeMeshStore: Sendable {
         }
         let projectId = state.sharedProjects.first(where: { $0.id == projectIdOrName || $0.name == projectIdOrName })?.id ?? projectIdOrName
         return state.tasks.filter { $0.projectId == projectId }.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    @discardableResult
+    public func appendEvent(
+        _ signed: SignedMeshEvent,
+        expectedActorPublicKey: String
+    ) throws -> SignedMeshEvent {
+        var state = try load()
+        guard try MeshEventSigner.verify(signed, publicKey: expectedActorPublicKey) else {
+            state.auditLog.append(MeshAuditLogEntry(
+                actor: signed.event.actorNodeId,
+                action: "event.append",
+                project: signed.event.projectId,
+                allowed: false,
+                message: "invalid_signature"
+            ))
+            try save(state)
+            throw MeshEventVerificationError.invalidSignature
+        }
+        if state.events.contains(where: { $0.event.id == signed.event.id }) {
+            return signed
+        }
+        state.events.append(signed)
+        state.eventCursors[signed.event.actorNodeId] = signed.event.id
+        state.auditLog.append(MeshAuditLogEntry(
+            actor: signed.event.actorNodeId,
+            target: signed.event.targetNodeId,
+            action: "event.append",
+            project: signed.event.projectId,
+            allowed: true,
+            message: signed.event.type.rawValue
+        ))
+        try save(state)
+        return signed
+    }
+
+    public func listEvents(after cursor: String? = nil, limit: Int = 100) throws -> [SignedMeshEvent] {
+        guard limit > 0 else {
+            return []
+        }
+        let events = try load().events
+        let startIndex: Int
+        if let cursor, let index = events.firstIndex(where: { $0.event.id == cursor }) {
+            startIndex = events.index(after: index)
+        } else {
+            startIndex = events.startIndex
+        }
+        guard startIndex < events.endIndex else {
+            return []
+        }
+        return Array(events[startIndex...].prefix(limit))
     }
 
     @discardableResult

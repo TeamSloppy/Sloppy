@@ -302,6 +302,91 @@ struct NodeMeshStoreTests {
         #expect(object["permissions"] as? [String] == ["project.read", "task.update", "node.rpc"])
     }
 
+    @Test("mesh store appends signed events idempotently")
+    func meshStoreAppendsSignedEventsIdempotently() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let identity = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let event = MeshEvent(
+            id: "evt_task_create",
+            type: .taskCreated,
+            actorNodeId: identity.nodeId,
+            projectId: "sp_sloppy",
+            logicalTime: 1,
+            payload: .object(["title": .string("Run build")])
+        )
+        let signed = try MeshEventSigner.sign(event, identity: identity)
+
+        _ = try store.appendEvent(signed, expectedActorPublicKey: identity.publicKey)
+        _ = try store.appendEvent(signed, expectedActorPublicKey: identity.publicKey)
+
+        let state = try store.load()
+        #expect(state.events.map(\.event.id) == ["evt_task_create"])
+        #expect(state.auditLog.last?.action == "event.append")
+    }
+
+    @Test("mesh store rejects signed event with wrong public key")
+    func meshStoreRejectsSignedEventWithWrongPublicKey() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let identity = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let other = NodeIdentityGenerator.makeIdentity(name: "Other", roles: ["client"], capabilities: ["git"])
+        let signed = try MeshEventSigner.sign(
+            MeshEvent(type: .taskCreated, actorNodeId: identity.nodeId, logicalTime: 1),
+            identity: identity
+        )
+
+        #expect(throws: MeshEventVerificationError.invalidSignature) {
+            _ = try store.appendEvent(signed, expectedActorPublicKey: other.publicKey)
+        }
+    }
+
+    @Test("mesh state decodes legacy JSON without event fields")
+    func meshStateDecodesLegacyJSONWithoutEventFields() throws {
+        let legacyJSON = """
+        {
+          "networkId" : "personal",
+          "networkName" : "Personal Mesh",
+          "nodes" : [],
+          "invites" : [],
+          "sharedProjects" : [],
+          "tasks" : [],
+          "envelopes" : [],
+          "auditLog" : []
+        }
+        """.data(using: .utf8)!
+
+        let decoder = JSONDecoder()
+        let state = try decoder.decode(MeshState.self, from: legacyJSON)
+
+        #expect(state.events.isEmpty)
+        #expect(state.eventCursors.isEmpty)
+    }
+
+    @Test("mesh store lists events after cursor with limit")
+    func meshStoreListsEventsAfterCursorWithLimit() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let identity = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let first = try MeshEventSigner.sign(
+            MeshEvent(id: "evt_1", type: .taskCreated, actorNodeId: identity.nodeId, logicalTime: 1),
+            identity: identity
+        )
+        let second = try MeshEventSigner.sign(
+            MeshEvent(id: "evt_2", type: .taskCreated, actorNodeId: identity.nodeId, logicalTime: 2),
+            identity: identity
+        )
+        let third = try MeshEventSigner.sign(
+            MeshEvent(id: "evt_3", type: .taskCreated, actorNodeId: identity.nodeId, logicalTime: 3),
+            identity: identity
+        )
+
+        _ = try store.appendEvent(first, expectedActorPublicKey: identity.publicKey)
+        _ = try store.appendEvent(second, expectedActorPublicKey: identity.publicKey)
+        _ = try store.appendEvent(third, expectedActorPublicKey: identity.publicKey)
+
+        #expect(try store.listEvents(after: "evt_1", limit: 1).map(\.event.id) == ["evt_2"])
+        #expect(try store.listEvents(after: "evt_2", limit: 5).map(\.event.id) == ["evt_3"])
+        #expect(try store.listEvents(after: "evt_3", limit: 5).isEmpty)
+    }
+
     @Test("routing envelope to unknown node audits denial")
     func routingEnvelopeToUnknownNodeAuditsDenial() throws {
         let store = NodeMeshStore(stateURL: temporaryStateURL())
