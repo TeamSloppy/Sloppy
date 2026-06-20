@@ -113,7 +113,7 @@ public enum MeshEventSigner {
 
     public static func signingData(for event: MeshEvent) throws -> Data {
         let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
+        encoder.dateEncodingStrategy = .secondsSince1970
         encoder.outputFormatting = [.sortedKeys]
         return try encoder.encode(event)
     }
