@@ -49,6 +49,44 @@ public struct MeshEvent: Codable, Sendable, Equatable {
         self.causalParents = causalParents
         self.payload = payload
     }
+
+    enum CodingKeys: String, CodingKey {
+        case id
+        case type
+        case actorNodeId
+        case targetNodeId
+        case projectId
+        case logicalTime
+        case wallTime
+        case causalParents
+        case payload
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        type = try container.decode(MeshEventType.self, forKey: .type)
+        actorNodeId = try container.decode(String.self, forKey: .actorNodeId)
+        targetNodeId = try container.decodeIfPresent(String.self, forKey: .targetNodeId)
+        projectId = try container.decodeIfPresent(String.self, forKey: .projectId)
+        logicalTime = try container.decode(UInt64.self, forKey: .logicalTime)
+        wallTime = try Date(timeIntervalSince1970: container.decode(Double.self, forKey: .wallTime))
+        causalParents = try container.decodeIfPresent([String].self, forKey: .causalParents) ?? []
+        payload = try container.decode(JSONValue.self, forKey: .payload)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(type, forKey: .type)
+        try container.encode(actorNodeId, forKey: .actorNodeId)
+        try container.encodeIfPresent(targetNodeId, forKey: .targetNodeId)
+        try container.encodeIfPresent(projectId, forKey: .projectId)
+        try container.encode(logicalTime, forKey: .logicalTime)
+        try container.encode(wallTime.timeIntervalSince1970, forKey: .wallTime)
+        try container.encode(causalParents, forKey: .causalParents)
+        try container.encode(payload, forKey: .payload)
+    }
 }
 
 public struct SignedMeshEvent: Codable, Sendable, Equatable {
@@ -65,6 +103,7 @@ public struct SignedMeshEvent: Codable, Sendable, Equatable {
 
 public enum MeshEventVerificationError: LocalizedError, Equatable, Sendable {
     case actorMismatch
+    case eventConflict(String)
     case invalidSignature
     case signingFailed(String)
 
@@ -72,6 +111,8 @@ public enum MeshEventVerificationError: LocalizedError, Equatable, Sendable {
         switch self {
         case .actorMismatch:
             "Mesh event actor does not match the expected identity."
+        case .eventConflict(let eventId):
+            "Mesh event '\(eventId)' conflicts with an existing event."
         case .invalidSignature:
             "Mesh event signature is invalid."
         case .signingFailed(let message):

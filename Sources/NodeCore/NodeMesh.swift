@@ -1152,7 +1152,19 @@ public struct NodeMeshStore: Sendable {
             try save(state)
             throw MeshEventVerificationError.invalidSignature
         }
-        if state.events.contains(where: { $0.event.id == signed.event.id }) {
+        if let existing = state.events.first(where: { $0.event.id == signed.event.id }) {
+            guard existing == signed else {
+                state.auditLog.append(MeshAuditLogEntry(
+                    actor: signed.event.actorNodeId,
+                    target: signed.event.targetNodeId,
+                    action: "event.append",
+                    project: signed.event.projectId,
+                    allowed: false,
+                    message: "event_conflict"
+                ))
+                try save(state)
+                throw MeshEventVerificationError.eventConflict(signed.event.id)
+            }
             return signed
         }
         state.events.append(signed)

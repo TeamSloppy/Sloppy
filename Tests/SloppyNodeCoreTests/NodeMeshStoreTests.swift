@@ -339,6 +339,44 @@ struct NodeMeshStoreTests {
         }
     }
 
+    @Test("mesh store rejects conflicting event with duplicate id")
+    func meshStoreRejectsConflictingEventWithDuplicateId() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let identity = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let first = try MeshEventSigner.sign(
+            MeshEvent(
+                id: "evt_task_create",
+                type: .taskCreated,
+                actorNodeId: identity.nodeId,
+                logicalTime: 1,
+                payload: .object(["title": .string("Run build")])
+            ),
+            identity: identity
+        )
+        let conflicting = try MeshEventSigner.sign(
+            MeshEvent(
+                id: "evt_task_create",
+                type: .taskCreated,
+                actorNodeId: identity.nodeId,
+                logicalTime: 1,
+                payload: .object(["title": .string("Run tests")])
+            ),
+            identity: identity
+        )
+
+        _ = try store.appendEvent(first, expectedActorPublicKey: identity.publicKey)
+
+        #expect(throws: MeshEventVerificationError.eventConflict("evt_task_create")) {
+            _ = try store.appendEvent(conflicting, expectedActorPublicKey: identity.publicKey)
+        }
+
+        let state = try store.load()
+        #expect(state.events.count == 1)
+        #expect(state.events.first?.event.id == first.event.id)
+        #expect(state.events.first?.event.payload.asObject?["title"] == .string("Run build"))
+        #expect(state.auditLog.last?.message == "event_conflict")
+    }
+
     @Test("mesh state decodes legacy JSON without event fields")
     func meshStateDecodesLegacyJSONWithoutEventFields() throws {
         let legacyJSON = """
