@@ -697,7 +697,7 @@ public struct MeshState: Codable, Sendable, Equatable {
 
     public init(
         networkId: String = "personal",
-        networkName: String = "Personal Mesh",
+        networkName: String = "personal",
         nodes: [MeshNodeRecord] = [],
         invites: [MeshInvite] = [],
         sharedProjects: [SharedProjectRecord] = [],
@@ -735,7 +735,7 @@ public struct MeshState: Codable, Sendable, Equatable {
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         networkId = try container.decodeIfPresent(String.self, forKey: .networkId) ?? "personal"
-        networkName = try container.decodeIfPresent(String.self, forKey: .networkName) ?? "Personal Mesh"
+        networkName = try container.decodeIfPresent(String.self, forKey: .networkName) ?? "personal"
         nodes = try container.decodeIfPresent([MeshNodeRecord].self, forKey: .nodes) ?? []
         invites = try container.decodeIfPresent([MeshInvite].self, forKey: .invites) ?? []
         sharedProjects = try container.decodeIfPresent([SharedProjectRecord].self, forKey: .sharedProjects) ?? []

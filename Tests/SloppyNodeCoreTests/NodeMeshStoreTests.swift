@@ -361,6 +361,28 @@ struct NodeMeshStoreTests {
         #expect(state.eventCursors.isEmpty)
     }
 
+    @Test("mesh state preserves legacy default network name")
+    func meshStatePreservesLegacyDefaultNetworkName() throws {
+        #expect(MeshState().networkName == "personal")
+
+        let legacyJSON = """
+        {
+          "networkId" : "personal",
+          "nodes" : [],
+          "invites" : [],
+          "sharedProjects" : [],
+          "tasks" : [],
+          "envelopes" : [],
+          "auditLog" : []
+        }
+        """.data(using: .utf8)!
+
+        let decoder = JSONDecoder()
+        let state = try decoder.decode(MeshState.self, from: legacyJSON)
+
+        #expect(state.networkName == "personal")
+    }
+
     @Test("mesh store lists events after cursor with limit")
     func meshStoreListsEventsAfterCursorWithLimit() throws {
         let store = NodeMeshStore(stateURL: temporaryStateURL())
