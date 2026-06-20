@@ -118,6 +118,7 @@ extension SloppyTUIScreen {
         pendingPlanInputRequest = nil
         tokenUsageSummary = nil
         tokenUsageCostUSD = nil
+        liveTurnTokenUsageTracker.reset()
         lastTurnTokenUsage = nil
         taskStartedAt = nil
         lastTaskElapsed = nil

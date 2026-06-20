@@ -6217,6 +6217,7 @@
   width: 20000px;
   height: 20000px;
   will-change: transform;
+  pointer-events: none;
 }
 
 .project-workflows-blocks-header {
@@ -6378,6 +6379,7 @@
   z-index: 2;
   cursor: grab;
   user-select: none;
+  pointer-events: auto;
 }
 
 .project-workflow-node:hover {

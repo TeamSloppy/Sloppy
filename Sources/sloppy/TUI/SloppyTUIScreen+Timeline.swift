@@ -65,7 +65,7 @@ extension SloppyTUIScreen {
         let spinner = SloppyTUITheme.waitingIndicator(
             frame: thinkingFrame,
             word: thinkingWord,
-            tokenUsage: lastTurnTokenUsage
+            tokenUsage: liveTurnTokenUsageTracker.currentUsage
         )
         let body = liveAssistantDraft.trimmingCharacters(in: .whitespacesAndNewlines)
         if body.isEmpty {

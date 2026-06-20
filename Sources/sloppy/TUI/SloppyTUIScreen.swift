@@ -373,6 +373,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     var liveAssistantInterpolationTask: Task<Void, Never>?
     var liveRunStage: AgentRunStage?
     var liveRunStatusLine: String?
+    var liveTurnTokenUsageTracker = SloppyTUILiveTurnTokenUsageTracker()
     var lastTurnTokenUsage: TokenUsage?
     var shellRunStatusLine: String?
     var operationStatuses: [SloppyTUIOperationStatusKind: SloppyTUIOperationStatus] = [:]

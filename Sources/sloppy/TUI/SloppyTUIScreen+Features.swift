@@ -975,6 +975,7 @@ extension SloppyTUIScreen {
         hasPersistedSession = true
         pendingDraftCheckpointSessionID = nil
         pendingPlanInputRequest = nil
+        liveTurnTokenUsageTracker.reset()
         if activePicker?.kind == .planInput {
             activePicker = nil
         }

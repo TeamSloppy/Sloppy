@@ -43,6 +43,46 @@ func chatTimelineCompositionPlacesWorkspaceDiffInsideChatBeforeEphemeralCards() 
 }
 
 @Test
+func chatTimelineCompositionInlinesWorkspaceDiffAfterLastToolBlock() {
+    let diffPreview = SloppyTUIWorkspaceDiffPreview(
+        branch: "session",
+        linesAdded: 1,
+        linesDeleted: 0,
+        diff: "diff --git a/App.swift b/App.swift\n+let value = 1",
+        truncated: false
+    )
+    let blocks = SloppyTUIChatTimelineComposition.blocks(
+        sessionBlocks: [
+            .message(role: .user, text: "change it"),
+            .toolCall(tool: "files.write", reason: nil, summary: "Write App.swift", details: nil),
+            .toolResult(tool: "Write", rawTool: "files.write", ok: true, error: nil, durationMs: 7, details: nil),
+            .message(role: .assistant, text: "done"),
+        ],
+        liveAssistantBlocks: [],
+        queuedMessageBlocks: [],
+        workspaceDiffPreview: diffPreview,
+        localCards: []
+    )
+
+    #expect(blocks.count == 5)
+    guard case .toolResult = blocks[2] else {
+        Issue.record("tool result should stay before the inline diff")
+        return
+    }
+    guard case .workspaceDiff(let branch, let added, _, let diff, _) = blocks[3] else {
+        Issue.record("workspace diff should be placed immediately after the tool block that changed files")
+        return
+    }
+    #expect(branch == "session")
+    #expect(added == 1)
+    #expect(diff.contains("+let value = 1"))
+    guard case .message(.assistant, "done") = blocks[4] else {
+        Issue.record("assistant follow-up should remain after the inline diff")
+        return
+    }
+}
+
+@Test
 func chatTimelineCompositionOmitsWorkspaceDiffWhenPreviewIsNil() {
     let blocks = SloppyTUIChatTimelineComposition.blocks(
         sessionBlocks: [.message(role: .user, text: "hello")],

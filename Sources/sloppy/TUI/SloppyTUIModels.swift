@@ -511,11 +511,35 @@ enum SloppyTUIChatTimelineComposition {
         workspaceDiffPreview: SloppyTUIWorkspaceDiffPreview?,
         localCards: [SloppyTUILocalCard]
     ) -> [SloppyTUITimelineBlock] {
-        sessionBlocks
-            + (workspaceDiffPreview.map { [$0.timelineBlock] } ?? [])
+        sessionBlocksWithInlineWorkspaceDiff(sessionBlocks, workspaceDiffPreview: workspaceDiffPreview)
             + liveAssistantBlocks
             + queuedMessageBlocks
             + localCards.map(\.block)
+    }
+
+    private static func sessionBlocksWithInlineWorkspaceDiff(
+        _ sessionBlocks: [SloppyTUITimelineBlock],
+        workspaceDiffPreview: SloppyTUIWorkspaceDiffPreview?
+    ) -> [SloppyTUITimelineBlock] {
+        guard let workspaceDiffPreview else {
+            return sessionBlocks
+        }
+
+        var blocks = sessionBlocks
+        let insertionIndex = blocks.lastIndex(where: isToolTranscriptBlock)
+            .map { blocks.index(after: $0) }
+            ?? blocks.endIndex
+        blocks.insert(workspaceDiffPreview.timelineBlock, at: insertionIndex)
+        return blocks
+    }
+
+    private static func isToolTranscriptBlock(_ block: SloppyTUITimelineBlock) -> Bool {
+        switch block {
+        case .toolCall, .toolResult:
+            return true
+        default:
+            return false
+        }
     }
 }
 
@@ -549,6 +573,23 @@ enum SloppyTUIDraftSessionReset {
         hasPersistedSession: Bool
     ) -> String? {
         hasPersistedSession ? currentSessionID : nil
+    }
+}
+
+struct SloppyTUILiveTurnTokenUsageTracker: Equatable {
+    private(set) var currentUsage: TokenUsage?
+
+    mutating func handle(_ status: AgentRunStatusEvent) {
+        switch status.stage {
+        case .thinking, .searching, .responding:
+            currentUsage = status.tokenUsage
+        case .paused, .done, .interrupted:
+            currentUsage = nil
+        }
+    }
+
+    mutating func reset() {
+        currentUsage = nil
     }
 }
 

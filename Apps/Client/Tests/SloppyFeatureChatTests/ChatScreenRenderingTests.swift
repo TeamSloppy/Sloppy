@@ -34,8 +34,8 @@ struct ChatScreenRenderingTests {
         #expect(source.contains("MobileChatNavigationHeader"))
         #expect(source.contains("MobileChatNavigationCenterCapsule"))
         #expect(source.contains("mobileNavigationCapsuleWidth"))
-        #expect(source.contains(".frame(width: mobileNavigationCapsuleWidth"))
-        #expect(source.contains(".glassEffect(.regular.tint(Color.white.opacity(0.03 as Float)), in: Capsule())"))
+        #expect(source.contains("ChatOverlayLayout.pickerTopInset"))
+        #expect(source.contains("effectiveSafeAreaTop: safeAreaInsets.top"))
         #expect(source.contains("Icons.symbol(.menu"))
     }
 

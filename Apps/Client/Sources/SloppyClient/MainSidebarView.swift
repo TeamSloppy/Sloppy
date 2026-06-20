@@ -32,13 +32,11 @@ struct MainSidebarView: View {
         true
         #endif
     }
-
+    
     var body: some View {
-        NavigationStack {
-            let c = theme.colors
-
-            expandedSidebar(c: c)
-        }
+        let c = theme.colors
+        
+        expandedSidebar(c: c)
     }
 
     private func expandedSidebar(c: AppColors) -> some View {

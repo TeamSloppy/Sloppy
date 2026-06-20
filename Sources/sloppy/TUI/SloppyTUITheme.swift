@@ -1045,7 +1045,7 @@ enum SloppyTUITheme {
             case 1:
                 return shoulder.foregroundStyle(text)
             default:
-                return muted(text)
+                return accent(text)
             }
         }.joined()
     }

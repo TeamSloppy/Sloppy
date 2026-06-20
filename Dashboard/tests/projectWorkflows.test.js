@@ -140,6 +140,16 @@ test("workflow board status highlights unsaved changes with the accent treatment
   assert.match(projectsCss, /\.project-workflows-board-status\.is-dirty\s*\{[\s\S]*?color:\s*var\(--accent\)/);
 });
 
+test("workflow board surface lets blank canvas pointer events reach the scroller", () => {
+  const boardRule = cssRule(".project-workflows-board");
+  const nodeRule = cssRule(".project-workflow-node");
+  const linkHitRule = cssRule(".project-workflow-link-hit");
+
+  assert.match(boardRule, /pointer-events:\s*none/);
+  assert.match(nodeRule, /pointer-events:\s*auto/);
+  assert.match(linkHitRule, /pointer-events:\s*auto/);
+});
+
 test("workflow node ports default to one input and one output", () => {
   assert.deepEqual(workflowNodePorts({ type: "tool_check", config: { blockKind: "bash" } }), [
     { id: "input", label: "input", direction: "input", socket: "left" },

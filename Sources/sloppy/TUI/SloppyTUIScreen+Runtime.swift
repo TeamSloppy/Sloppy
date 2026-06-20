@@ -44,6 +44,7 @@ extension SloppyTUIScreen {
                             }
                             var shouldRefreshTokenUsageAfterRun = false
                             if let status = event.runStatus {
+                                self.liveTurnTokenUsageTracker.handle(status)
                                 if let tokenUsage = status.tokenUsage {
                                     self.lastTurnTokenUsage = tokenUsage
                                 }

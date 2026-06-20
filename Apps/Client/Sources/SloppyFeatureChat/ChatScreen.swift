@@ -30,7 +30,7 @@ public struct ChatScreen: View {
             )
         )
     }
-
+    
     public init(
         viewModel: ChatScreenViewModel,
         rootSafeAreaInsets: EdgeInsets = EdgeInsets(),
@@ -40,14 +40,14 @@ public struct ChatScreen: View {
         self.onOpenSidebar = onOpenSidebar
         _viewModel = State(initialValue: viewModel)
     }
-
+    
     public var body: some View {
         ChatScreenContent(
             rootSafeAreaInsets: rootSafeAreaInsets,
             onOpenSidebar: onOpenSidebar
         )
-            .environment(viewModel)
-            .environment(viewModel.connectionMonitor)
+        .environment(viewModel)
+        .environment(viewModel.connectionMonitor)
     }
 }
 
@@ -55,29 +55,27 @@ public struct ChatScreen: View {
 private struct ChatScreenContent: View {
     let rootSafeAreaInsets: EdgeInsets
     let onOpenSidebar: (@MainActor () -> Void)?
-
+    
     @Environment(ChatScreenViewModel.self) private var viewModel
     @Environment(ConnectionMonitor.self) private var connectionMonitor
-
+    
     var body: some View {
-        NavigationStack {
-            ChatChrome(
+        ChatChrome(
+            viewModel: viewModel,
+            connectionMonitor: connectionMonitor,
+            rootSafeAreaInsets: rootSafeAreaInsets
+        )
+        .navigationBarLeadingItems {
+            ChatNavigationLeadingItems(
                 viewModel: viewModel,
-                connectionMonitor: connectionMonitor,
-                rootSafeAreaInsets: rootSafeAreaInsets
+                onOpenSidebar: onOpenSidebar
             )
-                .navigationBarLeadingItems {
-                    ChatNavigationLeadingItems(
-                        viewModel: viewModel,
-                        onOpenSidebar: onOpenSidebar
-                    )
-                }
-                .navigationBarTrailingItems {
-                    ChatNavigationActions(viewModel: viewModel)
-                }
-                .overlay {
-                    ChatInitialLoadTrigger(viewModel: viewModel)
-                }
+        }
+        .navigationBarTrailingItems {
+            ChatNavigationActions(viewModel: viewModel)
+        }
+        .overlay {
+            ChatInitialLoadTrigger(viewModel: viewModel)
         }
     }
 }
@@ -168,7 +166,11 @@ private struct ChatChrome: View {
     }
 
     private var overlayTopInset: Float {
-        idiom == .phone ? rootSafeAreaInsets.top + 52 : 0
+        ChatOverlayLayout.pickerTopInset(
+            isPhone: idiom == .phone,
+            rootSafeAreaTop: rootSafeAreaInsets.top,
+            effectiveSafeAreaTop: safeAreaInsets.top
+        )
     }
 
     private var composerScrollInset: Float {
@@ -219,6 +221,20 @@ struct ChatComposerKeyboardLayout {
         }
 
         return max(normalMinimumSpacing, rootSafeAreaBottom + keyboardSpacing)
+    }
+}
+
+struct ChatOverlayLayout {
+    static func pickerTopInset(
+        isPhone: Bool,
+        rootSafeAreaTop: Float,
+        effectiveSafeAreaTop: Float
+    ) -> Float {
+        if isPhone {
+            return rootSafeAreaTop + 52
+        }
+
+        return effectiveSafeAreaTop
     }
 }
 

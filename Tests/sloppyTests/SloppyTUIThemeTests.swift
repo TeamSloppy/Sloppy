@@ -73,6 +73,15 @@ func waitingIndicatorKeepsSpinnerBeforeWaitingWord() {
 }
 
 @Test
+func waitingIndicatorUsesAccentForBaseWaitingWordColor() {
+    let line = SloppyTUITheme.waitingIndicator(frame: 0, word: "fingerpainting")
+
+    #expect(line.hasPrefix("\u{001B}[38;2;148;163;184m⠋ \u{001B}[39m"))
+    #expect(line.contains("\u{001B}[38;2;82;211;194mf\u{001B}[39m"))
+    #expect(stripANSI(line).hasPrefix("⠋ fingerpainting"))
+}
+
+@Test
 func waitingIndicatorIncludesTurnTokenUsageAfterWaitingWord() {
     let line = SloppyTUITheme.waitingIndicator(
         frame: 0,
@@ -409,7 +418,7 @@ func shimmeringTextUsesSkeletonPaletteInsteadOfRainbow() {
     #expect(stripANSI(laterFrame) == "brewing...")
     #expect(VisibleWidth.measure(firstFrame) == 10)
     #expect(firstFrame != laterFrame)
-    #expect(firstFrame.contains("\u{001B}[38;2;148;163;184m"))
+    #expect(firstFrame.contains("\u{001B}[38;2;82;211;194m"))
     #expect(firstFrame.contains("\u{001B}[38;2;226;232;240m"))
     #expect(!firstFrame.contains("\u{001B}[38;2;248;113;113m"))
     #expect(!firstFrame.contains("\u{001B}[38;2;250;204;21m"))
