@@ -1220,7 +1220,30 @@ public struct CoreConfig: Codable, Sendable {
             }
         }
 
+        public struct Autodream: Codable, Sendable, Equatable {
+            public var enabled: Bool
+            public var intervalSeconds: Int
+            public var jitterSeconds: Int
+            public var sessionLimitPerRun: Int
+            public var model: String?
+
+            public init(
+                enabled: Bool = true,
+                intervalSeconds: Int = 21_600,
+                jitterSeconds: Int = 1_800,
+                sessionLimitPerRun: Int = 10,
+                model: String? = nil
+            ) {
+                self.enabled = enabled
+                self.intervalSeconds = intervalSeconds
+                self.jitterSeconds = jitterSeconds
+                self.sessionLimitPerRun = sessionLimitPerRun
+                self.model = model
+            }
+        }
+
         public var scheduler: Scheduler
+        public var autodream: Autodream
         public var bootstrapBulletin: Bool
         /// Model identifier used for bulletin LLM synthesis (e.g. "openai-api:gpt-4o-mini").
         /// When nil, falls back to the default system model.
@@ -1258,6 +1281,7 @@ public struct CoreConfig: Codable, Sendable {
 
         public init(
             scheduler: Scheduler = Scheduler(),
+            autodream: Autodream = Autodream(),
             bootstrapBulletin: Bool = true,
             model: String? = nil,
             bulletinMaxWords: Int = 300,
@@ -1277,6 +1301,7 @@ public struct CoreConfig: Codable, Sendable {
             mergeMaxPerRun: Int = 10
         ) {
             self.scheduler = scheduler
+            self.autodream = autodream
             self.bootstrapBulletin = bootstrapBulletin
             self.model = model
             self.bulletinMaxWords = bulletinMaxWords
@@ -1298,6 +1323,7 @@ public struct CoreConfig: Codable, Sendable {
 
         private enum CodingKeys: String, CodingKey {
             case scheduler
+            case autodream
             case bootstrapBulletin
             case model
             case bulletinMaxWords
@@ -1320,6 +1346,7 @@ public struct CoreConfig: Codable, Sendable {
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             scheduler = try container.decodeIfPresent(Scheduler.self, forKey: .scheduler) ?? Scheduler()
+            autodream = try container.decodeIfPresent(Autodream.self, forKey: .autodream) ?? Autodream()
             bootstrapBulletin = try container.decodeIfPresent(Bool.self, forKey: .bootstrapBulletin) ?? true
             model = try container.decodeIfPresent(String.self, forKey: .model)
             bulletinMaxWords = try container.decodeIfPresent(Int.self, forKey: .bulletinMaxWords) ?? 300

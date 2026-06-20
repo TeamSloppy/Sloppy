@@ -776,6 +776,18 @@ extension CoreService {
         )
     }
 
+    func buildAutodreamRunnerConfig() -> AutodreamRunnerConfig {
+        let autodream = currentConfig.visor.autodream
+        return AutodreamRunnerConfig(
+            interval: .seconds(max(1, autodream.intervalSeconds)),
+            jitter: .seconds(max(0, autodream.jitterSeconds))
+        )
+    }
+
+    func autodreamRunnerRunning() async -> Bool {
+        await autodreamRunner?.running() ?? false
+    }
+
     /// Builds a completion closure for Visor bulletin synthesis.
     /// Uses `visorModel` when specified (e.g. a cheaper model), otherwise falls back to the default model.
     static func buildVisorCompletionProvider(

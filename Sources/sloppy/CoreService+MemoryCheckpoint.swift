@@ -193,7 +193,7 @@ extension CoreService {
         )
     }
 
-    func runAgentMemoryCheckpoint(agentID: String, sessionID: String, reason: String) async {
+    func runAgentMemoryCheckpoint(agentID: String, sessionID: String, reason: String, modelOverride: String? = nil) async {
         guard let normalizedAgentID = normalizedAgentID(agentID) else { return }
         guard let normalizedSessionID = normalizedSessionID(sessionID) else { return }
 
@@ -240,7 +240,10 @@ extension CoreService {
         }
 
         let selectedModel = config.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let modelForRequest = (selectedModel?.isEmpty == false) ? selectedModel : nil
+        let trimmedOverride = modelOverride?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let modelForRequest = (trimmedOverride?.isEmpty == false)
+            ? trimmedOverride
+            : ((selectedModel?.isEmpty == false) ? selectedModel : nil)
 
         let documents: AgentDocumentBundle
         do {

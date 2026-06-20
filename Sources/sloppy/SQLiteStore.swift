@@ -26,6 +26,7 @@ public actor SQLiteStore: PersistenceStore {
     private var fallbackCronTasks: [String: AgentCronTask] = [:]
     private var fallbackAccessUsers: [String: ChannelAccessUser] = [:]
     private var fallbackSelfImprovementProposalReviewJobs: [String: SelfImprovementProposalReviewJob] = [:]
+    private var fallbackAutodreamSessionReviews: [String: AutodreamSessionReviewRecord] = [:]
     private var fallbackWorkflowRuns: [String: WorkflowRun] = [:]
     private var fallbackWorkflowRunSteps: [String: WorkflowRunStep] = [:]
     private var fallbackWorkflowPendingActions: [String: WorkflowPendingAction] = [:]
@@ -717,6 +718,54 @@ public actor SQLiteStore: PersistenceStore {
         bindOptionalText(job.lastError, at: 10, statement: statement)
         bindText(isoFormatter.string(from: job.createdAt), at: 11, statement: statement)
         bindText(isoFormatter.string(from: job.updatedAt), at: 12, statement: statement)
+        _ = sqlite3_step(statement)
+#endif
+    }
+
+    public func autodreamSessionReview(agentId: String, sessionId: String) async -> AutodreamSessionReviewRecord? {
+#if canImport(CSQLite3)
+        guard let db else {
+            return fallbackAutodreamSessionReviews[autodreamSessionReviewKey(agentId: agentId, sessionId: sessionId)]
+        }
+        let sql =
+            """
+            SELECT agent_id, session_id, status, reason, session_updated_at, reviewed_at, last_error
+            FROM autodream_session_reviews
+            WHERE agent_id = ? AND session_id = ?
+            LIMIT 1;
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(statement) }
+        bindText(agentId, at: 1, statement: statement)
+        bindText(sessionId, at: 2, statement: statement)
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        return decodeAutodreamSessionReview(statement: statement)
+#else
+        return fallbackAutodreamSessionReviews[autodreamSessionReviewKey(agentId: agentId, sessionId: sessionId)]
+#endif
+    }
+
+    public func saveAutodreamSessionReview(_ record: AutodreamSessionReviewRecord) async {
+        fallbackAutodreamSessionReviews[autodreamSessionReviewKey(agentId: record.agentId, sessionId: record.sessionId)] = record
+#if canImport(CSQLite3)
+        guard let db else { return }
+        let sql =
+            """
+            INSERT OR REPLACE INTO autodream_session_reviews(
+                agent_id, session_id, status, reason, session_updated_at, reviewed_at, last_error
+            ) VALUES(?, ?, ?, ?, ?, ?, ?);
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(statement) }
+        bindText(record.agentId, at: 1, statement: statement)
+        bindText(record.sessionId, at: 2, statement: statement)
+        bindText(record.status, at: 3, statement: statement)
+        bindText(record.reason, at: 4, statement: statement)
+        bindText(isoFormatter.string(from: record.sessionUpdatedAt), at: 5, statement: statement)
+        bindText(isoFormatter.string(from: record.reviewedAt), at: 6, statement: statement)
+        bindOptionalText(record.lastError, at: 7, statement: statement)
         _ = sqlite3_step(statement)
 #endif
     }
@@ -2968,6 +3017,28 @@ public actor SQLiteStore: PersistenceStore {
         )
     }
 
+    private static func applyAutodreamMigrations(db: OpaquePointer?) {
+        guard let db else { return }
+        _ = sqlite3_exec(
+            db,
+            """
+            CREATE TABLE IF NOT EXISTS autodream_session_reviews (
+                agent_id TEXT NOT NULL,
+                session_id TEXT NOT NULL,
+                status TEXT NOT NULL,
+                reason TEXT NOT NULL,
+                session_updated_at TEXT NOT NULL,
+                reviewed_at TEXT NOT NULL,
+                last_error TEXT,
+                PRIMARY KEY(agent_id, session_id)
+            );
+            CREATE INDEX IF NOT EXISTS idx_autodream_session_reviews_status_reviewed
+            ON autodream_session_reviews(status, reviewed_at DESC);
+            """,
+            nil, nil, nil
+        )
+    }
+
     private func loadChannelPlugins(db: OpaquePointer) -> [ChannelPluginRecord] {
         let sql =
             """
@@ -3131,6 +3202,29 @@ public actor SQLiteStore: PersistenceStore {
         return decodeSelfImprovementProposalReviewJob(statement: statement)
     }
 
+    private func decodeAutodreamSessionReview(statement: OpaquePointer?) -> AutodreamSessionReviewRecord? {
+        guard
+            let agentPtr = sqlite3_column_text(statement, 0),
+            let sessionPtr = sqlite3_column_text(statement, 1),
+            let statusPtr = sqlite3_column_text(statement, 2),
+            let reasonPtr = sqlite3_column_text(statement, 3),
+            let sessionUpdatedAtPtr = sqlite3_column_text(statement, 4),
+            let reviewedAtPtr = sqlite3_column_text(statement, 5)
+        else {
+            return nil
+        }
+        let reviewedAt = isoFormatter.date(from: String(cString: reviewedAtPtr)) ?? Date()
+        return AutodreamSessionReviewRecord(
+            agentId: String(cString: agentPtr),
+            sessionId: String(cString: sessionPtr),
+            status: String(cString: statusPtr),
+            reason: String(cString: reasonPtr),
+            sessionUpdatedAt: isoFormatter.date(from: String(cString: sessionUpdatedAtPtr)) ?? reviewedAt,
+            reviewedAt: reviewedAt,
+            lastError: optionalText(statement: statement, index: 6)
+        )
+    }
+
     private func encodedStringArray(_ values: [String]) -> String {
         let encoded = (try? JSONEncoder().encode(values)) ?? Data("[]".utf8)
         return String(data: encoded, encoding: .utf8) ?? "[]"
@@ -3148,6 +3242,10 @@ public actor SQLiteStore: PersistenceStore {
         return values.isEmpty ? nil : values
     }
 #endif
+
+    private func autodreamSessionReviewKey(agentId: String, sessionId: String) -> String {
+        "\(agentId)::\(sessionId)"
+    }
 
     // MARK: - Cron Tasks
 
@@ -3841,6 +3939,7 @@ public actor SQLiteStore: PersistenceStore {
         applyProjectTaskMigrations(db: db)
         applyChannelPluginMigrations(db: db)
         applyWorkflowMigrations(db: db)
+        applyAutodreamMigrations(db: db)
         applyCronTaskMigrations(db: db)
         applyTokenUsageMigrations(db: db)
         applyDashboardProjectsMigrations(db: db)
