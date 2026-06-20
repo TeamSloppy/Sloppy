@@ -118,6 +118,19 @@ extension CoreService {
             await kanbanScheduler?.start()
         }
 
+        if autodreamRunner == nil {
+            autodreamRunner = AutodreamRunner(
+                config: buildAutodreamRunnerConfig(),
+                logger: Logger(label: "sloppy.autodream")
+            ) { [weak self] in
+                guard let self else { return }
+                await self.runAutodreamPass(reason: "scheduled")
+            }
+        }
+        if currentConfig.visor.autodream.enabled {
+            await autodreamRunner?.start()
+        }
+
         if selfImprovementCuratorRunner == nil {
             selfImprovementCuratorRunner = SelfImprovementCuratorRunner(
                 config: .weekly,
@@ -200,6 +213,7 @@ extension CoreService {
 
         await visorScheduler?.stop()
         await kanbanScheduler?.stop()
+        await autodreamRunner?.stop()
         await selfImprovementCuratorRunner?.stop()
         await runtime.stopVisorSupervision()
         await memoryOutboxIndexer?.stop()

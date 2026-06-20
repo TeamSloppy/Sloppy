@@ -157,6 +157,34 @@ public struct SelfImprovementProposalReviewJob: Sendable, Equatable {
     }
 }
 
+public struct AutodreamSessionReviewRecord: Sendable, Equatable {
+    public var agentId: String
+    public var sessionId: String
+    public var status: String
+    public var reason: String
+    public var sessionUpdatedAt: Date
+    public var reviewedAt: Date
+    public var lastError: String?
+
+    public init(
+        agentId: String,
+        sessionId: String,
+        status: String,
+        reason: String,
+        sessionUpdatedAt: Date,
+        reviewedAt: Date = Date(),
+        lastError: String? = nil
+    ) {
+        self.agentId = agentId
+        self.sessionId = sessionId
+        self.status = status
+        self.reason = reason
+        self.sessionUpdatedAt = sessionUpdatedAt
+        self.reviewedAt = reviewedAt
+        self.lastError = lastError
+    }
+}
+
 public struct ChannelAccessUser: Codable, Sendable, Equatable {
     public var id: String
     public var platform: String
@@ -276,6 +304,12 @@ public protocol PersistenceStore: Sendable {
 
     /// Saves a self-improvement proposal review job lifecycle update.
     func saveSelfImprovementProposalReviewJob(_ job: SelfImprovementProposalReviewJob) async
+
+    /// Returns the latest autodream review state for one agent session.
+    func autodreamSessionReview(agentId: String, sessionId: String) async -> AutodreamSessionReviewRecord?
+
+    /// Creates or replaces the autodream review state for one agent session.
+    func saveAutodreamSessionReview(_ record: AutodreamSessionReviewRecord) async
 
     /// Lists tool invocation durations (ms) for percentile computation.
     func listToolInvocationDurations(projectId: String, from: Date?, to: Date?, limit: Int) async -> [Int]

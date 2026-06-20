@@ -238,6 +238,7 @@ public actor CoreService {
     var activeGatewayPlugins: [any GatewayPlugin] = []
     var visorScheduler: VisorScheduler?
     var kanbanScheduler: KanbanMaintenanceScheduler?
+    var autodreamRunner: AutodreamRunner?
     var cronRunner: CronRunner?
     var heartbeatRunner: HeartbeatRunner?
     var taskSyncRunner: TaskSyncRunner?
