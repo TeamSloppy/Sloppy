@@ -57,9 +57,9 @@ public enum NodeMeshProjection {
     private static func applyNodeAnnounced(_ signed: SignedMeshEvent, to state: inout MeshState) {
         let payload = signed.event.payload.asObject ?? [:]
         let node = MeshNodeRecord(
-            id: payload["id"]?.asString ?? signed.event.actorNodeId,
+            id: signed.event.actorNodeId,
             name: payload["name"]?.asString ?? signed.event.actorNodeId,
-            publicKey: payload["publicKey"]?.asString ?? signed.actorPublicKey,
+            publicKey: signed.actorPublicKey,
             roles: stringArray(payload["roles"]),
             endpoint: payload["endpoint"]?.asString,
             status: MeshNodeStatus(rawValue: payload["status"]?.asString ?? "") ?? .offline,
@@ -130,7 +130,9 @@ public enum NodeMeshProjection {
             state.sharedProjects[index].defaultBranch = defaultBranch
         }
         if let policies = payload["policies"] {
-            state.sharedProjects[index].policies = try JSONValueCoder.decode(SharedProjectPolicies.self, from: policies)
+            if let decoded = try? JSONValueCoder.decode(SharedProjectPolicies.self, from: policies) {
+                state.sharedProjects[index].policies = decoded
+            }
         }
         state.sharedProjects[index].updatedAt = event.wallTime
     }

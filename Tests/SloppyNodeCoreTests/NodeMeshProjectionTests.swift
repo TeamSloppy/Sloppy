@@ -132,6 +132,47 @@ struct NodeMeshProjectionTests {
         #expect(projected.tasks.map(\.id) == ["mesh_task_projection"])
     }
 
+    @Test("node announcement uses signed identity over forged payload")
+    func nodeAnnouncementUsesSignedIdentityOverForgedPayload() throws {
+        let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let event = try signed(.nodeAnnounced, actor: work, projectId: nil, logicalTime: 1, payload: [
+            "id": .string("node_forged"),
+            "publicKey": .string("ed25519:forged"),
+            "name": .string("Work"),
+            "roles": .array([.string("client")]),
+            "capabilities": .array([.string("git")]),
+        ])
+
+        let state = try NodeMeshProjection.project(events: [event], base: MeshState())
+
+        let node = try #require(state.nodes.first)
+        #expect(node.id == work.nodeId)
+        #expect(node.publicKey == work.publicKey)
+    }
+
+    @Test("invalid project policies do not abort projection")
+    func invalidProjectPoliciesDoNotAbortProjection() throws {
+        let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let projectId = "sp_policy"
+        let events = try [
+            signed(.projectCreated, actor: work, projectId: projectId, logicalTime: 1, payload: [
+                "id": .string(projectId),
+                "name": .string("Policy"),
+                "repoUrl": .string("git@example.com:policy.git"),
+            ]),
+            signed(.projectUpdated, actor: work, projectId: projectId, logicalTime: 2, payload: [
+                "name": .string("Updated Policy"),
+                "policies": .string("invalid"),
+            ]),
+        ]
+
+        let state = try NodeMeshProjection.project(events: events, base: MeshState())
+
+        let project = try #require(state.sharedProjects.first)
+        #expect(project.name == "Updated Policy")
+        #expect(project.policies == SharedProjectPolicies())
+    }
+
     private func signed(
         _ type: MeshEventType,
         actor: NodeIdentity,
