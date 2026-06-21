@@ -82,6 +82,25 @@ struct NodeMeshProjectionTests {
         #expect(state.sharedProjects.first?.name == "Updated Name")
     }
 
+    @Test("task created payload cannot assign without task assigned event")
+    func taskCreatedPayloadCannotAssignWithoutTaskAssignedEvent() throws {
+        let owner = NodeIdentityGenerator.makeIdentity(name: "Owner", roles: ["client"], capabilities: ["git"])
+        let worker = NodeIdentityGenerator.makeIdentity(name: "Worker", roles: ["worker"], capabilities: ["git"])
+        let projectId = "sp_task_created_assignment"
+        var events = try authorizedProjectEvents(projectId: projectId, owner: owner, worker: worker)
+        events.append(try signed(.taskCreated, actor: owner, projectId: projectId, logicalTime: 4, payload: [
+            "taskId": .string("mesh_task_assignment_smuggle"),
+            "title": .string("Run build"),
+            "assignedNodeId": .string(worker.nodeId),
+        ]))
+
+        let state = try NodeMeshProjection.project(events: events, base: baseState(nodes: [owner, worker]))
+
+        let task = try #require(state.tasks.first(where: { $0.id == "mesh_task_assignment_smuggle" }))
+        #expect(task.assignedNodeId == "")
+        #expect(task.status == .queued)
+    }
+
     @Test("projection rejects tampered signed events before mutating state")
     func projectionRejectsTamperedSignedEventsBeforeMutatingState() throws {
         let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])

@@ -414,7 +414,7 @@ public enum NodeMeshProjection {
             id: taskId,
             projectId: projectId,
             title: title,
-            assignedNodeId: payload["assignedNodeId"]?.asString ?? "",
+            assignedNodeId: "",
             status: .queued,
             createdAt: event.wallTime,
             updatedAt: event.wallTime

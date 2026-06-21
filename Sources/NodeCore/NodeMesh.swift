@@ -1381,7 +1381,6 @@ public struct NodeMeshStore: Sendable {
             payload: .object([
                 "taskId": .string(taskId),
                 "title": .string(title),
-                "assignedNodeId": .string(assignedNodeId),
             ])
         )
         let assigned = MeshEvent(
