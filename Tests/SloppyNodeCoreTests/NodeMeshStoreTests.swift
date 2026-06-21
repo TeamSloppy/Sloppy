@@ -973,6 +973,58 @@ struct NodeMeshStoreTests {
         #expect(state.events.isEmpty)
     }
 
+    @Test("batch append leaves no task events when second dispatch event is invalid")
+    func batchAppendLeavesNoTaskEventsWhenSecondDispatchEventIsInvalid() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let home = NodeIdentityGenerator.makeIdentity(name: "Home", roles: ["worker"], capabilities: ["git"])
+        let rogue = NodeIdentityGenerator.makeIdentity(name: "Rogue", roles: ["worker"], capabilities: ["git"])
+        try store.registerNode(work)
+        try store.registerNode(home)
+        try store.registerNode(rogue)
+        let project = try store.createSharedProject(
+            id: "sp_sloppy",
+            name: "Sloppy",
+            repoUrl: "git@example.com:sloppy.git"
+        )
+        _ = try store.attachMember(
+            projectIdOrName: project.id,
+            nodeId: work.nodeId,
+            localRepoPath: "/work/sloppy",
+            role: "controller",
+            permissions: [
+                MeshPermission.projectWrite.rawValue,
+                MeshPermission.taskCreate.rawValue,
+                MeshPermission.taskAssign.rawValue,
+            ]
+        )
+        _ = try store.attachMember(
+            projectIdOrName: project.id,
+            nodeId: home.nodeId,
+            localRepoPath: "/home/sloppy",
+            role: "worker",
+            permissions: MeshPermission.workerDefaults.rawValues
+        )
+        let taskId = "mesh_task_atomic"
+        let created = try signedEvent(.taskCreated, actor: work, projectId: project.id, logicalTime: 1, payload: [
+            "taskId": .string(taskId),
+            "title": .string("Run build"),
+            "assignedNodeId": .string(home.nodeId),
+        ])
+        let invalidAssigned = try signedEvent(.taskAssigned, actor: work, target: rogue.nodeId, projectId: project.id, logicalTime: 2, payload: [
+            "taskId": .string(taskId),
+            "assignedNodeId": .string(rogue.nodeId),
+        ])
+
+        #expect(throws: MeshEventVerificationError.unauthorized("task.dispatch")) {
+            _ = try store.appendEvents([created, invalidAssigned], expectedActorPublicKey: work.publicKey)
+        }
+
+        let state = try store.load()
+        #expect(state.events.contains(where: { $0.event.type == .taskCreated }) == false)
+        #expect(state.events.contains(where: { $0.event.type == .taskAssigned }) == false)
+    }
+
     @Test("signed dispatch prefers projected member removal over stale legacy membership")
     func signedDispatchPrefersProjectedMemberRemovalOverStaleLegacyMembership() throws {
         let store = NodeMeshStore(stateURL: temporaryStateURL())

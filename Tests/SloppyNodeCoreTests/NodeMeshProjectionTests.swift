@@ -285,6 +285,80 @@ struct NodeMeshProjectionTests {
         #expect(prefix.sharedProjects.first?.members.contains(where: { $0.nodeId == rogue.nodeId }) == false)
     }
 
+    @Test("empty project bootstrap rejects rogue self add")
+    func emptyProjectBootstrapRejectsRogueSelfAdd() throws {
+        let owner = NodeIdentityGenerator.makeIdentity(name: "Owner", roles: ["client"], capabilities: ["git"])
+        let rogue = NodeIdentityGenerator.makeIdentity(name: "Rogue", roles: ["worker"], capabilities: ["git"])
+        let projectId = "sp_owner_empty"
+        let events = try [
+            signed(.projectCreated, actor: owner, projectId: projectId, logicalTime: 1, payload: [
+                "id": .string(projectId),
+                "name": .string("Owner Empty"),
+                "repoUrl": .string("git@example.com:owner-empty.git"),
+            ]),
+            signed(.projectMemberAdded, actor: rogue, target: rogue.nodeId, projectId: projectId, logicalTime: 2, payload: [
+                "nodeId": .string(rogue.nodeId),
+                "localRepoPath": .string("/rogue/owner-empty"),
+                "role": .string("worker"),
+                "permissions": .array(MeshPermission.workerDefaults.rawValues.map(JSONValue.string)),
+            ]),
+        ]
+
+        #expect(throws: MeshEventVerificationError.unauthorized(MeshPermission.projectWrite.rawValue)) {
+            _ = try NodeMeshProjection.project(events: events, base: baseState(nodes: [owner, rogue]))
+        }
+    }
+
+    @Test("empty project bootstrap rejects rogue update")
+    func emptyProjectBootstrapRejectsRogueUpdate() throws {
+        let owner = NodeIdentityGenerator.makeIdentity(name: "Owner", roles: ["client"], capabilities: ["git"])
+        let rogue = NodeIdentityGenerator.makeIdentity(name: "Rogue", roles: ["worker"], capabilities: ["git"])
+        let projectId = "sp_owner_update"
+        let events = try [
+            signed(.projectCreated, actor: owner, projectId: projectId, logicalTime: 1, payload: [
+                "id": .string(projectId),
+                "name": .string("Owner Update"),
+                "repoUrl": .string("git@example.com:owner-update.git"),
+            ]),
+            signed(.projectUpdated, actor: rogue, projectId: projectId, logicalTime: 2, payload: [
+                "name": .string("Rogue Update"),
+            ]),
+        ]
+
+        #expect(throws: MeshEventVerificationError.unauthorized(MeshPermission.projectWrite.rawValue)) {
+            _ = try NodeMeshProjection.project(events: events, base: baseState(nodes: [owner, rogue]))
+        }
+    }
+
+    @Test("empty project bootstrap allows creator initial member")
+    func emptyProjectBootstrapAllowsCreatorInitialMember() throws {
+        let owner = NodeIdentityGenerator.makeIdentity(name: "Owner", roles: ["client"], capabilities: ["git"])
+        let projectId = "sp_owner_initial"
+        let events = try [
+            signed(.projectCreated, actor: owner, projectId: projectId, logicalTime: 1, payload: [
+                "id": .string(projectId),
+                "name": .string("Owner Initial"),
+                "repoUrl": .string("git@example.com:owner-initial.git"),
+            ]),
+            signed(.projectMemberAdded, actor: owner, target: owner.nodeId, projectId: projectId, logicalTime: 2, payload: [
+                "nodeId": .string(owner.nodeId),
+                "localRepoPath": .string("/owner/owner-initial"),
+                "role": .string("controller"),
+                "permissions": .array([
+                    .string(MeshPermission.projectWrite.rawValue),
+                    .string(MeshPermission.taskCreate.rawValue),
+                    .string(MeshPermission.taskAssign.rawValue),
+                ]),
+            ]),
+        ]
+
+        let state = try NodeMeshProjection.project(events: events, base: baseState(nodes: [owner]))
+
+        let member = try #require(state.sharedProjects.first?.members.first)
+        #expect(member.nodeId == owner.nodeId)
+        #expect(member.permissions.contains(MeshPermission.projectWrite.rawValue))
+    }
+
     @Test("projection rejects unauthorized task status updates before mutation")
     func projectionRejectsUnauthorizedTaskStatusUpdatesBeforeMutation() throws {
         let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
@@ -415,6 +489,26 @@ struct NodeMeshProjectionTests {
         let project = try #require(state.sharedProjects.first)
         #expect(project.name == "Updated Policy")
         #expect(project.policies == SharedProjectPolicies())
+    }
+
+    @Test("projection rejects conflicting duplicate event ids")
+    func projectionRejectsConflictingDuplicateEventIDs() throws {
+        let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let projectId = "sp_duplicate"
+        let first = try signed(.projectCreated, actor: work, projectId: projectId, logicalTime: 1, eventId: "mesh_evt_duplicate", payload: [
+            "id": .string(projectId),
+            "name": .string("Duplicate"),
+            "repoUrl": .string("git@example.com:duplicate.git"),
+        ])
+        let conflicting = try signed(.projectCreated, actor: work, projectId: projectId, logicalTime: 1, eventId: "mesh_evt_duplicate", payload: [
+            "id": .string(projectId),
+            "name": .string("Conflicting Duplicate"),
+            "repoUrl": .string("git@example.com:duplicate.git"),
+        ])
+
+        #expect(throws: MeshEventVerificationError.eventConflict("mesh_evt_duplicate")) {
+            _ = try NodeMeshProjection.project(events: [first, conflicting], base: baseState(nodes: [work]))
+        }
     }
 
     private func signed(

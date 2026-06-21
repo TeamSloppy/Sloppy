@@ -5,11 +5,13 @@ public enum NodeMeshProjection {
     public static func project(events: [SignedMeshEvent], base: MeshState = MeshState()) throws -> MeshState {
         var state = base
         var replayKeyring = Dictionary(uniqueKeysWithValues: base.nodes.map { ($0.id, $0.publicKey) })
+        var projectCreators: [String: String] = [:]
+        let replayEvents = try uniqueEvents(events)
         state.nodes.removeAll()
         state.sharedProjects.removeAll()
         state.tasks.removeAll()
 
-        for signed in events.sorted(by: eventSort) {
+        for signed in replayEvents.sorted(by: eventSort) {
             let actorKey = try replayActorPublicKey(for: signed, keyring: replayKeyring)
             guard try MeshEventSigner.verify(signed, publicKey: actorKey) else {
                 throw MeshEventVerificationError.invalidSignature
@@ -17,11 +19,28 @@ public enum NodeMeshProjection {
             if signed.event.type == .nodeAnnounced, replayKeyring[signed.event.actorNodeId] == nil {
                 replayKeyring[signed.event.actorNodeId] = signed.actorPublicKey
             }
-            try authorize(signed.event, projectedState: state, baseState: base)
+            try authorize(signed.event, projectedState: state, baseState: base, projectCreators: projectCreators)
             try apply(signed, to: &state)
+            recordProjectCreator(from: signed.event, in: &projectCreators)
         }
 
         return state
+    }
+
+    private static func uniqueEvents(_ events: [SignedMeshEvent]) throws -> [SignedMeshEvent] {
+        var seen: [String: SignedMeshEvent] = [:]
+        var unique: [SignedMeshEvent] = []
+        for signed in events {
+            if let existing = seen[signed.event.id] {
+                guard existing == signed else {
+                    throw MeshEventVerificationError.eventConflict(signed.event.id)
+                }
+                continue
+            }
+            seen[signed.event.id] = signed
+            unique.append(signed)
+        }
+        return unique
     }
 
     private static func eventSort(_ lhs: SignedMeshEvent, _ rhs: SignedMeshEvent) -> Bool {
@@ -77,7 +96,12 @@ public enum NodeMeshProjection {
         }
     }
 
-    private static func authorize(_ event: MeshEvent, projectedState: MeshState, baseState: MeshState) throws {
+    private static func authorize(
+        _ event: MeshEvent,
+        projectedState: MeshState,
+        baseState: MeshState,
+        projectCreators: [String: String]
+    ) throws {
         switch event.type {
         case .nodeAnnounced, .nodeStatusChanged, .nodeAliasUpdated, .messageSent:
             return
@@ -89,12 +113,12 @@ public enum NodeMeshProjection {
                 event: event,
                 projectedState: projectedState,
                 baseState: baseState,
-                allowEmptyProjectBootstrap: true
+                allowEmptyProjectBootstrap: true,
+                projectCreators: projectCreators
             )
         case .projectMemberAdded:
             let project = try projectForAuthorization(event: event, projectedState: projectedState, baseState: baseState)
-            let targetNodeId = event.targetNodeId ?? event.payload.asObject?["nodeId"]?.asString
-            if project.members.isEmpty, targetNodeId == event.actorNodeId {
+            if project.members.isEmpty, projectCreators[project.id] == event.actorNodeId {
                 return
             }
             try requireProjectPermission(
@@ -155,10 +179,14 @@ public enum NodeMeshProjection {
         event: MeshEvent,
         projectedState: MeshState,
         baseState: MeshState,
-        allowEmptyProjectBootstrap: Bool = false
+        allowEmptyProjectBootstrap: Bool = false,
+        projectCreators: [String: String] = [:]
     ) throws {
         let project = try projectForAuthorization(event: event, projectedState: projectedState, baseState: baseState)
         if allowEmptyProjectBootstrap, project.members.isEmpty {
+            guard projectCreators[project.id] == event.actorNodeId else {
+                throw MeshEventVerificationError.unauthorized(permission)
+            }
             return
         }
         guard member(in: project, nodeId: event.actorNodeId)?.permissions.contains(permission) == true else {
@@ -291,6 +319,17 @@ public enum NodeMeshProjection {
             updatedAt: event.wallTime
         )
         upsert(project, in: &state.sharedProjects)
+    }
+
+    private static func recordProjectCreator(from event: MeshEvent, in projectCreators: inout [String: String]) {
+        guard event.type == .projectCreated,
+              let payload = event.payload.asObject,
+              let projectId = payload["id"]?.asString ?? event.projectId,
+              !projectId.isEmpty
+        else {
+            return
+        }
+        projectCreators[projectId] = event.actorNodeId
     }
 
     private static func applyProjectUpdated(_ event: MeshEvent, to state: inout MeshState) throws {

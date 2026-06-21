@@ -1172,7 +1172,7 @@ public struct NodeMeshStore: Sendable {
             throw MeshEventVerificationError.invalidSignature
         }
         if let existing = state.events.first(where: { $0.event.id == signed.event.id }) {
-            guard existing.actorPublicKey == signed.actorPublicKey, existing.signature == signed.signature else {
+            guard existing == signed else {
                 state.auditLog.append(MeshAuditLogEntry(
                     actor: signed.event.actorNodeId,
                     target: signed.event.targetNodeId,
@@ -1199,6 +1199,56 @@ public struct NodeMeshStore: Sendable {
         ))
         try save(state)
         return signed
+    }
+
+    @discardableResult
+    func appendEvents(
+        _ signedEvents: [SignedMeshEvent],
+        expectedActorPublicKey: String
+    ) throws -> [SignedMeshEvent] {
+        guard !signedEvents.isEmpty else {
+            return []
+        }
+        var state = try load()
+        var pending: [SignedMeshEvent] = []
+        for signed in signedEvents {
+            guard try MeshEventSigner.verify(signed, publicKey: expectedActorPublicKey) else {
+                throw MeshEventVerificationError.invalidSignature
+            }
+            if let existing = state.events.first(where: { $0.event.id == signed.event.id }) {
+                guard existing == signed else {
+                    throw MeshEventVerificationError.eventConflict(signed.event.id)
+                }
+                continue
+            }
+            if let existing = pending.first(where: { $0.event.id == signed.event.id }) {
+                guard existing == signed else {
+                    throw MeshEventVerificationError.eventConflict(signed.event.id)
+                }
+                continue
+            }
+            pending.append(signed)
+        }
+
+        guard !pending.isEmpty else {
+            return signedEvents
+        }
+
+        _ = try NodeMeshProjection.project(events: state.events + pending, base: state)
+        state.events.append(contentsOf: pending)
+        for signed in pending {
+            state.eventCursors[signed.event.actorNodeId] = signed.event.id
+            state.auditLog.append(MeshAuditLogEntry(
+                actor: signed.event.actorNodeId,
+                target: signed.event.targetNodeId,
+                action: "event.append",
+                project: signed.event.projectId,
+                allowed: true,
+                message: signed.event.type.rawValue
+            ))
+        }
+        try save(state)
+        return signedEvents
     }
 
     public func listEvents(after cursor: String? = nil, limit: Int = 100) throws -> [SignedMeshEvent] {
@@ -1347,14 +1397,10 @@ public struct NodeMeshStore: Sendable {
             ])
         )
 
-        _ = try appendEvent(
+        _ = try appendEvents([
             MeshEventSigner.sign(created, identity: actorIdentity),
-            expectedActorPublicKey: actorIdentity.publicKey
-        )
-        _ = try appendEvent(
             MeshEventSigner.sign(assigned, identity: actorIdentity),
-            expectedActorPublicKey: actorIdentity.publicKey
-        )
+        ], expectedActorPublicKey: actorIdentity.publicKey)
 
         guard let task = try projectedState().tasks.first(where: { $0.id == taskId }) else {
             throw NodeMeshStoreError.taskMissing(taskId)
