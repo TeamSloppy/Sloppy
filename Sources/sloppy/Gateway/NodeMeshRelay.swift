@@ -221,7 +221,7 @@ actor NodeMeshRelay {
     private func publishProjectSyncEvent(_ envelope: MeshEnvelope) async throws {
         guard let store,
               let projectId = projectId(from: envelope),
-              let project = try? store.load().sharedProjects.first(where: { $0.id == projectId })
+              let project = try? sharedProject(projectIdOrName: projectId, in: store)
         else {
             return
         }
@@ -254,6 +254,14 @@ actor NodeMeshRelay {
               let status = MeshTaskStatus(rawValue: rawStatus)
         else { return }
         persist {
+            guard try taskStatusUpdateIsAuthorized(
+                taskId: taskId,
+                projectIdOrName: payload["projectId"]?.asString,
+                actor: envelope.from,
+                store: store
+            ) else {
+                throw NodeMeshStoreError.permissionDenied("task.status.update")
+            }
             _ = try store.updateTaskStatus(
                 taskId: taskId,
                 projectIdOrName: payload["projectId"]?.asString,
@@ -275,7 +283,7 @@ actor NodeMeshRelay {
         }
 
         do {
-            guard let project = try store.load().sharedProjects.first(where: { $0.id == projectId }) else {
+            guard let project = try sharedProject(projectIdOrName: projectId, in: store) else {
                 return "shared project scope is unknown"
             }
             guard let sourceMember = project.members.first(where: { $0.nodeId == envelope.from }) else {
@@ -291,6 +299,40 @@ actor NodeMeshRelay {
         } catch {
             return "mesh authorization state is unavailable"
         }
+    }
+
+    private func sharedProject(projectIdOrName: String, in store: NodeMeshStore) throws -> SharedProjectRecord? {
+        let projects = try store.listSharedProjects()
+        if let project = projects.first(where: { $0.id == projectIdOrName }) {
+            return project
+        }
+        return projects.first(where: { $0.name == projectIdOrName })
+    }
+
+    private func taskStatusUpdateIsAuthorized(
+        taskId: String,
+        projectIdOrName: String?,
+        actor: String,
+        store: NodeMeshStore
+    ) throws -> Bool {
+        let tasks = try store.listTasks(projectIdOrName: projectIdOrName)
+            .filter { $0.id == taskId }
+        guard !tasks.isEmpty else {
+            throw NodeMeshStoreError.taskMissing(taskId)
+        }
+        guard tasks.count == 1, let task = tasks.first else {
+            throw NodeMeshStoreError.taskAmbiguous(taskId)
+        }
+        guard let project = try sharedProject(projectIdOrName: task.projectId, in: store),
+              let actorMember = project.members.first(where: { $0.nodeId == actor }),
+              actorMember.permissions.contains(MeshPermission.taskUpdate.rawValue)
+        else {
+            return false
+        }
+        let ownsTask = task.assignedNodeId == actor
+        let hasElevatedTaskPermission = actorMember.permissions.contains(MeshPermission.taskAssign.rawValue)
+            || actorMember.permissions.contains(MeshPermission.taskCreate.rawValue)
+        return ownsTask || hasElevatedTaskPermission
     }
 
     private func handleHeartbeat(_ envelope: MeshEnvelope) {

@@ -424,6 +424,59 @@ struct NodeMeshClientTests {
         #expect(try store.load().tasks.first(where: { $0.id == task.id })?.status == .started)
     }
 
+    @Test("client blocks task dispatch assigned to another node")
+    func clientBlocksTaskDispatchAssignedToAnotherNode() async throws {
+        let worker = NodeIdentityGenerator.makeIdentity(name: "Worker", roles: ["worker"], capabilities: ["git"])
+        let otherWorker = NodeIdentityGenerator.makeIdentity(name: "Other", roles: ["worker"], capabilities: ["git"])
+        let laptop = NodeIdentityGenerator.makeIdentity(name: "Laptop", roles: ["client"], capabilities: ["git"])
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        try store.registerNode(worker)
+        try store.registerNode(otherWorker)
+        try store.registerNode(laptop)
+        let project = try store.createSharedProject(name: "Mesh Project", repoUrl: "git@example.com:mesh.git")
+        _ = try store.attachMember(
+            projectIdOrName: project.id,
+            nodeId: worker.nodeId,
+            localRepoPath: "/Users/worker/mesh",
+            role: "worker",
+            permissions: MeshPermission.workerDefaults.rawValues
+        )
+        _ = try store.attachMember(
+            projectIdOrName: project.id,
+            nodeId: otherWorker.nodeId,
+            localRepoPath: "/Users/other/mesh",
+            role: "worker",
+            permissions: MeshPermission.workerDefaults.rawValues
+        )
+        let task = try store.dispatchTask(
+            projectIdOrName: project.id,
+            title: "Implement feature",
+            assignedNodeId: otherWorker.nodeId,
+            actor: laptop.nodeId
+        )
+        let client = NodeMeshClient(config: NodeConfig(identity: worker), meshStore: store)
+        _ = try await client.response(to: authChallengeEnvelope(for: worker, nonce: "nonce_task_wrong_assignee"))
+
+        let response = try #require(await client.response(to: MeshEnvelope(
+            id: "dispatch_wrong_assignee",
+            type: .taskDispatch,
+            from: laptop.nodeId,
+            to: worker.nodeId,
+            scope: project.eventScope,
+            payload: .object([
+                "taskId": .string(task.id),
+                "projectId": .string(project.id),
+                "title": .string(task.title),
+            ])
+        )))
+
+        #expect(response.type == .taskStatusUpdate)
+        #expect(response.payload.asObject?["taskId"] == .string(task.id))
+        #expect(response.payload.asObject?["status"] == .string("blocked"))
+        #expect(response.payload.asObject?["summary"] == .string("Task is not assigned to this node."))
+        #expect(try store.load().tasks.first(where: { $0.id == task.id })?.status == .dispatched)
+    }
+
     @Test("client blocks task dispatch for unknown shared project")
     func clientBlocksTaskDispatchForUnknownSharedProject() async throws {
         let worker = NodeIdentityGenerator.makeIdentity(name: "Worker", roles: ["worker"], capabilities: ["git"])

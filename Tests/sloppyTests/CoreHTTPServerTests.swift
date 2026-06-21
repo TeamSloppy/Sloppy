@@ -703,6 +703,90 @@ func nodeMeshRelayAuditsOfflineTaskDispatchDeliveryFailure() async throws {
 }
 
 @Test
+func nodeMeshRelayRejectsUnauthorizedTaskStatusUpdate() async throws {
+    let stateURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-relay-tests-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("mesh.json")
+    let store = NodeMeshStore(stateURL: stateURL)
+    let laptopIdentity = NodeIdentityGenerator.makeIdentity(name: "Laptop", roles: ["client"], capabilities: ["git"])
+    let workerIdentity = NodeIdentityGenerator.makeIdentity(name: "Worker", roles: ["worker"], capabilities: ["run_agent"])
+    let rogueIdentity = NodeIdentityGenerator.makeIdentity(name: "Rogue", roles: ["worker"], capabilities: ["run_agent"])
+    try store.registerNode(laptopIdentity, status: .offline)
+    try store.registerNode(workerIdentity, status: .offline)
+    try store.registerNode(rogueIdentity, status: .offline)
+    let project = try store.createSharedProject(name: "Mesh Project", repoUrl: "git@example.com:mesh.git")
+    _ = try store.attachMember(
+        projectIdOrName: project.id,
+        nodeId: workerIdentity.nodeId,
+        localRepoPath: "/Users/worker/mesh",
+        role: "worker",
+        permissions: MeshPermission.workerDefaults.rawValues
+    )
+    _ = try store.attachMember(
+        projectIdOrName: project.id,
+        nodeId: rogueIdentity.nodeId,
+        localRepoPath: "/Users/rogue/mesh",
+        role: "worker",
+        permissions: MeshPermission.workerDefaults.rawValues
+    )
+    let task = try store.dispatchTask(
+        projectIdOrName: project.id,
+        title: "Implement feature",
+        assignedNodeId: workerIdentity.nodeId,
+        actor: laptopIdentity.nodeId
+    )
+    let relay = NodeMeshRelay(store: store, logger: Logger(label: "sloppy.node.mesh.relay.status.auth.tests"))
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    var continuation: AsyncStream<String>.Continuation!
+    let sentMessages = WebSocketSentMessageRecorder()
+    let stream = AsyncStream<String> { next in
+        continuation = next
+    }
+    let connection = WebSocketConnectionContext(
+        sendText: { text in
+            await sentMessages.append(text)
+            return true
+        },
+        close: {},
+        incomingMessages: { stream }
+    )
+
+    let relayTask = Task {
+        await relay.attach(connection: connection, remoteAddress: "127.0.0.1")
+    }
+    try await authenticateRelayConnection(
+        identity: rogueIdentity,
+        continuation: continuation,
+        sentMessages: sentMessages,
+        encoder: encoder,
+        decoder: decoder
+    )
+    continuation.yield(try encodedMeshEnvelope(
+        MeshEnvelope(
+            id: "status_unauthorized",
+            type: .taskStatusUpdate,
+            from: rogueIdentity.nodeId,
+            scope: project.eventScope,
+            payload: .object([
+                "taskId": .string(task.id),
+                "projectId": .string(project.id),
+                "status": .string(MeshTaskStatus.readyForReview.rawValue),
+            ])
+        ),
+        encoder: encoder
+    ))
+
+    try await Task.sleep(nanoseconds: 100_000_000)
+    #expect(try store.load().tasks.first(where: { $0.id == task.id })?.status == .dispatched)
+
+    continuation.finish()
+    await relayTask.value
+}
+
+@Test
 func nodeMeshRelayRejectsRPCWithoutPermission() async throws {
     let stateURL = FileManager.default.temporaryDirectory
         .appendingPathComponent("sloppy-relay-tests-\(UUID().uuidString)", isDirectory: true)
@@ -832,6 +916,173 @@ func nodeMeshRelayRejectsRPCWithoutPermission() async throws {
     #expect(audit.action == "rpc.request")
     #expect(audit.allowed == false)
     #expect(audit.message == "missing node.rpc permission")
+
+    laptopContinuation.finish()
+    workerContinuation.finish()
+    await laptopTask.value
+    await workerTask.value
+}
+
+@Test
+func nodeMeshRelayUsesProjectedMembershipForRPC() async throws {
+    let stateURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-relay-tests-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("mesh.json")
+    let store = NodeMeshStore(stateURL: stateURL)
+    let laptopIdentity = NodeIdentityGenerator.makeIdentity(name: "Laptop", roles: ["client"], capabilities: ["git"])
+    let workerIdentity = NodeIdentityGenerator.makeIdentity(name: "Worker", roles: ["worker"], capabilities: ["run_agent"])
+    let projectId = "sp_projected_acl"
+    let staleProject = SharedProjectRecord(
+        id: projectId,
+        name: "Projected ACL",
+        repoUrl: "git@example.com:projected-acl.git",
+        members: [
+            SharedProjectMember(
+                nodeId: laptopIdentity.nodeId,
+                localRepoPath: "/Users/laptop/mesh",
+                role: "controller",
+                permissions: [MeshPermission.projectWrite.rawValue, MeshPermission.nodeRPC.rawValue]
+            ),
+            SharedProjectMember(
+                nodeId: workerIdentity.nodeId,
+                localRepoPath: "/Users/worker/mesh",
+                role: "worker",
+                permissions: MeshPermission.workerDefaults.rawValues
+            ),
+        ]
+    )
+    let events = try [
+        signedRelayEvent(.projectCreated, actor: laptopIdentity, projectId: projectId, logicalTime: 1, payload: [
+            "id": .string(projectId),
+            "name": .string(staleProject.name),
+            "repoUrl": .string(staleProject.repoUrl),
+        ]),
+        signedRelayEvent(.projectMemberAdded, actor: laptopIdentity, target: laptopIdentity.nodeId, projectId: projectId, logicalTime: 2, payload: [
+            "nodeId": .string(laptopIdentity.nodeId),
+            "localRepoPath": .string("/Users/laptop/mesh"),
+            "role": .string("controller"),
+            "permissions": .array([
+                .string(MeshPermission.projectWrite.rawValue),
+                .string(MeshPermission.nodeRPC.rawValue),
+            ]),
+        ]),
+        signedRelayEvent(.projectMemberAdded, actor: laptopIdentity, target: workerIdentity.nodeId, projectId: projectId, logicalTime: 3, payload: [
+            "nodeId": .string(workerIdentity.nodeId),
+            "localRepoPath": .string("/Users/worker/mesh"),
+            "role": .string("worker"),
+            "permissions": .array(MeshPermission.workerDefaults.rawValues.map(JSONValue.string)),
+        ]),
+        signedRelayEvent(.projectMemberRemoved, actor: laptopIdentity, target: laptopIdentity.nodeId, projectId: projectId, logicalTime: 4, payload: [
+            "nodeId": .string(laptopIdentity.nodeId),
+        ]),
+    ]
+    try store.save(MeshState(
+        nodes: [
+            MeshNodeRecord(
+                id: laptopIdentity.nodeId,
+                name: laptopIdentity.name,
+                publicKey: laptopIdentity.publicKey,
+                roles: laptopIdentity.roles,
+                capabilities: laptopIdentity.capabilities
+            ),
+            MeshNodeRecord(
+                id: workerIdentity.nodeId,
+                name: workerIdentity.name,
+                publicKey: workerIdentity.publicKey,
+                roles: workerIdentity.roles,
+                capabilities: workerIdentity.capabilities
+            ),
+        ],
+        sharedProjects: [staleProject],
+        events: events
+    ))
+
+    let relay = NodeMeshRelay(store: store, logger: Logger(label: "sloppy.node.mesh.relay.projected-acl.tests"))
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    var laptopContinuation: AsyncStream<String>.Continuation!
+    let laptopMessages = WebSocketSentMessageRecorder()
+    let laptopStream = AsyncStream<String> { next in
+        laptopContinuation = next
+    }
+    let laptopConnection = WebSocketConnectionContext(
+        sendText: { text in
+            await laptopMessages.append(text)
+            return true
+        },
+        close: {},
+        incomingMessages: { laptopStream }
+    )
+    var workerContinuation: AsyncStream<String>.Continuation!
+    let workerMessages = WebSocketSentMessageRecorder()
+    let workerStream = AsyncStream<String> { next in
+        workerContinuation = next
+    }
+    let workerConnection = WebSocketConnectionContext(
+        sendText: { text in
+            await workerMessages.append(text)
+            return true
+        },
+        close: {},
+        incomingMessages: { workerStream }
+    )
+
+    let laptopTask = Task {
+        await relay.attach(connection: laptopConnection, remoteAddress: "127.0.0.1")
+    }
+    let workerTask = Task {
+        await relay.attach(connection: workerConnection, remoteAddress: "127.0.0.1")
+    }
+
+    try await authenticateRelayConnection(
+        identity: laptopIdentity,
+        continuation: laptopContinuation,
+        sentMessages: laptopMessages,
+        encoder: encoder,
+        decoder: decoder
+    )
+    try await authenticateRelayConnection(
+        identity: workerIdentity,
+        continuation: workerContinuation,
+        sentMessages: workerMessages,
+        encoder: encoder,
+        decoder: decoder
+    )
+    try await waitUntil("mesh nodes authenticated for projected acl test") {
+        await relay.activeNodeIds().sorted() == [laptopIdentity.nodeId, workerIdentity.nodeId].sorted()
+    }
+
+    laptopContinuation.yield(try encodedMeshEnvelope(
+        MeshEnvelope(
+            id: "rpc_projected_revoked",
+            type: .rpcRequest,
+            from: laptopIdentity.nodeId,
+            to: workerIdentity.nodeId,
+            scope: staleProject.eventScope,
+            payload: .object(["method": .string("node.status")])
+        ),
+        encoder: encoder
+    ))
+
+    try await waitUntil("projected revoked rpc response sent") {
+        let messages = await laptopMessages.all
+        return messages.contains { message in
+            guard let envelope = try? decoder.decode(MeshEnvelope.self, from: Data(message.utf8)) else {
+                return false
+            }
+            return envelope.type == .rpcResponse &&
+                envelope.payload.asObject?["requestId"] == .string("rpc_projected_revoked")
+        }
+    }
+    #expect(await workerMessages.all.contains { message in
+        guard let envelope = try? decoder.decode(MeshEnvelope.self, from: Data(message.utf8)) else {
+            return false
+        }
+        return envelope.type == .rpcRequest
+    } == false)
 
     laptopContinuation.finish()
     workerContinuation.finish()
@@ -1341,6 +1592,27 @@ private func authenticateRelayConnection(
     let response = try #require(try NodeMeshClient.makeAuthResponseEnvelope(identity: identity, challengeEnvelope: challenge))
     continuation.yield(try encodedMeshEnvelope(response, encoder: encoder))
     continuation.yield(try encodedMeshEnvelope(NodeMeshClient.makeHelloEnvelope(identity: identity), encoder: encoder))
+}
+
+private func signedRelayEvent(
+    _ type: MeshEventType,
+    actor: NodeIdentity,
+    target: String? = nil,
+    projectId: String?,
+    logicalTime: UInt64,
+    payload: [String: JSONValue]
+) throws -> SignedMeshEvent {
+    try MeshEventSigner.sign(
+        MeshEvent(
+            type: type,
+            actorNodeId: actor.nodeId,
+            targetNodeId: target,
+            projectId: projectId,
+            logicalTime: logicalTime,
+            payload: .object(payload)
+        ),
+        identity: actor
+    )
 }
 
 private func waitUntil(
