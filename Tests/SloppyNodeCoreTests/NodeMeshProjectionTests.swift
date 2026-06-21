@@ -81,6 +81,26 @@ struct NodeMeshProjectionTests {
         #expect(state.sharedProjects.first?.name == "Updated Name")
     }
 
+    @Test("projection rejects tampered signed events before mutating state")
+    func projectionRejectsTamperedSignedEventsBeforeMutatingState() throws {
+        let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let projectId = "sp_tampered"
+        var signed = try signed(.projectCreated, actor: work, projectId: projectId, logicalTime: 1, payload: [
+            "id": .string(projectId),
+            "name": .string("Tampered"),
+            "repoUrl": .string("git@example.com:tampered.git"),
+        ])
+        signed.event.payload = .object([
+            "id": .string(projectId),
+            "name": .string("Tampered"),
+            "repoUrl": .string("git@example.com:modified.git"),
+        ])
+
+        #expect(throws: MeshEventVerificationError.invalidSignature) {
+            _ = try NodeMeshProjection.project(events: [signed], base: MeshState())
+        }
+    }
+
     @Test("projected state preserves stored metadata while rebuilding derived state")
     func projectedStatePreservesStoredMetadataWhileRebuildingDerivedState() throws {
         let store = NodeMeshStore(stateURL: temporaryStateURL())
@@ -130,6 +150,46 @@ struct NodeMeshProjectionTests {
         #expect(projected.eventCursors == [work.nodeId: taskEvent.event.id])
         #expect(projected.sharedProjects.map(\.id) == [projectId])
         #expect(projected.tasks.map(\.id) == ["mesh_task_projection"])
+    }
+
+    @Test("projection replays acl grants and revocations")
+    func projectionReplaysAclGrantsAndRevocations() throws {
+        let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let home = NodeIdentityGenerator.makeIdentity(name: "Home", roles: ["worker"], capabilities: ["git"])
+        let projectId = "sp_acl"
+        let events = try [
+            signed(.projectCreated, actor: work, projectId: projectId, logicalTime: 1, payload: [
+                "id": .string(projectId),
+                "name": .string("ACL"),
+                "repoUrl": .string("git@example.com:acl.git"),
+            ]),
+            signed(.projectMemberAdded, actor: work, target: home.nodeId, projectId: projectId, logicalTime: 2, payload: [
+                "nodeId": .string(home.nodeId),
+                "localRepoPath": .string("/home/acl"),
+                "role": .string("worker"),
+                "permissions": .array([
+                    .string(MeshPermission.projectRead.rawValue),
+                ]),
+            ]),
+            signed(.aclGranted, actor: work, target: home.nodeId, projectId: projectId, logicalTime: 3, payload: [
+                "permissions": .array([
+                    .string(MeshPermission.taskCreate.rawValue),
+                    .string(MeshPermission.nodeShell.rawValue),
+                ]),
+            ]),
+            signed(.aclRevoked, actor: work, target: home.nodeId, projectId: projectId, logicalTime: 4, payload: [
+                "permissions": .array([
+                    .string(MeshPermission.projectRead.rawValue),
+                    .string(MeshPermission.nodeShell.rawValue),
+                ]),
+            ]),
+        ]
+
+        let state = try NodeMeshProjection.project(events: events, base: MeshState())
+
+        let project = try #require(state.sharedProjects.first(where: { $0.id == projectId }))
+        let member = try #require(project.members.first(where: { $0.nodeId == home.nodeId }))
+        #expect(member.permissions == [MeshPermission.taskCreate.rawValue])
     }
 
     @Test("node announcement uses signed identity over forged payload")

@@ -9,6 +9,9 @@ public enum NodeMeshProjection {
         state.tasks.removeAll()
 
         for signed in events.sorted(by: eventSort) {
+            guard try MeshEventSigner.verify(signed, publicKey: signed.actorPublicKey) else {
+                throw MeshEventVerificationError.invalidSignature
+            }
             try apply(signed, to: &state)
         }
 
