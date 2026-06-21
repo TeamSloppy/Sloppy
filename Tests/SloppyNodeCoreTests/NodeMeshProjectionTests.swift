@@ -177,6 +177,33 @@ struct NodeMeshProjectionTests {
         }
     }
 
+    @Test("task creation preserves same task id in different projects")
+    func taskCreationPreservesSameTaskIDInDifferentProjects() throws {
+        let owner = NodeIdentityGenerator.makeIdentity(name: "Owner", roles: ["client"], capabilities: ["git"])
+        let worker = NodeIdentityGenerator.makeIdentity(name: "Worker", roles: ["worker"], capabilities: ["git"])
+        let projectA = "sp_project_a"
+        let projectB = "sp_project_b"
+        let taskId = "mesh_task_shared_id"
+        let events = try authorizedProjectEvents(projectId: projectA, owner: owner, worker: worker)
+            + authorizedProjectEvents(projectId: projectB, owner: owner, worker: worker, startLogicalTime: 10)
+            + [
+                signed(.taskCreated, actor: owner, projectId: projectA, logicalTime: 20, payload: [
+                    "taskId": .string(taskId),
+                    "title": .string("Run build A"),
+                ]),
+                signed(.taskCreated, actor: owner, projectId: projectB, logicalTime: 21, payload: [
+                    "taskId": .string(taskId),
+                    "title": .string("Run build B"),
+                ]),
+            ]
+
+        let state = try NodeMeshProjection.project(events: events, base: baseState(nodes: [owner, worker]))
+
+        let matchingTasks = state.tasks.filter { $0.id == taskId }
+        #expect(Set(matchingTasks.map(\.projectId)) == [projectA, projectB])
+        #expect(Set(matchingTasks.map(\.title)) == ["Run build A", "Run build B"])
+    }
+
     @Test("project creation name cannot shadow existing legacy project id without write permission")
     func projectCreationNameCannotShadowExistingLegacyProjectIDWithoutWritePermission() throws {
         let owner = NodeIdentityGenerator.makeIdentity(name: "Owner", roles: ["client"], capabilities: ["git"])

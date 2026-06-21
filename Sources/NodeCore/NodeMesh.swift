@@ -1569,7 +1569,7 @@ public struct NodeMeshStore: Sendable {
             return state.tasks
         }
         let projected = try projectedState()
-        return mergeById(stored: state.tasks, projected: projected.tasks, id: \.id)
+        return mergeTasks(stored: state.tasks, projected: projected.tasks)
     }
 
     private func mergeById<Value>(
@@ -1583,6 +1583,21 @@ public struct NodeMeshStore: Sendable {
                 merged[index] = projectedValue
             } else {
                 merged.append(projectedValue)
+            }
+        }
+        return merged
+    }
+
+    private func mergeTasks(
+        stored: [MeshTaskRecord],
+        projected: [MeshTaskRecord]
+    ) -> [MeshTaskRecord] {
+        var merged = stored
+        for projectedTask in projected {
+            if let index = merged.firstIndex(where: { $0.id == projectedTask.id && $0.projectId == projectedTask.projectId }) {
+                merged[index] = projectedTask
+            } else {
+                merged.append(projectedTask)
             }
         }
         return merged

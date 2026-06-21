@@ -713,6 +713,72 @@ struct NodeMeshStoreTests {
         #expect(Set(try store.listTasks(projectIdOrName: project.name).map(\.id)) == ["mesh_task_legacy", "mesh_task_projected"])
     }
 
+    @Test("list tasks keeps same task id in different projects")
+    func listTasksKeepsSameTaskIDInDifferentProjects() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let home = NodeIdentityGenerator.makeIdentity(name: "Home", roles: ["worker"], capabilities: ["git"])
+        let legacyProject = SharedProjectRecord(
+            id: "sp_legacy",
+            name: "Legacy",
+            repoUrl: "git@example.com:legacy.git"
+        )
+        let projectedProject = SharedProjectRecord(
+            id: "sp_projected",
+            name: "Projected",
+            repoUrl: "git@example.com:projected.git",
+            members: [
+                SharedProjectMember(
+                    nodeId: work.nodeId,
+                    localRepoPath: "/work/projected",
+                    role: "controller",
+                    permissions: [
+                        MeshPermission.projectWrite.rawValue,
+                        MeshPermission.taskCreate.rawValue,
+                        MeshPermission.taskAssign.rawValue,
+                    ]
+                ),
+                SharedProjectMember(
+                    nodeId: home.nodeId,
+                    localRepoPath: "/home/projected",
+                    role: "worker",
+                    permissions: MeshPermission.workerDefaults.rawValues
+                ),
+            ]
+        )
+        let taskId = "mesh_task_shared_id"
+        let legacyTask = MeshTaskRecord(
+            id: taskId,
+            projectId: legacyProject.id,
+            title: "Legacy task",
+            assignedNodeId: home.nodeId,
+            status: .dispatched,
+            updatedAt: Date(timeIntervalSince1970: 10)
+        )
+        let events = try [
+            signedEvent(.taskCreated, actor: work, projectId: projectedProject.id, logicalTime: 1, payload: [
+                "taskId": .string(taskId),
+                "title": .string("Projected task"),
+            ]),
+            signedEvent(.taskAssigned, actor: work, target: home.nodeId, projectId: projectedProject.id, logicalTime: 2, payload: [
+                "taskId": .string(taskId),
+                "assignedNodeId": .string(home.nodeId),
+            ]),
+        ]
+        try store.save(MeshState(
+            nodes: baseNodes([work, home]),
+            sharedProjects: [legacyProject, projectedProject],
+            tasks: [legacyTask],
+            events: events
+        ))
+
+        let tasks = try store.listTasks()
+        #expect(tasks.count == 2)
+        #expect(Set(tasks.map(\.projectId)) == [legacyProject.id, projectedProject.id])
+        #expect(try store.listTasks(projectIdOrName: legacyProject.id).map(\.title) == ["Legacy task"])
+        #expect(try store.listTasks(projectIdOrName: projectedProject.id).map(\.title) == ["Projected task"])
+    }
+
     @Test("projected nodes merge with stored nodes for listing and routing")
     func projectedNodesMergeWithStoredNodesForListingAndRouting() throws {
         let store = NodeMeshStore(stateURL: temporaryStateURL())

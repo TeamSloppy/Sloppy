@@ -557,7 +557,7 @@ public enum NodeMeshProjection {
     }
 
     private static func upsert(_ task: MeshTaskRecord, in tasks: inout [MeshTaskRecord]) {
-        if let index = tasks.firstIndex(where: { $0.id == task.id }) {
+        if let index = tasks.firstIndex(where: { $0.id == task.id && $0.projectId == task.projectId }) {
             tasks[index] = task
         } else {
             tasks.append(task)
