@@ -6,7 +6,18 @@ import SloppyNodeCore
 
 extension CoreService {
     public func getMeshState() throws -> MeshState {
-        try nodeMeshStore.load()
+        var state = try nodeMeshStore.load()
+        if let config = try? nodeConfigStore.load() {
+            state.localNode = MeshLocalNodeRecord(
+                id: config.identity.nodeId,
+                name: config.identity.name,
+                publicKey: config.identity.publicKey,
+                roles: config.identity.roles,
+                capabilities: config.identity.capabilities,
+                relayURL: config.relayURL
+            )
+        }
+        return state
     }
 
     public func listMeshNodes() throws -> [MeshNodeRecord] {

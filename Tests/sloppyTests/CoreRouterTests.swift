@@ -377,6 +377,37 @@ func meshAPIRemoteJoinRejectsInvalidBodyWithExpectedShape() async throws {
 }
 
 @Test
+func meshAPIStateIncludesLocalNodeConfigAfterRemoteJoin() async throws {
+    let configURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-tests-\(UUID().uuidString)")
+        .appendingPathComponent("node.json")
+    let identity = NodeIdentity(
+        nodeId: "node_work",
+        name: "Work Mac",
+        publicKey: "ed25519:work_public",
+        privateKey: "work_private",
+        roles: ["worker"],
+        capabilities: ["run_agent", "git"]
+    )
+    let configStore = NodeConfigStore(configURL: configURL)
+    try configStore.save(NodeConfig(identity: identity, relayURL: "http://mesh.example.com"))
+    let service = CoreService(config: .test, nodeConfigStore: configStore)
+    let router = CoreRouter(service: service)
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let response = await router.handle(method: "GET", path: "/v1/node/mesh", body: nil)
+
+    #expect(response.status == 200)
+    let state = try decoder.decode(MeshState.self, from: response.body)
+    #expect(state.localNode?.id == "node_work")
+    #expect(state.localNode?.name == "Work Mac")
+    #expect(state.localNode?.relayURL == "http://mesh.example.com")
+    #expect(state.localNode?.roles == ["worker"])
+    #expect(state.localNode?.capabilities == ["run_agent", "git"])
+}
+
+@Test
 func sessionListEndpointsSupportPaginationAndRecentMessages() async throws {
     let service = CoreService(config: .test)
     let router = CoreRouter(service: service)

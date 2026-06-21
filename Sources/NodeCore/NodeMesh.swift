@@ -207,6 +207,31 @@ public struct MeshNodeRecord: Codable, Sendable, Equatable {
     }
 }
 
+public struct MeshLocalNodeRecord: Codable, Sendable, Equatable {
+    public var id: String
+    public var name: String
+    public var publicKey: String
+    public var roles: [String]
+    public var capabilities: [String]
+    public var relayURL: String?
+
+    public init(
+        id: String,
+        name: String,
+        publicKey: String,
+        roles: [String],
+        capabilities: [String],
+        relayURL: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.publicKey = publicKey
+        self.roles = roles
+        self.capabilities = capabilities
+        self.relayURL = relayURL
+    }
+}
+
 public struct MeshNetworkUpdateRequest: Codable, Sendable, Equatable {
     public var id: String
     public var name: String?
@@ -766,6 +791,7 @@ public struct MeshAuditLogEntry: Codable, Sendable, Equatable {
 public struct MeshState: Codable, Sendable, Equatable {
     public var networkId: String
     public var networkName: String
+    public var localNode: MeshLocalNodeRecord?
     public var nodes: [MeshNodeRecord]
     public var invites: [MeshInvite]
     public var sharedProjects: [SharedProjectRecord]
@@ -778,6 +804,7 @@ public struct MeshState: Codable, Sendable, Equatable {
     public init(
         networkId: String = "personal",
         networkName: String = "personal",
+        localNode: MeshLocalNodeRecord? = nil,
         nodes: [MeshNodeRecord] = [],
         invites: [MeshInvite] = [],
         sharedProjects: [SharedProjectRecord] = [],
@@ -789,6 +816,7 @@ public struct MeshState: Codable, Sendable, Equatable {
     ) {
         self.networkId = networkId
         self.networkName = networkName
+        self.localNode = localNode
         self.nodes = nodes
         self.invites = invites
         self.sharedProjects = sharedProjects
@@ -802,6 +830,7 @@ public struct MeshState: Codable, Sendable, Equatable {
     enum CodingKeys: String, CodingKey {
         case networkId
         case networkName
+        case localNode
         case nodes
         case invites
         case sharedProjects
@@ -816,6 +845,7 @@ public struct MeshState: Codable, Sendable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         networkId = try container.decodeIfPresent(String.self, forKey: .networkId) ?? "personal"
         networkName = try container.decodeIfPresent(String.self, forKey: .networkName) ?? "personal"
+        localNode = try container.decodeIfPresent(MeshLocalNodeRecord.self, forKey: .localNode)
         nodes = try container.decodeIfPresent([MeshNodeRecord].self, forKey: .nodes) ?? []
         invites = try container.decodeIfPresent([MeshInvite].self, forKey: .invites) ?? []
         sharedProjects = try container.decodeIfPresent([SharedProjectRecord].self, forKey: .sharedProjects) ?? []

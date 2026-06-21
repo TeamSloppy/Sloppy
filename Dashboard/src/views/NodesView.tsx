@@ -211,6 +211,7 @@ function MeshModalFrame({
 
 export function NodesView({ coreApi }: { coreApi: CoreApi }) {
   const [nodes, setNodes] = useState<AnyRecord[]>([]);
+  const [localNode, setLocalNode] = useState<AnyRecord | null>(null);
   const [projects, setProjects] = useState<AnyRecord[]>([]);
   const [tasks, setTasks] = useState<AnyRecord[]>([]);
   const [invites, setInvites] = useState<AnyRecord[]>([]);
@@ -260,6 +261,9 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
     return Array.from(map.values()).sort((a, b) => Number(b.current) - Number(a.current) || a.id.localeCompare(b.id));
   }, [invites, networkId, networkName]);
   const meshHealth = useMemo(() => {
+    if (localNode && text(localNode.relayURL)) {
+      return { label: "Joined remote mesh", className: "online", detail: `Relay ${endpointHost(localNode.relayURL)}.` };
+    }
     if (nodes.length === 0) {
       return { label: "Setup needed", className: "empty", detail: "Register at least one node public key." };
     }
@@ -267,7 +271,7 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
       return { label: "Waiting for nodes", className: "degraded", detail: "Registered nodes exist, but none are connected." };
     }
     return { label: "Online", className: "online", detail: `${onlineNodes.length} connected node${onlineNodes.length === 1 ? "" : "s"}.` };
-  }, [nodes.length, onlineNodes.length]);
+  }, [localNode, nodes.length, onlineNodes.length]);
   const graphNodes = useMemo<MeshGraphNode[]>(() => {
     const centerX = 50;
     const centerY = 43;
@@ -323,8 +327,10 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
       const nextTasks = records(state.tasks);
       const nextInvites = records(state.invites);
       const nextAuditLog = records(state.auditLog);
+      const nextLocalNode = state.localNode && typeof state.localNode === "object" ? state.localNode as AnyRecord : null;
       const nextNetworkId = text(state.networkId, "personal");
       setNodes(nextNodes);
+      setLocalNode(nextLocalNode);
       setProjects(nextProjects);
       setTasks(nextTasks);
       setInvites(nextInvites);
@@ -333,8 +339,11 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
       setNetworkName(text(state.networkName, nextNetworkId));
       setActiveSystemId((current) => current || nextNetworkId);
 
-      const firstNodeId = text(nextNodes[0]?.id);
-      setSelectedNodeId((current) => current && nextNodes.some((node) => text(node.id) === current) ? current : firstNodeId);
+      const firstNodeId = text(nextLocalNode?.id) || text(nextNodes[0]?.id);
+      setSelectedNodeId((current) => {
+        const knownNodeIds = [text(nextLocalNode?.id), ...nextNodes.map((node) => text(node.id))].filter(Boolean);
+        return current && knownNodeIds.includes(current) ? current : firstNodeId;
+      });
     } catch {
       setError("Mesh state could not be loaded.");
     } finally {
@@ -792,6 +801,11 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
           <small>{meshHealth.detail}</small>
         </article>
         <article>
+          <span>Local node</span>
+          <strong>{localNode ? text(localNode.name, text(localNode.id)) : "Not joined"}</strong>
+          <small>{localNode ? text(localNode.relayURL, "No relay configured") : "Use Join Remote Mesh"}</small>
+        </article>
+        <article>
           <span>Capacity</span>
           <strong>{onlineNodes.length}/{nodes.length} online</strong>
           <small>{projects.length} projects, {tasks.length} tasks</small>
@@ -886,7 +900,22 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
                 </button>
               </div>
               <div className="nodes-list">
-                {nodes.length === 0 ? <p className="nodes-empty">No mesh nodes registered.</p> : nodes.map((node) => (
+                {localNode ? (
+                  <button
+                    type="button"
+                    className={`nodes-row ${selectedNodeId === text(localNode.id) ? "selected" : ""}`}
+                    onClick={() => setSelectedNodeId(text(localNode.id))}
+                  >
+                    <span className="nodes-status-dot online" />
+                    <span>
+                      <strong>{text(localNode.name, text(localNode.id))}</strong>
+                      <small>{list(localNode.roles).join(", ") || "node"} / {list(localNode.capabilities).join(", ") || "no capabilities"}</small>
+                      <small>{text(localNode.relayURL, "No relay configured")}</small>
+                    </span>
+                    <em>This machine</em>
+                  </button>
+                ) : null}
+                {nodes.length === 0 ? <p className="nodes-empty">{localNode ? "No remote registry nodes cached locally." : "No mesh nodes registered."}</p> : nodes.map((node) => (
                   <button
                     key={text(node.id)}
                     type="button"
