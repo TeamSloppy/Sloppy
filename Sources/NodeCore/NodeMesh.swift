@@ -1459,8 +1459,8 @@ public struct NodeMeshStore: Sendable {
         storedState: MeshState,
         projectedState: MeshState
     ) -> SharedProjectRecord? {
-        storedState.sharedProjects.first(where: { $0.id == projectIdOrName || $0.name == projectIdOrName })
-            ?? projectedState.sharedProjects.first(where: { $0.id == projectIdOrName || $0.name == projectIdOrName })
+        projectedState.sharedProjects.first(where: { $0.id == projectIdOrName || $0.name == projectIdOrName })
+            ?? storedState.sharedProjects.first(where: { $0.id == projectIdOrName || $0.name == projectIdOrName })
     }
 
     private func nextLogicalTime(from state: MeshState) -> UInt64 {
