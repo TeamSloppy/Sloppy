@@ -252,17 +252,41 @@ public struct MeshInviteAcceptRequest: Codable, Sendable, Equatable {
     public var token: String
     public var endpoint: String?
     public var allowRemote: Bool
+    public var nodeId: String?
+    public var name: String?
+    public var publicKey: String?
+    public var roles: [String]?
+    public var capabilities: [String]?
 
-    public init(token: String, endpoint: String? = nil, allowRemote: Bool = true) {
+    public init(
+        token: String,
+        endpoint: String? = nil,
+        allowRemote: Bool = true,
+        nodeId: String? = nil,
+        name: String? = nil,
+        publicKey: String? = nil,
+        roles: [String]? = nil,
+        capabilities: [String]? = nil
+    ) {
         self.token = token
         self.endpoint = endpoint
         self.allowRemote = allowRemote
+        self.nodeId = nodeId
+        self.name = name
+        self.publicKey = publicKey
+        self.roles = roles
+        self.capabilities = capabilities
     }
 
     enum CodingKeys: String, CodingKey {
         case token
         case endpoint
         case allowRemote
+        case nodeId
+        case name
+        case publicKey
+        case roles
+        case capabilities
     }
 
     public init(from decoder: Decoder) throws {
@@ -270,6 +294,11 @@ public struct MeshInviteAcceptRequest: Codable, Sendable, Equatable {
         self.token = try container.decode(String.self, forKey: .token)
         self.endpoint = try container.decodeIfPresent(String.self, forKey: .endpoint)
         self.allowRemote = try container.decodeIfPresent(Bool.self, forKey: .allowRemote) ?? true
+        self.nodeId = try container.decodeIfPresent(String.self, forKey: .nodeId)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name)
+        self.publicKey = try container.decodeIfPresent(String.self, forKey: .publicKey)
+        self.roles = try container.decodeIfPresent([String].self, forKey: .roles)
+        self.capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities)
     }
 }
 
@@ -343,7 +372,7 @@ public struct MeshInvite: Codable, Sendable, Equatable {
     public var isConsumed: Bool { consumedAt != nil }
 
     public var bundleToken: String? {
-        guard let relayURL, let publicKey else { return nil }
+        guard let relayURL else { return nil }
         return try? MeshInviteBundle(
             inviteToken: token,
             relayURL: relayURL,
@@ -426,14 +455,14 @@ public struct MeshInviteBundle: Codable, Sendable, Equatable {
     public var inviteToken: String
     public var relayURL: String
     public var nodeId: String?
-    public var publicKey: String
+    public var publicKey: String?
 
     public init(
         version: Int = 1,
         inviteToken: String,
         relayURL: String,
         nodeId: String? = nil,
-        publicKey: String
+        publicKey: String? = nil
     ) {
         self.version = version
         self.inviteToken = inviteToken
@@ -467,7 +496,7 @@ public struct MeshInviteBundle: Codable, Sendable, Equatable {
         guard bundle.version == 1 else {
             throw MeshInviteBundleError.unsupportedVersion(bundle.version)
         }
-        guard !bundle.inviteToken.isEmpty, !bundle.relayURL.isEmpty, !bundle.publicKey.isEmpty else {
+        guard !bundle.inviteToken.isEmpty, !bundle.relayURL.isEmpty else {
             throw MeshInviteBundleError.invalidPayload
         }
         return bundle

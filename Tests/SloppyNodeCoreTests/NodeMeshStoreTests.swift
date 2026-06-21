@@ -149,6 +149,52 @@ struct NodeMeshStoreTests {
         #expect(node.endpoint == "https://sloppy.example.com")
     }
 
+    @Test("generic bundled invite does not require a pre-bound public key")
+    func genericBundledInviteDoesNotRequirePreBoundPublicKey() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let invite = try store.createInvite(
+            networkId: "personal",
+            name: "Work Mac",
+            roles: ["worker"],
+            capabilities: ["run_agent", "git"],
+            ttlSeconds: 60,
+            relayURL: "https://mesh.example.com"
+        )
+
+        let bundleToken = try #require(invite.bundleToken)
+        let bundle = try MeshInviteBundle.parse(bundleToken)
+
+        #expect(bundle.inviteToken == invite.token)
+        #expect(bundle.relayURL == "https://mesh.example.com")
+        #expect(bundle.nodeId == nil)
+        #expect(bundle.publicKey == nil)
+    }
+
+    @Test("generic invite accepts caller supplied identity")
+    func genericInviteAcceptsCallerSuppliedIdentity() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let identity = NodeIdentityGenerator.makeIdentity(name: "Work Mac", roles: ["worker"], capabilities: ["run_agent", "git"])
+        let invite = try store.createInvite(
+            networkId: "personal",
+            name: "Work Mac",
+            roles: ["worker"],
+            capabilities: ["run_agent", "git"],
+            ttlSeconds: 60,
+            relayURL: "https://mesh.example.com"
+        )
+        let token = try #require(invite.bundleToken)
+
+        let node = try store.consumeInvite(token: token, identity: identity, endpoint: "https://mesh.example.com")
+
+        #expect(node.id == identity.nodeId)
+        #expect(node.name == "Work Mac")
+        #expect(node.publicKey == identity.publicKey)
+        #expect(node.endpoint == "https://mesh.example.com")
+        let state = try store.load()
+        #expect(state.invites.first?.consumedByNodeId == identity.nodeId)
+        #expect(state.nodes.map(\.id) == [identity.nodeId])
+    }
+
     @Test("accept bundled invite registers expected node from one token")
     func acceptBundledInviteRegistersExpectedNodeFromOneToken() throws {
         let store = NodeMeshStore(stateURL: temporaryStateURL())
