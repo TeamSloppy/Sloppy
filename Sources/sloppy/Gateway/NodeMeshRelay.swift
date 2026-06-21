@@ -166,6 +166,13 @@ actor NodeMeshRelay {
             }
             return
         }
+        if envelope.type == .taskDispatch, let denial = taskDispatchAuthorizationDenial(for: envelope, target: target) {
+            try await sendForbiddenRPCResponse(for: envelope, message: denial)
+            persist {
+                try store?.recordRouteFailure(envelope, target: target, message: denial)
+            }
+            return
+        }
         guard let connection = connections[target] else {
             logger.warning(
                 "Node mesh target is not connected",
@@ -207,6 +214,9 @@ actor NodeMeshRelay {
         }
         let state = try store.load()
         for envelope in state.envelopes where envelope.type == .taskDispatch && envelope.to == nodeId {
+            guard taskDispatchAuthorizationDenial(for: envelope, target: nodeId) == nil else {
+                continue
+            }
             try await send(envelope, over: connection.context)
             let taskId = envelope.payload.asObject?["taskId"]?.asString ?? envelope.id
             persist {
@@ -345,6 +355,46 @@ actor NodeMeshRelay {
         let hasElevatedTaskPermission = actorMember.permissions.contains(MeshPermission.taskAssign.rawValue)
             || actorMember.permissions.contains(MeshPermission.taskCreate.rawValue)
         return ownsTask || hasElevatedTaskPermission
+    }
+
+    private func taskDispatchAuthorizationDenial(for envelope: MeshEnvelope, target: String) -> String? {
+        guard let store,
+              envelope.type == .taskDispatch
+        else {
+            return nil
+        }
+        let payload = envelope.payload.asObject ?? [:]
+        let taskId = payload["taskId"]?.asString ?? envelope.id
+        let projectIdOrName = payload["projectId"]?.asString ?? projectId(from: envelope)
+        do {
+            let tasks = try store.listTasks(projectIdOrName: projectIdOrName).filter { $0.id == taskId }
+            guard let task = tasks.first, tasks.count == 1 else {
+                return "task dispatch target is ambiguous or unknown"
+            }
+            guard task.assignedNodeId == target else {
+                return "task is not assigned to target node"
+            }
+            guard let project = try sharedProject(projectIdOrName: task.projectId, in: store) else {
+                return "shared project scope is unknown"
+            }
+            guard let sourceMember = project.members.first(where: { $0.nodeId == envelope.from }) else {
+                return "source node is not a project member"
+            }
+            guard sourceMember.permissions.contains(MeshPermission.taskCreate.rawValue),
+                  sourceMember.permissions.contains(MeshPermission.taskAssign.rawValue)
+            else {
+                return "missing task dispatch permission"
+            }
+            guard let targetMember = project.members.first(where: { $0.nodeId == target }),
+                  targetMember.permissions.contains(MeshPermission.taskUpdate.rawValue)
+                    || targetMember.permissions.contains(MeshPermission.taskAssign.rawValue)
+            else {
+                return "target node is not an eligible task assignee"
+            }
+            return nil
+        } catch {
+            return "mesh authorization state is unavailable"
+        }
     }
 
     private func handleHeartbeat(_ envelope: MeshEnvelope) {
