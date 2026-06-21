@@ -29,7 +29,7 @@ struct NodeSourceControlProvider: SourceControlProvider {
         manifest: PluginManifest,
         pluginDirectory: URL,
         descriptor: NodePluginDescriptor? = nil,
-        logger: Logger = Logger(label: "sloppy.source-control.node")
+        logger: Logger = Logger.sloppy(label: "sloppy.source-control.node")
     ) throws {
         self.id = manifest.name
         let sourceControl = descriptor?.sourceControls.first

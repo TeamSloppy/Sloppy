@@ -52,7 +52,7 @@ actor PersistentNodeGatewayRuntime {
         manifest: PluginManifest,
         pluginDirectory: URL,
         inboundReceiver: any InboundMessageReceiver,
-        logger: Logger = Logger(label: "sloppy.plugin.node.gateway.persistent")
+        logger: Logger = Logger.sloppy(label: "sloppy.plugin.node.gateway.persistent")
     ) throws {
         guard let entrypoint = manifest.entrypoint?.trimmingCharacters(in: .whitespacesAndNewlines),
               !entrypoint.isEmpty

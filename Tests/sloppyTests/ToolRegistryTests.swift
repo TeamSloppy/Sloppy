@@ -271,7 +271,7 @@ struct ToolRegistryTests {
             store: InMemoryCorePersistenceBuilder().makeStore(config: CoreConfig.test),
             searchProviderService: SearchProviderService(config: CoreConfig.default.searchTools),
             mcpRegistry: MCPClientRegistry(config: CoreConfig.default.mcp),
-            logger: Logger(label: "test"),
+            logger: .sloppy(label: "test"),
             projectService: nil,
             configService: nil,
             skillsService: nil,

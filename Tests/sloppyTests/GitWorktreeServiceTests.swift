@@ -130,6 +130,9 @@ func gitWorktreeBranchDiff() async throws {
     p3.currentDirectoryURL = URL(fileURLWithPath: result.worktreePath)
     p3.environment = ["GIT_AUTHOR_EMAIL": "test@sloppy.dev", "GIT_AUTHOR_NAME": "Test",
                       "GIT_COMMITTER_EMAIL": "test@sloppy.dev", "GIT_COMMITTER_NAME": "Test"]
+    let commitPipe = Pipe()
+    p3.standardOutput = commitPipe
+    p3.standardError = commitPipe
     try p3.run()
     try waitForProcessExit(p3, timeoutSeconds: 10, operation: "git commit -m Add feature")
 

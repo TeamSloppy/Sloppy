@@ -38,7 +38,7 @@ final class AgentSessionFileStore: @unchecked Sendable {
     init(agentsRootURL: URL, fileManager: FileManager = .default) {
         self.fileManager = fileManager
         self.agentsRootURL = agentsRootURL
-        self.logger = Logger(label: "sloppy.session.store")
+        self.logger = Logger.sloppy(label: "sloppy.session.store")
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]

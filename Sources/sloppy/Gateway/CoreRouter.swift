@@ -325,7 +325,7 @@ private struct WebSocketRouteDefinition {
 }
 
 public actor CoreRouter {
-    static let logger = Logger(label: "sloppy.core.router")
+    static let logger = Logger.sloppy(label: "sloppy.core.router")
     let service: CoreService
     private var routes: [RouteDefinition]
     private var webSocketRoutes: [WebSocketRouteDefinition]
@@ -443,7 +443,7 @@ public actor CoreRouter {
             }
             let isOnboardingFlow = Self.shouldLogOnboardingFlow(httpMethod: httpMethod, pathSegments: pathSegments, body: body)
             if isOnboardingFlow {
-                Self.logger.info(
+                Self.logger.debug(
                     "onboarding.flow.request",
                     metadata: [
                         "method": .string(httpMethod.rawValue),
@@ -455,7 +455,7 @@ public actor CoreRouter {
 
             let response = await route.callback(request)
             if isOnboardingFlow {
-                Self.logger.info(
+                Self.logger.debug(
                     "onboarding.flow.response",
                     metadata: [
                         "method": .string(httpMethod.rawValue),

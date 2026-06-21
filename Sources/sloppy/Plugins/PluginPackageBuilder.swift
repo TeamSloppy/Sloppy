@@ -33,7 +33,7 @@ struct PluginPackageBuilder {
         cacheRootURL: URL,
         processRunner: any PluginProcessRunning = LivePluginProcessRunner(),
         fileManager: FileManager = .default,
-        logger: Logger = Logger(label: "sloppy.plugin.builder")
+        logger: Logger = Logger.sloppy(label: "sloppy.plugin.builder")
     ) {
         self.cacheRootURL = cacheRootURL
         self.processRunner = processRunner

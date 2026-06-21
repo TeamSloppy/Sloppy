@@ -38,7 +38,7 @@ struct NodePluginRuntime: Sendable {
     init(
         manifest: PluginManifest,
         pluginDirectory: URL,
-        logger: Logger = Logger(label: "sloppy.plugin.node")
+        logger: Logger = Logger.sloppy(label: "sloppy.plugin.node")
     ) throws {
         guard let entrypoint = manifest.entrypoint?.trimmingCharacters(in: .whitespacesAndNewlines),
               !entrypoint.isEmpty

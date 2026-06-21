@@ -69,7 +69,7 @@ struct SloppyTUIBootstrap {
         await TUILoggingBootstrapper.shared.bootstrapIfNeeded(logFileURL: systemLogFileURL)
         let resolvedConfigPath = explicitConfigPath ??
             workspaceRoot.appendingPathComponent(CoreConfig.defaultConfigFileName).path
-        let logger = Logger(label: "sloppy.tui.bootstrap")
+        let logger = Logger.sloppy(label: "sloppy.tui.bootstrap")
         try ensureServerConfigFileExists(path: resolvedConfigPath, config: config, logger: logger)
 
         if let error = CorePersistenceFactory.prepareSQLiteDatabaseIfNeeded(config: config) {

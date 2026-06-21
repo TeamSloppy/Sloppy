@@ -17,7 +17,7 @@ public actor CronRunner {
         store: any PersistenceStore,
         runtime: RuntimeSystem,
         notificationService: NotificationService? = nil,
-        logger: Logger = Logger(label: "sloppy.core.cron")
+        logger: Logger = Logger.sloppy(label: "sloppy.core.cron")
     ) {
         self.store = store
         self.runtime = runtime

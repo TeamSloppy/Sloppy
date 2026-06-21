@@ -11,11 +11,12 @@ public struct ColoredLogHandler: LogHandler, @unchecked Sendable {
     }()
 
     private let label: String
-    public var logLevel: Logger.Level = .info
+    public var logLevel: Logger.Level
     public var metadata: Logger.Metadata = [:]
 
     public init(label: String) {
         self.label = label
+        self.logLevel = Self.configuredLogLevel
     }
 
     public static func standardError(label: String) -> ColoredLogHandler {
@@ -86,6 +87,27 @@ public struct ColoredLogHandler: LogHandler, @unchecked Sendable {
         case .critical: return "CRIT "
         }
     }
+
+    private static let configuredLogLevel: Logger.Level = {
+        guard let rawValue = ProcessInfo.processInfo.environment["SLOPPY_LOG_LEVEL"]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased(),
+            !rawValue.isEmpty
+        else {
+            return .info
+        }
+
+        switch rawValue {
+        case "trace": return .trace
+        case "debug": return .debug
+        case "info": return .info
+        case "notice": return .notice
+        case "warning", "warn": return .warning
+        case "error": return .error
+        case "critical", "fatal": return .critical
+        default: return .info
+        }
+    }()
 
     private static let timestampFormatter: DateFormatter = {
         let f = DateFormatter()

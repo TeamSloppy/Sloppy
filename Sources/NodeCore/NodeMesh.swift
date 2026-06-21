@@ -50,6 +50,78 @@ public struct MeshEnvelope: Codable, Sendable, Equatable {
     }
 }
 
+public enum MeshEventType: String, Codable, Sendable, Equatable {
+    case projectCreated = "project.created"
+    case taskCreated = "task.created"
+    case taskUpdated = "task.updated"
+    case nodeJoined = "node.joined"
+    case nodeLeft = "node.left"
+}
+
+public struct MeshEvent: Codable, Sendable, Equatable {
+    public var id: String
+    public var type: MeshEventType
+    public var actorNodeId: String
+    public var targetNodeId: String?
+    public var projectId: String
+    public var logicalTime: Int
+    public var wallTime: Date
+    public var causalParents: [String]
+    public var payload: JSONValue
+
+    public init(
+        id: String = "evt_" + UUID().uuidString,
+        type: MeshEventType,
+        actorNodeId: String,
+        targetNodeId: String? = nil,
+        projectId: String,
+        logicalTime: Int,
+        wallTime: Date = Date(),
+        causalParents: [String] = [],
+        payload: JSONValue = .object([:])
+    ) {
+        self.id = id
+        self.type = type
+        self.actorNodeId = actorNodeId
+        self.targetNodeId = targetNodeId
+        self.projectId = projectId
+        self.logicalTime = logicalTime
+        self.wallTime = wallTime
+        self.causalParents = causalParents
+        self.payload = payload
+    }
+}
+
+public struct SignedMeshEvent: Codable, Sendable, Equatable {
+    public var event: MeshEvent
+    public var signature: String
+
+    public init(event: MeshEvent, signature: String) {
+        self.event = event
+        self.signature = signature
+    }
+}
+
+public enum MeshEventSigner {
+    public static func sign(_ event: MeshEvent, identity: NodeIdentity) throws -> SignedMeshEvent {
+        let data = try signingData(for: event)
+        let signature = try NodeIdentityGenerator.sign(challenge: data, privateKey: identity.privateKey)
+        return SignedMeshEvent(event: event, signature: signature)
+    }
+
+    public static func verify(_ signed: SignedMeshEvent, publicKey: String) throws -> Bool {
+        let data = try signingData(for: signed.event)
+        return NodeIdentityGenerator.verify(signature: signed.signature, challenge: data, publicKey: publicKey)
+    }
+
+    public static func signingData(for event: MeshEvent) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.sortedKeys]
+        return try encoder.encode(event)
+    }
+}
+
 public struct MeshAuthChallengePayload: Codable, Sendable, Equatable {
     public var nonce: String
     public var nodeId: String
@@ -820,7 +892,6 @@ public struct NodeMeshStore: Sendable {
         }
 
         let invite = state.invites[index]
-        guard invite.consumedAt == nil else { throw NodeMeshStoreError.inviteConsumed }
         state.invites.remove(at: index)
         state.auditLog.append(MeshAuditLogEntry(actor: actor, action: "node.invite.revoke", allowed: true, message: invite.token))
         try save(state)

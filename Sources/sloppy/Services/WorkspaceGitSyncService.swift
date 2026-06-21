@@ -44,7 +44,7 @@ struct WorkspaceGitSyncService: Sendable {
         "pending_approval.json"
     ]
 
-    private let logger = Logger(label: "sloppy.core.git-sync")
+    private let logger = Logger.sloppy(label: "sloppy.core.git-sync")
 
     func syncNow(config: CoreConfig.GitSync, workspaceRootURL: URL) async throws -> WorkspaceGitSyncResponse {
         guard config.enabled else {

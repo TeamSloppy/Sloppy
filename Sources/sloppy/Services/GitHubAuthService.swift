@@ -20,7 +20,7 @@ struct GitHubAuthService: @unchecked Sendable {
     typealias Transport = @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse)
 
     private static let apiBaseURL = URL(string: "https://api.github.com")!
-    private static let logger = Logger(label: "sloppy.core.github-auth")
+    private static let logger = Logger.sloppy(label: "sloppy.core.github-auth")
 
     private struct StoredAuth: Codable, Sendable {
         var token: String

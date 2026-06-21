@@ -14,7 +14,7 @@ actor NodeGatewayPlugin: GatewayPlugin {
     init(
         manifest: PluginManifest,
         pluginDirectory: URL,
-        logger: Logger = Logger(label: "sloppy.plugin.node.gateway")
+        logger: Logger = Logger.sloppy(label: "sloppy.plugin.node.gateway")
     ) throws {
         self.id = manifest.name
         self.channelIds = manifest.config["channelIds"]?.asArray?.compactMap(\.asString) ?? []
@@ -56,7 +56,7 @@ actor NodePersistentGatewayPlugin: GatewayPlugin {
         pluginDirectory: URL,
         descriptor: NodePluginDescriptor?,
         inboundReceiver: any InboundMessageReceiver,
-        logger: Logger = Logger(label: "sloppy.plugin.node.gateway")
+        logger: Logger = Logger.sloppy(label: "sloppy.plugin.node.gateway")
     ) throws {
         self.id = manifest.name
         self.channelIds = Self.resolveChannelIds(manifest: manifest, descriptor: descriptor)
@@ -107,7 +107,7 @@ actor NodeInteractiveGatewayPlugin: StreamingGatewayPlugin, ToolApprovalGatewayP
         pluginDirectory: URL,
         descriptor: NodePluginDescriptor?,
         inboundReceiver: any InboundMessageReceiver,
-        logger: Logger = Logger(label: "sloppy.plugin.node.gateway")
+        logger: Logger = Logger.sloppy(label: "sloppy.plugin.node.gateway")
     ) throws {
         self.id = manifest.name
         self.channelIds = NodePersistentGatewayPlugin.resolveChannelIds(manifest: manifest, descriptor: descriptor)
@@ -221,7 +221,7 @@ struct NodeTaskSyncProvider: TaskSyncProvider {
     init(
         manifest: PluginManifest,
         pluginDirectory: URL,
-        logger: Logger = Logger(label: "sloppy.plugin.node.task-sync")
+        logger: Logger = Logger.sloppy(label: "sloppy.plugin.node.task-sync")
     ) throws {
         self.id = manifest.name
         self.runtime = try NodePluginRuntime(manifest: manifest, pluginDirectory: pluginDirectory, logger: logger)
@@ -292,7 +292,7 @@ struct NodeToolPlugin: ToolPlugin {
         manifest: PluginManifest,
         pluginDirectory: URL,
         descriptor: NodePluginDescriptor? = nil,
-        logger: Logger = Logger(label: "sloppy.plugin.node.tool")
+        logger: Logger = Logger.sloppy(label: "sloppy.plugin.node.tool")
     ) throws {
         self.id = manifest.name
         if manifest.isNodePluginAPIV2 {
@@ -338,7 +338,7 @@ struct NodeMemoryPlugin: MemoryPlugin {
     init(
         manifest: PluginManifest,
         pluginDirectory: URL,
-        logger: Logger = Logger(label: "sloppy.plugin.node.memory")
+        logger: Logger = Logger.sloppy(label: "sloppy.plugin.node.memory")
     ) throws {
         self.id = manifest.name
         self.runtime = try NodePluginRuntime(manifest: manifest, pluginDirectory: pluginDirectory, logger: logger)
@@ -368,7 +368,7 @@ struct NodeModelProvider: ModelProvider {
     init(
         manifest: PluginManifest,
         pluginDirectory: URL,
-        logger: Logger = Logger(label: "sloppy.plugin.node.model-provider")
+        logger: Logger = Logger.sloppy(label: "sloppy.plugin.node.model-provider")
     ) throws {
         self.id = manifest.name
         self.supportedModels = manifest.config["supportedModels"]?.asArray?.compactMap(\.asString) ?? []

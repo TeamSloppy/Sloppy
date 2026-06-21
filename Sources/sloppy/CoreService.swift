@@ -61,7 +61,7 @@ struct BuiltInGatewayPluginFactory: Sendable {
                 topicChannelMap: config.topicChannelMap,
                 allowedUserIds: config.allowedUserIds,
                 allowedChatIds: config.allowedChatIds,
-                logger: Logger(label: "sloppy.plugin.telegram"),
+                logger: .sloppy(label: "sloppy.plugin.telegram"),
                 modelPickerBridge: modelPickerBridge,
                 toolApprovalBridge: toolApprovalBridge
             )
@@ -73,7 +73,7 @@ struct BuiltInGatewayPluginFactory: Sendable {
                 allowedGuildIds: config.allowedGuildIds,
                 allowedChannelIds: config.allowedChannelIds,
                 allowedUserIds: config.allowedUserIds,
-                logger: Logger(label: "sloppy.plugin.discord")
+                logger: .sloppy(label: "sloppy.plugin.discord")
             )
         }
     )
@@ -322,7 +322,7 @@ public actor CoreService {
         }
         self.mcpRegistry = MCPClientRegistry(
             config: config.mcp,
-            logger: Logger(label: "sloppy.mcp")
+            logger: Logger.sloppy(label: "sloppy.mcp")
         )
         let oauthService = self.openAIOAuthService
         let anthropicOAuthService = self.anthropicOAuthService
@@ -357,7 +357,7 @@ public actor CoreService {
         } else {
             let embeddingService = EmbeddingService.make(
                 config: config,
-                logger: Logger(label: "sloppy.memory.embedding")
+                logger: Logger.sloppy(label: "sloppy.memory.embedding")
             )
             let store = HybridMemoryStore(
                 config: config,
@@ -464,7 +464,8 @@ public actor CoreService {
             agentSkillsStore: orchestratorSkillsStore,
             acpSessionManager: self.acpSessionManager,
             availableModels: initialAvailableAgentModels,
-            persistedModelContext: (config, hasOAuth)
+            persistedModelContext: (config, hasOAuth),
+            logger: .sloppy(label: "sloppy.core.sessions")
         )
         let toolsStore = AgentToolsFileStore(agentsRootURL: self.agentsRootURL)
         self.toolsAuthorization = ToolAuthorizationService(store: toolsStore, mcpRegistry: self.mcpRegistry)
@@ -486,12 +487,12 @@ public actor CoreService {
             mcpRegistry: self.mcpRegistry,
             lspConfig: config.lsp
         )
-        self.logger = Logger(label: "sloppy.core.visor")
+        self.logger = .sloppy(label: "sloppy.core.visor")
         self.builtInGatewayPluginFactory = builtInGatewayPluginFactory
         if let hybridMemoryStore {
             self.memoryOutboxIndexer = MemoryOutboxIndexer(
                 store: hybridMemoryStore,
-                logger: Logger(label: "sloppy.memory.outbox")
+                logger: .sloppy(label: "sloppy.memory.outbox")
             )
         } else {
             self.memoryOutboxIndexer = nil

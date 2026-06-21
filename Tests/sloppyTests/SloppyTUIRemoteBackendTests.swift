@@ -15,7 +15,7 @@ func remoteSloppyTUIBackendReadsProjectsSessionsAndSSE() async throws {
         host: "127.0.0.1",
         port: 0,
         router: router,
-        logger: Logger(label: "sloppy.tui.remote-backend.tests")
+        logger: .sloppy(label: "sloppy.tui.remote-backend.tests")
     )
     try server.start()
     defer { try? server.shutdown() }

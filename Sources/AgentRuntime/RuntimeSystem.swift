@@ -243,7 +243,7 @@ public actor RuntimeSystem {
             streamingProvider: visorStreamingProvider,
             bulletinMaxWords: visorBulletinMaxWords
         )
-        logger = Logger(label: "sloppy.runtime.model")
+        logger = .runtime(label: "sloppy.runtime.model")
         self.modelProvider = modelProvider
         self.defaultModel = defaultModel ?? modelProvider?.supportedModels.first
     }

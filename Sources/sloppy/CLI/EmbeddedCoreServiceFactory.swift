@@ -25,7 +25,7 @@ struct EmbeddedCoreServiceFactory {
         let systemLogFileURL = defaultServerLogFileURL(in: workspaceRoot)
         await ServerLoggingBootstrapper.shared.bootstrapIfNeeded(logFileURL: systemLogFileURL)
 
-        let logger = Logger(label: "coreservice.factory." + loggerLabel)
+        let logger = Logger.sloppy(label: "coreservice.factory." + loggerLabel)
         logger.info("Embedded Sloppy core workspace prepared at \(workspaceRoot.path)")
 
         let resolvedConfigPath =

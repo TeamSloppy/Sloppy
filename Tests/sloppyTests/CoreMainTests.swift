@@ -235,7 +235,7 @@ func missingConfigWithoutBackupInitializesDefaultConfig() throws {
     try ensureServerConfigFileExists(
         path: configPath,
         config: result.config,
-        logger: Logger(label: "sloppy.test.config")
+        logger: .sloppy(label: "sloppy.test.config")
     )
     let initialized = try JSONDecoder().decode(CoreConfig.self, from: Data(contentsOf: URL(fileURLWithPath: configPath)))
     #expect(initialized.listen.port == CoreConfig.default.listen.port)

@@ -9,7 +9,7 @@ func coffeeModeControllerDoesNotStartWhenDisabled() {
     let controller = CoffeeModeController(
         activityClient: activityClient,
         platform: .macOS,
-        logger: Logger(label: "sloppy.tests.coffee")
+        logger: .sloppy(label: "sloppy.tests.coffee")
     )
 
     let handle = controller.start(config: .init(enabled: false))
@@ -24,7 +24,7 @@ func coffeeModeControllerStartsIdleSystemSleepActivity() throws {
     let controller = CoffeeModeController(
         activityClient: activityClient,
         platform: .macOS,
-        logger: Logger(label: "sloppy.tests.coffee")
+        logger: .sloppy(label: "sloppy.tests.coffee")
     )
 
     let handle = try #require(controller.start(config: .init(enabled: true)))
@@ -43,7 +43,7 @@ func coffeeModeControllerIncludesDisplaySleepWhenConfigured() throws {
     let controller = CoffeeModeController(
         activityClient: activityClient,
         platform: .macOS,
-        logger: Logger(label: "sloppy.tests.coffee")
+        logger: .sloppy(label: "sloppy.tests.coffee")
     )
 
     _ = try #require(controller.start(config: .init(enabled: true, preventDisplaySleep: true)))
@@ -57,7 +57,7 @@ func coffeeModeControllerNoopsOnLinux() {
     let controller = CoffeeModeController(
         activityClient: activityClient,
         platform: .linux,
-        logger: Logger(label: "sloppy.tests.coffee")
+        logger: .sloppy(label: "sloppy.tests.coffee")
     )
 
     let handle = controller.start(config: .init(enabled: true))

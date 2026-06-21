@@ -25,7 +25,7 @@ struct OpenAIOAuthService: @unchecked Sendable {
     private static let deviceTokenEndpoint = URL(string: "https://auth.openai.com/api/accounts/deviceauth/token")!
     private static let deviceRedirectURI = "https://auth.openai.com/deviceauth/callback"
     private static let defaultDeviceVerificationURL = "https://auth.openai.com/codex/device"
-    private static let logger = Logger(label: "sloppy.core.openai-oauth")
+    private static let logger = Logger.sloppy(label: "sloppy.core.openai-oauth")
 
     private struct PendingSession: Codable, Sendable {
         var state: String

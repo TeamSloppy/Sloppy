@@ -59,7 +59,7 @@ struct PluginPackageInstaller {
         cacheRootURL: URL,
         processRunner: any PluginProcessRunning = LivePluginProcessRunner(),
         fileManager: FileManager = .default,
-        logger: Logger = Logger(label: "sloppy.plugin.installer")
+        logger: Logger = Logger.sloppy(label: "sloppy.plugin.installer")
     ) {
         self.pluginsRootURL = pluginsRootURL
         self.cacheRootURL = cacheRootURL
@@ -117,7 +117,7 @@ struct PluginPackageInstaller {
                 cacheRootURL: cacheRootURL,
                 processRunner: processRunner,
                 fileManager: fileManager,
-                logger: Logger(label: "sloppy.plugin.builder")
+                logger: Logger.sloppy(label: "sloppy.plugin.builder")
             )
             build = try await builder.buildPlugin(at: targetURL, manifest: manifest)
         } else {

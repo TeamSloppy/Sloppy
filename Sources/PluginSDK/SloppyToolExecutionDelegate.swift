@@ -40,7 +40,7 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
     }
 
     public let toolCallHandler: @Sendable (ToolInvocationRequest) async -> ToolInvocationResult
-    private static let logger = Logger(label: "sloppy.tool.delegate")
+    private static let logger = Logger.pluginSDK(label: "sloppy.tool.delegate")
     private let toolNameMap: [String: String]
     private let generatedToolCallsHandler: (@Sendable ([Transcript.ToolCall]) async -> Void)?
     private let toolCallDecisionOverride: (@Sendable (Transcript.ToolCall) async -> ToolExecutionDecision?)?

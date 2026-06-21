@@ -33,14 +33,14 @@ actor DesktopNotificationService {
     init(
         driver: any DesktopNotificationDelivering,
         dedupeWindow: TimeInterval = 3,
-        logger: Logger = Logger(label: "sloppy.desktop-notifications")
+        logger: Logger = Logger.sloppy(label: "sloppy.desktop-notifications")
     ) {
         self.driver = driver
         self.dedupeWindow = dedupeWindow
         self.logger = logger
     }
 
-    static func live(logger: Logger = Logger(label: "sloppy.desktop-notifications")) -> DesktopNotificationService {
+    static func live(logger: Logger = Logger.sloppy(label: "sloppy.desktop-notifications")) -> DesktopNotificationService {
         #if os(macOS)
         return DesktopNotificationService(driver: MacOSDesktopNotificationDriver(), logger: logger)
         #else

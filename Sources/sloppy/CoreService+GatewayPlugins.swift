@@ -108,7 +108,7 @@ extension CoreService {
         if kanbanScheduler == nil {
             kanbanScheduler = KanbanMaintenanceScheduler(
                 config: buildKanbanSchedulerConfig(),
-                logger: Logger(label: "sloppy.kanban.scheduler")
+                logger: Logger.sloppy(label: "sloppy.kanban.scheduler")
             ) { [weak self] in
                 guard let self else { return }
                 _ = await self.runKanbanMaintenanceNow()
@@ -121,7 +121,7 @@ extension CoreService {
         if autodreamRunner == nil {
             autodreamRunner = AutodreamRunner(
                 config: buildAutodreamRunnerConfig(),
-                logger: Logger(label: "sloppy.autodream")
+                logger: Logger.sloppy(label: "sloppy.autodream")
             ) { [weak self] in
                 guard let self else { return }
                 await self.runAutodreamPass(reason: "scheduled")
@@ -134,7 +134,7 @@ extension CoreService {
         if selfImprovementCuratorRunner == nil {
             selfImprovementCuratorRunner = SelfImprovementCuratorRunner(
                 config: .weekly,
-                logger: Logger(label: "sloppy.self-improvement.curator")
+                logger: Logger.sloppy(label: "sloppy.self-improvement.curator")
             ) { [weak self] in
                 guard let self else { return }
                 _ = await self.runScheduledSelfImprovementCurator(reason: "weekly")
@@ -154,7 +154,7 @@ extension CoreService {
 
         if heartbeatRunner == nil {
             heartbeatRunner = HeartbeatRunner(
-                logger: Logger(label: "sloppy.core.heartbeat")
+                logger: Logger.sloppy(label: "sloppy.core.heartbeat")
             ) { [weak self] in
                 guard let self else {
                     return []
@@ -171,7 +171,7 @@ extension CoreService {
 
         if taskSyncRunner == nil {
             taskSyncRunner = TaskSyncRunner(
-                logger: Logger(label: "sloppy.core.task-sync")
+                logger: Logger.sloppy(label: "sloppy.core.task-sync")
             ) { [weak self] in
                 guard let self else {
                     return []

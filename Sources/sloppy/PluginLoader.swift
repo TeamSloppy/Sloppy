@@ -166,7 +166,7 @@ public struct PluginLoader: Sendable {
     private let processRunner: any PluginProcessRunning
 
     init(
-        logger: Logger = Logger(label: "sloppy.plugin.loader"),
+        logger: Logger = Logger.sloppy(label: "sloppy.plugin.loader"),
         processRunner: any PluginProcessRunning = LivePluginProcessRunner()
     ) {
         self.logger = logger
@@ -722,7 +722,7 @@ public struct PluginLoader: Sendable {
                     cacheRootURL: cacheRootURL,
                     processRunner: processRunner,
                     fileManager: fileManager,
-                    logger: Logger(label: "sloppy.plugin.builder")
+                    logger: Logger.sloppy(label: "sloppy.plugin.builder")
                 )
                 let build = try await build(builder)
                 return PluginBinaryLoad(binaryURL: build.binaryURL, rebuilt: build.rebuilt)

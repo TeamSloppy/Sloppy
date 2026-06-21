@@ -940,7 +940,7 @@ func selfImprovementCuratorRunnerSkipsOverlappingRuns() async {
     let probe = SelfImprovementCuratorRunnerProbe()
     let runner = SelfImprovementCuratorRunner(
         config: SelfImprovementCuratorRunnerConfig(interval: .seconds(60), jitter: .seconds(0)),
-        logger: Logger(label: "sloppy.tests.self-improvement.curator")
+        logger: .sloppy(label: "sloppy.tests.self-improvement.curator")
     ) {
         await probe.run()
     }

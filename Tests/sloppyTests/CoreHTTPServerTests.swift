@@ -144,7 +144,7 @@ func sseStreamEndpointOverHTTPServerReturnsSessionReadyEvent() async throws {
         host: "127.0.0.1",
         port: 0,
         router: router,
-        logger: Logger(label: "sloppy.core.httpserver.tests")
+        logger: .sloppy(label: "sloppy.core.httpserver.tests")
     )
     try server.start()
     defer { try? server.shutdown() }
@@ -199,7 +199,7 @@ func nodeMeshWebSocketRelaysTargetedEnvelopeBetweenConnectedNodes() async throws
         host: "127.0.0.1",
         port: 0,
         router: router,
-        logger: Logger(label: "sloppy.node.mesh.httpserver.tests")
+        logger: .sloppy(label: "sloppy.node.mesh.httpserver.tests")
     )
     try server.start()
     defer { try? server.shutdown() }
@@ -259,7 +259,7 @@ func nodeMeshWebSocketRoutePersistsStateToConfiguredStore() async throws {
         host: "127.0.0.1",
         port: 0,
         router: router,
-        logger: Logger(label: "sloppy.node.mesh.httpserver.persistence.tests")
+        logger: .sloppy(label: "sloppy.node.mesh.httpserver.persistence.tests")
     )
     try server.start()
     defer { try? server.shutdown() }
@@ -296,7 +296,7 @@ func nodeMeshRelayTracksHeartbeatAndMarksOfflineOnDisconnect() async throws {
     let store = NodeMeshStore(stateURL: stateURL)
     let identity = NodeIdentityGenerator.makeIdentity(name: "Worker", roles: ["worker"], capabilities: ["run_agent"])
     try store.registerNode(identity, status: .offline)
-    let relay = NodeMeshRelay(store: store, logger: Logger(label: "sloppy.node.mesh.relay.tests"))
+    let relay = NodeMeshRelay(store: store, logger: .sloppy(label: "sloppy.node.mesh.relay.tests"))
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
     let decoder = JSONDecoder()
@@ -360,7 +360,7 @@ func nodeMeshRelayPersistsHelloHeartbeatRouteAndOffline() async throws {
     try store.registerNode(identity, status: .offline)
     let relay = NodeMeshRelay(
         store: store,
-        logger: Logger(label: "sloppy.node.mesh.relay.persistence.tests")
+        logger: .sloppy(label: "sloppy.node.mesh.relay.persistence.tests")
     )
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
@@ -429,7 +429,7 @@ func nodeMeshRelayReturnsStructuredErrorForMissingTarget() async throws {
     let store = NodeMeshStore(stateURL: stateURL)
     let identity = NodeIdentityGenerator.makeIdentity(name: "Laptop", roles: ["client"], capabilities: ["git"])
     try store.registerNode(identity, status: .offline)
-    let relay = NodeMeshRelay(store: store, logger: Logger(label: "sloppy.node.mesh.relay.error.tests"))
+    let relay = NodeMeshRelay(store: store, logger: .sloppy(label: "sloppy.node.mesh.relay.error.tests"))
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
     let decoder = JSONDecoder()
@@ -514,7 +514,7 @@ func nodeMeshRelayDeliversLiveTaskDispatchAndAuditsDelivery() async throws {
         assignedNodeId: workerIdentity.nodeId,
         actor: laptopIdentity.nodeId
     )
-    let relay = NodeMeshRelay(store: store, logger: Logger(label: "sloppy.node.mesh.relay.dispatch.tests"))
+    let relay = NodeMeshRelay(store: store, logger: .sloppy(label: "sloppy.node.mesh.relay.dispatch.tests"))
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
     let decoder = JSONDecoder()
@@ -636,7 +636,7 @@ func nodeMeshRelayAuditsOfflineTaskDispatchDeliveryFailure() async throws {
         assignedNodeId: workerIdentity.nodeId,
         actor: laptopIdentity.nodeId
     )
-    let relay = NodeMeshRelay(store: store, logger: Logger(label: "sloppy.node.mesh.relay.dispatch.offline.tests"))
+    let relay = NodeMeshRelay(store: store, logger: .sloppy(label: "sloppy.node.mesh.relay.dispatch.offline.tests"))
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
     let decoder = JSONDecoder()
@@ -728,7 +728,7 @@ func nodeMeshRelayRejectsRPCWithoutPermission() async throws {
         permissions: MeshPermission.workerDefaults.rawValues
     )
 
-    let relay = NodeMeshRelay(store: store, logger: Logger(label: "sloppy.node.mesh.relay.acl.tests"))
+    let relay = NodeMeshRelay(store: store, logger: .sloppy(label: "sloppy.node.mesh.relay.acl.tests"))
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
     let decoder = JSONDecoder()
@@ -846,7 +846,7 @@ func nodeMeshRelayRejectsUnknownNodeAuth() async throws {
         .appendingPathComponent("mesh.json")
     let store = NodeMeshStore(stateURL: stateURL)
     let identity = NodeIdentityGenerator.makeIdentity(name: "Unknown", roles: ["worker"], capabilities: ["run_agent"])
-    let relay = NodeMeshRelay(store: store, logger: Logger(label: "sloppy.node.mesh.relay.auth.tests"))
+    let relay = NodeMeshRelay(store: store, logger: .sloppy(label: "sloppy.node.mesh.relay.auth.tests"))
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
     let decoder = JSONDecoder()
@@ -895,7 +895,7 @@ func nodeMeshRelayRejectsWrongSignatureAuth() async throws {
     let registered = NodeIdentityGenerator.makeIdentity(name: "Worker", roles: ["worker"], capabilities: ["run_agent"])
     let impostor = NodeIdentityGenerator.makeIdentity(name: "Impostor", roles: ["worker"], capabilities: ["run_agent"])
     try store.registerNode(registered, status: .offline)
-    let relay = NodeMeshRelay(store: store, logger: Logger(label: "sloppy.node.mesh.relay.auth.tests"))
+    let relay = NodeMeshRelay(store: store, logger: .sloppy(label: "sloppy.node.mesh.relay.auth.tests"))
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
     let decoder = JSONDecoder()
@@ -957,7 +957,7 @@ func webSocketSessionStreamPublishesToolEventsOverHTTPServer() async throws {
         host: "127.0.0.1",
         port: 0,
         router: router,
-        logger: Logger(label: "sloppy.core.httpserver.tests")
+        logger: .sloppy(label: "sloppy.core.httpserver.tests")
     )
     try server.start()
     defer { try? server.shutdown() }
@@ -1046,7 +1046,7 @@ func dashboardTerminalWebSocketAcceptsInputAndAllowsReconnect() async throws {
         host: "127.0.0.1",
         port: 0,
         router: router,
-        logger: Logger(label: "sloppy.dashboard.terminal.httpserver.tests")
+        logger: .sloppy(label: "sloppy.dashboard.terminal.httpserver.tests")
     )
     try server.start()
     defer { try? server.shutdown() }

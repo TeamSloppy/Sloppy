@@ -312,7 +312,7 @@ actor LSPServerManager {
     init(
         config: CoreConfig.LSP,
         workspaceRootURL: URL,
-        logger: Logger = Logger(label: "sloppy.lsp")
+        logger: Logger = Logger.sloppy(label: "sloppy.lsp")
     ) {
         self.config = config
         self.workspaceRootURL = workspaceRootURL
@@ -350,7 +350,7 @@ actor LSPServerManager {
         let instance = LSPServerInstance(
             config: serverConfig,
             workspaceRootURL: workspaceRootURL,
-            logger: Logger(label: "sloppy.lsp.\(serverConfig.id)")
+            logger: Logger.sloppy(label: "sloppy.lsp.\(serverConfig.id)")
         )
         instances[serverConfig.id] = instance
         return instance
