@@ -441,7 +441,14 @@ export const EMPTY_CONFIG = {
     webhookURLs: [],
     mergeEnabled: false,
     mergeSimilarityThreshold: 0.80,
-    mergeMaxPerRun: 10
+    mergeMaxPerRun: 10,
+    autodream: {
+      enabled: true,
+      intervalSeconds: 21600,
+      jitterSeconds: 1800,
+      sessionLimitPerRun: 10,
+      model: null
+    }
   },
   compactor: {
     enabled: true,
@@ -1037,6 +1044,13 @@ export function normalizeConfig(config) {
   normalized.visor.mergeEnabled = Boolean(vc?.mergeEnabled);
   normalized.visor.mergeSimilarityThreshold = parseNumber(vc?.mergeSimilarityThreshold ?? 0.80, 0.80);
   normalized.visor.mergeMaxPerRun = parseInteger(vc?.mergeMaxPerRun ?? 10, 10);
+  normalized.visor.autodream = {
+    enabled: vc?.autodream?.enabled !== false,
+    intervalSeconds: parseInteger(vc?.autodream?.intervalSeconds ?? 21600, 21600),
+    jitterSeconds: parseInteger(vc?.autodream?.jitterSeconds ?? 1800, 1800),
+    sessionLimitPerRun: parseInteger(vc?.autodream?.sessionLimitPerRun ?? 10, 10),
+    model: vc?.autodream?.model ? String(vc.autodream.model) : null
+  };
 
   return normalized;
 }

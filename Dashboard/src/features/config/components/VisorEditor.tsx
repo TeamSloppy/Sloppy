@@ -73,6 +73,12 @@ export function VisorEditor({
   const mergeEnabled = Boolean(visor.mergeEnabled);
   const mergeSimilarityThreshold = visor.mergeSimilarityThreshold ?? 0.80;
   const mergeMaxPerRun = visor.mergeMaxPerRun ?? 10;
+  const autodream = visor.autodream || {};
+  const autodreamEnabled = Boolean(autodream.enabled !== false);
+  const autodreamIntervalSeconds = autodream.intervalSeconds ?? 21600;
+  const autodreamJitterSeconds = autodream.jitterSeconds ?? 1800;
+  const autodreamSessionLimitPerRun = autodream.sessionLimitPerRun ?? 10;
+  const autodreamModel = String(autodream.model || "");
 
   const embedding = draftConfig.memory?.embedding || {};
   const embeddingEnabled = Boolean(embedding.enabled);
@@ -95,6 +101,14 @@ export function VisorEditor({
       if (!draft.visor) draft.visor = {};
       if (!draft.visor.scheduler) draft.visor.scheduler = {};
       draft.visor.scheduler[field] = value;
+    });
+  }
+
+  function setAutodream(field, value) {
+    mutateDraft((draft) => {
+      if (!draft.visor) draft.visor = {};
+      if (!draft.visor.autodream) draft.visor.autodream = {};
+      draft.visor.autodream[field] = value;
     });
   }
 
@@ -203,6 +217,72 @@ export function VisorEditor({
               onChange={(event) => setVisor("bulletinMaxWords", parseIntField(event.target.value, 300))}
             />
             <span className="entry-form-hint">Target word count for the bulletin digest. Default: 300.</span>
+          </label>
+        </div>
+      </section>
+
+      <section className="entry-editor-card">
+        <h3>Autodream</h3>
+        <div className="entry-form-grid">
+          <label style={{ gridColumn: "1 / -1" }}>
+            Autodream
+            <select
+              value={autodreamEnabled ? "enabled" : "disabled"}
+              onChange={(event) => setAutodream("enabled", event.target.value === "enabled")}
+            >
+              <option value="enabled">Enabled</option>
+              <option value="disabled">Disabled</option>
+            </select>
+            <span className="entry-form-hint">When enabled, Visor periodically reviews recent changed sessions and records memory checkpoints without revisiting unchanged sessions.</span>
+          </label>
+
+          <AggregatedModelPicker
+            label="Model"
+            value={autodreamModel}
+            onChange={(id) => setAutodream("model", id || null)}
+            aggregatedModels={modelRoutingCatalog}
+            disabled={!autodreamEnabled}
+            hint={
+              modelRoutingCatalogStatus || "Small model used for autodream checkpoints. When set to default, autodream falls back to the Visor model, then the normal agent/default model."
+            }
+            emptyOptionTitle="Default Visor model"
+            emptyOptionSubtitle="Fall back to Visor, agent, or system default"
+          />
+
+          <label>
+            Interval (seconds)
+            <input
+              type="number"
+              min={60}
+              disabled={!autodreamEnabled}
+              value={autodreamIntervalSeconds}
+              onChange={(event) => setAutodream("intervalSeconds", parseIntField(event.target.value, 21600))}
+            />
+            <span className="entry-form-hint">How often to scan recent sessions. Default: 21600 s (6 hours).</span>
+          </label>
+
+          <label>
+            Jitter (seconds)
+            <input
+              type="number"
+              min={0}
+              disabled={!autodreamEnabled}
+              value={autodreamJitterSeconds}
+              onChange={(event) => setAutodream("jitterSeconds", parseIntField(event.target.value, 1800))}
+            />
+            <span className="entry-form-hint">Random delay added to each interval to avoid predictable bursts. Default: 1800 s (30 min).</span>
+          </label>
+
+          <label>
+            Sessions / Run
+            <input
+              type="number"
+              min={1}
+              disabled={!autodreamEnabled}
+              value={autodreamSessionLimitPerRun}
+              onChange={(event) => setAutodream("sessionLimitPerRun", parseIntField(event.target.value, 10))}
+            />
+            <span className="entry-form-hint">Maximum changed chat sessions reviewed in one autodream pass. Default: 10.</span>
           </label>
         </div>
       </section>
