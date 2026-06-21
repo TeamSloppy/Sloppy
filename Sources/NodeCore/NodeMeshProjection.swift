@@ -42,7 +42,7 @@ public enum NodeMeshProjection {
         var unique: [SignedMeshEvent] = []
         for signed in events {
             if let existing = seen[signed.event.id] {
-                guard isSameSignedEvent(existing, signed) else {
+                guard try isSameSignedEvent(existing, signed) else {
                     throw MeshEventVerificationError.eventConflict(signed.event.id)
                 }
                 continue
@@ -53,10 +53,15 @@ public enum NodeMeshProjection {
         return unique
     }
 
-    static func isSameSignedEvent(_ lhs: SignedMeshEvent, _ rhs: SignedMeshEvent) -> Bool {
-        lhs.event.id == rhs.event.id
-            && lhs.actorPublicKey == rhs.actorPublicKey
-            && lhs.signature == rhs.signature
+    static func isSameSignedEvent(_ lhs: SignedMeshEvent, _ rhs: SignedMeshEvent) throws -> Bool {
+        guard lhs.event.id == rhs.event.id,
+              lhs.actorPublicKey == rhs.actorPublicKey,
+              lhs.signature == rhs.signature
+        else {
+            return false
+        }
+        return try MeshEventSigner.verify(lhs, publicKey: lhs.actorPublicKey)
+            && MeshEventSigner.verify(rhs, publicKey: rhs.actorPublicKey)
     }
 
     private static func eventSort(_ lhs: SignedMeshEvent, _ rhs: SignedMeshEvent) -> Bool {
@@ -162,6 +167,11 @@ public enum NodeMeshProjection {
             guard member(in: project, nodeId: event.actorNodeId)?.permissions.contains(MeshPermission.taskAssign.rawValue) == true else {
                 throw MeshEventVerificationError.unauthorized(MeshPermission.taskAssign.rawValue)
             }
+            guard let taskId = event.payload.asObject?["taskId"]?.asString,
+                  projectedState.tasks.contains(where: { $0.id == taskId && $0.projectId == project.id })
+            else {
+                throw MeshEventVerificationError.unauthorized("task.dispatch")
+            }
             let targetNodeId = try taskAssignmentAssignee(for: event)
             guard let targetNodeId,
                   let target = member(in: project, nodeId: targetNodeId),
@@ -177,7 +187,7 @@ public enum NodeMeshProjection {
                 throw MeshEventVerificationError.unauthorized(MeshPermission.taskUpdate.rawValue)
             }
             guard let taskId = event.payload.asObject?["taskId"]?.asString,
-                  let task = projectedState.tasks.first(where: { $0.id == taskId })
+                  let task = projectedState.tasks.first(where: { $0.id == taskId && $0.projectId == project.id })
             else {
                 throw MeshEventVerificationError.unauthorized("task.status.update")
             }
@@ -447,7 +457,8 @@ public enum NodeMeshProjection {
     private static func applyTaskAssigned(_ event: MeshEvent, to state: inout MeshState) throws {
         guard let payload = event.payload.asObject,
               let taskId = payload["taskId"]?.asString,
-              let index = state.tasks.firstIndex(where: { $0.id == taskId })
+              let projectId = event.projectId,
+              let index = state.tasks.firstIndex(where: { $0.id == taskId && $0.projectId == projectId })
         else {
             return
         }
@@ -460,7 +471,8 @@ public enum NodeMeshProjection {
     private static func applyTaskStatusUpdated(_ event: MeshEvent, to state: inout MeshState) {
         guard let payload = event.payload.asObject,
               let taskId = payload["taskId"]?.asString,
-              let index = state.tasks.firstIndex(where: { $0.id == taskId }),
+              let projectId = event.projectId,
+              let index = state.tasks.firstIndex(where: { $0.id == taskId && $0.projectId == projectId }),
               let rawStatus = payload["status"]?.asString,
               let status = MeshTaskStatus(rawValue: rawStatus)
         else {

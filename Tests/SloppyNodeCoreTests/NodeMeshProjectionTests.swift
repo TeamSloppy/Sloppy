@@ -123,6 +123,60 @@ struct NodeMeshProjectionTests {
         }
     }
 
+    @Test("task assignment cannot target task from another project")
+    func taskAssignmentCannotTargetTaskFromAnotherProject() throws {
+        let owner = NodeIdentityGenerator.makeIdentity(name: "Owner", roles: ["client"], capabilities: ["git"])
+        let worker = NodeIdentityGenerator.makeIdentity(name: "Worker", roles: ["worker"], capabilities: ["git"])
+        let projectA = "sp_project_a"
+        let projectB = "sp_project_b"
+        let taskId = "mesh_task_cross_project"
+        let events = try authorizedProjectEvents(projectId: projectA, owner: owner, worker: worker)
+            + authorizedProjectEvents(projectId: projectB, owner: owner, worker: worker, startLogicalTime: 10)
+            + [
+                signed(.taskCreated, actor: owner, projectId: projectB, logicalTime: 20, payload: [
+                    "taskId": .string(taskId),
+                    "title": .string("Run build"),
+                ]),
+                signed(.taskAssigned, actor: owner, target: worker.nodeId, projectId: projectA, logicalTime: 21, payload: [
+                    "taskId": .string(taskId),
+                    "assignedNodeId": .string(worker.nodeId),
+                ]),
+            ]
+
+        #expect(throws: MeshEventVerificationError.unauthorized("task.dispatch")) {
+            _ = try NodeMeshProjection.project(events: events, base: baseState(nodes: [owner, worker]))
+        }
+    }
+
+    @Test("task status update cannot target task from another project")
+    func taskStatusUpdateCannotTargetTaskFromAnotherProject() throws {
+        let owner = NodeIdentityGenerator.makeIdentity(name: "Owner", roles: ["client"], capabilities: ["git"])
+        let worker = NodeIdentityGenerator.makeIdentity(name: "Worker", roles: ["worker"], capabilities: ["git"])
+        let projectA = "sp_project_a"
+        let projectB = "sp_project_b"
+        let taskId = "mesh_task_cross_project"
+        let events = try authorizedProjectEvents(projectId: projectA, owner: owner, worker: worker)
+            + authorizedProjectEvents(projectId: projectB, owner: owner, worker: worker, startLogicalTime: 10)
+            + [
+                signed(.taskCreated, actor: owner, projectId: projectB, logicalTime: 20, payload: [
+                    "taskId": .string(taskId),
+                    "title": .string("Run build"),
+                ]),
+                signed(.taskAssigned, actor: owner, target: worker.nodeId, projectId: projectB, logicalTime: 21, payload: [
+                    "taskId": .string(taskId),
+                    "assignedNodeId": .string(worker.nodeId),
+                ]),
+                signed(.taskStatusUpdated, actor: worker, projectId: projectA, logicalTime: 22, payload: [
+                    "taskId": .string(taskId),
+                    "status": .string(MeshTaskStatus.readyForReview.rawValue),
+                ]),
+            ]
+
+        #expect(throws: MeshEventVerificationError.unauthorized("task.status.update")) {
+            _ = try NodeMeshProjection.project(events: events, base: baseState(nodes: [owner, worker]))
+        }
+    }
+
     @Test("project creation name cannot shadow existing legacy project id without write permission")
     func projectCreationNameCannotShadowExistingLegacyProjectIDWithoutWritePermission() throws {
         let owner = NodeIdentityGenerator.makeIdentity(name: "Owner", roles: ["client"], capabilities: ["git"])
@@ -609,16 +663,17 @@ struct NodeMeshProjectionTests {
     private func authorizedProjectEvents(
         projectId: String,
         owner: NodeIdentity,
-        worker: NodeIdentity
+        worker: NodeIdentity,
+        startLogicalTime: UInt64 = 1
     ) throws -> [SignedMeshEvent] {
         try [
-            signed(.projectCreated, actor: owner, projectId: projectId, logicalTime: 1, payload: [
+            signed(.projectCreated, actor: owner, projectId: projectId, logicalTime: startLogicalTime, payload: [
                 "id": .string(projectId),
                 "name": .string("Authorized"),
                 "repoUrl": .string("git@example.com:authorized.git"),
                 "defaultBranch": .string("main"),
             ]),
-            signed(.projectMemberAdded, actor: owner, target: owner.nodeId, projectId: projectId, logicalTime: 2, payload: [
+            signed(.projectMemberAdded, actor: owner, target: owner.nodeId, projectId: projectId, logicalTime: startLogicalTime + 1, payload: [
                 "nodeId": .string(owner.nodeId),
                 "localRepoPath": .string("/work/sloppy"),
                 "role": .string("controller"),
@@ -628,7 +683,7 @@ struct NodeMeshProjectionTests {
                     .string(MeshPermission.taskAssign.rawValue),
                 ]),
             ]),
-            signed(.projectMemberAdded, actor: owner, target: worker.nodeId, projectId: projectId, logicalTime: 3, payload: [
+            signed(.projectMemberAdded, actor: owner, target: worker.nodeId, projectId: projectId, logicalTime: startLogicalTime + 2, payload: [
                 "nodeId": .string(worker.nodeId),
                 "localRepoPath": .string("/home/sloppy"),
                 "role": .string("worker"),

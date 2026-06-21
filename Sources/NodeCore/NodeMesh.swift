@@ -1179,7 +1179,7 @@ public struct NodeMeshStore: Sendable {
             throw MeshEventVerificationError.invalidSignature
         }
         if let existing = state.events.first(where: { $0.event.id == signed.event.id }) {
-            guard NodeMeshProjection.isSameSignedEvent(existing, signed) else {
+            guard try NodeMeshProjection.isSameSignedEvent(existing, signed) else {
                 state.auditLog.append(MeshAuditLogEntry(
                     actor: signed.event.actorNodeId,
                     target: signed.event.targetNodeId,
@@ -1229,13 +1229,13 @@ public struct NodeMeshStore: Sendable {
                 throw MeshEventVerificationError.invalidSignature
             }
             if let existing = state.events.first(where: { $0.event.id == signed.event.id }) {
-                guard NodeMeshProjection.isSameSignedEvent(existing, signed) else {
+                guard try NodeMeshProjection.isSameSignedEvent(existing, signed) else {
                     throw MeshEventVerificationError.eventConflict(signed.event.id)
                 }
                 continue
             }
             if let existing = pending.first(where: { $0.event.id == signed.event.id }) {
-                guard NodeMeshProjection.isSameSignedEvent(existing, signed) else {
+                guard try NodeMeshProjection.isSameSignedEvent(existing, signed) else {
                     throw MeshEventVerificationError.eventConflict(signed.event.id)
                 }
                 continue
