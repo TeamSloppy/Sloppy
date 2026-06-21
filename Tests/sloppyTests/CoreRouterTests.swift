@@ -1260,6 +1260,49 @@ func dashboardAuthProtectsAPIRoutesWhenEnabled() async throws {
     #expect(status.status == 200)
     let statusPayload = try JSONDecoder().decode(DashboardAuthStatusResponsePayload.self, from: status.body)
     #expect(statusPayload.enabled == true)
+
+    let meshState = await router.handle(method: "GET", path: "/v1/node/mesh", body: nil)
+    #expect(meshState.status == 401)
+
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let inviteBody = try encoder.encode(MeshInviteCreateRequest(
+        networkId: "personal",
+        name: "Remote Worker",
+        roles: ["worker"],
+        capabilities: ["run_agent", "git"],
+        ttlSeconds: 600,
+        relayURL: "http://mesh.example.com"
+    ))
+    let inviteResponse = await router.handle(
+        method: "POST",
+        path: "/v1/node/mesh/invites",
+        body: inviteBody,
+        headers: ["Authorization": "Bearer dashboard-secret"]
+    )
+    #expect(inviteResponse.status == 201)
+    let invite = try decoder.decode(MeshInvite.self, from: inviteResponse.body)
+    let token = try #require(invite.bundleToken)
+
+    let acceptBody = try encoder.encode(MeshInviteAcceptRequest(
+        token: token,
+        endpoint: "http://mesh.example.com",
+        nodeId: "node_remote",
+        name: "Remote Worker",
+        publicKey: "ed25519:remote",
+        roles: ["worker"],
+        capabilities: ["run_agent", "git"]
+    ))
+    let acceptResponse = await router.handle(
+        method: "POST",
+        path: "/v1/node/mesh/invites/accept",
+        body: acceptBody
+    )
+    #expect(acceptResponse.status == 201)
+    let acceptedNode = try decoder.decode(MeshNodeRecord.self, from: acceptResponse.body)
+    #expect(acceptedNode.id == "node_remote")
 }
 
 @Test

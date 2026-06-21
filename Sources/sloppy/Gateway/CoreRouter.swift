@@ -1225,6 +1225,10 @@ public actor CoreRouter {
            request.segments == ["v1", "dashboard", "auth", "status"] {
             return false
         }
+        if request.method == .post,
+           request.segments == ["v1", "node", "mesh", "invites", "accept"] {
+            return false
+        }
         let status = await service.dashboardAuthStatus()
         return status.protectsMutatingRoutes
     }
