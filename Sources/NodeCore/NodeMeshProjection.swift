@@ -32,7 +32,7 @@ public enum NodeMeshProjection {
         var unique: [SignedMeshEvent] = []
         for signed in events {
             if let existing = seen[signed.event.id] {
-                guard existing == signed else {
+                guard isSameSignedEvent(existing, signed) else {
                     throw MeshEventVerificationError.eventConflict(signed.event.id)
                 }
                 continue
@@ -41,6 +41,12 @@ public enum NodeMeshProjection {
             unique.append(signed)
         }
         return unique
+    }
+
+    static func isSameSignedEvent(_ lhs: SignedMeshEvent, _ rhs: SignedMeshEvent) -> Bool {
+        lhs.event.id == rhs.event.id
+            && lhs.actorPublicKey == rhs.actorPublicKey
+            && lhs.signature == rhs.signature
     }
 
     private static func eventSort(_ lhs: SignedMeshEvent, _ rhs: SignedMeshEvent) -> Bool {
