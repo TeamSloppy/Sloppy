@@ -79,8 +79,10 @@ public enum NodeMeshProjection {
 
     private static func authorize(_ event: MeshEvent, projectedState: MeshState, baseState: MeshState) throws {
         switch event.type {
-        case .nodeAnnounced, .nodeStatusChanged, .nodeAliasUpdated, .projectCreated, .messageSent:
+        case .nodeAnnounced, .nodeStatusChanged, .nodeAliasUpdated, .messageSent:
             return
+        case .projectCreated:
+            try authorizeProjectCreated(event, projectedState: projectedState, baseState: baseState)
         case .projectUpdated:
             try requireProjectPermission(
                 MeshPermission.projectWrite.rawValue,
@@ -164,6 +166,34 @@ public enum NodeMeshProjection {
         }
     }
 
+    private static func authorizeProjectCreated(
+        _ event: MeshEvent,
+        projectedState: MeshState,
+        baseState: MeshState
+    ) throws {
+        guard let payload = event.payload.asObject,
+              let createdProjectId = payload["id"]?.asString ?? event.projectId,
+              let createdProjectName = payload["name"]?.asString,
+              !createdProjectId.isEmpty,
+              !createdProjectName.isEmpty
+        else {
+            return
+        }
+
+        guard let existingProject = existingProjectForCreatedEvent(
+            createdProjectId: createdProjectId,
+            createdProjectName: createdProjectName,
+            projectedState: projectedState,
+            baseState: baseState
+        ) else {
+            return
+        }
+
+        guard member(in: existingProject, nodeId: event.actorNodeId)?.permissions.contains(MeshPermission.projectWrite.rawValue) == true else {
+            throw MeshEventVerificationError.unauthorized(MeshPermission.projectWrite.rawValue)
+        }
+    }
+
     private static func projectForAuthorization(
         event: MeshEvent,
         projectedState: MeshState,
@@ -172,14 +202,33 @@ public enum NodeMeshProjection {
         guard let projectId = event.projectId else {
             throw MeshEventVerificationError.unauthorized("project")
         }
-        if let project = projectedState.sharedProjects.first(where: { $0.id == projectId || $0.name == projectId }) {
-            return project
-        }
-        if projectedState.sharedProjects.isEmpty,
-           let project = baseState.sharedProjects.first(where: { $0.id == projectId || $0.name == projectId }) {
+        if let project = project(matchingID: projectId, in: projectedState.sharedProjects)
+            ?? project(matchingName: projectId, in: projectedState.sharedProjects)
+            ?? project(matchingID: projectId, in: baseState.sharedProjects)
+            ?? project(matchingName: projectId, in: baseState.sharedProjects) {
             return project
         }
         throw MeshEventVerificationError.unauthorized("project")
+    }
+
+    private static func existingProjectForCreatedEvent(
+        createdProjectId: String,
+        createdProjectName: String,
+        projectedState: MeshState,
+        baseState: MeshState
+    ) -> SharedProjectRecord? {
+        project(matchingID: createdProjectId, in: projectedState.sharedProjects)
+            ?? project(matchingID: createdProjectId, in: baseState.sharedProjects)
+            ?? project(matchingName: createdProjectName, in: projectedState.sharedProjects)
+            ?? project(matchingName: createdProjectName, in: baseState.sharedProjects)
+    }
+
+    private static func project(matchingID projectID: String, in projects: [SharedProjectRecord]) -> SharedProjectRecord? {
+        projects.first(where: { $0.id == projectID })
+    }
+
+    private static func project(matchingName projectName: String, in projects: [SharedProjectRecord]) -> SharedProjectRecord? {
+        projects.first(where: { $0.name == projectName })
     }
 
     private static func member(in project: SharedProjectRecord, nodeId: String) -> SharedProjectMember? {

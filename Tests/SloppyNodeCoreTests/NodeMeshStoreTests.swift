@@ -512,6 +512,109 @@ struct NodeMeshStoreTests {
         #expect(try store.listSharedProjects().map(\.id) == [project.id])
     }
 
+    @Test("signed project creation cannot shadow an existing legacy project without project write")
+    func signedProjectCreationCannotShadowExistingLegacyProjectWithoutProjectWrite() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let owner = NodeIdentityGenerator.makeIdentity(name: "Owner", roles: ["client"], capabilities: ["git"])
+        let rogue = NodeIdentityGenerator.makeIdentity(name: "Rogue", roles: ["worker"], capabilities: ["git"])
+        let legacyProject = SharedProjectRecord(
+            id: "sp_legacy",
+            name: "Legacy",
+            repoUrl: "git@example.com:legacy.git",
+            members: [
+                SharedProjectMember(
+                    nodeId: owner.nodeId,
+                    localRepoPath: "/work/legacy",
+                    role: "controller",
+                    permissions: [MeshPermission.projectWrite.rawValue]
+                ),
+            ]
+        )
+        try store.save(MeshState(
+            nodes: baseNodes([owner, rogue]),
+            sharedProjects: [legacyProject]
+        ))
+
+        let shadowAttempt = try signedEvent(.projectCreated, actor: rogue, projectId: legacyProject.id, logicalTime: 1, payload: [
+            "id": .string(legacyProject.id),
+            "name": .string("Shadow Legacy"),
+            "repoUrl": .string("git@example.com:shadow.git"),
+            "defaultBranch": .string("trunk"),
+        ])
+
+        #expect(throws: MeshEventVerificationError.unauthorized(MeshPermission.projectWrite.rawValue)) {
+            _ = try store.appendEvent(shadowAttempt, expectedActorPublicKey: rogue.publicKey)
+        }
+
+        let state = try store.load()
+        #expect(state.events.isEmpty)
+        #expect(try store.listSharedProjects().map(\.id) == [legacyProject.id])
+        let project = try #require(try store.listSharedProjects().first)
+        #expect(project.name == legacyProject.name)
+        #expect(project.repoUrl == legacyProject.repoUrl)
+    }
+
+    @Test("signed dispatch falls back to legacy project when unrelated projected project exists")
+    func signedDispatchFallsBackToLegacyProjectWhenUnrelatedProjectedProjectExists() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let home = NodeIdentityGenerator.makeIdentity(name: "Home", roles: ["worker"], capabilities: ["git"])
+        try store.registerNode(work)
+        try store.registerNode(home)
+        let legacyProject = try store.createSharedProject(
+            id: "sp_legacy",
+            name: "Legacy",
+            repoUrl: "git@example.com:legacy.git"
+        )
+        _ = try store.attachMember(
+            projectIdOrName: legacyProject.id,
+            nodeId: work.nodeId,
+            localRepoPath: "/work/legacy",
+            role: "controller",
+            permissions: [MeshPermission.taskCreate.rawValue, MeshPermission.taskAssign.rawValue]
+        )
+        _ = try store.attachMember(
+            projectIdOrName: legacyProject.id,
+            nodeId: home.nodeId,
+            localRepoPath: "/home/legacy",
+            role: "worker",
+            permissions: MeshPermission.workerDefaults.rawValues
+        )
+
+        let projectedProjectId = "sp_projected"
+        let projectedEvents = try [
+            signedEvent(.projectCreated, actor: work, projectId: projectedProjectId, logicalTime: 1, payload: [
+                "id": .string(projectedProjectId),
+                "name": .string("Projected"),
+                "repoUrl": .string("git@example.com:projected.git"),
+                "defaultBranch": .string("main"),
+            ]),
+            signedEvent(.projectMemberAdded, actor: work, target: work.nodeId, projectId: projectedProjectId, logicalTime: 2, payload: [
+                "nodeId": .string(work.nodeId),
+                "localRepoPath": .string("/work/projected"),
+                "role": .string("controller"),
+                "permissions": .array([
+                    .string(MeshPermission.projectWrite.rawValue),
+                ]),
+            ]),
+        ]
+        for event in projectedEvents {
+            _ = try store.appendEvent(event, expectedActorPublicKey: work.publicKey)
+        }
+
+        let task = try store.dispatchTask(
+            projectIdOrName: legacyProject.id,
+            title: "Run build",
+            assignedNodeId: home.nodeId,
+            actorIdentity: work
+        )
+
+        #expect(task.projectId == legacyProject.id)
+        #expect(task.assignedNodeId == home.nodeId)
+        #expect(Set(try store.listSharedProjects().map(\.id)) == [legacyProject.id, projectedProjectId])
+        #expect(try store.load().events.map(\.event.type).suffix(2) == [.taskCreated, .taskAssigned])
+    }
+
     @Test("list tasks merges legacy and projected tasks when events exist")
     func listTasksMergesLegacyAndProjectedTasksWhenEventsExist() throws {
         let store = NodeMeshStore(stateURL: temporaryStateURL())
@@ -767,7 +870,11 @@ struct NodeMeshStoreTests {
             nodeId: work.nodeId,
             localRepoPath: "/work/sloppy",
             role: "controller",
-            permissions: [MeshPermission.taskCreate.rawValue, MeshPermission.taskAssign.rawValue]
+            permissions: [
+                MeshPermission.projectWrite.rawValue,
+                MeshPermission.taskCreate.rawValue,
+                MeshPermission.taskAssign.rawValue,
+            ]
         )
         _ = try store.attachMember(
             projectIdOrName: project.id,
@@ -807,7 +914,11 @@ struct NodeMeshStoreTests {
             nodeId: work.nodeId,
             localRepoPath: "/work/sloppy",
             role: "controller",
-            permissions: [MeshPermission.taskCreate.rawValue, MeshPermission.taskAssign.rawValue]
+            permissions: [
+                MeshPermission.projectWrite.rawValue,
+                MeshPermission.taskCreate.rawValue,
+                MeshPermission.taskAssign.rawValue,
+            ]
         )
 
         do {
@@ -879,7 +990,11 @@ struct NodeMeshStoreTests {
             nodeId: work.nodeId,
             localRepoPath: "/work/sloppy",
             role: "controller",
-            permissions: [MeshPermission.taskCreate.rawValue, MeshPermission.taskAssign.rawValue]
+            permissions: [
+                MeshPermission.projectWrite.rawValue,
+                MeshPermission.taskCreate.rawValue,
+                MeshPermission.taskAssign.rawValue,
+            ]
         )
         _ = try store.attachMember(
             projectIdOrName: project.id,
