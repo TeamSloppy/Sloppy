@@ -1282,6 +1282,72 @@ public struct NodeMeshStore: Sendable {
     }
 
     @discardableResult
+    public func dispatchTask(
+        projectIdOrName: String,
+        title: String,
+        assignedNodeId: String,
+        actorIdentity: NodeIdentity
+    ) throws -> MeshTaskRecord {
+        let storedState = try load()
+        let projected = try projectedState()
+        guard let project = sharedProject(
+            projectIdOrName: projectIdOrName,
+            storedState: storedState,
+            projectedState: projected
+        ) else {
+            throw NodeMeshStoreError.projectMissing(projectIdOrName)
+        }
+        guard storedState.nodes.contains(where: { $0.id == assignedNodeId }) || projected.nodes.contains(where: { $0.id == assignedNodeId }) else {
+            throw NodeMeshStoreError.nodeMissing(assignedNodeId)
+        }
+        guard let actorMember = project.members.first(where: { $0.nodeId == actorIdentity.nodeId }),
+              actorMember.permissions.contains(MeshPermission.taskCreate.rawValue),
+              actorMember.permissions.contains(MeshPermission.taskAssign.rawValue)
+        else {
+            throw NodeMeshStoreError.permissionDenied("task.dispatch")
+        }
+
+        let taskId = "mesh_task_" + UUID().uuidString
+        let created = MeshEvent(
+            type: .taskCreated,
+            actorNodeId: actorIdentity.nodeId,
+            projectId: project.id,
+            logicalTime: nextLogicalTime(from: storedState),
+            payload: .object([
+                "taskId": .string(taskId),
+                "title": .string(title),
+                "assignedNodeId": .string(assignedNodeId),
+            ])
+        )
+        let assigned = MeshEvent(
+            type: .taskAssigned,
+            actorNodeId: actorIdentity.nodeId,
+            targetNodeId: assignedNodeId,
+            projectId: project.id,
+            logicalTime: created.logicalTime + 1,
+            causalParents: [created.id],
+            payload: .object([
+                "taskId": .string(taskId),
+                "assignedNodeId": .string(assignedNodeId),
+            ])
+        )
+
+        _ = try appendEvent(
+            MeshEventSigner.sign(created, identity: actorIdentity),
+            expectedActorPublicKey: actorIdentity.publicKey
+        )
+        _ = try appendEvent(
+            MeshEventSigner.sign(assigned, identity: actorIdentity),
+            expectedActorPublicKey: actorIdentity.publicKey
+        )
+
+        guard let task = try projectedState().tasks.first(where: { $0.id == taskId }) else {
+            throw NodeMeshStoreError.taskMissing(taskId)
+        }
+        return task
+    }
+
+    @discardableResult
     public func updateTaskStatus(
         taskId: String,
         status: MeshTaskStatus,
@@ -1318,6 +1384,56 @@ public struct NodeMeshStore: Sendable {
         return task
     }
 
+    @discardableResult
+    public func updateTaskStatus(
+        taskId: String,
+        status: MeshTaskStatus,
+        actorIdentity: NodeIdentity,
+        branch: String? = nil,
+        commit: String? = nil,
+        summary: String? = nil
+    ) throws -> MeshTaskRecord {
+        let storedState = try load()
+        let projected = try projectedState()
+        guard let task = projected.tasks.first(where: { $0.id == taskId }) else {
+            throw NodeMeshStoreError.taskMissing(taskId)
+        }
+        guard let project = sharedProject(
+            projectIdOrName: task.projectId,
+            storedState: storedState,
+            projectedState: projected
+        ),
+        let actorMember = project.members.first(where: { $0.nodeId == actorIdentity.nodeId }),
+        actorMember.permissions.contains(MeshPermission.taskUpdate.rawValue)
+        else {
+            throw NodeMeshStoreError.permissionDenied("task.status.update")
+        }
+
+        let event = MeshEvent(
+            type: .taskStatusUpdated,
+            actorNodeId: actorIdentity.nodeId,
+            projectId: task.projectId,
+            logicalTime: nextLogicalTime(from: storedState),
+            payload: .object([
+                "taskId": .string(task.id),
+                "status": .string(status.rawValue),
+                "branch": branch.map(JSONValue.string) ?? .null,
+                "commit": commit.map(JSONValue.string) ?? .null,
+                "summary": summary.map(JSONValue.string) ?? .null,
+            ])
+        )
+
+        _ = try appendEvent(
+            MeshEventSigner.sign(event, identity: actorIdentity),
+            expectedActorPublicKey: actorIdentity.publicKey
+        )
+
+        guard let updated = try projectedState().tasks.first(where: { $0.id == taskId }) else {
+            throw NodeMeshStoreError.taskMissing(taskId)
+        }
+        return updated
+    }
+
     public func recordTaskDispatchDelivery(taskId: String, target: String, delivered: Bool, message: String? = nil) throws {
         var state = try load()
         let projectId = state.tasks.first(where: { $0.id == taskId })?.projectId
@@ -1331,6 +1447,19 @@ public struct NodeMeshStore: Sendable {
             message: message ?? (delivered ? "delivered" : "not delivered")
         ))
         try save(state)
+    }
+
+    private func sharedProject(
+        projectIdOrName: String,
+        storedState: MeshState,
+        projectedState: MeshState
+    ) -> SharedProjectRecord? {
+        storedState.sharedProjects.first(where: { $0.id == projectIdOrName || $0.name == projectIdOrName })
+            ?? projectedState.sharedProjects.first(where: { $0.id == projectIdOrName || $0.name == projectIdOrName })
+    }
+
+    private func nextLogicalTime(from state: MeshState) -> UInt64 {
+        (state.events.map(\.event.logicalTime).max() ?? 0) + 1
     }
 
     private func projectFromScope(_ scope: String?) -> String? {
