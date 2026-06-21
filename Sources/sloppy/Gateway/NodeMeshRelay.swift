@@ -80,7 +80,7 @@ actor NodeMeshRelay {
                     }
                     handleHeartbeat(envelope)
                 default:
-                    guard authenticatedNode != nil else {
+                    guard let authenticatedNode, authenticatedNode.id == envelope.from else {
                         continue
                     }
                     try await route(envelope)
@@ -214,6 +214,9 @@ actor NodeMeshRelay {
             }
         }
         for envelope in state.envelopes where envelope.type == .projectSyncEvent && envelope.to == nodeId {
+            guard try node(nodeId, canReceiveProjectSync: envelope, store: store) else {
+                continue
+            }
             try await send(envelope, over: connection.context)
         }
     }
@@ -244,6 +247,15 @@ actor NodeMeshRelay {
             return String(scope.dropFirst("sharedProject:".count))
         }
         return envelope.payload.asObject?["projectId"]?.asString
+    }
+
+    private func node(_ nodeId: String, canReceiveProjectSync envelope: MeshEnvelope, store: NodeMeshStore) throws -> Bool {
+        guard let projectId = projectId(from: envelope),
+              let project = try sharedProject(projectIdOrName: projectId, in: store)
+        else {
+            return false
+        }
+        return project.members.contains(where: { $0.nodeId == nodeId })
     }
 
     private func persistTaskStatusUpdate(_ envelope: MeshEnvelope) {
