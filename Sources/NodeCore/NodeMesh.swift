@@ -1164,7 +1164,7 @@ public struct NodeMeshStore: Sendable {
             throw MeshEventVerificationError.invalidSignature
         }
         if let existing = state.events.first(where: { $0.event.id == signed.event.id }) {
-            guard existing == signed else {
+            guard existing.actorPublicKey == signed.actorPublicKey, existing.signature == signed.signature else {
                 state.auditLog.append(MeshAuditLogEntry(
                     actor: signed.event.actorNodeId,
                     target: signed.event.targetNodeId,
