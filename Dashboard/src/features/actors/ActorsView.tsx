@@ -17,11 +17,18 @@ import {
   updateActorTeam
 } from "../../api";
 import { AgentCreateForm, emptyAgentFormValues, resolveSystemRole } from "../agents/components/AgentCreateForm";
-
-const NODE_WIDTH = 180;
-const NODE_HEIGHT = 88;
-const SOCKETS = ["top", "right", "bottom", "left"];
-const RELATIONSHIPS = ["hierarchical", "peer"];
+import {
+  NODE_HEIGHT,
+  NODE_WIDTH,
+  RELATIONSHIPS,
+  SOCKETS,
+  buildActorLinkRenderModels,
+  buildBezierPath,
+  inferRelationshipFromSockets,
+  normalizeSocket,
+  oppositeSocket,
+  socketPoint
+} from "./actorLinkGeometry";
 
 function createEmptyBoard() {
   return {
@@ -203,82 +210,6 @@ function uniqueId(prefix, existing) {
 
 function isSystemNode(nodeId) {
   return nodeId === "human:admin" || nodeId.startsWith("agent:");
-}
-
-function normalizeSocket(value, fallback = "right") {
-  const socket = asString(value, fallback);
-  return SOCKETS.includes(socket) ? socket : fallback;
-}
-
-function inferRelationshipFromSockets(sourceSocket, targetSocket) {
-  if (
-    (sourceSocket === "bottom" && targetSocket === "top")
-    || (sourceSocket === "top" && targetSocket === "bottom")
-  ) {
-    return "hierarchical";
-  }
-  return "peer";
-}
-
-function socketPoint(node, socket) {
-  switch (socket) {
-    case "top":
-      return { x: node.positionX + NODE_WIDTH / 2, y: node.positionY };
-    case "right":
-      return { x: node.positionX + NODE_WIDTH, y: node.positionY + NODE_HEIGHT / 2 };
-    case "bottom":
-      return { x: node.positionX + NODE_WIDTH / 2, y: node.positionY + NODE_HEIGHT };
-    case "left":
-    default:
-      return { x: node.positionX, y: node.positionY + NODE_HEIGHT / 2 };
-  }
-}
-
-function socketTangent(socket) {
-  switch (socket) {
-    case "top":
-      return { x: 0, y: -1 };
-    case "right":
-      return { x: 1, y: 0 };
-    case "bottom":
-      return { x: 0, y: 1 };
-    case "left":
-    default:
-      return { x: -1, y: 0 };
-  }
-}
-
-function oppositeSocket(socket) {
-  switch (socket) {
-    case "top":
-      return "bottom";
-    case "right":
-      return "left";
-    case "bottom":
-      return "top";
-    case "left":
-    default:
-      return "right";
-  }
-}
-
-function buildBezierPath(source, target, sourceSocket, targetSocket) {
-  const sourceTangent = socketTangent(sourceSocket);
-  const targetTangent = socketTangent(targetSocket);
-  const dx = target.x - source.x;
-  const dy = target.y - source.y;
-  const distance = Math.hypot(dx, dy);
-  const handle = clamp(distance * 0.35, 34, 140);
-
-  const c1 = {
-    x: source.x + sourceTangent.x * handle,
-    y: source.y + sourceTangent.y * handle
-  };
-  const c2 = {
-    x: target.x + targetTangent.x * handle,
-    y: target.y + targetTangent.y * handle
-  };
-  return `M ${source.x} ${source.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${target.x} ${target.y}`;
 }
 
 function isTypingTarget(target) {
@@ -1179,6 +1110,8 @@ export function ActorsView() {
     return map;
   }, [board.nodes]);
 
+  const linkRenderModels = useMemo(() => buildActorLinkRenderModels(board.links, nodeMap), [board.links, nodeMap]);
+
   const teamBoundsMap = useMemo(() => {
     const map = new Map();
     board.teams.forEach((team, index) => {
@@ -1345,22 +1278,9 @@ export function ActorsView() {
               })}
 
               <svg className="actors-links-layer">
-                {board.links.map((link) => {
-                  const sourceNode = nodeMap.get(link.sourceActorId);
-                  const targetNode = nodeMap.get(link.targetActorId);
-                  if (!sourceNode || !targetNode) {
-                    return null;
-                  }
-
-                  const sourceSocket = normalizeSocket(link.sourceSocket, "right");
-                  const targetSocket = normalizeSocket(link.targetSocket, "left");
-                  const source = socketPoint(sourceNode, sourceSocket);
-                  const target = socketPoint(targetNode, targetSocket);
-                  const path = buildBezierPath(source, target, sourceSocket, targetSocket);
-                  const midX = (source.x + target.x) / 2;
-                  const midY = (source.y + target.y) / 2;
+                {linkRenderModels.map((renderModel) => {
+                  const { link, path, reversePath, midX, midY, relationship } = renderModel;
                   const isSelected = selectedLinkId === link.id;
-                  const relationship = link.relationship || inferRelationshipFromSockets(sourceSocket, targetSocket);
 
                   return (
                     <g key={link.id}>
@@ -1383,7 +1303,7 @@ export function ActorsView() {
                       />
                       {link.direction === "two_way" ? (
                         <path
-                          d={buildBezierPath(target, source, targetSocket, sourceSocket)}
+                          d={reversePath}
                           className={`actor-link-flow ${relationship}`}
                         />
                       ) : null}
