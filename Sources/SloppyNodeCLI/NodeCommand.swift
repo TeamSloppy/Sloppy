@@ -654,6 +654,9 @@ public struct TaskStatus: AsyncParsableCommand {
     @Option(name: .long, help: "Actor node id.")
     var actor: String
 
+    @Option(name: .long, help: "Project id or name when task id is not globally unique.")
+    var project: String?
+
     @Option(name: .long, help: "Result branch.")
     var branch: String?
 
@@ -675,6 +678,7 @@ public struct TaskStatus: AsyncParsableCommand {
         }
         let task = try NodeMeshStore(stateURL: meshURL(from: meshPath)).updateTaskStatus(
             taskId: task,
+            projectIdOrName: project,
             status: parsedStatus,
             actor: actor,
             branch: branch,

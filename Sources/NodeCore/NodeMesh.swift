@@ -149,17 +149,20 @@ public struct MeshTaskCreateRequest: Codable, Sendable, Equatable {
 }
 
 public struct MeshTaskUpdateRequest: Codable, Sendable, Equatable {
+    public var projectId: String?
     public var status: MeshTaskStatus
     public var branch: String?
     public var commit: String?
     public var summary: String?
 
     public init(
+        projectId: String? = nil,
         status: MeshTaskStatus,
         branch: String? = nil,
         commit: String? = nil,
         summary: String? = nil
     ) {
+        self.projectId = projectId
         self.status = status
         self.branch = branch
         self.commit = commit
@@ -755,6 +758,7 @@ public enum NodeMeshStoreError: LocalizedError, Equatable {
     case projectMissing(String)
     case nodeMissing(String)
     case permissionDenied(String)
+    case taskAmbiguous(String)
     case taskMissing(String)
 
     public var errorDescription: String? {
@@ -773,6 +777,8 @@ public enum NodeMeshStoreError: LocalizedError, Equatable {
             "Node '\(nodeId)' was not found."
         case let .permissionDenied(permission):
             "Permission denied: \(permission)."
+        case let .taskAmbiguous(taskId):
+            "Mesh task '\(taskId)' exists in multiple projects. Provide a project id or name."
         case let .taskMissing(taskId):
             "Mesh task '\(taskId)' was not found."
         }
@@ -1429,6 +1435,7 @@ public struct NodeMeshStore: Sendable {
     @discardableResult
     public func updateTaskStatus(
         taskId: String,
+        projectIdOrName: String? = nil,
         status: MeshTaskStatus,
         actor: String,
         branch: String? = nil,
@@ -1436,9 +1443,7 @@ public struct NodeMeshStore: Sendable {
         summary: String? = nil
     ) throws -> MeshTaskRecord {
         var state = try load()
-        guard let index = state.tasks.firstIndex(where: { $0.id == taskId }) else {
-            throw NodeMeshStoreError.taskMissing(taskId)
-        }
+        let index = try resolveTaskIndex(taskId: taskId, projectIdOrName: projectIdOrName, in: state)
         state.tasks[index].status = status
         if let branch { state.tasks[index].branch = branch }
         if let commit { state.tasks[index].commit = commit }
@@ -1466,6 +1471,7 @@ public struct NodeMeshStore: Sendable {
     @discardableResult
     public func updateTaskStatus(
         taskId: String,
+        projectIdOrName: String? = nil,
         status: MeshTaskStatus,
         actorIdentity: NodeIdentity,
         branch: String? = nil,
@@ -1474,9 +1480,7 @@ public struct NodeMeshStore: Sendable {
     ) throws -> MeshTaskRecord {
         let storedState = try load()
         let projected = try projectedState()
-        guard let task = projected.tasks.first(where: { $0.id == taskId }) else {
-            throw NodeMeshStoreError.taskMissing(taskId)
-        }
+        let task = try resolveTask(taskId: taskId, projectIdOrName: projectIdOrName, in: projected)
         guard let project = sharedProject(
             projectIdOrName: task.projectId,
             storedState: storedState,
@@ -1513,7 +1517,7 @@ public struct NodeMeshStore: Sendable {
             expectedActorPublicKey: actorIdentity.publicKey
         )
 
-        guard let updated = try projectedState().tasks.first(where: { $0.id == taskId }) else {
+        guard let updated = try projectedState().tasks.first(where: { $0.id == taskId && $0.projectId == task.projectId }) else {
             throw NodeMeshStoreError.taskMissing(taskId)
         }
         return updated
@@ -1601,6 +1605,69 @@ public struct NodeMeshStore: Sendable {
             }
         }
         return merged
+    }
+
+    private func resolveTaskIndex(
+        taskId: String,
+        projectIdOrName: String?,
+        in state: MeshState
+    ) throws -> Int {
+        let indexes = state.tasks.indices.filter { state.tasks[$0].id == taskId }
+        guard !indexes.isEmpty else {
+            throw NodeMeshStoreError.taskMissing(taskId)
+        }
+        guard let projectIdOrName else {
+            guard indexes.count == 1 else {
+                throw NodeMeshStoreError.taskAmbiguous(taskId)
+            }
+            return indexes[0]
+        }
+        let matching = indexes.filter {
+            task(state.tasks[$0], matchesProject: projectIdOrName, projects: state.sharedProjects)
+        }
+        guard let index = matching.first else {
+            throw NodeMeshStoreError.taskMissing(taskId)
+        }
+        guard matching.count == 1 else {
+            throw NodeMeshStoreError.taskAmbiguous(taskId)
+        }
+        return index
+    }
+
+    private func resolveTask(
+        taskId: String,
+        projectIdOrName: String?,
+        in state: MeshState
+    ) throws -> MeshTaskRecord {
+        let tasks = state.tasks.filter { $0.id == taskId }
+        guard !tasks.isEmpty else {
+            throw NodeMeshStoreError.taskMissing(taskId)
+        }
+        guard let projectIdOrName else {
+            guard tasks.count == 1 else {
+                throw NodeMeshStoreError.taskAmbiguous(taskId)
+            }
+            return tasks[0]
+        }
+        let matching = tasks.filter {
+            task($0, matchesProject: projectIdOrName, projects: state.sharedProjects)
+        }
+        guard let task = matching.first else {
+            throw NodeMeshStoreError.taskMissing(taskId)
+        }
+        guard matching.count == 1 else {
+            throw NodeMeshStoreError.taskAmbiguous(taskId)
+        }
+        return task
+    }
+
+    private func task(
+        _ task: MeshTaskRecord,
+        matchesProject projectIdOrName: String,
+        projects: [SharedProjectRecord]
+    ) -> Bool {
+        task.projectId == projectIdOrName
+            || projects.contains(where: { $0.id == task.projectId && $0.name == projectIdOrName })
     }
 
     private func project(matchingID projectID: String, in projects: [SharedProjectRecord]) -> SharedProjectRecord? {

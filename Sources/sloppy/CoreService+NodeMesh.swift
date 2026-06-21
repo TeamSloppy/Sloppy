@@ -124,6 +124,7 @@ extension CoreService {
     public func updateMeshTask(id: String, request: MeshTaskUpdateRequest) throws -> MeshTaskRecord {
         try nodeMeshStore.updateTaskStatus(
             taskId: id,
+            projectIdOrName: request.projectId,
             status: request.status,
             actor: "api",
             branch: request.branch,

@@ -963,6 +963,41 @@ struct NodeMeshStoreTests {
         #expect(state.auditLog.last?.message == "ready_for_review")
     }
 
+    @Test("task status update requires project when task id is duplicated")
+    func taskStatusUpdateRequiresProjectWhenTaskIDIsDuplicated() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let sharedTaskId = "mesh_task_shared_id"
+        let projectA = SharedProjectRecord(id: "sp_a", name: "A", repoUrl: "git@example.com:a.git")
+        let projectB = SharedProjectRecord(id: "sp_b", name: "B", repoUrl: "git@example.com:b.git")
+        try store.save(MeshState(
+            sharedProjects: [projectA, projectB],
+            tasks: [
+                MeshTaskRecord(id: sharedTaskId, projectId: projectA.id, title: "A", assignedNodeId: "node_home"),
+                MeshTaskRecord(id: sharedTaskId, projectId: projectB.id, title: "B", assignedNodeId: "node_home"),
+            ]
+        ))
+
+        #expect(throws: NodeMeshStoreError.taskAmbiguous(sharedTaskId)) {
+            _ = try store.updateTaskStatus(
+                taskId: sharedTaskId,
+                status: .readyForReview,
+                actor: "node_home"
+            )
+        }
+
+        let updated = try store.updateTaskStatus(
+            taskId: sharedTaskId,
+            projectIdOrName: projectB.id,
+            status: .readyForReview,
+            actor: "node_home"
+        )
+
+        let state = try store.load()
+        #expect(updated.projectId == projectB.id)
+        #expect(state.tasks.first(where: { $0.projectId == projectA.id })?.status == .queued)
+        #expect(state.tasks.first(where: { $0.projectId == projectB.id })?.status == .readyForReview)
+    }
+
     @Test("dispatch task with actor identity writes signed task events")
     func dispatchTaskWithActorIdentityWritesSignedTaskEvents() throws {
         let store = NodeMeshStore(stateURL: temporaryStateURL())
@@ -1344,6 +1379,97 @@ struct NodeMeshStoreTests {
         #expect(updated.commit == "abc123")
         #expect(updated.summary == "Build passed.")
         #expect(state.events.map(\.event.type).contains(.taskStatusUpdated))
+    }
+
+    @Test("signed task status update uses project when task id is duplicated")
+    func signedTaskStatusUpdateUsesProjectWhenTaskIDIsDuplicated() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let home = NodeIdentityGenerator.makeIdentity(name: "Home", roles: ["worker"], capabilities: ["git"])
+        let projectA = "sp_a"
+        let projectB = "sp_b"
+        let sharedTaskId = "mesh_task_shared_id"
+        let events = try [
+            signedEvent(.projectCreated, actor: work, projectId: projectA, logicalTime: 1, payload: [
+                "id": .string(projectA),
+                "name": .string("A"),
+                "repoUrl": .string("git@example.com:a.git"),
+            ]),
+            signedEvent(.projectMemberAdded, actor: work, target: work.nodeId, projectId: projectA, logicalTime: 2, payload: [
+                "nodeId": .string(work.nodeId),
+                "localRepoPath": .string("/work/a"),
+                "role": .string("controller"),
+                "permissions": .array([
+                    .string(MeshPermission.projectWrite.rawValue),
+                    .string(MeshPermission.taskCreate.rawValue),
+                    .string(MeshPermission.taskAssign.rawValue),
+                ]),
+            ]),
+            signedEvent(.projectMemberAdded, actor: work, target: home.nodeId, projectId: projectA, logicalTime: 3, payload: [
+                "nodeId": .string(home.nodeId),
+                "localRepoPath": .string("/home/a"),
+                "role": .string("worker"),
+                "permissions": .array(MeshPermission.workerDefaults.rawValues.map(JSONValue.string)),
+            ]),
+            signedEvent(.projectCreated, actor: work, projectId: projectB, logicalTime: 4, payload: [
+                "id": .string(projectB),
+                "name": .string("B"),
+                "repoUrl": .string("git@example.com:b.git"),
+            ]),
+            signedEvent(.projectMemberAdded, actor: work, target: work.nodeId, projectId: projectB, logicalTime: 5, payload: [
+                "nodeId": .string(work.nodeId),
+                "localRepoPath": .string("/work/b"),
+                "role": .string("controller"),
+                "permissions": .array([
+                    .string(MeshPermission.projectWrite.rawValue),
+                    .string(MeshPermission.taskCreate.rawValue),
+                    .string(MeshPermission.taskAssign.rawValue),
+                ]),
+            ]),
+            signedEvent(.projectMemberAdded, actor: work, target: home.nodeId, projectId: projectB, logicalTime: 6, payload: [
+                "nodeId": .string(home.nodeId),
+                "localRepoPath": .string("/home/b"),
+                "role": .string("worker"),
+                "permissions": .array(MeshPermission.workerDefaults.rawValues.map(JSONValue.string)),
+            ]),
+            signedEvent(.taskCreated, actor: work, projectId: projectA, logicalTime: 7, payload: [
+                "taskId": .string(sharedTaskId),
+                "title": .string("A"),
+            ]),
+            signedEvent(.taskAssigned, actor: work, target: home.nodeId, projectId: projectA, logicalTime: 8, payload: [
+                "taskId": .string(sharedTaskId),
+                "assignedNodeId": .string(home.nodeId),
+            ]),
+            signedEvent(.taskCreated, actor: work, projectId: projectB, logicalTime: 9, payload: [
+                "taskId": .string(sharedTaskId),
+                "title": .string("B"),
+            ]),
+            signedEvent(.taskAssigned, actor: work, target: home.nodeId, projectId: projectB, logicalTime: 10, payload: [
+                "taskId": .string(sharedTaskId),
+                "assignedNodeId": .string(home.nodeId),
+            ]),
+        ]
+        try store.save(MeshState(nodes: baseNodes([work, home]), events: events))
+
+        #expect(throws: NodeMeshStoreError.taskAmbiguous(sharedTaskId)) {
+            _ = try store.updateTaskStatus(
+                taskId: sharedTaskId,
+                status: .readyForReview,
+                actorIdentity: home
+            )
+        }
+
+        let updated = try store.updateTaskStatus(
+            taskId: sharedTaskId,
+            projectIdOrName: projectB,
+            status: .readyForReview,
+            actorIdentity: home
+        )
+
+        let projected = try store.projectedState()
+        #expect(updated.projectId == projectB)
+        #expect(projected.tasks.first(where: { $0.projectId == projectA })?.status == .dispatched)
+        #expect(projected.tasks.first(where: { $0.projectId == projectB })?.status == .readyForReview)
     }
 
     @Test("update task status with actor identity rejects updates for another worker task")

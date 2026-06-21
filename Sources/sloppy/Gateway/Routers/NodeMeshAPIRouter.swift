@@ -203,7 +203,7 @@ private func meshErrorResponse(_ error: Error) -> CoreRouterResponse {
             return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": "mesh_not_found", "message": message])
         case .permissionDenied:
             return CoreRouter.json(status: HTTPStatus.forbidden, payload: ["error": "mesh_forbidden", "message": message])
-        case .inviteMissing, .inviteWrongCoordinator, .inviteExpired, .inviteConsumed:
+        case .inviteMissing, .inviteWrongCoordinator, .inviteExpired, .inviteConsumed, .taskAmbiguous:
             return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "mesh_invalid_request", "message": message])
         }
     }

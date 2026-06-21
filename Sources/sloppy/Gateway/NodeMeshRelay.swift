@@ -256,6 +256,7 @@ actor NodeMeshRelay {
         persist {
             _ = try store.updateTaskStatus(
                 taskId: taskId,
+                projectIdOrName: payload["projectId"]?.asString,
                 status: status,
                 actor: envelope.from,
                 branch: payload["branch"]?.asString,

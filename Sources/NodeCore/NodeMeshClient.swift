@@ -378,12 +378,14 @@ public actor NodeMeshClient {
 
             let claimed = try meshStore.updateTaskStatus(
                 taskId: taskId,
+                projectIdOrName: project.id,
                 status: .claimed,
                 actor: config.identity.nodeId,
                 summary: "Task dispatch claimed by \(config.identity.name)."
             )
             let started = try meshStore.updateTaskStatus(
                 taskId: taskId,
+                projectIdOrName: project.id,
                 status: .started,
                 actor: config.identity.nodeId,
                 summary: "Task execution started by \(config.identity.name)."
