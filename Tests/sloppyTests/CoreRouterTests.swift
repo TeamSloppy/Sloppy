@@ -254,13 +254,27 @@ func meshAPIConfiguresNetworkInvitesAndRegisteredNodes() async throws {
     #expect(node.id == "node_render")
     #expect(node.publicKey == "ed25519:public")
 
+    let pendingInviteBody = try encoder.encode(MeshInviteCreateRequest(
+        networkId: "studio",
+        name: "Pending Worker",
+        roles: ["worker"],
+        capabilities: ["git"],
+        ttlSeconds: 600,
+        relayURL: "https://sloppy.example.com",
+        nodeId: "node_pending",
+        publicKey: "ed25519:pending_public"
+    ))
+    let pendingInviteResponse = await router.handle(method: "POST", path: "/v1/node/mesh/invites", body: pendingInviteBody)
+    #expect(pendingInviteResponse.status == 201)
+    let pendingInvite = try decoder.decode(MeshInvite.self, from: pendingInviteResponse.body)
+
     let stateResponse = await router.handle(method: "GET", path: "/v1/node/mesh", body: nil)
     #expect(stateResponse.status == 200)
     let state = try decoder.decode(MeshState.self, from: stateResponse.body)
     #expect(state.nodes.map(\.id) == ["node_render"])
-    #expect(state.invites.map(\.token) == [invite.token])
+    #expect(state.invites.map(\.token) == [invite.token, pendingInvite.token])
 
-    let revokeResponse = await router.handle(method: "DELETE", path: "/v1/node/mesh/invites/\(invite.token)", body: nil)
+    let revokeResponse = await router.handle(method: "DELETE", path: "/v1/node/mesh/invites/\(pendingInvite.token)", body: nil)
     #expect(revokeResponse.status == 200)
     let revokeObject = try #require(JSONSerialization.jsonObject(with: revokeResponse.body) as? [String: Any])
     #expect(revokeObject["status"] as? String == "deleted")
@@ -268,7 +282,7 @@ func meshAPIConfiguresNetworkInvitesAndRegisteredNodes() async throws {
     let revokedStateResponse = await router.handle(method: "GET", path: "/v1/node/mesh", body: nil)
     #expect(revokedStateResponse.status == 200)
     let revokedState = try decoder.decode(MeshState.self, from: revokedStateResponse.body)
-    #expect(revokedState.invites.isEmpty)
+    #expect(revokedState.invites.map(\.token) == [invite.token])
 }
 
 @Test
@@ -296,6 +310,45 @@ func meshAPIAcceptInviteExplainsWrongCoordinator() async throws {
 }
 
 @Test
+func meshAPIAcceptGenericInviteWithSuppliedIdentity() async throws {
+    let service = CoreService(config: .test)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let inviteBody = try encoder.encode(MeshInviteCreateRequest(
+        networkId: "personal",
+        name: "Work Mac",
+        roles: ["worker"],
+        capabilities: ["run_agent", "git"],
+        ttlSeconds: 600,
+        relayURL: "https://mesh.example.com"
+    ))
+    let inviteResponse = await router.handle(method: "POST", path: "/v1/node/mesh/invites", body: inviteBody)
+    #expect(inviteResponse.status == 201)
+    let invite = try decoder.decode(MeshInvite.self, from: inviteResponse.body)
+    let token = try #require(invite.bundleToken)
+
+    let acceptBody = try encoder.encode(MeshInviteAcceptRequest(
+        token: token,
+        endpoint: "https://mesh.example.com",
+        nodeId: "node_work",
+        name: "Work Mac",
+        publicKey: "ed25519:work_public",
+        roles: ["worker"],
+        capabilities: ["run_agent", "git"]
+    ))
+    let acceptResponse = await router.handle(method: "POST", path: "/v1/node/mesh/invites/accept", body: acceptBody)
+
+    #expect(acceptResponse.status == 201)
+    let node = try decoder.decode(MeshNodeRecord.self, from: acceptResponse.body)
+    #expect(node.id == "node_work")
+    #expect(node.publicKey == "ed25519:work_public")
+}
+
+@Test
 func meshAPIAcceptInviteRejectsWrongBodyWithExpectedShape() async throws {
     let service = CoreService(config: .test)
     let router = CoreRouter(service: service)
@@ -308,6 +361,19 @@ func meshAPIAcceptInviteRejectsWrongBodyWithExpectedShape() async throws {
     let message = try #require(object["message"] as? String)
     #expect(message.contains(#""token""#))
     #expect(message.contains("slp_mesh"))
+}
+
+@Test
+func meshAPIRemoteJoinRejectsInvalidBodyWithExpectedShape() async throws {
+    let service = CoreService(config: .test)
+    let router = CoreRouter(service: service)
+
+    let response = await router.handle(method: "POST", path: "/v1/node/mesh/remote-joins", body: Data("{}".utf8))
+
+    #expect(response.status == 400)
+    let object = try #require(JSONSerialization.jsonObject(with: response.body) as? [String: Any])
+    #expect(object["error"] as? String == "invalid_body")
+    #expect((object["message"] as? String)?.contains(#""token":"slp_mesh_...""#) == true)
 }
 
 @Test

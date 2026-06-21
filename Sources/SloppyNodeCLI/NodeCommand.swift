@@ -138,6 +138,9 @@ public struct Start: AsyncParsableCommand {
     @Option(name: .long, help: "Relay URL. Overrides the relay in node config.")
     var relay: String?
 
+    @Option(name: .long, help: "Mesh state path. Defaults to ~/.sloppy/mesh.json.")
+    var meshPath: String?
+
     public init() {}
 
     public mutating func run() async throws {
@@ -151,9 +154,11 @@ public struct Start: AsyncParsableCommand {
         logger.info("SloppyNode \(config.identity.nodeId) started name=\(config.identity.name) relay=\(relayURL ?? "none")")
 
         if let relayURL, !relayURL.isEmpty {
+            let meshStore = NodeMeshStore(stateURL: meshURL(from: meshPath))
             let client = NodeMeshClient(
                 config: config,
                 daemon: daemon,
+                meshStore: meshStore,
                 heartbeatInterval: heartbeatInterval,
                 onEnvelope: { envelope in
                     logger.info(
@@ -654,6 +659,9 @@ public struct TaskStatus: AsyncParsableCommand {
     @Option(name: .long, help: "Actor node id.")
     var actor: String
 
+    @Option(name: .long, help: "Project id or name when task id is not globally unique.")
+    var project: String?
+
     @Option(name: .long, help: "Result branch.")
     var branch: String?
 
@@ -675,6 +683,7 @@ public struct TaskStatus: AsyncParsableCommand {
         }
         let task = try NodeMeshStore(stateURL: meshURL(from: meshPath)).updateTaskStatus(
             taskId: task,
+            projectIdOrName: project,
             status: parsedStatus,
             actor: actor,
             branch: branch,

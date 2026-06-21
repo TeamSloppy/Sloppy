@@ -66,7 +66,7 @@ actor NodeMeshRelay {
                         await connection.close()
                         return
                     }
-                    let node = nodeRecord(from: envelope, remoteAddress: remoteAddress)
+                    let node = nodeRecord(from: envelope, authenticatedNode: authenticatedNode, remoteAddress: remoteAddress)
                     nodes[node.id] = node
                     connections[node.id] = Connection(node: node, context: connection)
                     attachedNodeId = node.id
@@ -80,7 +80,7 @@ actor NodeMeshRelay {
                     }
                     handleHeartbeat(envelope)
                 default:
-                    guard authenticatedNode != nil else {
+                    guard let authenticatedNode, authenticatedNode.id == envelope.from else {
                         continue
                     }
                     try await route(envelope)
@@ -122,7 +122,7 @@ actor NodeMeshRelay {
             guard response.nodeId == envelope.from else {
                 return .failure("Auth node id does not match envelope sender.")
             }
-            guard let registered = try store.load().nodes.first(where: { $0.id == response.nodeId }) else {
+            guard let registered = try store.listNodes().first(where: { $0.id == response.nodeId }) else {
                 return .failure("Node is not registered.")
             }
             guard response.publicKey == registered.publicKey else {
@@ -151,15 +151,42 @@ actor NodeMeshRelay {
 
     private func route(_ envelope: MeshEnvelope) async throws {
         if envelope.type == .taskStatusUpdate {
+            if let denial = taskStatusUpdateAuthorizationDenial(for: envelope) {
+                try await sendForbiddenRPCResponse(for: envelope, message: denial)
+                if let target = envelope.to {
+                    persist {
+                        try store?.recordRouteFailure(envelope, target: target, message: denial)
+                    }
+                }
+                return
+            }
             persistTaskStatusUpdate(envelope)
         }
         guard let target = envelope.to else {
             if envelope.type == .projectSyncEvent {
+                if let denial = projectSyncAuthorizationDenial(for: envelope, target: nil) {
+                    try await sendForbiddenRPCResponse(for: envelope, message: denial)
+                    return
+                }
                 try await publishProjectSyncEvent(envelope)
             }
             return
         }
+        if envelope.type == .projectSyncEvent, let denial = projectSyncAuthorizationDenial(for: envelope, target: target) {
+            try await sendForbiddenRPCResponse(for: envelope, message: denial)
+            persist {
+                try store?.recordRouteFailure(envelope, target: target, message: denial)
+            }
+            return
+        }
         if envelope.type == .rpcRequest, let denial = rpcAuthorizationDenial(for: envelope, target: target) {
+            try await sendForbiddenRPCResponse(for: envelope, message: denial)
+            persist {
+                try store?.recordRouteFailure(envelope, target: target, message: denial)
+            }
+            return
+        }
+        if envelope.type == .taskDispatch, let denial = taskDispatchAuthorizationDenial(for: envelope, target: target) {
             try await sendForbiddenRPCResponse(for: envelope, message: denial)
             persist {
                 try store?.recordRouteFailure(envelope, target: target, message: denial)
@@ -207,6 +234,9 @@ actor NodeMeshRelay {
         }
         let state = try store.load()
         for envelope in state.envelopes where envelope.type == .taskDispatch && envelope.to == nodeId {
+            guard taskDispatchAuthorizationDenial(for: envelope, target: nodeId, allowTrustedLocal: true) == nil else {
+                continue
+            }
             try await send(envelope, over: connection.context)
             let taskId = envelope.payload.asObject?["taskId"]?.asString ?? envelope.id
             persist {
@@ -214,6 +244,9 @@ actor NodeMeshRelay {
             }
         }
         for envelope in state.envelopes where envelope.type == .projectSyncEvent && envelope.to == nodeId {
+            guard try node(nodeId, canReceiveProjectSync: envelope, store: store) else {
+                continue
+            }
             try await send(envelope, over: connection.context)
         }
     }
@@ -221,20 +254,20 @@ actor NodeMeshRelay {
     private func publishProjectSyncEvent(_ envelope: MeshEnvelope) async throws {
         guard let store,
               let projectId = projectId(from: envelope),
-              let project = try? store.load().sharedProjects.first(where: { $0.id == projectId })
+              let project = try? sharedProject(projectIdOrName: projectId, in: store)
         else {
             return
         }
-        persist {
-            try store.routeEnvelope(envelope)
-        }
         let memberNodeIds = Set(project.members.map(\.nodeId))
         for nodeId in memberNodeIds where nodeId != envelope.from {
+            var scopedEnvelope = envelope
+            scopedEnvelope.to = nodeId
+            persist {
+                try store.routeEnvelope(scopedEnvelope)
+            }
             guard let connection = connections[nodeId] else {
                 continue
             }
-            var scopedEnvelope = envelope
-            scopedEnvelope.to = nodeId
             try await send(scopedEnvelope, over: connection.context)
         }
     }
@@ -246,6 +279,10 @@ actor NodeMeshRelay {
         return envelope.payload.asObject?["projectId"]?.asString
     }
 
+    private func node(_ nodeId: String, canReceiveProjectSync envelope: MeshEnvelope, store: NodeMeshStore) throws -> Bool {
+        projectSyncAuthorizationDenial(for: envelope, target: nodeId, allowTrustedLocal: true) == nil
+    }
+
     private func persistTaskStatusUpdate(_ envelope: MeshEnvelope) {
         guard let store else { return }
         let payload = envelope.payload.asObject ?? [:]
@@ -254,8 +291,17 @@ actor NodeMeshRelay {
               let status = MeshTaskStatus(rawValue: rawStatus)
         else { return }
         persist {
+            guard try taskStatusUpdateIsAuthorized(
+                taskId: taskId,
+                projectIdOrName: payload["projectId"]?.asString,
+                actor: envelope.from,
+                store: store
+            ) else {
+                throw NodeMeshStoreError.permissionDenied("task.status.update")
+            }
             _ = try store.updateTaskStatus(
                 taskId: taskId,
+                projectIdOrName: payload["projectId"]?.asString,
                 status: status,
                 actor: envelope.from,
                 branch: payload["branch"]?.asString,
@@ -263,6 +309,54 @@ actor NodeMeshRelay {
                 summary: payload["summary"]?.asString
             )
         }
+    }
+
+    private func projectSyncAuthorizationDenial(
+        for envelope: MeshEnvelope,
+        target: String?,
+        allowTrustedLocal: Bool = false
+    ) -> String? {
+        guard let store,
+              envelope.type == .projectSyncEvent
+        else {
+            return nil
+        }
+        guard let projectId = projectId(from: envelope) else {
+            return "shared project scope is unknown"
+        }
+        do {
+            let trustedLocal = allowTrustedLocal && (envelope.from == "local" || envelope.from == "api")
+            let liveProject = try sharedProject(projectIdOrName: projectId, in: store)
+            guard let project = liveProject ?? removableProjectSnapshot(from: envelope, trustedLocal: trustedLocal) else {
+                return "shared project scope is unknown"
+            }
+            if !(allowTrustedLocal && (envelope.from == "local" || envelope.from == "api")) {
+                guard let sourceMember = project.members.first(where: { $0.nodeId == envelope.from }) else {
+                    return "source node is not a project member"
+                }
+                guard sourceMember.permissions.contains(MeshPermission.projectWrite.rawValue) else {
+                    return "missing project.write permission"
+                }
+            }
+            if let target {
+                guard project.members.contains(where: { $0.nodeId == target }) else {
+                    return "target node is not a project member"
+                }
+            }
+            return nil
+        } catch {
+            return "mesh authorization state is unavailable"
+        }
+    }
+
+    private func removableProjectSnapshot(from envelope: MeshEnvelope, trustedLocal: Bool) -> SharedProjectRecord? {
+        guard trustedLocal,
+              envelope.payload.asObject?["action"]?.asString == "shared_project.remove",
+              let projectValue = envelope.payload.asObject?["project"]
+        else {
+            return nil
+        }
+        return try? JSONValueCoder.decode(SharedProjectRecord.self, from: projectValue)
     }
 
     private func rpcAuthorizationDenial(for envelope: MeshEnvelope, target: String) -> String? {
@@ -274,7 +368,7 @@ actor NodeMeshRelay {
         }
 
         do {
-            guard let project = try store.load().sharedProjects.first(where: { $0.id == projectId }) else {
+            guard let project = try sharedProject(projectIdOrName: projectId, in: store) else {
                 return "shared project scope is unknown"
             }
             guard let sourceMember = project.members.first(where: { $0.nodeId == envelope.from }) else {
@@ -285,6 +379,118 @@ actor NodeMeshRelay {
             }
             guard sourceMember.permissions.contains(MeshPermission.nodeRPC.rawValue) else {
                 return "missing node.rpc permission"
+            }
+            return nil
+        } catch {
+            return "mesh authorization state is unavailable"
+        }
+    }
+
+    private func sharedProject(projectIdOrName: String, in store: NodeMeshStore) throws -> SharedProjectRecord? {
+        let projects = try store.listSharedProjects()
+        if let project = projects.first(where: { $0.id == projectIdOrName }) {
+            return project
+        }
+        return projects.first(where: { $0.name == projectIdOrName })
+    }
+
+    private func taskStatusUpdateIsAuthorized(
+        taskId: String,
+        projectIdOrName: String?,
+        actor: String,
+        store: NodeMeshStore
+    ) throws -> Bool {
+        let tasks = try store.listTasks(projectIdOrName: projectIdOrName)
+            .filter { $0.id == taskId }
+        guard !tasks.isEmpty else {
+            throw NodeMeshStoreError.taskMissing(taskId)
+        }
+        guard tasks.count == 1, let task = tasks.first else {
+            throw NodeMeshStoreError.taskAmbiguous(taskId)
+        }
+        guard let project = try sharedProject(projectIdOrName: task.projectId, in: store),
+              let actorMember = project.members.first(where: { $0.nodeId == actor }),
+              actorMember.permissions.contains(MeshPermission.taskUpdate.rawValue)
+        else {
+            return false
+        }
+        let ownsTask = task.assignedNodeId == actor
+        let hasElevatedTaskPermission = actorMember.permissions.contains(MeshPermission.taskAssign.rawValue)
+            || actorMember.permissions.contains(MeshPermission.taskCreate.rawValue)
+        return ownsTask || hasElevatedTaskPermission
+    }
+
+    private func taskStatusUpdateAuthorizationDenial(for envelope: MeshEnvelope) -> String? {
+        guard let store,
+              envelope.type == .taskStatusUpdate
+        else {
+            return nil
+        }
+        let payload = envelope.payload.asObject ?? [:]
+        guard let taskId = payload["taskId"]?.asString,
+              let rawStatus = payload["status"]?.asString,
+              MeshTaskStatus(rawValue: rawStatus) != nil
+        else {
+            return "task status update payload is invalid"
+        }
+        do {
+            guard try taskStatusUpdateIsAuthorized(
+                taskId: taskId,
+                projectIdOrName: payload["projectId"]?.asString,
+                actor: envelope.from,
+                store: store
+            ) else {
+                return "missing task status update permission"
+            }
+            return nil
+        } catch NodeMeshStoreError.taskAmbiguous(_) {
+            return "task status target is ambiguous"
+        } catch NodeMeshStoreError.taskMissing(_) {
+            return "task status target is unknown"
+        } catch {
+            return "mesh authorization state is unavailable"
+        }
+    }
+
+    private func taskDispatchAuthorizationDenial(
+        for envelope: MeshEnvelope,
+        target: String,
+        allowTrustedLocal: Bool = false
+    ) -> String? {
+        guard let store,
+              envelope.type == .taskDispatch
+        else {
+            return nil
+        }
+        let payload = envelope.payload.asObject ?? [:]
+        let taskId = payload["taskId"]?.asString ?? envelope.id
+        let projectIdOrName = payload["projectId"]?.asString ?? projectId(from: envelope)
+        do {
+            let tasks = try store.listTasks(projectIdOrName: projectIdOrName).filter { $0.id == taskId }
+            guard let task = tasks.first, tasks.count == 1 else {
+                return "task dispatch target is ambiguous or unknown"
+            }
+            guard task.assignedNodeId == target else {
+                return "task is not assigned to target node"
+            }
+            guard let project = try sharedProject(projectIdOrName: task.projectId, in: store) else {
+                return "shared project scope is unknown"
+            }
+            if !(allowTrustedLocal && envelope.from == "local") {
+                guard let sourceMember = project.members.first(where: { $0.nodeId == envelope.from }) else {
+                    return "source node is not a project member"
+                }
+                guard sourceMember.permissions.contains(MeshPermission.taskCreate.rawValue),
+                      sourceMember.permissions.contains(MeshPermission.taskAssign.rawValue)
+                else {
+                    return "missing task dispatch permission"
+                }
+            }
+            guard let targetMember = project.members.first(where: { $0.nodeId == target }),
+                  targetMember.permissions.contains(MeshPermission.taskUpdate.rawValue)
+                    || targetMember.permissions.contains(MeshPermission.taskAssign.rawValue)
+            else {
+                return "target node is not an eligible task assignee"
             }
             return nil
         } catch {
@@ -321,12 +527,16 @@ actor NodeMeshRelay {
         }
     }
 
-    private func nodeRecord(from envelope: MeshEnvelope, remoteAddress: String?) -> MeshNodeRecord {
+    private func nodeRecord(
+        from envelope: MeshEnvelope,
+        authenticatedNode: MeshNodeRecord,
+        remoteAddress: String?
+    ) -> MeshNodeRecord {
         let payload = envelope.payload.asObject ?? [:]
         return MeshNodeRecord(
             id: envelope.from,
             name: payload["name"]?.asString ?? envelope.from,
-            publicKey: payload["publicKey"]?.asString ?? "",
+            publicKey: authenticatedNode.publicKey,
             roles: stringArray(payload["roles"]),
             endpoint: remoteAddress,
             status: .online,

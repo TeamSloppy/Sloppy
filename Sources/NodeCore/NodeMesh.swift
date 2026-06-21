@@ -221,17 +221,20 @@ public struct MeshTaskCreateRequest: Codable, Sendable, Equatable {
 }
 
 public struct MeshTaskUpdateRequest: Codable, Sendable, Equatable {
+    public var projectId: String?
     public var status: MeshTaskStatus
     public var branch: String?
     public var commit: String?
     public var summary: String?
 
     public init(
+        projectId: String? = nil,
         status: MeshTaskStatus,
         branch: String? = nil,
         commit: String? = nil,
         summary: String? = nil
     ) {
+        self.projectId = projectId
         self.status = status
         self.branch = branch
         self.commit = commit
@@ -321,17 +324,41 @@ public struct MeshInviteAcceptRequest: Codable, Sendable, Equatable {
     public var token: String
     public var endpoint: String?
     public var allowRemote: Bool
+    public var nodeId: String?
+    public var name: String?
+    public var publicKey: String?
+    public var roles: [String]?
+    public var capabilities: [String]?
 
-    public init(token: String, endpoint: String? = nil, allowRemote: Bool = true) {
+    public init(
+        token: String,
+        endpoint: String? = nil,
+        allowRemote: Bool = true,
+        nodeId: String? = nil,
+        name: String? = nil,
+        publicKey: String? = nil,
+        roles: [String]? = nil,
+        capabilities: [String]? = nil
+    ) {
         self.token = token
         self.endpoint = endpoint
         self.allowRemote = allowRemote
+        self.nodeId = nodeId
+        self.name = name
+        self.publicKey = publicKey
+        self.roles = roles
+        self.capabilities = capabilities
     }
 
     enum CodingKeys: String, CodingKey {
         case token
         case endpoint
         case allowRemote
+        case nodeId
+        case name
+        case publicKey
+        case roles
+        case capabilities
     }
 
     public init(from decoder: Decoder) throws {
@@ -339,6 +366,59 @@ public struct MeshInviteAcceptRequest: Codable, Sendable, Equatable {
         self.token = try container.decode(String.self, forKey: .token)
         self.endpoint = try container.decodeIfPresent(String.self, forKey: .endpoint)
         self.allowRemote = try container.decodeIfPresent(Bool.self, forKey: .allowRemote) ?? true
+        self.nodeId = try container.decodeIfPresent(String.self, forKey: .nodeId)
+        self.name = try container.decodeIfPresent(String.self, forKey: .name)
+        self.publicKey = try container.decodeIfPresent(String.self, forKey: .publicKey)
+        self.roles = try container.decodeIfPresent([String].self, forKey: .roles)
+        self.capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities)
+    }
+}
+
+public struct MeshRemoteJoinRequest: Codable, Sendable, Equatable {
+    public var token: String
+    public var name: String?
+    public var force: Bool
+
+    public init(token: String, name: String? = nil, force: Bool = false) {
+        self.token = token
+        self.name = name
+        self.force = force
+    }
+}
+
+public struct MeshRemoteJoinResult: Codable, Sendable, Equatable {
+    public var node: MeshNodeRecord
+    public var relayURL: String
+    public var coordinatorAcceptURL: String
+    public var networkId: String?
+
+    public init(
+        node: MeshNodeRecord,
+        relayURL: String,
+        coordinatorAcceptURL: String,
+        networkId: String? = nil
+    ) {
+        self.node = node
+        self.relayURL = relayURL
+        self.coordinatorAcceptURL = coordinatorAcceptURL
+        self.networkId = networkId
+    }
+}
+
+public enum MeshRemoteJoinError: LocalizedError, Equatable {
+    case invalidInvite(String)
+    case identityMismatch(expectedPublicKey: String, actualPublicKey: String)
+    case coordinatorUnreachable(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case let .invalidInvite(message):
+            "Remote mesh invite is invalid: \(message)"
+        case .identityMismatch:
+            "This invite is bound to another node identity. Create a new invite for this machine or use force to replace local identity."
+        case let .coordinatorUnreachable(url):
+            "Could not reach relay coordinator at \(url)."
+        }
     }
 }
 
@@ -412,7 +492,7 @@ public struct MeshInvite: Codable, Sendable, Equatable {
     public var isConsumed: Bool { consumedAt != nil }
 
     public var bundleToken: String? {
-        guard let relayURL, let publicKey else { return nil }
+        guard let relayURL else { return nil }
         return try? MeshInviteBundle(
             inviteToken: token,
             relayURL: relayURL,
@@ -495,14 +575,14 @@ public struct MeshInviteBundle: Codable, Sendable, Equatable {
     public var inviteToken: String
     public var relayURL: String
     public var nodeId: String?
-    public var publicKey: String
+    public var publicKey: String?
 
     public init(
         version: Int = 1,
         inviteToken: String,
         relayURL: String,
         nodeId: String? = nil,
-        publicKey: String
+        publicKey: String? = nil
     ) {
         self.version = version
         self.inviteToken = inviteToken
@@ -536,7 +616,7 @@ public struct MeshInviteBundle: Codable, Sendable, Equatable {
         guard bundle.version == 1 else {
             throw MeshInviteBundleError.unsupportedVersion(bundle.version)
         }
-        guard !bundle.inviteToken.isEmpty, !bundle.relayURL.isEmpty, !bundle.publicKey.isEmpty else {
+        guard !bundle.inviteToken.isEmpty, !bundle.relayURL.isEmpty else {
             throw MeshInviteBundleError.invalidPayload
         }
         return bundle
@@ -764,6 +844,8 @@ public struct MeshState: Codable, Sendable, Equatable {
     public var tasks: [MeshTaskRecord]
     public var envelopes: [MeshEnvelope]
     public var auditLog: [MeshAuditLogEntry]
+    public var events: [SignedMeshEvent]
+    public var eventCursors: [String: String]
 
     public init(
         networkId: String = "personal",
@@ -773,7 +855,9 @@ public struct MeshState: Codable, Sendable, Equatable {
         sharedProjects: [SharedProjectRecord] = [],
         tasks: [MeshTaskRecord] = [],
         envelopes: [MeshEnvelope] = [],
-        auditLog: [MeshAuditLogEntry] = []
+        auditLog: [MeshAuditLogEntry] = [],
+        events: [SignedMeshEvent] = [],
+        eventCursors: [String: String] = [:]
     ) {
         self.networkId = networkId
         self.networkName = networkName
@@ -783,6 +867,35 @@ public struct MeshState: Codable, Sendable, Equatable {
         self.tasks = tasks
         self.envelopes = envelopes
         self.auditLog = auditLog
+        self.events = events
+        self.eventCursors = eventCursors
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case networkId
+        case networkName
+        case nodes
+        case invites
+        case sharedProjects
+        case tasks
+        case envelopes
+        case auditLog
+        case events
+        case eventCursors
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        networkId = try container.decodeIfPresent(String.self, forKey: .networkId) ?? "personal"
+        networkName = try container.decodeIfPresent(String.self, forKey: .networkName) ?? "personal"
+        nodes = try container.decodeIfPresent([MeshNodeRecord].self, forKey: .nodes) ?? []
+        invites = try container.decodeIfPresent([MeshInvite].self, forKey: .invites) ?? []
+        sharedProjects = try container.decodeIfPresent([SharedProjectRecord].self, forKey: .sharedProjects) ?? []
+        tasks = try container.decodeIfPresent([MeshTaskRecord].self, forKey: .tasks) ?? []
+        envelopes = try container.decodeIfPresent([MeshEnvelope].self, forKey: .envelopes) ?? []
+        auditLog = try container.decodeIfPresent([MeshAuditLogEntry].self, forKey: .auditLog) ?? []
+        events = try container.decodeIfPresent([SignedMeshEvent].self, forKey: .events) ?? []
+        eventCursors = try container.decodeIfPresent([String: String].self, forKey: .eventCursors) ?? [:]
     }
 }
 
@@ -794,6 +907,7 @@ public enum NodeMeshStoreError: LocalizedError, Equatable {
     case projectMissing(String)
     case nodeMissing(String)
     case permissionDenied(String)
+    case taskAmbiguous(String)
     case taskMissing(String)
 
     public var errorDescription: String? {
@@ -812,6 +926,8 @@ public enum NodeMeshStoreError: LocalizedError, Equatable {
             "Node '\(nodeId)' was not found."
         case let .permissionDenied(permission):
             "Permission denied: \(permission)."
+        case let .taskAmbiguous(taskId):
+            "Mesh task '\(taskId)' exists in multiple projects. Provide a project id or name."
         case let .taskMissing(taskId):
             "Mesh task '\(taskId)' was not found."
         }
@@ -850,6 +966,22 @@ public struct NodeMeshStore: Sendable {
         #if !os(Windows)
             try FileManager.default.setAttributes([.posixPermissions: 0o600], ofItemAtPath: stateURL.path)
         #endif
+    }
+
+    public func projectedState() throws -> MeshState {
+        let state = try load()
+        let trustedEventIDs = Set(state.events.map(\.event.id))
+        var projected = try NodeMeshProjection.project(
+            events: state.events,
+            base: state,
+            trustedEventIDs: trustedEventIDs
+        )
+        projected.events = state.events
+        projected.eventCursors = state.eventCursors
+        projected.invites = state.invites
+        projected.envelopes = state.envelopes
+        projected.auditLog = state.auditLog
+        return projected
     }
 
     @discardableResult
@@ -1160,23 +1292,160 @@ public struct NodeMeshStore: Sendable {
         return state
     }
 
+    public func listNodes() throws -> [MeshNodeRecord] {
+        let state = try load()
+        return try mergedNodes(from: state).sorted { $0.name < $1.name }
+    }
+
     public func listSharedProjects() throws -> [SharedProjectRecord] {
-        try load().sharedProjects.sorted { $0.name < $1.name }
+        let state = try load()
+        return try mergedSharedProjects(from: state).sorted { $0.name < $1.name }
     }
 
     public func listTasks(projectIdOrName: String? = nil) throws -> [MeshTaskRecord] {
         let state = try load()
+        let projects = try mergedSharedProjects(from: state)
+        let tasks = try mergedTasks(from: state)
         guard let projectIdOrName, !projectIdOrName.isEmpty else {
-            return state.tasks.sorted { $0.updatedAt > $1.updatedAt }
+            return tasks.sorted { $0.updatedAt > $1.updatedAt }
         }
-        let projectId = state.sharedProjects.first(where: { $0.id == projectIdOrName || $0.name == projectIdOrName })?.id ?? projectIdOrName
-        return state.tasks.filter { $0.projectId == projectId }.sorted { $0.updatedAt > $1.updatedAt }
+        let projectId = project(matchingID: projectIdOrName, in: projects)?
+            .id ?? project(matchingName: projectIdOrName, in: projects)?
+            .id ?? projectIdOrName
+        return tasks.filter { $0.projectId == projectId }.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    @discardableResult
+    public func appendEvent(
+        _ signed: SignedMeshEvent,
+        expectedActorPublicKey: String
+    ) throws -> SignedMeshEvent {
+        var state = try load()
+        guard try MeshEventSigner.verify(signed, publicKey: expectedActorPublicKey) else {
+            state.auditLog.append(MeshAuditLogEntry(
+                actor: signed.event.actorNodeId,
+                action: "event.append",
+                project: signed.event.projectId,
+                allowed: false,
+                message: "invalid_signature"
+            ))
+            try save(state)
+            throw MeshEventVerificationError.invalidSignature
+        }
+        if let existing = state.events.first(where: { $0.event.id == signed.event.id }) {
+            guard try NodeMeshProjection.isSameSignedEvent(existing, signed) else {
+                state.auditLog.append(MeshAuditLogEntry(
+                    actor: signed.event.actorNodeId,
+                    target: signed.event.targetNodeId,
+                    action: "event.append",
+                    project: signed.event.projectId,
+                    allowed: false,
+                    message: "event_conflict"
+                ))
+                try save(state)
+                throw MeshEventVerificationError.eventConflict(signed.event.id)
+            }
+            return signed
+        }
+        try validateAppendOrder([signed], after: state.events)
+        let trustedEventIDs = Set(state.events.map(\.event.id))
+        _ = try NodeMeshProjection.project(
+            events: state.events + [signed],
+            base: state,
+            trustedEventIDs: trustedEventIDs
+        )
+        state.events.append(signed)
+        state.eventCursors[signed.event.actorNodeId] = signed.event.id
+        state.auditLog.append(MeshAuditLogEntry(
+            actor: signed.event.actorNodeId,
+            target: signed.event.targetNodeId,
+            action: "event.append",
+            project: signed.event.projectId,
+            allowed: true,
+            message: signed.event.type.rawValue
+        ))
+        try save(state)
+        return signed
+    }
+
+    @discardableResult
+    func appendEvents(
+        _ signedEvents: [SignedMeshEvent],
+        expectedActorPublicKey: String
+    ) throws -> [SignedMeshEvent] {
+        guard !signedEvents.isEmpty else {
+            return []
+        }
+        var state = try load()
+        var pending: [SignedMeshEvent] = []
+        for signed in signedEvents {
+            guard try MeshEventSigner.verify(signed, publicKey: expectedActorPublicKey) else {
+                throw MeshEventVerificationError.invalidSignature
+            }
+            if let existing = state.events.first(where: { $0.event.id == signed.event.id }) {
+                guard try NodeMeshProjection.isSameSignedEvent(existing, signed) else {
+                    throw MeshEventVerificationError.eventConflict(signed.event.id)
+                }
+                continue
+            }
+            if let existing = pending.first(where: { $0.event.id == signed.event.id }) {
+                guard try NodeMeshProjection.isSameSignedEvent(existing, signed) else {
+                    throw MeshEventVerificationError.eventConflict(signed.event.id)
+                }
+                continue
+            }
+            pending.append(signed)
+        }
+
+        guard !pending.isEmpty else {
+            return signedEvents
+        }
+
+        try validateAppendOrder(pending, after: state.events)
+        let trustedEventIDs = Set(state.events.map(\.event.id))
+        _ = try NodeMeshProjection.project(
+            events: state.events + pending,
+            base: state,
+            trustedEventIDs: trustedEventIDs
+        )
+        state.events.append(contentsOf: pending)
+        for signed in pending {
+            state.eventCursors[signed.event.actorNodeId] = signed.event.id
+            state.auditLog.append(MeshAuditLogEntry(
+                actor: signed.event.actorNodeId,
+                target: signed.event.targetNodeId,
+                action: "event.append",
+                project: signed.event.projectId,
+                allowed: true,
+                message: signed.event.type.rawValue
+            ))
+        }
+        try save(state)
+        return signedEvents
+    }
+
+    public func listEvents(after cursor: String? = nil, limit: Int = 100) throws -> [SignedMeshEvent] {
+        guard limit > 0 else {
+            return []
+        }
+        let events = try load().events
+        let startIndex: Int
+        if let cursor, let index = events.firstIndex(where: { $0.event.id == cursor }) {
+            startIndex = events.index(after: index)
+        } else {
+            startIndex = events.startIndex
+        }
+        guard startIndex < events.endIndex else {
+            return []
+        }
+        return Array(events[startIndex...].prefix(limit))
     }
 
     @discardableResult
     public func routeEnvelope(_ envelope: MeshEnvelope) throws -> MeshEnvelope {
         var state = try load()
-        if let target = envelope.to, !state.nodes.contains(where: { $0.id == target }) {
+        let nodes = try mergedNodes(from: state)
+        if let target = envelope.to, !nodes.contains(where: { $0.id == target }) {
             state.auditLog.append(MeshAuditLogEntry(actor: envelope.from, target: target, action: envelope.type.rawValue, allowed: false, message: "unknown target node"))
             try save(state)
             throw NodeMeshStoreError.nodeMissing(target)
@@ -1246,8 +1515,75 @@ public struct NodeMeshStore: Sendable {
     }
 
     @discardableResult
+    public func dispatchTask(
+        projectIdOrName: String,
+        title: String,
+        assignedNodeId: String,
+        actorIdentity: NodeIdentity
+    ) throws -> MeshTaskRecord {
+        let storedState = try load()
+        let projected = try projectedState()
+        guard let project = sharedProject(
+            projectIdOrName: projectIdOrName,
+            storedState: storedState,
+            projectedState: projected
+        ) else {
+            throw NodeMeshStoreError.projectMissing(projectIdOrName)
+        }
+        guard let actorMember = project.members.first(where: { $0.nodeId == actorIdentity.nodeId }),
+              actorMember.permissions.contains(MeshPermission.taskCreate.rawValue),
+              actorMember.permissions.contains(MeshPermission.taskAssign.rawValue)
+        else {
+            throw NodeMeshStoreError.permissionDenied("task.dispatch")
+        }
+        guard storedState.nodes.contains(where: { $0.id == assignedNodeId }) || projected.nodes.contains(where: { $0.id == assignedNodeId }) else {
+            throw NodeMeshStoreError.nodeMissing(assignedNodeId)
+        }
+        guard let assignedMember = project.members.first(where: { $0.nodeId == assignedNodeId }),
+              assignedMember.permissions.contains(MeshPermission.taskUpdate.rawValue) || assignedMember.permissions.contains(MeshPermission.taskAssign.rawValue)
+        else {
+            throw NodeMeshStoreError.permissionDenied("task.dispatch")
+        }
+
+        let taskId = "mesh_task_" + UUID().uuidString
+        let created = MeshEvent(
+            type: .taskCreated,
+            actorNodeId: actorIdentity.nodeId,
+            projectId: project.id,
+            logicalTime: nextLogicalTime(from: storedState),
+            payload: .object([
+                "taskId": .string(taskId),
+                "title": .string(title),
+            ])
+        )
+        let assigned = MeshEvent(
+            type: .taskAssigned,
+            actorNodeId: actorIdentity.nodeId,
+            targetNodeId: assignedNodeId,
+            projectId: project.id,
+            logicalTime: created.logicalTime + 1,
+            causalParents: [created.id],
+            payload: .object([
+                "taskId": .string(taskId),
+                "assignedNodeId": .string(assignedNodeId),
+            ])
+        )
+
+        _ = try appendEvents([
+            MeshEventSigner.sign(created, identity: actorIdentity),
+            MeshEventSigner.sign(assigned, identity: actorIdentity),
+        ], expectedActorPublicKey: actorIdentity.publicKey)
+
+        guard let task = try projectedState().tasks.first(where: { $0.id == taskId }) else {
+            throw NodeMeshStoreError.taskMissing(taskId)
+        }
+        return task
+    }
+
+    @discardableResult
     public func updateTaskStatus(
         taskId: String,
+        projectIdOrName: String? = nil,
         status: MeshTaskStatus,
         actor: String,
         branch: String? = nil,
@@ -1255,9 +1591,7 @@ public struct NodeMeshStore: Sendable {
         summary: String? = nil
     ) throws -> MeshTaskRecord {
         var state = try load()
-        guard let index = state.tasks.firstIndex(where: { $0.id == taskId }) else {
-            throw NodeMeshStoreError.taskMissing(taskId)
-        }
+        let index = try resolveTaskIndex(taskId: taskId, projectIdOrName: projectIdOrName, in: state)
         state.tasks[index].status = status
         if let branch { state.tasks[index].branch = branch }
         if let commit { state.tasks[index].commit = commit }
@@ -1282,6 +1616,68 @@ public struct NodeMeshStore: Sendable {
         return task
     }
 
+    @discardableResult
+    public func updateTaskStatus(
+        taskId: String,
+        projectIdOrName: String? = nil,
+        status: MeshTaskStatus,
+        actorIdentity: NodeIdentity,
+        branch: String? = nil,
+        commit: String? = nil,
+        summary: String? = nil
+    ) throws -> MeshTaskRecord {
+        let storedState = try load()
+        let projected = try projectedState()
+        var taskResolutionState = storedState
+        taskResolutionState.sharedProjects = mergeById(
+            stored: storedState.sharedProjects,
+            projected: projected.sharedProjects,
+            id: \.id
+        )
+        taskResolutionState.tasks = mergeTasks(stored: storedState.tasks, projected: projected.tasks)
+        let task = try resolveTask(taskId: taskId, projectIdOrName: projectIdOrName, in: taskResolutionState)
+        guard let project = sharedProject(
+            projectIdOrName: task.projectId,
+            storedState: storedState,
+            projectedState: projected
+        ),
+        let actorMember = project.members.first(where: { $0.nodeId == actorIdentity.nodeId }),
+        actorMember.permissions.contains(MeshPermission.taskUpdate.rawValue)
+        else {
+            throw NodeMeshStoreError.permissionDenied("task.status.update")
+        }
+        let ownsTask = task.assignedNodeId == actorIdentity.nodeId
+        let hasElevatedTaskPermission = actorMember.permissions.contains(MeshPermission.taskAssign.rawValue)
+            || actorMember.permissions.contains(MeshPermission.taskCreate.rawValue)
+        guard ownsTask || hasElevatedTaskPermission else {
+            throw NodeMeshStoreError.permissionDenied("task.status.update")
+        }
+
+        let event = MeshEvent(
+            type: .taskStatusUpdated,
+            actorNodeId: actorIdentity.nodeId,
+            projectId: task.projectId,
+            logicalTime: nextLogicalTime(from: storedState),
+            payload: .object([
+                "taskId": .string(task.id),
+                "status": .string(status.rawValue),
+                "branch": branch.map(JSONValue.string) ?? .null,
+                "commit": commit.map(JSONValue.string) ?? .null,
+                "summary": summary.map(JSONValue.string) ?? .null,
+            ])
+        )
+
+        _ = try appendEvent(
+            MeshEventSigner.sign(event, identity: actorIdentity),
+            expectedActorPublicKey: actorIdentity.publicKey
+        )
+
+        guard let updated = try projectedState().tasks.first(where: { $0.id == taskId && $0.projectId == task.projectId }) else {
+            throw NodeMeshStoreError.taskMissing(taskId)
+        }
+        return updated
+    }
+
     public func recordTaskDispatchDelivery(taskId: String, target: String, delivered: Bool, message: String? = nil) throws {
         var state = try load()
         let projectId = state.tasks.first(where: { $0.id == taskId })?.projectId
@@ -1295,6 +1691,163 @@ public struct NodeMeshStore: Sendable {
             message: message ?? (delivered ? "delivered" : "not delivered")
         ))
         try save(state)
+    }
+
+    private func sharedProject(
+        projectIdOrName: String,
+        storedState: MeshState,
+        projectedState: MeshState
+    ) -> SharedProjectRecord? {
+        if let project = project(matchingID: projectIdOrName, in: projectedState.sharedProjects)
+            ?? project(matchingID: projectIdOrName, in: storedState.sharedProjects)
+            ?? project(matchingName: projectIdOrName, in: projectedState.sharedProjects)
+            ?? project(matchingName: projectIdOrName, in: storedState.sharedProjects) {
+            return project
+        }
+        return nil
+    }
+
+    private func mergedNodes(from state: MeshState) throws -> [MeshNodeRecord] {
+        guard !state.events.isEmpty else {
+            return state.nodes
+        }
+        let projected = try projectedState()
+        return mergeById(stored: state.nodes, projected: projected.nodes, id: \.id)
+    }
+
+    private func mergedSharedProjects(from state: MeshState) throws -> [SharedProjectRecord] {
+        guard !state.events.isEmpty else {
+            return state.sharedProjects
+        }
+        let projected = try projectedState()
+        return mergeById(stored: state.sharedProjects, projected: projected.sharedProjects, id: \.id)
+    }
+
+    private func mergedTasks(from state: MeshState) throws -> [MeshTaskRecord] {
+        guard !state.events.isEmpty else {
+            return state.tasks
+        }
+        let projected = try projectedState()
+        return mergeTasks(stored: state.tasks, projected: projected.tasks)
+    }
+
+    private func mergeById<Value>(
+        stored: [Value],
+        projected: [Value],
+        id: KeyPath<Value, String>
+    ) -> [Value] {
+        var merged = stored
+        for projectedValue in projected {
+            if let index = merged.firstIndex(where: { $0[keyPath: id] == projectedValue[keyPath: id] }) {
+                merged[index] = projectedValue
+            } else {
+                merged.append(projectedValue)
+            }
+        }
+        return merged
+    }
+
+    private func mergeTasks(
+        stored: [MeshTaskRecord],
+        projected: [MeshTaskRecord]
+    ) -> [MeshTaskRecord] {
+        var merged = stored
+        for projectedTask in projected {
+            if let index = merged.firstIndex(where: { $0.id == projectedTask.id && $0.projectId == projectedTask.projectId }) {
+                merged[index] = projectedTask
+            } else {
+                merged.append(projectedTask)
+            }
+        }
+        return merged
+    }
+
+    private func resolveTaskIndex(
+        taskId: String,
+        projectIdOrName: String?,
+        in state: MeshState
+    ) throws -> Int {
+        let indexes = state.tasks.indices.filter { state.tasks[$0].id == taskId }
+        guard !indexes.isEmpty else {
+            throw NodeMeshStoreError.taskMissing(taskId)
+        }
+        guard let projectIdOrName else {
+            guard indexes.count == 1 else {
+                throw NodeMeshStoreError.taskAmbiguous(taskId)
+            }
+            return indexes[0]
+        }
+        let matching = indexes.filter {
+            task(state.tasks[$0], matchesProject: projectIdOrName, projects: state.sharedProjects)
+        }
+        guard let index = matching.first else {
+            throw NodeMeshStoreError.taskMissing(taskId)
+        }
+        guard matching.count == 1 else {
+            throw NodeMeshStoreError.taskAmbiguous(taskId)
+        }
+        return index
+    }
+
+    private func resolveTask(
+        taskId: String,
+        projectIdOrName: String?,
+        in state: MeshState
+    ) throws -> MeshTaskRecord {
+        let tasks = state.tasks.filter { $0.id == taskId }
+        guard !tasks.isEmpty else {
+            throw NodeMeshStoreError.taskMissing(taskId)
+        }
+        guard let projectIdOrName else {
+            guard tasks.count == 1 else {
+                throw NodeMeshStoreError.taskAmbiguous(taskId)
+            }
+            return tasks[0]
+        }
+        let matching = tasks.filter {
+            task($0, matchesProject: projectIdOrName, projects: state.sharedProjects)
+        }
+        guard let task = matching.first else {
+            throw NodeMeshStoreError.taskMissing(taskId)
+        }
+        guard matching.count == 1 else {
+            throw NodeMeshStoreError.taskAmbiguous(taskId)
+        }
+        return task
+    }
+
+    private func task(
+        _ task: MeshTaskRecord,
+        matchesProject projectIdOrName: String,
+        projects: [SharedProjectRecord]
+    ) -> Bool {
+        task.projectId == projectIdOrName
+            || projects.contains(where: { $0.id == task.projectId && $0.name == projectIdOrName })
+    }
+
+    private func project(matchingID projectID: String, in projects: [SharedProjectRecord]) -> SharedProjectRecord? {
+        projects.first(where: { $0.id == projectID })
+    }
+
+    private func project(matchingName projectName: String, in projects: [SharedProjectRecord]) -> SharedProjectRecord? {
+        projects.first(where: { $0.name == projectName })
+    }
+
+    private func nextLogicalTime(from state: MeshState) -> UInt64 {
+        (state.events.map(\.event.logicalTime).max() ?? 0) + 1
+    }
+
+    private func validateAppendOrder(
+        _ pending: [SignedMeshEvent],
+        after accepted: [SignedMeshEvent]
+    ) throws {
+        var lastLogicalTime = accepted.map(\.event.logicalTime).max() ?? 0
+        for signed in pending {
+            guard signed.event.logicalTime > lastLogicalTime else {
+                throw MeshEventVerificationError.unauthorized("event.append")
+            }
+            lastLogicalTime = signed.event.logicalTime
+        }
     }
 
     private func projectFromScope(_ scope: String?) -> String? {

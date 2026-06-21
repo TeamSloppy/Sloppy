@@ -50,6 +50,26 @@ struct NodeMeshEventTests {
         #expect(try MeshEventSigner.verify(signed, publicKey: identity.publicKey) == false)
     }
 
+    @Test("tampered wall time fractional seconds fail verification")
+    func tamperedWallTimeFractionalSecondsFailVerification() throws {
+        let identity = NodeIdentityGenerator.makeIdentity(
+            name: "Home",
+            roles: ["worker"],
+            capabilities: ["git"]
+        )
+        let event = MeshEvent(
+            type: .taskCreated,
+            actorNodeId: identity.nodeId,
+            logicalTime: 1,
+            wallTime: Date(timeIntervalSince1970: 1_800_000_000.123),
+            payload: .object(["title": .string("Run tests")])
+        )
+        var signed = try MeshEventSigner.sign(event, identity: identity)
+        signed.event.wallTime = Date(timeIntervalSince1970: 1_800_000_000.456)
+
+        #expect(try MeshEventSigner.verify(signed, publicKey: identity.publicKey) == false)
+    }
+
     @Test("event signing payload is stable")
     func eventSigningPayloadIsStable() throws {
         let event = MeshEvent(

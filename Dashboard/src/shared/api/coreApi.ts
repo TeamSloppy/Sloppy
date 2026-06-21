@@ -91,6 +91,7 @@ export interface CoreApi {
   createMeshInvite: (payload: AnyRecord) => Promise<AnyRecord | null>;
   deleteMeshInvite: (token: string) => Promise<boolean>;
   acceptMeshInvite: (payload: AnyRecord) => Promise<AnyRecord | null>;
+  joinRemoteMesh: (payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchMeshNodes: () => Promise<AnyRecord[]>;
   registerMeshNode: (payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchMeshSharedProjects: () => Promise<AnyRecord[]>;
@@ -570,6 +571,18 @@ export function createCoreApi(): CoreApi {
     acceptMeshInvite: async (payload) => {
       const response = await requestJson<AnyRecord, AnyRecord>({
         path: "/v1/node/mesh/invites/accept",
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) {
+        throw new Error(formatHttpError(response.status, response.data));
+      }
+      return response.data;
+    },
+
+    joinRemoteMesh: async (payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/node/mesh/remote-joins",
         method: "POST",
         body: payload
       });

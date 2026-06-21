@@ -940,6 +940,31 @@
   padding: 10px;
 }
 
+.nodes-join-relay {
+  display: grid;
+  gap: 4px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--background);
+}
+
+.nodes-join-relay span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.nodes-join-relay code {
+  overflow-wrap: anywhere;
+}
+
+.nodes-checkbox-row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  color: var(--text);
+}
+
 @media (max-width: 1180px) {
   .nodes-status-strip,
   .nodes-workflow {

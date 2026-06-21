@@ -354,8 +354,9 @@ public actor NodeMeshClient {
                     summary: "Worker mesh store is not configured."
                 )]
             }
-            let state = try meshStore.load()
-            guard let project = state.sharedProjects.first(where: { $0.id == projectId || $0.name == projectId }) else {
+            let projects = try meshStore.listSharedProjects()
+            guard let project = projects.first(where: { $0.id == projectId })
+                ?? projects.first(where: { $0.name == projectId }) else {
                 return [makeTaskStatusUpdate(
                     taskId: taskId,
                     projectId: projectId,
@@ -375,15 +376,29 @@ public actor NodeMeshClient {
                     summary: "This node is not a member of the shared project."
                 )]
             }
+            guard let task = try meshStore.listTasks(projectIdOrName: project.id).first(where: { $0.id == taskId }),
+                  task.assignedNodeId == config.identity.nodeId
+            else {
+                return [makeTaskStatusUpdate(
+                    taskId: taskId,
+                    projectId: project.id,
+                    status: .blocked,
+                    to: envelope.from,
+                    scope: envelope.scope,
+                    summary: "Task is not assigned to this node."
+                )]
+            }
 
             let claimed = try meshStore.updateTaskStatus(
                 taskId: taskId,
+                projectIdOrName: project.id,
                 status: .claimed,
                 actor: config.identity.nodeId,
                 summary: "Task dispatch claimed by \(config.identity.name)."
             )
             let started = try meshStore.updateTaskStatus(
                 taskId: taskId,
+                projectIdOrName: project.id,
                 status: .started,
                 actor: config.identity.nodeId,
                 summary: "Task execution started by \(config.identity.name)."

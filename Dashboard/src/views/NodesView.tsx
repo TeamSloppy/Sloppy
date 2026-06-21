@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from "react";
 import type { CoreApi } from "../shared/api/coreApi";
 
 type AnyRecord = Record<string, unknown>;
-type MeshModal = "network" | "invite" | "accept" | "node" | null;
+type MeshModal = "network" | "invite" | "accept" | "join" | "node" | null;
 type MeshGraphNode = {
   id: string;
   name: string;
@@ -52,6 +52,24 @@ function toCsv(values: string[]) {
 
 function meshInviteToken(invite: AnyRecord) {
   return text(invite.bundleToken, text(invite.token));
+}
+
+function parseMeshInviteBundle(token: string) {
+  const prefix = "slp_mesh_";
+  if (!token.startsWith(prefix)) {
+    return null;
+  }
+  try {
+    const encoded = token.slice(prefix.length).replace(/-/g, "+").replace(/_/g, "/");
+    const padded = encoded.padEnd(encoded.length + ((4 - encoded.length % 4) % 4), "=");
+    return JSON.parse(atob(padded)) as AnyRecord;
+  } catch {
+    return null;
+  }
+}
+
+function relayURLFromInviteToken(token: string) {
+  return text(parseMeshInviteBundle(token)?.relayURL);
 }
 
 function statusLabel(value: unknown) {
@@ -209,6 +227,10 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
   const [inviteNodeId, setInviteNodeId] = useState("");
   const [invitePublicKey, setInvitePublicKey] = useState("");
   const [acceptInviteToken, setAcceptInviteToken] = useState("");
+  const [joinInviteToken, setJoinInviteToken] = useState("");
+  const [joinNodeName, setJoinNodeName] = useState("");
+  const [joinForce, setJoinForce] = useState(false);
+  const [detectedRemoteRelayURL, setDetectedRemoteRelayURL] = useState("");
   const [latestInvite, setLatestInvite] = useState<AnyRecord | null>(null);
   const [nodeId, setNodeId] = useState("");
   const [nodeDisplayName, setNodeDisplayName] = useState("");
@@ -365,8 +387,8 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
     const relayURL = inviteRelayURL.trim();
     const inviteeNodeId = inviteNodeId.trim();
     const publicKey = invitePublicKey.trim();
-    if (!relayURL || !inviteeNodeId || !publicKey) {
-      setError("Relay URL, worker node id, and worker public key are required for a bundled invite token.");
+    if (!relayURL) {
+      setError("Relay URL is required for a bundled invite token.");
       return;
     }
     await runAction("invite", async () => {
@@ -377,8 +399,8 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
         capabilities: csv(inviteCapabilities),
         ttlSeconds: Number(inviteTtlSeconds) || 86400,
         relayURL,
-        nodeId: inviteeNodeId,
-        publicKey
+        nodeId: inviteeNodeId || null,
+        publicKey: publicKey || null
       });
       if (!invite) {
         setError("Invite could not be created.");
@@ -398,14 +420,57 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
       setError("Invite token is required.");
       return;
     }
-    await runAction("accept", async () => {
+    if (busyAction) {
+      return;
+    }
+    setBusyAction("accept");
+    setError("");
+    try {
       const node = await coreApi.acceptMeshInvite({ token });
       if (!node) {
         setError("Invite could not be accepted.");
-        return false;
+        return;
       }
       setAcceptInviteToken("");
       setSelectedNodeId(text(node.id));
+      setActiveModal(null);
+      await refresh();
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Invite could not be accepted.";
+      const relayURL = relayURLFromInviteToken(token);
+      if (relayURL && message.includes("not found in this coordinator state")) {
+        setDetectedRemoteRelayURL(relayURL);
+        setJoinInviteToken(token);
+        setActiveModal("join");
+        setError("");
+      } else {
+        setError(message);
+      }
+    } finally {
+      setBusyAction("");
+    }
+  }
+
+  async function joinRemoteMesh() {
+    const token = joinInviteToken.trim();
+    if (!token) {
+      setError("Invite token is required.");
+      return;
+    }
+    await runAction("join", async () => {
+      const result = await coreApi.joinRemoteMesh({
+        token,
+        name: joinNodeName.trim() || null,
+        force: joinForce
+      });
+      if (!result) {
+        setError("Remote mesh could not be joined.");
+        return false;
+      }
+      setJoinInviteToken("");
+      setJoinNodeName("");
+      setJoinForce(false);
+      setDetectedRemoteRelayURL(text(result.relayURL));
       return true;
     });
   }
@@ -561,10 +626,10 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
             <Field label="Relay URL" hint="Included in the bundled token so the worker does not need a separate --relay value.">
               <input type="url" value={inviteRelayURL} onChange={(event) => setInviteRelayURL(event.target.value)} />
             </Field>
-            <Field label="Worker node id" hint="Paste the node id from the worker identity.">
+            <Field label="Worker node id" hint="Optional. Use only when binding the invite to a known node identity.">
               <input type="text" value={inviteNodeId} onChange={(event) => setInviteNodeId(event.target.value)} />
             </Field>
-            <Field label="Worker public key" hint="Paste the ed25519 public key from the worker identity.">
+            <Field label="Worker public key" hint="Optional. Leave empty for a generic invite accepted by the joining machine.">
               <textarea value={invitePublicKey} onChange={(event) => setInvitePublicKey(event.target.value)} rows={4} />
             </Field>
             <ChipPicker
@@ -585,7 +650,7 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
           </div>
           <div className="nodes-modal-actions">
             <button type="button" onClick={() => setActiveModal(null)}>Cancel</button>
-            <button type="button" className="nodes-primary-button" disabled={!activeSystemId.trim() || !inviteRelayURL.trim() || !inviteNodeId.trim() || !invitePublicKey.trim() || !!busyAction} onClick={() => void createInvite()}>
+            <button type="button" className="nodes-primary-button" disabled={!activeSystemId.trim() || !inviteRelayURL.trim() || !!busyAction} onClick={() => void createInvite()}>
               {busyAction === "invite" ? "Creating" : "Create invite"}
             </button>
           </div>
@@ -595,7 +660,7 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
 
     if (activeModal === "accept") {
       return (
-        <MeshModalFrame title="Accept Invite" description="Paste one bundled mesh invite token to register the invited worker identity." icon="move_to_inbox" onClose={() => setActiveModal(null)}>
+        <MeshModalFrame title="Accept Invite Here" description="Coordinator operation: consume an invite that belongs to this local mesh state." icon="move_to_inbox" onClose={() => setActiveModal(null)}>
           <div className="nodes-modal-body">
             <Field label="Invite token" hint="Accepts slp_mesh bundled tokens. Legacy slp_invite tokens still work when the invite exists in this coordinator state.">
               <textarea value={acceptInviteToken} onChange={(event) => setAcceptInviteToken(event.target.value)} rows={6} />
@@ -605,6 +670,38 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
             <button type="button" onClick={() => setActiveModal(null)}>Cancel</button>
             <button type="button" className="nodes-primary-button" disabled={!acceptInviteToken.trim() || !!busyAction} onClick={() => void acceptInvite()}>
               {busyAction === "accept" ? "Accepting" : "Accept invite"}
+            </button>
+          </div>
+        </MeshModalFrame>
+      );
+    }
+
+    if (activeModal === "join") {
+      const relayURL = relayURLFromInviteToken(joinInviteToken) || detectedRemoteRelayURL;
+      return (
+        <MeshModalFrame title="Join Remote Mesh" description="Connect this local Sloppy node to the relay embedded in a mesh invite." icon="hub" onClose={() => setActiveModal(null)}>
+          <div className="nodes-modal-body">
+            <Field label="Invite token" hint="Paste the bundled slp_mesh token from the coordinator. The dashboard API base stays local.">
+              <textarea value={joinInviteToken} onChange={(event) => setJoinInviteToken(event.target.value)} rows={6} />
+            </Field>
+            {relayURL ? (
+              <div className="nodes-join-relay">
+                <span>Remote relay</span>
+                <code>{relayURL}</code>
+              </div>
+            ) : null}
+            <Field label="Local node name" hint="Used only if this machine does not already have a node identity.">
+              <input type="text" value={joinNodeName} onChange={(event) => setJoinNodeName(event.target.value)} />
+            </Field>
+            <label className="nodes-checkbox-row">
+              <input type="checkbox" checked={joinForce} onChange={(event) => setJoinForce(event.target.checked)} />
+              <span>Replace existing local node identity</span>
+            </label>
+          </div>
+          <div className="nodes-modal-actions">
+            <button type="button" onClick={() => setActiveModal(null)}>Cancel</button>
+            <button type="button" className="nodes-primary-button" disabled={!joinInviteToken.trim() || !!busyAction} onClick={() => void joinRemoteMesh()}>
+              {busyAction === "join" ? "Joining" : "Join mesh"}
             </button>
           </div>
         </MeshModalFrame>
@@ -669,7 +766,11 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
           </button>
           <button type="button" className="nodes-secondary-button" onClick={() => setActiveModal("accept")}>
             <span className="material-symbols-rounded" aria-hidden="true">move_to_inbox</span>
-            Accept Invite
+            Accept Invite Here
+          </button>
+          <button type="button" className="nodes-secondary-button" onClick={() => setActiveModal("join")}>
+            <span className="material-symbols-rounded" aria-hidden="true">hub</span>
+            Join Remote Mesh
           </button>
           <button type="button" className="nodes-icon-button" onClick={() => void refresh()} disabled={isLoading} title="Refresh">
             <span className="material-symbols-rounded" aria-hidden="true">refresh</span>
@@ -751,8 +852,13 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
             </button>
             <button type="button" onClick={() => setActiveModal("accept")}>
               <span className="material-symbols-rounded" aria-hidden="true">move_to_inbox</span>
-              <strong>4. Accept</strong>
-              <small>Paste one bundled invite token.</small>
+              <strong>4. Accept Here</strong>
+              <small>Consume an invite owned by this coordinator.</small>
+            </button>
+            <button type="button" onClick={() => setActiveModal("join")}>
+              <span className="material-symbols-rounded" aria-hidden="true">hub</span>
+              <strong>Join Remote</strong>
+              <small>Keep this dashboard local and connect to another relay.</small>
             </button>
           </section>
 

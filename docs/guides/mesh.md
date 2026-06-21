@@ -155,6 +155,16 @@ Through the Core API:
 curl http://127.0.0.1:8787/v1/node/mesh/nodes
 ```
 
+### Dashboard Join Model
+
+The dashboard Core API base and mesh relay URL are separate settings.
+Keep the dashboard pointed at the local Sloppy Core when joining a remote mesh.
+Use **Join Remote Mesh** and paste the bundled `slp_mesh_...` invite.
+The local Core parses the relay URL from the invite, registers the local node with that coordinator, and stores the relay URL in local node config.
+
+Use the VPS dashboard for coordinator tasks such as creating invites and inspecting relay health.
+Use the local dashboard for local node membership, local projects, and local task execution state.
+
 ## Shared Projects
 
 Create a shared project:
