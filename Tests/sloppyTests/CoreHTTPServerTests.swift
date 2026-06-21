@@ -1677,6 +1677,109 @@ func nodeMeshRelaySkipsPendingProjectSyncForProjectedRemovedMember() async throw
 }
 
 @Test
+func nodeMeshRelaySkipsPendingProjectSyncForLegacyRemovedMember() async throws {
+    let stateURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-relay-tests-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("mesh.json")
+    let store = NodeMeshStore(stateURL: stateURL)
+    let laptopIdentity = NodeIdentityGenerator.makeIdentity(name: "Laptop", roles: ["client"], capabilities: ["git"])
+    let workerIdentity = NodeIdentityGenerator.makeIdentity(name: "Worker", roles: ["worker"], capabilities: ["run_agent"])
+    let projectId = "sp_legacy_sync"
+    let legacyProject = SharedProjectRecord(
+        id: projectId,
+        name: "Legacy Sync",
+        repoUrl: "git@example.com:legacy-sync.git",
+        members: [
+            SharedProjectMember(
+                nodeId: laptopIdentity.nodeId,
+                localRepoPath: "/Users/laptop/mesh",
+                role: "controller",
+                permissions: [MeshPermission.projectWrite.rawValue]
+            ),
+            SharedProjectMember(
+                nodeId: workerIdentity.nodeId,
+                localRepoPath: "/Users/worker/mesh",
+                role: "worker",
+                permissions: MeshPermission.workerDefaults.rawValues
+            ),
+        ]
+    )
+    let pendingSync = MeshEnvelope(
+        id: "pending_legacy_project_sync",
+        type: .projectSyncEvent,
+        from: laptopIdentity.nodeId,
+        to: workerIdentity.nodeId,
+        scope: legacyProject.eventScope,
+        payload: .object(["projectId": .string(projectId)])
+    )
+    let removal = try signedRelayEvent(.projectMemberRemoved, actor: laptopIdentity, target: workerIdentity.nodeId, projectId: projectId, logicalTime: 1, payload: [
+        "nodeId": .string(workerIdentity.nodeId),
+    ])
+    try store.save(MeshState(
+        nodes: [
+            MeshNodeRecord(
+                id: laptopIdentity.nodeId,
+                name: laptopIdentity.name,
+                publicKey: laptopIdentity.publicKey,
+                roles: laptopIdentity.roles,
+                capabilities: laptopIdentity.capabilities
+            ),
+            MeshNodeRecord(
+                id: workerIdentity.nodeId,
+                name: workerIdentity.name,
+                publicKey: workerIdentity.publicKey,
+                roles: workerIdentity.roles,
+                capabilities: workerIdentity.capabilities
+            ),
+        ],
+        sharedProjects: [legacyProject],
+        envelopes: [pendingSync],
+        events: [removal]
+    ))
+
+    let relay = NodeMeshRelay(store: store, logger: Logger(label: "sloppy.node.mesh.relay.pending-legacy-sync.tests"))
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    var continuation: AsyncStream<String>.Continuation!
+    let sentMessages = WebSocketSentMessageRecorder()
+    let stream = AsyncStream<String> { next in
+        continuation = next
+    }
+    let connection = WebSocketConnectionContext(
+        sendText: { text in
+            await sentMessages.append(text)
+            return true
+        },
+        close: {},
+        incomingMessages: { stream }
+    )
+
+    let relayTask = Task {
+        await relay.attach(connection: connection, remoteAddress: "127.0.0.1")
+    }
+    try await authenticateRelayConnection(
+        identity: workerIdentity,
+        continuation: continuation,
+        sentMessages: sentMessages,
+        encoder: encoder,
+        decoder: decoder
+    )
+
+    try await Task.sleep(nanoseconds: 100_000_000)
+    #expect(await sentMessages.all.contains { message in
+        guard let envelope = try? decoder.decode(MeshEnvelope.self, from: Data(message.utf8)) else {
+            return false
+        }
+        return envelope.type == .projectSyncEvent
+    } == false)
+
+    continuation.finish()
+    await relayTask.value
+}
+
+@Test
 func nodeMeshRelaySkipsPendingTaskDispatchForProjectedRemovedAssignee() async throws {
     let stateURL = FileManager.default.temporaryDirectory
         .appendingPathComponent("sloppy-relay-tests-\(UUID().uuidString)", isDirectory: true)

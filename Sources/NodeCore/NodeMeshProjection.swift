@@ -30,6 +30,7 @@ public enum NodeMeshProjection {
                     throw error
                 }
             }
+            try materializeLegacyTargets(for: signed.event, from: base, into: &state)
             try apply(signed, to: &state)
             recordProjectCreator(from: signed.event, in: &projectCreators)
         }
@@ -114,6 +115,57 @@ public enum NodeMeshProjection {
             applyACLRevoked(event, to: &state)
         case .messageSent:
             break
+        }
+    }
+
+    private static func materializeLegacyTargets(
+        for event: MeshEvent,
+        from base: MeshState,
+        into state: inout MeshState
+    ) throws {
+        switch event.type {
+        case .projectUpdated, .projectMemberAdded, .projectMemberRemoved, .aclGranted, .aclRevoked, .taskCreated:
+            materializeLegacyProject(for: event, from: base, into: &state)
+        case .taskAssigned, .taskStatusUpdated:
+            materializeLegacyProject(for: event, from: base, into: &state)
+            try materializeLegacyTask(for: event, from: base, into: &state)
+        case .nodeAnnounced, .nodeStatusChanged, .nodeAliasUpdated, .projectCreated, .messageSent:
+            break
+        }
+    }
+
+    private static func materializeLegacyProject(
+        for event: MeshEvent,
+        from base: MeshState,
+        into state: inout MeshState
+    ) {
+        guard let projectId = event.projectId,
+              project(matchingID: projectId, in: state.sharedProjects) == nil,
+              let legacyProject = project(matchingID: projectId, in: base.sharedProjects)
+                ?? project(matchingName: projectId, in: base.sharedProjects)
+        else {
+            return
+        }
+        state.sharedProjects.append(legacyProject)
+    }
+
+    private static func materializeLegacyTask(
+        for event: MeshEvent,
+        from base: MeshState,
+        into state: inout MeshState
+    ) throws {
+        guard let projectId = event.projectId,
+              let taskId = event.payload.asObject?["taskId"]?.asString,
+              state.tasks.contains(where: { $0.id == taskId && $0.projectId == projectId }) == false
+        else {
+            return
+        }
+        let matching = base.tasks.filter { $0.id == taskId && $0.projectId == projectId }
+        guard matching.count <= 1 else {
+            throw MeshEventVerificationError.unauthorized("task")
+        }
+        if let legacyTask = matching.first {
+            state.tasks.append(legacyTask)
         }
     }
 

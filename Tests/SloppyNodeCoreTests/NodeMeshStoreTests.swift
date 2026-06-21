@@ -1255,6 +1255,62 @@ struct NodeMeshStoreTests {
         #expect(state.events.map(\.event.type).contains(.taskAssigned) == false)
     }
 
+    @Test("signed member removal applies to legacy project without project creation event")
+    func signedMemberRemovalAppliesToLegacyProjectWithoutProjectCreationEvent() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let home = NodeIdentityGenerator.makeIdentity(name: "Home", roles: ["worker"], capabilities: ["git"])
+        try store.registerNode(work)
+        try store.registerNode(home)
+        let project = try store.createSharedProject(
+            id: "sp_legacy_overlay",
+            name: "Legacy Overlay",
+            repoUrl: "git@example.com:legacy-overlay.git"
+        )
+        _ = try store.attachMember(
+            projectIdOrName: project.id,
+            nodeId: work.nodeId,
+            localRepoPath: "/work/legacy-overlay",
+            role: "controller",
+            permissions: [
+                MeshPermission.projectWrite.rawValue,
+                MeshPermission.taskCreate.rawValue,
+                MeshPermission.taskAssign.rawValue,
+            ]
+        )
+        _ = try store.attachMember(
+            projectIdOrName: project.id,
+            nodeId: home.nodeId,
+            localRepoPath: "/home/legacy-overlay",
+            role: "worker",
+            permissions: MeshPermission.workerDefaults.rawValues
+        )
+
+        let removal = try signedEvent(.projectMemberRemoved, actor: work, target: home.nodeId, projectId: project.id, logicalTime: 1, payload: [
+            "nodeId": .string(home.nodeId),
+        ])
+        _ = try store.appendEvent(removal, expectedActorPublicKey: work.publicKey)
+
+        let projected = try store.projectedState()
+        let projectedProject = try #require(projected.sharedProjects.first(where: { $0.id == project.id }))
+        #expect(projectedProject.members.map(\.nodeId) == [work.nodeId])
+
+        let listedProject = try #require(try store.listSharedProjects().first(where: { $0.id == project.id }))
+        #expect(listedProject.members.map(\.nodeId) == [work.nodeId])
+
+        do {
+            _ = try store.dispatchTask(
+                projectIdOrName: project.id,
+                title: "Run build",
+                assignedNodeId: home.nodeId,
+                actorIdentity: work
+            )
+            Issue.record("Expected signed dispatch to reject removed legacy assignee")
+        } catch let error as NodeMeshStoreError {
+            #expect(error == .permissionDenied("task.dispatch"))
+        }
+    }
+
     @Test("new signed events cannot be backdated before a persisted revocation")
     func newSignedEventsCannotBeBackdatedBeforePersistedRevocation() throws {
         let store = NodeMeshStore(stateURL: temporaryStateURL())
