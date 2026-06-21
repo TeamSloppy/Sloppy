@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 import SloppyNodeCore
 
 extension CoreService {
@@ -43,6 +46,32 @@ extension CoreService {
             }
             throw NodeMeshStoreError.inviteMissing
         }
+    }
+
+    public func joinRemoteMesh(_ request: MeshRemoteJoinRequest) async throws -> MeshRemoteJoinResult {
+        let joiner = NodeMeshRemoteJoiner(
+            configStore: nodeConfigStore,
+            acceptInvite: { url, acceptRequest in
+                try await Self.postMeshInviteAccept(to: url, request: acceptRequest)
+            }
+        )
+        return try await joiner.join(request)
+    }
+
+    private static func postMeshInviteAccept(to url: URL, request: MeshInviteAcceptRequest) async throws -> MeshNodeRecord {
+        var urlRequest = URLRequest(url: url)
+        urlRequest.httpMethod = "POST"
+        urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        urlRequest.httpBody = try encoder.encode(request)
+        let (data, response) = try await URLSession.shared.data(for: urlRequest)
+        guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode) else {
+            throw MeshRemoteJoinError.coordinatorUnreachable(url.absoluteString)
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(MeshNodeRecord.self, from: data)
     }
 
     public func registerMeshNode(_ request: MeshNodeRegisterRequest) throws -> MeshNodeRecord {

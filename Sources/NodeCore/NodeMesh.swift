@@ -302,6 +302,54 @@ public struct MeshInviteAcceptRequest: Codable, Sendable, Equatable {
     }
 }
 
+public struct MeshRemoteJoinRequest: Codable, Sendable, Equatable {
+    public var token: String
+    public var name: String?
+    public var force: Bool
+
+    public init(token: String, name: String? = nil, force: Bool = false) {
+        self.token = token
+        self.name = name
+        self.force = force
+    }
+}
+
+public struct MeshRemoteJoinResult: Codable, Sendable, Equatable {
+    public var node: MeshNodeRecord
+    public var relayURL: String
+    public var coordinatorAcceptURL: String
+    public var networkId: String?
+
+    public init(
+        node: MeshNodeRecord,
+        relayURL: String,
+        coordinatorAcceptURL: String,
+        networkId: String? = nil
+    ) {
+        self.node = node
+        self.relayURL = relayURL
+        self.coordinatorAcceptURL = coordinatorAcceptURL
+        self.networkId = networkId
+    }
+}
+
+public enum MeshRemoteJoinError: LocalizedError, Equatable {
+    case invalidInvite(String)
+    case identityMismatch(expectedPublicKey: String, actualPublicKey: String)
+    case coordinatorUnreachable(String)
+
+    public var errorDescription: String? {
+        switch self {
+        case let .invalidInvite(message):
+            "Remote mesh invite is invalid: \(message)"
+        case .identityMismatch:
+            "This invite is bound to another node identity. Create a new invite for this machine or use force to replace local identity."
+        case let .coordinatorUnreachable(url):
+            "Could not reach relay coordinator at \(url)."
+        }
+    }
+}
+
 public struct MeshNodeRegisterRequest: Codable, Sendable, Equatable {
     public var id: String
     public var name: String

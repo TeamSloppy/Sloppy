@@ -277,6 +277,7 @@ public actor CoreService {
     let dashboardTerminalService: DashboardTerminalService
     let channelStreamCancelRegistry: ChannelStreamCancelRegistry
     nonisolated let nodeMeshStore: NodeMeshStore
+    nonisolated let nodeConfigStore: NodeConfigStore
     var inboundChannelPluginQueues: [String: InboundChannelPluginQueueSlot] = [:]
 
     /// Creates core orchestration service with runtime and persistence backend.
@@ -286,6 +287,7 @@ public actor CoreService {
         currentDirectory: String = FileManager.default.currentDirectoryPath,
         persistenceBuilder: any CorePersistenceBuilding = DefaultCorePersistenceBuilder(),
         searchProviderService: SearchProviderService? = nil,
+        nodeConfigStore: NodeConfigStore = NodeConfigStore(),
         sharedSkillsRootURLs: [URL]? = nil
     ) {
         self.init(
@@ -294,6 +296,7 @@ public actor CoreService {
             currentDirectory: currentDirectory,
             persistenceBuilder: persistenceBuilder,
             searchProviderService: searchProviderService,
+            nodeConfigStore: nodeConfigStore,
             sharedSkillsRootURLs: sharedSkillsRootURLs,
             builtInGatewayPluginFactory: .live
         )
@@ -306,6 +309,7 @@ public actor CoreService {
         persistenceBuilder: any CorePersistenceBuilding = DefaultCorePersistenceBuilder(),
         searchProviderService: SearchProviderService? = nil,
         providerProbeService: ProviderProbeService? = nil,
+        nodeConfigStore: NodeConfigStore = NodeConfigStore(),
         sharedSkillsRootURLs: [URL]? = nil,
         builtInGatewayPluginFactory: BuiltInGatewayPluginFactory,
         updateChecker: UpdateCheckerService? = nil
@@ -398,6 +402,7 @@ public actor CoreService {
         self.nodeMeshStore = NodeMeshStore(
             stateURL: config.resolvedNodeMeshStateURL(currentDirectory: currentDirectory)
         )
+        self.nodeConfigStore = nodeConfigStore
         self.openAIProviderCatalog = OpenAIProviderCatalogService()
         let providerWorkspaceRootURL = self.workspaceRootURL
         self.providerProbeService = providerProbeService ?? ProviderProbeService(
