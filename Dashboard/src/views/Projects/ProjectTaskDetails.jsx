@@ -421,10 +421,28 @@ function TaskTagsValue({ tags }) {
     );
 }
 
+function commentCreatedAtMs(comment) {
+    const createdAt = new Date(comment?.createdAt || "");
+    return Number.isNaN(createdAt.getTime()) ? 0 : createdAt.getTime();
+}
+
+function formatAbsoluteDateTime(value) {
+    const date = new Date(value);
+    if (Number.isNaN(date.getTime())) {
+        return "Unknown date";
+    }
+
+    return new Intl.DateTimeFormat(undefined, {
+        dateStyle: "medium",
+        timeStyle: "short"
+    }).format(date);
+}
+
 function CommentsTab({ project, task, createModalActors, agentDirectory, openTaskDetails }) {
     const [comments, setComments] = useState([]);
     const [loading, setLoading] = useState(true);
     const [commentText, setCommentText] = useState("");
+    const [commentSortOrder, setCommentSortOrder] = useState("newest");
     const [selectedActorId, setSelectedActorId] = useState("");
     const [actorDropdownOpen, setActorDropdownOpen] = useState(false);
     const [actorSearch, setActorSearch] = useState("");
@@ -462,6 +480,18 @@ function CommentsTab({ project, task, createModalActors, agentDirectory, openTas
         )
         : createModalActors;
 
+    const sortedComments = useMemo(() => {
+        const direction = commentSortOrder === "oldest" ? 1 : -1;
+        return [...comments].sort((left, right) => {
+            const createdDelta = commentCreatedAtMs(left) - commentCreatedAtMs(right);
+            if (createdDelta !== 0) {
+                return createdDelta * direction;
+            }
+
+            return String(left.id || "").localeCompare(String(right.id || "")) * direction;
+        });
+    }, [comments, commentSortOrder]);
+
     async function handleSubmit(e) {
         e.preventDefault();
         const text = commentText.trim();
@@ -487,57 +517,6 @@ function CommentsTab({ project, task, createModalActors, agentDirectory, openTas
 
     return (
         <div className="td-comments">
-            {loading ? (
-                <LoadingSkeleton label="Loading comments…" variant="list" rows={3} />
-            ) : comments.length === 0 ? (
-                <p className="placeholder-text">No comments yet.</p>
-            ) : (
-                <div className="td-comments-list">
-                    {comments.map((comment) => {
-                        const author = createModalActors.find((a) => a.id === comment.authorActorId);
-                        const authorLabel = author ? author.displayName : comment.authorActorId;
-                        const mentionedActor = comment.mentionedActorId
-                            ? createModalActors.find((a) => a.id === comment.mentionedActorId)
-                            : null;
-                        return (
-                            <div key={comment.id} className={`td-comment-item ${comment.isAgentReply ? "td-comment-item--agent" : ""}`}>
-                                <div className="td-comment-header">
-                                    <CommentAvatar comment={comment} author={author} agentDirectory={agentDirectory} />
-                                    <span className="td-comment-author">{authorLabel}</span>
-                                    {comment.externalMetadata?.origin === "github" && (
-                                        <span className="td-comment-agent-badge">GitHub{comment.sourceAuthor ? `: ${comment.sourceAuthor}` : ""}</span>
-                                    )}
-                                    {comment.isAgentReply && (
-                                        <span className="td-comment-agent-badge">Agent reply</span>
-                                    )}
-                                    {mentionedActor && !comment.isAgentReply && (
-                                        <span className="td-comment-mention">
-                                            <span className="material-symbols-rounded">alternate_email</span>
-                                            {mentionedActor.displayName}
-                                            {mentionedActor.linkedAgentId && (
-                                                <span className="td-comment-agent-badge">Agent</span>
-                                            )}
-                                        </span>
-                                    )}
-                                    <span className="td-comment-time">{formatRelativeTime(comment.createdAt)}</span>
-                                    <button
-                                        type="button"
-                                        className="td-comment-delete-btn"
-                                        onClick={() => handleDelete(comment.id)}
-                                        aria-label="Delete comment"
-                                    >
-                                        <span className="material-symbols-rounded">delete</span>
-                                    </button>
-                                </div>
-                                <div className="td-comment-body markdown-body">
-                                    <LinkedMarkdown project={project} openTaskDetails={openTaskDetails}>{comment.content}</LinkedMarkdown>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-            )}
-
             <form className="td-comment-form" onSubmit={handleSubmit}>
                 <ProjectMentionTextarea
                     className="td-comment-textarea"
@@ -613,6 +592,82 @@ function CommentsTab({ project, task, createModalActors, agentDirectory, openTas
                     </button>
                 </div>
             </form>
+
+            <div className="td-comments-toolbar">
+                <span>{comments.length === 1 ? "1 comment" : `${comments.length} comments`}</span>
+                <div className="td-comment-sort" role="group" aria-label="Sort comments">
+                    <button
+                        type="button"
+                        className={commentSortOrder === "newest" ? "active" : ""}
+                        aria-pressed={commentSortOrder === "newest"}
+                        onClick={() => setCommentSortOrder("newest")}
+                    >
+                        Newest
+                    </button>
+                    <button
+                        type="button"
+                        className={commentSortOrder === "oldest" ? "active" : ""}
+                        aria-pressed={commentSortOrder === "oldest"}
+                        onClick={() => setCommentSortOrder("oldest")}
+                    >
+                        Oldest
+                    </button>
+                </div>
+            </div>
+
+            {loading ? (
+                <LoadingSkeleton label="Loading comments…" variant="list" rows={3} />
+            ) : comments.length === 0 ? (
+                <p className="placeholder-text">No comments yet.</p>
+            ) : (
+                <div className="td-comments-list">
+                    {sortedComments.map((comment) => {
+                        const author = createModalActors.find((a) => a.id === comment.authorActorId);
+                        const authorLabel = author ? author.displayName : comment.authorActorId;
+                        const mentionedActor = comment.mentionedActorId
+                            ? createModalActors.find((a) => a.id === comment.mentionedActorId)
+                            : null;
+                        return (
+                            <div key={comment.id} className={`td-comment-item ${comment.isAgentReply ? "td-comment-item--agent" : ""}`}>
+                                <div className="td-comment-header">
+                                    <CommentAvatar comment={comment} author={author} agentDirectory={agentDirectory} />
+                                    <span className="td-comment-author">{authorLabel}</span>
+                                    {comment.externalMetadata?.origin === "github" && (
+                                        <span className="td-comment-agent-badge">GitHub{comment.sourceAuthor ? `: ${comment.sourceAuthor}` : ""}</span>
+                                    )}
+                                    {comment.isAgentReply && (
+                                        <span className="td-comment-agent-badge">Agent reply</span>
+                                    )}
+                                    {mentionedActor && !comment.isAgentReply && (
+                                        <span className="td-comment-mention">
+                                            <span className="material-symbols-rounded">alternate_email</span>
+                                            {mentionedActor.displayName}
+                                            {mentionedActor.linkedAgentId && (
+                                                <span className="td-comment-agent-badge">Agent</span>
+                                            )}
+                                        </span>
+                                    )}
+                                    <time className="td-comment-time" dateTime={comment.createdAt} title={formatAbsoluteDateTime(comment.createdAt)}>
+                                        <span>{formatRelativeTime(comment.createdAt)}</span>
+                                        <span className="td-comment-time-absolute">{formatAbsoluteDateTime(comment.createdAt)}</span>
+                                    </time>
+                                    <button
+                                        type="button"
+                                        className="td-comment-delete-btn"
+                                        onClick={() => handleDelete(comment.id)}
+                                        aria-label="Delete comment"
+                                    >
+                                        <span className="material-symbols-rounded">delete</span>
+                                    </button>
+                                </div>
+                                <div className="td-comment-body markdown-body">
+                                    <LinkedMarkdown project={project} openTaskDetails={openTaskDetails}>{comment.content}</LinkedMarkdown>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            )}
         </div>
     );
 }

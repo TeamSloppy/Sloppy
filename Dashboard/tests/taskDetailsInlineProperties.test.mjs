@@ -43,3 +43,18 @@ test("task detail property dropdowns render outside clipped property containers"
   assert.match(projectsCss, /\.td-prop-dropdown--floating\s*\{[\s\S]*?position:\s*fixed/);
   assert.match(projectsCss, /\.td-prop-dropdown--floating\s*\{[\s\S]*?z-index:\s*220/);
 });
+
+test("task comments composer renders before sortable timestamped comments", () => {
+  const formIndex = detailsSource.indexOf("className=\"td-comment-form\"");
+  const listIndex = detailsSource.indexOf("className=\"td-comments-list\"");
+
+  assert.notEqual(formIndex, -1);
+  assert.notEqual(listIndex, -1);
+  assert.ok(formIndex < listIndex);
+  assert.match(detailsSource, /const \[commentSortOrder, setCommentSortOrder\] = useState\("newest"\);/);
+  assert.match(detailsSource, /const sortedComments = useMemo\(/);
+  assert.match(detailsSource, /aria-label="Sort comments"/);
+  assert.match(detailsSource, /formatAbsoluteDateTime\(comment\.createdAt\)/);
+  assert.match(projectsCss, /\.td-comments-toolbar\s*\{/);
+  assert.match(projectsCss, /\.td-comment-time-absolute\s*\{/);
+});
