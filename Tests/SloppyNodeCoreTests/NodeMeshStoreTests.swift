@@ -433,8 +433,8 @@ struct NodeMeshStoreTests {
         #expect(state.events.map(\.event.id) == prefix.map(\.event.id))
     }
 
-    @Test("list methods return projected projects and tasks when events exist")
-    func listMethodsReturnProjectedProjectsAndTasksWhenEventsExist() throws {
+    @Test("list methods merge projected and legacy projects and tasks when events exist")
+    func listMethodsMergeProjectedAndLegacyProjectsAndTasksWhenEventsExist() throws {
         let store = NodeMeshStore(stateURL: temporaryStateURL())
         let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
         let staleProject = SharedProjectRecord(id: "sp_stale", name: "Stale", repoUrl: "git@example.com:stale.git")
@@ -468,10 +468,120 @@ struct NodeMeshStoreTests {
             events: events
         ))
 
-        #expect(try store.listSharedProjects().map(\.id) == [projectId])
-        #expect(try store.listTasks().map(\.id) == ["mesh_task_projected"])
+        #expect(try store.listSharedProjects().map(\.id) == [projectId, staleProject.id])
+        #expect(Set(try store.listTasks().map(\.id)) == ["mesh_task_projected", staleTask.id])
         #expect(try store.listTasks(projectIdOrName: "Projected").map(\.id) == ["mesh_task_projected"])
-        #expect(try store.listTasks(projectIdOrName: "Stale").isEmpty)
+        #expect(try store.listTasks(projectIdOrName: "Stale").map(\.id) == [staleTask.id])
+    }
+
+    @Test("signed dispatch keeps legacy shared project visible")
+    func signedDispatchKeepsLegacySharedProjectVisible() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let home = NodeIdentityGenerator.makeIdentity(name: "Home", roles: ["worker"], capabilities: ["git"])
+        try store.registerNode(work)
+        try store.registerNode(home)
+        let project = try store.createSharedProject(
+            id: "sp_legacy",
+            name: "Legacy",
+            repoUrl: "git@example.com:legacy.git"
+        )
+        _ = try store.attachMember(
+            projectIdOrName: project.id,
+            nodeId: work.nodeId,
+            localRepoPath: "/work/legacy",
+            role: "controller",
+            permissions: [MeshPermission.taskCreate.rawValue, MeshPermission.taskAssign.rawValue]
+        )
+        _ = try store.attachMember(
+            projectIdOrName: project.id,
+            nodeId: home.nodeId,
+            localRepoPath: "/home/legacy",
+            role: "worker",
+            permissions: MeshPermission.workerDefaults.rawValues
+        )
+
+        _ = try store.dispatchTask(
+            projectIdOrName: project.id,
+            title: "Run build",
+            assignedNodeId: home.nodeId,
+            actorIdentity: work
+        )
+
+        #expect(try store.load().events.map(\.event.type).contains(.taskCreated))
+        #expect(try store.listSharedProjects().map(\.id) == [project.id])
+    }
+
+    @Test("list tasks merges legacy and projected tasks when events exist")
+    func listTasksMergesLegacyAndProjectedTasksWhenEventsExist() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let home = NodeIdentityGenerator.makeIdentity(name: "Home", roles: ["worker"], capabilities: ["git"])
+        let project = SharedProjectRecord(
+            id: "sp_mixed",
+            name: "Mixed",
+            repoUrl: "git@example.com:mixed.git",
+            members: [
+                SharedProjectMember(
+                    nodeId: work.nodeId,
+                    localRepoPath: "/work/mixed",
+                    role: "controller",
+                    permissions: [MeshPermission.taskCreate.rawValue, MeshPermission.taskAssign.rawValue]
+                ),
+                SharedProjectMember(
+                    nodeId: home.nodeId,
+                    localRepoPath: "/home/mixed",
+                    role: "worker",
+                    permissions: MeshPermission.workerDefaults.rawValues
+                ),
+            ]
+        )
+        let legacyTask = MeshTaskRecord(
+            id: "mesh_task_legacy",
+            projectId: project.id,
+            title: "Legacy task",
+            assignedNodeId: home.nodeId,
+            status: .dispatched,
+            updatedAt: Date(timeIntervalSince1970: 10)
+        )
+        let events = try [
+            signedEvent(.taskCreated, actor: work, projectId: project.id, logicalTime: 1, payload: [
+                "taskId": .string("mesh_task_projected"),
+                "title": .string("Projected task"),
+                "assignedNodeId": .string(home.nodeId),
+            ]),
+            signedEvent(.taskAssigned, actor: work, target: home.nodeId, projectId: project.id, logicalTime: 2, payload: [
+                "taskId": .string("mesh_task_projected"),
+                "assignedNodeId": .string(home.nodeId),
+            ]),
+        ]
+        try store.save(MeshState(
+            nodes: baseNodes([work, home]),
+            sharedProjects: [project],
+            tasks: [legacyTask],
+            events: events
+        ))
+
+        #expect(Set(try store.listTasks().map(\.id)) == ["mesh_task_legacy", "mesh_task_projected"])
+        #expect(Set(try store.listTasks(projectIdOrName: project.name).map(\.id)) == ["mesh_task_legacy", "mesh_task_projected"])
+    }
+
+    @Test("projected nodes merge with stored nodes for listing and routing")
+    func projectedNodesMergeWithStoredNodesForListingAndRouting() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let stored = NodeIdentityGenerator.makeIdentity(name: "Stored", roles: ["client"], capabilities: ["git"])
+        let projected = NodeIdentityGenerator.makeIdentity(name: "Projected", roles: ["worker"], capabilities: ["git"])
+        let announce = try signedEvent(.nodeAnnounced, actor: projected, projectId: nil, logicalTime: 1, payload: [
+            "name": .string(projected.name),
+            "roles": .array(projected.roles.map(JSONValue.string)),
+            "capabilities": .array(projected.capabilities.map(JSONValue.string)),
+            "status": .string(MeshNodeStatus.online.rawValue),
+        ])
+        try store.save(MeshState(nodes: baseNodes([stored]), events: [announce]))
+
+        #expect(Set(try store.listNodes().map(\.id)) == [stored.nodeId, projected.nodeId])
+        _ = try store.routeEnvelope(MeshEnvelope(type: .rpcRequest, from: stored.nodeId, to: projected.nodeId))
+        #expect(try store.load().envelopes.last?.to == projected.nodeId)
     }
 
     @Test("mesh state decodes legacy JSON without event fields")

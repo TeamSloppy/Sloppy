@@ -7,7 +7,7 @@ extension CoreService {
     }
 
     public func listMeshNodes() throws -> [MeshNodeRecord] {
-        try nodeMeshStore.load().nodes.sorted { $0.name < $1.name }
+        try nodeMeshStore.listNodes()
     }
 
     public func configureMeshNetwork(_ request: MeshNetworkUpdateRequest) throws -> MeshState {

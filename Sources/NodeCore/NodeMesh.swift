@@ -1133,20 +1133,25 @@ public struct NodeMeshStore: Sendable {
         return state
     }
 
+    public func listNodes() throws -> [MeshNodeRecord] {
+        let state = try load()
+        return try mergedNodes(from: state).sorted { $0.name < $1.name }
+    }
+
     public func listSharedProjects() throws -> [SharedProjectRecord] {
         let state = try load()
-        let source = state.events.isEmpty ? state : try projectedState()
-        return source.sharedProjects.sorted { $0.name < $1.name }
+        return try mergedSharedProjects(from: state).sorted { $0.name < $1.name }
     }
 
     public func listTasks(projectIdOrName: String? = nil) throws -> [MeshTaskRecord] {
         let state = try load()
-        let source = state.events.isEmpty ? state : try projectedState()
+        let projects = try mergedSharedProjects(from: state)
+        let tasks = try mergedTasks(from: state)
         guard let projectIdOrName, !projectIdOrName.isEmpty else {
-            return source.tasks.sorted { $0.updatedAt > $1.updatedAt }
+            return tasks.sorted { $0.updatedAt > $1.updatedAt }
         }
-        let projectId = source.sharedProjects.first(where: { $0.id == projectIdOrName || $0.name == projectIdOrName })?.id ?? projectIdOrName
-        return source.tasks.filter { $0.projectId == projectId }.sorted { $0.updatedAt > $1.updatedAt }
+        let projectId = projects.first(where: { $0.id == projectIdOrName || $0.name == projectIdOrName })?.id ?? projectIdOrName
+        return tasks.filter { $0.projectId == projectId }.sorted { $0.updatedAt > $1.updatedAt }
     }
 
     @discardableResult
@@ -1216,7 +1221,8 @@ public struct NodeMeshStore: Sendable {
     @discardableResult
     public func routeEnvelope(_ envelope: MeshEnvelope) throws -> MeshEnvelope {
         var state = try load()
-        if let target = envelope.to, !state.nodes.contains(where: { $0.id == target }) {
+        let nodes = try mergedNodes(from: state)
+        if let target = envelope.to, !nodes.contains(where: { $0.id == target }) {
             state.auditLog.append(MeshAuditLogEntry(actor: envelope.from, target: target, action: envelope.type.rawValue, allowed: false, message: "unknown target node"))
             try save(state)
             throw NodeMeshStoreError.nodeMissing(target)
@@ -1472,10 +1478,47 @@ public struct NodeMeshStore: Sendable {
         if let project = projectedState.sharedProjects.first(where: { $0.id == projectIdOrName || $0.name == projectIdOrName }) {
             return project
         }
-        guard projectedState.sharedProjects.isEmpty else {
-            return nil
-        }
         return storedState.sharedProjects.first(where: { $0.id == projectIdOrName || $0.name == projectIdOrName })
+    }
+
+    private func mergedNodes(from state: MeshState) throws -> [MeshNodeRecord] {
+        guard !state.events.isEmpty else {
+            return state.nodes
+        }
+        let projected = try projectedState()
+        return mergeById(stored: state.nodes, projected: projected.nodes, id: \.id)
+    }
+
+    private func mergedSharedProjects(from state: MeshState) throws -> [SharedProjectRecord] {
+        guard !state.events.isEmpty else {
+            return state.sharedProjects
+        }
+        let projected = try projectedState()
+        return mergeById(stored: state.sharedProjects, projected: projected.sharedProjects, id: \.id)
+    }
+
+    private func mergedTasks(from state: MeshState) throws -> [MeshTaskRecord] {
+        guard !state.events.isEmpty else {
+            return state.tasks
+        }
+        let projected = try projectedState()
+        return mergeById(stored: state.tasks, projected: projected.tasks, id: \.id)
+    }
+
+    private func mergeById<Value>(
+        stored: [Value],
+        projected: [Value],
+        id: KeyPath<Value, String>
+    ) -> [Value] {
+        var merged = stored
+        for projectedValue in projected {
+            if let index = merged.firstIndex(where: { $0[keyPath: id] == projectedValue[keyPath: id] }) {
+                merged[index] = projectedValue
+            } else {
+                merged.append(projectedValue)
+            }
+        }
+        return merged
     }
 
     private func nextLogicalTime(from state: MeshState) -> UInt64 {
