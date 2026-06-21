@@ -1193,6 +1193,7 @@ public struct NodeMeshStore: Sendable {
             }
             return signed
         }
+        try validateAppendOrder([signed], after: state.events)
         let trustedEventIDs = Set(state.events.map(\.event.id))
         _ = try NodeMeshProjection.project(
             events: state.events + [signed],
@@ -1246,6 +1247,7 @@ public struct NodeMeshStore: Sendable {
             return signedEvents
         }
 
+        try validateAppendOrder(pending, after: state.events)
         let trustedEventIDs = Set(state.events.map(\.event.id))
         _ = try NodeMeshProjection.project(
             events: state.events + pending,
@@ -1596,6 +1598,19 @@ public struct NodeMeshStore: Sendable {
 
     private func nextLogicalTime(from state: MeshState) -> UInt64 {
         (state.events.map(\.event.logicalTime).max() ?? 0) + 1
+    }
+
+    private func validateAppendOrder(
+        _ pending: [SignedMeshEvent],
+        after accepted: [SignedMeshEvent]
+    ) throws {
+        var lastLogicalTime = accepted.map(\.event.logicalTime).max() ?? 0
+        for signed in pending {
+            guard signed.event.logicalTime > lastLogicalTime else {
+                throw MeshEventVerificationError.unauthorized("event.append")
+            }
+            lastLogicalTime = signed.event.logicalTime
+        }
     }
 
     private func projectFromScope(_ scope: String?) -> String? {

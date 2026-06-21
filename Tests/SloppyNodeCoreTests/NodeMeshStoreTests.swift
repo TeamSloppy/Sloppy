@@ -1154,6 +1154,82 @@ struct NodeMeshStoreTests {
         #expect(state.events.map(\.event.type).contains(.taskAssigned) == false)
     }
 
+    @Test("new signed events cannot be backdated before a persisted revocation")
+    func newSignedEventsCannotBeBackdatedBeforePersistedRevocation() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let home = NodeIdentityGenerator.makeIdentity(name: "Home", roles: ["worker"], capabilities: ["git"])
+        try store.registerNode(work)
+        try store.registerNode(home)
+        let project = try store.createSharedProject(
+            id: "sp_sloppy",
+            name: "Sloppy",
+            repoUrl: "git@example.com:sloppy.git"
+        )
+        _ = try store.attachMember(
+            projectIdOrName: project.id,
+            nodeId: work.nodeId,
+            localRepoPath: "/work/sloppy",
+            role: "controller",
+            permissions: [
+                MeshPermission.projectWrite.rawValue,
+                MeshPermission.taskCreate.rawValue,
+                MeshPermission.taskAssign.rawValue,
+            ]
+        )
+        _ = try store.attachMember(
+            projectIdOrName: project.id,
+            nodeId: home.nodeId,
+            localRepoPath: "/home/sloppy",
+            role: "worker",
+            permissions: MeshPermission.workerDefaults.rawValues
+        )
+
+        let events = try [
+            signedEvent(.projectCreated, actor: work, projectId: project.id, logicalTime: 1, payload: [
+                "id": .string(project.id),
+                "name": .string(project.name),
+                "repoUrl": .string(project.repoUrl),
+                "defaultBranch": .string(project.defaultBranch),
+            ]),
+            signedEvent(.projectMemberAdded, actor: work, target: work.nodeId, projectId: project.id, logicalTime: 2, payload: [
+                "nodeId": .string(work.nodeId),
+                "localRepoPath": .string("/work/sloppy"),
+                "role": .string("controller"),
+                "permissions": .array([
+                    .string(MeshPermission.projectWrite.rawValue),
+                    .string(MeshPermission.taskCreate.rawValue),
+                    .string(MeshPermission.taskAssign.rawValue),
+                ]),
+            ]),
+            signedEvent(.projectMemberAdded, actor: work, target: home.nodeId, projectId: project.id, logicalTime: 3, payload: [
+                "nodeId": .string(home.nodeId),
+                "localRepoPath": .string("/home/sloppy"),
+                "role": .string("worker"),
+                "permissions": .array(MeshPermission.workerDefaults.rawValues.map(JSONValue.string)),
+            ]),
+            signedEvent(.projectMemberRemoved, actor: work, target: work.nodeId, projectId: project.id, logicalTime: 4, payload: [
+                "nodeId": .string(work.nodeId),
+            ]),
+        ]
+        for event in events {
+            _ = try store.appendEvent(event, expectedActorPublicKey: work.publicKey)
+        }
+
+        let backdated = try signedEvent(.taskCreated, actor: work, projectId: project.id, logicalTime: 3, payload: [
+            "taskId": .string("mesh_task_backdated"),
+            "title": .string("Run build"),
+        ])
+
+        #expect(throws: MeshEventVerificationError.unauthorized("event.append")) {
+            _ = try store.appendEvent(backdated, expectedActorPublicKey: work.publicKey)
+        }
+
+        let state = try store.load()
+        #expect(state.events.count == events.count)
+        #expect(state.events.contains(where: { $0.event.id == backdated.event.id }) == false)
+    }
+
     @Test("update task status with actor identity writes signed status event")
     func updateTaskStatusWithActorIdentityWritesSignedStatusEvent() throws {
         let store = NodeMeshStore(stateURL: temporaryStateURL())
