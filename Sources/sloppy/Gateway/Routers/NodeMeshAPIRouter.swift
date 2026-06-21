@@ -69,6 +69,23 @@ struct NodeMeshAPIRouter: APIRouter {
             }
         }
 
+        router.post("/v1/node/mesh/remote-joins", metadata: RouteMetadata(summary: "Join remote mesh", description: "Uses this local node identity to join the relay embedded in a bundled mesh invite", tags: ["Node Mesh"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: MeshRemoteJoinRequest.self),
+                  !payload.token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: [
+                    "error": ErrorCode.invalidBody,
+                    "message": #"Expected JSON body like {"token":"slp_mesh_...","name":"work-mac","force":false}."#,
+                ])
+            }
+
+            do {
+                return CoreRouter.encodable(status: HTTPStatus.created, payload: try await service.joinRemoteMesh(payload))
+            } catch {
+                return meshErrorResponse(error)
+            }
+        }
+
         router.get("/v1/node/mesh/nodes", metadata: RouteMetadata(summary: "List mesh nodes", description: "Returns known SloppyNode mesh nodes and statuses", tags: ["Node Mesh"])) { _ in
             do {
                 return CoreRouter.encodable(status: HTTPStatus.ok, payload: try await service.listMeshNodes())
@@ -197,6 +214,12 @@ struct NodeMeshAPIRouter: APIRouter {
 
 private func meshErrorResponse(_ error: Error) -> CoreRouterResponse {
     let message = error.localizedDescription
+    if let remoteJoinError = error as? MeshRemoteJoinError {
+        return CoreRouter.json(status: HTTPStatus.badRequest, payload: [
+            "error": "mesh_invalid_request",
+            "message": remoteJoinError.localizedDescription,
+        ])
+    }
     if let meshError = error as? NodeMeshStoreError {
         switch meshError {
         case .nodeMissing, .projectMissing, .taskMissing:

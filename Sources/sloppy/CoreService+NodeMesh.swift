@@ -39,6 +39,18 @@ extension CoreService {
 
     public func acceptMeshInvite(_ request: MeshInviteAcceptRequest) throws -> MeshNodeRecord {
         do {
+            if let nodeId = request.nodeId,
+               let publicKey = request.publicKey {
+                let identity = NodeIdentity(
+                    nodeId: nodeId,
+                    name: normalizedMeshNodeName(request.name, fallback: nodeId),
+                    publicKey: publicKey,
+                    privateKey: "",
+                    roles: request.roles ?? ["worker"],
+                    capabilities: request.capabilities ?? ["run_agent", "git"]
+                )
+                return try nodeMeshStore.consumeInvite(token: request.token, identity: identity, endpoint: request.endpoint)
+            }
             return try nodeMeshStore.acceptInvite(token: request.token, endpoint: request.endpoint)
         } catch NodeMeshStoreError.inviteMissing {
             if let bundle = try? MeshInviteBundle.parse(request.token) {
@@ -46,6 +58,14 @@ extension CoreService {
             }
             throw NodeMeshStoreError.inviteMissing
         }
+    }
+
+    private func normalizedMeshNodeName(_ name: String?, fallback: String) -> String {
+        guard let trimmed = name?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !trimmed.isEmpty else {
+            return fallback
+        }
+        return trimmed
     }
 
     public func joinRemoteMesh(_ request: MeshRemoteJoinRequest) async throws -> MeshRemoteJoinResult {
