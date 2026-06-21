@@ -577,7 +577,10 @@ public enum NodeMeshProjection {
     }
 
     private static func projectIndex(forProjectReference reference: String, in projects: [SharedProjectRecord]) -> Int? {
-        projects.firstIndex(where: { $0.id == reference || $0.name == reference })
+        if let index = projects.firstIndex(where: { $0.id == reference }) {
+            return index
+        }
+        return projects.firstIndex(where: { $0.name == reference })
     }
 
     private static func canonicalProjectID(for event: MeshEvent, in state: MeshState) -> String? {

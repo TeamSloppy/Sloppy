@@ -1351,6 +1351,110 @@ struct NodeMeshStoreTests {
         #expect(listedProject.defaultBranch == "trunk")
     }
 
+    @Test("signed project update uses id before name when applying")
+    func signedProjectUpdateUsesIDBeforeNameWhenApplying() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let shadowController = NodeIdentityGenerator.makeIdentity(name: "Shadow Controller", roles: ["client"], capabilities: ["git"])
+        let authorizedMember = SharedProjectMember(
+            nodeId: work.nodeId,
+            localRepoPath: "/work/authorized",
+            role: "controller",
+            permissions: [MeshPermission.projectWrite.rawValue]
+        )
+        let shadowMember = SharedProjectMember(
+            nodeId: shadowController.nodeId,
+            localRepoPath: "/work/shadowing",
+            role: "controller",
+            permissions: [MeshPermission.projectWrite.rawValue]
+        )
+        let shadowingProject = SharedProjectRecord(
+            id: "sp_shadowing",
+            name: "sp_authorized",
+            repoUrl: "git@example.com:shadowing.git",
+            members: [shadowMember]
+        )
+        let authorizedProject = SharedProjectRecord(
+            id: "sp_authorized",
+            name: "Authorized Project",
+            repoUrl: "git@example.com:authorized.git",
+            members: [authorizedMember]
+        )
+        try store.save(MeshState(
+            nodes: baseNodes([work, shadowController]),
+            sharedProjects: [shadowingProject, authorizedProject]
+        ))
+
+        let shadowUpdate = try signedEvent(.projectUpdated, actor: shadowController, projectId: shadowingProject.id, logicalTime: 1, payload: [
+            "defaultBranch": .string("develop"),
+        ])
+        _ = try store.appendEvent(shadowUpdate, expectedActorPublicKey: shadowController.publicKey)
+        let update = try signedEvent(.projectUpdated, actor: work, projectId: authorizedProject.id, logicalTime: 2, payload: [
+            "defaultBranch": .string("trunk"),
+        ])
+        _ = try store.appendEvent(update, expectedActorPublicKey: work.publicKey)
+
+        let projects = try store.projectedState().sharedProjects
+        let shadow = try #require(projects.first(where: { $0.id == shadowingProject.id }))
+        let authorized = try #require(projects.first(where: { $0.id == authorizedProject.id }))
+        #expect(shadow.defaultBranch == "develop")
+        #expect(authorized.defaultBranch == "trunk")
+    }
+
+    @Test("signed project member add uses id before name when applying")
+    func signedProjectMemberAddUsesIDBeforeNameWhenApplying() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let shadowController = NodeIdentityGenerator.makeIdentity(name: "Shadow Controller", roles: ["client"], capabilities: ["git"])
+        let home = NodeIdentityGenerator.makeIdentity(name: "Home", roles: ["worker"], capabilities: ["git"])
+        let member = SharedProjectMember(
+            nodeId: work.nodeId,
+            localRepoPath: "/work/authorized",
+            role: "controller",
+            permissions: [MeshPermission.projectWrite.rawValue]
+        )
+        let shadowMember = SharedProjectMember(
+            nodeId: shadowController.nodeId,
+            localRepoPath: "/work/shadowing-member",
+            role: "controller",
+            permissions: [MeshPermission.projectWrite.rawValue]
+        )
+        let shadowingProject = SharedProjectRecord(
+            id: "sp_shadowing_member",
+            name: "sp_authorized_member",
+            repoUrl: "git@example.com:shadowing-member.git",
+            members: [shadowMember]
+        )
+        let authorizedProject = SharedProjectRecord(
+            id: "sp_authorized_member",
+            name: "Authorized Member Project",
+            repoUrl: "git@example.com:authorized-member.git",
+            members: [member]
+        )
+        try store.save(MeshState(
+            nodes: baseNodes([work, shadowController, home]),
+            sharedProjects: [shadowingProject, authorizedProject]
+        ))
+
+        let shadowUpdate = try signedEvent(.projectUpdated, actor: shadowController, projectId: shadowingProject.id, logicalTime: 1, payload: [
+            "defaultBranch": .string("develop"),
+        ])
+        _ = try store.appendEvent(shadowUpdate, expectedActorPublicKey: shadowController.publicKey)
+        let addMember = try signedEvent(.projectMemberAdded, actor: work, target: home.nodeId, projectId: authorizedProject.id, logicalTime: 2, payload: [
+            "nodeId": .string(home.nodeId),
+            "localRepoPath": .string("/home/authorized"),
+            "role": .string("worker"),
+            "permissions": .array(MeshPermission.workerDefaults.rawValues.map(JSONValue.string)),
+        ])
+        _ = try store.appendEvent(addMember, expectedActorPublicKey: work.publicKey)
+
+        let projects = try store.projectedState().sharedProjects
+        let shadow = try #require(projects.first(where: { $0.id == shadowingProject.id }))
+        let authorized = try #require(projects.first(where: { $0.id == authorizedProject.id }))
+        #expect(shadow.members.map(\.nodeId) == [shadowController.nodeId])
+        #expect(authorized.members.map(\.nodeId).sorted() == [home.nodeId, work.nodeId].sorted())
+    }
+
     @Test("signed assignment applies to legacy task without task creation event")
     func signedAssignmentAppliesToLegacyTaskWithoutTaskCreationEvent() throws {
         let store = NodeMeshStore(stateURL: temporaryStateURL())

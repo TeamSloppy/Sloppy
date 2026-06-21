@@ -258,16 +258,16 @@ actor NodeMeshRelay {
         else {
             return
         }
-        persist {
-            try store.routeEnvelope(envelope)
-        }
         let memberNodeIds = Set(project.members.map(\.nodeId))
         for nodeId in memberNodeIds where nodeId != envelope.from {
+            var scopedEnvelope = envelope
+            scopedEnvelope.to = nodeId
+            persist {
+                try store.routeEnvelope(scopedEnvelope)
+            }
             guard let connection = connections[nodeId] else {
                 continue
             }
-            var scopedEnvelope = envelope
-            scopedEnvelope.to = nodeId
             try await send(scopedEnvelope, over: connection.context)
         }
     }
@@ -325,7 +325,9 @@ actor NodeMeshRelay {
             return "shared project scope is unknown"
         }
         do {
-            guard let project = try sharedProject(projectIdOrName: projectId, in: store) else {
+            let trustedLocal = allowTrustedLocal && (envelope.from == "local" || envelope.from == "api")
+            let liveProject = try sharedProject(projectIdOrName: projectId, in: store)
+            guard let project = liveProject ?? removableProjectSnapshot(from: envelope, trustedLocal: trustedLocal) else {
                 return "shared project scope is unknown"
             }
             if !(allowTrustedLocal && (envelope.from == "local" || envelope.from == "api")) {
@@ -345,6 +347,16 @@ actor NodeMeshRelay {
         } catch {
             return "mesh authorization state is unavailable"
         }
+    }
+
+    private func removableProjectSnapshot(from envelope: MeshEnvelope, trustedLocal: Bool) -> SharedProjectRecord? {
+        guard trustedLocal,
+              envelope.payload.asObject?["action"]?.asString == "shared_project.remove",
+              let projectValue = envelope.payload.asObject?["project"]
+        else {
+            return nil
+        }
+        return try? JSONValueCoder.decode(SharedProjectRecord.self, from: projectValue)
     }
 
     private func rpcAuthorizationDenial(for envelope: MeshEnvelope, target: String) -> String? {
