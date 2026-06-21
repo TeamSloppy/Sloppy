@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo, forwardRef } from "react";
+import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
 import {
     TASK_STATUSES,
@@ -230,18 +231,66 @@ function CommentAvatar({ comment, author, agentDirectory }) {
 
 export function DetailDropdown({ label, icon, color, children }) {
     const [open, setOpen] = useState(false);
+    const [menuStyle, setMenuStyle] = useState(null);
     const ref = useRef(null);
+    const menuRef = useRef(null);
+
+    const updateMenuPosition = useCallback(() => {
+        const trigger = ref.current;
+        if (!trigger) return;
+        const rect = trigger.getBoundingClientRect();
+        const gutter = 8;
+        const menuWidth = Math.max(200, Math.ceil(rect.width));
+        const viewportWidth = window.innerWidth || document.documentElement.clientWidth || menuWidth;
+        const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 300;
+        const left = Math.min(
+            Math.max(gutter, rect.right - menuWidth),
+            Math.max(gutter, viewportWidth - menuWidth - gutter)
+        );
+        const belowSpace = viewportHeight - rect.bottom - gutter;
+        const aboveSpace = rect.top - gutter;
+        const openAbove = belowSpace < 160 && aboveSpace > belowSpace;
+        const maxHeight = Math.max(120, Math.min(300, openAbove ? aboveSpace - 4 : belowSpace - 4));
+        const top = openAbove
+            ? Math.max(gutter, rect.top - maxHeight - 4)
+            : Math.min(rect.bottom + 4, viewportHeight - gutter);
+
+        setMenuStyle({
+            left: `${left}px`,
+            top: `${top}px`,
+            minWidth: `${menuWidth}px`,
+            maxHeight: `${maxHeight}px`
+        });
+    }, []);
 
     useEffect(() => {
         if (!open) return;
         function handleClick(e) {
-            if (ref.current && !ref.current.contains(e.target)) {
+            if (
+                ref.current &&
+                !ref.current.contains(e.target) &&
+                (!menuRef.current || !menuRef.current.contains(e.target))
+            ) {
                 setOpen(false);
             }
         }
         document.addEventListener("mousedown", handleClick);
         return () => document.removeEventListener("mousedown", handleClick);
     }, [open]);
+
+    useEffect(() => {
+        if (!open) {
+            setMenuStyle(null);
+            return;
+        }
+        updateMenuPosition();
+        window.addEventListener("resize", updateMenuPosition);
+        window.addEventListener("scroll", updateMenuPosition, true);
+        return () => {
+            window.removeEventListener("resize", updateMenuPosition);
+            window.removeEventListener("scroll", updateMenuPosition, true);
+        };
+    }, [open, updateMenuPosition]);
 
     return (
         <div className="td-prop-dropdown-wrap" ref={ref}>
@@ -257,11 +306,17 @@ export function DetailDropdown({ label, icon, color, children }) {
                 ) : null}
                 <span>{label}</span>
             </button>
-            {open && (
-                <ul className="td-prop-dropdown" onClick={() => setOpen(false)}>
+            {open && menuStyle ? createPortal(
+                <ul
+                    ref={menuRef}
+                    className="td-prop-dropdown td-prop-dropdown--floating"
+                    style={menuStyle}
+                    onClick={() => setOpen(false)}
+                >
                     {children}
-                </ul>
-            )}
+                </ul>,
+                document.body
+            ) : null}
         </div>
     );
 }

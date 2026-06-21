@@ -34,3 +34,12 @@ test("task detail header uses a compact toolbar with a close control", () => {
   assert.match(projectsCss, /\.td-toolbar-action\s*\{/);
   assert.match(projectsCss, /\.td-toolbar-divider\s*\{/);
 });
+
+test("task detail property dropdowns render outside clipped property containers", () => {
+  assert.match(detailsSource, /import \{ createPortal \} from "react-dom";/);
+  assert.match(detailsSource, /createPortal\(/);
+  assert.match(detailsSource, /document\.body/);
+  assert.match(detailsSource, /className="td-prop-dropdown td-prop-dropdown--floating"/);
+  assert.match(projectsCss, /\.td-prop-dropdown--floating\s*\{[\s\S]*?position:\s*fixed/);
+  assert.match(projectsCss, /\.td-prop-dropdown--floating\s*\{[\s\S]*?z-index:\s*220/);
+});
