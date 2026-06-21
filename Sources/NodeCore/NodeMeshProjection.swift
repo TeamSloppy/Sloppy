@@ -4,13 +4,18 @@ import Protocols
 public enum NodeMeshProjection {
     public static func project(events: [SignedMeshEvent], base: MeshState = MeshState()) throws -> MeshState {
         var state = base
+        var replayKeyring = Dictionary(uniqueKeysWithValues: base.nodes.map { ($0.id, $0.publicKey) })
         state.nodes.removeAll()
         state.sharedProjects.removeAll()
         state.tasks.removeAll()
 
         for signed in events.sorted(by: eventSort) {
-            guard try MeshEventSigner.verify(signed, publicKey: signed.actorPublicKey) else {
+            let actorKey = try replayActorPublicKey(for: signed, keyring: replayKeyring)
+            guard try MeshEventSigner.verify(signed, publicKey: actorKey) else {
                 throw MeshEventVerificationError.invalidSignature
+            }
+            if signed.event.type == .nodeAnnounced, replayKeyring[signed.event.actorNodeId] == nil {
+                replayKeyring[signed.event.actorNodeId] = signed.actorPublicKey
             }
             try apply(signed, to: &state)
         }
@@ -23,6 +28,19 @@ public enum NodeMeshProjection {
             return lhs.event.id < rhs.event.id
         }
         return lhs.event.logicalTime < rhs.event.logicalTime
+    }
+
+    private static func replayActorPublicKey(
+        for signed: SignedMeshEvent,
+        keyring: [String: String]
+    ) throws -> String {
+        if let actorKey = keyring[signed.event.actorNodeId] {
+            return actorKey
+        }
+        guard signed.event.type == .nodeAnnounced else {
+            throw MeshEventVerificationError.actorMismatch
+        }
+        return signed.actorPublicKey
     }
 
     private static func apply(_ signed: SignedMeshEvent, to state: inout MeshState) throws {

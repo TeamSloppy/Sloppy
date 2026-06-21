@@ -49,7 +49,7 @@ struct NodeMeshProjectionTests {
             ]),
         ]
 
-        let state = try NodeMeshProjection.project(events: events, base: MeshState())
+        let state = try NodeMeshProjection.project(events: events, base: baseState(nodes: [work, home]))
 
         let task = try #require(state.tasks.first)
         #expect(task.id == "mesh_task_1")
@@ -76,7 +76,7 @@ struct NodeMeshProjectionTests {
             ]),
         ]
 
-        let state = try NodeMeshProjection.project(events: events, base: MeshState())
+        let state = try NodeMeshProjection.project(events: events, base: baseState(nodes: [work]))
 
         #expect(state.sharedProjects.first?.name == "Updated Name")
     }
@@ -97,7 +97,36 @@ struct NodeMeshProjectionTests {
         ])
 
         #expect(throws: MeshEventVerificationError.invalidSignature) {
-            _ = try NodeMeshProjection.project(events: [signed], base: MeshState())
+            _ = try NodeMeshProjection.project(events: [signed], base: baseState(nodes: [work]))
+        }
+    }
+
+    @Test("projection rejects events signed by an unbound key for an existing actor")
+    func projectionRejectsImpersonationAgainstBoundActorKey() throws {
+        let victim = NodeIdentityGenerator.makeIdentity(name: "Victim", roles: ["worker"], capabilities: ["git"])
+        let attacker = NodeIdentityGenerator.makeIdentity(name: "Attacker", roles: ["worker"], capabilities: ["git"])
+        let base = MeshState(nodes: [
+            MeshNodeRecord(
+                id: victim.nodeId,
+                name: victim.name,
+                publicKey: victim.publicKey,
+                roles: victim.roles,
+                status: .online,
+                capabilities: victim.capabilities
+            ),
+        ])
+        let forged = try forgedSignedEvent(
+            type: .nodeStatusChanged,
+            actorNodeId: victim.nodeId,
+            signer: attacker,
+            logicalTime: 1,
+            payload: [
+                "status": .string(MeshNodeStatus.offline.rawValue),
+            ]
+        )
+
+        #expect(throws: MeshEventVerificationError.invalidSignature) {
+            _ = try NodeMeshProjection.project(events: [forged], base: base)
         }
     }
 
@@ -129,6 +158,7 @@ struct NodeMeshProjectionTests {
         let state = MeshState(
             networkId: "mesh",
             networkName: "Mesh",
+            nodes: baseState(nodes: [work]).nodes,
             invites: [invite],
             sharedProjects: [staleProject],
             tasks: [staleTask],
@@ -185,7 +215,7 @@ struct NodeMeshProjectionTests {
             ]),
         ]
 
-        let state = try NodeMeshProjection.project(events: events, base: MeshState())
+        let state = try NodeMeshProjection.project(events: events, base: baseState(nodes: [work, home]))
 
         let project = try #require(state.sharedProjects.first(where: { $0.id == projectId }))
         let member = try #require(project.members.first(where: { $0.nodeId == home.nodeId }))
@@ -238,6 +268,31 @@ struct NodeMeshProjectionTests {
         #expect(state.nodes.contains(where: { $0.id == staleNode.id }) == false)
     }
 
+    @Test("projection bootstraps unknown node from announcement before accepting later events")
+    func projectionBootstrapsUnknownNodeAnnouncementBeforeLaterEvents() throws {
+        let newcomer = NodeIdentityGenerator.makeIdentity(name: "Newcomer", roles: ["worker"], capabilities: ["git"])
+        let projectId = "sp_bootstrap"
+        let events = try [
+            signed(.nodeAnnounced, actor: newcomer, projectId: nil, logicalTime: 1, payload: [
+                "name": .string("Newcomer"),
+                "roles": .array([.string("worker")]),
+                "capabilities": .array([.string("git")]),
+                "status": .string(MeshNodeStatus.online.rawValue),
+            ]),
+            signed(.projectCreated, actor: newcomer, projectId: projectId, logicalTime: 2, payload: [
+                "id": .string(projectId),
+                "name": .string("Bootstrap"),
+                "repoUrl": .string("git@example.com:bootstrap.git"),
+            ]),
+        ]
+
+        let state = try NodeMeshProjection.project(events: events, base: MeshState())
+
+        #expect(state.nodes.map(\.id) == [newcomer.nodeId])
+        #expect(state.nodes.first?.publicKey == newcomer.publicKey)
+        #expect(state.sharedProjects.map(\.id) == [projectId])
+    }
+
     @Test("invalid project policies do not abort projection")
     func invalidProjectPoliciesDoNotAbortProjection() throws {
         let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
@@ -254,7 +309,7 @@ struct NodeMeshProjectionTests {
             ]),
         ]
 
-        let state = try NodeMeshProjection.project(events: events, base: MeshState())
+        let state = try NodeMeshProjection.project(events: events, base: baseState(nodes: [work]))
 
         let project = try #require(state.sharedProjects.first)
         #expect(project.name == "Updated Policy")
@@ -284,9 +339,50 @@ struct NodeMeshProjectionTests {
         )
     }
 
+    private func forgedSignedEvent(
+        type: MeshEventType,
+        actorNodeId: String,
+        signer: NodeIdentity,
+        target: String? = nil,
+        projectId: String? = nil,
+        logicalTime: UInt64,
+        payload: [String: JSONValue]
+    ) throws -> SignedMeshEvent {
+        let event = MeshEvent(
+            id: "mesh_evt_" + UUID().uuidString,
+            type: type,
+            actorNodeId: actorNodeId,
+            targetNodeId: target,
+            projectId: projectId,
+            logicalTime: logicalTime,
+            payload: .object(payload)
+        )
+        return SignedMeshEvent(
+            event: event,
+            actorPublicKey: signer.publicKey,
+            signature: try NodeIdentityGenerator.sign(
+                challenge: try MeshEventSigner.signingData(for: event),
+                privateKey: signer.privateKey
+            )
+        )
+    }
+
     private func temporaryStateURL() -> URL {
         let directory = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("node-mesh-projection-tests", isDirectory: true)
         return directory.appendingPathComponent(UUID().uuidString + ".json")
+    }
+
+    private func baseState(nodes: [NodeIdentity]) -> MeshState {
+        MeshState(nodes: nodes.map {
+            MeshNodeRecord(
+                id: $0.nodeId,
+                name: $0.name,
+                publicKey: $0.publicKey,
+                roles: $0.roles,
+                status: .online,
+                capabilities: $0.capabilities
+            )
+        })
     }
 }
