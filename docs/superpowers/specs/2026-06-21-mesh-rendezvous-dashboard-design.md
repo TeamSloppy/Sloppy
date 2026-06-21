@@ -47,7 +47,7 @@ VPS dashboard -> VPS Core API
 The mesh relay URL is a per-node connection target. It can point at the VPS:
 
 ```text
-http://81.26.176.106:25102
+https://mesh.example.com
 ```
 
 It must not replace the dashboard Core API base.
@@ -194,7 +194,7 @@ But label it as a coordinator/admin operation, not the normal local join path.
 If a user pastes a remote invite into the coordinator accept modal on the wrong dashboard, the UI should not just show an error. It should detect the embedded relay URL and offer:
 
 ```text
-This invite belongs to http://81.26.176.106:25102.
+This invite belongs to https://mesh.example.com.
 
 Use this local node to join that remote mesh?
 [Join Remote Mesh] [Cancel]
