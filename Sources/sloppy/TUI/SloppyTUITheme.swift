@@ -40,6 +40,16 @@ struct SloppyTUIColor: Codable, Equatable, Sendable {
     var background: AnsiStyling.Background {
         .rgb(UInt8(red), UInt8(green), UInt8(blue))
     }
+
+    func blended(with other: SloppyTUIColor, amount: Double) -> SloppyTUIColor {
+        let clampedAmount = min(1, max(0, amount))
+        let inverseAmount = 1 - clampedAmount
+        return SloppyTUIColor(
+            red: Int((Double(red) * inverseAmount + Double(other.red) * clampedAmount).rounded()),
+            green: Int((Double(green) * inverseAmount + Double(other.green) * clampedAmount).rounded()),
+            blue: Int((Double(blue) * inverseAmount + Double(other.blue) * clampedAmount).rounded())
+        )
+    }
 }
 
 enum SloppyTUIThemeError: Error, CustomStringConvertible, Equatable {
@@ -1031,7 +1041,7 @@ enum SloppyTUITheme {
         let characters = Array(text)
         guard !characters.isEmpty else { return text }
 
-        let shoulder = SloppyTUIColor(red: 186, green: 194, blue: 207)
+        let shoulder = activeTheme.accent.blended(with: activeTheme.accentBright, amount: 0.55)
         let period = characters.count + 4
         let normalizedFrame = ((frame % period) + period) % period
         let highlightCenter = normalizedFrame - 2
@@ -1041,7 +1051,7 @@ enum SloppyTUITheme {
             let text = String(character)
             switch distance {
             case 0:
-                return foreground(text)
+                return accentBright(text)
             case 1:
                 return shoulder.foregroundStyle(text)
             default:

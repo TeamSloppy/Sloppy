@@ -570,13 +570,18 @@ public actor CoreService {
                     toolExecutionService: self.toolExecution,
                     agentRunner: { [weak self] agentID, taskID, objective, workingDirectory, selectedModel, toolIDs in
                         guard let self else { return nil }
+                        let knownToolIDs = await ToolCatalog.knownToolIDs(mcpRegistry: self.mcpRegistry)
+                        let explicitToolIDs = SubagentDelegation.explicitToolIDs(
+                            forWorkerTools: toolIDs,
+                            knownToolIDs: knownToolIDs
+                        )
                         guard let result = await self.runAgentTaskResult(
                             agentID: agentID,
                             taskID: taskID,
                             objective: objective,
                             workingDirectory: workingDirectory,
                             selectedModel: selectedModel,
-                            explicitToolIDs: toolIDs
+                            explicitToolIDs: explicitToolIDs
                         ) else {
                             return nil
                         }

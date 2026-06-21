@@ -88,6 +88,30 @@ enum SubagentDelegation {
         return result
     }
 
+    /// Converts worker `tools` entries to concrete tool IDs. Worker specs historically carry a
+    /// mix of concrete tool IDs (`web.search`) and coarse aliases (`project_tasks`, `shell`).
+    static func explicitToolIDs(forWorkerTools workerTools: [String], knownToolIDs: Set<String>) -> [String] {
+        var result = Set<String>()
+        for raw in workerTools {
+            let key = raw.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            guard !key.isEmpty else { continue }
+            if knownToolIDs.contains(key) {
+                result.insert(key)
+            }
+            let toolsetName: String
+            switch key {
+            case "shell", "exec":
+                toolsetName = "terminal"
+            case "project-tasks", "tasks", "task":
+                toolsetName = "project_tasks"
+            default:
+                toolsetName = key
+            }
+            result.formUnion(toolIDs(forToolsetNames: [toolsetName], knownToolIDs: knownToolIDs))
+        }
+        return result.sorted()
+    }
+
     /// Effective tools for a subagent: parent policy ∩ optional toolsets − hard denials.
     static func effectiveToolIDs(
         policy: AgentToolsPolicy,
