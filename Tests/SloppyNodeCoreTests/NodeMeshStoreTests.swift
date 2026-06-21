@@ -582,6 +582,42 @@ struct NodeMeshStoreTests {
         #expect(state.events.map(\.event.type).contains(.taskAssigned))
     }
 
+    @Test("dispatch task with actor identity rejects non-member assignee")
+    func dispatchTaskWithActorIdentityRejectsNonMemberAssignee() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let home = NodeIdentityGenerator.makeIdentity(name: "Home", roles: ["worker"], capabilities: ["git"])
+        try store.registerNode(work)
+        try store.registerNode(home)
+        let project = try store.createSharedProject(
+            id: "sp_sloppy",
+            name: "Sloppy",
+            repoUrl: "git@example.com:sloppy.git"
+        )
+        _ = try store.attachMember(
+            projectIdOrName: project.id,
+            nodeId: work.nodeId,
+            localRepoPath: "/work/sloppy",
+            role: "controller",
+            permissions: [MeshPermission.taskCreate.rawValue, MeshPermission.taskAssign.rawValue]
+        )
+
+        do {
+            _ = try store.dispatchTask(
+                projectIdOrName: project.id,
+                title: "Run build",
+                assignedNodeId: home.nodeId,
+                actorIdentity: work
+            )
+            Issue.record("Expected non-member assignee to reject signed dispatch")
+        } catch let error as NodeMeshStoreError {
+            #expect(error == .permissionDenied("task.dispatch"))
+        }
+
+        let state = try store.load()
+        #expect(state.events.isEmpty)
+    }
+
     @Test("update task status with actor identity writes signed status event")
     func updateTaskStatusWithActorIdentityWritesSignedStatusEvent() throws {
         let store = NodeMeshStore(stateURL: temporaryStateURL())

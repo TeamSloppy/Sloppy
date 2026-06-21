@@ -1300,9 +1300,8 @@ public struct NodeMeshStore: Sendable {
         guard storedState.nodes.contains(where: { $0.id == assignedNodeId }) || projected.nodes.contains(where: { $0.id == assignedNodeId }) else {
             throw NodeMeshStoreError.nodeMissing(assignedNodeId)
         }
-        guard let actorMember = project.members.first(where: { $0.nodeId == actorIdentity.nodeId }),
-              actorMember.permissions.contains(MeshPermission.taskCreate.rawValue),
-              actorMember.permissions.contains(MeshPermission.taskAssign.rawValue)
+        guard let assignedMember = project.members.first(where: { $0.nodeId == assignedNodeId }),
+              assignedMember.permissions.contains(MeshPermission.taskUpdate.rawValue) || assignedMember.permissions.contains(MeshPermission.taskAssign.rawValue)
         else {
             throw NodeMeshStoreError.permissionDenied("task.dispatch")
         }
