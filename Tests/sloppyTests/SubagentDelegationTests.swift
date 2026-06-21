@@ -79,6 +79,32 @@ func subagentProjectTasksToolsetAllowsOnlyTaskLifecycleTools() {
 }
 
 @Test
+func subagentWorkerToolsExpandAliasesAndKeepConcreteToolIDs() {
+    let known: Set<String> = [
+        "project.current",
+        "project.task_list",
+        "project.task_create",
+        "project.task_get",
+        "project.task_update",
+        "project.task_clarification_create",
+        "web.search",
+        "web.fetch",
+        "mcp.github.create_issue",
+    ]
+
+    let explicit = SubagentDelegation.explicitToolIDs(
+        forWorkerTools: ["project_tasks", "web.search", "mcp.github.create_issue"],
+        knownToolIDs: known
+    )
+
+    #expect(explicit.contains("project.task_update"))
+    #expect(explicit.contains("project.task_get"))
+    #expect(explicit.contains("web.search"))
+    #expect(explicit.contains("mcp.github.create_issue"))
+    #expect(!explicit.contains("project_tasks"))
+}
+
+@Test
 func subagentEffectiveToolsAllowTaskClarificationFlow() {
     let policy = AgentToolsPolicy(defaultPolicy: .allow, tools: [:])
     let known: Set<String> = [

@@ -282,6 +282,33 @@ func projectAutopilotWorkerToolsAlwaysIncludeTaskLifecycleTools() async throws {
 }
 
 @Test
+func projectManualWorkerToolsAlwaysIncludeTaskLifecycleTools() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let task = ProjectTask(
+        id: "task-1",
+        title: "Manual kanban worker",
+        description: "",
+        priority: "medium",
+        status: ProjectTaskStatus.ready.rawValue
+    )
+    let project = ProjectRecord(
+        id: "manual-worker-tools",
+        name: "Manual Worker Tools",
+        description: "",
+        channels: [ProjectChannel(id: "channel-1", title: "Main", channelId: "chan")],
+        tasks: [task],
+        autopilotSettings: ProjectAutopilotSettings(enabled: false)
+    )
+
+    let tools = await service.workerToolsForTask(task: task, project: project)
+
+    #expect(tools.contains("project_tasks"))
+    #expect(tools.contains("file"))
+    #expect(tools.contains("shell"))
+    #expect(tools.contains("browser"))
+}
+
+@Test
 func projectAutopilotPlannerUsesDefaultAgentSelectedModel() async throws {
     var config = CoreConfig.test
     config.models = [

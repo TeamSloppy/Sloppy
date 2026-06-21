@@ -1,6 +1,7 @@
 import Foundation
 import AnyLanguageModel
 import Logging
+import PluginSDK
 import Testing
 @testable import AgentRuntime
 @testable import Protocols
@@ -114,6 +115,14 @@ struct ToolRegistryTests {
         }
     }
 
+    @Test("all tool schemas avoid nested refs after root resolution")
+    func allToolSchemasAvoidNestedRefsAfterRootResolution() throws {
+        for tool in registry.allTools {
+            let schema = try schemaRoot(tool.parameters)
+            #expect(containsJSONSchemaRef(schema) == false, "\(tool.name) parameters must not contain nested $ref")
+        }
+    }
+
     @Test("allTools count matches catalog entries count")
     func allToolsCountMatchesCatalogEntries() {
         let tools = registry.allTools
@@ -162,6 +171,24 @@ struct ToolRegistryTests {
         #expect(properties.keys.contains("allowedTools"))
         #expect(required.contains("repo"))
         #expect(required.contains("skillMarkdown"))
+    }
+
+    @Test("Skills manage schema exports as provider-safe object schema")
+    func skillsManageSchemaExportsAsProviderSafeObjectSchema() throws {
+        let tools = Dictionary(uniqueKeysWithValues: registry.allTools.map { ($0.name, $0) })
+        let skillsManage = try #require(tools["skills.manage"])
+
+        let schema = ModelToolSchemaNormalizer.providerSafeObjectSchema(skillsManage.parameters)
+        let properties = try #require(schema["properties"] as? [String: Any])
+        let files = try #require(properties["files"] as? [String: Any])
+        let fileItems = try #require(files["items"] as? [String: Any])
+
+        #expect(schema["type"] as? String == "object")
+        #expect(schema["$ref"] == nil)
+        #expect(schema["$defs"] == nil)
+        #expect(fileItems["type"] as? String == "object")
+        #expect(fileItems["$ref"] == nil)
+        #expect(fileItems["$defs"] == nil)
     }
 
     @Test("Memory save still rejects missing scope")
@@ -214,6 +241,17 @@ struct ToolRegistryTests {
             object = try #require(defs[name] as? [String: Any])
         }
         return object
+    }
+
+    private func containsJSONSchemaRef(_ value: Any) -> Bool {
+        if let object = value as? [String: Any] {
+            if object["$ref"] != nil { return true }
+            return object.values.contains { containsJSONSchemaRef($0) }
+        }
+        if let array = value as? [Any] {
+            return array.contains { containsJSONSchemaRef($0) }
+        }
+        return false
     }
 
     private func makeMemoryToolContext() -> ToolContext {
