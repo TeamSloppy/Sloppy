@@ -66,7 +66,7 @@ actor NodeMeshRelay {
                         await connection.close()
                         return
                     }
-                    let node = nodeRecord(from: envelope, remoteAddress: remoteAddress)
+                    let node = nodeRecord(from: envelope, authenticatedNode: authenticatedNode, remoteAddress: remoteAddress)
                     nodes[node.id] = node
                     connections[node.id] = Connection(node: node, context: connection)
                     attachedNodeId = node.id
@@ -122,7 +122,7 @@ actor NodeMeshRelay {
             guard response.nodeId == envelope.from else {
                 return .failure("Auth node id does not match envelope sender.")
             }
-            guard let registered = try store.load().nodes.first(where: { $0.id == response.nodeId }) else {
+            guard let registered = try store.listNodes().first(where: { $0.id == response.nodeId }) else {
                 return .failure("Node is not registered.")
             }
             guard response.publicKey == registered.publicKey else {
@@ -234,7 +234,7 @@ actor NodeMeshRelay {
         }
         let state = try store.load()
         for envelope in state.envelopes where envelope.type == .taskDispatch && envelope.to == nodeId {
-            guard taskDispatchAuthorizationDenial(for: envelope, target: nodeId) == nil else {
+            guard taskDispatchAuthorizationDenial(for: envelope, target: nodeId, allowTrustedLocal: true) == nil else {
                 continue
             }
             try await send(envelope, over: connection.context)
@@ -433,7 +433,11 @@ actor NodeMeshRelay {
         }
     }
 
-    private func taskDispatchAuthorizationDenial(for envelope: MeshEnvelope, target: String) -> String? {
+    private func taskDispatchAuthorizationDenial(
+        for envelope: MeshEnvelope,
+        target: String,
+        allowTrustedLocal: Bool = false
+    ) -> String? {
         guard let store,
               envelope.type == .taskDispatch
         else {
@@ -453,13 +457,15 @@ actor NodeMeshRelay {
             guard let project = try sharedProject(projectIdOrName: task.projectId, in: store) else {
                 return "shared project scope is unknown"
             }
-            guard let sourceMember = project.members.first(where: { $0.nodeId == envelope.from }) else {
-                return "source node is not a project member"
-            }
-            guard sourceMember.permissions.contains(MeshPermission.taskCreate.rawValue),
-                  sourceMember.permissions.contains(MeshPermission.taskAssign.rawValue)
-            else {
-                return "missing task dispatch permission"
+            if !(allowTrustedLocal && envelope.from == "local") {
+                guard let sourceMember = project.members.first(where: { $0.nodeId == envelope.from }) else {
+                    return "source node is not a project member"
+                }
+                guard sourceMember.permissions.contains(MeshPermission.taskCreate.rawValue),
+                      sourceMember.permissions.contains(MeshPermission.taskAssign.rawValue)
+                else {
+                    return "missing task dispatch permission"
+                }
             }
             guard let targetMember = project.members.first(where: { $0.nodeId == target }),
                   targetMember.permissions.contains(MeshPermission.taskUpdate.rawValue)
@@ -502,12 +508,16 @@ actor NodeMeshRelay {
         }
     }
 
-    private func nodeRecord(from envelope: MeshEnvelope, remoteAddress: String?) -> MeshNodeRecord {
+    private func nodeRecord(
+        from envelope: MeshEnvelope,
+        authenticatedNode: MeshNodeRecord,
+        remoteAddress: String?
+    ) -> MeshNodeRecord {
         let payload = envelope.payload.asObject ?? [:]
         return MeshNodeRecord(
             id: envelope.from,
             name: payload["name"]?.asString ?? envelope.from,
-            publicKey: payload["publicKey"]?.asString ?? "",
+            publicKey: authenticatedNode.publicKey,
             roles: stringArray(payload["roles"]),
             endpoint: remoteAddress,
             status: .online,
