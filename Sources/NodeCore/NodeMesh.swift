@@ -1480,7 +1480,14 @@ public struct NodeMeshStore: Sendable {
     ) throws -> MeshTaskRecord {
         let storedState = try load()
         let projected = try projectedState()
-        let task = try resolveTask(taskId: taskId, projectIdOrName: projectIdOrName, in: projected)
+        var taskResolutionState = storedState
+        taskResolutionState.sharedProjects = mergeById(
+            stored: storedState.sharedProjects,
+            projected: projected.sharedProjects,
+            id: \.id
+        )
+        taskResolutionState.tasks = mergeTasks(stored: storedState.tasks, projected: projected.tasks)
+        let task = try resolveTask(taskId: taskId, projectIdOrName: projectIdOrName, in: taskResolutionState)
         guard let project = sharedProject(
             projectIdOrName: task.projectId,
             storedState: storedState,

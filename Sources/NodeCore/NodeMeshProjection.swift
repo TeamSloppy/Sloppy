@@ -23,6 +23,7 @@ public enum NodeMeshProjection {
             if signed.event.type == .nodeAnnounced, replayKeyring[signed.event.actorNodeId] == nil {
                 replayKeyring[signed.event.actorNodeId] = signed.actorPublicKey
             }
+            try materializeLegacyTargets(for: signed.event, from: base, into: &state)
             do {
                 try authorize(signed.event, projectedState: state, baseState: base, projectCreators: projectCreators)
             } catch {
@@ -30,7 +31,6 @@ public enum NodeMeshProjection {
                     throw error
                 }
             }
-            try materializeLegacyTargets(for: signed.event, from: base, into: &state)
             try apply(signed, to: &state)
             recordProjectCreator(from: signed.event, in: &projectCreators)
         }
