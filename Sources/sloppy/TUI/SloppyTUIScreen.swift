@@ -285,7 +285,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
 
     let runtime: SloppyTUIRuntime
     var service: any SloppyTUIBackend
-    let logger = Logger(label: "sloppy.tui.screen")
+    let logger = Logger.sloppy(label: "sloppy.tui.screen")
     let desktopNotificationService = DesktopNotificationService.live()
     var project: ProjectRecord
     var agent: AgentSummary

@@ -24,7 +24,7 @@ public actor HybridMemoryStore: MemoryStore {
         config: CoreConfig,
         mcpRegistry: MCPClientRegistry? = nil,
         embeddingService: EmbeddingService? = nil,
-        logger: Logger = Logger(label: "sloppy.memory")
+        logger: Logger = Logger.sloppy(label: "sloppy.memory")
     ) {
         self.retrieval = config.memory.retrieval
         self.retention = config.memory.retention

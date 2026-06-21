@@ -28,7 +28,7 @@ struct AnthropicOAuthService: @unchecked Sendable {
         "user:sessions:claude_code",
         "offline_access",
     ]
-    private static let logger = Logger(label: "sloppy.core.anthropic-oauth")
+    private static let logger = Logger.sloppy(label: "sloppy.core.anthropic-oauth")
 
     private struct PendingSession: Codable, Sendable {
         var state: String

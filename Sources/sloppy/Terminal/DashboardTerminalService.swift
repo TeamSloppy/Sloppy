@@ -13,7 +13,7 @@ enum DashboardTerminalEvent: Sendable {
 }
 
 actor DashboardTerminalService {
-    private static let logger = Logger(label: "sloppy.dashboard.terminal")
+    private static let logger = Logger.sloppy(label: "sloppy.dashboard.terminal")
     enum ServiceError: Error {
         case invalidSize
         case launchFailed

@@ -100,7 +100,7 @@ actor AgentSessionOrchestrator {
         eventAppendObserver: EventAppendObserver? = nil,
         tokenUsageObserver: TokenUsageObserver? = nil,
         planArtifactRecorder: PlanArtifactRecorder? = nil,
-        logger: Logger = Logger(label: "sloppy.core.sessions")
+        logger: Logger = Logger.sloppy(label: "sloppy.core.sessions")
     ) {
         self.runtime = runtime
         self.sessionStore = sessionStore

@@ -284,7 +284,7 @@ func discordGatewayPluginForwardsMappedMessages() async throws {
     let plugin = DiscordGatewayPlugin(
         botToken: "discord-token",
         channelDiscordChannelMap: ["general": "discord-general"],
-        logger: Logger(label: "tests.discord"),
+        logger: .sloppy(label: "tests.discord"),
         client: client
     )
     let receiver = RecordingInboundReceiver()
@@ -325,7 +325,7 @@ func discordGatewayPluginIgnoresBotMessagesAndTransformsTaskCommand() async thro
     let plugin = DiscordGatewayPlugin(
         botToken: "discord-token",
         channelDiscordChannelMap: ["general": "discord-general"],
-        logger: Logger(label: "tests.discord"),
+        logger: .sloppy(label: "tests.discord"),
         client: client
     )
     let receiver = RecordingInboundReceiver()
@@ -371,7 +371,7 @@ func discordGatewayPluginStreamingLifecycleUsesCreateEditDelete() async throws {
     let plugin = DiscordGatewayPlugin(
         botToken: "discord-token",
         channelDiscordChannelMap: ["general": "discord-general"],
-        logger: Logger(label: "tests.discord"),
+        logger: .sloppy(label: "tests.discord"),
         client: client
     )
 
@@ -488,7 +488,7 @@ func discordGatewayRegistersCommandsOnReady() async throws {
     let plugin = DiscordGatewayPlugin(
         botToken: "discord-token",
         channelDiscordChannelMap: ["general": "discord-general"],
-        logger: Logger(label: "tests.discord"),
+        logger: .sloppy(label: "tests.discord"),
         client: client
     )
     let receiver = RecordingInboundReceiver()
@@ -573,7 +573,7 @@ func discordInteractionHelpRespondsLocallyWithType4() async throws {
     let plugin = DiscordGatewayPlugin(
         botToken: "discord-token",
         channelDiscordChannelMap: ["general": "discord-general"],
-        logger: Logger(label: "tests.discord"),
+        logger: .sloppy(label: "tests.discord"),
         client: client
     )
     let receiver = RecordingInboundReceiver()
@@ -606,7 +606,7 @@ func discordInteractionTaskForwardsToCore() async throws {
     let plugin = DiscordGatewayPlugin(
         botToken: "discord-token",
         channelDiscordChannelMap: ["general": "discord-general"],
-        logger: Logger(label: "tests.discord"),
+        logger: .sloppy(label: "tests.discord"),
         client: client
     )
     let receiver = RecordingInboundReceiver()
@@ -643,7 +643,7 @@ func discordInteractionChannelLinkShowsButtonsAndLinksSelection() async throws {
     let plugin = DiscordGatewayPlugin(
         botToken: "discord-token",
         channelDiscordChannelMap: ["general": "discord-general"],
-        logger: Logger(label: "tests.discord"),
+        logger: .sloppy(label: "tests.discord"),
         client: client
     )
     let receiver = RecordingInboundReceiver()

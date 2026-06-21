@@ -1,6 +1,7 @@
 import React from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App";
+import { markMaterialSymbolsReady } from "./app/iconFont";
 import { ErrorBoundary } from "./components/ErrorBoundary/ErrorBoundary";
 import "./styles/index.css";
 
@@ -50,6 +51,7 @@ function applyAccentColor() {
 async function bootstrap() {
   await loadClientConfig();
   applyAccentColor();
+  void markMaterialSymbolsReady();
 
   createRoot(rootElement).render(
     <React.StrictMode>

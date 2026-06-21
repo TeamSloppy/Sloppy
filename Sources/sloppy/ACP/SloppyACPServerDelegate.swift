@@ -44,7 +44,7 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
         self.service = service
         self.agentID = agentID
         self.defaultCwd = defaultCwd
-        self.logger = logger ?? Logging.Logger(label: "sloppy.acp.server.delegate")
+        self.logger = logger ?? .sloppy(label: "sloppy.acp.server.delegate")
         self.sendUpdate = sendUpdate
     }
 

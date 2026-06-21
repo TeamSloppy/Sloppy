@@ -226,7 +226,7 @@ func heartbeatRunnerPreventsOverlappingAgentRuns() async throws {
 
     let state = State()
     let runner = HeartbeatRunner(
-        logger: Logger(label: "test.heartbeat.runner"),
+        logger: .sloppy(label: "test.heartbeat.runner"),
         scheduleProvider: {
             [AgentHeartbeatSchedule(agentId: "overlap-agent", intervalMinutes: 1, lastRunAt: nil)]
         },

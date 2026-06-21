@@ -189,7 +189,7 @@ actor ACPSessionManager {
         config: CoreConfig.ACP,
         workspaceRootURL: URL,
         agentsRootURL: URL,
-        logger: Logging.Logger = Logging.Logger(label: "sloppy.acp"),
+        logger: Logging.Logger = .sloppy(label: "sloppy.acp"),
         clientFactory: ACPClientFactory = .live
     ) {
         self.config = config

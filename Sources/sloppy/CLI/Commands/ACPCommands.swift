@@ -52,7 +52,7 @@ struct ACPServeCommand: AsyncParsableCommand {
             let stdioTransport = StdinTransport()
             let transport = ACPLoggingTransport(
                 wrapping: stdioTransport,
-                logger: Logger(label: "sloppy.acp.server.stdio")
+                logger: Logger.sloppy(label: "sloppy.acp.server.stdio")
             )
             let acpAgent = ACP.Agent(transport: transport)
             let delegate = SloppyACPServerDelegate(

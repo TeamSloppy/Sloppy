@@ -393,7 +393,7 @@ actor MCPClientRegistry {
     private var dynamicDiscoveryLoaded = false
     private var dynamicDiscoveryLastFailureAt: Date?
 
-    init(config: CoreConfig.MCP, logger: Logging.Logger = Logging.Logger(label: "sloppy.mcp")) {
+    init(config: CoreConfig.MCP, logger: Logging.Logger = Logging.Logger.sloppy(label: "sloppy.mcp")) {
         self.config = config
         self.logger = logger
     }
@@ -601,7 +601,7 @@ actor MCPClientRegistry {
         }
         let connection = MCPServerConnection(
             config: server,
-            logger: Logging.Logger(label: "sloppy.mcp.\(serverID)")
+            logger: Logging.Logger.sloppy(label: "sloppy.mcp.\(serverID)")
         )
         connections[serverID] = connection
         return connection

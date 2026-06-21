@@ -57,7 +57,7 @@ actor LocalProcessACPClient: ACPTransportClient {
         command: String,
         arguments: [String],
         environment: [String: String],
-        logger: Logging.Logger = Logging.Logger(label: "sloppy.acp.transport.local"),
+        logger: Logging.Logger = .sloppy(label: "sloppy.acp.transport.local"),
         transportName: String = "stdio"
     ) {
         self.command = command
@@ -161,7 +161,7 @@ actor SSHProcessACPClient: ACPTransportClient {
 
     init(
         target: CoreConfig.ACP.Target,
-        logger: Logging.Logger = Logging.Logger(label: "sloppy.acp.transport.ssh")
+        logger: Logging.Logger = .sloppy(label: "sloppy.acp.transport.ssh")
     ) throws {
         let command = "ssh"
         let arguments: [String]
@@ -289,7 +289,7 @@ actor WebSocketACPClient: ACPTransportClient {
 
     init(
         target: CoreConfig.ACP.Target,
-        logger: Logging.Logger = Logging.Logger(label: "sloppy.acp.transport.websocket")
+        logger: Logging.Logger = .sloppy(label: "sloppy.acp.transport.websocket")
     ) throws {
         let rawURL = (target.url ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: rawURL), !rawURL.isEmpty else {

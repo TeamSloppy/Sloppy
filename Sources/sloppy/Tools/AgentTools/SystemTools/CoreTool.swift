@@ -2,6 +2,7 @@ import AnyLanguageModel
 import AgentRuntime
 import Foundation
 import Logging
+import PluginSDK
 import Protocols
 
 // MARK: - CoreTool
@@ -275,6 +276,14 @@ extension GenerationSchema {
     /// Builds an object schema from a list of DynamicGenerationSchema.Property descriptors.
     static func objectSchema(_ properties: [DynamicGenerationSchema.Property]) -> GenerationSchema {
         let schema = DynamicGenerationSchema(name: "Arguments", properties: properties)
-        return (try? GenerationSchema(root: schema, dependencies: [])) ?? String.generationSchema
+        guard let generated = try? GenerationSchema(root: schema, dependencies: []) else {
+            return String.generationSchema
+        }
+        let normalized = ModelToolSchemaNormalizer.providerSafeObjectSchema(generated)
+        guard let data = try? JSONSerialization.data(withJSONObject: normalized),
+              let decoded = try? JSONDecoder().decode(GenerationSchema.self, from: data) else {
+            return generated
+        }
+        return decoded
     }
 }

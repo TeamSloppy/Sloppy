@@ -16,6 +16,7 @@ enum CLIFormatters {
     }
 
     static func printJSON(_ data: Data) {
+        guard !quietLogsEnabled else { return }
         if let obj = try? JSONSerialization.jsonObject(with: data),
            let pretty = try? JSONSerialization.data(withJSONObject: obj, options: [.prettyPrinted, .sortedKeys]),
            let str = String(data: pretty, encoding: .utf8) {
@@ -33,6 +34,7 @@ enum CLIFormatters {
         rows: [T],
         columns: [(header: String, value: (T) -> String)]
     ) {
+        guard !quietLogsEnabled else { return }
         guard !rows.isEmpty else {
             print(CLIStyle.dim("(no results)"))
             return
@@ -55,5 +57,9 @@ enum CLIFormatters {
             }.joined(separator: "  ")
             print(line)
         }
+    }
+
+    private static var quietLogsEnabled: Bool {
+        ProcessInfo.processInfo.environment["SLOPPY_QUIET_LOGS"] == "1"
     }
 }

@@ -674,7 +674,7 @@ private extension OpenAIOAuthModel {
         for tool in tools {
             let sanitized = ModelToolNameSanitizer.sanitizeName(tool.name)
             nameMap[sanitized] = tool.name
-            let params = resolveSchemaToObject(tool.parameters)
+            let params = ModelToolSchemaNormalizer.providerSafeObjectSchema(tool.parameters)
             definitions.append([
                 "type": "function",
                 "name": sanitized,
@@ -683,30 +683,6 @@ private extension OpenAIOAuthModel {
             ])
         }
         return ToolConversion(definitions: definitions, nameMap: nameMap)
-    }
-
-    private func resolveSchemaToObject(_ schema: GenerationSchema) -> [String: Any] {
-        let fallback: [String: Any] = ["type": "object"]
-        guard let data = try? JSONEncoder().encode(schema),
-              var json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
-            return fallback
-        }
-        if let ref = json["$ref"] as? String,
-           let defs = json["$defs"] as? [String: Any] {
-            let defName = ref.replacingOccurrences(of: "#/$defs/", with: "")
-            if var resolved = defs[defName] as? [String: Any] {
-                resolved.removeValue(forKey: "$defs")
-                if resolved["type"] as? String == nil {
-                    resolved["type"] = "object"
-                }
-                return resolved
-            }
-        }
-        json.removeValue(forKey: "$defs")
-        if json["type"] as? String == nil {
-            json["type"] = "object"
-        }
-        return json
     }
 
     func parseGeneratedContent(_ jsonString: String) -> GeneratedContent {

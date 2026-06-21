@@ -205,6 +205,20 @@ CREATE TABLE IF NOT EXISTS self_improvement_proposal_review_queue (
 CREATE INDEX IF NOT EXISTS idx_self_improvement_proposal_review_queue_due
 ON self_improvement_proposal_review_queue(status, next_run_at);
 
+CREATE TABLE IF NOT EXISTS autodream_session_reviews (
+    agent_id TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    status TEXT NOT NULL,
+    reason TEXT NOT NULL,
+    session_updated_at TEXT NOT NULL,
+    reviewed_at TEXT NOT NULL,
+    last_error TEXT,
+    PRIMARY KEY(agent_id, session_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_autodream_session_reviews_status_reviewed
+ON autodream_session_reviews(status, reviewed_at DESC);
+
 CREATE TABLE IF NOT EXISTS project_event_facts (
     id TEXT PRIMARY KEY,
     project_id TEXT NOT NULL,

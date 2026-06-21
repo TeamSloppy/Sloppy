@@ -243,7 +243,7 @@ private func makeProjectMemoryToolContext(
         store: InMemoryCorePersistenceBuilder().makeStore(config: CoreConfig.test),
         searchProviderService: SearchProviderService(config: CoreConfig.default.searchTools),
         mcpRegistry: MCPClientRegistry(config: CoreConfig.default.mcp),
-        logger: Logger(label: "test.project-memory"),
+        logger: .sloppy(label: "test.project-memory"),
         projectService: projectService,
         configService: nil,
         skillsService: nil,

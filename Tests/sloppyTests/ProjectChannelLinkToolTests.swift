@@ -26,7 +26,7 @@ struct ProjectChannelLinkToolTests {
             store: InMemoryCorePersistenceBuilder().makeStore(config: CoreConfig.test),
             searchProviderService: SearchProviderService(config: CoreConfig.default.searchTools),
             mcpRegistry: MCPClientRegistry(config: CoreConfig.default.mcp),
-            logger: Logger(label: "test.project.channel_link"),
+            logger: .sloppy(label: "test.project.channel_link"),
             projectService: service,
             configService: nil,
             skillsService: nil,

@@ -240,6 +240,7 @@ extension CoreService {
     func isEligibleAutopilotRoot(project: ProjectRecord, task: ProjectTask) -> Bool {
         guard task.parentTaskId == nil else { return false }
         let settings = project.autopilotSettings
+        guard settings.enabled else { return false }
         let included = Set(settings.includedTags.map { normalizeWhitespace($0).lowercased() }.filter { !$0.isEmpty })
         let ignored = Set(settings.ignoredTags.map { normalizeWhitespace($0).lowercased() }.filter { !$0.isEmpty })
         let taskTags = Set(task.tags.map { normalizeWhitespace($0).lowercased() }.filter { !$0.isEmpty })
@@ -774,6 +775,18 @@ extension CoreService {
             interval: .seconds(max(1, scheduler.intervalSeconds)),
             jitter: .seconds(max(0, scheduler.jitterSeconds))
         )
+    }
+
+    func buildAutodreamRunnerConfig() -> AutodreamRunnerConfig {
+        let autodream = currentConfig.visor.autodream
+        return AutodreamRunnerConfig(
+            interval: .seconds(max(1, autodream.intervalSeconds)),
+            jitter: .seconds(max(0, autodream.jitterSeconds))
+        )
+    }
+
+    func autodreamRunnerRunning() async -> Bool {
+        await autodreamRunner?.running() ?? false
     }
 
     /// Builds a completion closure for Visor bulletin synthesis.

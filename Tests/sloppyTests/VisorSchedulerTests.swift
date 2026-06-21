@@ -128,7 +128,7 @@ func visorSchedulerOverlapProtection() async throws {
     }
 
     let state = TestState()
-    let logger = Logger(label: "test.visorscheduler")
+    let logger = Logger.sloppy(label: "test.visorscheduler")
 
     let scheduler = VisorScheduler(
         config: VisorSchedulerConfig(interval: .seconds(1), jitter: .seconds(0)),
@@ -157,7 +157,7 @@ func visorSchedulerOverlapProtection() async throws {
 
 @Test
 func visorSchedulerCancelSafety() async throws {
-    let logger = Logger(label: "test.visorscheduler")
+    let logger = Logger.sloppy(label: "test.visorscheduler")
     actor CallCounter {
         var count = 0
         func increment() { count += 1 }

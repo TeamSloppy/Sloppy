@@ -32,6 +32,7 @@ public actor InMemoryPersistenceStore: PersistenceStore {
     private var tasks: [String: PersistedTaskRecord] = [:]
     private var projects: [String: ProjectRecord] = [:]
     private var selfImprovementProposalReviewJobs: [String: SelfImprovementProposalReviewJob] = [:]
+    private var autodreamSessionReviews: [String: AutodreamSessionReviewRecord] = [:]
     private var workflowRuns: [String: WorkflowRun] = [:]
     private var workflowRunSteps: [String: WorkflowRunStep] = [:]
     private var workflowPendingActions: [String: WorkflowPendingAction] = [:]
@@ -286,6 +287,18 @@ public actor InMemoryPersistenceStore: PersistenceStore {
 
     public func saveSelfImprovementProposalReviewJob(_ job: SelfImprovementProposalReviewJob) async {
         selfImprovementProposalReviewJobs[job.id] = job
+    }
+
+    public func autodreamSessionReview(agentId: String, sessionId: String) async -> AutodreamSessionReviewRecord? {
+        autodreamSessionReviews[autodreamSessionReviewKey(agentId: agentId, sessionId: sessionId)]
+    }
+
+    public func saveAutodreamSessionReview(_ record: AutodreamSessionReviewRecord) async {
+        autodreamSessionReviews[autodreamSessionReviewKey(agentId: record.agentId, sessionId: record.sessionId)] = record
+    }
+
+    private func autodreamSessionReviewKey(agentId: String, sessionId: String) -> String {
+        "\(agentId)::\(sessionId)"
     }
 
     public func persistBulletin(_ bulletin: MemoryBulletin) async {
@@ -745,6 +758,20 @@ enum CorePersistenceFactory {
         CREATE INDEX IF NOT EXISTS idx_memory_edges_from ON memory_edges(from_memory_id);
         CREATE INDEX IF NOT EXISTS idx_memory_edges_to ON memory_edges(to_memory_id);
         CREATE INDEX IF NOT EXISTS idx_memory_outbox_retry ON memory_provider_outbox(next_retry_at, attempt);
+
+        CREATE TABLE IF NOT EXISTS autodream_session_reviews (
+            agent_id TEXT NOT NULL,
+            session_id TEXT NOT NULL,
+            status TEXT NOT NULL,
+            reason TEXT NOT NULL,
+            session_updated_at TEXT NOT NULL,
+            reviewed_at TEXT NOT NULL,
+            last_error TEXT,
+            PRIMARY KEY(agent_id, session_id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_autodream_session_reviews_status_reviewed
+        ON autodream_session_reviews(status, reviewed_at DESC);
 
         CREATE TABLE IF NOT EXISTS token_usage (
             id TEXT PRIMARY KEY,

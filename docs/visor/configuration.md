@@ -51,6 +51,18 @@ These settings control what goes into each bulletin and which model synthesizes 
 | `visor.bulletinMaxWords` | `300` | Target word count for the LLM-synthesized bulletin digest. The model is instructed to stay near this limit. |
 | `visor.model` | `null` | The model to use for bulletin synthesis, in the format `"provider:model-id"` (for example `"openai-api:gpt-4o-mini"`). When `null`, the default system model is used. If no model is available at all, Visor falls back to a plain-text summary. |
 
+## Autodream session memory
+
+Autodream periodically reviews recent agent sessions through the same hidden memory checkpoint path used after compaction or session rollover. Reviewed sessions are marked in SQLite by agent id, session id, and the session `updatedAt` timestamp so unchanged sessions are not processed twice.
+
+| Setting | Default | Description |
+|---|---|---|
+| `visor.autodream.enabled` | `true` | Whether the periodic session review runner starts with the core service. |
+| `visor.autodream.intervalSeconds` | `21600` | How often (in seconds) autodream scans recent sessions. Default is every 6 hours. |
+| `visor.autodream.jitterSeconds` | `1800` | Random delay added to each interval. Default is up to 30 minutes. |
+| `visor.autodream.sessionLimitPerRun` | `10` | Maximum number of changed chat sessions to checkpoint in one pass. |
+| `visor.autodream.model` | `null` | Optional small model for autodream checkpoints. When `null`, autodream falls back to `visor.model`, then normal agent/default model selection. |
+
 ## Supervision tick
 
 The supervision tick loop is the heartbeat of Visor's health monitoring. It runs continuously in the background.

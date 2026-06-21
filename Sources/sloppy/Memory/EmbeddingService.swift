@@ -21,7 +21,7 @@ public actor EmbeddingService {
         dimensions: Int,
         apiKey: String? = nil,
         timeoutSeconds: Double = 10,
-        logger: Logger = Logger(label: "sloppy.memory.embedding")
+        logger: Logger = Logger.sloppy(label: "sloppy.memory.embedding")
     ) {
         self.endpoint = endpoint
         self.model = model

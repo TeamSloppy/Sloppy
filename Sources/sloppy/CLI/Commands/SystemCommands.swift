@@ -52,7 +52,7 @@ struct UpdateCommand: AsyncParsableCommand {
 
     mutating func run() async throws {
         if install {
-            try runSourceInstall()
+            try runInstall()
             return
         }
 
@@ -72,6 +72,7 @@ struct UpdateCommand: AsyncParsableCommand {
                         print(CLIStyle.dim("  Run: sloppy update --install"))
                     } else {
                         print(CLIStyle.yellow("Update available:") + " \(CLIStyle.whiteBold(latest)) (current: \(current))")
+                        print(CLIStyle.dim("  Run: sloppy update --install"))
                     }
                     if let releaseUrl = json["releaseUrl"] as? String {
                         print(CLIStyle.dim("  Release: \(releaseUrl)"))
@@ -88,51 +89,48 @@ struct UpdateCommand: AsyncParsableCommand {
         }
     }
 
-    private func runSourceInstall() throws {
-        let repoURL = try resolveSourceCheckoutURL()
-        let scriptURL = repoURL
+    private func runInstall() throws {
+        let currentMetadata = BuildMetadataResolver().resolve()
+        let repoURL: URL
+        let metadata: BuildMetadata
+        if currentMetadata.isReleaseBuild {
+            repoURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+            metadata = currentMetadata
+        } else {
+            repoURL = try resolveSourceCheckoutURL()
+            metadata = BuildMetadataResolver(repositoryRootURL: repoURL).resolve()
+        }
+        let localScriptURL = repoURL
             .appendingPathComponent("scripts", isDirectory: true)
             .appendingPathComponent("install.sh")
+        let scriptURL = try installerScriptURL(localScriptURL: localScriptURL, metadata: metadata)
 
-        guard FileManager.default.fileExists(atPath: scriptURL.path) else {
+        if !metadata.isReleaseBuild && !FileManager.default.fileExists(atPath: scriptURL.path) {
             CLIStyle.error("Cannot find source installer at \(scriptURL.path).")
             throw ExitCode.failure
         }
 
-        let metadata = BuildMetadataResolver(repositoryRootURL: repoURL).resolve()
-        let branch = metadata.git?.currentBranch ?? metadata.git?.upstreamBranch ?? "current branch"
-        let mode = serverOnly ? "--server-only" : "--bundle"
-        print(CLIStyle.cyan("Updating source checkout:") + " \(repoURL.path)")
-        print(CLIStyle.cyan("Branch:") + " \(branch)")
+        let plan = UpdateInstallerPlan(
+            metadata: metadata,
+            repoURL: repoURL,
+            scriptURL: scriptURL,
+            options: .init(
+                serverOnly: serverOnly,
+                noGitUpdate: noGitUpdate,
+                noLink: noLink,
+                dryRun: dryRun,
+                verbose: verbose
+            )
+        )
+        print(plan.summary)
 
-        var arguments = [
-            "bash",
-            scriptURL.path,
-            mode,
-            "--dir",
-            repoURL.path,
-            "--no-prompt"
-        ]
-        if noGitUpdate {
-            arguments.append("--no-git-update")
-        }
-        if noLink {
-            arguments.append("--no-link")
-        }
-        if dryRun {
-            arguments.append("--dry-run")
-        }
-        if verbose {
-            arguments.append("--verbose")
-        }
-
-        let status = runInstaller(arguments: arguments)
+        let status = runInstaller(arguments: plan.arguments)
         guard status == 0 else {
-            CLIStyle.error("Source update failed with exit code \(status).")
+            CLIStyle.error("\(plan.failurePrefix) failed with exit code \(status).")
             throw ExitCode.failure
         }
 
-        CLIStyle.success("Source update complete.")
+        CLIStyle.success("\(plan.successPrefix) complete.")
     }
 
     private func resolveSourceCheckoutURL() throws -> URL {
@@ -155,6 +153,48 @@ struct UpdateCommand: AsyncParsableCommand {
         throw ExitCode.failure
     }
 
+    private func installerScriptURL(localScriptURL: URL, metadata: BuildMetadata) throws -> URL {
+        if !metadata.isReleaseBuild || FileManager.default.fileExists(atPath: localScriptURL.path) {
+            return localScriptURL
+        }
+        let temporaryURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sloppy-install-\(UUID().uuidString).sh")
+        try downloadReleaseInstaller(to: temporaryURL)
+        return temporaryURL
+    }
+
+    private func downloadReleaseInstaller(to destinationURL: URL) throws {
+        guard let url = URL(string: "https://raw.githubusercontent.com/TeamSloppy/Sloppy/main/scripts/install.sh") else {
+            throw ExitCode.failure
+        }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = [
+            "curl",
+            "-fsSL",
+            "-H",
+            "User-Agent: sloppy-updater/1.0",
+            "-o",
+            destinationURL.path,
+            url.absoluteString,
+        ]
+        process.standardOutput = FileHandle.standardOutput
+        process.standardError = FileHandle.standardError
+        process.environment = childProcessEnvironment()
+
+        do {
+            try process.run()
+        } catch {
+            CLIStyle.error("Failed to download release installer: \(error.localizedDescription)")
+            throw ExitCode.failure
+        }
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            CLIStyle.error("Failed to download release installer.")
+            throw ExitCode.failure
+        }
+    }
+
     private func runInstaller(arguments: [String]) -> Int32 {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
@@ -171,6 +211,85 @@ struct UpdateCommand: AsyncParsableCommand {
         }
         process.waitUntilExit()
         return process.terminationStatus
+    }
+}
+
+struct UpdateInstallerPlan {
+    enum Kind {
+        case release
+        case source
+    }
+
+    struct Options {
+        var serverOnly: Bool
+        var noGitUpdate: Bool
+        var noLink: Bool
+        var dryRun: Bool
+        var verbose: Bool
+    }
+
+    let kind: Kind
+    let arguments: [String]
+    let summary: String
+    let failurePrefix: String
+    let successPrefix: String
+
+    init(metadata: BuildMetadata, repoURL: URL, scriptURL: URL, options: Options) {
+        if metadata.isReleaseBuild {
+            kind = .release
+            summary = CLIStyle.cyan("Installing latest release") + " from GitHub Releases"
+            failurePrefix = "Release update"
+            successPrefix = "Release update"
+            var arguments = [
+                "bash",
+                scriptURL.path,
+                "--release",
+                "--no-prompt",
+            ]
+            if options.noLink {
+                arguments.append("--no-link")
+            }
+            if options.dryRun {
+                arguments.append("--dry-run")
+            }
+            if options.verbose {
+                arguments.append("--verbose")
+            }
+            self.arguments = arguments
+            return
+        }
+
+        kind = .source
+        let branch = metadata.git?.currentBranch ?? metadata.git?.upstreamBranch ?? "current branch"
+        summary = [
+            CLIStyle.cyan("Updating source checkout:") + " \(repoURL.path)",
+            CLIStyle.cyan("Branch:") + " \(branch)",
+        ].joined(separator: "\n")
+        failurePrefix = "Source update"
+        successPrefix = "Source update"
+
+        let mode = options.serverOnly ? "--server-only" : "--bundle"
+        var arguments = [
+            "bash",
+            scriptURL.path,
+            mode,
+            "--dir",
+            repoURL.path,
+            "--no-prompt",
+        ]
+        if options.noGitUpdate {
+            arguments.append("--no-git-update")
+        }
+        if options.noLink {
+            arguments.append("--no-link")
+        }
+        if options.dryRun {
+            arguments.append("--dry-run")
+        }
+        if options.verbose {
+            arguments.append("--verbose")
+        }
+        self.arguments = arguments
     }
 }
 

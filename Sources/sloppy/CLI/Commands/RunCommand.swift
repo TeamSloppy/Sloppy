@@ -98,7 +98,7 @@ struct RunCommand: AsyncParsableCommand {
             let workspaceRoot = try prepareServerWorkspace(config: &config, currentDirectory: homeDirectory)
             let systemLogFileURL = defaultServerLogFileURL(in: workspaceRoot)
             await ServerLoggingBootstrapper.shared.bootstrapIfNeeded(logFileURL: systemLogFileURL)
-            let logger = Logger(label: "sloppy.core.main")
+            let logger = Logger.sloppy(label: "sloppy.core.main")
             runtimeLogger = logger
             await ServerFatalSignalLogger.shared.installIfNeeded()
             logger.info("Workspace prepared at \(workspaceRoot.path)")

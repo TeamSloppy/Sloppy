@@ -16,7 +16,7 @@ actor NodeMeshRelay {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
-    init(store: NodeMeshStore? = nil, logger: Logger = Logger(label: "sloppy.node.mesh.relay")) {
+    init(store: NodeMeshStore? = nil, logger: Logger = Logger.sloppy(label: "sloppy.node.mesh.relay")) {
         self.store = store
         self.logger = logger
         encoder = JSONEncoder()

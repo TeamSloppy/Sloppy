@@ -41,7 +41,7 @@ final class ToolExecutionService: @unchecked Sendable {
         searchProviderService: SearchProviderService,
         mcpRegistry: MCPClientRegistry,
         lspConfig: CoreConfig.LSP = CoreConfig.LSP(),
-        logger: Logger = Logger(label: "sloppy.core.tools")
+        logger: Logger = Logger.sloppy(label: "sloppy.core.tools")
     ) {
         self.workspaceRootURL = workspaceRootURL
         self.runtime = runtime

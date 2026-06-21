@@ -38,9 +38,10 @@ public enum Icons {
         Font(fontResource: materialSymbolsRoundedResource, pointSize: size)
     }
 
-    public static func symbol(_ symbol: MaterialSymbol, size: Double) -> Text {
+    @MainActor public static func symbol(_ symbol: MaterialSymbol, size: Double) -> some View {
         Text(symbol.rawValue)
             .font(materialSymbolsRounded(size: size))
+            .frame(width: Float(size), height: Float(size))
     }
 
     private static let materialSymbolsRoundedResource: FontResource = {

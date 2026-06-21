@@ -42,7 +42,7 @@ public actor PendingApprovalService {
     public init(workspaceDirectory: String, logger: Logger? = nil) {
         self.fileURL = URL(fileURLWithPath: workspaceDirectory)
             .appendingPathComponent("pending_approval.json")
-        self.logger = logger ?? Logger(label: "sloppy.core.pending-approval")
+        self.logger = logger ?? Logger.sloppy(label: "sloppy.core.pending-approval")
         self.entries = Self.load(from: self.fileURL)
     }
 

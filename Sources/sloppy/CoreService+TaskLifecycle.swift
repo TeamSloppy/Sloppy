@@ -769,11 +769,12 @@ extension CoreService {
     }
 
     func workerToolsForTask(task: ProjectTask, project: ProjectRecord) -> [String] {
+        var tools: [String] = ["project_tasks"]
         guard isAutopilotManagedTask(project: project, task: task) else {
-            return ["shell", "file", "exec", "browser"]
+            tools.append(contentsOf: ["shell", "file", "exec", "browser"])
+            return Array(Set(tools)).sorted()
         }
         let settings = project.autopilotSettings
-        var tools: [String] = ["project_tasks"]
         if settings.canRunCommands {
             tools.append(contentsOf: ["shell", "exec"])
         }
