@@ -101,6 +101,59 @@ struct NodeMeshProjectionTests {
         #expect(task.status == .queued)
     }
 
+    @Test("task assignment rejects mismatched target and payload assignee")
+    func taskAssignmentRejectsMismatchedTargetAndPayloadAssignee() throws {
+        let owner = NodeIdentityGenerator.makeIdentity(name: "Owner", roles: ["client"], capabilities: ["git"])
+        let worker = NodeIdentityGenerator.makeIdentity(name: "Worker", roles: ["worker"], capabilities: ["git"])
+        let rogue = NodeIdentityGenerator.makeIdentity(name: "Rogue", roles: ["worker"], capabilities: ["git"])
+        let projectId = "sp_task_assignee_mismatch"
+        let events = try authorizedProjectEvents(projectId: projectId, owner: owner, worker: worker) + [
+            signed(.taskCreated, actor: owner, projectId: projectId, logicalTime: 4, payload: [
+                "taskId": .string("mesh_task_mismatch"),
+                "title": .string("Run build"),
+            ]),
+            signed(.taskAssigned, actor: owner, target: worker.nodeId, projectId: projectId, logicalTime: 5, payload: [
+                "taskId": .string("mesh_task_mismatch"),
+                "assignedNodeId": .string(rogue.nodeId),
+            ]),
+        ]
+
+        #expect(throws: MeshEventVerificationError.unauthorized("task.dispatch")) {
+            _ = try NodeMeshProjection.project(events: events, base: baseState(nodes: [owner, worker, rogue]))
+        }
+    }
+
+    @Test("project creation name cannot shadow existing legacy project id without write permission")
+    func projectCreationNameCannotShadowExistingLegacyProjectIDWithoutWritePermission() throws {
+        let owner = NodeIdentityGenerator.makeIdentity(name: "Owner", roles: ["client"], capabilities: ["git"])
+        let rogue = NodeIdentityGenerator.makeIdentity(name: "Rogue", roles: ["worker"], capabilities: ["git"])
+        let legacyProject = SharedProjectRecord(
+            id: "sp_legacy_collision",
+            name: "Legacy Collision",
+            repoUrl: "git@example.com:legacy-collision.git",
+            members: [
+                SharedProjectMember(
+                    nodeId: owner.nodeId,
+                    localRepoPath: "/work/legacy-collision",
+                    role: "controller",
+                    permissions: [MeshPermission.projectWrite.rawValue]
+                ),
+            ]
+        )
+        let event = try signed(.projectCreated, actor: rogue, projectId: "sp_rogue_collision", logicalTime: 1, payload: [
+            "id": .string("sp_rogue_collision"),
+            "name": .string(legacyProject.id),
+            "repoUrl": .string("git@example.com:rogue-collision.git"),
+        ])
+
+        #expect(throws: MeshEventVerificationError.unauthorized(MeshPermission.projectWrite.rawValue)) {
+            _ = try NodeMeshProjection.project(
+                events: [event],
+                base: MeshState(nodes: baseState(nodes: [owner, rogue]).nodes, sharedProjects: [legacyProject])
+            )
+        }
+    }
+
     @Test("projection rejects tampered signed events before mutating state")
     func projectionRejectsTamperedSignedEventsBeforeMutatingState() throws {
         let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])

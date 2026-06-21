@@ -815,7 +815,12 @@ public struct NodeMeshStore: Sendable {
 
     public func projectedState() throws -> MeshState {
         let state = try load()
-        var projected = try NodeMeshProjection.project(events: state.events, base: state)
+        let trustedEventIDs = Set(state.events.map(\.event.id))
+        var projected = try NodeMeshProjection.project(
+            events: state.events,
+            base: state,
+            trustedEventIDs: trustedEventIDs
+        )
         projected.events = state.events
         projected.eventCursors = state.eventCursors
         projected.invites = state.invites
@@ -1150,7 +1155,9 @@ public struct NodeMeshStore: Sendable {
         guard let projectIdOrName, !projectIdOrName.isEmpty else {
             return tasks.sorted { $0.updatedAt > $1.updatedAt }
         }
-        let projectId = projects.first(where: { $0.id == projectIdOrName || $0.name == projectIdOrName })?.id ?? projectIdOrName
+        let projectId = project(matchingID: projectIdOrName, in: projects)?
+            .id ?? project(matchingName: projectIdOrName, in: projects)?
+            .id ?? projectIdOrName
         return tasks.filter { $0.projectId == projectId }.sorted { $0.updatedAt > $1.updatedAt }
     }
 
@@ -1186,7 +1193,12 @@ public struct NodeMeshStore: Sendable {
             }
             return signed
         }
-        _ = try NodeMeshProjection.project(events: state.events + [signed], base: state)
+        let trustedEventIDs = Set(state.events.map(\.event.id))
+        _ = try NodeMeshProjection.project(
+            events: state.events + [signed],
+            base: state,
+            trustedEventIDs: trustedEventIDs
+        )
         state.events.append(signed)
         state.eventCursors[signed.event.actorNodeId] = signed.event.id
         state.auditLog.append(MeshAuditLogEntry(
@@ -1234,7 +1246,12 @@ public struct NodeMeshStore: Sendable {
             return signedEvents
         }
 
-        _ = try NodeMeshProjection.project(events: state.events + pending, base: state)
+        let trustedEventIDs = Set(state.events.map(\.event.id))
+        _ = try NodeMeshProjection.project(
+            events: state.events + pending,
+            base: state,
+            trustedEventIDs: trustedEventIDs
+        )
         state.events.append(contentsOf: pending)
         for signed in pending {
             state.eventCursors[signed.event.actorNodeId] = signed.event.id
@@ -1520,10 +1537,13 @@ public struct NodeMeshStore: Sendable {
         storedState: MeshState,
         projectedState: MeshState
     ) -> SharedProjectRecord? {
-        if let project = projectedState.sharedProjects.first(where: { $0.id == projectIdOrName || $0.name == projectIdOrName }) {
+        if let project = project(matchingID: projectIdOrName, in: projectedState.sharedProjects)
+            ?? project(matchingID: projectIdOrName, in: storedState.sharedProjects)
+            ?? project(matchingName: projectIdOrName, in: projectedState.sharedProjects)
+            ?? project(matchingName: projectIdOrName, in: storedState.sharedProjects) {
             return project
         }
-        return storedState.sharedProjects.first(where: { $0.id == projectIdOrName || $0.name == projectIdOrName })
+        return nil
     }
 
     private func mergedNodes(from state: MeshState) throws -> [MeshNodeRecord] {
@@ -1564,6 +1584,14 @@ public struct NodeMeshStore: Sendable {
             }
         }
         return merged
+    }
+
+    private func project(matchingID projectID: String, in projects: [SharedProjectRecord]) -> SharedProjectRecord? {
+        projects.first(where: { $0.id == projectID })
+    }
+
+    private func project(matchingName projectName: String, in projects: [SharedProjectRecord]) -> SharedProjectRecord? {
+        projects.first(where: { $0.name == projectName })
     }
 
     private func nextLogicalTime(from state: MeshState) -> UInt64 {

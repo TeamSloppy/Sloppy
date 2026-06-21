@@ -512,6 +512,50 @@ struct NodeMeshStoreTests {
         #expect(try store.listSharedProjects().map(\.id) == [project.id])
     }
 
+    @Test("accepted signed dispatch remains replayable after legacy member removal")
+    func acceptedSignedDispatchRemainsReplayableAfterLegacyMemberRemoval() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let home = NodeIdentityGenerator.makeIdentity(name: "Home", roles: ["worker"], capabilities: ["git"])
+        try store.registerNode(work)
+        try store.registerNode(home)
+        let project = try store.createSharedProject(
+            id: "sp_legacy_replay",
+            name: "Legacy Replay",
+            repoUrl: "git@example.com:legacy-replay.git"
+        )
+        _ = try store.attachMember(
+            projectIdOrName: project.id,
+            nodeId: work.nodeId,
+            localRepoPath: "/work/legacy-replay",
+            role: "controller",
+            permissions: [
+                MeshPermission.taskCreate.rawValue,
+                MeshPermission.taskAssign.rawValue,
+            ]
+        )
+        _ = try store.attachMember(
+            projectIdOrName: project.id,
+            nodeId: home.nodeId,
+            localRepoPath: "/home/legacy-replay",
+            role: "worker",
+            permissions: MeshPermission.workerDefaults.rawValues
+        )
+
+        let task = try store.dispatchTask(
+            projectIdOrName: project.id,
+            title: "Run build",
+            assignedNodeId: home.nodeId,
+            actorIdentity: work
+        )
+        _ = try store.removeSharedProjectMember(projectIdOrName: project.id, nodeId: work.nodeId, actor: "local")
+
+        let projected = try store.projectedState()
+        let projectedTask = try #require(projected.tasks.first(where: { $0.id == task.id }))
+        #expect(projectedTask.assignedNodeId == home.nodeId)
+        #expect(try store.listTasks(projectIdOrName: project.id).map(\.id).contains(task.id))
+    }
+
     @Test("signed project creation cannot shadow an existing legacy project without project write")
     func signedProjectCreationCannotShadowExistingLegacyProjectWithoutProjectWrite() throws {
         let store = NodeMeshStore(stateURL: temporaryStateURL())
