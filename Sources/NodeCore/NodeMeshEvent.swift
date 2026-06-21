@@ -106,6 +106,7 @@ public enum MeshEventVerificationError: LocalizedError, Equatable, Sendable {
     case eventConflict(String)
     case invalidSignature
     case signingFailed(String)
+    case unauthorized(String)
 
     public var errorDescription: String? {
         switch self {
@@ -117,6 +118,8 @@ public enum MeshEventVerificationError: LocalizedError, Equatable, Sendable {
             "Mesh event signature is invalid."
         case .signingFailed(let message):
             "Mesh event signing failed: \(message)"
+        case .unauthorized(let permission):
+            "Mesh event actor is not authorized for \(permission)."
         }
     }
 }

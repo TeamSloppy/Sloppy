@@ -1134,16 +1134,19 @@ public struct NodeMeshStore: Sendable {
     }
 
     public func listSharedProjects() throws -> [SharedProjectRecord] {
-        try load().sharedProjects.sorted { $0.name < $1.name }
+        let state = try load()
+        let source = state.events.isEmpty ? state : try projectedState()
+        return source.sharedProjects.sorted { $0.name < $1.name }
     }
 
     public func listTasks(projectIdOrName: String? = nil) throws -> [MeshTaskRecord] {
         let state = try load()
+        let source = state.events.isEmpty ? state : try projectedState()
         guard let projectIdOrName, !projectIdOrName.isEmpty else {
-            return state.tasks.sorted { $0.updatedAt > $1.updatedAt }
+            return source.tasks.sorted { $0.updatedAt > $1.updatedAt }
         }
-        let projectId = state.sharedProjects.first(where: { $0.id == projectIdOrName || $0.name == projectIdOrName })?.id ?? projectIdOrName
-        return state.tasks.filter { $0.projectId == projectId }.sorted { $0.updatedAt > $1.updatedAt }
+        let projectId = source.sharedProjects.first(where: { $0.id == projectIdOrName || $0.name == projectIdOrName })?.id ?? projectIdOrName
+        return source.tasks.filter { $0.projectId == projectId }.sorted { $0.updatedAt > $1.updatedAt }
     }
 
     @discardableResult
@@ -1178,6 +1181,7 @@ public struct NodeMeshStore: Sendable {
             }
             return signed
         }
+        _ = try NodeMeshProjection.project(events: state.events + [signed], base: state)
         state.events.append(signed)
         state.eventCursors[signed.event.actorNodeId] = signed.event.id
         state.auditLog.append(MeshAuditLogEntry(
@@ -1413,6 +1417,12 @@ public struct NodeMeshStore: Sendable {
         else {
             throw NodeMeshStoreError.permissionDenied("task.status.update")
         }
+        let ownsTask = task.assignedNodeId == actorIdentity.nodeId
+        let hasElevatedTaskPermission = actorMember.permissions.contains(MeshPermission.taskAssign.rawValue)
+            || actorMember.permissions.contains(MeshPermission.taskCreate.rawValue)
+        guard ownsTask || hasElevatedTaskPermission else {
+            throw NodeMeshStoreError.permissionDenied("task.status.update")
+        }
 
         let event = MeshEvent(
             type: .taskStatusUpdated,
@@ -1459,8 +1469,13 @@ public struct NodeMeshStore: Sendable {
         storedState: MeshState,
         projectedState: MeshState
     ) -> SharedProjectRecord? {
-        projectedState.sharedProjects.first(where: { $0.id == projectIdOrName || $0.name == projectIdOrName })
-            ?? storedState.sharedProjects.first(where: { $0.id == projectIdOrName || $0.name == projectIdOrName })
+        if let project = projectedState.sharedProjects.first(where: { $0.id == projectIdOrName || $0.name == projectIdOrName }) {
+            return project
+        }
+        guard projectedState.sharedProjects.isEmpty else {
+            return nil
+        }
+        return storedState.sharedProjects.first(where: { $0.id == projectIdOrName || $0.name == projectIdOrName })
     }
 
     private func nextLogicalTime(from state: MeshState) -> UInt64 {

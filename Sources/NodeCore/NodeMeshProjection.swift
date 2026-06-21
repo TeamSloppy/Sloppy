@@ -17,6 +17,7 @@ public enum NodeMeshProjection {
             if signed.event.type == .nodeAnnounced, replayKeyring[signed.event.actorNodeId] == nil {
                 replayKeyring[signed.event.actorNodeId] = signed.actorPublicKey
             }
+            try authorize(signed.event, projectedState: state, baseState: base)
             try apply(signed, to: &state)
         }
 
@@ -74,6 +75,115 @@ public enum NodeMeshProjection {
         case .messageSent:
             break
         }
+    }
+
+    private static func authorize(_ event: MeshEvent, projectedState: MeshState, baseState: MeshState) throws {
+        switch event.type {
+        case .nodeAnnounced, .nodeStatusChanged, .nodeAliasUpdated, .projectCreated, .messageSent:
+            return
+        case .projectUpdated:
+            try requireProjectPermission(
+                MeshPermission.projectWrite.rawValue,
+                event: event,
+                projectedState: projectedState,
+                baseState: baseState,
+                allowEmptyProjectBootstrap: true
+            )
+        case .projectMemberAdded:
+            let project = try projectForAuthorization(event: event, projectedState: projectedState, baseState: baseState)
+            let targetNodeId = event.targetNodeId ?? event.payload.asObject?["nodeId"]?.asString
+            if project.members.isEmpty, targetNodeId == event.actorNodeId {
+                return
+            }
+            try requireProjectPermission(
+                MeshPermission.projectWrite.rawValue,
+                event: event,
+                projectedState: projectedState,
+                baseState: baseState
+            )
+        case .projectMemberRemoved, .aclGranted, .aclRevoked:
+            try requireProjectPermission(
+                MeshPermission.projectWrite.rawValue,
+                event: event,
+                projectedState: projectedState,
+                baseState: baseState
+            )
+        case .taskCreated:
+            try requireProjectPermission(
+                MeshPermission.taskCreate.rawValue,
+                event: event,
+                projectedState: projectedState,
+                baseState: baseState
+            )
+        case .taskAssigned:
+            let project = try projectForAuthorization(event: event, projectedState: projectedState, baseState: baseState)
+            guard member(in: project, nodeId: event.actorNodeId)?.permissions.contains(MeshPermission.taskAssign.rawValue) == true else {
+                throw MeshEventVerificationError.unauthorized(MeshPermission.taskAssign.rawValue)
+            }
+            let targetNodeId = event.targetNodeId ?? event.payload.asObject?["assignedNodeId"]?.asString
+            guard let targetNodeId,
+                  let target = member(in: project, nodeId: targetNodeId),
+                  target.permissions.contains(MeshPermission.taskUpdate.rawValue) || target.permissions.contains(MeshPermission.taskAssign.rawValue)
+            else {
+                throw MeshEventVerificationError.unauthorized("task.dispatch")
+            }
+        case .taskStatusUpdated:
+            let project = try projectForAuthorization(event: event, projectedState: projectedState, baseState: baseState)
+            guard let actorMember = member(in: project, nodeId: event.actorNodeId),
+                  actorMember.permissions.contains(MeshPermission.taskUpdate.rawValue)
+            else {
+                throw MeshEventVerificationError.unauthorized(MeshPermission.taskUpdate.rawValue)
+            }
+            guard let taskId = event.payload.asObject?["taskId"]?.asString,
+                  let task = projectedState.tasks.first(where: { $0.id == taskId })
+            else {
+                throw MeshEventVerificationError.unauthorized("task.status.update")
+            }
+            let ownsTask = task.assignedNodeId == event.actorNodeId
+            let hasElevatedTaskPermission = actorMember.permissions.contains(MeshPermission.taskAssign.rawValue)
+                || actorMember.permissions.contains(MeshPermission.taskCreate.rawValue)
+            guard ownsTask || hasElevatedTaskPermission else {
+                throw MeshEventVerificationError.unauthorized("task.status.update")
+            }
+        }
+    }
+
+    private static func requireProjectPermission(
+        _ permission: String,
+        event: MeshEvent,
+        projectedState: MeshState,
+        baseState: MeshState,
+        allowEmptyProjectBootstrap: Bool = false
+    ) throws {
+        let project = try projectForAuthorization(event: event, projectedState: projectedState, baseState: baseState)
+        if allowEmptyProjectBootstrap, project.members.isEmpty {
+            return
+        }
+        guard member(in: project, nodeId: event.actorNodeId)?.permissions.contains(permission) == true else {
+            throw MeshEventVerificationError.unauthorized(permission)
+        }
+    }
+
+    private static func projectForAuthorization(
+        event: MeshEvent,
+        projectedState: MeshState,
+        baseState: MeshState
+    ) throws -> SharedProjectRecord {
+        guard let projectId = event.projectId else {
+            throw MeshEventVerificationError.unauthorized("project")
+        }
+        if let project = projectedState.sharedProjects.first(where: { $0.id == projectId || $0.name == projectId }) {
+            return project
+        }
+        if projectedState.sharedProjects.isEmpty,
+           let project = baseState.sharedProjects.first(where: { $0.id == projectId || $0.name == projectId }) {
+            return project
+        }
+        throw MeshEventVerificationError.unauthorized("project")
+    }
+
+    private static func member(in project: SharedProjectRecord, nodeId: String) -> SharedProjectMember? {
+        project.members.first(where: { $0.nodeId == nodeId })
     }
 
     private static func applyNodeAnnounced(_ signed: SignedMeshEvent, to state: inout MeshState) {

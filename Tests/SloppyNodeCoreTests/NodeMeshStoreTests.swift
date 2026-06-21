@@ -306,13 +306,18 @@ struct NodeMeshStoreTests {
     func meshStoreAppendsSignedEventsIdempotently() throws {
         let store = NodeMeshStore(stateURL: temporaryStateURL())
         let identity = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        try store.registerNode(identity)
         let event = MeshEvent(
-            id: "evt_task_create",
-            type: .taskCreated,
+            id: "evt_node_announce",
+            type: .nodeAnnounced,
             actorNodeId: identity.nodeId,
-            projectId: "sp_sloppy",
             logicalTime: 1,
-            payload: .object(["title": .string("Run build")])
+            payload: .object([
+                "name": .string(identity.name),
+                "roles": .array(identity.roles.map(JSONValue.string)),
+                "capabilities": .array(identity.capabilities.map(JSONValue.string)),
+                "status": .string(MeshNodeStatus.online.rawValue),
+            ])
         )
         let signed = try MeshEventSigner.sign(event, identity: identity)
 
@@ -320,7 +325,7 @@ struct NodeMeshStoreTests {
         _ = try store.appendEvent(signed, expectedActorPublicKey: identity.publicKey)
 
         let state = try store.load()
-        #expect(state.events.map(\.event.id) == ["evt_task_create"])
+        #expect(state.events.map(\.event.id) == ["evt_node_announce"])
         #expect(state.auditLog.last?.action == "event.append")
     }
 
@@ -343,38 +348,130 @@ struct NodeMeshStoreTests {
     func meshStoreRejectsConflictingEventWithDuplicateId() throws {
         let store = NodeMeshStore(stateURL: temporaryStateURL())
         let identity = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        try store.registerNode(identity)
         let first = try MeshEventSigner.sign(
             MeshEvent(
-                id: "evt_task_create",
-                type: .taskCreated,
+                id: "evt_node_announce",
+                type: .nodeAnnounced,
                 actorNodeId: identity.nodeId,
                 logicalTime: 1,
-                payload: .object(["title": .string("Run build")])
+                payload: .object([
+                    "name": .string("Work"),
+                    "roles": .array([.string("client")]),
+                    "capabilities": .array([.string("git")]),
+                ])
             ),
             identity: identity
         )
         let conflicting = try MeshEventSigner.sign(
             MeshEvent(
-                id: "evt_task_create",
-                type: .taskCreated,
+                id: "evt_node_announce",
+                type: .nodeAnnounced,
                 actorNodeId: identity.nodeId,
                 logicalTime: 1,
-                payload: .object(["title": .string("Run tests")])
+                payload: .object([
+                    "name": .string("Changed"),
+                    "roles": .array([.string("client")]),
+                    "capabilities": .array([.string("git")]),
+                ])
             ),
             identity: identity
         )
 
         _ = try store.appendEvent(first, expectedActorPublicKey: identity.publicKey)
 
-        #expect(throws: MeshEventVerificationError.eventConflict("evt_task_create")) {
+        #expect(throws: MeshEventVerificationError.eventConflict("evt_node_announce")) {
             _ = try store.appendEvent(conflicting, expectedActorPublicKey: identity.publicKey)
         }
 
         let state = try store.load()
         #expect(state.events.count == 1)
         #expect(state.events.first?.event.id == first.event.id)
-        #expect(state.events.first?.event.payload.asObject?["title"] == .string("Run build"))
+        #expect(state.events.first?.event.payload.asObject?["name"] == .string("Work"))
         #expect(state.auditLog.last?.message == "event_conflict")
+    }
+
+    @Test("mesh store rejects replay invalid signed event before saving")
+    func meshStoreRejectsReplayInvalidSignedEventBeforeSaving() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let home = NodeIdentityGenerator.makeIdentity(name: "Home", roles: ["worker"], capabilities: ["git"])
+        let projectId = "sp_event_backed"
+        let prefix = try [
+            signedEvent(.projectCreated, actor: work, projectId: projectId, logicalTime: 1, payload: [
+                "id": .string(projectId),
+                "name": .string("Event Backed"),
+                "repoUrl": .string("git@example.com:event-backed.git"),
+            ]),
+            signedEvent(.projectMemberAdded, actor: work, target: work.nodeId, projectId: projectId, logicalTime: 2, payload: [
+                "nodeId": .string(work.nodeId),
+                "localRepoPath": .string("/work/event-backed"),
+                "role": .string("controller"),
+                "permissions": .array([
+                    .string(MeshPermission.projectWrite.rawValue),
+                ]),
+            ]),
+            signedEvent(.projectMemberAdded, actor: work, target: home.nodeId, projectId: projectId, logicalTime: 3, payload: [
+                "nodeId": .string(home.nodeId),
+                "localRepoPath": .string("/home/event-backed"),
+                "role": .string("worker"),
+                "permissions": .array(MeshPermission.workerDefaults.rawValues.map(JSONValue.string)),
+            ]),
+        ]
+        try store.save(MeshState(nodes: baseNodes([work, home]), events: prefix))
+        let invalid = try signedEvent(.aclGranted, actor: home, target: home.nodeId, projectId: projectId, logicalTime: 4, payload: [
+            "permissions": .array([
+                .string(MeshPermission.nodeShell.rawValue),
+            ]),
+        ])
+
+        #expect(throws: (any Error).self) {
+            _ = try store.appendEvent(invalid, expectedActorPublicKey: home.publicKey)
+        }
+
+        let state = try store.load()
+        #expect(state.events.map(\.event.id) == prefix.map(\.event.id))
+    }
+
+    @Test("list methods return projected projects and tasks when events exist")
+    func listMethodsReturnProjectedProjectsAndTasksWhenEventsExist() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let staleProject = SharedProjectRecord(id: "sp_stale", name: "Stale", repoUrl: "git@example.com:stale.git")
+        let staleTask = MeshTaskRecord(id: "mesh_task_stale", projectId: staleProject.id, title: "Stale", assignedNodeId: work.nodeId)
+        let projectId = "sp_projected"
+        let events = try [
+            signedEvent(.projectCreated, actor: work, projectId: projectId, logicalTime: 1, payload: [
+                "id": .string(projectId),
+                "name": .string("Projected"),
+                "repoUrl": .string("git@example.com:projected.git"),
+                "defaultBranch": .string("main"),
+            ]),
+            signedEvent(.projectMemberAdded, actor: work, target: work.nodeId, projectId: projectId, logicalTime: 2, payload: [
+                "nodeId": .string(work.nodeId),
+                "localRepoPath": .string("/work/projected"),
+                "role": .string("controller"),
+                "permissions": .array([
+                    .string(MeshPermission.projectWrite.rawValue),
+                    .string(MeshPermission.taskCreate.rawValue),
+                ]),
+            ]),
+            signedEvent(.taskCreated, actor: work, projectId: projectId, logicalTime: 3, payload: [
+                "taskId": .string("mesh_task_projected"),
+                "title": .string("Projected task"),
+            ]),
+        ]
+        try store.save(MeshState(
+            nodes: baseNodes([work]),
+            sharedProjects: [staleProject],
+            tasks: [staleTask],
+            events: events
+        ))
+
+        #expect(try store.listSharedProjects().map(\.id) == [projectId])
+        #expect(try store.listTasks().map(\.id) == ["mesh_task_projected"])
+        #expect(try store.listTasks(projectIdOrName: "Projected").map(\.id) == ["mesh_task_projected"])
+        #expect(try store.listTasks(projectIdOrName: "Stale").isEmpty)
     }
 
     @Test("mesh state decodes legacy JSON without event fields")
@@ -425,16 +522,17 @@ struct NodeMeshStoreTests {
     func meshStoreListsEventsAfterCursorWithLimit() throws {
         let store = NodeMeshStore(stateURL: temporaryStateURL())
         let identity = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        try store.registerNode(identity)
         let first = try MeshEventSigner.sign(
-            MeshEvent(id: "evt_1", type: .taskCreated, actorNodeId: identity.nodeId, logicalTime: 1),
+            MeshEvent(id: "evt_1", type: .nodeAnnounced, actorNodeId: identity.nodeId, logicalTime: 1),
             identity: identity
         )
         let second = try MeshEventSigner.sign(
-            MeshEvent(id: "evt_2", type: .taskCreated, actorNodeId: identity.nodeId, logicalTime: 2),
+            MeshEvent(id: "evt_2", type: .nodeAnnounced, actorNodeId: identity.nodeId, logicalTime: 2),
             identity: identity
         )
         let third = try MeshEventSigner.sign(
-            MeshEvent(id: "evt_3", type: .taskCreated, actorNodeId: identity.nodeId, logicalTime: 3),
+            MeshEvent(id: "evt_3", type: .nodeAnnounced, actorNodeId: identity.nodeId, logicalTime: 3),
             identity: identity
         )
 
@@ -693,6 +791,7 @@ struct NodeMeshStoreTests {
                 "localRepoPath": .string("/work/sloppy"),
                 "role": .string("controller"),
                 "permissions": .array([
+                    .string(MeshPermission.projectWrite.rawValue),
                     .string(MeshPermission.taskCreate.rawValue),
                     .string(MeshPermission.taskAssign.rawValue),
                 ]),
@@ -784,6 +883,67 @@ struct NodeMeshStoreTests {
         #expect(state.events.map(\.event.type).contains(.taskStatusUpdated))
     }
 
+    @Test("update task status with actor identity rejects updates for another worker task")
+    func updateTaskStatusWithActorIdentityRejectsUpdatesForAnotherWorkerTask() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let home = NodeIdentityGenerator.makeIdentity(name: "Home", roles: ["worker"], capabilities: ["git"])
+        let other = NodeIdentityGenerator.makeIdentity(name: "Other", roles: ["worker"], capabilities: ["git"])
+        try store.registerNode(work)
+        try store.registerNode(home)
+        try store.registerNode(other)
+        let project = try store.createSharedProject(
+            id: "sp_sloppy",
+            name: "Sloppy",
+            repoUrl: "git@example.com:sloppy.git"
+        )
+        _ = try store.attachMember(
+            projectIdOrName: project.id,
+            nodeId: work.nodeId,
+            localRepoPath: "/work/sloppy",
+            role: "controller",
+            permissions: [MeshPermission.taskCreate.rawValue, MeshPermission.taskAssign.rawValue]
+        )
+        _ = try store.attachMember(
+            projectIdOrName: project.id,
+            nodeId: home.nodeId,
+            localRepoPath: "/home/sloppy",
+            role: "worker",
+            permissions: MeshPermission.workerDefaults.rawValues
+        )
+        _ = try store.attachMember(
+            projectIdOrName: project.id,
+            nodeId: other.nodeId,
+            localRepoPath: "/other/sloppy",
+            role: "worker",
+            permissions: MeshPermission.workerDefaults.rawValues
+        )
+
+        let task = try store.dispatchTask(
+            projectIdOrName: project.id,
+            title: "Run build",
+            assignedNodeId: home.nodeId,
+            actorIdentity: work
+        )
+        let eventCount = try store.load().events.count
+
+        do {
+            _ = try store.updateTaskStatus(
+                taskId: task.id,
+                status: .readyForReview,
+                actorIdentity: other,
+                summary: "Not my task."
+            )
+            Issue.record("Expected another worker's task update to be rejected")
+        } catch let error as NodeMeshStoreError {
+            #expect(error == .permissionDenied("task.status.update"))
+        }
+
+        let state = try store.load()
+        #expect(state.events.count == eventCount)
+        #expect(state.events.map(\.event.type).contains(.taskStatusUpdated) == false)
+    }
+
     private func temporaryStateURL() -> URL {
         FileManager.default.temporaryDirectory
             .appendingPathComponent("sloppy-mesh-tests-\(UUID().uuidString)", isDirectory: true)
@@ -809,5 +969,18 @@ struct NodeMeshStoreTests {
             ),
             identity: actor
         )
+    }
+
+    private func baseNodes(_ identities: [NodeIdentity]) -> [MeshNodeRecord] {
+        identities.map {
+            MeshNodeRecord(
+                id: $0.nodeId,
+                name: $0.name,
+                publicKey: $0.publicKey,
+                roles: $0.roles,
+                status: .online,
+                capabilities: $0.capabilities
+            )
+        }
     }
 }

@@ -22,6 +22,7 @@ struct NodeMeshProjectionTests {
                 "localRepoPath": .string("/work/sloppy"),
                 "role": .string("controller"),
                 "permissions": .array([
+                    .string(MeshPermission.projectWrite.rawValue),
                     .string(MeshPermission.projectRead.rawValue),
                     .string(MeshPermission.taskCreate.rawValue),
                     .string(MeshPermission.taskAssign.rawValue),
@@ -140,7 +141,16 @@ struct NodeMeshProjectionTests {
             "name": .string("Projection"),
             "repoUrl": .string("git@example.com:projection.git"),
         ])
-        let taskEvent = try signed(.taskCreated, actor: work, projectId: projectId, logicalTime: 2, payload: [
+        let memberEvent = try signed(.projectMemberAdded, actor: work, target: work.nodeId, projectId: projectId, logicalTime: 2, payload: [
+            "nodeId": .string(work.nodeId),
+            "localRepoPath": .string("/work/projection"),
+            "role": .string("controller"),
+            "permissions": .array([
+                .string(MeshPermission.projectWrite.rawValue),
+                .string(MeshPermission.taskCreate.rawValue),
+            ]),
+        ])
+        let taskEvent = try signed(.taskCreated, actor: work, projectId: projectId, logicalTime: 3, payload: [
             "taskId": .string("mesh_task_projection"),
             "title": .string("Replay events"),
         ])
@@ -164,7 +174,7 @@ struct NodeMeshProjectionTests {
             tasks: [staleTask],
             envelopes: [envelope],
             auditLog: [audit],
-            events: [projectEvent, taskEvent],
+            events: [projectEvent, memberEvent, taskEvent],
             eventCursors: [work.nodeId: taskEvent.event.id]
         )
 
@@ -176,7 +186,7 @@ struct NodeMeshProjectionTests {
         #expect(projected.invites.map(\.token) == [invite.token])
         #expect(projected.envelopes.map(\.id) == [envelope.id])
         #expect(projected.auditLog.map(\.id) == [audit.id])
-        #expect(projected.events.map(\.event.id) == [projectEvent.event.id, taskEvent.event.id])
+        #expect(projected.events.map(\.event.id) == [projectEvent.event.id, memberEvent.event.id, taskEvent.event.id])
         #expect(projected.eventCursors == [work.nodeId: taskEvent.event.id])
         #expect(projected.sharedProjects.map(\.id) == [projectId])
         #expect(projected.tasks.map(\.id) == ["mesh_task_projection"])
@@ -193,7 +203,15 @@ struct NodeMeshProjectionTests {
                 "name": .string("ACL"),
                 "repoUrl": .string("git@example.com:acl.git"),
             ]),
-            signed(.projectMemberAdded, actor: work, target: home.nodeId, projectId: projectId, logicalTime: 2, payload: [
+            signed(.projectMemberAdded, actor: work, target: work.nodeId, projectId: projectId, logicalTime: 2, payload: [
+                "nodeId": .string(work.nodeId),
+                "localRepoPath": .string("/work/acl"),
+                "role": .string("controller"),
+                "permissions": .array([
+                    .string(MeshPermission.projectWrite.rawValue),
+                ]),
+            ]),
+            signed(.projectMemberAdded, actor: work, target: home.nodeId, projectId: projectId, logicalTime: 3, payload: [
                 "nodeId": .string(home.nodeId),
                 "localRepoPath": .string("/home/acl"),
                 "role": .string("worker"),
@@ -201,13 +219,13 @@ struct NodeMeshProjectionTests {
                     .string(MeshPermission.projectRead.rawValue),
                 ]),
             ]),
-            signed(.aclGranted, actor: work, target: home.nodeId, projectId: projectId, logicalTime: 3, payload: [
+            signed(.aclGranted, actor: work, target: home.nodeId, projectId: projectId, logicalTime: 4, payload: [
                 "permissions": .array([
                     .string(MeshPermission.taskCreate.rawValue),
                     .string(MeshPermission.nodeShell.rawValue),
                 ]),
             ]),
-            signed(.aclRevoked, actor: work, target: home.nodeId, projectId: projectId, logicalTime: 4, payload: [
+            signed(.aclRevoked, actor: work, target: home.nodeId, projectId: projectId, logicalTime: 5, payload: [
                 "permissions": .array([
                     .string(MeshPermission.projectRead.rawValue),
                     .string(MeshPermission.nodeShell.rawValue),
@@ -220,6 +238,89 @@ struct NodeMeshProjectionTests {
         let project = try #require(state.sharedProjects.first(where: { $0.id == projectId }))
         let member = try #require(project.members.first(where: { $0.nodeId == home.nodeId }))
         #expect(member.permissions == [MeshPermission.taskCreate.rawValue])
+    }
+
+    @Test("projection rejects unauthorized acl grants before mutation")
+    func projectionRejectsUnauthorizedACLGrantsBeforeMutation() throws {
+        let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let home = NodeIdentityGenerator.makeIdentity(name: "Home", roles: ["worker"], capabilities: ["git"])
+        let projectId = "sp_acl_denied"
+        let events = try authorizedProjectEvents(projectId: projectId, owner: work, worker: home) + [
+            signed(.aclGranted, actor: home, target: home.nodeId, projectId: projectId, logicalTime: 4, payload: [
+                "permissions": .array([
+                    .string(MeshPermission.nodeShell.rawValue),
+                ]),
+            ]),
+        ]
+
+        #expect(throws: (any Error).self) {
+            _ = try NodeMeshProjection.project(events: events, base: baseState(nodes: [work, home]))
+        }
+
+        let prefix = try NodeMeshProjection.project(events: Array(events.dropLast()), base: baseState(nodes: [work, home]))
+        let member = try #require(prefix.sharedProjects.first?.members.first(where: { $0.nodeId == home.nodeId }))
+        #expect(member.permissions.contains(MeshPermission.nodeShell.rawValue) == false)
+    }
+
+    @Test("projection rejects unauthorized member additions before mutation")
+    func projectionRejectsUnauthorizedMemberAdditionsBeforeMutation() throws {
+        let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let home = NodeIdentityGenerator.makeIdentity(name: "Home", roles: ["worker"], capabilities: ["git"])
+        let rogue = NodeIdentityGenerator.makeIdentity(name: "Rogue", roles: ["worker"], capabilities: ["git"])
+        let projectId = "sp_member_denied"
+        let events = try authorizedProjectEvents(projectId: projectId, owner: work, worker: home) + [
+            signed(.projectMemberAdded, actor: home, target: rogue.nodeId, projectId: projectId, logicalTime: 4, payload: [
+                "nodeId": .string(rogue.nodeId),
+                "localRepoPath": .string("/rogue/sloppy"),
+                "role": .string("worker"),
+                "permissions": .array(MeshPermission.workerDefaults.rawValues.map(JSONValue.string)),
+            ]),
+        ]
+
+        #expect(throws: (any Error).self) {
+            _ = try NodeMeshProjection.project(events: events, base: baseState(nodes: [work, home, rogue]))
+        }
+
+        let prefix = try NodeMeshProjection.project(events: Array(events.dropLast()), base: baseState(nodes: [work, home, rogue]))
+        #expect(prefix.sharedProjects.first?.members.contains(where: { $0.nodeId == rogue.nodeId }) == false)
+    }
+
+    @Test("projection rejects unauthorized task status updates before mutation")
+    func projectionRejectsUnauthorizedTaskStatusUpdatesBeforeMutation() throws {
+        let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let home = NodeIdentityGenerator.makeIdentity(name: "Home", roles: ["worker"], capabilities: ["git"])
+        let other = NodeIdentityGenerator.makeIdentity(name: "Other", roles: ["worker"], capabilities: ["git"])
+        let projectId = "sp_task_denied"
+        let events = try authorizedProjectEvents(projectId: projectId, owner: work, worker: home) + [
+            signed(.projectMemberAdded, actor: work, target: other.nodeId, projectId: projectId, logicalTime: 4, payload: [
+                "nodeId": .string(other.nodeId),
+                "localRepoPath": .string("/other/sloppy"),
+                "role": .string("worker"),
+                "permissions": .array(MeshPermission.workerDefaults.rawValues.map(JSONValue.string)),
+            ]),
+            signed(.taskCreated, actor: work, projectId: projectId, logicalTime: 5, payload: [
+                "taskId": .string("mesh_task_denied"),
+                "title": .string("Run build"),
+            ]),
+            signed(.taskAssigned, actor: work, target: home.nodeId, projectId: projectId, logicalTime: 6, payload: [
+                "taskId": .string("mesh_task_denied"),
+                "assignedNodeId": .string(home.nodeId),
+            ]),
+            signed(.taskStatusUpdated, actor: other, projectId: projectId, logicalTime: 7, payload: [
+                "taskId": .string("mesh_task_denied"),
+                "status": .string(MeshTaskStatus.readyForReview.rawValue),
+                "summary": .string("Not my task."),
+            ]),
+        ]
+
+        #expect(throws: (any Error).self) {
+            _ = try NodeMeshProjection.project(events: events, base: baseState(nodes: [work, home, other]))
+        }
+
+        let prefix = try NodeMeshProjection.project(events: Array(events.dropLast()), base: baseState(nodes: [work, home, other]))
+        let task = try #require(prefix.tasks.first(where: { $0.id == "mesh_task_denied" }))
+        #expect(task.status == .dispatched)
+        #expect(task.summary == nil)
     }
 
     @Test("node announcement uses signed identity over forged payload")
@@ -337,6 +438,37 @@ struct NodeMeshProjectionTests {
             ),
             identity: actor
         )
+    }
+
+    private func authorizedProjectEvents(
+        projectId: String,
+        owner: NodeIdentity,
+        worker: NodeIdentity
+    ) throws -> [SignedMeshEvent] {
+        try [
+            signed(.projectCreated, actor: owner, projectId: projectId, logicalTime: 1, payload: [
+                "id": .string(projectId),
+                "name": .string("Authorized"),
+                "repoUrl": .string("git@example.com:authorized.git"),
+                "defaultBranch": .string("main"),
+            ]),
+            signed(.projectMemberAdded, actor: owner, target: owner.nodeId, projectId: projectId, logicalTime: 2, payload: [
+                "nodeId": .string(owner.nodeId),
+                "localRepoPath": .string("/work/sloppy"),
+                "role": .string("controller"),
+                "permissions": .array([
+                    .string(MeshPermission.projectWrite.rawValue),
+                    .string(MeshPermission.taskCreate.rawValue),
+                    .string(MeshPermission.taskAssign.rawValue),
+                ]),
+            ]),
+            signed(.projectMemberAdded, actor: owner, target: worker.nodeId, projectId: projectId, logicalTime: 3, payload: [
+                "nodeId": .string(worker.nodeId),
+                "localRepoPath": .string("/home/sloppy"),
+                "role": .string("worker"),
+                "permissions": .array(MeshPermission.workerDefaults.rawValues.map(JSONValue.string)),
+            ]),
+        ]
     }
 
     private func forgedSignedEvent(
