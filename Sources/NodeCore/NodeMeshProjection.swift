@@ -424,7 +424,7 @@ public enum NodeMeshProjection {
 
     private static func applyProjectUpdated(_ event: MeshEvent, to state: inout MeshState) throws {
         guard let projectId = event.projectId,
-              let index = state.sharedProjects.firstIndex(where: { $0.id == projectId }),
+              let index = projectIndex(forProjectReference: projectId, in: state.sharedProjects),
               let payload = event.payload.asObject
         else {
             return
@@ -449,7 +449,7 @@ public enum NodeMeshProjection {
 
     private static func applyProjectMemberAdded(_ event: MeshEvent, to state: inout MeshState) {
         guard let projectId = event.projectId,
-              let index = state.sharedProjects.firstIndex(where: { $0.id == projectId }),
+              let index = projectIndex(forProjectReference: projectId, in: state.sharedProjects),
               let payload = event.payload.asObject,
               let nodeId = payload["nodeId"]?.asString,
               let localRepoPath = payload["localRepoPath"]?.asString
@@ -475,7 +475,7 @@ public enum NodeMeshProjection {
 
     private static func applyProjectMemberRemoved(_ event: MeshEvent, to state: inout MeshState) {
         guard let projectId = event.projectId,
-              let index = state.sharedProjects.firstIndex(where: { $0.id == projectId }),
+              let index = projectIndex(forProjectReference: projectId, in: state.sharedProjects),
               let nodeId = event.targetNodeId ?? event.payload.asObject?["nodeId"]?.asString
         else {
             return
@@ -487,7 +487,7 @@ public enum NodeMeshProjection {
 
     private static func applyTaskCreated(_ event: MeshEvent, to state: inout MeshState) {
         guard let payload = event.payload.asObject,
-              let projectId = event.projectId,
+              let projectId = canonicalProjectID(for: event, in: state),
               let taskId = payload["taskId"]?.asString,
               let title = payload["title"]?.asString
         else {
@@ -509,7 +509,7 @@ public enum NodeMeshProjection {
     private static func applyTaskAssigned(_ event: MeshEvent, to state: inout MeshState) throws {
         guard let payload = event.payload.asObject,
               let taskId = payload["taskId"]?.asString,
-              let projectId = event.projectId,
+              let projectId = canonicalProjectID(for: event, in: state),
               let index = state.tasks.firstIndex(where: { $0.id == taskId && $0.projectId == projectId })
         else {
             return
@@ -523,7 +523,7 @@ public enum NodeMeshProjection {
     private static func applyTaskStatusUpdated(_ event: MeshEvent, to state: inout MeshState) {
         guard let payload = event.payload.asObject,
               let taskId = payload["taskId"]?.asString,
-              let projectId = event.projectId,
+              let projectId = canonicalProjectID(for: event, in: state),
               let index = state.tasks.firstIndex(where: { $0.id == taskId && $0.projectId == projectId }),
               let rawStatus = payload["status"]?.asString,
               let status = MeshTaskStatus(rawValue: rawStatus)
@@ -573,7 +573,22 @@ public enum NodeMeshProjection {
         guard let projectId = event.projectId else {
             return nil
         }
-        return state.sharedProjects.firstIndex(where: { $0.id == projectId })
+        return projectIndex(forProjectReference: projectId, in: state.sharedProjects)
+    }
+
+    private static func projectIndex(forProjectReference reference: String, in projects: [SharedProjectRecord]) -> Int? {
+        projects.firstIndex(where: { $0.id == reference || $0.name == reference })
+    }
+
+    private static func canonicalProjectID(for event: MeshEvent, in state: MeshState) -> String? {
+        guard let projectId = event.projectId else {
+            return nil
+        }
+        if let project = project(matchingID: projectId, in: state.sharedProjects)
+            ?? project(matchingName: projectId, in: state.sharedProjects) {
+            return project.id
+        }
+        return projectId
     }
 
     private static func memberIndex(for event: MeshEvent, in project: SharedProjectRecord) -> Int? {

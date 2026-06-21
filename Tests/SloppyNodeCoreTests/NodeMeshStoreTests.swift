@@ -1311,6 +1311,46 @@ struct NodeMeshStoreTests {
         }
     }
 
+    @Test("signed project update applies to legacy project by name")
+    func signedProjectUpdateAppliesToLegacyProjectByName() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let work = NodeIdentityGenerator.makeIdentity(name: "Work", roles: ["client"], capabilities: ["git"])
+        let home = NodeIdentityGenerator.makeIdentity(name: "Home", roles: ["worker"], capabilities: ["git"])
+        try store.registerNode(work)
+        try store.registerNode(home)
+        let project = try store.createSharedProject(
+            id: "sp_legacy_name_overlay",
+            name: "Legacy Name Overlay",
+            repoUrl: "git@example.com:legacy-name-overlay.git"
+        )
+        _ = try store.attachMember(
+            projectIdOrName: project.id,
+            nodeId: work.nodeId,
+            localRepoPath: "/work/legacy-name-overlay",
+            role: "controller",
+            permissions: [MeshPermission.projectWrite.rawValue]
+        )
+        _ = try store.attachMember(
+            projectIdOrName: project.id,
+            nodeId: home.nodeId,
+            localRepoPath: "/home/legacy-name-overlay",
+            role: "worker",
+            permissions: MeshPermission.workerDefaults.rawValues
+        )
+
+        let update = try signedEvent(.projectUpdated, actor: work, projectId: project.name, logicalTime: 1, payload: [
+            "defaultBranch": .string("trunk"),
+        ])
+        _ = try store.appendEvent(update, expectedActorPublicKey: work.publicKey)
+
+        let projected = try store.projectedState()
+        let projectedProject = try #require(projected.sharedProjects.first(where: { $0.id == project.id }))
+        #expect(projectedProject.defaultBranch == "trunk")
+
+        let listedProject = try #require(try store.listSharedProjects().first(where: { $0.id == project.id }))
+        #expect(listedProject.defaultBranch == "trunk")
+    }
+
     @Test("signed assignment applies to legacy task without task creation event")
     func signedAssignmentAppliesToLegacyTaskWithoutTaskCreationEvent() throws {
         let store = NodeMeshStore(stateURL: temporaryStateURL())
