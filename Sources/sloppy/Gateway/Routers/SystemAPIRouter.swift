@@ -162,6 +162,11 @@ struct SystemAPIRouter: APIRouter {
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
         }
 
+        router.get("/v1/voice/config", metadata: RouteMetadata(summary: "Get voice mode config", description: "Returns the sanitized effective voice mode configuration", tags: ["System"])) { _ in
+            let response = await service.voiceModeConfig()
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+        }
+
         router.post("/v1/git-sync/run", metadata: RouteMetadata(summary: "Run workspace Git Sync", description: "Synchronizes the workspace configuration snapshot to the configured Git repository", tags: ["System"])) { _ in
             do {
                 let response = try await service.runWorkspaceGitSyncNow()

@@ -1339,6 +1339,52 @@ func getConfigEndpoint() async throws {
 }
 
 @Test
+func voiceConfigEndpointReturnsSanitizedLocalFallback() async throws {
+    var config = CoreConfig.test
+    config.voiceMode = .init(enabled: true, provider: .auto)
+    config.models = []
+    let router = CoreRouter(service: CoreService(config: config))
+
+    let response = await router.handle(method: "GET", path: "/v1/voice/config", body: nil)
+
+    #expect(response.status == 200)
+    let payload = try JSONDecoder().decode(VoiceModeConfigResponse.self, from: response.body)
+    #expect(payload.enabled == true)
+    #expect(payload.configuredProvider == "auto")
+    #expect(payload.effectiveProvider == "local")
+    #expect(payload.openAIConfigured == false)
+    #expect(payload.openAI.transcriptionModel == "gpt-4o-mini-transcribe")
+    #expect(String(decoding: response.body, as: UTF8.self).contains("apiKey") == false)
+}
+
+@Test
+func voiceConfigEndpointUsesOpenAIWhenConfigured() async throws {
+    var config = CoreConfig.test
+    config.voiceMode = .init(
+        enabled: true,
+        provider: .auto,
+        openAI: .init(enabled: true, voice: "marin")
+    )
+    config.models = [
+        .init(
+            title: "openai-api",
+            apiKey: "sk-test",
+            apiUrl: "https://api.openai.com/v1",
+            model: "gpt-5.4-mini"
+        ),
+    ]
+    let router = CoreRouter(service: CoreService(config: config))
+
+    let response = await router.handle(method: "GET", path: "/v1/voice/config", body: nil)
+
+    #expect(response.status == 200)
+    let payload = try JSONDecoder().decode(VoiceModeConfigResponse.self, from: response.body)
+    #expect(payload.effectiveProvider == "openai")
+    #expect(payload.openAIConfigured == true)
+    #expect(payload.openAI.voice == "marin")
+}
+
+@Test
 func dashboardAuthProtectsAPIRoutesWhenEnabled() async throws {
     var config = CoreConfig.test
     config.ui.dashboardAuth.enabled = true
