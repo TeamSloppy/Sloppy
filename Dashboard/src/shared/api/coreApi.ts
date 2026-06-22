@@ -108,6 +108,9 @@ export interface CoreApi {
   planArtifactWebUrl: (projectId: string, planName: string) => string;
   fetchPlanArtifact: (projectId: string, planName: string) => Promise<AnyRecord | null>;
   fetchRuntimeConfig: () => Promise<AnyRecord | null>;
+  fetchVoiceConfig: () => Promise<AnyRecord | null>;
+  transcribeVoice: (payload: AnyRecord) => Promise<AnyRecord | null>;
+  synthesizeVoice: (payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchDashboardAuthStatus: () => Promise<AnyRecord | null>;
   validateDashboardAuthToken: (token: string) => Promise<AnyRecord | null>;
   updateRuntimeConfig: (config: AnyRecord) => Promise<AnyRecord>;
@@ -753,6 +756,40 @@ export function createCoreApi(): CoreApi {
     fetchRuntimeConfig: async () => {
       const response = await requestJson<AnyRecord>({
         path: "/v1/config"
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    fetchVoiceConfig: async () => {
+      const response = await requestJson<AnyRecord>({
+        path: "/v1/voice/config"
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    transcribeVoice: async (payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/voice/transcriptions",
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    synthesizeVoice: async (payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/voice/speech",
+        method: "POST",
+        body: payload
       });
       if (!response.ok) {
         return null;
