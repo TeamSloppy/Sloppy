@@ -659,11 +659,14 @@ function wirePanel(frame) {
         status.textContent = response.error;
         return;
       }
+      const mesh = response?.mesh || {};
       state.settings = {
         ...(state.settings || {}),
-        mesh: response?.mesh || {}
+        mesh
       };
-      status.textContent = meshStatusText(response?.mesh || {});
+      frame.querySelector("[data-sloppy-mesh-enabled]").checked = Boolean(mesh.enabled);
+      frame.querySelector("[data-sloppy-mesh-target-node]").value = mesh.targetNodeId || "";
+      status.textContent = meshStatusText(mesh);
     } catch (error) {
       status.textContent = error?.message || "Unable to join mesh.";
     }

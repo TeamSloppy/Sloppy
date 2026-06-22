@@ -288,6 +288,50 @@ test("background sloppy.settings.save scrubs mesh private key from public settin
   }
 });
 
+test("background sloppy.settings.save preserves stored mesh private key when public settings omit it", async () => {
+  const runtime = await loadBackgroundRuntime({
+    defaultAgentID: "sloppy",
+    mesh: {
+      enabled: true,
+      relayURL: "https://mesh.example.com",
+      targetNodeId: "node_home",
+      identity: {
+        nodeId: "node_safari",
+        publicKey: "ed25519:public",
+        privateKey: "ed25519:private"
+      }
+    }
+  });
+
+  try {
+    const response = await runtime.sendMessage({
+      type: "sloppy.settings.save",
+      settings: {
+        defaultAgentID: "sloppy",
+        mesh: {
+          enabled: true,
+          relayURL: "https://mesh.example.com",
+          targetNodeId: "node_remote",
+          identity: {
+            nodeId: "node_safari",
+            publicKey: "ed25519:public"
+          }
+        }
+      }
+    });
+
+    assert.equal(response.mesh.targetNodeId, "node_remote");
+    assertPublicMeshIdentity(response.mesh, {
+      nodeId: "node_safari",
+      publicKey: "ed25519:public"
+    });
+    assert.equal(runtime.storageState.mesh.targetNodeId, "node_remote");
+    assert.equal(runtime.storageState.mesh.identity.privateKey, "ed25519:private");
+  } finally {
+    runtime.cleanup();
+  }
+});
+
 test("background sloppy.sessions.select keeps mesh private key in storage but not public responses", async () => {
   const runtime = await loadBackgroundRuntime({
     defaultAgentID: "sloppy",

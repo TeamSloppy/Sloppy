@@ -27,6 +27,7 @@ function createPanelDocument() {
     const nodesBySelector = new Map();
     const ensureNode = (selector) => {
       if (!nodesBySelector.has(selector)) {
+        const listeners = new Map();
         nodesBySelector.set(selector, {
           selector,
           value: "",
@@ -37,10 +38,19 @@ function createPanelDocument() {
           style: {},
           dataset: {},
           classList: { toggle() {}, add() {}, remove() {} },
-          addEventListener() {},
+          listeners,
+          addEventListener(type, listener) {
+            listeners.set(type, listener);
+          },
           appendChild() {},
           focus() {},
-          click() {},
+          async click() {
+            const listener = listeners.get("click");
+            if (listener) {
+              return await listener({ currentTarget: this, preventDefault() {} });
+            }
+            return undefined;
+          },
           showModal() {
             this.showModalCalled = true;
           },
@@ -536,4 +546,93 @@ test("saveSettings persists mesh enabled and target node settings", async () => 
   assert.equal(saveRequest.settings.mesh.targetNodeId, "node-99");
   assert.equal(saveRequest.settings.mesh.relayURL, "https://relay.example.com");
   assert.equal(panel.querySelector("[data-sloppy-settings-dialog]").closeCalled, true);
+});
+
+test("mesh join updates public settings state and status without exposing private keys", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  const sentRequests = [];
+  sandbox.document = documentLike;
+  sandbox.window = {
+    innerWidth: 1280,
+    innerHeight: 900,
+    navigator: { maxTouchPoints: 0 },
+    matchMedia: () => ({ matches: false })
+  };
+  sandbox.chrome = {
+    runtime: {
+      getURL: (path) => `safari-extension://sloppy/${path}`,
+      sendMessage: async (request) => {
+        sentRequests.push(request);
+        if (request.type === "sloppy.settings.get") {
+          return {
+            coreURLString: "http://127.0.0.1:25101",
+            authToken: "token",
+            defaultAgentID: "sloppy",
+            floatingButtonEnabled: false,
+            selectionBubbleEnabled: true,
+            mesh: {
+              enabled: false,
+              targetNodeId: "node-join",
+              relayURL: "https://relay.example.com",
+              networkName: "Before Mesh",
+              identity: { nodeId: "node-before", publicKey: "ed25519:before" }
+            }
+          };
+        }
+        if (request.type === "sloppy.mesh.join") {
+          return {
+            mesh: {
+              enabled: true,
+              targetNodeId: "node-join",
+              relayURL: "https://relay.example.com",
+              networkName: "Joined Mesh",
+              identity: {
+                nodeId: "node-after",
+                publicKey: "ed25519:after"
+              }
+            }
+          };
+        }
+        if (request.type === "sloppy.settings.save") {
+          return request.settings;
+        }
+        return {};
+      }
+    }
+  };
+  sandbox.updateViewportCSSVars = () => {};
+  sandbox.loadAgents = async () => {};
+  sandbox.refreshTabs = async () => {};
+  sandbox.loadSlashCommands = async () => {};
+  sandbox.render = () => {};
+  sandbox.renderFloatingButton = () => {};
+  sandbox.renderSearchButton = () => {};
+  sandbox.hideSelectionMenu = () => {};
+  sandbox.scheduleSelectionMenuUpdate = () => {};
+
+  const panel = await sandbox.openPanelWithSelection("Selected text");
+  sandbox.openSettings(panel);
+  panel.querySelector("[data-sloppy-mesh-invite]").value = "slp_mesh_token";
+
+  await panel.querySelector("[data-sloppy-mesh-join]").click();
+
+  const joinRequest = sentRequests.find((request) => request.type === "sloppy.mesh.join");
+  assert.equal(joinRequest.type, "sloppy.mesh.join");
+  assert.equal(joinRequest.token, "slp_mesh_token");
+  assert.equal(panel.querySelector("[data-sloppy-mesh-status]").textContent, "Mesh: Joined Mesh as node-after");
+
+  sandbox.openSettings(panel);
+
+  assert.equal(panel.querySelector("[data-sloppy-mesh-enabled]").checked, true);
+  assert.equal(panel.querySelector("[data-sloppy-mesh-target-node]").value, "node-join");
+  assert.equal(panel.querySelector("[data-sloppy-mesh-status]").textContent, "Mesh: Joined Mesh as node-after");
+
+  await sandbox.saveSettings(panel);
+  const saveRequest = sentRequests.find((request) => request.type === "sloppy.settings.save");
+  assert.equal(saveRequest.settings.mesh.identity.privateKey, undefined);
+  assert.deepEqual(saveRequest.settings.mesh.identity, {
+    nodeId: "node-after",
+    publicKey: "ed25519:after"
+  });
 });

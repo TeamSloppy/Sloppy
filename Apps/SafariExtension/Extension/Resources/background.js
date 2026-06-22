@@ -27,8 +27,37 @@ async function loadSettings() {
   return sanitizeSettings({ ...defaultSettings, ...stored });
 }
 
+function mergeMeshSettings(currentMesh, incomingMesh) {
+  if (!incomingMesh || typeof incomingMesh !== "object") {
+    return incomingMesh === undefined ? currentMesh : incomingMesh;
+  }
+
+  const merged = {
+    ...(currentMesh && typeof currentMesh === "object" ? currentMesh : {}),
+    ...incomingMesh
+  };
+  const currentIdentity = currentMesh?.identity;
+  const incomingIdentity = incomingMesh.identity;
+  if (currentIdentity || incomingIdentity) {
+    merged.identity = {
+      ...(currentIdentity && typeof currentIdentity === "object" ? currentIdentity : {}),
+      ...(incomingIdentity && typeof incomingIdentity === "object" ? incomingIdentity : {})
+    };
+    if (!Object.prototype.hasOwnProperty.call(incomingIdentity || {}, "privateKey") && currentIdentity?.privateKey) {
+      merged.identity.privateKey = currentIdentity.privateKey;
+    }
+  }
+  return merged;
+}
+
 async function saveSettings(settings) {
-  const sanitized = sanitizeSettings({ ...defaultSettings, ...settings });
+  const current = await loadSettings();
+  const sanitized = sanitizeSettings({
+    ...defaultSettings,
+    ...current,
+    ...settings,
+    mesh: mergeMeshSettings(current.mesh, settings?.mesh)
+  });
   await chrome.storage.local.set(sanitized);
   return sanitized;
 }
@@ -65,6 +94,21 @@ async function listSessions(settings, agentId) {
   }
   const records = Array.isArray(body.sessions) ? body.sessions : Array.isArray(body) ? body : [];
   return normalizeAgentSessions(records);
+}
+
+async function getSession(settings, agentId, sessionId) {
+  const headers = {};
+  if (settings.authToken) {
+    headers.authorization = `Bearer ${settings.authToken}`;
+  }
+  const encodedAgentId = encodeURIComponent(String(agentId || settings.defaultAgentID || "sloppy"));
+  const encodedSessionId = encodeURIComponent(String(sessionId || ""));
+  const response = await coreFetch(settings, `/v1/agents/${encodedAgentId}/sessions/${encodedSessionId}`, { headers });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(body.error || `session_failed_${response.status}`);
+  }
+  return body;
 }
 
 async function listSlashCommands(settings, agentId) {
@@ -191,7 +235,8 @@ if (typeof chrome !== "undefined") {
           delete nextSettings.sessionId;
         }
         const saved = await saveSettings(nextSettings);
-        sendResponse({ settings: publicSettings(saved) });
+        const session = sessionId ? await getSession(saved, message.agentId || saved.defaultAgentID, sessionId) : null;
+        sendResponse({ settings: publicSettings(saved), session });
       })().catch((error) => {
         sendResponse({ error: error.message || "Unable to select session." });
       });
@@ -246,6 +291,30 @@ if (typeof chrome !== "undefined") {
       void runBrowserTool(message.action).then(sendResponse).catch((error) => {
         sendResponse({ error: error.message || "Browser tool failed." });
       });
+      return true;
+    }
+    if (message?.type === "sloppy.voice.config.get") {
+      void (async () => {
+        const settings = await loadSettings();
+        const config = await fetchVoiceConfig(settings);
+        sendResponse({ config });
+      })().catch((error) => sendResponse({ error: error.message || "Voice config unavailable." }));
+      return true;
+    }
+    if (message?.type === "sloppy.voice.transcribe") {
+      void (async () => {
+        const settings = await loadSettings();
+        const result = await transcribeVoiceAudio(settings, message.payload || {});
+        sendResponse({ result });
+      })().catch((error) => sendResponse({ error: error.message || "Voice transcription failed." }));
+      return true;
+    }
+    if (message?.type === "sloppy.voice.speech") {
+      void (async () => {
+        const settings = await loadSettings();
+        const result = await synthesizeVoiceSpeech(settings, message.payload || {});
+        sendResponse({ result });
+      })().catch((error) => sendResponse({ error: error.message || "Voice speech failed." }));
       return true;
     }
     if (message?.type !== "sloppy.browserContext.send") {

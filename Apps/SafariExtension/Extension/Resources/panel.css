@@ -904,7 +904,7 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
 }
 
 #sloppy-search-ask-button {
-  --sloppy-search-button-bg: color-mix(in srgb, Canvas 88%, white 12%);
+  --sloppy-search-button-bg: color-mix(in srgb, Canvas 82%, white 18%);
   --sloppy-search-button-fg: CanvasText;
   position: fixed;
   right: 24px;
@@ -921,14 +921,16 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
   font: 700 14px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   cursor: pointer;
   isolation: isolate;
-  overflow: visible;
-  background: color-mix(in srgb, var(--sloppy-search-button-bg) 86%, transparent);
-  border: 1px solid color-mix(in srgb, CanvasText 14%, transparent);
+  overflow: hidden;
+  background:
+    radial-gradient(circle at 50% 50%, rgba(210, 246, 255, 0.28), transparent 58%),
+    color-mix(in srgb, var(--sloppy-search-button-bg) 88%, transparent);
+  border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
   border-radius: 999px;
   box-shadow:
-    0 16px 40px rgba(0, 0, 0, 0.28),
-    inset 0 1px 0 rgba(255, 255, 255, 0.72),
-    inset 0 -8px 18px rgba(0, 0, 0, 0.08);
+    0 16px 40px rgba(0, 0, 0, 0.3),
+    inset 0 2px 5px rgba(255, 255, 255, 0.42),
+    inset 0 -16px 28px rgba(0, 0, 0, 0.16);
   color-scheme: light dark;
   backdrop-filter: blur(18px) saturate(1.35);
 }
@@ -942,36 +944,45 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
 }
 
 #sloppy-search-ask-button::before {
-  inset: -4px;
-  z-index: -2;
+  inset: -22% -8%;
+  z-index: 0;
   background:
-    radial-gradient(circle at 24% 24%, rgba(255, 255, 255, 0.92), rgba(255, 255, 255, 0.12) 24%, transparent 43%),
-    conic-gradient(from 0deg, rgba(255, 192, 64, 0.72), rgba(79, 169, 255, 0.72), rgba(191, 122, 255, 0.7), rgba(65, 220, 158, 0.72), rgba(255, 192, 64, 0.72));
-  filter: blur(10px) saturate(1.45);
-  opacity: 0.82;
-  animation: sloppy-search-bubble-spin 7s linear infinite;
+    radial-gradient(ellipse at 18% 32%, rgba(255, 255, 255, 0.92), transparent 15%),
+    radial-gradient(ellipse at 42% 34%, rgba(90, 198, 255, 0.72), transparent 30%),
+    radial-gradient(ellipse at 58% 72%, rgba(73, 230, 148, 0.58), transparent 28%),
+    radial-gradient(ellipse at 82% 42%, rgba(138, 118, 255, 0.52), transparent 29%),
+    linear-gradient(100deg, rgba(255, 215, 112, 0.28), rgba(78, 172, 255, 0.24), rgba(84, 236, 184, 0.22));
+  filter: blur(8px) saturate(1.45);
+  opacity: 0.78;
+  animation: sloppy-search-contained-wave-a 5s infinite cubic-bezier(0.6, -0.28, 0.735, 0.045);
 }
 
 #sloppy-search-ask-button::after {
-  inset: 1px;
-  z-index: -1;
+  inset: -20% -7%;
+  z-index: 1;
   background:
-    radial-gradient(circle at 18% 18%, rgba(255, 255, 255, 0.88), rgba(255, 255, 255, 0.2) 18%, transparent 36%),
-    radial-gradient(circle at 82% 70%, rgba(98, 196, 255, 0.28), transparent 42%),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.06) 46%, rgba(0, 0, 0, 0.12));
+    radial-gradient(ellipse at 42% 58%, rgba(0, 255, 128, 0.48), transparent 34%),
+    radial-gradient(ellipse at 70% 38%, rgba(255, 128, 0, 0.42), transparent 36%),
+    radial-gradient(ellipse at 52% 42%, rgba(128, 0, 255, 0.34), transparent 32%),
+    radial-gradient(ellipse at 62% 66%, rgba(255, 255, 0, 0.28), transparent 30%),
+    radial-gradient(circle at 18% 18%, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.22) 14%, transparent 32%),
+    linear-gradient(145deg, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0.04) 48%, rgba(0, 0, 0, 0.2));
+  filter: blur(9px) saturate(1.35);
+  opacity: 0.7;
   box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.32),
-    inset 0 10px 24px rgba(255, 255, 255, 0.22);
+    inset 0 0 0 1px rgba(255, 255, 255, 0.26),
+    inset 0 10px 24px rgba(255, 255, 255, 0.14);
+  animation: sloppy-search-contained-wave-b 6.4s infinite ease-in-out;
 }
 
 #sloppy-search-ask-button > * {
   position: relative;
-  z-index: 1;
+  z-index: 2;
 }
 
 @media (prefers-color-scheme: dark) {
   #sloppy-search-ask-button {
-    --sloppy-search-button-bg: color-mix(in srgb, Canvas 74%, #202020 26%);
+    --sloppy-search-button-bg: color-mix(in srgb, Canvas 72%, #202020 28%);
     --sloppy-search-button-fg: CanvasText;
     box-shadow:
       0 16px 40px rgba(0, 0, 0, 0.34),
@@ -980,12 +991,39 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
   }
 }
 
-@keyframes sloppy-search-bubble-spin {
-  from {
-    transform: rotate(0deg) scale(1);
+@keyframes sloppy-search-contained-wave-a {
+  0% {
+    transform: translate(0, 0) scale(1.18);
   }
-  to {
-    transform: rotate(360deg) scale(1);
+  25% {
+    transform: translate(14%, -18%) scale(1);
+  }
+  50% {
+    transform: translate(24%, 8%) scale(0.92);
+  }
+  75% {
+    transform: translate(-16%, 18%) scale(1.1);
+  }
+  100% {
+    transform: translate(0, 0) scale(1.18);
+  }
+}
+
+@keyframes sloppy-search-contained-wave-b {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  20% {
+    transform: translate(-16%, 16%) scale(0.92);
+  }
+  50% {
+    transform: translate(18%, -12%) scale(1.16);
+  }
+  80% {
+    transform: translate(24%, 18%) scale(0.88);
+  }
+  100% {
+    transform: translate(0, 0) scale(1);
   }
 }
 
