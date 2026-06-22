@@ -38,6 +38,14 @@ export function publicMeshSettings(mesh = {}) {
   };
 }
 
+export function publicSettings(settings = {}) {
+  const sanitized = sanitizeSettings(settings);
+  return {
+    ...sanitized,
+    mesh: publicMeshSettings(sanitized.mesh)
+  };
+}
+
 export async function coreFetch(settings, path, options = {}, fetchImpl = fetch, meshFetchImpl = meshCoreFetch) {
   if (settings.mesh?.enabled) {
     return meshFetchImpl(settings, path, options);

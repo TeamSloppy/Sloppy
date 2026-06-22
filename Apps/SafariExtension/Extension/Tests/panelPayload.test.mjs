@@ -22,6 +22,82 @@ import {
   transcribeVoiceAudio
 } from "../Resources/panel.js";
 
+async function loadBackgroundRuntime(storedSettings = {}, fetchImpl = async () => Response.json({})) {
+  const originalChrome = globalThis.chrome;
+  const originalFetch = globalThis.fetch;
+  const storageState = structuredClone(storedSettings);
+  let messageListener = null;
+
+  globalThis.fetch = fetchImpl;
+  globalThis.chrome = {
+    action: {
+      onClicked: {
+        addListener() {}
+      }
+    },
+    runtime: {
+      onMessage: {
+        addListener(listener) {
+          messageListener = listener;
+        }
+      }
+    },
+    storage: {
+      local: {
+        async get(defaults = {}) {
+          return { ...structuredClone(defaults), ...structuredClone(storageState) };
+        },
+        async set(nextValues = {}) {
+          Object.assign(storageState, structuredClone(nextValues));
+        }
+      }
+    },
+    tabs: {
+      async query() {
+        return [];
+      },
+      async create({ url }) {
+        return { id: 1, url, title: null };
+      },
+      async captureVisibleTab() {
+        return "data:image/png;base64,abcd";
+      },
+      async sendMessage() {}
+    }
+  };
+
+  await import(new URL(`../Resources/background.js?test=${Date.now()}-${Math.random()}`, import.meta.url));
+
+  return {
+    storageState,
+    async sendMessage(message, sender = {}) {
+      return await new Promise((resolve, reject) => {
+        try {
+          const handled = messageListener?.(message, sender, resolve);
+          if (!handled) {
+            reject(new Error(`Message was not handled: ${message?.type || "unknown"}`));
+          }
+        } catch (error) {
+          reject(error);
+        }
+      });
+    },
+    cleanup() {
+      if (typeof originalChrome === "undefined") {
+        delete globalThis.chrome;
+      } else {
+        globalThis.chrome = originalChrome;
+      }
+      globalThis.fetch = originalFetch;
+    }
+  };
+}
+
+function assertPublicMeshIdentity(mesh, expected = {}) {
+  assert.equal(mesh.identity.privateKey, undefined);
+  assert.deepEqual(mesh.identity, expected);
+}
+
 test("normalizeCoreURL adds http scheme and removes trailing slashes", () => {
   assert.equal(normalizeCoreURL("192.168.1.50:25101/"), "http://192.168.1.50:25101");
 });
@@ -151,6 +227,95 @@ test("publicMeshSettings removes private keys from public mesh payloads", () => 
     }
   });
   assert.equal("privateKey" in mesh.identity, false);
+});
+
+test("background sloppy.settings.get scrubs mesh private key from public settings responses", async () => {
+  const runtime = await loadBackgroundRuntime({
+    mesh: {
+      enabled: true,
+      relayURL: "https://mesh.example.com",
+      targetNodeId: "node_home",
+      identity: {
+        nodeId: "node_safari",
+        publicKey: "ed25519:public",
+        privateKey: "ed25519:private"
+      }
+    }
+  });
+
+  try {
+    const response = await runtime.sendMessage({ type: "sloppy.settings.get" });
+    assert.equal(response.mesh.enabled, true);
+    assertPublicMeshIdentity(response.mesh, {
+      nodeId: "node_safari",
+      publicKey: "ed25519:public"
+    });
+    assert.equal(runtime.storageState.mesh.identity.privateKey, "ed25519:private");
+  } finally {
+    runtime.cleanup();
+  }
+});
+
+test("background sloppy.settings.save scrubs mesh private key from public settings responses", async () => {
+  const runtime = await loadBackgroundRuntime();
+
+  try {
+    const response = await runtime.sendMessage({
+      type: "sloppy.settings.save",
+      settings: {
+        defaultAgentID: "sloppy",
+        mesh: {
+          enabled: true,
+          relayURL: "https://mesh.example.com",
+          targetNodeId: "node_home",
+          identity: {
+            nodeId: "node_safari",
+            publicKey: "ed25519:public",
+            privateKey: "ed25519:private"
+          }
+        }
+      }
+    });
+
+    assert.equal(response.mesh.enabled, true);
+    assertPublicMeshIdentity(response.mesh, {
+      nodeId: "node_safari",
+      publicKey: "ed25519:public"
+    });
+    assert.equal(runtime.storageState.mesh.identity.privateKey, "ed25519:private");
+  } finally {
+    runtime.cleanup();
+  }
+});
+
+test("background sloppy.sessions.select keeps mesh private key in storage but not public responses", async () => {
+  const runtime = await loadBackgroundRuntime({
+    defaultAgentID: "sloppy",
+    mesh: {
+      enabled: false,
+      identity: {
+        nodeId: "node_safari",
+        publicKey: "ed25519:public",
+        privateKey: "ed25519:private"
+      }
+    }
+  });
+
+  try {
+    const response = await runtime.sendMessage({
+      type: "sloppy.sessions.select",
+      agentId: "sloppy",
+      sessionId: ""
+    });
+
+    assertPublicMeshIdentity(response.settings.mesh, {
+      nodeId: "node_safari",
+      publicKey: "ed25519:public"
+    });
+    assert.equal(runtime.storageState.mesh.identity.privateKey, "ed25519:private");
+  } finally {
+    runtime.cleanup();
+  }
 });
 
 test("coreFetch uses direct Core URL when mesh is disabled", async () => {

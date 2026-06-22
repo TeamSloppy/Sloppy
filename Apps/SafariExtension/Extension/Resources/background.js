@@ -7,6 +7,7 @@ import {
   postBrowserContext,
   postBrowserContextStreaming,
   publicMeshSettings,
+  publicSettings,
   sanitizeSettings,
   synthesizeVoiceSpeech,
   transcribeVoiceAudio
@@ -130,13 +131,13 @@ if (typeof chrome !== "undefined") {
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message?.type === "sloppy.settings.get") {
-      void loadSettings().then(sendResponse).catch((error) => {
+      void loadSettings().then((settings) => sendResponse(publicSettings(settings))).catch((error) => {
         sendResponse({ error: error.message || "Settings unavailable." });
       });
       return true;
     }
     if (message?.type === "sloppy.settings.save") {
-      void saveSettings(message.settings).then(sendResponse).catch((error) => {
+      void saveSettings(message.settings).then((settings) => sendResponse(publicSettings(settings))).catch((error) => {
         sendResponse({ error: error.message || "Settings unavailable." });
       });
       return true;
@@ -190,7 +191,7 @@ if (typeof chrome !== "undefined") {
           delete nextSettings.sessionId;
         }
         const saved = await saveSettings(nextSettings);
-        sendResponse({ settings: saved });
+        sendResponse({ settings: publicSettings(saved) });
       })().catch((error) => {
         sendResponse({ error: error.message || "Unable to select session." });
       });
