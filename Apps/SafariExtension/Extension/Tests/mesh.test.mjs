@@ -212,6 +212,22 @@ test("acceptMeshInvite rejects invalid relay URLs", async () => {
   );
 });
 
+test("acceptMeshInvite rejects unsupported relay URL schemes", async () => {
+  const token = bundleToken({ v: 1, inviteToken: "slp_invite_remote", relayURL: "ftp://mesh.example.com" });
+  const identity = await createMeshIdentity({ cryptoImpl: fakeCrypto(), randomToken: "abc123" });
+
+  await assert.rejects(
+    () => acceptMeshInvite({
+      token,
+      currentMesh: { identity },
+      fetchImpl: () => {
+        assert.fail("fetch should not be called for unsupported relay URL scheme");
+      }
+    }),
+    /Unsupported relay URL scheme|Invalid relay URL/
+  );
+});
+
 test("buildCoreHTTPRPCEnvelope wraps Core requests for mesh core.http", async () => {
   const identity = await createMeshIdentity({ cryptoImpl: fakeCrypto(), randomToken: "abc123" });
   const envelope = buildCoreHTTPRPCEnvelope(identity, "node_home", {
@@ -261,6 +277,14 @@ test("buildAuthResponseEnvelope rejects malformed auth challenge payloads", asyn
     () => buildAuthResponseEnvelope(identity, { type: "auth.challenge", from: "relay", payload: { nodeId: identity.nodeId } }, { cryptoImpl: fakeCrypto("signature") }),
     /nonce is missing or invalid/
   );
+  await assert.rejects(
+    () => buildAuthResponseEnvelope(identity, { type: "auth.challenge", from: "relay", payload: { nodeId: identity.nodeId, nonce: "nonce_auth", publicKey: "" } }, { cryptoImpl: fakeCrypto("signature") }),
+    /publicKey is missing or invalid/
+  );
+  await assert.rejects(
+    () => buildAuthResponseEnvelope(identity, { type: "auth.challenge", from: "relay", payload: { nodeId: identity.nodeId, nonce: "nonce_auth", publicKey: "ed25519:other" } }, { cryptoImpl: fakeCrypto("signature") }),
+    /publicKey does not match/
+  );
 });
 
 test("buildAuthResponseEnvelope returns null when challenge targets another node", async () => {
@@ -304,11 +328,42 @@ test("meshCoreFetch performs relay auth and returns core.http response", async (
 test("decodeCoreHTTPRPCResponse rejects invalid protocol responses", async () => {
   assert.throws(() => {
     decodeCoreHTTPRPCResponse({ type: "rpc.response", payload: { ok: true } });
-  }, /result is required/);
+  }, /method must be core.http/);
   assert.throws(() => {
     decodeCoreHTTPRPCResponse({
       type: "rpc.response",
       payload: {
+        ok: false,
+        method: "core.http",
+        error: { message: "bad method" },
+        result: { status: 200, contentType: "text/plain", bodyBase64: "e30=" }
+      }
+    });
+  }, /bad method/);
+  assert.throws(() => {
+    decodeCoreHTTPRPCResponse({
+      type: "rpc.response",
+      payload: {
+        ok: true,
+        method: "other.method",
+        result: { status: 200, contentType: "text/plain", bodyBase64: "e30=" }
+      }
+    });
+  }, /method must be core.http/);
+  assert.throws(() => {
+    decodeCoreHTTPRPCResponse({
+      type: "rpc.response",
+      payload: {
+        method: "core.http",
+        result: { status: 200, contentType: "text/plain", bodyBase64: "e30=" }
+      }
+    });
+  }, /Remote Core request failed/);
+  assert.throws(() => {
+    decodeCoreHTTPRPCResponse({
+      type: "rpc.response",
+      payload: {
+        method: "core.http",
         ok: true,
         result: { status: "200", contentType: "text/plain", bodyBase64: "e30=" }
       }
@@ -318,6 +373,7 @@ test("decodeCoreHTTPRPCResponse rejects invalid protocol responses", async () =>
     decodeCoreHTTPRPCResponse({
       type: "rpc.response",
       payload: {
+        method: "core.http",
         ok: true,
         result: { status: 200, contentType: 10, bodyBase64: "e30=" }
       }
@@ -327,6 +383,7 @@ test("decodeCoreHTTPRPCResponse rejects invalid protocol responses", async () =>
     decodeCoreHTTPRPCResponse({
       type: "rpc.response",
       payload: {
+        method: "core.http",
         ok: true,
         result: { status: 200, contentType: "text/plain" }
       }
@@ -336,6 +393,7 @@ test("decodeCoreHTTPRPCResponse rejects invalid protocol responses", async () =>
     decodeCoreHTTPRPCResponse({
       type: "rpc.response",
       payload: {
+        method: "core.http",
         ok: true,
         result: { status: 200, contentType: "text/plain", bodyBase64: 13 }
       }
@@ -345,6 +403,7 @@ test("decodeCoreHTTPRPCResponse rejects invalid protocol responses", async () =>
     decodeCoreHTTPRPCResponse({
       type: "rpc.response",
       payload: {
+        method: "core.http",
         ok: true,
         result: { status: 200, contentType: "text/plain", bodyBase64: "not%base64" }
       }

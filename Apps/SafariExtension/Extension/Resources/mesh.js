@@ -197,8 +197,13 @@ export async function buildAuthResponseEnvelope(identity, challengeEnvelope, dep
       return null;
     }
   }
-  if (challenge.publicKey && challenge.publicKey !== identity.publicKey) {
-    return null;
+  if (Object.prototype.hasOwnProperty.call(challenge, "publicKey")) {
+    if (typeof challenge.publicKey !== "string" || challenge.publicKey.length === 0) {
+      throw new Error("Auth challenge publicKey is missing or invalid.");
+    }
+    if (challenge.publicKey !== identity.publicKey) {
+      throw new Error("Auth challenge publicKey does not match node identity.");
+    }
   }
   const signature = await signMeshChallenge(identity, challenge.nonce, deps);
   return makeEnvelope({
@@ -255,9 +260,12 @@ export function decodeCoreHTTPRPCResponse(envelope) {
   if (!isObject(payload)) {
     throw new Error("Invalid rpc response payload.");
   }
-  if (payload.ok === false) {
+  if (payload.ok !== true) {
     const message = payload.error?.message || payload.error?.code || "Remote Core request failed.";
     throw new Error(message);
+  }
+  if (payload.method !== "core.http") {
+    throw new Error("Invalid rpc response: method must be core.http.");
   }
   const result = payload.result;
   if (!isObject(result)) {
@@ -297,9 +305,14 @@ export async function acceptMeshInvite(options) {
   const payload = buildMeshInviteAcceptPayload(token, identity, bundle);
   let relayURL;
   try {
-    relayURL = new URL(bundle.relayURL);
+    relayURL = new URL(resolveRelayWebSocketURL(bundle.relayURL));
   } catch {
     throw new Error(`Invalid relay URL: ${bundle.relayURL}`);
+  }
+  if (relayURL.protocol === "ws:") {
+    relayURL.protocol = "http:";
+  } else if (relayURL.protocol === "wss:") {
+    relayURL.protocol = "https:";
   }
   const url = relayURL;
   url.pathname = "/v1/node/mesh/invites/accept";
