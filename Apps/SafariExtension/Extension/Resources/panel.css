@@ -1,60 +1,905 @@
 #sloppy-safari-extension-panel {
   position: fixed;
   z-index: 2147483647;
-  top: 0;
-  right: 0;
-  width: min(420px, 92vw);
-  height: 100vh;
+  top: calc(var(--sloppy-viewport-top, 0px) + 12px);
+  right: 12px;
+  width: min(430px, calc(var(--sloppy-viewport-width, 100vw) - 24px));
+  min-width: min(430px, calc(var(--sloppy-viewport-width, 100vw) - 24px));
+  max-width: min(516px, calc(var(--sloppy-viewport-width, 100vw) - 24px));
+  height: calc(var(--sloppy-viewport-height, 100vh) - 24px - var(--sloppy-mobile-bottom-inset, 0px));
+  max-height: calc(var(--sloppy-viewport-height, 100vh) - 24px - var(--sloppy-mobile-bottom-inset, 0px));
   box-sizing: border-box;
-  padding: 14px;
-  color: #f5f5f5;
-  background: #15171a;
-  border-left: 1px solid #3a3f45;
-  box-shadow: -12px 0 30px rgba(0, 0, 0, 0.28);
-  font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color: #e8e8e8;
+  font: 14px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color-scheme: dark;
 }
 
-#sloppy-safari-extension-panel textarea,
-#sloppy-safari-extension-panel input,
-#sloppy-safari-extension-panel pre {
-  width: 100%;
+@media (hover: hover) and (pointer: fine) {
+  #sloppy-safari-extension-panel {
+    overflow: auto;
+    resize: horizontal;
+  }
+}
+
+#sloppy-safari-extension-panel * {
   box-sizing: border-box;
-  margin: 6px 0 10px;
-  padding: 10px;
-  color: #f5f5f5;
-  background: #20242a;
-  border: 1px solid #454b53;
+}
+
+#sloppy-safari-extension-panel button,
+#sloppy-safari-extension-panel select,
+#sloppy-safari-extension-panel textarea,
+#sloppy-safari-extension-panel input {
+  font: inherit;
+}
+
+.sloppy-shell {
+  display: flex;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex-direction: column;
+  overflow: hidden;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)),
+    rgba(15, 15, 15, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-right-color: rgba(237, 190, 70, 0.36);
+  border-bottom-color: rgba(237, 190, 70, 0.25);
+  border-radius: 28px;
+  box-shadow:
+    -18px 18px 60px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(28px) saturate(1.25);
+}
+
+.sloppy-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 14px 10px;
+}
+
+.sloppy-brand,
+.sloppy-actions,
+.sloppy-composer-tools,
+.sloppy-context-row,
+.sloppy-context-pills,
+.sloppy-message-meta,
+.sloppy-tool summary {
+  display: flex;
+  align-items: center;
+}
+
+.sloppy-brand {
+  min-width: 0;
+  gap: 10px;
+}
+
+.sloppy-mark,
+.sloppy-empty-mark {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  object-fit: contain;
   border-radius: 8px;
 }
 
-#sloppy-safari-extension-panel label {
-  display: block;
+.sloppy-empty-mark {
+  width: 72px;
+  height: 72px;
+  opacity: 0.75;
+}
+
+.sloppy-brand select {
+  min-width: 0;
+  max-width: 220px;
+  appearance: none;
+  padding: 8px 34px 8px 12px;
+  color: #f0f0f0;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.04)),
+    rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  outline: none;
+}
+
+.sloppy-actions,
+.sloppy-composer-tools {
+  gap: 8px;
+}
+
+.sloppy-icon-button,
+.sloppy-send,
+.sloppy-settings-save,
+.sloppy-attachment-chip {
+  cursor: pointer;
+  transition: border-color 180ms ease, background 180ms ease, color 180ms ease, opacity 180ms ease;
+}
+
+.sloppy-icon-button,
+.sloppy-send {
+  display: inline-grid;
+  width: 38px;
+  height: 38px;
+  place-items: center;
+  color: #d9d9d9;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.04)),
+    rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 14px;
+}
+
+.sloppy-icon-button:hover,
+.sloppy-send:hover,
+.sloppy-attachment-chip:hover {
+  color: #ffffff;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.07)),
+    rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.sloppy-icon-button svg,
+.sloppy-send svg,
+.sloppy-attachment-chip svg,
+.sloppy-context-row svg,
+.sloppy-tool svg {
+  width: 18px;
+  height: 18px;
+}
+
+.sloppy-send {
+  color: #101010;
+  background: #e6e6e6;
+  border-color: rgba(255, 255, 255, 0.6);
+  border-radius: 999px;
+}
+
+.sloppy-send svg {
+  transform: translateX(1px);
+}
+
+.sloppy-thread {
+  position: relative;
+  display: flex;
+  min-height: 0;
+  flex: 1 1 auto;
+  flex-direction: column;
+  gap: 14px;
+  overflow-y: auto;
+  padding: 10px 18px 12px;
+  scrollbar-width: thin;
+}
+
+.sloppy-empty {
+  display: grid;
+  min-height: 100%;
+  place-content: center;
+  justify-items: center;
+  gap: 20px;
+  color: rgba(232, 232, 232, 0.58);
+}
+
+.sloppy-empty h2 {
+  margin: 0;
+  color: rgba(232, 232, 232, 0.62);
+  font-size: 28px;
+  font-weight: 600;
+  letter-spacing: 0;
+}
+
+.sloppy-message {
+  display: grid;
+  gap: 7px;
+}
+
+.sloppy-message-user {
+  justify-items: end;
+}
+
+.sloppy-message-assistant {
+  justify-items: start;
+}
+
+.sloppy-message-meta {
+  gap: 8px;
+  color: rgba(232, 232, 232, 0.48);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.sloppy-streaming {
+  color: #14b8a6;
+  text-transform: none;
+}
+
+.sloppy-message-body {
+  max-width: min(100%, 340px);
+  padding: 12px 14px;
+  color: #f0f0f0;
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 18px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.08);
+}
+
+.sloppy-message-assistant .sloppy-message-body {
+  padding: 0;
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.sloppy-message-user .sloppy-message-body {
+  color: #101010;
+  background: #e8e8e8;
+  border-color: rgba(255, 255, 255, 0.5);
+}
+
+.sloppy-message-body p,
+.sloppy-markdown p,
+.sloppy-markdown ul,
+.sloppy-markdown pre,
+.sloppy-markdown h1,
+.sloppy-markdown h2,
+.sloppy-markdown h3 {
+  margin: 0;
+}
+
+.sloppy-markdown {
+  display: grid;
+  gap: 10px;
+  line-height: 1.45;
+}
+
+.sloppy-markdown ul {
+  padding-left: 18px;
+}
+
+.sloppy-markdown code,
+.sloppy-markdown pre,
+.sloppy-tool pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+}
+
+.sloppy-markdown code {
+  padding: 2px 5px;
+  background: rgba(255, 255, 255, 0.1);
+  border-radius: 6px;
+}
+
+.sloppy-markdown pre,
+.sloppy-tool pre {
+  overflow-x: auto;
+  padding: 10px;
+  color: #d8faf5;
+  background: rgba(0, 0, 0, 0.32);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 12px;
+}
+
+.sloppy-markdown a {
+  color: #5eead4;
+}
+
+.sloppy-tools,
+.sloppy-message-attachments {
+  display: grid;
+  gap: 8px;
   margin-top: 10px;
-  color: #c7cbd1;
+}
+
+.sloppy-tool {
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.sloppy-tool summary {
+  gap: 8px;
+  padding: 9px 10px;
+  cursor: pointer;
+  list-style: none;
+}
+
+.sloppy-tool summary::-webkit-details-marker {
+  display: none;
+}
+
+.sloppy-tool summary small {
+  margin-left: auto;
+  color: rgba(232, 232, 232, 0.48);
+}
+
+.sloppy-tool pre {
+  margin: 0 10px 10px;
+  white-space: pre-wrap;
+}
+
+.sloppy-browser-context {
+  flex: 0 0 auto;
+  margin: 0 18px 12px;
+  padding: 10px 12px;
+  color: rgba(232, 232, 232, 0.62);
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 16px;
+}
+
+.sloppy-context-row {
+  gap: 8px;
+  min-width: 0;
+}
+
+.sloppy-context-row[data-sloppy-context-toggle] {
+  cursor: default;
+}
+
+.sloppy-context-row strong,
+.sloppy-context-url {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sloppy-context-row strong {
+  flex: 1 1 auto;
+  color: rgba(232, 232, 232, 0.8);
+}
+
+.sloppy-context-icon {
+  display: inline-grid;
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  place-items: center;
+  color: rgba(232, 232, 232, 0.64);
+  cursor: pointer;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03)),
+    rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+}
+
+.sloppy-context-icon:hover {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.18);
+}
+
+.sloppy-context-url {
+  margin-top: 5px;
+  font-size: 12px;
+}
+
+.sloppy-context-pills {
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.sloppy-context-pills span,
+.sloppy-attachment-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  padding: 6px 9px;
+  color: rgba(232, 232, 232, 0.72);
+  background: rgba(255, 255, 255, 0.07);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.sloppy-context-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.sloppy-context-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 10px;
+  color: rgba(232, 232, 232, 0.78);
+  cursor: pointer;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03)),
+    rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 999px;
+  font-size: 12px;
+}
+
+.sloppy-context-actions button:hover {
+  color: #ffffff;
+  border-color: rgba(255, 255, 255, 0.2);
+}
+
+.sloppy-context-actions svg,
+.sloppy-context-icon svg {
+  width: 16px;
+  height: 16px;
+}
+
+.sloppy-browser-context.is-collapsed {
+  margin-bottom: 8px;
+  padding-block: 8px;
+}
+
+.sloppy-browser-context.is-collapsed .sloppy-context-details {
+  display: none;
+}
+
+.sloppy-composer {
+  position: relative;
+  flex: 0 0 auto;
+  margin: 0 18px 18px;
+  padding: 12px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03)),
+    rgba(24, 24, 24, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 22px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.1);
+}
+
+.sloppy-attachments {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 8px;
+}
+
+.sloppy-attachment-chip {
+  max-width: 100%;
+  border-radius: 999px;
+}
+
+button.sloppy-attachment-chip {
+  appearance: none;
+}
+
+.sloppy-attachment-name {
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sloppy-attachment-remove {
+  display: inline-grid;
+  width: 16px;
+  height: 16px;
+  place-items: center;
+  color: rgba(232, 232, 232, 0.58);
+}
+
+.sloppy-attachment-remove svg {
+  width: 13px;
+  height: 13px;
+}
+
+button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
+  color: #ffffff;
+}
+
+.sloppy-composer textarea {
+  display: block;
+  width: 100%;
+  min-height: 40px;
+  max-height: 132px;
+  resize: none;
+  padding: 8px 4px;
+  color: #f0f0f0;
+  background: transparent;
+  border: 0;
+  outline: none;
+  line-height: 1.4;
+}
+
+.sloppy-composer textarea::placeholder {
+  color: rgba(232, 232, 232, 0.42);
+}
+
+.sloppy-command-menu {
+  flex: 0 0 auto;
+  margin: 0 18px 8px;
+  display: grid;
+  max-height: min(150px, 26vh);
+  gap: 4px;
+  overflow-y: auto;
+  padding: 6px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.11), rgba(255, 255, 255, 0.04)),
+    rgba(25, 25, 25, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 16px;
+  box-shadow: 0 18px 46px rgba(0, 0, 0, 0.38);
+  backdrop-filter: blur(22px) saturate(1.2);
+}
+
+.sloppy-command-menu[hidden] {
+  display: none;
+}
+
+.sloppy-command-menu button {
+  display: grid;
+  gap: 2px;
+  padding: 9px 10px;
+  color: #f0f0f0;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 11px;
+  text-align: left;
+}
+
+.sloppy-command-menu button:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.sloppy-command-menu strong,
+.sloppy-command-menu span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sloppy-command-menu span {
+  color: rgba(232, 232, 232, 0.58);
+  font-size: 12px;
+}
+
+.sloppy-composer-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sloppy-settings-dialog,
+.sloppy-sessions-dialog {
+  width: min(360px, calc(100vw - 48px));
+  padding: 0;
+  color: #f0f0f0;
+  background: transparent;
+  border: 0;
+}
+
+.sloppy-settings-dialog::backdrop,
+.sloppy-sessions-dialog::backdrop {
+  background: rgba(0, 0, 0, 0.46);
+  backdrop-filter: blur(8px);
+}
+
+.sloppy-settings-card,
+.sloppy-sessions-card {
+  display: grid;
+  gap: 12px;
+  padding: 16px;
+  background: rgba(18, 18, 18, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 20px;
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.42);
+}
+
+.sloppy-settings-card header,
+.sloppy-sessions-card header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.sloppy-settings-card label {
+  display: grid;
+  gap: 6px;
+  color: rgba(232, 232, 232, 0.64);
   font-size: 12px;
   font-weight: 700;
 }
 
-#sloppy-safari-extension-panel [data-sloppy-selection] {
-  min-height: 90px;
+.sloppy-settings-card .sloppy-settings-toggle {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
 }
 
-#sloppy-safari-extension-panel [data-sloppy-prompt] {
-  min-height: 110px;
+.sloppy-settings-toggle input {
+  width: 18px;
+  height: 18px;
+  accent-color: #a6e000;
 }
 
-#sloppy-safari-extension-panel button {
-  appearance: none;
-  padding: 8px 12px;
-  color: #101214;
-  background: #a9ff68;
+#sloppy-safari-extension-panel .sloppy-settings-toggle input {
+  width: 18px;
+}
+
+.sloppy-settings-card input {
+  width: 100%;
+  padding: 10px 11px;
+  color: #f0f0f0;
+  background: rgba(255, 255, 255, 0.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  outline: none;
+}
+
+.sloppy-settings-card .sloppy-settings-toggle input {
+  width: 18px;
+  padding: 0;
+}
+
+.sloppy-settings-save {
+  padding: 10px 12px;
+  color: #101010;
+  background: #e8e8e8;
   border: 0;
-  border-radius: 8px;
+  border-radius: 12px;
   font-weight: 700;
 }
 
-.sloppy-safari-extension-header {
+.sloppy-settings-link {
+  display: inline-flex;
+  justify-content: center;
+  padding: 10px 12px;
+  color: #f0f0f0;
+  text-decoration: none;
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.14), rgba(255, 255, 255, 0.04)),
+    rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 12px;
+  font-weight: 700;
+}
+
+.sloppy-settings-link:hover {
+  border-color: rgba(255, 255, 255, 0.22);
+}
+
+.sloppy-session-list {
+  display: grid;
+  max-height: min(52vh, 420px);
+  gap: 8px;
+  overflow-y: auto;
+}
+
+.sloppy-session-row {
+  display: grid;
+  width: 100%;
+  gap: 4px;
+  padding: 11px 12px;
+  color: #f0f0f0;
+  text-align: left;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.03)),
+    rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.11);
+  border-radius: 14px;
+}
+
+.sloppy-session-row.is-selected {
+  border-color: rgba(237, 190, 70, 0.58);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12);
+}
+
+.sloppy-session-row strong,
+.sloppy-session-row span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sloppy-session-row span,
+.sloppy-session-empty {
+  color: rgba(232, 232, 232, 0.52);
+  font-size: 12px;
+}
+
+.sloppy-session-empty {
+  margin: 0;
+}
+
+#sloppy-floating-button {
+  position: fixed;
+  right: 18px;
+  bottom: calc(var(--sloppy-viewport-bottom-gap, 0px) + 14px + env(safe-area-inset-bottom, 0px));
+  z-index: 2147483645;
+  display: grid;
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  place-items: center;
+  cursor: pointer;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.04)),
+    rgba(38, 38, 42, 0.82);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 999px;
+  box-shadow:
+    0 12px 28px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(18px) saturate(1.25);
+}
+
+#sloppy-floating-button[hidden] {
+  display: none;
+}
+
+#sloppy-floating-button::after {
+  position: absolute;
+  right: -3px;
+  bottom: -3px;
+  width: 12px;
+  height: 12px;
+  content: "";
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.05)),
+    rgba(62, 62, 68, 0.92);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  border-radius: 999px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.18);
+}
+
+#sloppy-floating-button img {
+  width: 22px;
+  height: 22px;
+  object-fit: contain;
+}
+
+#sloppy-selection-menu {
+  position: fixed;
+  z-index: 2147483646;
+  width: 26px;
+  height: 26px;
+  color: #ededed;
+  font: 14px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  color-scheme: dark;
+}
+
+#sloppy-selection-menu[hidden],
+#sloppy-selection-menu [hidden] {
+  display: none;
+}
+
+#sloppy-selection-menu * {
+  box-sizing: border-box;
+}
+
+.sloppy-selection-bubble {
+  display: grid;
+  width: 26px;
+  height: 26px;
+  padding: 0;
+  place-items: center;
+  cursor: pointer;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.04)),
+    rgba(20, 20, 20, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  border-radius: 999px;
+  box-shadow:
+    0 8px 20px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  backdrop-filter: blur(18px) saturate(1.2);
+}
+
+.sloppy-selection-bubble img {
+  width: 17px;
+  height: 17px;
+  object-fit: contain;
+  border-radius: 5px;
+}
+
+.sloppy-selection-popover {
+  position: absolute;
+  top: 34px;
+  left: var(--sloppy-selection-popover-x, 0);
+  display: grid;
+  width: min(310px, calc(100vw - 24px));
+  gap: 10px;
+  padding: 10px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.03)),
+    rgba(27, 29, 29, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 18px;
+  box-shadow:
+    0 24px 60px rgba(0, 0, 0, 0.42),
+    inset 0 1px 0 rgba(255, 255, 255, 0.12);
+  backdrop-filter: blur(26px) saturate(1.25);
+}
+
+.sloppy-selection-popover input {
+  width: 100%;
+  padding: 11px 12px;
+  color: #f2f2f2;
+  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 12px;
+  outline: none;
+}
+
+.sloppy-selection-popover input::placeholder {
+  color: rgba(242, 242, 242, 0.48);
+}
+
+.sloppy-selection-actions {
+  display: grid;
+  gap: 2px;
+}
+
+.sloppy-selection-actions button,
+.sloppy-selection-hide {
   display: flex;
+  width: 100%;
   align-items: center;
-  justify-content: space-between;
+  gap: 10px;
+  padding: 10px 8px;
+  color: #f0f0f0;
+  cursor: pointer;
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  text-align: left;
+}
+
+.sloppy-selection-actions button:hover,
+.sloppy-selection-hide:hover {
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.sloppy-selection-actions svg,
+.sloppy-selection-hide svg {
+  width: 18px;
+  height: 18px;
+  color: rgba(242, 242, 242, 0.76);
+}
+
+.sloppy-selection-divider {
+  height: 1px;
+  background: rgba(255, 255, 255, 0.1);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  #sloppy-safari-extension-panel * {
+    transition: none;
+  }
+}
+
+@media (max-width: 520px) {
+  #sloppy-safari-extension-panel {
+    top: calc(var(--sloppy-viewport-top, 0px) + 8px);
+    right: 8px;
+    width: calc(var(--sloppy-viewport-width, 100vw) - 16px);
+    min-width: 0;
+    max-width: calc(var(--sloppy-viewport-width, 100vw) - 16px);
+    height: calc(var(--sloppy-viewport-height, 100vh) - 16px - var(--sloppy-mobile-bottom-inset, 0px));
+    max-height: calc(var(--sloppy-viewport-height, 100vh) - 16px - var(--sloppy-mobile-bottom-inset, 0px));
+    resize: none;
+  }
+
+  .sloppy-shell {
+    border-radius: 24px;
+  }
+
+  .sloppy-thread {
+    padding-inline: 14px;
+  }
+
+  .sloppy-browser-context,
+  .sloppy-command-menu,
+  .sloppy-composer {
+    margin-inline: 14px;
+  }
+
+  .sloppy-composer {
+    margin-bottom: 14px;
+  }
 }

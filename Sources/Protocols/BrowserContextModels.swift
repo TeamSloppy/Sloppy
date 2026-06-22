@@ -34,7 +34,18 @@ public struct BrowserContextMessageRequest: Codable, Sendable, Equatable {
     public var selection: BrowserContextSelection
     public var prompt: String
     public var target: BrowserContextTarget
+    public var attachments: [AgentAttachmentUpload]
     public var userId: String
+
+    private enum CodingKeys: String, CodingKey {
+        case source
+        case page
+        case selection
+        case prompt
+        case target
+        case attachments
+        case userId
+    }
 
     public init(
         source: String = "safari_extension",
@@ -42,6 +53,7 @@ public struct BrowserContextMessageRequest: Codable, Sendable, Equatable {
         selection: BrowserContextSelection,
         prompt: String,
         target: BrowserContextTarget = BrowserContextTarget(),
+        attachments: [AgentAttachmentUpload] = [],
         userId: String = "safari_extension"
     ) {
         self.source = source
@@ -49,7 +61,19 @@ public struct BrowserContextMessageRequest: Codable, Sendable, Equatable {
         self.selection = selection
         self.prompt = prompt
         self.target = target
+        self.attachments = attachments
         self.userId = userId
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.source = try container.decodeIfPresent(String.self, forKey: .source) ?? "safari_extension"
+        self.page = try container.decode(BrowserContextPage.self, forKey: .page)
+        self.selection = try container.decode(BrowserContextSelection.self, forKey: .selection)
+        self.prompt = try container.decode(String.self, forKey: .prompt)
+        self.target = try container.decodeIfPresent(BrowserContextTarget.self, forKey: .target) ?? BrowserContextTarget()
+        self.attachments = try container.decodeIfPresent([AgentAttachmentUpload].self, forKey: .attachments) ?? []
+        self.userId = try container.decodeIfPresent(String.self, forKey: .userId) ?? "safari_extension"
     }
 }
 

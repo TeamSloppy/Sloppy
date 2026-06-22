@@ -3,14 +3,17 @@
   "name": "SafariExtension",
   "version": "0.1.0",
   "description": "Send selected Safari page context to Sloppy.",
-  "permissions": ["activeTab", "storage", "scripting"],
+  "permissions": ["activeTab", "storage", "scripting", "tabs"],
   "host_permissions": ["http://127.0.0.1:25101/*", "http://localhost:25101/*", "<all_urls>"],
   "background": {
     "service_worker": "background.js",
     "type": "module"
   },
   "action": {
-    "default_title": "Open SafariExtension"
+    "default_title": "Open SafariExtension",
+    "default_icon": {
+      "128": "so_logo.svg"
+    }
   },
   "content_scripts": [
     {
@@ -20,6 +23,12 @@
     }
   ],
   "icons": {
-    "128": "icons/icon.svg"
-  }
+    "128": "so_logo.svg"
+  },
+  "web_accessible_resources": [
+    {
+      "resources": ["so_logo.svg"],
+      "matches": ["<all_urls>"]
+    }
+  ]
 }

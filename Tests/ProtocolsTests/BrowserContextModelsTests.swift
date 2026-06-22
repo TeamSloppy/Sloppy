@@ -25,6 +25,29 @@ struct BrowserContextModelsTests {
         #expect(decoded.prompt == "Explain this")
         #expect(decoded.target.agentId == "sloppy")
         #expect(decoded.target.sessionId == nil)
+        #expect(decoded.attachments.isEmpty)
+        #expect(decoded.userId == "safari_extension")
+    }
+
+    @Test("browser context message request decodes old payloads without attachments")
+    func browserContextMessageRequestDecodesOldPayloadsWithoutAttachments() throws {
+        let data = Data(
+            """
+            {
+              "source": "safari_extension",
+              "page": { "url": "https://example.com/article", "title": "Example Article" },
+              "selection": { "text": "Selected text" },
+              "prompt": "Explain this",
+              "target": { "agentId": "sloppy" },
+              "userId": "safari_extension"
+            }
+            """.utf8
+        )
+
+        let decoded = try JSONDecoder().decode(BrowserContextMessageRequest.self, from: data)
+
+        #expect(decoded.attachments.isEmpty)
+        #expect(decoded.target.agentId == "sloppy")
         #expect(decoded.userId == "safari_extension")
     }
 

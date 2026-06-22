@@ -3713,7 +3713,15 @@ func browserContextMessageEndpointCreatesSessionAndPostsTypedContext() async thr
         page: BrowserContextPage(url: "https://example.com/article", title: "Example Article"),
         selection: BrowserContextSelection(text: "Important selected text."),
         prompt: "Explain the selection",
-        target: BrowserContextTarget(agentId: "sloppy")
+        target: BrowserContextTarget(agentId: "sloppy"),
+        attachments: [
+            AgentAttachmentUpload(
+                name: "clipboard.png",
+                mimeType: "image/png",
+                sizeBytes: 4,
+                contentBase64: "YWJjZA=="
+            )
+        ]
     )
     let body = try JSONEncoder().encode(request)
 
@@ -3746,12 +3754,30 @@ func browserContextMessageEndpointCreatesSessionAndPostsTypedContext() async thr
     #expect(userText.contains("Important selected text."))
     #expect(userText.contains("User prompt:"))
     #expect(userText.contains("Explain the selection"))
+    let attachmentNames = detail.events
+        .compactMap(\.message)
+        .filter { $0.role == .user }
+        .flatMap(\.segments)
+        .compactMap(\.attachment?.name)
+    #expect(attachmentNames.contains("clipboard.png"))
 }
 
 @Test
-func browserContextMessageEndpointRejectsEmptySelection() async throws {
+func browserContextMessageEndpointAllowsEmptySelection() async throws {
     let service = CoreService(config: .test)
     let router = CoreRouter(service: service)
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let createAgentBody = try JSONEncoder().encode(
+        AgentCreateRequest(
+            id: "sloppy",
+            displayName: "Sloppy",
+            role: "Reply briefly."
+        )
+    )
+    let createAgentResponse = await router.handle(method: "POST", path: "/v1/agents", body: createAgentBody)
+    #expect(createAgentResponse.status == 201)
 
     let request = BrowserContextMessageRequest(
         page: BrowserContextPage(url: "https://example.com/article", title: "Example Article"),
@@ -3762,7 +3788,26 @@ func browserContextMessageEndpointRejectsEmptySelection() async throws {
     let body = try JSONEncoder().encode(request)
 
     let response = await router.handle(method: "POST", path: "/v1/browser/context-message", body: body)
-    #expect(response.status == 400)
+    #expect(response.status == 200)
+
+    let payload = try decoder.decode(BrowserContextMessageResponse.self, from: response.body)
+    let sessionResponse = await router.handle(
+        method: "GET",
+        path: "/v1/agents/sloppy/sessions/\(payload.sessionId)",
+        body: nil
+    )
+    #expect(sessionResponse.status == 200)
+
+    let detail = try decoder.decode(AgentSessionDetail.self, from: sessionResponse.body)
+    let userText = detail.events
+        .compactMap(\.message)
+        .filter { $0.role == .user }
+        .flatMap(\.segments)
+        .compactMap(\.text)
+        .joined(separator: "\n")
+    #expect(userText.contains("Selected text:"))
+    #expect(userText.contains("No selected text."))
+    #expect(userText.contains("Explain this"))
 }
 
 // MARK: - Channel Plugins CRUD

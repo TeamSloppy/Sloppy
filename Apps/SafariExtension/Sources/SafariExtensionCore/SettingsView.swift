@@ -1,7 +1,12 @@
 import SwiftUI
+#if os(macOS)
+import SafariServices
+#endif
 
 public struct SettingsView: View {
     @ObservedObject private var store: ConnectionSettingsStore
+    @State private var saveMessage: String?
+    @State private var safariMessage: String?
 
     public init(store: ConnectionSettingsStore) {
         self.store = store
@@ -21,17 +26,69 @@ public struct SettingsView: View {
                     .textInputAutocapitalization(.never)
 #endif
                     .autocorrectionDisabled()
-                Button("Save") {
-                    store.save()
+                HStack {
+                    Button("Save") {
+                        save()
+                    }
+                    if let saveMessage {
+                        Text(saveMessage)
+                            .foregroundStyle(.secondary)
+                            .transition(.opacity)
+                    }
                 }
             }
 
             Section("Safari") {
                 Text("Enable SafariExtension in Safari settings, then open a page, select text, and use the toolbar item.")
                     .font(.callout)
+#if os(macOS)
+                HStack {
+                    Button("Open Safari Extensions") {
+                        openSafariExtensions()
+                    }
+                    if let safariMessage {
+                        Text(safariMessage)
+                            .foregroundStyle(.secondary)
+                            .transition(.opacity)
+                    }
+                }
+#endif
             }
         }
         .padding()
         .frame(minWidth: 420, minHeight: 260)
     }
+
+    private func save() {
+        store.save()
+        withAnimation {
+            saveMessage = "Saved"
+        }
+        Task {
+            try? await Task.sleep(for: .seconds(2))
+            await MainActor.run {
+                withAnimation {
+                    saveMessage = nil
+                }
+            }
+        }
+    }
+
+#if os(macOS)
+    private func openSafariExtensions() {
+        SFSafariApplication.showPreferencesForExtension(
+            withIdentifier: "team.sloppy.safariextension.webextension"
+        ) { error in
+            Task { @MainActor in
+                withAnimation {
+                    if let error {
+                        safariMessage = (error as NSError).description
+                    } else {
+                        safariMessage = "Opened Safari Extensions"
+                    }
+                }
+            }
+        }
+    }
+#endif
 }

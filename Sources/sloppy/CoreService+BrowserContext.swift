@@ -18,9 +18,10 @@ extension CoreService {
         let selection = request.selection.text.trimmingCharacters(in: .whitespacesAndNewlines)
         let prompt = request.prompt.trimmingCharacters(in: .whitespacesAndNewlines)
         let pageURL = request.page.url.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !selection.isEmpty, !prompt.isEmpty, !pageURL.isEmpty else {
+        guard !prompt.isEmpty, !pageURL.isEmpty else {
             throw BrowserContextError.invalidPayload
         }
+        let selectionText = selection.isEmpty ? "No selected text." : selection
 
         let sessionID: String
         if let existingSessionID = request.target.sessionId?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -38,7 +39,7 @@ extension CoreService {
 
         let message = Self.browserContextPrompt(
             page: request.page,
-            selection: selection,
+            selection: selectionText,
             prompt: prompt
         )
         let response = try await postAgentSessionMessage(
@@ -47,6 +48,7 @@ extension CoreService {
             request: AgentSessionPostMessageRequest(
                 userId: request.userId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "safari_extension" : request.userId,
                 content: message,
+                attachments: request.attachments,
                 spawnSubSession: false,
                 mode: .ask
             )
