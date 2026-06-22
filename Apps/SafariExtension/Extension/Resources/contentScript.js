@@ -1,4 +1,4 @@
-export function extractPageContext(documentLike = globalThis.document, selectionText = "") {
+function extractPageContext(documentLike = globalThis.document, selectionText = "") {
   return {
     page: {
       url: documentLike.location.href,

@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "Send selected Safari page context to Sloppy.",
   "permissions": ["activeTab", "storage", "scripting"],
-  "host_permissions": ["http://127.0.0.1:25101/*", "http://localhost:25101/*", "http://192.168.0.0/16"],
+  "host_permissions": ["http://127.0.0.1:25101/*", "http://localhost:25101/*", "<all_urls>"],
   "background": {
     "service_worker": "background.js",
     "type": "module"
