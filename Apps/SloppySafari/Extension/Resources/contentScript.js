@@ -1896,7 +1896,15 @@ async function openFullscreenChat(options = {}) {
     page,
     sessionId: options.sessionId || state.settings?.sessionId || ""
   });
-  await chrome.runtime.sendMessage({ type: "sloppy.tabs.open", url });
+  let response = null;
+  try {
+    response = await chrome.runtime.sendMessage({ type: "sloppy.tabs.open", url });
+  } catch (_error) {
+    response = null;
+  }
+  if (!response || response.error) {
+    window.open(url, "_blank", "noopener");
+  }
 }
 
 async function initializeFullscreenChat() {

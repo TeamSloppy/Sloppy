@@ -11,6 +11,7 @@ function loadContentScriptSandbox() {
     chrome: undefined,
     document: undefined,
     URL,
+    window: {},
     globalThis: {}
   };
   sandbox.globalThis = sandbox;
@@ -204,6 +205,45 @@ test("buildChatURL encodes fullscreen chat launch parameters", () => {
   assert.equal(url.searchParams.get("selection"), "Selected text");
   assert.equal(url.searchParams.get("pageURL"), "https://example.com/search?q=test");
   assert.equal(url.searchParams.get("pageTitle"), "Search");
+  assert.equal(url.searchParams.get("sessionId"), "session-1");
+});
+
+test("openFullscreenChat falls back when the background tab opener fails", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const opened = [];
+  sandbox.document = {
+    location: { href: "https://example.com/page" },
+    title: "Example Page"
+  };
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      },
+      async sendMessage(message) {
+        assert.equal(message.type, "sloppy.tabs.open");
+        return { error: "Unable to open tab." };
+      }
+    }
+  };
+  sandbox.window = {
+    open(url, target, features) {
+      opened.push({ url, target, features });
+    }
+  };
+
+  await sandbox.openFullscreenChat({
+    selection: "Selected text",
+    page: { url: "https://example.com/page", title: "Example Page" },
+    sessionId: "session-1"
+  });
+
+  assert.equal(opened.length, 1);
+  assert.equal(opened[0].target, "_blank");
+  assert.equal(opened[0].features, "noopener");
+  const url = new URL(opened[0].url);
+  assert.equal(url.pathname, "/chat.html");
+  assert.equal(url.searchParams.get("selection"), "Selected text");
   assert.equal(url.searchParams.get("sessionId"), "session-1");
 });
 
