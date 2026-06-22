@@ -108,6 +108,7 @@ function renderMarkdown(markdown = "") {
 function icon(name) {
   const paths = {
     close: '<path d="M18 6 6 18M6 6l12 12"/>',
+    mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/><path d="M8 22h8"/>',
     send: '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
     plus: '<path d="M12 5v14M5 12h14"/>',
     settings: '<path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.35 1.1V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.35H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .35-1.1V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 16 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.23.38.6.66 1 .77.2.06.42.08.6.08H21a2 2 0 1 1 0 4h-.09A1.7 1.7 0 0 0 19.4 15Z"/>',
@@ -121,7 +122,9 @@ function icon(name) {
     summarize: '<path d="M5 7h14"/><path d="M5 12h10"/><path d="M5 17h7"/>',
     translate: '<path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="M22 22l-5-10-5 10"/><path d="M14 18h6"/>',
     hide: '<path d="M10.7 5.1A10.9 10.9 0 0 1 12 5c7 0 10 7 10 7a13.2 13.2 0 0 1-3 4.2"/><path d="M6.6 6.6C3.4 8.4 2 12 2 12a13.2 13.2 0 0 0 5.1 5.4A10.8 10.8 0 0 0 12 19a10.9 10.9 0 0 0 3.5-.6"/><path d="m2 2 20 20"/><path d="M9.9 9.9A3 3 0 0 0 14.1 14.1"/>',
-    more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>'
+    more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
+    expand: '<path d="M15 3h6v6"/><path d="m10 14 11-11"/><path d="M9 21H3v-6"/><path d="m14 10-11 11"/>',
+    search: '<path d="m21 21-4.3-4.3"/><circle cx="11" cy="11" r="8"/>'
   };
   return `<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths[name] || ""}</svg>`;
 }
@@ -150,8 +153,143 @@ function isMobileViewport(windowLike = globalThis) {
   return width > 0 && width <= 740 && (touchPoints > 0 || width <= 520);
 }
 
+function shouldCollapseContextByDefault(windowLike = globalThis) {
+  return isMobileViewport(windowLike);
+}
+
+function supportsSpatialPanelEffects(windowLike = globalThis) {
+  const width = Number(windowLike.visualViewport?.width || windowLike.innerWidth || 0);
+  const touchPoints = Number(windowLike.navigator?.maxTouchPoints || 0);
+  const hoverFine = windowLike.matchMedia?.("(hover: hover) and (pointer: fine)")?.matches || false;
+  return width >= 740 && touchPoints > 0 && hoverFine;
+}
+
+function virtualKeyboardVisible(windowLike = globalThis) {
+  const viewport = windowLike.visualViewport;
+  if (!viewport || !isMobileViewport(windowLike)) {
+    return false;
+  }
+  const layoutHeight = Number(windowLike.innerHeight || viewport.height || 0);
+  const viewportHeight = Number(viewport.height || layoutHeight);
+  const viewportTop = Number(viewport.offsetTop || 0);
+  const bottomGap = Math.max(0, layoutHeight - viewportTop - viewportHeight);
+  return layoutHeight - viewportHeight > 120 || bottomGap > 120;
+}
+
+function shouldSubmitPromptOnEnter(event, windowLike = globalThis) {
+  if (event.key !== "Enter" || event.shiftKey || event.altKey || event.ctrlKey || event.metaKey || event.isComposing) {
+    return false;
+  }
+  return !virtualKeyboardVisible(windowLike);
+}
+
+function searchQueryInfo(urlLike = globalThis.location?.href || "") {
+  let url;
+  try {
+    url = new URL(String(urlLike));
+  } catch {
+    return null;
+  }
+  const host = url.hostname.replace(/^www\./, "").toLowerCase();
+  const path = url.pathname.toLowerCase();
+  const engine = (() => {
+    if (/(^|\.)google\./.test(host) && path.startsWith("/search")) {
+      return "google";
+    }
+    if (host === "bing.com" && path.startsWith("/search")) {
+      return "bing";
+    }
+    if (/(^|\.)yandex\./.test(host) && path.startsWith("/search")) {
+      return "yandex";
+    }
+    if ((host === "duckduckgo.com" || host === "html.duckduckgo.com") && (path === "/" || path.startsWith("/html"))) {
+      return "duckduckgo";
+    }
+    return null;
+  })();
+  if (!engine) {
+    return null;
+  }
+  const query = String(url.searchParams.get(engine === "yandex" ? "text" : "q") || "").trim();
+  return query ? { engine, query } : null;
+}
+
+function eventKey(event) {
+  if (event?.code === "KeyA") {
+    return "a";
+  }
+  if (event?.code === "KeyP") {
+    return "p";
+  }
+  return String(event?.key || "").toLowerCase();
+}
+
+function matchesPanelToggleShortcut(event) {
+  return eventKey(event) === "a"
+    && Boolean(event.altKey)
+    && !event.metaKey
+    && !event.ctrlKey
+    && !event.shiftKey
+    && !event.isComposing;
+}
+
+function matchesCommandPaletteShortcut(event) {
+  return eventKey(event) === "p"
+    && Boolean(event.metaKey)
+    && Boolean(event.shiftKey)
+    && !event.altKey
+    && !event.ctrlKey
+    && !event.isComposing;
+}
+
+function buildChatURL(baseURL, options = {}) {
+  const url = new URL(String(baseURL));
+  const add = (key, value) => {
+    const text = String(value || "").trim();
+    if (text) {
+      url.searchParams.set(key, text);
+    }
+  };
+  add("prompt", options.prompt);
+  add("selection", options.selection);
+  add("pageURL", options.page?.url);
+  add("pageTitle", options.page?.title);
+  add("sessionId", options.sessionId);
+  return url.toString();
+}
+
+function chatLaunchOptionsFromURL(urlLike = globalThis.location?.href || "") {
+  let url;
+  try {
+    url = new URL(String(urlLike));
+  } catch {
+    return {};
+  }
+  return {
+    prompt: url.searchParams.get("prompt") || "",
+    selection: url.searchParams.get("selection") || "",
+    page: {
+      url: url.searchParams.get("pageURL") || "about:blank",
+      title: url.searchParams.get("pageTitle") || "Safari"
+    },
+    sessionId: url.searchParams.get("sessionId") || ""
+  };
+}
+
+function isFullscreenChatPage(locationLike = globalThis.location) {
+  return String(locationLike?.pathname || "").endsWith("/chat.html")
+    || String(locationLike?.href || "").includes("/chat.html");
+}
+
 function selectionBubbleEnabled(settings = state.settings) {
   return settings?.selectionBubbleEnabled !== false;
+}
+
+function meshStatusText(mesh = {}) {
+  if (!mesh?.relayURL) {
+    return "Mesh is not configured.";
+  }
+  return `Mesh: ${mesh.networkName || mesh.networkId || mesh.relayURL} as ${mesh.identity?.nodeId || "unknown node"}`;
 }
 
 function updateViewportCSSVars() {
@@ -166,6 +304,7 @@ function updateViewportCSSVars() {
   root.style.setProperty("--sloppy-viewport-left", `${metrics.left}px`);
   root.style.setProperty("--sloppy-viewport-bottom-gap", `${metrics.bottomGap}px`);
   root.style.setProperty("--sloppy-mobile-bottom-inset", isMobileViewport(window) ? "12px" : "0px");
+  root.classList.toggle("sloppy-spatial-panel-effects", supportsSpatialPanelEffects(window));
 }
 
 const selectionActions = [
@@ -196,7 +335,16 @@ const state = {
   context: null,
   contextCollapsed: false,
   streamingMessageId: null,
-  selectionMenuText: ""
+  selectionMenuText: "",
+  selectionMenuRect: null,
+  fullscreenLaunch: null,
+  voiceConfig: {
+    enabled: false,
+    effectiveProvider: "local",
+    input: { mode: "push_to_talk", language: "auto", previewBeforeSend: true },
+    local: { enabled: true, voiceName: "", rate: 1, pitch: 1 }
+  },
+  voice: { state: "idle", transcript: "", recognition: null, recorder: null, cancelled: false }
 };
 
 function ensurePanel() {
@@ -206,6 +354,7 @@ function ensurePanel() {
     return frame;
   }
 
+  state.contextCollapsed = shouldCollapseContextByDefault(window);
   frame = document.createElement("aside");
   frame.id = "sloppy-safari-extension-panel";
   frame.innerHTML = `
@@ -216,6 +365,7 @@ function ensurePanel() {
           <select data-sloppy-agent aria-label="Agent"></select>
         </div>
         <div class="sloppy-actions">
+          <button class="sloppy-icon-button" type="button" data-sloppy-open-fullscreen aria-label="Open full-screen chat">${icon("expand")}</button>
           <button class="sloppy-icon-button" type="button" data-sloppy-sessions aria-label="Sessions">${icon("sessions")}</button>
           <button class="sloppy-icon-button" type="button" data-sloppy-settings aria-label="Settings">${icon("settings")}</button>
           <button class="sloppy-icon-button" type="button" data-sloppy-close aria-label="Close">${icon("close")}</button>
@@ -235,11 +385,21 @@ function ensurePanel() {
           <input data-sloppy-file type="file" multiple hidden>
           <div class="sloppy-composer-tools">
             <button class="sloppy-icon-button" type="button" data-sloppy-capture aria-label="Attach screenshot">${icon("screenshot")}</button>
+            <button class="sloppy-icon-button" type="button" data-sloppy-voice aria-label="Voice mode">${icon("mic")}</button>
             <button class="sloppy-send" type="submit" aria-label="Send">${icon("send")}</button>
           </div>
         </div>
       </form>
     </div>
+
+    <section class="sloppy-voice" data-sloppy-voice-panel hidden>
+      <div class="sloppy-voice-orb" data-sloppy-voice-orb></div>
+      <p data-sloppy-voice-status>Say something...</p>
+      <div class="sloppy-voice-actions">
+        <button class="sloppy-icon-button" type="button" data-sloppy-voice-cancel aria-label="Cancel">${icon("close")}</button>
+        <button class="sloppy-icon-button" type="button" data-sloppy-voice-record aria-label="Record">${icon("mic")}</button>
+      </div>
+    </section>
 
     <dialog class="sloppy-settings-dialog" data-sloppy-settings-dialog>
       <form method="dialog" class="sloppy-settings-card">
@@ -250,6 +410,17 @@ function ensurePanel() {
         <label>Core URL<input data-sloppy-core-url placeholder="http://127.0.0.1:25101"></label>
         <label>Auth token<input data-sloppy-auth-token type="password" autocomplete="off"></label>
         <label>Default agent<input data-sloppy-default-agent placeholder="sloppy"></label>
+        <div class="sloppy-settings-section">
+          <strong>Mesh</strong>
+          <label class="sloppy-settings-toggle">
+            <input data-sloppy-mesh-enabled type="checkbox">
+            <span>Use mesh relay</span>
+          </label>
+          <label>Invite token<textarea data-sloppy-mesh-invite rows="3"></textarea></label>
+          <label>Target node<input data-sloppy-mesh-target-node></label>
+          <button class="sloppy-settings-save" type="button" data-sloppy-mesh-join>Join mesh</button>
+          <p class="sloppy-settings-note" data-sloppy-mesh-status>Mesh is not configured.</p>
+        </div>
         <label class="sloppy-settings-toggle">
           <input data-sloppy-floating-button type="checkbox">
           <span>Show mobile floating button</span>
@@ -297,6 +468,45 @@ function ensureFloatingButton() {
   return button;
 }
 
+function ensureSearchButton() {
+  let button = document.getElementById("sloppy-search-ask-button");
+  if (button) {
+    return button;
+  }
+  button = document.createElement("button");
+  button.id = "sloppy-search-ask-button";
+  button.type = "button";
+  button.innerHTML = `<span>${icon("search")}</span><strong>Ask Sloppy</strong>`;
+  button.addEventListener("click", () => {
+    const info = searchQueryInfo(document.location.href);
+    if (info?.query) {
+      void openFullscreenChat({
+        prompt: `Search the web for: ${info.query}`,
+        selection: info.query,
+        page: {
+          url: document.location.href,
+          title: document.title || `${info.engine} search`
+        }
+      });
+    }
+  });
+  document.documentElement.appendChild(button);
+  return button;
+}
+
+function renderSearchButton() {
+  const existing = document.getElementById("sloppy-search-ask-button");
+  const info = searchQueryInfo(document.location.href);
+  if (!info?.query || document.getElementById("sloppy-safari-extension-panel")) {
+    if (existing) {
+      existing.hidden = true;
+    }
+    return;
+  }
+  const button = ensureSearchButton();
+  button.hidden = false;
+}
+
 function renderFloatingButton() {
   const existing = document.getElementById("sloppy-floating-button");
   const shouldShow = Boolean(state.settings?.floatingButtonEnabled)
@@ -310,6 +520,51 @@ function renderFloatingButton() {
   }
   const button = ensureFloatingButton();
   button.hidden = false;
+}
+
+function ensureCommandPalette() {
+  let palette = document.getElementById("sloppy-command-palette");
+  if (palette) {
+    return palette;
+  }
+  palette = document.createElement("div");
+  palette.id = "sloppy-command-palette";
+  palette.hidden = true;
+  palette.innerHTML = `
+    <form class="sloppy-command-palette-box" data-sloppy-command-palette-form>
+      <span>${icon("search")}</span>
+      <input data-sloppy-command-palette-input placeholder="Ask Sloppy" autocomplete="off">
+    </form>
+  `;
+  palette.addEventListener("mousedown", (event) => {
+    if (event.target === palette) {
+      hideCommandPalette();
+    }
+  });
+  palette.querySelector("[data-sloppy-command-palette-form]").addEventListener("submit", (event) => {
+    event.preventDefault();
+    const input = palette.querySelector("[data-sloppy-command-palette-input]");
+    const prompt = input.value.trim();
+    hideCommandPalette();
+    void openFullscreenChat({ prompt });
+  });
+  document.documentElement.appendChild(palette);
+  return palette;
+}
+
+function showCommandPalette() {
+  const palette = ensureCommandPalette();
+  const input = palette.querySelector("[data-sloppy-command-palette-input]");
+  input.value = "";
+  palette.hidden = false;
+  input.focus();
+}
+
+function hideCommandPalette() {
+  const palette = document.getElementById("sloppy-command-palette");
+  if (palette) {
+    palette.hidden = true;
+  }
 }
 
 function ensureSelectionMenu() {
@@ -348,10 +603,15 @@ function ensureSelectionMenu() {
 }
 
 function wireSelectionMenu(menu) {
-  menu.querySelector("[data-sloppy-selection-bubble]").addEventListener("click", (event) => {
+  const bubble = menu.querySelector("[data-sloppy-selection-bubble]");
+  const openPopover = (event) => {
+    event.preventDefault();
     event.stopPropagation();
     showSelectionPopover(menu);
-  });
+  };
+  bubble.addEventListener("pointerdown", openPopover);
+  bubble.addEventListener("touchend", openPopover);
+  bubble.addEventListener("click", openPopover);
   menu.querySelector("[data-sloppy-selection-form]").addEventListener("submit", (event) => {
     event.preventDefault();
     const input = menu.querySelector("[data-sloppy-selection-prompt]");
@@ -376,14 +636,48 @@ function wirePanel(frame) {
   frame.querySelector("[data-sloppy-close]").addEventListener("click", () => {
     frame.remove();
     renderFloatingButton();
+    renderSearchButton();
+  });
+  frame.querySelector("[data-sloppy-open-fullscreen]").addEventListener("click", () => {
+    void openFullscreenChat({
+      selection: state.context?.selection || selectedText(),
+      page: state.context?.page || extractPageContext(document, selectedText()).page,
+      sessionId: state.settings?.sessionId || ""
+    });
   });
   frame.querySelector("[data-sloppy-settings]").addEventListener("click", () => openSettings(frame));
   frame.querySelector("[data-sloppy-sessions]").addEventListener("click", () => openSessions(frame));
   frame.querySelector("[data-sloppy-new-session]").addEventListener("click", () => selectSession(frame, null));
   frame.querySelector("[data-sloppy-save-settings]").addEventListener("click", () => saveSettings(frame));
+  frame.querySelector("[data-sloppy-mesh-join]").addEventListener("click", async () => {
+    const token = frame.querySelector("[data-sloppy-mesh-invite]").value;
+    const status = frame.querySelector("[data-sloppy-mesh-status]");
+    status.textContent = "Joining mesh...";
+    try {
+      const response = await chrome.runtime.sendMessage({ type: "sloppy.mesh.join", token });
+      if (response?.error) {
+        status.textContent = response.error;
+        return;
+      }
+      state.settings = {
+        ...(state.settings || {}),
+        mesh: response?.mesh || {}
+      };
+      status.textContent = meshStatusText(response?.mesh || {});
+    } catch (error) {
+      status.textContent = error?.message || "Unable to join mesh.";
+    }
+  });
   frame.querySelector("[data-sloppy-attach]").addEventListener("click", () => frame.querySelector("[data-sloppy-file]").click());
   frame.querySelector("[data-sloppy-file]").addEventListener("change", (event) => addFiles(event.target.files, frame));
   frame.querySelector("[data-sloppy-capture]").addEventListener("click", () => captureScreenshot(frame));
+  frame.querySelector("[data-sloppy-voice]")?.addEventListener("click", () => {
+    void startVoice();
+  });
+  frame.querySelector("[data-sloppy-voice-record]")?.addEventListener("click", () => {
+    void startVoice();
+  });
+  frame.querySelector("[data-sloppy-voice-cancel]")?.addEventListener("click", () => cancelVoice());
   frame.querySelector("[data-sloppy-agent]").addEventListener("change", (event) => {
     state.settings.defaultAgentID = event.target.value;
     delete state.settings.sessionId;
@@ -399,6 +693,12 @@ function wirePanel(frame) {
     void handleComposerPaste(event, frame);
   });
   frame.querySelector("[data-sloppy-prompt]").addEventListener("keydown", (event) => {
+    if (shouldSubmitPromptOnEnter(event)) {
+      event.preventDefault();
+      hideCommandMenu(frame);
+      void sendPrompt(frame);
+      return;
+    }
     if (event.key === "Escape") {
       hideCommandMenu(frame);
     }
@@ -408,6 +708,190 @@ function wirePanel(frame) {
     event.target.style.height = `${Math.min(event.target.scrollHeight, 132)}px`;
     renderCommandMenu(frame);
   });
+}
+
+function buildVoicePrompt(transcript) {
+  return String(transcript || "").trim();
+}
+
+function normalizeVoiceConfig(config = {}) {
+  const provider = String(config.configuredProvider || config.provider || "auto").toLowerCase();
+  const effectiveProvider = String(config.effectiveProvider || (provider === "openai" ? "unavailable" : "local")).toLowerCase();
+  return {
+    enabled: Boolean(config.enabled),
+    configuredProvider: provider === "openai" || provider === "local" ? provider : "auto",
+    effectiveProvider: effectiveProvider === "openai" ? "openai" : "local",
+    openAIConfigured: Boolean(config.openAIConfigured),
+    localAvailable: config.localAvailable !== false,
+    input: {
+      mode: config.input?.mode === "auto_submit" ? "auto_submit" : "push_to_talk",
+      language: String(config.input?.language || "auto"),
+      previewBeforeSend: config.input?.previewBeforeSend !== false
+    },
+    local: {
+      enabled: config.local?.enabled !== false,
+      voiceName: String(config.local?.voiceName || ""),
+      rate: Number.isFinite(Number(config.local?.rate)) ? Number(config.local.rate) : 1,
+      pitch: Number.isFinite(Number(config.local?.pitch)) ? Number(config.local.pitch) : 1
+    }
+  };
+}
+
+function setVoiceState(nextState, message = "") {
+  state.voice.state = nextState;
+  const panel = document.querySelector("[data-sloppy-voice-panel]");
+  const status = document.querySelector("[data-sloppy-voice-status]");
+  const orb = document.querySelector("[data-sloppy-voice-orb]");
+  if (panel) {
+    panel.hidden = nextState === "idle";
+  }
+  if (status) {
+    status.textContent = message || (nextState === "listening" ? "Say something..." : nextState);
+  }
+  if (orb) {
+    orb.dataset.state = nextState;
+  }
+}
+
+async function loadVoiceConfig() {
+  const response = await chrome.runtime.sendMessage({ type: "sloppy.voice.config.get" }).catch((error) => ({ error: error.message }));
+  state.voiceConfig = normalizeVoiceConfig(response?.config || {});
+  return state.voiceConfig;
+}
+
+function blobToBase64(blob) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || "").split(",")[1] || "");
+    reader.onerror = () => reject(reader.error || new Error("Unable to read audio."));
+    reader.readAsDataURL(blob);
+  });
+}
+
+async function startVoice() {
+  try {
+    const config = await loadVoiceConfig();
+    if (config.effectiveProvider === "openai") {
+      await startOpenAIVoice(config);
+      return;
+    }
+    startLocalVoice();
+  } catch (error) {
+    setVoiceState("error", error.message || "Voice mode failed.");
+  }
+}
+
+async function startOpenAIVoice(config) {
+  if (!navigator.mediaDevices?.getUserMedia || typeof MediaRecorder !== "function") {
+    setVoiceState("error", "Microphone recording is unavailable in this browser.");
+    return;
+  }
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const chunks = [];
+  const recorder = new MediaRecorder(stream);
+  state.voice.recorder = recorder;
+  state.voice.cancelled = false;
+  state.voice.transcript = "";
+  recorder.ondataavailable = (event) => {
+    if (event.data?.size > 0) {
+      chunks.push(event.data);
+    }
+  };
+  recorder.onstop = () => {
+    stream.getTracks().forEach((track) => track.stop());
+    state.voice.recorder = null;
+    if (state.voice.cancelled) {
+      return;
+    }
+    void (async () => {
+      try {
+        setVoiceState("transcribing", "Transcribing...");
+        const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+        const audioBase64 = await blobToBase64(blob);
+        const response = await chrome.runtime.sendMessage({
+          type: "sloppy.voice.transcribe",
+          payload: {
+            audioBase64,
+            mimeType: blob.type || "audio/webm",
+            language: config.input.language,
+            prompt: ""
+          }
+        });
+        if (response?.error) {
+          setVoiceState("error", response.error);
+          return;
+        }
+        state.voice.transcript = response?.result?.text || "";
+        submitVoiceTranscript();
+      } catch (error) {
+        setVoiceState("error", error.message || "Voice transcription failed.");
+      }
+    })();
+  };
+  setVoiceState("listening", "Say something...");
+  recorder.start();
+  window.setTimeout(() => {
+    if (recorder.state === "recording") {
+      recorder.stop();
+    }
+  }, 12000);
+}
+
+function startLocalVoice() {
+  const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+  if (!SpeechRecognition) {
+    setVoiceState("error", "Speech recognition is unavailable in this browser.");
+    return;
+  }
+  state.voice.recognition?.abort?.();
+  const recognition = new SpeechRecognition();
+  recognition.lang = state.voiceConfig?.input?.language === "auto" ? "" : state.voiceConfig?.input?.language || "";
+  recognition.interimResults = true;
+  recognition.continuous = false;
+  state.voice.recognition = recognition;
+  state.voice.cancelled = false;
+  state.voice.transcript = "";
+  recognition.onresult = (event) => {
+    state.voice.transcript = Array.from(event.results)
+      .map((result) => result[0]?.transcript || "")
+      .join(" ")
+      .trim();
+    setVoiceState("listening", state.voice.transcript || "Say something...");
+  };
+  recognition.onerror = () => setVoiceState("error", "Microphone or speech recognition failed.");
+  recognition.onend = () => {
+    if (!state.voice.cancelled) {
+      submitVoiceTranscript();
+    }
+  };
+  setVoiceState("listening", "Say something...");
+  recognition.start();
+}
+
+function cancelVoice() {
+  state.voice.cancelled = true;
+  state.voice.recognition?.abort?.();
+  if (state.voice.recorder?.state === "recording") {
+    state.voice.recorder.stop();
+  }
+  state.voice.recognition = null;
+  state.voice.recorder = null;
+  state.voice.transcript = "";
+  setVoiceState("idle");
+}
+
+function submitVoiceTranscript() {
+  const prompt = buildVoicePrompt(state.voice.transcript);
+  if (!prompt) {
+    setVoiceState("error", "No speech detected.");
+    return;
+  }
+  const promptInput = document.querySelector("[data-sloppy-prompt]");
+  if (promptInput) {
+    promptInput.value = prompt;
+  }
+  setVoiceState("sending", "Sending...");
+  document.querySelector("[data-sloppy-composer]")?.requestSubmit?.();
 }
 
 function render(frame) {
@@ -470,6 +954,51 @@ function renderToolCall(tool) {
 
 function renderAttachmentChip(attachment) {
   return `<span class="sloppy-attachment-chip">${icon("file")}${escapeHTML(attachment.name)}</span>`;
+}
+
+function textFromSessionSegments(segments = []) {
+  return segments
+    .filter((segment) => !segment.kind || segment.kind === "text")
+    .map((segment) => segment?.text || segment?.content || "")
+    .filter(Boolean)
+    .join("\n");
+}
+
+function attachmentsFromSessionSegments(segments = []) {
+  return segments
+    .map((segment) => segment?.attachment)
+    .filter(Boolean)
+    .map(normalizeAttachment);
+}
+
+function displayTextFromSessionMessage(message = {}) {
+  const text = textFromSessionSegments(message.segments || []);
+  if (message.role === "user") {
+    const marker = "\nUser prompt:\n";
+    const markerIndex = text.lastIndexOf(marker);
+    if (markerIndex >= 0) {
+      return text.slice(markerIndex + marker.length).trim();
+    }
+  }
+  return text;
+}
+
+function normalizeSessionMessages(events = []) {
+  return events
+    .filter((event) => event?.message?.role === "user" || event?.message?.role === "assistant")
+    .map((event) => {
+      const message = event.message;
+      return {
+        id: message.id || event.id || globalThis.crypto?.randomUUID?.() || `${Date.now()}`,
+        role: message.role,
+        label: message.role === "assistant" ? "Assistant" : "You",
+        text: displayTextFromSessionMessage(message),
+        attachments: attachmentsFromSessionSegments(message.segments || []),
+        toolCalls: [],
+        streaming: false
+      };
+    })
+    .filter((message) => message.text || message.attachments.length);
 }
 
 function renderContext(frame) {
@@ -547,9 +1076,14 @@ async function summarizePage(frame) {
 }
 
 function openSettings(frame) {
+  const mesh = state.settings?.mesh || { enabled: false };
   frame.querySelector("[data-sloppy-core-url]").value = state.settings?.coreURLString || "";
   frame.querySelector("[data-sloppy-auth-token]").value = state.settings?.authToken || "";
   frame.querySelector("[data-sloppy-default-agent]").value = state.settings?.defaultAgentID || "sloppy";
+  frame.querySelector("[data-sloppy-mesh-enabled]").checked = Boolean(mesh.enabled);
+  frame.querySelector("[data-sloppy-mesh-invite]").value = "";
+  frame.querySelector("[data-sloppy-mesh-target-node]").value = mesh.targetNodeId || "";
+  frame.querySelector("[data-sloppy-mesh-status]").textContent = meshStatusText(mesh);
   frame.querySelector("[data-sloppy-floating-button]").checked = Boolean(state.settings?.floatingButtonEnabled);
   frame.querySelector("[data-sloppy-selection-bubble-enabled]").checked = selectionBubbleEnabled();
   frame.querySelector("[data-sloppy-settings-dialog]").showModal();
@@ -561,6 +1095,11 @@ async function saveSettings(frame) {
     authToken: frame.querySelector("[data-sloppy-auth-token]").value,
     defaultAgentID: frame.querySelector("[data-sloppy-default-agent]").value,
     sessionId: state.settings?.sessionId || null,
+    mesh: {
+      ...(state.settings?.mesh || {}),
+      enabled: frame.querySelector("[data-sloppy-mesh-enabled]").checked,
+      targetNodeId: frame.querySelector("[data-sloppy-mesh-target-node]").value
+    },
     floatingButtonEnabled: frame.querySelector("[data-sloppy-floating-button]").checked,
     selectionBubbleEnabled: frame.querySelector("[data-sloppy-selection-bubble-enabled]").checked
   };
@@ -709,7 +1248,8 @@ function renderSessionList(frame) {
 async function selectSession(frame, sessionId) {
   const response = await chrome.runtime.sendMessage({
     type: "sloppy.sessions.select",
-    sessionId: sessionId || ""
+    sessionId: sessionId || "",
+    agentId: state.settings?.defaultAgentID || "sloppy"
   });
   if (response?.error) {
     appendMessage({ role: "assistant", label: "Assistant", text: response.error });
@@ -717,6 +1257,7 @@ async function selectSession(frame, sessionId) {
     return;
   }
   state.settings = response?.settings || state.settings;
+  state.messages = sessionId ? normalizeSessionMessages(response?.session?.events || []) : [];
   frame.querySelector("[data-sloppy-sessions-dialog]").close();
   render(frame);
 }
@@ -743,6 +1284,19 @@ function selectedTextInfo() {
     return null;
   }
   return { text, rect };
+}
+
+function cachedSelectionInfo(info, stateLike = state) {
+  if (info) {
+    return info;
+  }
+  if (!stateLike.selectionMenuText || !stateLike.selectionMenuRect) {
+    return null;
+  }
+  return {
+    text: stateLike.selectionMenuText,
+    rect: stateLike.selectionMenuRect
+  };
 }
 
 function positionSelectionMenu(menu, rect, showPopover = false) {
@@ -780,18 +1334,20 @@ function updateSelectionMenu() {
   }
   const menu = ensureSelectionMenu();
   state.selectionMenuText = info.text;
+  state.selectionMenuRect = info.rect;
   menu.hidden = false;
   menu.querySelector("[data-sloppy-selection-popover]").hidden = true;
   positionSelectionMenu(menu, info.rect, false);
 }
 
 function showSelectionPopover(menu) {
-  const info = selectedTextInfo();
+  const info = cachedSelectionInfo(selectedTextInfo());
   if (!info) {
     hideSelectionMenu();
     return;
   }
   state.selectionMenuText = info.text;
+  state.selectionMenuRect = info.rect;
   const popover = menu.querySelector("[data-sloppy-selection-popover]");
   popover.hidden = false;
   positionSelectionMenu(menu, info.rect, true);
@@ -804,13 +1360,41 @@ function hideSelectionMenu() {
     return;
   }
   menu.hidden = true;
+  state.selectionMenuRect = null;
   menu.classList.remove("is-popover-open");
   menu.querySelector("[data-sloppy-selection-popover]").hidden = true;
 }
 
+function contextWithSelection(context, selection) {
+  if (!context?.page) {
+    return context;
+  }
+  return {
+    ...context,
+    selection: String(selection || "")
+  };
+}
+
+function syncPanelSelectionContext(frame = document.getElementById("sloppy-safari-extension-panel")) {
+  if (!frame || !state.context?.page) {
+    return false;
+  }
+  const info = selectedTextInfo();
+  const nextSelection = info?.text || "";
+  if (state.context.selection === nextSelection) {
+    return false;
+  }
+  state.context = contextWithSelection(state.context, nextSelection);
+  renderContext(frame);
+  return true;
+}
+
 function scheduleSelectionMenuUpdate() {
   window.clearTimeout(scheduleSelectionMenuUpdate.timer);
-  scheduleSelectionMenuUpdate.timer = window.setTimeout(updateSelectionMenu, 80);
+  scheduleSelectionMenuUpdate.timer = window.setTimeout(() => {
+    updateSelectionMenu();
+    syncPanelSelectionContext();
+  }, 80);
 }
 
 async function openPanelWithSelection(selectionText) {
@@ -820,6 +1404,7 @@ async function openPanelWithSelection(selectionText) {
   await Promise.all([loadAgents(panel), refreshTabs(panel), loadSlashCommands(panel)]);
   render(panel);
   renderFloatingButton();
+  renderSearchButton();
   return panel;
 }
 
@@ -1176,6 +1761,9 @@ async function sendPrompt(frame) {
     await performAgentBrowserActions(response, message);
     message.streaming = false;
   }
+  if (state.voice.state === "sending") {
+    setVoiceState("idle");
+  }
   render(frame);
 }
 
@@ -1184,11 +1772,60 @@ async function openPanel() {
   panel.querySelector("[data-sloppy-prompt]").focus();
 }
 
+async function togglePanel() {
+  const panel = document.getElementById("sloppy-safari-extension-panel");
+  if (panel) {
+    panel.remove();
+    renderFloatingButton();
+    renderSearchButton();
+    return;
+  }
+  await openPanel();
+}
+
+async function openFullscreenChat(options = {}) {
+  const context = extractPageContext(document, options.selection || selectedText());
+  const page = options.page || context.page;
+  const url = buildChatURL(chrome.runtime.getURL("chat.html"), {
+    prompt: options.prompt,
+    selection: options.selection || context.selection,
+    page,
+    sessionId: options.sessionId || state.settings?.sessionId || ""
+  });
+  await chrome.runtime.sendMessage({ type: "sloppy.tabs.open", url });
+}
+
+async function initializeFullscreenChat() {
+  document.documentElement.classList.add("sloppy-fullscreen-chat-page");
+  const launch = chatLaunchOptionsFromURL(document.location.href);
+  state.fullscreenLaunch = launch;
+  state.context = {
+    page: launch.page,
+    selection: launch.selection || ""
+  };
+  state.settings = state.settings || await chrome.runtime.sendMessage({ type: "sloppy.settings.get" });
+  if (launch.sessionId) {
+    state.settings.sessionId = launch.sessionId;
+  }
+  const panel = ensurePanel();
+  await Promise.all([loadAgents(panel), refreshTabs(panel), loadSlashCommands(panel)]);
+  render(panel);
+  const prompt = String(launch.prompt || "").trim();
+  if (prompt) {
+    const textarea = panel.querySelector("[data-sloppy-prompt]");
+    textarea.value = prompt;
+    await sendPrompt(panel);
+  } else {
+    panel.querySelector("[data-sloppy-prompt]").focus();
+  }
+}
+
 if (typeof document !== "undefined" && typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   updateViewportCSSVars();
   const refreshViewportDependentUI = () => {
     updateViewportCSSVars();
     renderFloatingButton();
+    renderSearchButton();
   };
   window.visualViewport?.addEventListener("resize", refreshViewportDependentUI);
   window.visualViewport?.addEventListener("scroll", refreshViewportDependentUI);
@@ -1204,21 +1841,37 @@ if (typeof document !== "undefined" && typeof chrome !== "undefined" && chrome.r
     }
   }, true);
   document.addEventListener("keydown", (event) => {
+    if (matchesPanelToggleShortcut(event)) {
+      event.preventDefault();
+      void togglePanel();
+      return;
+    }
+    if (matchesCommandPaletteShortcut(event)) {
+      event.preventDefault();
+      showCommandPalette();
+      return;
+    }
     if (event.key === "Escape") {
+      hideCommandPalette();
       hideSelectionMenu();
     }
   });
   window.addEventListener("scroll", hideSelectionMenu, true);
 
-  void chrome.runtime.sendMessage({ type: "sloppy.settings.get" }).then((settings) => {
+  if (isFullscreenChatPage(document.location)) {
+    void initializeFullscreenChat();
+  } else {
+    void chrome.runtime.sendMessage({ type: "sloppy.settings.get" }).then((settings) => {
     if (!settings?.error) {
       state.settings = settings;
       renderFloatingButton();
+      renderSearchButton();
       if (!selectionBubbleEnabled()) {
         hideSelectionMenu();
       }
     }
-  }).catch(() => {});
+    }).catch(() => {});
+  }
 
   chrome.runtime.onMessage.addListener((message) => {
     if (message?.type === "sloppy.panel.open") {
