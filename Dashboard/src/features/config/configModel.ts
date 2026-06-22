@@ -57,6 +57,12 @@ export const SETTINGS_ITEMS = [
     icon: "open_in_browser",
     searchTerms: ["chromium", "cdp", "headless", "profile", "executable", "startup timeout", "arguments"]
   },
+  {
+    id: "voice-mode",
+    title: "Voice Mode",
+    icon: "mic",
+    searchTerms: ["voice", "speech", "transcription", "tts", "openai", "microphone", "audio"]
+  },
   { id: "tui", title: "TUI", icon: "terminal", searchTerms: ["terminal", "editor", "default editor", "cli"] },
   { id: "ui", title: "UI", icon: "palette", searchTerms: ["dashboard", "auth", "token", "terminal", "local only"] },
   {
@@ -303,6 +309,49 @@ export function normalizeNode(node, index = 0) {
   };
 }
 
+function normalizeVoiceProvider(value) {
+  const provider = String(value || "auto").trim().toLowerCase();
+  return provider === "openai" || provider === "local" ? provider : "auto";
+}
+
+function normalizeVoiceInputMode(value) {
+  const mode = String(value || "push_to_talk").trim().toLowerCase();
+  return mode === "auto_submit" ? "auto_submit" : "push_to_talk";
+}
+
+function normalizeNumberRange(value, fallback, min, max) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+  return Math.min(Math.max(parsed, min), max);
+}
+
+export function normalizeVoiceMode(value) {
+  return {
+    enabled: Boolean(value?.enabled),
+    provider: normalizeVoiceProvider(value?.provider),
+    input: {
+      mode: normalizeVoiceInputMode(value?.input?.mode),
+      language: String(value?.input?.language || "auto").trim() || "auto",
+      previewBeforeSend: value?.input?.previewBeforeSend !== false
+    },
+    openAI: {
+      enabled: Boolean(value?.openAI?.enabled),
+      transcriptionModel: String(value?.openAI?.transcriptionModel || "gpt-4o-mini-transcribe").trim() || "gpt-4o-mini-transcribe",
+      ttsModel: String(value?.openAI?.ttsModel || "gpt-4o-mini-tts").trim() || "gpt-4o-mini-tts",
+      voice: String(value?.openAI?.voice || "coral").trim() || "coral",
+      instructions: String(value?.openAI?.instructions || "")
+    },
+    local: {
+      enabled: value?.local?.enabled !== false,
+      voiceName: String(value?.local?.voiceName || ""),
+      rate: normalizeNumberRange(value?.local?.rate, 1, 0.5, 2),
+      pitch: normalizeNumberRange(value?.local?.pitch, 1, 0, 2)
+    }
+  };
+}
+
 export const EMPTY_CONFIG = {
   listen: { host: "0.0.0.0", port: 25101 },
   workspace: { name: ".sloppy", basePath: "~" },
@@ -418,6 +467,28 @@ export const EMPTY_CONFIG = {
     headless: false,
     startupTimeoutMs: 10000,
     additionalArguments: []
+  },
+  voiceMode: {
+    enabled: false,
+    provider: "auto",
+    input: {
+      mode: "push_to_talk",
+      language: "auto",
+      previewBeforeSend: true
+    },
+    openAI: {
+      enabled: false,
+      transcriptionModel: "gpt-4o-mini-transcribe",
+      ttsModel: "gpt-4o-mini-tts",
+      voice: "coral",
+      instructions: ""
+    },
+    local: {
+      enabled: true,
+      voiceName: "",
+      rate: 1,
+      pitch: 1
+    }
   },
   visor: {
     scheduler: {
@@ -996,6 +1067,7 @@ export function normalizeConfig(config) {
   normalized.browser.additionalArguments = Array.isArray(config?.browser?.additionalArguments)
     ? config.browser.additionalArguments.map((arg) => String(arg)).filter(Boolean)
     : [];
+  normalized.voiceMode = normalizeVoiceMode(config?.voiceMode);
 
   const cc = config?.compactor;
   normalized.compactor.enabled = cc?.enabled !== false;

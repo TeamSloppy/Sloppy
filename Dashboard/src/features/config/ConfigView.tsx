@@ -42,6 +42,7 @@ import { ApprovalsView } from "./components/ApprovalsView";
 import { ConfigRawView } from "./components/ConfigRawView";
 import { ProxyEditor } from "./components/ProxyEditor";
 import { BrowserEditor } from "./components/BrowserEditor";
+import { VoiceModeEditor } from "./components/VoiceModeEditor";
 import { ACPEditor } from "./components/ACPEditor";
 import { UIEditor } from "./components/UIEditor";
 import { VisorEditor } from "./components/VisorEditor";
@@ -1684,6 +1685,17 @@ export function ConfigView({
 
     if (selectedSettings === "browser") {
       return <BrowserEditor draftConfig={draftConfig} mutateDraft={mutateDraft} parseLines={parseLines} />;
+    }
+
+    if (selectedSettings === "voice-mode") {
+      return (
+        <VoiceModeEditor
+          voiceMode={draftConfig.voiceMode}
+          onUpdate={(nextVoiceMode) => mutateDraft((next) => {
+            next.voiceMode = nextVoiceMode;
+          })}
+        />
+      );
     }
 
     if (selectedSettings === "visor") {
