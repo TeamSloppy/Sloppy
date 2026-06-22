@@ -1,0 +1,196 @@
+name: SafariExtension
+
+options:
+  bundleIdPrefix: team.sloppy
+  deploymentTarget:
+    macOS: "14.0"
+    iOS: "17.0"
+    visionOS: "1.0"
+  createIntermediateGroups: true
+
+packages:
+  SafariExtension:
+    path: .
+
+targets:
+  SafariExtension-macOS:
+    type: application
+    platform: macOS
+    sources:
+      - Sources/SafariExtensionApp
+    dependencies:
+      - package: SafariExtension
+        product: SafariExtensionCore
+      - target: SafariExtensionWebExtension-macOS
+    info:
+      path: SupportingFiles/macOS/Info.plist
+      properties:
+        CFBundleDisplayName: SafariExtension
+        CFBundleIdentifier: team.sloppy.safariextension
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        NSPrincipalClass: NSApplication
+        NSLocalNetworkUsageDescription: SafariExtension connects to Sloppy Core on your local network.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    entitlements:
+      path: SupportingFiles/macOS/SafariExtension.entitlements
+      properties:
+        com.apple.security.app-sandbox: true
+        com.apple.security.network.client: true
+    settings:
+      base:
+        DEVELOPMENT_TEAM: 8PYCRS3EA3
+        CODE_SIGN_STYLE: Automatic
+        PRODUCT_BUNDLE_IDENTIFIER: team.sloppy.safariextension
+
+  SafariExtension-iOS:
+    type: application
+    platform: iOS
+    sources:
+      - Sources/SafariExtensionApp
+    dependencies:
+      - package: SafariExtension
+        product: SafariExtensionCore
+      - target: SafariExtensionWebExtension-iOS
+    info:
+      path: SupportingFiles/iOS/Info.plist
+      properties:
+        CFBundleDisplayName: SafariExtension
+        CFBundleIdentifier: team.sloppy.safariextension
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        NSLocalNetworkUsageDescription: SafariExtension connects to Sloppy Core on your local network.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    entitlements:
+      path: SupportingFiles/iOS/SafariExtension-iOS.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+    settings:
+      base:
+        DEVELOPMENT_TEAM: 8PYCRS3EA3
+        CODE_SIGN_STYLE: Automatic
+        PRODUCT_BUNDLE_IDENTIFIER: team.sloppy.safariextension
+        TARGETED_DEVICE_FAMILY: "1"
+
+  SafariExtension-iPadOS:
+    type: application
+    platform: iOS
+    sources:
+      - Sources/SafariExtensionApp
+    dependencies:
+      - package: SafariExtension
+        product: SafariExtensionCore
+      - target: SafariExtensionWebExtension-iOS
+    info:
+      path: SupportingFiles/iOS/Info.plist
+      properties:
+        CFBundleDisplayName: SafariExtension
+        CFBundleIdentifier: team.sloppy.safariextension
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        NSLocalNetworkUsageDescription: SafariExtension connects to Sloppy Core on your local network.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    entitlements:
+      path: SupportingFiles/iOS/SafariExtension-iPadOS.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+    settings:
+      base:
+        DEVELOPMENT_TEAM: 8PYCRS3EA3
+        CODE_SIGN_STYLE: Automatic
+        PRODUCT_BUNDLE_IDENTIFIER: team.sloppy.safariextension
+        TARGETED_DEVICE_FAMILY: "2"
+
+  SafariExtension-visionOS:
+    type: application
+    platform: visionOS
+    sources:
+      - Sources/SafariExtensionApp
+    dependencies:
+      - package: SafariExtension
+        product: SafariExtensionCore
+      - target: SafariExtensionWebExtension-visionOS
+    info:
+      path: SupportingFiles/visionOS/Info.plist
+      properties:
+        CFBundleDisplayName: SafariExtension
+        CFBundleIdentifier: team.sloppy.safariextension
+        CFBundleShortVersionString: "0.1.0"
+        CFBundleVersion: "1"
+        UILaunchScreen: {}
+        NSLocalNetworkUsageDescription: SafariExtension connects to Sloppy Core on your local network.
+        NSAppTransportSecurity:
+          NSAllowsLocalNetworking: true
+    entitlements:
+      path: SupportingFiles/visionOS/SafariExtension-visionOS.entitlements
+      properties:
+        com.apple.security.app-sandbox: false
+    settings:
+      base:
+        DEVELOPMENT_TEAM: 8PYCRS3EA3
+        CODE_SIGN_STYLE: Automatic
+        PRODUCT_BUNDLE_IDENTIFIER: team.sloppy.safariextension
+
+  SafariExtensionWebExtension-macOS:
+    type: app-extension
+    platform: macOS
+    sources:
+      - Extension/Resources
+    info:
+      path: SupportingFiles/macOS/Info.plist
+      properties:
+        CFBundleDisplayName: SafariExtension
+        CFBundleIdentifier: team.sloppy.safariextension.webextension
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.Safari.web-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: team.sloppy.safariextension.webextension
+
+  SafariExtensionWebExtension-iOS:
+    type: app-extension
+    platform: iOS
+    sources:
+      - Extension/Resources
+    info:
+      path: SupportingFiles/iOS/Info.plist
+      properties:
+        CFBundleDisplayName: SafariExtension
+        CFBundleIdentifier: team.sloppy.safariextension.webextension
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.Safari.web-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: team.sloppy.safariextension.webextension
+
+  SafariExtensionWebExtension-visionOS:
+    type: app-extension
+    platform: visionOS
+    sources:
+      - Extension/Resources
+    info:
+      path: SupportingFiles/visionOS/Info.plist
+      properties:
+        CFBundleDisplayName: SafariExtension
+        CFBundleIdentifier: team.sloppy.safariextension.webextension
+        NSExtension:
+          NSExtensionPointIdentifier: com.apple.Safari.web-extension
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: team.sloppy.safariextension.webextension
+
+schemes:
+  SafariExtension-macOS:
+    build:
+      targets:
+        SafariExtension-macOS: all
+    run:
+      config: Debug
+      executable: SafariExtension-macOS
+    archive:
+      config: Release
