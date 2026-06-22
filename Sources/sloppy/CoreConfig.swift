@@ -986,6 +986,87 @@ public struct CoreConfig: Codable, Sendable {
         }
     }
 
+    public struct VoiceMode: Codable, Sendable, Equatable {
+        public enum Provider: String, Codable, Sendable, Equatable {
+            case auto
+            case openAI = "openai"
+            case local
+        }
+
+        public enum InputMode: String, Codable, Sendable, Equatable {
+            case pushToTalk = "push_to_talk"
+            case autoSubmit = "auto_submit"
+        }
+
+        public struct Input: Codable, Sendable, Equatable {
+            public var mode: InputMode
+            public var language: String
+            public var previewBeforeSend: Bool
+
+            public init(mode: InputMode = .pushToTalk, language: String = "auto", previewBeforeSend: Bool = true) {
+                self.mode = mode
+                self.language = language.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "auto" : language
+                self.previewBeforeSend = previewBeforeSend
+            }
+        }
+
+        public struct OpenAI: Codable, Sendable, Equatable {
+            public var enabled: Bool
+            public var transcriptionModel: String
+            public var ttsModel: String
+            public var voice: String
+            public var instructions: String
+
+            public init(
+                enabled: Bool = false,
+                transcriptionModel: String = "gpt-4o-mini-transcribe",
+                ttsModel: String = "gpt-4o-mini-tts",
+                voice: String = "coral",
+                instructions: String = ""
+            ) {
+                self.enabled = enabled
+                self.transcriptionModel = transcriptionModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "gpt-4o-mini-transcribe" : transcriptionModel
+                self.ttsModel = ttsModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "gpt-4o-mini-tts" : ttsModel
+                self.voice = voice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "coral" : voice
+                self.instructions = instructions
+            }
+        }
+
+        public struct Local: Codable, Sendable, Equatable {
+            public var enabled: Bool
+            public var voiceName: String
+            public var rate: Double
+            public var pitch: Double
+
+            public init(enabled: Bool = true, voiceName: String = "", rate: Double = 1, pitch: Double = 1) {
+                self.enabled = enabled
+                self.voiceName = voiceName
+                self.rate = min(max(rate, 0.5), 2)
+                self.pitch = min(max(pitch, 0), 2)
+            }
+        }
+
+        public var enabled: Bool
+        public var provider: Provider
+        public var input: Input
+        public var openAI: OpenAI
+        public var local: Local
+
+        public init(
+            enabled: Bool = false,
+            provider: Provider = .auto,
+            input: Input = Input(),
+            openAI: OpenAI = OpenAI(),
+            local: Local = Local()
+        ) {
+            self.enabled = enabled
+            self.provider = provider
+            self.input = input
+            self.openAI = openAI
+            self.local = local
+        }
+    }
+
     public struct SearchTools: Codable, Sendable, Equatable {
         public enum ProviderID: String, Codable, Sendable, Equatable {
             case brave
@@ -1807,6 +1888,7 @@ public struct CoreConfig: Codable, Sendable {
     public var searchTools: SearchTools
     public var proxy: Proxy
     public var browser: Browser
+    public var voiceMode: VoiceMode
     public var visor: Visor
     public var compactor: Compactor
     public var kanban: Kanban
@@ -1842,6 +1924,7 @@ public struct CoreConfig: Codable, Sendable {
         searchTools: SearchTools = SearchTools(),
         proxy: Proxy = Proxy(),
         browser: Browser = Browser(),
+        voiceMode: VoiceMode = VoiceMode(),
         visor: Visor = Visor(),
         compactor: Compactor = Compactor(),
         kanban: Kanban = Kanban(),
@@ -1876,6 +1959,7 @@ public struct CoreConfig: Codable, Sendable {
         self.searchTools = searchTools
         self.proxy = proxy
         self.browser = browser
+        self.voiceMode = voiceMode
         self.visor = visor
         self.compactor = compactor
         self.kanban = kanban
@@ -1924,6 +2008,7 @@ public struct CoreConfig: Codable, Sendable {
             searchTools: .init(),
             proxy: .init(),
             browser: .init(),
+            voiceMode: .init(),
             visor: .init(),
             compactor: .init(),
             kanban: .init(),
@@ -2002,6 +2087,7 @@ public struct CoreConfig: Codable, Sendable {
         case searchTools
         case proxy
         case browser
+        case voiceMode
         case visor
         case compactor
         case kanban
@@ -2037,6 +2123,7 @@ public struct CoreConfig: Codable, Sendable {
         searchTools = try container.decodeIfPresent(SearchTools.self, forKey: .searchTools) ?? .init()
         proxy = try container.decodeIfPresent(Proxy.self, forKey: .proxy) ?? .init()
         browser = try container.decodeIfPresent(Browser.self, forKey: .browser) ?? .init()
+        voiceMode = try container.decodeIfPresent(VoiceMode.self, forKey: .voiceMode) ?? .init()
         visor = try container.decodeIfPresent(Visor.self, forKey: .visor) ?? .init()
         compactor = try container.decodeIfPresent(Compactor.self, forKey: .compactor) ?? .init()
         kanban = try container.decodeIfPresent(Kanban.self, forKey: .kanban) ?? .init()
@@ -2080,6 +2167,7 @@ public struct CoreConfig: Codable, Sendable {
         try container.encode(searchTools, forKey: .searchTools)
         try container.encode(proxy, forKey: .proxy)
         try container.encode(browser, forKey: .browser)
+        try container.encode(voiceMode, forKey: .voiceMode)
         try container.encode(visor, forKey: .visor)
         try container.encode(compactor, forKey: .compactor)
         try container.encode(kanban, forKey: .kanban)

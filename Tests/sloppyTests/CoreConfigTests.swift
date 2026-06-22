@@ -921,3 +921,68 @@ func browserConfigRoundTrips() throws {
     #expect(decoded.browser.startupTimeoutMs == 12_000)
     #expect(decoded.browser.additionalArguments == ["--disable-extensions"])
 }
+
+@Test
+func missingVoiceModeFallsBackToDefaults() throws {
+    let json =
+        """
+        {
+          "listen": { "host": "0.0.0.0", "port": 25101 },
+          "auth": { "token": "dev-token" },
+          "models": [],
+          "memory": { "backend": "sqlite-local-vectors" },
+          "nodes": ["local"],
+          "gateways": [],
+          "plugins": [],
+          "sqlitePath": "core.sqlite"
+        }
+        """
+
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
+
+    #expect(decoded.voiceMode.enabled == false)
+    #expect(decoded.voiceMode.provider == .auto)
+    #expect(decoded.voiceMode.input.mode == .pushToTalk)
+    #expect(decoded.voiceMode.input.language == "auto")
+    #expect(decoded.voiceMode.input.previewBeforeSend == true)
+    #expect(decoded.voiceMode.openAI.enabled == false)
+    #expect(decoded.voiceMode.openAI.transcriptionModel == "gpt-4o-mini-transcribe")
+    #expect(decoded.voiceMode.openAI.ttsModel == "gpt-4o-mini-tts")
+    #expect(decoded.voiceMode.openAI.voice == "coral")
+    #expect(decoded.voiceMode.local.enabled == true)
+    #expect(decoded.voiceMode.local.rate == 1)
+    #expect(decoded.voiceMode.local.pitch == 1)
+}
+
+@Test
+func voiceModeConfigRoundTrips() throws {
+    var config = CoreConfig.default
+    config.voiceMode = .init(
+        enabled: true,
+        provider: .openAI,
+        input: .init(mode: .autoSubmit, language: "ru-RU", previewBeforeSend: false),
+        openAI: .init(
+            enabled: true,
+            transcriptionModel: "gpt-4o-transcribe",
+            ttsModel: "gpt-4o-mini-tts",
+            voice: "marin",
+            instructions: "Speak calmly."
+        ),
+        local: .init(enabled: true, voiceName: "Milena", rate: 1.1, pitch: 0.9)
+    )
+
+    let data = try JSONEncoder().encode(config)
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: data)
+
+    #expect(decoded.voiceMode.enabled == true)
+    #expect(decoded.voiceMode.provider == .openAI)
+    #expect(decoded.voiceMode.input.mode == .autoSubmit)
+    #expect(decoded.voiceMode.input.language == "ru-RU")
+    #expect(decoded.voiceMode.input.previewBeforeSend == false)
+    #expect(decoded.voiceMode.openAI.enabled == true)
+    #expect(decoded.voiceMode.openAI.transcriptionModel == "gpt-4o-transcribe")
+    #expect(decoded.voiceMode.openAI.voice == "marin")
+    #expect(decoded.voiceMode.local.voiceName == "Milena")
+    #expect(decoded.voiceMode.local.rate == 1.1)
+    #expect(decoded.voiceMode.local.pitch == 0.9)
+}
