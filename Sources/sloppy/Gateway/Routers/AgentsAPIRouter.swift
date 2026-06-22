@@ -252,6 +252,31 @@ struct AgentsAPIRouter: APIRouter {
             }
         }
 
+        router.post("/v1/browser/context-message", metadata: RouteMetadata(summary: "Post browser context message", description: "Posts selected Safari page context to an agent session", tags: ["Agents"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: BrowserContextMessageRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            do {
+                let response = try await service.postBrowserContextMessage(payload)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch CoreService.BrowserContextError.invalidPayload {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            } catch CoreService.BrowserContextError.invalidAgentID {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidAgentId])
+            } catch CoreService.BrowserContextError.invalidSessionID {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidSessionId])
+            } catch CoreService.AgentStorageError.notFound {
+                return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.agentNotFound])
+            } catch let error as CoreService.AgentSessionError {
+                return CoreRouter.agentSessionErrorResponse(error, fallback: ErrorCode.sessionWriteFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.sessionWriteFailed])
+            }
+        }
+
         router.get("/v1/agents/:agentId/config", metadata: RouteMetadata(summary: "Get agent config", description: "Returns the configuration for a specific agent", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             do {
