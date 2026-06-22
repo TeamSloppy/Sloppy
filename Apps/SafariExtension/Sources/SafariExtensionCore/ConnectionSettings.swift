@@ -17,16 +17,22 @@ public struct ConnectionSettings: Codable, Equatable, Sendable {
     }
 
     public mutating func normalize() {
+        self = normalized()
+    }
+
+    public func normalized() -> ConnectionSettings {
+        var normalized = self
         var url = coreURLString.trimmingCharacters(in: .whitespacesAndNewlines)
         if url.isEmpty {
             url = "http://127.0.0.1:25101"
         } else if !url.contains("://") {
             url = "http://\(url)"
         }
-        coreURLString = url.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        authToken = authToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        normalized.coreURLString = url.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        normalized.authToken = authToken.trimmingCharacters(in: .whitespacesAndNewlines)
         let agent = defaultAgentID.trimmingCharacters(in: .whitespacesAndNewlines)
-        defaultAgentID = agent.isEmpty ? "sloppy" : agent
+        normalized.defaultAgentID = agent.isEmpty ? "sloppy" : agent
+        return normalized
     }
 }
 
@@ -40,15 +46,14 @@ public final class ConnectionSettingsStore: ObservableObject {
         self.userDefaults = userDefaults
         if let data = userDefaults.data(forKey: key),
            let decoded = try? JSONDecoder().decode(ConnectionSettings.self, from: data) {
-            self.settings = decoded
+            self.settings = decoded.normalized()
         } else {
             self.settings = ConnectionSettings()
         }
     }
 
     public func save() {
-        var normalized = settings
-        normalized.normalize()
+        let normalized = settings.normalized()
         settings = normalized
         if let data = try? JSONEncoder().encode(normalized) {
             userDefaults.set(data, forKey: key)

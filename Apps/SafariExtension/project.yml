@@ -66,8 +66,6 @@ targets:
           NSAllowsLocalNetworking: true
     entitlements:
       path: SupportingFiles/iOS/SafariExtension-iOS.entitlements
-      properties:
-        com.apple.security.app-sandbox: false
     settings:
       base:
         DEVELOPMENT_TEAM: 8PYCRS3EA3
@@ -97,8 +95,6 @@ targets:
           NSAllowsLocalNetworking: true
     entitlements:
       path: SupportingFiles/iOS/SafariExtension-iPadOS.entitlements
-      properties:
-        com.apple.security.app-sandbox: false
     settings:
       base:
         DEVELOPMENT_TEAM: 8PYCRS3EA3
@@ -128,8 +124,6 @@ targets:
           NSAllowsLocalNetworking: true
     entitlements:
       path: SupportingFiles/visionOS/SafariExtension-visionOS.entitlements
-      properties:
-        com.apple.security.app-sandbox: false
     settings:
       base:
         DEVELOPMENT_TEAM: 8PYCRS3EA3
@@ -142,10 +136,11 @@ targets:
     sources:
       - Extension/Resources
     info:
-      path: SupportingFiles/macOS/Info.plist
+      path: SupportingFiles/WebExtension/macOS/Info.plist
       properties:
         CFBundleDisplayName: SafariExtension
         CFBundleIdentifier: team.sloppy.safariextension.webextension
+        CFBundlePackageType: XPC!
         NSExtension:
           NSExtensionPointIdentifier: com.apple.Safari.web-extension
     settings:
@@ -158,10 +153,11 @@ targets:
     sources:
       - Extension/Resources
     info:
-      path: SupportingFiles/iOS/Info.plist
+      path: SupportingFiles/WebExtension/iOS/Info.plist
       properties:
         CFBundleDisplayName: SafariExtension
         CFBundleIdentifier: team.sloppy.safariextension.webextension
+        CFBundlePackageType: XPC!
         NSExtension:
           NSExtensionPointIdentifier: com.apple.Safari.web-extension
     settings:
@@ -174,10 +170,11 @@ targets:
     sources:
       - Extension/Resources
     info:
-      path: SupportingFiles/visionOS/Info.plist
+      path: SupportingFiles/WebExtension/visionOS/Info.plist
       properties:
         CFBundleDisplayName: SafariExtension
         CFBundleIdentifier: team.sloppy.safariextension.webextension
+        CFBundlePackageType: XPC!
         NSExtension:
           NSExtensionPointIdentifier: com.apple.Safari.web-extension
     settings:
