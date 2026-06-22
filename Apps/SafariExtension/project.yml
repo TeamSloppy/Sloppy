@@ -24,25 +24,20 @@ targets:
       - target: SafariExtensionWebExtension-macOS
     info:
       path: SupportingFiles/macOS/Info.plist
-      properties:
-        CFBundleDisplayName: SafariExtension
-        CFBundleIdentifier: team.sloppy.safariextension
-        CFBundleShortVersionString: "0.1.0"
-        CFBundleVersion: "1"
-        NSPrincipalClass: NSApplication
-        NSLocalNetworkUsageDescription: SafariExtension connects to Sloppy Core on your local network.
-        NSAppTransportSecurity:
-          NSAllowsLocalNetworking: true
-    entitlements:
-      path: SupportingFiles/macOS/SafariExtension.entitlements
-      properties:
-        com.apple.security.app-sandbox: true
-        com.apple.security.network.client: true
     settings:
       base:
         DEVELOPMENT_TEAM: 8PYCRS3EA3
         CODE_SIGN_STYLE: Automatic
         PRODUCT_BUNDLE_IDENTIFIER: team.sloppy.safariextension
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        INFOPLIST_KEY_CFBundleDisplayName: SafariExtension
+        INFOPLIST_KEY_NSPrincipalClass: NSApplication
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: SafariExtension connects to Sloppy Core on your local network.
+        INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking: YES
+        ENABLE_APP_SANDBOX: YES
+        ENABLE_OUTGOING_NETWORK_CONNECTIONS: YES
+        ENABLE_HARDENED_RUNTIME: YES
 
   SafariExtension-iOS:
     type: application
@@ -55,23 +50,18 @@ targets:
       - target: SafariExtensionWebExtension-iOS
     info:
       path: SupportingFiles/iOS/Info.plist
-      properties:
-        CFBundleDisplayName: SafariExtension
-        CFBundleIdentifier: team.sloppy.safariextension
-        CFBundleShortVersionString: "0.1.0"
-        CFBundleVersion: "1"
-        UILaunchScreen: {}
-        NSLocalNetworkUsageDescription: SafariExtension connects to Sloppy Core on your local network.
-        NSAppTransportSecurity:
-          NSAllowsLocalNetworking: true
-    entitlements:
-      path: SupportingFiles/iOS/SafariExtension-iOS.entitlements
     settings:
       base:
         DEVELOPMENT_TEAM: 8PYCRS3EA3
         CODE_SIGN_STYLE: Automatic
         PRODUCT_BUNDLE_IDENTIFIER: team.sloppy.safariextension
         TARGETED_DEVICE_FAMILY: "1"
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        INFOPLIST_KEY_CFBundleDisplayName: SafariExtension
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: SafariExtension connects to Sloppy Core on your local network.
+        INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking: YES
 
   SafariExtension-iPadOS:
     type: application
@@ -84,23 +74,18 @@ targets:
       - target: SafariExtensionWebExtension-iOS
     info:
       path: SupportingFiles/iOS/Info.plist
-      properties:
-        CFBundleDisplayName: SafariExtension
-        CFBundleIdentifier: team.sloppy.safariextension
-        CFBundleShortVersionString: "0.1.0"
-        CFBundleVersion: "1"
-        UILaunchScreen: {}
-        NSLocalNetworkUsageDescription: SafariExtension connects to Sloppy Core on your local network.
-        NSAppTransportSecurity:
-          NSAllowsLocalNetworking: true
-    entitlements:
-      path: SupportingFiles/iOS/SafariExtension-iPadOS.entitlements
     settings:
       base:
         DEVELOPMENT_TEAM: 8PYCRS3EA3
         CODE_SIGN_STYLE: Automatic
         PRODUCT_BUNDLE_IDENTIFIER: team.sloppy.safariextension
         TARGETED_DEVICE_FAMILY: "2"
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        INFOPLIST_KEY_CFBundleDisplayName: SafariExtension
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: SafariExtension connects to Sloppy Core on your local network.
+        INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking: YES
 
   SafariExtension-visionOS:
     type: application
@@ -113,22 +98,17 @@ targets:
       - target: SafariExtensionWebExtension-visionOS
     info:
       path: SupportingFiles/visionOS/Info.plist
-      properties:
-        CFBundleDisplayName: SafariExtension
-        CFBundleIdentifier: team.sloppy.safariextension
-        CFBundleShortVersionString: "0.1.0"
-        CFBundleVersion: "1"
-        UILaunchScreen: {}
-        NSLocalNetworkUsageDescription: SafariExtension connects to Sloppy Core on your local network.
-        NSAppTransportSecurity:
-          NSAllowsLocalNetworking: true
-    entitlements:
-      path: SupportingFiles/visionOS/SafariExtension-visionOS.entitlements
     settings:
       base:
         DEVELOPMENT_TEAM: 8PYCRS3EA3
         CODE_SIGN_STYLE: Automatic
         PRODUCT_BUNDLE_IDENTIFIER: team.sloppy.safariextension
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        INFOPLIST_KEY_CFBundleDisplayName: SafariExtension
+        INFOPLIST_KEY_UILaunchScreen_Generation: YES
+        INFOPLIST_KEY_NSLocalNetworkUsageDescription: SafariExtension connects to Sloppy Core on your local network.
+        INFOPLIST_KEY_NSAppTransportSecurity_NSAllowsLocalNetworking: YES
 
   SafariExtensionWebExtension-macOS:
     type: app-extension
@@ -137,15 +117,13 @@ targets:
       - Extension/Resources
     info:
       path: SupportingFiles/WebExtension/macOS/Info.plist
-      properties:
-        CFBundleDisplayName: SafariExtension
-        CFBundleIdentifier: team.sloppy.safariextension.webextension
-        CFBundlePackageType: XPC!
-        NSExtension:
-          NSExtensionPointIdentifier: com.apple.Safari.web-extension
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: team.sloppy.safariextension.webextension
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        INFOPLIST_KEY_CFBundleDisplayName: SafariExtension
+        INFOPLIST_KEY_NSExtension_NSExtensionPointIdentifier: com.apple.Safari.web-extension
 
   SafariExtensionWebExtension-iOS:
     type: app-extension
@@ -154,15 +132,13 @@ targets:
       - Extension/Resources
     info:
       path: SupportingFiles/WebExtension/iOS/Info.plist
-      properties:
-        CFBundleDisplayName: SafariExtension
-        CFBundleIdentifier: team.sloppy.safariextension.webextension
-        CFBundlePackageType: XPC!
-        NSExtension:
-          NSExtensionPointIdentifier: com.apple.Safari.web-extension
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: team.sloppy.safariextension.webextension
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        INFOPLIST_KEY_CFBundleDisplayName: SafariExtension
+        INFOPLIST_KEY_NSExtension_NSExtensionPointIdentifier: com.apple.Safari.web-extension
 
   SafariExtensionWebExtension-visionOS:
     type: app-extension
@@ -171,15 +147,13 @@ targets:
       - Extension/Resources
     info:
       path: SupportingFiles/WebExtension/visionOS/Info.plist
-      properties:
-        CFBundleDisplayName: SafariExtension
-        CFBundleIdentifier: team.sloppy.safariextension.webextension
-        CFBundlePackageType: XPC!
-        NSExtension:
-          NSExtensionPointIdentifier: com.apple.Safari.web-extension
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: team.sloppy.safariextension.webextension
+        MARKETING_VERSION: "0.1.0"
+        CURRENT_PROJECT_VERSION: "1"
+        INFOPLIST_KEY_CFBundleDisplayName: SafariExtension
+        INFOPLIST_KEY_NSExtension_NSExtensionPointIdentifier: com.apple.Safari.web-extension
 
 schemes:
   SafariExtension-macOS:
