@@ -24,15 +24,15 @@
 }
 
 .sloppy-fullscreen-chat-page #sloppy-safari-extension-panel {
-  top: 0;
+  top: var(--sloppy-viewport-top, 0px);
   right: 0;
   bottom: 0;
-  left: 0;
-  width: 100vw;
+  left: var(--sloppy-viewport-left, 0px);
+  width: var(--sloppy-viewport-width, 100vw);
   min-width: 0;
   max-width: none;
-  height: 100vh;
-  max-height: none;
+  height: var(--sloppy-viewport-height, 100vh);
+  max-height: var(--sloppy-viewport-height, 100vh);
   padding: 0;
   resize: none;
 }
@@ -51,7 +51,8 @@
   max-width: min(720px, 100%);
 }
 
-.sloppy-fullscreen-chat-page #sloppy-safari-extension-panel [data-sloppy-close] {
+.sloppy-fullscreen-chat-page #sloppy-safari-extension-panel [data-sloppy-close],
+.sloppy-fullscreen-chat-page #sloppy-safari-extension-panel [data-sloppy-open-fullscreen] {
   display: none;
 }
 
@@ -1342,10 +1343,13 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
   }
 
   .sloppy-fullscreen-chat-page #sloppy-safari-extension-panel {
-    inset: 0;
-    width: 100vw;
-    height: 100vh;
-    max-height: none;
+    top: var(--sloppy-viewport-top, 0px);
+    right: 0;
+    bottom: 0;
+    left: var(--sloppy-viewport-left, 0px);
+    width: var(--sloppy-viewport-width, 100vw);
+    height: var(--sloppy-viewport-height, 100vh);
+    max-height: var(--sloppy-viewport-height, 100vh);
     padding: 0;
   }
 

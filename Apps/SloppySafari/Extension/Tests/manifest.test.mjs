@@ -147,10 +147,22 @@ test("fullscreen chat uses a flat dark canvas instead of glass or gradients", ()
   const css = loadPanelCSS();
   const fullscreenBlock = css.match(/\.sloppy-fullscreen-chat-page,\n\.sloppy-fullscreen-chat-page body\s*\{[\s\S]*?\n\}/)?.[0] || "";
   const fullscreenShellBlock = css.match(/\.sloppy-fullscreen-chat-page #sloppy-safari-extension-panel \.sloppy-shell\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const fullscreenPanelBlock = css.match(/\.sloppy-fullscreen-chat-page #sloppy-safari-extension-panel\s*\{[\s\S]*?\n\}/)?.[0] || "";
 
   assert.match(fullscreenBlock, /background:\s*#171717;/);
   assert.doesNotMatch(fullscreenBlock, /gradient|backdrop-filter/);
+  assert.match(fullscreenPanelBlock, /top:\s*var\(--sloppy-viewport-top, 0px\);/);
+  assert.match(fullscreenPanelBlock, /height:\s*var\(--sloppy-viewport-height, 100vh\);/);
+  assert.match(css, /\.sloppy-fullscreen-chat-page #sloppy-safari-extension-panel \[data-sloppy-close\],\n\.sloppy-fullscreen-chat-page #sloppy-safari-extension-panel \[data-sloppy-open-fullscreen\]\s*\{[\s\S]*display:\s*none;/);
   assert.match(fullscreenShellBlock, /background:\s*#171717;/);
   assert.match(fullscreenShellBlock, /box-shadow:\s*none;/);
   assert.match(fullscreenShellBlock, /backdrop-filter:\s*none;/);
+});
+
+test("fullscreen chat loads the launched session history", () => {
+  const source = loadContentScript();
+  const initializeFullscreenChat = source.match(/async function initializeFullscreenChat\(\) \{[\s\S]*?\n\}/)?.[0] || "";
+
+  assert.match(initializeFullscreenChat, /if \(launch\.sessionId\) \{[\s\S]*loadSessionSelection\(launch\.sessionId\)/);
+  assert.match(source, /async function loadSessionSelection\(sessionId\)/);
 });

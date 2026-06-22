@@ -1253,20 +1253,27 @@ function renderSessionList(frame) {
 }
 
 async function selectSession(frame, sessionId) {
-  const response = await chrome.runtime.sendMessage({
-    type: "sloppy.sessions.select",
-    sessionId: sessionId || "",
-    agentId: state.settings?.defaultAgentID || "sloppy"
-  });
+  const response = await loadSessionSelection(sessionId);
   if (response?.error) {
     appendMessage({ role: "assistant", label: "Assistant", text: response.error });
     render(frame);
     return;
   }
-  state.settings = response?.settings || state.settings;
   state.messages = sessionId ? normalizeSessionMessages(response?.session?.events || []) : [];
   frame.querySelector("[data-sloppy-sessions-dialog]").close();
   render(frame);
+}
+
+async function loadSessionSelection(sessionId) {
+  const response = await chrome.runtime.sendMessage({
+    type: "sloppy.sessions.select",
+    sessionId: sessionId || "",
+    agentId: state.settings?.defaultAgentID || "sloppy"
+  });
+  if (!response?.error) {
+    state.settings = response?.settings || state.settings;
+  }
+  return response;
 }
 
 function extensionRootForNode(node) {
@@ -1906,6 +1913,14 @@ async function initializeFullscreenChat() {
   }
   const panel = ensurePanel();
   await Promise.all([loadAgents(panel), refreshTabs(panel), loadSlashCommands(panel)]);
+  if (launch.sessionId) {
+    const response = await loadSessionSelection(launch.sessionId);
+    if (response?.error) {
+      appendMessage({ role: "assistant", label: "Assistant", text: response.error });
+    } else {
+      state.messages = normalizeSessionMessages(response?.session?.events || []);
+    }
+  }
   render(panel);
   const prompt = String(launch.prompt || "").trim();
   if (prompt) {

@@ -2,93 +2,111 @@ import SwiftUI
 #if os(macOS)
 import SafariServices
 #endif
+#if canImport(UIKit)
+import UIKit
+#endif
 
 public struct SettingsView: View {
-    @ObservedObject private var store: ConnectionSettingsStore
-    @State private var saveMessage: String?
     @State private var safariMessage: String?
+    @Environment(\.openURL) private var openURL
 
     public init(store: ConnectionSettingsStore) {
-        self.store = store
+        _ = store
     }
 
     public var body: some View {
-        Form {
-            Section("Sloppy Core") {
-                TextField("Core URL", text: $store.settings.coreURLString)
-#if os(iOS) || os(visionOS)
-                    .textInputAutocapitalization(.never)
-#endif
-                    .autocorrectionDisabled()
-                SecureField("Auth token", text: $store.settings.authToken)
-                TextField("Default agent", text: $store.settings.defaultAgentID)
-#if os(iOS) || os(visionOS)
-                    .textInputAutocapitalization(.never)
-#endif
-                    .autocorrectionDisabled()
-                HStack {
-                    Button("Save") {
-                        save()
-                    }
-                    if let saveMessage {
-                        Text(saveMessage)
-                            .foregroundStyle(.secondary)
-                            .transition(.opacity)
-                    }
-                }
-            }
+        NavigationStack {
+            VStack(spacing: 26) {
+                Spacer(minLength: 24)
 
-            Section("Safari") {
-                Text("Enable SloppySafari in Safari settings, then open a page, select text, and use the toolbar item.")
-                    .font(.callout)
-#if os(macOS)
-                HStack {
-                    Button("Open Safari Extensions") {
-                        openSafariExtensions()
-                    }
-                    if let safariMessage {
-                        Text(safariMessage)
-                            .foregroundStyle(.secondary)
-                            .transition(.opacity)
-                    }
+                Image("SloppyLogo")
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 96, height: 96)
+                    .accessibilityHidden(true)
+
+                VStack(spacing: 10) {
+                    Text("SloppySafari")
+                        .font(.largeTitle.bold())
+                    Text("Enable the Safari extension, then ask Sloppy from any page with the toolbar, floating button, or selected text menu.")
+                        .font(.body)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(nil)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
-#endif
+
+                VStack(spacing: 12) {
+                    Button {
+                        openDownloadPage()
+                    } label: {
+                        Label("Download Sloppy", systemImage: "arrow.down.circle.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.large)
+
+                    Button {
+                        openExtensionSettings()
+                    } label: {
+                        Label("Open Extension Settings", systemImage: "safari.fill")
+                            .frame(maxWidth: .infinity)
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.large)
+                }
+                .frame(maxWidth: 360)
+
+                if let safariMessage {
+                    Text(safariMessage)
+                        .font(.footnote)
+                        .foregroundStyle(.secondary)
+                        .multilineTextAlignment(.center)
+                        .transition(.opacity)
+                }
+
+                Spacer(minLength: 24)
             }
+            .padding(.horizontal, 28)
+            .padding(.vertical, 32)
+            .frame(maxWidth: 560)
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .navigationTitle("SloppySafari")
+#if canImport(UIKit)
+            .navigationBarTitleDisplayMode(.inline)
+#endif
+            .background(Color.black.ignoresSafeArea())
         }
-        .padding()
-        .frame(minWidth: 420, minHeight: 260)
+#if os(macOS)
+        .frame(minWidth: 420, minHeight: 460)
+#endif
     }
 
-    private func save() {
-        store.save()
-        withAnimation {
-            saveMessage = "Saved"
-        }
-        Task {
-            try? await Task.sleep(for: .seconds(2))
-            await MainActor.run {
-                withAnimation {
-                    saveMessage = nil
-                }
-            }
+    private func openDownloadPage() {
+        if let url = URL(string: "https://sloppy.team") {
+            openURL(url)
         }
     }
 
+    private func openExtensionSettings() {
 #if os(macOS)
-    private func openSafariExtensions() {
         SFSafariApplication.showPreferencesForExtension(
             withIdentifier: "team.sloppy.sloppysafari.webextension"
         ) { error in
             Task { @MainActor in
                 withAnimation {
                     if let error {
-                        safariMessage = (error as NSError).description
+                        safariMessage = (error as NSError).localizedDescription
                     } else {
                         safariMessage = "Opened Safari Extensions"
                     }
                 }
             }
         }
-    }
+#elseif canImport(UIKit)
+        if let url = URL(string: UIApplication.openSettingsURLString) {
+            openURL(url)
+        }
 #endif
+    }
 }
