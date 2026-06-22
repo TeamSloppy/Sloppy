@@ -1,3 +1,5 @@
+import { meshCoreFetch, normalizeMeshSettings } from "./mesh.js";
+
 export function normalizeCoreURL(value) {
   let url = String(value || "").trim();
   if (!url) {
@@ -15,12 +17,61 @@ export function sanitizeSettings(settings = {}) {
     authToken: String(settings.authToken || "").trim(),
     defaultAgentID: String(settings.defaultAgentID || "sloppy").trim() || "sloppy",
     floatingButtonEnabled: Boolean(settings.floatingButtonEnabled),
-    selectionBubbleEnabled: settings.selectionBubbleEnabled !== false
+    selectionBubbleEnabled: settings.selectionBubbleEnabled !== false,
+    mesh: normalizeMeshSettings(settings.mesh)
   };
   if (settings.sessionId) {
     sanitized.sessionId = settings.sessionId;
   }
   return sanitized;
+}
+
+export async function coreFetch(settings, path, options = {}, fetchImpl = fetch, meshFetchImpl = meshCoreFetch) {
+  if (settings.mesh?.enabled) {
+    return meshFetchImpl(settings, path, options);
+  }
+  return fetchImpl(`${normalizeCoreURL(settings.coreURLString)}${path}`, options);
+}
+
+export function normalizeVoiceConfig(config = {}) {
+  const provider = String(config.configuredProvider || config.provider || "auto").toLowerCase();
+  const effectiveProvider = String(config.effectiveProvider || (provider === "openai" ? "unavailable" : "local")).toLowerCase();
+  return {
+    enabled: Boolean(config.enabled),
+    configuredProvider: provider === "openai" || provider === "local" ? provider : "auto",
+    effectiveProvider: effectiveProvider === "openai" ? "openai" : "local",
+    openAIConfigured: Boolean(config.openAIConfigured),
+    localAvailable: config.localAvailable !== false,
+    input: {
+      mode: config.input?.mode === "auto_submit" ? "auto_submit" : "push_to_talk",
+      language: String(config.input?.language || "auto"),
+      previewBeforeSend: config.input?.previewBeforeSend !== false
+    },
+    openAI: {
+      enabled: Boolean(config.openAI?.enabled),
+      transcriptionModel: String(config.openAI?.transcriptionModel || "gpt-4o-mini-transcribe"),
+      ttsModel: String(config.openAI?.ttsModel || "gpt-4o-mini-tts"),
+      voice: String(config.openAI?.voice || "coral"),
+      instructions: String(config.openAI?.instructions || "")
+    },
+    local: {
+      enabled: config.local?.enabled !== false,
+      voiceName: String(config.local?.voiceName || ""),
+      rate: Number.isFinite(Number(config.local?.rate)) ? Number(config.local.rate) : 1,
+      pitch: Number.isFinite(Number(config.local?.pitch)) ? Number(config.local.pitch) : 1
+    }
+  };
+}
+
+export function localSpeechAvailable(windowLike = globalThis) {
+  return {
+    recognition: typeof windowLike.SpeechRecognition === "function" || typeof windowLike.webkitSpeechRecognition === "function",
+    synthesis: Boolean(windowLike.speechSynthesis)
+  };
+}
+
+export function buildVoicePrompt(transcript) {
+  return String(transcript || "").trim();
 }
 
 export function chooseAgentID(currentAgentID, agents = []) {
@@ -239,7 +290,7 @@ async function readSSEStream(body, onEvent) {
   }
 }
 
-async function ensureBrowserContextSession(coreURL, settings, payload, fetchImpl) {
+async function ensureBrowserContextSession(settings, payload, fetchImpl) {
   const encodedAgentId = encodeURIComponent(payload.target.agentId);
   let sessionId = payload.target.sessionId;
   if (!sessionId) {
@@ -250,19 +301,23 @@ async function ensureBrowserContextSession(coreURL, settings, payload, fetchImpl
         return "Safari";
       }
     })();
-    const createResponse = await fetchImpl(`${coreURL}/v1/agents/${encodedAgentId}/sessions`, {
+    const createResponse = await coreFetch(settings, `/v1/agents/${encodedAgentId}/sessions`, {
       method: "POST",
       headers: headersForSettings(settings),
       body: JSON.stringify({ title: `Safari: ${hostTitle}` })
+    }, fetchImpl);
+    const created = await parseJSONResponse(createResponse, {
+      agentId: payload.target.agentId,
+      endpoint: `/v1/agents/${encodedAgentId}/sessions`
     });
-    const created = await parseJSONResponse(createResponse, { agentId: payload.target.agentId });
     sessionId = created.id || created.sessionId;
   }
   return { encodedAgentId, sessionId };
 }
 
-async function postSessionBrowserMessage(coreURL, settings, payload, encodedAgentId, sessionId, fetchImpl) {
-  const messageResponse = await fetchImpl(`${coreURL}/v1/agents/${encodedAgentId}/sessions/${encodeURIComponent(sessionId)}/messages`, {
+async function postSessionBrowserMessage(settings, payload, encodedAgentId, sessionId, fetchImpl) {
+  const endpoint = `/v1/agents/${encodedAgentId}/sessions/${encodeURIComponent(sessionId)}/messages`;
+  const messageResponse = await coreFetch(settings, endpoint, {
     method: "POST",
     headers: headersForSettings(settings),
     body: JSON.stringify({
@@ -272,8 +327,8 @@ async function postSessionBrowserMessage(coreURL, settings, payload, encodedAgen
       spawnSubSession: false,
       mode: "ask"
     })
-  });
-  return parseJSONResponse(messageResponse, { agentId: payload.target.agentId });
+  }, fetchImpl);
+  return parseJSONResponse(messageResponse, { agentId: payload.target.agentId, endpoint });
 }
 
 function browserMessageResult(sessionId, body, streamedText = "") {
@@ -286,14 +341,14 @@ function browserMessageResult(sessionId, body, streamedText = "") {
   };
 }
 
-async function postBrowserContextLegacy(coreURL, settings, payload, fetchImpl) {
-  const { encodedAgentId, sessionId } = await ensureBrowserContextSession(coreURL, settings, payload, fetchImpl);
-  const body = await postSessionBrowserMessage(coreURL, settings, payload, encodedAgentId, sessionId, fetchImpl);
+async function postBrowserContextLegacy(settings, payload, fetchImpl) {
+  const { encodedAgentId, sessionId } = await ensureBrowserContextSession(settings, payload, fetchImpl);
+  const body = await postSessionBrowserMessage(settings, payload, encodedAgentId, sessionId, fetchImpl);
   return browserMessageResult(sessionId, body);
 }
 
-async function postBrowserContextViaSessionStream(coreURL, settings, payload, options, fetchImpl) {
-  const { encodedAgentId, sessionId } = await ensureBrowserContextSession(coreURL, settings, payload, fetchImpl);
+async function postBrowserContextViaSessionStream(settings, payload, options, fetchImpl) {
+  const { encodedAgentId, sessionId } = await ensureBrowserContextSession(settings, payload, fetchImpl);
   let streamedText = "";
   let abortController = null;
   let streamTask = Promise.resolve();
@@ -302,14 +357,14 @@ async function postBrowserContextViaSessionStream(coreURL, settings, payload, op
     abortController = new AbortController();
   }
 
-  const streamResponse = await fetchImpl(`${coreURL}/v1/agents/${encodedAgentId}/sessions/${encodeURIComponent(sessionId)}/stream`, {
+  const streamResponse = await coreFetch(settings, `/v1/agents/${encodedAgentId}/sessions/${encodeURIComponent(sessionId)}/stream`, {
     method: "GET",
     headers: {
       ...headersForSettings(settings),
       accept: "text/event-stream"
     },
     signal: abortController?.signal
-  }).catch(() => null);
+  }, fetchImpl).catch(() => null);
 
   const streamContentType = streamResponse?.headers?.get?.("content-type") || "";
   if (streamResponse?.ok && streamResponse.body && streamContentType.includes("text/event-stream")) {
@@ -327,7 +382,7 @@ async function postBrowserContextViaSessionStream(coreURL, settings, payload, op
   }
 
   try {
-    const body = await postSessionBrowserMessage(coreURL, settings, payload, encodedAgentId, sessionId, fetchImpl);
+    const body = await postSessionBrowserMessage(settings, payload, encodedAgentId, sessionId, fetchImpl);
     const result = browserMessageResult(sessionId, body, streamedText);
     options.onEvent?.({ type: "complete", body: result });
     return result;
@@ -346,62 +401,97 @@ async function parseJSONResponse(response, context = {}) {
   if (!response.ok) {
     const error = new Error(describeCoreError({
       status: response.status,
-      endpoint: response.url || null,
+      endpoint: response.url || context.endpoint || null,
       agentId: context.agentId || null,
       error: body.error || `request_failed_${response.status}`,
       message: body.message || null
     }));
     error.details = body;
     error.status = response.status;
-    error.endpoint = response.url || null;
+    error.endpoint = response.url || context.endpoint || null;
     throw error;
   }
   return body;
 }
 
 export async function postBrowserContext(settings, page, selection, prompt, options = {}, fetchImpl = fetch) {
-  const coreURL = normalizeCoreURL(settings.coreURLString);
   const payload = buildBrowserContextPayload(settings, page, selection, prompt, options);
-  const response = await fetchImpl(`${coreURL}/v1/browser/context-message`, {
+  const response = await coreFetch(settings, "/v1/browser/context-message", {
     method: "POST",
     headers: headersForSettings(settings),
     body: JSON.stringify(payload)
-  });
+  }, fetchImpl);
   if (shouldUseLegacyBrowserContext(response)) {
-    return postBrowserContextLegacy(coreURL, settings, payload, fetchImpl);
+    return postBrowserContextLegacy(settings, payload, fetchImpl);
   }
-  return parseJSONResponse(response, { agentId: payload.target.agentId });
+  return parseJSONResponse(response, {
+    agentId: payload.target.agentId,
+    endpoint: "/v1/browser/context-message"
+  });
+}
+
+export async function fetchVoiceConfig(settings, fetchImpl = fetch) {
+  const response = await coreFetch(settings, "/v1/voice/config", {
+    headers: headersForSettings(settings)
+  }, fetchImpl);
+  return normalizeVoiceConfig(await parseJSONResponse(response));
+}
+
+export async function transcribeVoiceAudio(settings, payload, fetchImpl = fetch) {
+  const response = await coreFetch(settings, "/v1/voice/transcriptions", {
+    method: "POST",
+    headers: headersForSettings(settings),
+    body: JSON.stringify(payload)
+  }, fetchImpl);
+  return parseJSONResponse(response);
+}
+
+export async function synthesizeVoiceSpeech(settings, payload, fetchImpl = fetch) {
+  const response = await coreFetch(settings, "/v1/voice/speech", {
+    method: "POST",
+    headers: headersForSettings(settings),
+    body: JSON.stringify(payload)
+  }, fetchImpl);
+  return parseJSONResponse(response);
 }
 
 export async function postBrowserContextStreaming(settings, page, selection, prompt, options = {}, fetchImpl = fetch) {
-  const coreURL = normalizeCoreURL(settings.coreURLString);
   const payload = buildBrowserContextPayload(settings, page, selection, prompt, options);
+  if (settings.mesh?.enabled) {
+    const body = await postBrowserContext(settings, page, selection, prompt, options, fetchImpl);
+    options.onEvent?.({ type: "complete", body });
+    options.onEvent?.({ type: "done", body });
+    return body;
+  }
   try {
-    return await postBrowserContextViaSessionStream(coreURL, settings, payload, options, fetchImpl);
+    return await postBrowserContextViaSessionStream(settings, payload, options, fetchImpl);
   } catch (error) {
     if (error?.status !== 404) {
       throw error;
     }
   }
 
-  const response = await fetchImpl(`${coreURL}/v1/browser/context-message`, {
+  const response = await coreFetch(settings, "/v1/browser/context-message", {
     method: "POST",
     headers: {
       ...headersForSettings(settings),
       accept: "text/event-stream, application/json"
     },
     body: JSON.stringify(payload)
-  });
+  }, fetchImpl);
 
   if (shouldUseLegacyBrowserContext(response)) {
-    const body = await postBrowserContextLegacy(coreURL, settings, payload, fetchImpl);
+    const body = await postBrowserContextLegacy(settings, payload, fetchImpl);
     options.onEvent?.({ type: "complete", body });
     return body;
   }
 
   const contentType = response.headers?.get?.("content-type") || "";
   if (!response.body || !contentType.includes("text/event-stream")) {
-    const body = await parseJSONResponse(response, { agentId: payload.target.agentId });
+    const body = await parseJSONResponse(response, {
+      agentId: payload.target.agentId,
+      endpoint: "/v1/browser/context-message"
+    });
     options.onEvent?.({ type: "complete", body });
     return body;
   }

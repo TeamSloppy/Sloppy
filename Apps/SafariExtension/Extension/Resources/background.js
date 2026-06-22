@@ -1,11 +1,16 @@
 import {
   chooseAgentID,
+  coreFetch,
   fallbackSelectionText,
+  fetchVoiceConfig,
   normalizeAgentSessions,
   postBrowserContext,
   postBrowserContextStreaming,
-  sanitizeSettings
+  sanitizeSettings,
+  synthesizeVoiceSpeech,
+  transcribeVoiceAudio
 } from "./panel.js";
+import { acceptMeshInvite } from "./mesh.js";
 
 const defaultSettings = {
   coreURLString: "http://127.0.0.1:25101",
@@ -31,7 +36,7 @@ async function listAgents(settings) {
   if (settings.authToken) {
     headers.authorization = `Bearer ${settings.authToken}`;
   }
-  const response = await fetch(`${settings.coreURLString}/v1/agents`, { headers });
+  const response = await coreFetch(settings, "/v1/agents", { headers });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(body.error || `agents_failed_${response.status}`);
@@ -51,7 +56,7 @@ async function listSessions(settings, agentId) {
     headers.authorization = `Bearer ${settings.authToken}`;
   }
   const encodedAgentId = encodeURIComponent(String(agentId || settings.defaultAgentID || "sloppy"));
-  const response = await fetch(`${settings.coreURLString}/v1/agents/${encodedAgentId}/sessions?limit=50`, { headers });
+  const response = await coreFetch(settings, `/v1/agents/${encodedAgentId}/sessions?limit=50`, { headers });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(body.error || `sessions_failed_${response.status}`);
@@ -66,7 +71,7 @@ async function listSlashCommands(settings, agentId) {
     headers.authorization = `Bearer ${settings.authToken}`;
   }
   const encodedAgentId = encodeURIComponent(String(agentId || settings.defaultAgentID || "sloppy"));
-  const response = await fetch(`${settings.coreURLString}/v1/agents/${encodedAgentId}/chat-slash-commands`, { headers });
+  const response = await coreFetch(settings, `/v1/agents/${encodedAgentId}/chat-slash-commands`, { headers });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(body.error || `commands_failed_${response.status}`);
@@ -200,6 +205,30 @@ if (typeof chrome !== "undefined") {
           sendResponse({ commands: [], error: error.message || "Commands unavailable." });
         }
       })();
+      return true;
+    }
+    if (message?.type === "sloppy.mesh.status") {
+      void loadSettings().then((settings) => {
+        sendResponse({ mesh: settings.mesh || { enabled: false } });
+      }).catch((error) => {
+        sendResponse({ error: error.message || "Mesh settings unavailable." });
+      });
+      return true;
+    }
+    if (message?.type === "sloppy.mesh.join") {
+      void (async () => {
+        const settings = await loadSettings();
+        const result = await acceptMeshInvite({
+          token: message.token,
+          currentMesh: settings.mesh,
+          saveMesh: async (mesh) => {
+            await saveSettings({ ...settings, mesh });
+          }
+        });
+        sendResponse(result);
+      })().catch((error) => {
+        sendResponse({ error: error.message || "Unable to join mesh." });
+      });
       return true;
     }
     if (message?.type === "sloppy.tabs.open") {

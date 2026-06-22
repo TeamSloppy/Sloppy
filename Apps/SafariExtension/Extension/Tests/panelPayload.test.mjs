@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
   buildBrowserContextPayload,
   chooseAgentID,
+  coreFetch,
   collectBrowserToolActions,
   decodeSSEBlock,
   describeCoreError,
@@ -82,13 +83,135 @@ test("sanitizeSettings keeps a user-configured LAN Core URL for extension storag
     authToken: "token-1",
     defaultAgentID: "web-agent",
     floatingButtonEnabled: true,
-    selectionBubbleEnabled: false
+    selectionBubbleEnabled: false,
+    mesh: { enabled: false }
   });
 });
 
 test("sanitizeSettings keeps selection bubble enabled by default", () => {
   assert.equal(sanitizeSettings({}).selectionBubbleEnabled, true);
   assert.equal(sanitizeSettings({ selectionBubbleEnabled: false }).selectionBubbleEnabled, false);
+});
+
+test("sanitizeSettings preserves normalized mesh settings", () => {
+  const settings = sanitizeSettings({
+    coreURLString: "http://127.0.0.1:25101",
+    defaultAgentID: "sloppy",
+    mesh: {
+      enabled: true,
+      relayURL: " https://mesh.example.com/ ",
+      targetNodeId: " node_home ",
+      identity: { nodeId: "node_safari", publicKey: "ed25519:public", privateKey: "ed25519:private" }
+    }
+  });
+
+  assert.deepEqual(settings.mesh, {
+    enabled: true,
+    relayURL: "https://mesh.example.com",
+    targetNodeId: "node_home",
+    identity: { nodeId: "node_safari", publicKey: "ed25519:public", privateKey: "ed25519:private" }
+  });
+});
+
+test("coreFetch uses direct Core URL when mesh is disabled", async () => {
+  const requests = [];
+  const response = await coreFetch(
+    { coreURLString: "http://127.0.0.1:25101", mesh: { enabled: false } },
+    "/v1/agents",
+    {},
+    async (url, options) => {
+      requests.push({ url, options });
+      return Response.json({ agents: [] });
+    }
+  );
+
+  assert.equal(requests[0].url, "http://127.0.0.1:25101/v1/agents");
+  assert.deepEqual(await response.json(), { agents: [] });
+});
+
+test("coreFetch uses mesh fetch when mesh is enabled", async () => {
+  const meshCalls = [];
+  const response = await coreFetch(
+    {
+      coreURLString: "http://127.0.0.1:25101",
+      mesh: {
+        enabled: true,
+        relayURL: "https://mesh.example.com",
+        targetNodeId: "node_home",
+        identity: { nodeId: "node_safari", publicKey: "ed25519:public", privateKey: "ed25519:private" }
+      }
+    },
+    "/v1/agents",
+    { method: "GET" },
+    async () => {
+      throw new Error("direct fetch should not run");
+    },
+    async (settings, path, options) => {
+      meshCalls.push({ settings, path, options });
+      return Response.json({ agents: [{ id: "remote" }] });
+    }
+  );
+
+  assert.equal(meshCalls[0].path, "/v1/agents");
+  assert.deepEqual(await response.json(), { agents: [{ id: "remote" }] });
+});
+
+test("normalizeVoiceConfig falls back to local mode", () => {
+  const config = normalizeVoiceConfig({});
+  assert.equal(config.enabled, false);
+  assert.equal(config.effectiveProvider, "local");
+  assert.equal(config.input.mode, "push_to_talk");
+  assert.equal(config.local.enabled, true);
+});
+
+test("buildVoicePrompt trims transcript and preserves page prompt behavior", () => {
+  assert.equal(buildVoicePrompt("  hello agent  "), "hello agent");
+  assert.equal(buildVoicePrompt("   "), "");
+});
+
+test("localSpeechAvailable checks browser speech APIs without touching assistant text", () => {
+  assert.deepEqual(localSpeechAvailable({ SpeechRecognition: function SpeechRecognition() {}, speechSynthesis: {} }), {
+    recognition: true,
+    synthesis: true
+  });
+  assert.deepEqual(localSpeechAvailable({ webkitSpeechRecognition: function SpeechRecognition() {} }), {
+    recognition: true,
+    synthesis: false
+  });
+});
+
+test("fetchVoiceConfig reads sanitized voice config from Core", async () => {
+  const requests = [];
+  const fetchImpl = async (url) => {
+    requests.push(String(url));
+    return Response.json({ enabled: true, effectiveProvider: "openai", openAIConfigured: true });
+  };
+
+  const config = await fetchVoiceConfig({ coreURLString: "http://127.0.0.1:25101" }, fetchImpl);
+
+  assert.equal(config.effectiveProvider, "openai");
+  assert.equal(requests[0], "http://127.0.0.1:25101/v1/voice/config");
+});
+
+test("transcribeVoiceAudio posts audio to Core", async () => {
+  const fetchImpl = async (url, options) => {
+    assert.equal(String(url), "http://127.0.0.1:25101/v1/voice/transcriptions");
+    assert.deepEqual(JSON.parse(options.body), {
+      audioBase64: "abcd",
+      mimeType: "audio/webm",
+      language: "auto",
+      prompt: ""
+    });
+    return Response.json({ text: "hello", provider: "openai", model: "gpt-4o-mini-transcribe" });
+  };
+
+  const result = await transcribeVoiceAudio(
+    { coreURLString: "http://127.0.0.1:25101" },
+    { audioBase64: "abcd", mimeType: "audio/webm", language: "auto", prompt: "" },
+    fetchImpl
+  );
+
+  assert.equal(result.text, "hello");
 });
 
 test("normalizeAgentSessions maps Core sessions into sidebar rows", () => {
