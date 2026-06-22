@@ -24,6 +24,9 @@ targets:
       - target: SafariExtensionWebExtension-macOS
     info:
       path: SupportingFiles/macOS/Info.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
     settings:
       base:
         DEVELOPMENT_TEAM: 8PYCRS3EA3
@@ -50,6 +53,9 @@ targets:
       - target: SafariExtensionWebExtension-iOS
     info:
       path: SupportingFiles/iOS/Info.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
     settings:
       base:
         DEVELOPMENT_TEAM: 8PYCRS3EA3
@@ -74,6 +80,9 @@ targets:
       - target: SafariExtensionWebExtension-iOS
     info:
       path: SupportingFiles/iOS/Info.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
     settings:
       base:
         DEVELOPMENT_TEAM: 8PYCRS3EA3
@@ -98,6 +107,9 @@ targets:
       - target: SafariExtensionWebExtension-visionOS
     info:
       path: SupportingFiles/visionOS/Info.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
     settings:
       base:
         DEVELOPMENT_TEAM: 8PYCRS3EA3
@@ -117,6 +129,9 @@ targets:
       - Extension/Resources
     info:
       path: SupportingFiles/WebExtension/macOS/Info.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: team.sloppy.safariextension.webextension
@@ -132,6 +147,9 @@ targets:
       - Extension/Resources
     info:
       path: SupportingFiles/WebExtension/iOS/Info.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: team.sloppy.safariextension.webextension
@@ -147,6 +165,9 @@ targets:
       - Extension/Resources
     info:
       path: SupportingFiles/WebExtension/visionOS/Info.plist
+      properties:
+        CFBundleShortVersionString: $(MARKETING_VERSION)
+        CFBundleVersion: $(CURRENT_PROJECT_VERSION)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: team.sloppy.safariextension.webextension
