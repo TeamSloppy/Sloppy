@@ -335,6 +335,8 @@ const state = {
   context: null,
   contextCollapsed: false,
   streamingMessageId: null,
+  streamingRequestId: null,
+  streamingAnimation: null,
   selectionMenuText: "",
   selectionMenuRect: null,
   fullscreenLaunch: null,
@@ -934,8 +936,11 @@ function renderMessage(message) {
     ? `<div class="sloppy-message-attachments">${message.attachments.map(renderAttachmentChip).join("")}</div>`
     : "";
   const tools = message.toolCalls?.length ? `<div class="sloppy-tools">${message.toolCalls.map(renderToolCall).join("")}</div>` : "";
+  const thinking = message.role === "assistant" && message.streaming && !message.text
+    ? '<div class="sloppy-thinking" aria-label="Waiting for response"><span></span><span></span><span></span></div>'
+    : "";
   const body = message.role === "assistant"
-    ? `<div class="sloppy-markdown">${renderMarkdown(message.text || "")}</div>`
+    ? `${thinking}<div class="sloppy-markdown">${renderMarkdown(message.text || "")}</div>`
     : `<p>${escapeHTML(message.text || "")}</p>`;
   const streaming = message.streaming ? '<span class="sloppy-streaming">Streaming</span>' : "";
   return `
@@ -1307,7 +1312,11 @@ function positionSelectionMenu(menu, rect, showPopover = false) {
   const bubbleSize = 26;
   const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
   const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
-  const top = Math.min(Math.max(rect.bottom + 8, padding), Math.max(padding, viewportHeight - bubbleSize - padding));
+  const estimatedPopoverHeight = 300;
+  const spaceBelow = viewportHeight - rect.bottom - padding;
+  const shouldOpenAbove = showPopover && (spaceBelow < estimatedPopoverHeight || rect.top > viewportHeight / 2);
+  const preferredTop = shouldOpenAbove ? rect.top - bubbleSize - 8 : rect.bottom + 8;
+  const top = Math.min(Math.max(preferredTop, padding), Math.max(padding, viewportHeight - bubbleSize - padding));
   const left = Math.min(Math.max(rect.right - bubbleSize / 2, padding), Math.max(padding, viewportWidth - bubbleSize - padding));
   const popoverWidth = Math.min(310, Math.max(0, viewportWidth - 24));
   const popoverOffset = Math.min(0, viewportWidth - padding - left - popoverWidth);
@@ -1315,6 +1324,7 @@ function positionSelectionMenu(menu, rect, showPopover = false) {
   menu.style.top = `${top}px`;
   menu.style.setProperty("--sloppy-selection-popover-x", `${popoverOffset}px`);
   menu.classList.toggle("is-popover-open", showPopover);
+  menu.classList.toggle("is-popover-above", shouldOpenAbove);
 }
 
 function selectionMenuHasFocus() {
@@ -1322,12 +1332,18 @@ function selectionMenuHasFocus() {
   return Boolean(menu && !menu.hidden && document.activeElement && menu.contains(document.activeElement));
 }
 
+function selectionPopoverIsOpen() {
+  const menu = document.getElementById("sloppy-selection-menu");
+  const popover = menu?.querySelector("[data-sloppy-selection-popover]");
+  return Boolean(menu && !menu.hidden && popover && !popover.hidden);
+}
+
 function updateSelectionMenu() {
   if (!selectionBubbleEnabled()) {
     hideSelectionMenu();
     return;
   }
-  if (selectionMenuHasFocus()) {
+  if (selectionMenuHasFocus() || selectionPopoverIsOpen()) {
     return;
   }
   const info = selectedTextInfo();
@@ -1365,6 +1381,7 @@ function hideSelectionMenu() {
   menu.hidden = true;
   state.selectionMenuRect = null;
   menu.classList.remove("is-popover-open");
+  menu.classList.remove("is-popover-above");
   menu.querySelector("[data-sloppy-selection-popover]").hidden = true;
 }
 
@@ -1543,16 +1560,31 @@ async function updateStreamingMessage(event, frame) {
     message.toolCalls.push(event.tool || event);
   }
   if (event.type === "session_error") {
+    stopStreamingAnimation();
     message.text = event.message || message.text || "Session stream failed.";
   }
   if (event.type === "complete") {
-    applyAgentResponse(message, event.body);
+    const finalText = agentResponseText(event.body, message.text);
+    await animateAssistantText(message, finalText, frame);
+    applyAgentResponse(message, { ...event.body, text: finalText });
     await rememberSession(event.body, frame);
     await performAgentBrowserActions(event.body, message);
     message.streaming = false;
+    if (state.voice.state === "answering") {
+      setVoiceState("idle");
+    }
   }
   if (event.type === "done") {
+    if (event.body) {
+      const finalText = agentResponseText(event.body, message.text);
+      await animateAssistantText(message, finalText, frame);
+    } else if (state.streamingAnimation) {
+      return;
+    }
     message.streaming = false;
+    if (state.voice.state === "answering") {
+      setVoiceState("idle");
+    }
   }
   if (frame) {
     render(frame);
@@ -1581,13 +1613,68 @@ function assistantTextFromStreamEvent(event = {}) {
 }
 
 function applyAgentResponse(message, response = {}) {
-  message.text = response.text
+  message.text = agentResponseText(response, message.text);
+  message.attachments = response.attachments || message.attachments || [];
+  message.toolCalls = response.toolCalls || response.tool_calls || message.toolCalls || [];
+}
+
+function agentResponseText(response = {}, fallback = "") {
+  return response.text
     || response.message
     || response.output
     || latestAssistantTextFromEvents(response.appendedEvents || response.events || [])
-    || message.text;
-  message.attachments = response.attachments || message.attachments || [];
-  message.toolCalls = response.toolCalls || response.tool_calls || message.toolCalls || [];
+    || fallback;
+}
+
+function animatedTextSteps(currentText = "", targetText = "") {
+  const current = String(currentText || "");
+  const target = String(targetText || "");
+  if (!target || current === target) {
+    return [];
+  }
+  const prefix = target.startsWith(current) ? current : "";
+  const remaining = target.slice(prefix.length);
+  const chunkSize = Math.max(2, Math.min(10, Math.ceil(remaining.length / 48)));
+  const steps = [];
+  for (let index = chunkSize; index < remaining.length; index += chunkSize) {
+    steps.push(prefix + remaining.slice(0, index));
+  }
+  steps.push(target);
+  return steps;
+}
+
+function stopStreamingAnimation() {
+  if (state.streamingAnimation) {
+    window.clearTimeout(state.streamingAnimation);
+    state.streamingAnimation = null;
+  }
+}
+
+function animateAssistantText(message, targetText, frame) {
+  const steps = animatedTextSteps(message.text, targetText);
+  if (!steps.length) {
+    message.text = targetText || message.text;
+    return Promise.resolve();
+  }
+  stopStreamingAnimation();
+  return new Promise((resolve) => {
+    const tick = () => {
+      const nextText = steps.shift();
+      if (typeof nextText === "string") {
+        message.text = nextText;
+        if (frame) {
+          render(frame);
+        }
+      }
+      if (!steps.length) {
+        state.streamingAnimation = null;
+        resolve();
+        return;
+      }
+      state.streamingAnimation = window.setTimeout(tick, 18);
+    };
+    tick();
+  });
 }
 
 async function rememberSession(response, frame) {
@@ -1741,9 +1828,13 @@ async function sendPrompt(frame) {
   const assistantId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-assistant`;
   state.streamingMessageId = assistantId;
   appendMessage({ id: assistantId, role: "assistant", label: "Assistant", text: "", streaming: true });
+  if (state.voice.state === "sending") {
+    setVoiceState("answering", "Assistant is answering...");
+  }
   render(frame);
 
   const requestId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-request`;
+  state.streamingRequestId = requestId;
   const response = await chrome.runtime.sendMessage({
     type: "sloppy.browserContext.stream",
     requestId,
@@ -1756,15 +1847,19 @@ async function sendPrompt(frame) {
   });
   const message = state.messages.find((candidate) => candidate.id === assistantId);
   if (response?.error) {
+    stopStreamingAnimation();
     message.text = response.error;
     message.streaming = false;
   } else {
-    applyAgentResponse(message, response);
+    const finalText = agentResponseText(response, message.text);
+    await animateAssistantText(message, finalText, frame);
+    applyAgentResponse(message, { ...response, text: finalText });
     await rememberSession(response, frame);
     await performAgentBrowserActions(response, message);
     message.streaming = false;
   }
-  if (state.voice.state === "sending") {
+  state.streamingRequestId = null;
+  if (state.voice.state === "sending" || state.voice.state === "answering") {
     setVoiceState("idle");
   }
   render(frame);
@@ -1881,7 +1976,7 @@ if (typeof document !== "undefined" && typeof chrome !== "undefined" && chrome.r
       void openPanel();
       return;
     }
-    if (message?.type === "sloppy.browserContext.streamEvent" && message.requestId) {
+    if (message?.type === "sloppy.browserContext.streamEvent" && message.requestId === state.streamingRequestId) {
       const panel = document.getElementById("sloppy-safari-extension-panel");
       void updateStreamingMessage(message.event || {}, panel);
     }

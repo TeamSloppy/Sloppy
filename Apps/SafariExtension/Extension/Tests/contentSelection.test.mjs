@@ -218,6 +218,80 @@ test("cachedSelectionInfo falls back to the last mobile selection rect", () => {
   assert.equal(cachedSelectionInfo(null, { selectionMenuText: "", selectionMenuRect: rect }), null);
 });
 
+test("positionSelectionMenu opens the popover above lower viewport selections", () => {
+  const sandbox = loadContentScriptSandbox();
+  const { positionSelectionMenu } = sandbox;
+  const toggles = new Map();
+  const properties = new Map();
+  const menu = {
+    style: {
+      left: "",
+      top: "",
+      setProperty(name, value) {
+        properties.set(name, value);
+      }
+    },
+    classList: {
+      toggle(name, value) {
+        toggles.set(name, value);
+      }
+    }
+  };
+
+  sandbox.window = { innerWidth: 390, innerHeight: 700 };
+  sandbox.document = { documentElement: { clientWidth: 390, clientHeight: 700 } };
+  positionSelectionMenu(menu, { top: 620, right: 220, bottom: 650 }, true);
+
+  assert.equal(menu.style.top, "586px");
+  assert.equal(toggles.get("is-popover-open"), true);
+  assert.equal(toggles.get("is-popover-above"), true);
+  assert.equal(properties.get("--sloppy-selection-popover-x"), "-137px");
+});
+
+test("positionSelectionMenu keeps the popover below upper viewport selections", () => {
+  const sandbox = loadContentScriptSandbox();
+  const { positionSelectionMenu } = sandbox;
+  const toggles = new Map();
+  const menu = {
+    style: { setProperty() {} },
+    classList: {
+      toggle(name, value) {
+        toggles.set(name, value);
+      }
+    }
+  };
+
+  sandbox.window = { innerWidth: 800, innerHeight: 700 };
+  sandbox.document = { documentElement: { clientWidth: 800, clientHeight: 700 } };
+  positionSelectionMenu(menu, { top: 80, right: 220, bottom: 110 }, true);
+
+  assert.equal(menu.style.top, "118px");
+  assert.equal(toggles.get("is-popover-open"), true);
+  assert.equal(toggles.get("is-popover-above"), false);
+});
+
+test("selectionPopoverIsOpen detects an open selection popover after mobile selection collapses", () => {
+  const sandbox = loadContentScriptSandbox();
+  const { selectionPopoverIsOpen } = sandbox;
+  const popover = { hidden: false };
+  const menu = {
+    hidden: false,
+    querySelector(selector) {
+      return selector === "[data-sloppy-selection-popover]" ? popover : null;
+    }
+  };
+
+  sandbox.document = {
+    getElementById(id) {
+      return id === "sloppy-selection-menu" ? menu : null;
+    }
+  };
+
+  assert.equal(selectionPopoverIsOpen(), true);
+  popover.hidden = true;
+  assert.equal(selectionPopoverIsOpen(), false);
+});
+
 test("viewportMetrics tracks the visible Safari viewport for keyboard positioning", () => {
   const { viewportMetrics } = loadContentScriptSandbox();
   const metrics = viewportMetrics({
@@ -350,6 +424,22 @@ test("applyAgentResponse reads assistant text from appended events", () => {
   });
 
   assert.equal(message.text, "Answer from session events");
+});
+
+test("animatedTextSteps reveals final assistant text progressively", () => {
+  const { animatedTextSteps } = loadContentScriptSandbox();
+  const steps = animatedTextSteps("", "Streaming answer");
+
+  assert.equal(steps.at(-1), "Streaming answer");
+  assert.equal(steps.length > 1, true);
+  assert.equal(steps.every((step, index) => index === 0 || step.length >= steps[index - 1].length), true);
+});
+
+test("animatedTextSteps continues from already streamed assistant text", () => {
+  const { animatedTextSteps } = loadContentScriptSandbox();
+  const steps = animatedTextSteps("Partial", "Partial answer");
+
+  assert.equal(JSON.stringify(steps), JSON.stringify(["Partial a", "Partial ans", "Partial answe", "Partial answer"]));
 });
 
 test("normalizeSessionMessages maps session detail events into chat messages", () => {

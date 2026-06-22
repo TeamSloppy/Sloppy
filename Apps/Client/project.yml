@@ -22,7 +22,9 @@ targets:
     productName: SloppyClient
     platform: macOS
     deploymentTarget: "15.0"
-    sources: Sources/SloppyClient
+    sources:
+      - Sources/SloppyClient
+      - Assets.xcassets
     dependencies:
       - package: AdaMCP
         product: AdaMCPPlugin
@@ -71,12 +73,15 @@ targets:
         CODE_SIGN_STYLE: Automatic
         PROVISIONING_PROFILE_SPECIFIER: ""
         PRODUCT_BUNDLE_IDENTIFIER: team.sloppy.client
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 
   SloppyClient-iOS:
     type: application
     platform: iOS
     deploymentTarget: "18.6"
-    sources: Sources/SloppyClient
+    sources:
+      - Sources/SloppyClient
+      - Assets.xcassets
     dependencies:
       - package: AdaMCP
         product: AdaMCPPlugin
@@ -125,12 +130,15 @@ targets:
         CODE_SIGN_STYLE: Automatic
         PRODUCT_BUNDLE_IDENTIFIER: team.sloppy.client
         TARGETED_DEVICE_FAMILY: "1"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 
   SloppyClient-iPadOS:
     type: application
     platform: iOS
     deploymentTarget: "18.6"
-    sources: Sources/SloppyClient
+    sources:
+      - Sources/SloppyClient
+      - Assets.xcassets
     dependencies:
       - package: AdaMCP
         product: AdaMCPPlugin
@@ -184,12 +192,15 @@ targets:
         CODE_SIGN_STYLE: Automatic
         PRODUCT_BUNDLE_IDENTIFIER: team.sloppy.client
         TARGETED_DEVICE_FAMILY: "2"
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 
   SloppyClient-visionOS:
     type: application
     platform: visionOS
     deploymentTarget: "2.0"
-    sources: Sources/SloppyClient
+    sources:
+      - Sources/SloppyClient
+      - Assets.xcassets
     dependencies:
       - package: AdaMCP
         product: AdaMCPPlugin
@@ -231,6 +242,7 @@ targets:
         DEVELOPMENT_TEAM: 8PYCRS3EA3
         CODE_SIGN_STYLE: Automatic
         PRODUCT_BUNDLE_IDENTIFIER: team.sloppy.client
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
 
 schemes:
   SloppyClient-macOS:
