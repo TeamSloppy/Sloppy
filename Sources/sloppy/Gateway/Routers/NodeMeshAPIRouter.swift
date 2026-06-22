@@ -107,6 +107,43 @@ struct NodeMeshAPIRouter: APIRouter {
             }
         }
 
+        router.delete("/v1/node/mesh/nodes/:nodeId", metadata: RouteMetadata(summary: "Delete mesh node", description: "Removes a registered SloppyNode identity from this coordinator", tags: ["Node Mesh"])) { request in
+            do {
+                let nodeId = request.pathParam("nodeId") ?? ""
+                try await service.deleteMeshNode(id: nodeId)
+                return CoreRouter.json(status: HTTPStatus.ok, payload: ["status": "deleted"])
+            } catch {
+                return meshErrorResponse(error)
+            }
+        }
+
+        router.post("/v1/node/mesh/nodes/:nodeId/core", metadata: RouteMetadata(summary: "Proxy Core request to mesh node", description: "Routes a Core API request to a selected mesh node through the configured relay", tags: ["Node Mesh"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: MeshCoreProxyHTTPRequest.self) else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            do {
+                let nodeId = request.pathParam("nodeId") ?? ""
+                let proxyResponse = try await service.proxyMeshCoreHTTPRequest(
+                    nodeId: nodeId,
+                    method: payload.method,
+                    path: payload.path,
+                    body: payload.bodyBase64.flatMap { Data(base64Encoded: $0) },
+                    headers: payload.headers
+                )
+                return CoreRouter.encodable(
+                    status: HTTPStatus.ok,
+                    payload: MeshCoreProxyHTTPResponse(
+                        status: proxyResponse.status,
+                        contentType: proxyResponse.contentType,
+                        bodyBase64: proxyResponse.body.base64EncodedString()
+                    )
+                )
+            } catch {
+                return meshErrorResponse(error)
+            }
+        }
+
         router.get("/v1/node/mesh/shared-projects", metadata: RouteMetadata(summary: "List shared projects", description: "Returns SloppyNode mesh shared projects and members", tags: ["Node Mesh"])) { _ in
             do {
                 return CoreRouter.encodable(status: HTTPStatus.ok, payload: try await service.listMeshSharedProjects())
@@ -210,6 +247,41 @@ struct NodeMeshAPIRouter: APIRouter {
             }
         }
     }
+}
+
+private struct MeshCoreProxyHTTPRequest: Codable {
+    var method: String
+    var path: String
+    var headers: [String: String]
+    var bodyBase64: String?
+
+    init(method: String, path: String, headers: [String: String] = [:], bodyBase64: String? = nil) {
+        self.method = method
+        self.path = path
+        self.headers = headers
+        self.bodyBase64 = bodyBase64
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case method
+        case path
+        case headers
+        case bodyBase64
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        method = try container.decodeIfPresent(String.self, forKey: .method) ?? "GET"
+        path = try container.decode(String.self, forKey: .path)
+        headers = try container.decodeIfPresent([String: String].self, forKey: .headers) ?? [:]
+        bodyBase64 = try container.decodeIfPresent(String.self, forKey: .bodyBase64)
+    }
+}
+
+private struct MeshCoreProxyHTTPResponse: Codable {
+    var status: Int
+    var contentType: String
+    var bodyBase64: String
 }
 
 private func meshErrorResponse(_ error: Error) -> CoreRouterResponse {

@@ -2435,11 +2435,17 @@ function AgentChatEvents({
     );
   }
 
+  const isEmptyTranscript = displayGroups.length === 0 && !isSending;
+
   return (
-    <div className="agent-chat-events" ref={scrollRef} data-testid="agent-chat-events">
+    <div
+      className={`agent-chat-events ${isEmptyTranscript ? "agent-chat-events--empty" : ""}`}
+      ref={scrollRef}
+      data-testid="agent-chat-events"
+    >
       {isLoadingSession ? (
         <p className="placeholder-text">Loading session...</p>
-      ) : displayGroups.length === 0 && !isSending ? (
+      ) : isEmptyTranscript ? (
         <section className="agent-chat-empty-tips" aria-label="Session tips">
           <strong>No messages yet.</strong>
           <div className="agent-chat-empty-tip-list">

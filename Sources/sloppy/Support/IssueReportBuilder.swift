@@ -1,6 +1,49 @@
 import Foundation
 import Protocols
 
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
+protocol IssueReportLogUploading: Sendable {
+    func upload(logs: String) async throws -> String
+}
+
+struct PasteRSIssueReportLogUploader: IssueReportLogUploading {
+    private let endpoint: URL
+    private let urlSession: URLSession
+
+    init(
+        endpoint: URL = URL(string: "https://paste.rs/")!,
+        urlSession: URLSession = SloppyURLSessionFactory.shared
+    ) {
+        self.endpoint = endpoint
+        self.urlSession = urlSession
+    }
+
+    func upload(logs: String) async throws -> String {
+        var request = URLRequest(url: endpoint)
+        request.httpMethod = "POST"
+        request.setValue("text/plain; charset=utf-8", forHTTPHeaderField: "Content-Type")
+        request.setValue("Sloppy issue reporter", forHTTPHeaderField: "User-Agent")
+        request.httpBody = Data(logs.utf8)
+
+        let (data, response) = try await urlSession.data(for: request)
+        guard let httpResponse = response as? HTTPURLResponse,
+              (200..<300).contains(httpResponse.statusCode)
+        else {
+            throw URLError(.badServerResponse)
+        }
+
+        let raw = String(data: data, encoding: .utf8) ?? ""
+        let urlString = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard URL(string: urlString) != nil else {
+            throw URLError(.badServerResponse)
+        }
+        return urlString
+    }
+}
+
 struct RedactionResult: Sendable, Equatable {
     var value: String
     var count: Int
@@ -166,7 +209,7 @@ struct IssueReportBuilder: Sendable {
         self.processInfo = processInfo
     }
 
-    func makeResponse(logs: SystemLogsResponse, build: BuildMetadata) -> IssueReportResponse {
+    func makeResponse(logs: SystemLogsResponse, build: BuildMetadata, logsURL: String? = nil) -> IssueReportResponse {
         let sanitized = sanitizeEntries(logs.entries)
         let environment = environmentText(build: build)
         var includedCount = sanitized.entries.count
@@ -185,8 +228,9 @@ struct IssueReportBuilder: Sendable {
         }
 
         return IssueReportResponse(
-            issueUrl: makeIssueURL(environment: environment),
+            issueUrl: makeIssueURL(environment: environment, logsURL: logsURL),
             logs: logsText,
+            logsUrl: logsURL,
             logEntryCount: includedCount,
             redactionCount: sanitized.redactionCount,
             truncated: truncated
@@ -272,14 +316,18 @@ struct IssueReportBuilder: Sendable {
         return current + suffix
     }
 
-    private func makeIssueURL(environment: String) -> String {
+    private func makeIssueURL(environment: String, logsURL: String?) -> String {
         var components = URLComponents(string: Self.issueBaseURL)
-        components?.queryItems = [
+        var queryItems = [
             URLQueryItem(name: "template", value: Self.templateName),
             URLQueryItem(name: "title", value: "[Bug]: "),
             URLQueryItem(name: "summary", value: "Opened from Sloppy dashboard"),
             URLQueryItem(name: "environment", value: environment)
         ]
+        if let logsURL, !logsURL.isEmpty {
+            queryItems.append(URLQueryItem(name: "logs", value: "Sanitized logs: \(logsURL)"))
+        }
+        components?.queryItems = queryItems
         return components?.url?.absoluteString ?? Self.issueBaseURL
     }
 }

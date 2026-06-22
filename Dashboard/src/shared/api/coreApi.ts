@@ -94,6 +94,8 @@ export interface CoreApi {
   joinRemoteMesh: (payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchMeshNodes: () => Promise<AnyRecord[]>;
   registerMeshNode: (payload: AnyRecord) => Promise<AnyRecord | null>;
+  deleteMeshNode: (nodeId: string) => Promise<boolean>;
+  proxyMeshCoreRequest: (nodeId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchMeshSharedProjects: () => Promise<AnyRecord[]>;
   createMeshSharedProject: (payload: AnyRecord) => Promise<AnyRecord | null>;
   deleteMeshSharedProject: (projectId: string) => Promise<boolean>;
@@ -610,6 +612,26 @@ export function createCoreApi(): CoreApi {
       });
       if (!response.ok) {
         return null;
+      }
+      return response.data;
+    },
+
+    deleteMeshNode: async (nodeId) => {
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/node/mesh/nodes/${encodeURIComponent(nodeId)}`,
+        method: "DELETE"
+      });
+      return response.ok;
+    },
+
+    proxyMeshCoreRequest: async (nodeId, payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/node/mesh/nodes/${encodeURIComponent(nodeId)}/core`,
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) {
+        throw new Error(formatHttpError(response.status, response.data));
       }
       return response.data;
     },

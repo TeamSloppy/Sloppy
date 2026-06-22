@@ -3,6 +3,7 @@ import Logging
 import Testing
 @testable import sloppy
 @testable import Protocols
+import SloppyNodeCore
 
 private struct RemoteBackendTestTimeout: Error {}
 
@@ -81,6 +82,46 @@ func remoteSloppyTUIBackendReadsProjectsSessionsAndSSE() async throws {
         request: ToolApprovalDecisionRequest(decidedBy: "remote-test", scope: .once)
     )
     #expect(approved.status == ToolApprovalStatus.approved)
+}
+
+@Test
+func meshSloppyTUIBackendReadsProjectsAndAgentsThroughCoreProxy() async throws {
+    let configURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-tests-\(UUID().uuidString)")
+        .appendingPathComponent("node.json")
+    let identity = NodeIdentityGenerator.makeIdentity(
+        name: "Local Mesh",
+        roles: ["controller"],
+        capabilities: ["run_agent", "git"]
+    )
+    let configStore = NodeConfigStore(configURL: configURL)
+    try configStore.save(NodeConfig(identity: identity, relayURL: "http://mesh.example.test"))
+    let service = CoreService(config: .test, nodeConfigStore: configStore)
+    let project = try await service.createProject(
+        ProjectCreateRequest(id: "mesh-backend", name: "Mesh Backend")
+    ).project
+    _ = try await service.createAgent(
+        AgentCreateRequest(
+            id: "mesh-agent",
+            displayName: "Mesh Agent",
+            role: "Mesh backend regression"
+        )
+    )
+    let node = MeshNodeRecord(
+        id: identity.nodeId,
+        name: identity.name,
+        publicKey: identity.publicKey,
+        roles: identity.roles,
+        status: .online,
+        capabilities: identity.capabilities
+    )
+    let backend = MeshSloppyTUIBackend(service: service, node: node, projectID: project.id)
+
+    let projects = try await backend.listProjects()
+    #expect(projects.contains(where: { $0.id == project.id }))
+
+    let agents = try await backend.listAgents(includeSystem: false)
+    #expect(agents.contains(where: { $0.id == "mesh-agent" }))
 }
 
 private func firstStreamValue<T: Sendable>(_ stream: AsyncStream<T>) async throws -> T {

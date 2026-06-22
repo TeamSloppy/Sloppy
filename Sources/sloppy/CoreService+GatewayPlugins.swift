@@ -220,6 +220,8 @@ extension CoreService {
         await cronRunner?.stop()
         await heartbeatRunner?.stop()
         await taskSyncRunner?.stop()
+        nodeMeshClientTask?.cancel()
+        nodeMeshClientTask = nil
         await acpSessionManager.shutdown()
     }
 

@@ -322,14 +322,6 @@
     justify-content: flex-end;
   }
 
-  .agents-index {
-    min-height: 500px;
-  }
-
-  .agents-empty-stage {
-    min-height: 340px;
-  }
-
   .agent-chat-main {
     height: 100%;
     grid-template-columns: 1fr;

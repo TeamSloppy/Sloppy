@@ -444,8 +444,9 @@ extension SloppyTUIScreen {
         width: Int,
         target: SloppyTUIScrollTarget
     ) {
-        let paletteWidth = max(1, min(max(1, width - 4), 96))
-        let left = max(0, (width - paletteWidth) / 2)
+        let layout = SloppyTUITheme.pickerLayout(width: width, picker: picker, maxVisible: 9)
+        let paletteWidth = layout.paletteWidth
+        let left = layout.left
         let visibleCount = max(1, min(9, picker.items.count))
         var rowCount = 1
         if picker.supportsSearch {
@@ -513,8 +514,9 @@ extension SloppyTUIScreen {
         width: Int,
         action: (Int) -> SloppyTUIHitAction
     ) {
-        let paletteWidth = max(1, min(max(1, width - 4), 96))
-        let left = max(0, (width - paletteWidth) / 2)
+        let layout = SloppyTUITheme.pickerLayout(width: width, picker: picker, maxVisible: 9)
+        let paletteWidth = layout.paletteWidth
+        let left = layout.left
         let visibleCount = max(1, min(9, picker.items.count))
         let start = max(0, min(picker.selectedIndex - visibleCount / 2, picker.items.count - visibleCount))
         let end = min(picker.items.count, start + visibleCount)

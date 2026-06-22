@@ -380,6 +380,39 @@ func pickerSearchLineStylesSearchValueAndKeepsHeightStable() {
 }
 
 @Test
+func compactSearchPickerStaysNearLeftEdge() {
+    let items = [
+        SloppyTUIPickerItem(
+            value: "local",
+            label: "Local instance",
+            description: "~/.sloppy/sloppy.json",
+            isCurrent: true,
+            group: "Local"
+        ),
+        SloppyTUIPickerItem(
+            value: "add",
+            label: "Add Sloppy instance",
+            description: "/remote add <title> <url> [token]",
+            isCurrent: false,
+            group: "Manage"
+        ),
+    ]
+    let picker = SloppyTUIPicker(
+        kind: .remoteInstance,
+        title: "Select Sloppy instance",
+        items: items,
+        selectedIndex: 0,
+        allItems: items,
+        supportsSearch: true
+    )
+
+    let lines = SloppyTUITheme.pickerLines(width: 120, picker: picker, maxVisible: 9)
+
+    #expect(lines.first?.hasPrefix("  ") == true)
+    #expect(lines.first?.hasPrefix(String(repeating: " ", count: 12)) == false)
+}
+
+@Test
 func backgroundWrapAppliesThemeScreenBackground() {
     var theme = SloppyTUIResolvedTheme.default
     theme.screenBackground = SloppyTUIColor(red: 1, green: 2, blue: 3)

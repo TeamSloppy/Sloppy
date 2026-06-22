@@ -5,6 +5,7 @@ import AppKit
 import ChannelPluginSupport
 import Logging
 import Protocols
+import SloppyNodeCore
 import TauTUI
 
 enum SloppyTUIAttachmentLimits {
@@ -416,6 +417,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     var projectSourceControlFooterStatus: SloppyTUISourceControlFooterStatus?
     var projectSourceControlFooterTask: Task<Void, Never>?
     var pendingRemoteNodes: [String: CoreConfig.Node] = [:]
+    var pendingMeshRemoteNodes: [String: MeshNodeRecord] = [:]
+    var pendingMeshRemoteProjectNode: MeshNodeRecord?
     var pendingRemoteProjectBackend: RemoteSloppyTUIBackend?
     var sessionListMode: SloppyTUISessionListMode = .hidden
     var sessionListEntries: [SloppyTUISessionListEntry] = []

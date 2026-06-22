@@ -212,6 +212,7 @@ public actor CoreService {
     var toolExecution: ToolExecutionService
     let mcpRegistry: MCPClientRegistry
     let systemLogStore: SystemLogFileStore
+    let issueReportLogUploader: (any IssueReportLogUploading)?
     var channelDelivery: ChannelDeliveryService
     let channelSessionStore: ChannelSessionFileStore
     let agentSkillsStore: AgentSkillsFileStore
@@ -271,6 +272,7 @@ public actor CoreService {
     var selfImprovementProposalReviewQueueRunning = false
     /// Tracks tool-result thresholds already reviewed for a session.
     var selfImprovementProposalReviewToolBuckets: [String: Int] = [:]
+    var nodeMeshClientTask: Task<Void, Never>?
     public let notificationService: NotificationService
     public let kanbanEventService: KanbanEventService
     public let pendingApprovalService: PendingApprovalService
@@ -299,7 +301,8 @@ public actor CoreService {
             searchProviderService: searchProviderService,
             nodeConfigStore: nodeConfigStore,
             sharedSkillsRootURLs: sharedSkillsRootURLs,
-            builtInGatewayPluginFactory: .live
+            builtInGatewayPluginFactory: .live,
+            issueReportLogUploader: PasteRSIssueReportLogUploader()
         )
     }
 
@@ -313,7 +316,8 @@ public actor CoreService {
         nodeConfigStore: NodeConfigStore = NodeConfigStore(),
         sharedSkillsRootURLs: [URL]? = nil,
         builtInGatewayPluginFactory: BuiltInGatewayPluginFactory,
-        updateChecker: UpdateCheckerService? = nil
+        updateChecker: UpdateCheckerService? = nil,
+        issueReportLogUploader: (any IssueReportLogUploading)? = PasteRSIssueReportLogUploader()
     ) {
         self.workspaceCurrentDirectory = currentDirectory
         let workspaceRootURL = config.resolvedWorkspaceRootURL(currentDirectory: currentDirectory)
@@ -428,6 +432,7 @@ public actor CoreService {
         self.agentCatalogStore = AgentCatalogFileStore(agentsRootURL: self.agentsRootURL)
         self.sessionStore = AgentSessionFileStore(agentsRootURL: self.agentsRootURL)
         self.systemLogStore = SystemLogFileStore(workspaceRootURL: self.workspaceRootURL)
+        self.issueReportLogUploader = issueReportLogUploader
         self.channelDelivery = ChannelDeliveryService(store: self.store)
         self.actorBoardStore = ActorBoardFileStore(workspaceRootURL: self.workspaceRootURL)
         self.workflowDefinitionStore = WorkflowDefinitionFileStore(workspaceRootURL: self.workspaceRootURL)

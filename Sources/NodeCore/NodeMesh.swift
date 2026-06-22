@@ -214,6 +214,8 @@ public struct MeshLocalNodeRecord: Codable, Sendable, Equatable {
     public var roles: [String]
     public var capabilities: [String]
     public var relayURL: String?
+    public var networkId: String?
+    public var networkName: String?
 
     public init(
         id: String,
@@ -221,7 +223,9 @@ public struct MeshLocalNodeRecord: Codable, Sendable, Equatable {
         publicKey: String,
         roles: [String],
         capabilities: [String],
-        relayURL: String? = nil
+        relayURL: String? = nil,
+        networkId: String? = nil,
+        networkName: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -229,6 +233,8 @@ public struct MeshLocalNodeRecord: Codable, Sendable, Equatable {
         self.roles = roles
         self.capabilities = capabilities
         self.relayURL = relayURL
+        self.networkId = networkId
+        self.networkName = networkName
     }
 }
 
@@ -344,17 +350,20 @@ public struct MeshRemoteJoinResult: Codable, Sendable, Equatable {
     public var relayURL: String
     public var coordinatorAcceptURL: String
     public var networkId: String?
+    public var networkName: String?
 
     public init(
         node: MeshNodeRecord,
         relayURL: String,
         coordinatorAcceptURL: String,
-        networkId: String? = nil
+        networkId: String? = nil,
+        networkName: String? = nil
     ) {
         self.node = node
         self.relayURL = relayURL
         self.coordinatorAcceptURL = coordinatorAcceptURL
         self.networkId = networkId
+        self.networkName = networkName
     }
 }
 
@@ -407,6 +416,7 @@ public struct MeshInvite: Codable, Sendable, Equatable {
     public var roles: [String]
     public var capabilities: [String]
     public var relayURL: String?
+    public var networkName: String?
     public var nodeId: String?
     public var publicKey: String?
     public var createdAt: Date
@@ -421,6 +431,7 @@ public struct MeshInvite: Codable, Sendable, Equatable {
         roles: [String],
         capabilities: [String],
         relayURL: String? = nil,
+        networkName: String? = nil,
         nodeId: String? = nil,
         publicKey: String? = nil,
         createdAt: Date = Date(),
@@ -434,6 +445,7 @@ public struct MeshInvite: Codable, Sendable, Equatable {
         self.roles = roles
         self.capabilities = capabilities
         self.relayURL = relayURL
+        self.networkName = networkName
         self.nodeId = nodeId
         self.publicKey = publicKey
         self.createdAt = createdAt
@@ -449,6 +461,8 @@ public struct MeshInvite: Codable, Sendable, Equatable {
         return try? MeshInviteBundle(
             inviteToken: token,
             relayURL: relayURL,
+            networkId: networkId,
+            networkName: networkName,
             nodeId: nodeId,
             publicKey: publicKey
         ).tokenString()
@@ -461,6 +475,7 @@ public struct MeshInvite: Codable, Sendable, Equatable {
         case roles
         case capabilities
         case relayURL
+        case networkName
         case nodeId
         case publicKey
         case createdAt
@@ -478,6 +493,7 @@ public struct MeshInvite: Codable, Sendable, Equatable {
         roles = try container.decode([String].self, forKey: .roles)
         capabilities = try container.decode([String].self, forKey: .capabilities)
         relayURL = try container.decodeIfPresent(String.self, forKey: .relayURL)
+        networkName = try container.decodeIfPresent(String.self, forKey: .networkName)
         nodeId = try container.decodeIfPresent(String.self, forKey: .nodeId)
         publicKey = try container.decodeIfPresent(String.self, forKey: .publicKey)
         createdAt = try container.decode(Date.self, forKey: .createdAt)
@@ -494,6 +510,7 @@ public struct MeshInvite: Codable, Sendable, Equatable {
         try container.encode(roles, forKey: .roles)
         try container.encode(capabilities, forKey: .capabilities)
         try container.encodeIfPresent(relayURL, forKey: .relayURL)
+        try container.encodeIfPresent(networkName, forKey: .networkName)
         try container.encodeIfPresent(nodeId, forKey: .nodeId)
         try container.encodeIfPresent(publicKey, forKey: .publicKey)
         try container.encode(createdAt, forKey: .createdAt)
@@ -527,6 +544,8 @@ public struct MeshInviteBundle: Codable, Sendable, Equatable {
     public var version: Int
     public var inviteToken: String
     public var relayURL: String
+    public var networkId: String?
+    public var networkName: String?
     public var nodeId: String?
     public var publicKey: String?
 
@@ -534,12 +553,16 @@ public struct MeshInviteBundle: Codable, Sendable, Equatable {
         version: Int = 1,
         inviteToken: String,
         relayURL: String,
+        networkId: String? = nil,
+        networkName: String? = nil,
         nodeId: String? = nil,
         publicKey: String? = nil
     ) {
         self.version = version
         self.inviteToken = inviteToken
         self.relayURL = relayURL
+        self.networkId = networkId
+        self.networkName = networkName
         self.nodeId = nodeId
         self.publicKey = publicKey
     }
@@ -548,6 +571,8 @@ public struct MeshInviteBundle: Codable, Sendable, Equatable {
         case version = "v"
         case inviteToken
         case relayURL
+        case networkId
+        case networkName
         case nodeId
         case publicKey
     }
@@ -963,6 +988,7 @@ public struct NodeMeshStore: Sendable {
             roles: roles,
             capabilities: capabilities,
             relayURL: relayURL,
+            networkName: state.networkName,
             nodeId: nodeId,
             publicKey: publicKey,
             expiresAt: Date().addingTimeInterval(max(1, ttlSeconds))
@@ -1084,6 +1110,21 @@ public struct NodeMeshStore: Sendable {
         state.auditLog.append(MeshAuditLogEntry(actor: record.id, action: auditAction, allowed: true))
         try save(state)
         return record
+    }
+
+    public func removeNodeRecord(nodeId: String, actor: String = "local") throws {
+        var state = try load()
+        guard let index = state.nodes.firstIndex(where: { $0.id == nodeId }) else {
+            throw NodeMeshStoreError.nodeMissing(nodeId)
+        }
+
+        state.nodes.remove(at: index)
+        for projectIndex in state.sharedProjects.indices {
+            state.sharedProjects[projectIndex].members.removeAll { $0.nodeId == nodeId }
+            state.sharedProjects[projectIndex].updatedAt = Date()
+        }
+        state.auditLog.append(MeshAuditLogEntry(actor: actor, target: nodeId, action: "node.delete.api", allowed: true))
+        try save(state)
     }
 
     @discardableResult

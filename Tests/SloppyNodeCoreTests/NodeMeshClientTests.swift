@@ -98,6 +98,48 @@ struct NodeMeshClientTests {
         #expect(response.payload.asObject?["method"] == .string("node.ping"))
     }
 
+    @Test("client delegates unknown rpc to custom handler")
+    func clientDelegatesUnknownRPCToCustomHandler() async throws {
+        let identity = NodeIdentityGenerator.makeIdentity(
+            name: "Worker",
+            roles: ["worker"],
+            capabilities: ["run_agent", "git"]
+        )
+        let client = NodeMeshClient(
+            config: NodeConfig(identity: identity),
+            rpcHandler: { envelope, method, params in
+                #expect(envelope.id == "rpc_core_http")
+                #expect(method == "core.http")
+                #expect(params.asObject?["path"] == .string("/v1/projects"))
+                return .object([
+                    "requestId": .string(envelope.id),
+                    "method": .string(method),
+                    "ok": .bool(true),
+                    "result": .object(["status": .number(200)]),
+                ])
+            }
+        )
+        _ = try await client.response(to: authChallengeEnvelope(for: identity, nonce: "nonce_custom_rpc"))
+
+        let response = try #require(await client.response(
+            to: MeshEnvelope(
+                id: "rpc_core_http",
+                type: .rpcRequest,
+                from: "node_laptop",
+                to: identity.nodeId,
+                payload: .object([
+                    "method": .string("core.http"),
+                    "params": .object(["path": .string("/v1/projects")]),
+                ])
+            )
+        ))
+
+        #expect(response.type == .rpcResponse)
+        #expect(response.payload.asObject?["requestId"] == .string("rpc_core_http"))
+        #expect(response.payload.asObject?["method"] == .string("core.http"))
+        #expect(response.payload.asObject?["ok"] == .bool(true))
+    }
+
     @Test("client signs relay auth challenge")
     func clientSignsRelayAuthChallenge() async throws {
         let identity = NodeIdentityGenerator.makeIdentity(

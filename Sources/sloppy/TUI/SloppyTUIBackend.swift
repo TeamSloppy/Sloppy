@@ -1,6 +1,7 @@
 import AgentRuntime
 import Foundation
 import Protocols
+import SloppyNodeCore
 
 #if canImport(FoundationNetworking)
 import FoundationNetworking
@@ -502,6 +503,247 @@ struct RemoteSloppyTUIBackend: SloppyTUIBackend {
             }
             continuation.onTermination = { _ in task.cancel() }
         }
+    }
+
+    private static func escape(_ raw: String) -> String {
+        raw.addingPercentEncoding(withAllowedCharacters: .urlPathAllowed) ?? raw
+    }
+}
+
+struct MeshSloppyTUIBackend: SloppyTUIBackend {
+    let service: CoreService
+    let node: MeshNodeRecord
+    let projectID: String?
+
+    var isRemote: Bool { true }
+    var displayName: String { node.name.isEmpty ? node.id : node.name }
+
+    init(service: CoreService, node: MeshNodeRecord, projectID: String? = nil) {
+        self.service = service
+        self.node = node
+        self.projectID = projectID
+    }
+
+    func waitForStartup() async {}
+    func shutdown() async {}
+    func shutdownChannelPlugins() async {}
+    func listChannelPlugins() async -> [ChannelPluginRecord] { [] }
+    func getConfig() async -> CoreConfig { (try? await get("/v1/config", as: CoreConfig.self)) ?? .default }
+    func updateConfig(_ config: CoreConfig) async throws -> CoreConfig { try await put("/v1/config", body: config, as: CoreConfig.self) }
+    func listProjects() async throws -> [ProjectRecord] { try await get("/v1/projects", as: [ProjectRecord].self) }
+    func getProject(id: String) async throws -> ProjectRecord { try await get("/v1/projects/\(Self.escape(id))", as: ProjectRecord.self) }
+    func createProjectTask(projectID: String, request: ProjectTaskCreateRequest) async throws -> ProjectRecord {
+        try await post("/v1/projects/\(Self.escape(projectID))/tasks", body: request, as: ProjectRecord.self)
+    }
+    func getActorBoard() async throws -> ActorBoardSnapshot { try await get("/v1/actors/board", as: ActorBoardSnapshot.self) }
+    func resolveOrCreateProjectForCurrentDirectory(_ cwd: String) async throws -> ProjectRecord {
+        guard let projectID else { throw RemoteSloppyTUIBackendError.missingProject }
+        return try await getProject(id: projectID)
+    }
+    func resolveProjectWorkspaceRoot(projectID: String) async throws -> URL {
+        URL(fileURLWithPath: "/mesh/\(node.id)/\(projectID)", isDirectory: true)
+    }
+    func listAgents(includeSystem: Bool) async throws -> [AgentSummary] {
+        try await get("/v1/agents", query: ["includeSystem": includeSystem ? "true" : "false"], as: [AgentSummary].self)
+    }
+    func createAgent(_ request: AgentCreateRequest) async throws -> AgentSummary {
+        try await post("/v1/agents", body: request, as: AgentSummary.self)
+    }
+    func getAgentConfig(agentID: String) async throws -> AgentConfigDetail {
+        try await get("/v1/agents/\(Self.escape(agentID))/config", as: AgentConfigDetail.self)
+    }
+    func updateAgentConfig(agentID: String, request: AgentConfigUpdateRequest) async throws -> AgentConfigDetail {
+        try await put("/v1/agents/\(Self.escape(agentID))/config", body: request, as: AgentConfigDetail.self)
+    }
+    func buildAgentChatSlashCommands(agentID: String) async throws -> AgentChatSlashCommandsResponse {
+        try await get("/v1/agents/\(Self.escape(agentID))/chat-slash-commands", as: AgentChatSlashCommandsResponse.self)
+    }
+    func listAgentSkills(agentID: String) async throws -> AgentSkillsResponse {
+        try await get("/v1/agents/\(Self.escape(agentID))/skills", as: AgentSkillsResponse.self)
+    }
+    func listAgentSessions(agentID: String, projectID: String?, limit: Int?, offset: Int?) async throws -> [AgentSessionSummary] {
+        var query: [String: String] = [:]
+        if let projectID { query["projectId"] = projectID }
+        if let limit { query["limit"] = String(limit) }
+        if let offset { query["offset"] = String(offset) }
+        return try await get("/v1/agents/\(Self.escape(agentID))/sessions", query: query, as: [AgentSessionSummary].self)
+    }
+    func createAgentSession(agentID: String, request: AgentSessionCreateRequest) async throws -> AgentSessionSummary {
+        try await post("/v1/agents/\(Self.escape(agentID))/sessions", body: request, as: AgentSessionSummary.self)
+    }
+    func prepareAgentSessionContext(agentID: String, sessionID: String) async throws -> AgentSessionSummary {
+        try await postEmpty("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/context", as: AgentSessionSummary.self)
+    }
+    func getAgentSession(agentID: String, sessionID: String) async throws -> AgentSessionDetail {
+        try await get("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))", as: AgentSessionDetail.self)
+    }
+    func deleteAgentSession(agentID: String, sessionID: String) async throws {
+        _ = try await request(method: "DELETE", path: "/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))")
+    }
+    func postAgentSessionMessage(agentID: String, sessionID: String, request: AgentSessionPostMessageRequest) async throws -> AgentSessionMessageResponse {
+        try await post("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/messages", body: request, as: AgentSessionMessageResponse.self)
+    }
+    func startAgentSessionGoal(agentID: String, sessionID: String, request: AgentSessionGoalStartRequest) async throws -> AgentSessionGoalRecord {
+        try await post("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/goal", body: request, as: AgentSessionGoalRecord.self)
+    }
+    func getAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord? {
+        try await get("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/goal", as: AgentSessionGoalRecord?.self)
+    }
+    func pauseAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord? {
+        try await postEmpty("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/goal/pause", as: AgentSessionGoalRecord?.self)
+    }
+    func resumeAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord? {
+        try await postEmpty("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/goal/resume", as: AgentSessionGoalRecord?.self)
+    }
+    func clearAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord? {
+        try await postEmpty("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/goal/clear", as: AgentSessionGoalRecord?.self)
+    }
+    func addAgentSessionDirectory(agentID: String, sessionID: String, request: AgentSessionDirectoryRequest) async throws -> AgentSessionDirectoryResponse {
+        try await post("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/directories", body: request, as: AgentSessionDirectoryResponse.self)
+    }
+    func controlAgentSession(agentID: String, sessionID: String, request: AgentSessionControlRequest) async throws -> AgentSessionMessageResponse {
+        try await post("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/control", body: request, as: AgentSessionMessageResponse.self)
+    }
+    func answerAgentPlanInput(agentID: String, sessionID: String, requestID: String, payload: PlanInputAnswerRequest) async throws -> AgentSessionMessageResponse {
+        try await post("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/input-requests/\(Self.escape(requestID))/answer", body: payload, as: AgentSessionMessageResponse.self)
+    }
+    func listPendingToolApprovals() async throws -> [ToolApprovalRecord] {
+        try await get("/v1/tool-approvals/pending", as: [ToolApprovalRecord].self)
+    }
+    func approveToolApproval(id: String, request: ToolApprovalDecisionRequest) async throws -> ToolApprovalRecord {
+        try await post("/v1/tool-approvals/\(Self.escape(id))/approve", body: request, as: ToolApprovalRecord.self)
+    }
+    func rejectToolApproval(id: String, request: ToolApprovalDecisionRequest) async throws -> ToolApprovalRecord {
+        try await post("/v1/tool-approvals/\(Self.escape(id))/reject", body: request, as: ToolApprovalRecord.self)
+    }
+    func streamAgentSessionEvents(agentID: String, sessionID: String) async throws -> AsyncStream<AgentSessionStreamUpdate> {
+        AsyncStream(bufferingPolicy: .bufferingNewest(128)) { continuation in
+            let task = Task {
+                var seen = Set<String>()
+                var cursor = 0
+                while !Task.isCancelled {
+                    do {
+                        let detail = try await getAgentSession(agentID: agentID, sessionID: sessionID)
+                        if cursor == 0 {
+                            continuation.yield(AgentSessionStreamUpdate(kind: .sessionReady, cursor: cursor, summary: detail.summary))
+                            cursor += 1
+                        }
+                        for event in detail.events where !seen.contains(event.id) {
+                            seen.insert(event.id)
+                            continuation.yield(AgentSessionStreamUpdate(kind: .sessionEvent, cursor: cursor, event: event))
+                            cursor += 1
+                        }
+                        try await Task.sleep(nanoseconds: 1_000_000_000)
+                    } catch {
+                        continuation.yield(AgentSessionStreamUpdate(kind: .sessionError, cursor: cursor, message: String(describing: error)))
+                        try? await Task.sleep(nanoseconds: 2_000_000_000)
+                    }
+                }
+                continuation.finish()
+            }
+            continuation.onTermination = { _ in task.cancel() }
+        }
+    }
+    func streamProjectWorkingTreeChanges(projectID: String) async throws -> AsyncStream<ProjectWorkingTreeChangeBatch> {
+        AsyncStream { continuation in continuation.finish() }
+    }
+    func projectWorkingTreeSourceControl(projectID: String) async throws -> ProjectWorkingTreeSourceControlResponse {
+        try await get("/v1/projects/\(Self.escape(projectID))/source-control/working-tree", as: ProjectWorkingTreeSourceControlResponse.self)
+    }
+    func createTUIBackgroundWorktree(projectID: String, taskID: String) async throws -> SourceControlWorktreeResult {
+        throw RemoteSloppyTUIBackendError.unsupported("/bg worktree sessions")
+    }
+    func startTUIBackgroundSession(agentID: String, projectID: String, task: String, mode: AgentChatMode?, reasoningEffort: ReasoningEffort?) async throws -> CoreService.TUIBackgroundSessionStartResult {
+        throw RemoteSloppyTUIBackendError.unsupported("/bg sessions")
+    }
+    func searchProjectFiles(projectID: String, query: String, limit: Int) async throws -> [ProjectFileSearchEntry] {
+        try await get("/v1/projects/\(Self.escape(projectID))/files/search", query: ["q": query, "limit": String(limit)], as: [ProjectFileSearchEntry].self)
+    }
+    func readProjectFile(projectID: String, path: String) async throws -> ProjectFileContentResponse {
+        try await get("/v1/projects/\(Self.escape(projectID))/files/content", query: ["path": path], as: ProjectFileContentResponse.self)
+    }
+    func listMCPServerStatuses() async -> [MCPServerStatus] { [] }
+    func getAgentTokenUsage(agentID: String) async throws -> AgentTokenUsageResponse {
+        try await get("/v1/agents/\(Self.escape(agentID))/token-usage", as: AgentTokenUsageResponse.self)
+    }
+    func listTokenUsage(channelId: String?, taskId: String?, from: Date?, to: Date?) async -> TokenUsageResponse {
+        var query: [String: String] = [:]
+        if let channelId { query["channelId"] = channelId }
+        if let taskId { query["taskId"] = taskId }
+        return (try? await get("/v1/token-usage", query: query, as: TokenUsageResponse.self)) ?? TokenUsageResponse(items: [])
+    }
+    func contextLedgerSnapshot(channelId: String) async -> ContextLedgerSnapshot? { nil }
+    func hasLiveAgentRuntimeSession(agentID: String, sessionID: String) async -> Bool { false }
+    func requestAgentMemoryCheckpoint(agentID: String, sessionID: String, reason: String?) async throws -> AgentMemoryCheckpointResponse {
+        try await post("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/checkpoint", body: AgentMemoryCheckpointRequest(reason: reason), as: AgentMemoryCheckpointResponse.self)
+    }
+    func probeProvider(request: ProviderProbeRequest) async -> ProviderProbeResponse {
+        (try? await post("/v1/providers/probe", body: request, as: ProviderProbeResponse.self))
+            ?? ProviderProbeResponse(providerId: request.providerId, ok: false, usedEnvironmentKey: false, message: "Mesh remote probe failed", models: [])
+    }
+    func startOpenAIDeviceCode() async throws -> OpenAIDeviceCodeStartResponse {
+        try await postEmpty("/v1/providers/openai/oauth/device-code/start", as: OpenAIDeviceCodeStartResponse.self)
+    }
+    func pollOpenAIDeviceCode(request: OpenAIDeviceCodePollRequest) async throws -> OpenAIDeviceCodePollResponse {
+        try await post("/v1/providers/openai/oauth/device-code/poll", body: request, as: OpenAIDeviceCodePollResponse.self)
+    }
+    func startAnthropicOAuth(request: AnthropicOAuthStartRequest) async throws -> AnthropicOAuthStartResponse {
+        try await post("/v1/providers/anthropic/oauth/start", body: request, as: AnthropicOAuthStartResponse.self)
+    }
+    func completeAnthropicOAuth(request: AnthropicOAuthCompleteRequest) async throws -> AnthropicOAuthCompleteResponse {
+        try await post("/v1/providers/anthropic/oauth/complete", body: request, as: AnthropicOAuthCompleteResponse.self)
+    }
+
+    private func get<T: Decodable>(_ path: String, query: [String: String] = [:], as type: T.Type) async throws -> T {
+        try decode(try await request(method: "GET", path: pathWithQuery(path, query)), as: type)
+    }
+
+    private func post<T: Decodable, Body: Encodable>(_ path: String, body: Body, as type: T.Type) async throws -> T {
+        try decode(try await request(method: "POST", path: path, body: try encode(body)), as: type)
+    }
+
+    private func put<T: Decodable, Body: Encodable>(_ path: String, body: Body, as type: T.Type) async throws -> T {
+        try decode(try await request(method: "PUT", path: path, body: try encode(body)), as: type)
+    }
+
+    private func postEmpty<T: Decodable>(_ path: String, as type: T.Type) async throws -> T {
+        try decode(try await request(method: "POST", path: path), as: type)
+    }
+
+    private func request(method: String, path: String, body: Data? = nil) async throws -> Data {
+        let response = try await service.proxyMeshCoreHTTPRequest(
+            nodeId: node.id,
+            method: method,
+            path: path,
+            body: body,
+            headers: body == nil ? [:] : ["content-type": "application/json"]
+        )
+        guard response.status < 400 else {
+            throw RemoteSloppyTUIBackendError.unsupported("mesh remote HTTP \(response.status)")
+        }
+        return response.body
+    }
+
+    private func encode<T: Encodable>(_ value: T) throws -> Data {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        return try encoder.encode(value)
+    }
+
+    private func decode<T: Decodable>(_ data: Data, as type: T.Type) throws -> T {
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try decoder.decode(type, from: data)
+    }
+
+    private func pathWithQuery(_ path: String, _ query: [String: String]) -> String {
+        guard !query.isEmpty else { return path }
+        var components = URLComponents()
+        components.path = path
+        components.queryItems = query
+            .sorted { $0.key < $1.key }
+            .map { URLQueryItem(name: $0.key, value: $0.value) }
+        return components.string ?? path
     }
 
     private static func escape(_ raw: String) -> String {

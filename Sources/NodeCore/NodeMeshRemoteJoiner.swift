@@ -22,7 +22,7 @@ public struct NodeMeshRemoteJoiner: Sendable {
             throw MeshRemoteJoinError.invalidInvite(String(describing: error))
         }
 
-        let config = try localConfig(for: request, relayURL: bundle.relayURL)
+        let config = try localConfig(for: request, bundle: bundle)
         if let expectedPublicKey = bundle.publicKey,
            expectedPublicKey != config.identity.publicKey {
             throw MeshRemoteJoinError.identityMismatch(
@@ -42,24 +42,38 @@ public struct NodeMeshRemoteJoiner: Sendable {
             capabilities: config.identity.capabilities
         )
         let node = try await acceptInvite(acceptURL, acceptRequest)
-        try configStore.save(NodeConfig(identity: config.identity, relayURL: bundle.relayURL))
+        try configStore.save(NodeConfig(
+            identity: config.identity,
+            relayURL: bundle.relayURL,
+            networkId: bundle.networkId,
+            networkName: bundle.networkName
+        ))
         return MeshRemoteJoinResult(
             node: node,
             relayURL: bundle.relayURL,
-            coordinatorAcceptURL: acceptURL.absoluteString
+            coordinatorAcceptURL: acceptURL.absoluteString,
+            networkId: bundle.networkId,
+            networkName: bundle.networkName
         )
     }
 
-    private func localConfig(for request: MeshRemoteJoinRequest, relayURL: String) throws -> NodeConfig {
+    private func localConfig(for request: MeshRemoteJoinRequest, bundle: MeshInviteBundle) throws -> NodeConfig {
         if !request.force, let existing = try? configStore.load() {
-            return NodeConfig(identity: existing.identity, relayURL: relayURL)
+            return NodeConfig(
+                identity: existing.identity,
+                relayURL: bundle.relayURL,
+                networkId: bundle.networkId,
+                networkName: bundle.networkName
+            )
         }
 
         return try configStore.initialize(
             name: normalizedName(request.name),
             roles: ["worker"],
             capabilities: ["run_agent", "git"],
-            relayURL: relayURL,
+            relayURL: bundle.relayURL,
+            networkId: bundle.networkId,
+            networkName: bundle.networkName,
             force: request.force
         )
     }

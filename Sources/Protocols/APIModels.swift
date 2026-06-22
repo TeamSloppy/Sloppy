@@ -287,6 +287,7 @@ public struct IssueReportRequest: Codable, Sendable, Equatable {
 public struct IssueReportResponse: Codable, Sendable, Equatable {
     public var issueUrl: String
     public var logs: String
+    public var logsUrl: String?
     public var logEntryCount: Int
     public var redactionCount: Int
     public var truncated: Bool
@@ -294,6 +295,7 @@ public struct IssueReportResponse: Codable, Sendable, Equatable {
     private enum CodingKeys: String, CodingKey {
         case issueUrl
         case logs
+        case logsUrl
         case logEntryCount
         case redactionCount
         case truncated
@@ -302,12 +304,14 @@ public struct IssueReportResponse: Codable, Sendable, Equatable {
     public init(
         issueUrl: String,
         logs: String,
+        logsUrl: String? = nil,
         logEntryCount: Int,
         redactionCount: Int,
         truncated: Bool
     ) {
         self.issueUrl = issueUrl
         self.logs = logs
+        self.logsUrl = logsUrl
         self.logEntryCount = logEntryCount
         self.redactionCount = redactionCount
         self.truncated = truncated
@@ -317,6 +321,7 @@ public struct IssueReportResponse: Codable, Sendable, Equatable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         issueUrl = try container.decode(String.self, forKey: .issueUrl)
         logs = try container.decodeIfPresent(String.self, forKey: .logs) ?? ""
+        logsUrl = try container.decodeIfPresent(String.self, forKey: .logsUrl)
         logEntryCount = try container.decode(Int.self, forKey: .logEntryCount)
         redactionCount = try container.decode(Int.self, forKey: .redactionCount)
         truncated = try container.decode(Bool.self, forKey: .truncated)

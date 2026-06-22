@@ -305,19 +305,22 @@ function DashboardShell({
       const report = await dependencies.coreApi.createIssueReport({ logLimit: 200 });
       const issueUrl = typeof report?.issueUrl === "string" ? report.issueUrl : "";
       const logs = typeof report?.logs === "string" ? report.logs : "";
+      const logsUrl = typeof report?.logsUrl === "string" ? report.logsUrl : "";
       if (!issueUrl) {
         popup.close();
         emitNotification("system_error", "Issue report failed", "Sloppy could not prepare a sanitized GitHub issue URL.");
         return;
       }
 
-      const copiedLogs = await copyTextToClipboard(logs);
+      const copiedLogs = logsUrl ? false : await copyTextToClipboard(logs);
       popup.location.href = issueUrl;
       setMobileSidebarOpen(false);
       emitNotification(
-        copiedLogs ? "confirmation" : "system_error",
-        copiedLogs ? "Issue report ready" : "Issue report opened",
-        copiedLogs
+        logsUrl || copiedLogs ? "confirmation" : "system_error",
+        logsUrl || copiedLogs ? "Issue report ready" : "Issue report opened",
+        logsUrl
+          ? "Sanitized logs were uploaded and linked in the GitHub log field. Review the report before submitting."
+          : copiedLogs
           ? "Sanitized logs were copied to the clipboard. Paste them into the GitHub log field before submitting."
           : "GitHub opened, but Sloppy could not copy logs to the clipboard. Open Logs and copy the relevant lines manually."
       );

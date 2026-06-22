@@ -390,7 +390,12 @@ func meshAPIStateIncludesLocalNodeConfigAfterRemoteJoin() async throws {
         capabilities: ["run_agent", "git"]
     )
     let configStore = NodeConfigStore(configURL: configURL)
-    try configStore.save(NodeConfig(identity: identity, relayURL: "http://mesh.example.com"))
+    try configStore.save(NodeConfig(
+        identity: identity,
+        relayURL: "http://mesh.example.com",
+        networkId: "personal",
+        networkName: "VPS-Node"
+    ))
     let service = CoreService(config: .test, nodeConfigStore: configStore)
     let router = CoreRouter(service: service)
     let decoder = JSONDecoder()
@@ -400,11 +405,106 @@ func meshAPIStateIncludesLocalNodeConfigAfterRemoteJoin() async throws {
 
     #expect(response.status == 200)
     let state = try decoder.decode(MeshState.self, from: response.body)
+    #expect(state.networkId == "personal")
+    #expect(state.networkName == "VPS-Node")
     #expect(state.localNode?.id == "node_work")
     #expect(state.localNode?.name == "Work Mac")
     #expect(state.localNode?.relayURL == "http://mesh.example.com")
+    #expect(state.localNode?.networkName == "VPS-Node")
     #expect(state.localNode?.roles == ["worker"])
     #expect(state.localNode?.capabilities == ["run_agent", "git"])
+}
+
+@Test
+func meshCoreHTTPRPCDelegatesToLocalCoreRouter() async throws {
+    let service = CoreService(config: .test)
+    _ = try await service.createProject(ProjectCreateRequest(id: "mesh-remote", name: "Mesh Remote"))
+    let payload = await service.handleMeshCoreHTTPRPC(
+        envelope: MeshEnvelope(id: "rpc_http", type: .rpcRequest, from: "node_controller", to: "node_worker"),
+        method: "core.http",
+        params: .object([
+            "method": .string("GET"),
+            "path": .string("/v1/projects"),
+        ])
+    )
+
+    let object = try #require(payload.asObject)
+    #expect(object["requestId"] == .string("rpc_http"))
+    #expect(object["method"] == .string("core.http"))
+    #expect(object["ok"] == .bool(true))
+    let result = try #require(object["result"]?.asObject)
+    #expect(result["status"] == .number(200))
+    let bodyBase64 = try #require(result["bodyBase64"]?.asString)
+    let body = try #require(Data(base64Encoded: bodyBase64))
+    let projects = try #require(JSONSerialization.jsonObject(with: body) as? [[String: Any]])
+    #expect(projects.contains { $0["id"] as? String == "mesh-remote" })
+}
+
+@Test
+func meshAPIProxiesCoreRequestToSelectedNode() async throws {
+    let configURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-tests-\(UUID().uuidString)")
+        .appendingPathComponent("node.json")
+    let identity = NodeIdentityGenerator.makeIdentity(
+        name: "Local Mesh",
+        roles: ["controller"],
+        capabilities: ["run_agent", "git"]
+    )
+    let configStore = NodeConfigStore(configURL: configURL)
+    try configStore.save(NodeConfig(identity: identity, relayURL: "http://mesh.example.test"))
+    let service = CoreService(config: .test, nodeConfigStore: configStore)
+    _ = try await service.createProject(ProjectCreateRequest(id: "mesh-proxy", name: "Mesh Proxy"))
+    let router = CoreRouter(service: service)
+    let body = Data(#"{"method":"GET","path":"/v1/projects"}"#.utf8)
+
+    let response = await router.handle(
+        method: "POST",
+        path: "/v1/node/mesh/nodes/\(identity.nodeId)/core",
+        body: body
+    )
+
+    #expect(response.status == 200)
+    let object = try #require(JSONSerialization.jsonObject(with: response.body) as? [String: Any])
+    #expect(object["status"] as? Int == 200)
+    let bodyBase64 = try #require(object["bodyBase64"] as? String)
+    let proxiedBody = try #require(Data(base64Encoded: bodyBase64))
+    let projects = try #require(JSONSerialization.jsonObject(with: proxiedBody) as? [[String: Any]])
+    #expect(projects.contains { $0["id"] as? String == "mesh-proxy" })
+}
+
+@Test
+func meshAPIDeletesRegisteredNode() async throws {
+    let service = CoreService(config: .test)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let registerBody = try encoder.encode(MeshNodeRegisterRequest(
+        id: "node_work",
+        name: "Work Mac",
+        publicKey: "ed25519:work",
+        roles: ["worker"],
+        capabilities: ["run_agent", "git"]
+    ))
+    let registerResponse = await router.handle(method: "POST", path: "/v1/node/mesh/nodes", body: registerBody)
+    #expect(registerResponse.status == 201)
+
+    let deleteResponse = await router.handle(method: "DELETE", path: "/v1/node/mesh/nodes/node_work", body: nil)
+    #expect(deleteResponse.status == 200)
+
+    let nodesResponse = await router.handle(method: "GET", path: "/v1/node/mesh/nodes", body: nil)
+    let nodes = try decoder.decode([MeshNodeRecord].self, from: nodesResponse.body)
+    #expect(nodes.isEmpty)
+
+    let stateResponse = await router.handle(method: "GET", path: "/v1/node/mesh", body: nil)
+    let state = try decoder.decode(MeshState.self, from: stateResponse.body)
+    #expect(state.auditLog.last?.action == "node.delete.api")
+    #expect(state.auditLog.last?.target == "node_work")
+
+    let repeatedDelete = await router.handle(method: "DELETE", path: "/v1/node/mesh/nodes/node_work", body: nil)
+    #expect(repeatedDelete.status == 404)
 }
 
 @Test
@@ -1448,7 +1548,11 @@ func issueReportEndpointBuildsSanitizedGitHubURL() async throws {
     ]
     try (logLines.joined(separator: "\n") + "\n").data(using: .utf8)?.write(to: logFileURL, options: .atomic)
 
-    let service = CoreService(config: config)
+    let service = CoreService(
+        config: config,
+        builtInGatewayPluginFactory: .live,
+        issueReportLogUploader: StaticIssueReportLogUploader(logsURL: "https://paste.rs/test-report")
+    )
     let router = CoreRouter(service: service)
     let body = try JSONEncoder().encode(IssueReportRequest(logLimit: 20))
     let response = await router.handle(method: "POST", path: "/v1/support/issue-report", body: body)
@@ -1457,6 +1561,7 @@ func issueReportEndpointBuildsSanitizedGitHubURL() async throws {
     let payload = try JSONDecoder().decode(IssueReportResponse.self, from: response.body)
     #expect(payload.issueUrl.hasPrefix("https://github.com/TeamSloppy/Sloppy/issues/new"))
     #expect(payload.issueUrl.contains("template=report-an-issue.yml"))
+    #expect(payload.logsUrl == "https://paste.rs/test-report")
     #expect(payload.logEntryCount == 2)
     #expect(payload.redactionCount >= 4)
     #expect(payload.issueUrl.utf8.count < 2_000)
@@ -1467,7 +1572,7 @@ func issueReportEndpointBuildsSanitizedGitHubURL() async throws {
     })
     let environment = try #require(query["environment"])
     #expect(environment.contains("Sloppy version:"))
-    #expect(query["logs"] == nil)
+    #expect(query["logs"] == "Sanitized logs: https://paste.rs/test-report")
     #expect(payload.logs.contains("normal operation detail"))
     #expect(payload.logs.contains("safe=visible"))
     #expect(payload.logs.contains("[REDACTED]"))
@@ -1515,7 +1620,7 @@ func issueReportEndpointBoundsLargeLogURL() async throws {
     }
     try (lines.joined(separator: "\n") + "\n").data(using: .utf8)?.write(to: logFileURL, options: .atomic)
 
-    let service = CoreService(config: config)
+    let service = CoreService(config: config, builtInGatewayPluginFactory: .live, issueReportLogUploader: nil)
     let router = CoreRouter(service: service)
     let body = try JSONEncoder().encode(IssueReportRequest(logLimit: 300))
     let response = await router.handle(method: "POST", path: "/v1/support/issue-report", body: body)
@@ -1534,7 +1639,7 @@ func issueReportEndpointRequiresDashboardAuthWhenEnabled() async throws {
     config.ui.dashboardAuth.enabled = true
     config.ui.dashboardAuth.token = "dashboard-secret"
 
-    let service = CoreService(config: config)
+    let service = CoreService(config: config, builtInGatewayPluginFactory: .live, issueReportLogUploader: nil)
     let router = CoreRouter(service: service)
 
     let unauthorized = await router.handle(method: "POST", path: "/v1/support/issue-report", body: nil)
@@ -4544,4 +4649,15 @@ func projectMemoriesEndpointValidatesProjectID() async throws {
 
     let missingGraphResponse = await router.handle(method: "GET", path: "/v1/projects/nonexistent-project/memories/graph", body: nil)
     #expect(missingGraphResponse.status == 404)
+}
+
+private struct StaticIssueReportLogUploader: IssueReportLogUploading {
+    let logsURL: String
+
+    func upload(logs: String) async throws -> String {
+        #expect(logs.contains("[REDACTED]"))
+        #expect(!logs.contains("dev-super-secret-token"))
+        #expect(!logs.contains("sk-supersecretvalue1234567890"))
+        return logsURL
+    }
 }

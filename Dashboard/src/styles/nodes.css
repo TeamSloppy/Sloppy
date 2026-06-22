@@ -221,6 +221,13 @@
   font-size: 0.72rem;
 }
 
+.nodes-panel-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .nodes-system-list,
 .nodes-list,
 .nodes-task-list,
@@ -759,6 +766,8 @@
 .nodes-graph {
   position: relative;
   min-height: 292px;
+  display: grid;
+  grid-template-rows: minmax(156px, 1fr) auto;
   overflow: hidden;
   background:
     linear-gradient(color-mix(in srgb, var(--line) 24%, transparent) 1px, transparent 1px),
@@ -772,6 +781,11 @@
   inset: 0;
   border: 1px solid var(--line);
   pointer-events: none;
+}
+
+.nodes-graph-canvas {
+  position: relative;
+  min-height: 156px;
 }
 
 .nodes-graph-lines {
@@ -867,11 +881,9 @@
 }
 
 .nodes-graph-tooltip {
-  position: absolute;
+  position: relative;
   z-index: 3;
-  left: 12px;
-  right: 12px;
-  bottom: 12px;
+  margin: 0 12px 12px;
   border: 1px solid var(--line);
   background: color-mix(in srgb, var(--surface) 94%, var(--background));
   padding: 10px;
@@ -965,6 +977,150 @@
   color: var(--text);
 }
 
+.nodes-remote-inspector {
+  border-top: 1px solid var(--line);
+  padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.nodes-remote-head,
+.nodes-remote-section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.nodes-remote-head h3,
+.nodes-remote-inspector h4 {
+  margin: 0;
+  font-size: 0.74rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.nodes-remote-head p {
+  margin: 4px 0 0;
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.nodes-remote-columns,
+.nodes-remote-chat {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.nodes-remote-list {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.nodes-remote-list button,
+.nodes-inspector-row {
+  border: 1px solid var(--line);
+  padding: 8px 10px;
+  background: var(--background);
+  color: var(--text);
+  text-align: left;
+}
+
+.nodes-remote-list button {
+  cursor: pointer;
+}
+
+.nodes-remote-list button:hover,
+.nodes-remote-list button.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--background));
+}
+
+.nodes-remote-list strong,
+.nodes-inspector-row strong {
+  display: block;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: 0.82rem;
+}
+
+.nodes-remote-list small,
+.nodes-inspector-row small {
+  display: block;
+  margin-top: 3px;
+  color: var(--muted);
+  font-size: 0.7rem;
+  overflow-wrap: anywhere;
+}
+
+.nodes-remote-sessions,
+.nodes-remote-thread {
+  min-width: 0;
+}
+
+.nodes-remote-messages {
+  min-height: 220px;
+  max-height: 420px;
+  overflow: auto;
+  border: 1px solid var(--line);
+  background: var(--background);
+  padding: 8px;
+  margin-top: 8px;
+}
+
+.nodes-remote-message {
+  border-bottom: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+  padding: 8px 2px;
+}
+
+.nodes-remote-message:last-child {
+  border-bottom: 0;
+}
+
+.nodes-remote-message span {
+  display: block;
+  color: var(--accent);
+  font-size: 0.66rem;
+  font-weight: 800;
+  text-transform: uppercase;
+}
+
+.nodes-remote-message p {
+  margin: 5px 0 0;
+  color: var(--text);
+  font-size: 0.78rem;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.nodes-remote-compose {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.nodes-remote-compose textarea {
+  min-height: 76px;
+  resize: vertical;
+  border: 1px solid var(--line);
+  background: var(--background);
+  color: var(--text);
+  font: inherit;
+  padding: 9px 10px;
+}
+
+.nodes-remote-compose textarea:focus,
+.nodes-remote-list button:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 @media (max-width: 1180px) {
   .nodes-status-strip,
   .nodes-workflow {
@@ -985,7 +1141,9 @@
 
   .nodes-layout,
   .nodes-grid,
-  .nodes-task-review {
+  .nodes-task-review,
+  .nodes-remote-columns,
+  .nodes-remote-chat {
     grid-template-columns: 1fr;
   }
 

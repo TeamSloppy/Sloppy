@@ -257,12 +257,16 @@ function AgentsIndexSection({
           <LoadingSkeleton label="Loading agents from Sloppy…" variant="cards" cards={6} />
         </div>
       ) : agents.length === 0 ? (
-        <div className="agents-empty-stage">
-          <p className="project-new-action-subtitle">Create your first agent to start work</p>
-          <button type="button" className="agent-empty-create hover-levitate" onClick={onOpenCreateModal}>
-            Create Agent
-          </button>
-        </div>
+        <section className="agents-empty-stage project-board-list--empty">
+          <article className="project-board-empty">
+            <div className="project-board-empty-actions">
+              <p className="project-new-action-subtitle">Create your first agent to start work</p>
+              <button type="button" className="project-new-action hover-levitate" onClick={onOpenCreateModal}>
+                Create Agent
+              </button>
+            </div>
+          </article>
+        </section>
       ) : (
         <div className="agent-list-container">
           {agents.map((agent) => (

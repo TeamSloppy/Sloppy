@@ -24,6 +24,7 @@ public enum NodeMeshClientError: LocalizedError, Equatable {
 
 public actor NodeMeshClient {
     public typealias EnvelopeObserver = @Sendable (MeshEnvelope) async -> Void
+    public typealias RPCRequestHandler = @Sendable (MeshEnvelope, String, JSONValue) async -> JSONValue?
 
     private let config: NodeConfig
     private let daemon: NodeDaemon
@@ -31,6 +32,7 @@ public actor NodeMeshClient {
     private let heartbeatInterval: TimeInterval
     private let reconnectDelay: TimeInterval
     private let onEnvelope: EnvelopeObserver?
+    private let rpcHandler: RPCRequestHandler?
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private var isRelayAuthenticated: Bool
@@ -41,7 +43,8 @@ public actor NodeMeshClient {
         meshStore: NodeMeshStore? = nil,
         heartbeatInterval: TimeInterval = 15,
         reconnectDelay: TimeInterval = 2,
-        onEnvelope: EnvelopeObserver? = nil
+        onEnvelope: EnvelopeObserver? = nil,
+        rpcHandler: RPCRequestHandler? = nil
     ) {
         self.config = config
         self.daemon = daemon ?? NodeDaemon(config: config)
@@ -49,6 +52,7 @@ public actor NodeMeshClient {
         self.heartbeatInterval = max(1, heartbeatInterval)
         self.reconnectDelay = max(0.25, reconnectDelay)
         self.onEnvelope = onEnvelope
+        self.rpcHandler = rpcHandler
         self.encoder = JSONEncoder()
         self.encoder.dateEncodingStrategy = .iso8601
         self.decoder = JSONDecoder()
@@ -205,15 +209,20 @@ public actor NodeMeshClient {
         case "shared_project.get":
             responsePayload = sharedProjectGetResponse(for: envelope, method: method)
         default:
-            responsePayload = .object([
-                "requestId": .string(envelope.id),
-                "method": .string(method),
-                "ok": .bool(false),
-                "error": .object([
-                    "code": .string("unknown_method"),
-                    "message": .string("Unknown mesh RPC method."),
-                ]),
-            ])
+            if let rpcHandler,
+               let handledPayload = await rpcHandler(envelope, method, payload["params"] ?? .object([:])) {
+                responsePayload = handledPayload
+            } else {
+                responsePayload = .object([
+                    "requestId": .string(envelope.id),
+                    "method": .string(method),
+                    "ok": .bool(false),
+                    "error": .object([
+                        "code": .string("unknown_method"),
+                        "message": .string("Unknown mesh RPC method."),
+                    ]),
+                ])
+            }
         }
 
         return [MeshEnvelope(

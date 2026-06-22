@@ -41,10 +41,19 @@ public struct NodeIdentity: Codable, Sendable, Equatable {
 public struct NodeConfig: Codable, Sendable, Equatable {
     public var identity: NodeIdentity
     public var relayURL: String?
+    public var networkId: String?
+    public var networkName: String?
 
-    public init(identity: NodeIdentity, relayURL: String? = nil) {
+    public init(
+        identity: NodeIdentity,
+        relayURL: String? = nil,
+        networkId: String? = nil,
+        networkName: String? = nil
+    ) {
         self.identity = identity
         self.relayURL = relayURL
+        self.networkId = networkId
+        self.networkName = networkName
     }
 }
 
@@ -90,6 +99,8 @@ public struct NodeConfigStore: Sendable {
         roles: [String],
         capabilities: [String],
         relayURL: String? = nil,
+        networkId: String? = nil,
+        networkName: String? = nil,
         force: Bool = false
     ) throws -> NodeConfig {
         if FileManager.default.fileExists(atPath: configURL.path), !force {
@@ -102,7 +113,9 @@ public struct NodeConfigStore: Sendable {
                 roles: roles,
                 capabilities: capabilities
             ),
-            relayURL: relayURL
+            relayURL: relayURL,
+            networkId: networkId,
+            networkName: networkName
         )
         try save(config)
         return config

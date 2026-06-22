@@ -9,7 +9,9 @@ struct NodeMeshRemoteJoinerTests {
         let configURL = temporaryConfigURL()
         let token = try MeshInviteBundle(
             inviteToken: "slp_invite_remote",
-            relayURL: "https://mesh.example.com"
+            relayURL: "https://mesh.example.com",
+            networkId: "personal",
+            networkName: "VPS-Node"
         ).tokenString()
         let recorder = AcceptRecorder()
         let joiner = NodeMeshRemoteJoiner(
@@ -36,7 +38,12 @@ struct NodeMeshRemoteJoinerTests {
         #expect(accepted.request?.token == token)
         #expect(accepted.request?.nodeId == result.node.id)
         #expect(accepted.request?.publicKey == result.node.publicKey)
-        #expect(try NodeConfigStore(configURL: configURL).load().relayURL == "https://mesh.example.com")
+        let savedConfig = try NodeConfigStore(configURL: configURL).load()
+        #expect(savedConfig.relayURL == "https://mesh.example.com")
+        #expect(savedConfig.networkId == "personal")
+        #expect(savedConfig.networkName == "VPS-Node")
+        #expect(result.networkId == "personal")
+        #expect(result.networkName == "VPS-Node")
     }
 
     @Test("remote join preserves existing identity unless force is true")
@@ -46,7 +53,9 @@ struct NodeMeshRemoteJoinerTests {
         let existing = try store.initialize(name: "Existing", roles: ["worker"], capabilities: ["git"])
         let token = try MeshInviteBundle(
             inviteToken: "slp_invite_remote",
-            relayURL: "https://mesh.example.com"
+            relayURL: "https://mesh.example.com",
+            networkId: "personal",
+            networkName: "VPS-Node"
         ).tokenString()
         let joiner = NodeMeshRemoteJoiner(
             configStore: store,
@@ -69,6 +78,7 @@ struct NodeMeshRemoteJoinerTests {
         #expect(result.node.name == existing.identity.name)
         #expect(try store.load().identity.nodeId == existing.identity.nodeId)
         #expect(try store.load().relayURL == "https://mesh.example.com")
+        #expect(try store.load().networkName == "VPS-Node")
     }
 
     private func temporaryConfigURL() -> URL {

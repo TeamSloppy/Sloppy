@@ -5,6 +5,7 @@ import AppKit
 import ChannelPluginSupport
 import Logging
 import Protocols
+import SloppyNodeCore
 import TauTUI
 
 @MainActor
@@ -228,6 +229,14 @@ extension SloppyTUIScreen {
     func showRemoteInstancePicker() async {
         let config = await runtime.service.getConfig()
         pendingRemoteNodes = Dictionary(uniqueKeysWithValues: config.nodes.map { ($0.id, $0) })
+        let localCore = runtime.service as? LocalSloppyTUIBackend
+        let meshState = try? await localCore?.service.getMeshState()
+        let localMeshNodeId = meshState?.localNode?.id
+        let allMeshNodes: [MeshNodeRecord] = meshState?.nodes ?? []
+        let meshNodes = allMeshNodes
+            .filter { node in node.id != localMeshNodeId }
+            .sorted { left, right in left.name.localizedCaseInsensitiveCompare(right.name) == .orderedAscending }
+        pendingMeshRemoteNodes = Dictionary(uniqueKeysWithValues: meshNodes.map { ($0.id, $0) })
         var items = [
             SloppyTUIPickerItem(
                 value: "__local",
@@ -247,6 +256,15 @@ extension SloppyTUIScreen {
                 description: node.url,
                 isCurrent: service.isRemote && service.displayName == node.displayTitle,
                 group: "Remote"
+            )
+        })
+        items.append(contentsOf: meshNodes.map { node in
+            SloppyTUIPickerItem(
+                value: "mesh:\(node.id)",
+                label: node.name.isEmpty ? node.id : node.name,
+                description: "\(node.status.rawValue) · mesh node · \(node.capabilities.joined(separator: ", "))",
+                isCurrent: service.isRemote && service.displayName == (node.name.isEmpty ? node.id : node.name),
+                group: "Mesh"
             )
         })
         items.append(
@@ -281,6 +299,15 @@ extension SloppyTUIScreen {
             requestRender()
             return
         }
+        if item.value.hasPrefix("mesh:") {
+            let nodeId = String(item.value.dropFirst("mesh:".count))
+            guard let node = pendingMeshRemoteNodes[nodeId] else {
+                appendLocalCard("Mesh node is no longer available.", autoDismissAfter: 8)
+                return
+            }
+            await showMeshRemoteProjectPicker(node: node)
+            return
+        }
         guard let node = pendingRemoteNodes[item.value] else {
             appendLocalCard("Remote instance is no longer configured.", autoDismissAfter: 8)
             return
@@ -306,7 +333,7 @@ extension SloppyTUIScreen {
                     SloppyTUIPickerItem(
                         value: project.id,
                         label: project.name,
-                        description: "\(project.id) · \(project.updatedAt.formatted(date: .abbreviated, time: .shortened))",
+                        description: "\(project.id) · \(project.updatedAt)",
                         isCurrent: false
                     )
                 }
@@ -324,13 +351,63 @@ extension SloppyTUIScreen {
         }
     }
 
-    func applyRemoteProjectPickerItem(_ item: SloppyTUIPickerItem) async {
-        guard let pending = pendingRemoteProjectBackend else {
-            appendLocalCard("Remote instance selection expired.", autoDismissAfter: 8)
+    func showMeshRemoteProjectPicker(node: MeshNodeRecord) async {
+        guard let localCore = runtime.service as? LocalSloppyTUIBackend else {
+            appendLocalCard("Mesh remote is only available from the local Sloppy instance.", autoDismissAfter: 8)
             return
         }
-        let backend = RemoteSloppyTUIBackend(node: pending.node, projectID: item.value)
-        await switchBackend(backend, projectID: item.value, statusPrefix: "remote \(pending.node.displayTitle)")
+        beginOperationStatus(.remote, label: "Loading mesh", detail: node.name)
+        defer { endOperationStatus(.remote) }
+        let title = node.name.isEmpty ? node.id : node.name
+        refreshStaticChrome(statusLine: "loading mesh projects from \(title)...")
+        let backend = MeshSloppyTUIBackend(service: localCore.service, node: node)
+        do {
+            let projects = try await backend.listProjects()
+            guard !projects.isEmpty else {
+                appendLocalCard("Mesh node `\(title)` has no projects.", autoDismissAfter: 8)
+                return
+            }
+            pendingMeshRemoteProjectNode = node
+            let items = projects
+                .sorted { $0.updatedAt > $1.updatedAt }
+                .map { project in
+                    SloppyTUIPickerItem(
+                        value: project.id,
+                        label: project.name,
+                        description: "\(project.id) · \(project.updatedAt.formatted(date: .abbreviated, time: .shortened))",
+                        isCurrent: false
+                    )
+                }
+            activePicker = SloppyTUIPicker(
+                kind: .remoteProject,
+                title: "Select mesh project",
+                items: items,
+                selectedIndex: 0,
+                allItems: items,
+                supportsSearch: true
+            )
+            refreshStaticChrome(statusLine: "choose mesh project, Enter to connect, Esc to cancel")
+        } catch {
+            appendLocalCard("Could not load mesh projects from `\(title)`: \(String(describing: error))")
+        }
+    }
+
+    func applyRemoteProjectPickerItem(_ item: SloppyTUIPickerItem) async {
+        if let node = pendingMeshRemoteProjectNode {
+            guard let localCore = runtime.service as? LocalSloppyTUIBackend else {
+                appendLocalCard("Mesh remote is only available from the local Sloppy instance.", autoDismissAfter: 8)
+                return
+            }
+            let backend = MeshSloppyTUIBackend(service: localCore.service, node: node, projectID: item.value)
+            await switchBackend(backend, projectID: item.value, statusPrefix: "mesh \(node.name.isEmpty ? node.id : node.name)")
+        } else {
+            guard let pending = pendingRemoteProjectBackend else {
+                appendLocalCard("Remote instance selection expired.", autoDismissAfter: 8)
+                return
+            }
+            let backend = RemoteSloppyTUIBackend(node: pending.node, projectID: item.value)
+            await switchBackend(backend, projectID: item.value, statusPrefix: "remote \(pending.node.displayTitle)")
+        }
     }
 
     func switchToLocalInstance() async {
@@ -349,6 +426,7 @@ extension SloppyTUIScreen {
         endOperationStatus(.indexing)
         projectTaskAutocompleteTask?.cancel()
         pendingRemoteProjectBackend = nil
+        pendingMeshRemoteProjectNode = nil
         activePicker = nil
         projectSourceControlFooterStatus = nil
         refreshStaticChrome(statusLine: "switching to \(statusPrefix)...")

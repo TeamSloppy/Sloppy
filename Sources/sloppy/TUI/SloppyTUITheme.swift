@@ -1606,10 +1606,10 @@ enum SloppyTUITheme {
     }
 
     static func pickerLines(width: Int, picker: SloppyTUIPicker, maxVisible: Int) -> [String] {
-        let paletteWidth = max(1, min(max(1, width - 4), 96))
-        let left = max(0, (width - paletteWidth) / 2)
-        let indent = String(repeating: " ", count: left)
         let visibleLimit = max(1, maxVisible)
+        let layout = pickerLayout(width: width, picker: picker, maxVisible: visibleLimit)
+        let paletteWidth = layout.paletteWidth
+        let indent = String(repeating: " ", count: layout.left)
         let visibleCount = max(1, min(visibleLimit, picker.items.count))
         let start = max(0, min(picker.selectedIndex - visibleCount / 2, picker.items.count - visibleCount))
         let end = min(picker.items.count, start + visibleCount)
@@ -1680,6 +1680,58 @@ enum SloppyTUITheme {
             lines.append(indent + padded(info, width: paletteWidth))
         }
         return lines
+    }
+
+    struct PickerLayout: Equatable {
+        var paletteWidth: Int
+        var left: Int
+    }
+
+    static func pickerLayout(width: Int, picker: SloppyTUIPicker, maxVisible: Int) -> PickerLayout {
+        let availableWidth = max(1, width - 4)
+        let maxPaletteWidth = max(1, min(availableWidth, 96))
+        let usesStableCenteredLayout = picker.kind == .model || picker.totalItemCount > max(1, maxVisible)
+        if usesStableCenteredLayout {
+            return PickerLayout(
+                paletteWidth: maxPaletteWidth,
+                left: max(0, (width - maxPaletteWidth) / 2)
+            )
+        }
+
+        let naturalWidth = pickerNaturalWidth(picker: picker)
+        let paletteWidth = max(1, min(maxPaletteWidth, max(44, naturalWidth)))
+        let left = width > paletteWidth ? min(2, max(0, width - paletteWidth)) : 0
+        return PickerLayout(paletteWidth: paletteWidth, left: left)
+    }
+
+    private static func pickerNaturalWidth(picker: SloppyTUIPicker) -> Int {
+        let prompt: String
+        if picker.kind == .toolApproval {
+            prompt = "Enter apply · Esc deny"
+        } else if picker.supportsSearch {
+            prompt = "type search · Enter apply · Esc cancel"
+        } else {
+            prompt = "Enter apply · Esc cancel"
+        }
+
+        var width = VisibleWidth.measure("  " + picker.title + "  " + prompt)
+        if picker.supportsSearch {
+            width = max(width, VisibleWidth.measure("  Search: type to filter  matches \(picker.totalItemCount)/\(picker.totalItemCount)"))
+        }
+
+        let sourceItems = picker.allItems ?? picker.items
+        for item in sourceItems {
+            if let group = item.group?.trimmingCharacters(in: .whitespacesAndNewlines),
+               !group.isEmpty {
+                width = max(width, VisibleWidth.measure("  " + group + " (\(sourceItems.filter { $0.group == item.group }.count))"))
+            }
+
+            let marker = item.isCurrent ? "✓ " : "  "
+            let description = item.description ?? ""
+            width = max(width, VisibleWidth.measure("  " + marker + item.label + "  " + description))
+        }
+
+        return width
     }
 
     static func sessionListLines(

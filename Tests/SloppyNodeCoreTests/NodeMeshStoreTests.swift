@@ -136,6 +136,8 @@ struct NodeMeshStoreTests {
 
         #expect(bundle.inviteToken == invite.token)
         #expect(bundle.relayURL == "https://sloppy.example.com")
+        #expect(bundle.networkId == "personal")
+        #expect(bundle.networkName == "personal")
         #expect(bundle.nodeId == identity.nodeId)
         #expect(bundle.publicKey == identity.publicKey)
 
@@ -166,6 +168,8 @@ struct NodeMeshStoreTests {
 
         #expect(bundle.inviteToken == invite.token)
         #expect(bundle.relayURL == "https://mesh.example.com")
+        #expect(bundle.networkId == "personal")
+        #expect(bundle.networkName == "personal")
         #expect(bundle.nodeId == nil)
         #expect(bundle.publicKey == nil)
     }
