@@ -31,6 +31,31 @@ func connectionSettingsFallbacksEmptyAgent() {
 }
 
 @Test
+func connectionSettingsDefaultCoreURLStringRespectsAvailabilityPolicy() {
+    #expect(ConnectionSettings.defaultCoreURLString(isLocalhostDefaultAvailable: true) == "http://127.0.0.1:25101")
+    #expect(ConnectionSettings.defaultCoreURLString(isLocalhostDefaultAvailable: false).isEmpty)
+}
+
+@Test
+func connectionSettingsNormalizeKeepsEmptyURLWhenLocalhostFallbackUnavailable() {
+    var settings = ConnectionSettings(coreURLString: "", authToken: " token ", defaultAgentID: " ")
+    settings.normalize(isLocalhostDefaultAvailable: false)
+
+    #expect(settings.coreURLString.isEmpty)
+    #expect(settings.authToken == "token")
+    #expect(settings.defaultAgentID == "sloppy")
+}
+
+@Test
+func connectionSettingsInitializerAllowsPlatformDefaultInjection() {
+    let settings = ConnectionSettings(isLocalhostDefaultAvailable: false)
+
+    #expect(settings.coreURLString.isEmpty)
+    #expect(settings.authToken.isEmpty)
+    #expect(settings.defaultAgentID == "sloppy")
+}
+
+@Test
 func connectionSettingsStoreNormalizesDecodedSettingsOnInit() throws {
     let userDefaults = try testUserDefaults()
     let encoded = try JSONEncoder().encode(
@@ -46,6 +71,20 @@ func connectionSettingsStoreNormalizesDecodedSettingsOnInit() throws {
 
     #expect(store.settings.coreURLString == "http://192.168.1.50:25101")
     #expect(store.settings.authToken == "secret")
+    #expect(store.settings.defaultAgentID == "sloppy")
+}
+
+@Test
+func connectionSettingsStoreUsesInjectedNonLocalhostDefault() throws {
+    let userDefaults = try testUserDefaults()
+
+    let store = ConnectionSettingsStore(
+        userDefaults: userDefaults,
+        isLocalhostDefaultAvailable: false
+    )
+
+    #expect(store.settings.coreURLString.isEmpty)
+    #expect(store.settings.authToken.isEmpty)
     #expect(store.settings.defaultAgentID == "sloppy")
 }
 
