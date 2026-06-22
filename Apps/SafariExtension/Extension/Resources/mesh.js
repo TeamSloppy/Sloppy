@@ -185,8 +185,19 @@ export async function buildAuthResponseEnvelope(identity, challengeEnvelope, dep
   if (challengeEnvelope?.type !== "auth.challenge") {
     return null;
   }
-  const challenge = challengeEnvelope.payload || {};
-  if (challenge.nodeId && challenge.nodeId !== identity.nodeId) {
+  const challenge = challengeEnvelope.payload;
+  if (!isObject(challenge)) {
+    throw new Error("Auth challenge payload is invalid.");
+  }
+  if (typeof challenge.nonce !== "string" || challenge.nonce.length === 0) {
+    throw new Error("Auth challenge nonce is missing or invalid.");
+  }
+  if (Object.prototype.hasOwnProperty.call(challenge, "nodeId")) {
+    if (typeof challenge.nodeId !== "string" || challenge.nodeId !== identity.nodeId) {
+      return null;
+    }
+  }
+  if (challenge.publicKey && challenge.publicKey !== identity.publicKey) {
     return null;
   }
   const signature = await signMeshChallenge(identity, challenge.nonce, deps);
@@ -237,16 +248,42 @@ export function buildCoreHTTPRPCEnvelope(identity, targetNodeId, request, option
 }
 
 export function decodeCoreHTTPRPCResponse(envelope) {
-  const payload = envelope?.payload || {};
+  if (!isObject(envelope)) {
+    throw new Error("Invalid rpc response envelope.");
+  }
+  const payload = envelope.payload;
+  if (!isObject(payload)) {
+    throw new Error("Invalid rpc response payload.");
+  }
   if (payload.ok === false) {
     const message = payload.error?.message || payload.error?.code || "Remote Core request failed.";
     throw new Error(message);
   }
-  const result = payload.result || {};
-  const body = result.bodyBase64 ? stringFromBase64(result.bodyBase64) : "";
+  const result = payload.result;
+  if (!isObject(result)) {
+    throw new Error("Invalid rpc response: result is required.");
+  }
+  if (!Number.isInteger(result.status)) {
+    throw new Error("Invalid rpc response: status must be a number.");
+  }
+  if (typeof result.contentType !== "string") {
+    throw new Error("Invalid rpc response: contentType must be a string.");
+  }
+  if (typeof result.bodyBase64 !== "string") {
+    throw new Error("Invalid rpc response: bodyBase64 must be a string.");
+  }
+  if (!isBase64(valueForBase64Validation(result.bodyBase64))) {
+    throw new Error("Invalid rpc response: bodyBase64 is not valid base64.");
+  }
+  let body;
+  try {
+    body = stringFromBase64(result.bodyBase64);
+  } catch {
+    throw new Error("Invalid rpc response: bodyBase64 is not valid base64.");
+  }
   return new Response(body, {
-    status: Number(result.status || 500),
-    headers: { "content-type": result.contentType || "application/octet-stream" }
+    status: result.status,
+    headers: { "content-type": result.contentType }
   });
 }
 
@@ -258,7 +295,13 @@ export async function acceptMeshInvite(options) {
     cryptoImpl: options.cryptoImpl
   });
   const payload = buildMeshInviteAcceptPayload(token, identity, bundle);
-  const url = new URL(bundle.relayURL);
+  let relayURL;
+  try {
+    relayURL = new URL(bundle.relayURL);
+  } catch {
+    throw new Error(`Invalid relay URL: ${bundle.relayURL}`);
+  }
+  const url = relayURL;
   url.pathname = "/v1/node/mesh/invites/accept";
   url.search = "";
   const response = await (options.fetchImpl || fetch)(url.toString(), {
@@ -336,6 +379,24 @@ export async function meshCoreFetch(settings, path, options = {}, deps = {}) {
 
 function trimTrailingSlashes(value) {
   return String(value || "").trim().replace(/\/+$/, "");
+}
+
+function isObject(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function valueForBase64Validation(value) {
+  return String(value).replace(/\s/g, "");
+}
+
+function isBase64(value) {
+  if (value.length === 0) {
+    return true;
+  }
+  if (!/^[A-Za-z0-9+/=_-]*$/.test(value)) {
+    return false;
+  }
+  return value.length % 4 === 0;
 }
 
 function makeEnvelope(fields) {

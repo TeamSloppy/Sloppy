@@ -196,6 +196,22 @@ test("acceptMeshInvite reuses existing identity and persists accepted mesh setti
   assert.equal(saved[0].identity.nodeId, existingIdentity.nodeId);
 });
 
+test("acceptMeshInvite rejects invalid relay URLs", async () => {
+  const token = bundleToken({ v: 1, inviteToken: "slp_invite_remote", relayURL: "not-a-url" });
+  const identity = await createMeshIdentity({ cryptoImpl: fakeCrypto(), randomToken: "abc123" });
+
+  await assert.rejects(
+    () => acceptMeshInvite({
+      token,
+      currentMesh: { identity },
+      fetchImpl: () => {
+        assert.fail("fetch should not be called for invalid relay URL");
+      }
+    }),
+    /Invalid relay URL|relay URL is invalid/
+  );
+});
+
 test("buildCoreHTTPRPCEnvelope wraps Core requests for mesh core.http", async () => {
   const identity = await createMeshIdentity({ cryptoImpl: fakeCrypto(), randomToken: "abc123" });
   const envelope = buildCoreHTTPRPCEnvelope(identity, "node_home", {
@@ -234,6 +250,29 @@ test("decodeCoreHTTPRPCResponse returns a Response-like object", async () => {
   assert.deepEqual(await response.json(), { ok: true });
 });
 
+test("buildAuthResponseEnvelope rejects malformed auth challenge payloads", async () => {
+  const identity = await createMeshIdentity({ cryptoImpl: fakeCrypto(), randomToken: "abc123" });
+
+  await assert.rejects(
+    () => buildAuthResponseEnvelope(identity, { type: "auth.challenge", from: "relay", payload: "bad" }, { cryptoImpl: fakeCrypto("signature") }),
+    /Auth challenge payload is invalid/
+  );
+  await assert.rejects(
+    () => buildAuthResponseEnvelope(identity, { type: "auth.challenge", from: "relay", payload: { nodeId: identity.nodeId } }, { cryptoImpl: fakeCrypto("signature") }),
+    /nonce is missing or invalid/
+  );
+});
+
+test("buildAuthResponseEnvelope returns null when challenge targets another node", async () => {
+  const identity = await createMeshIdentity({ cryptoImpl: fakeCrypto(), randomToken: "abc123" });
+  const response = await buildAuthResponseEnvelope(identity, {
+    type: "auth.challenge",
+    from: "relay",
+    payload: { nonce: "nonce_auth", nodeId: "node_other", publicKey: identity.publicKey }
+  }, { cryptoImpl: fakeCrypto("signature") });
+  assert.equal(response, null);
+});
+
 test("meshCoreFetch performs relay auth and returns core.http response", async () => {
   const identity = await createMeshIdentity({ cryptoImpl: fakeCrypto(), randomToken: "abc123" });
   const sent = [];
@@ -260,6 +299,57 @@ test("meshCoreFetch performs relay auth and returns core.http response", async (
   assert.equal(sent.some((envelope) => envelope.type === "auth.response"), true);
   assert.equal(sent.some((envelope) => envelope.type === "node.hello"), true);
   assert.equal(sent.some((envelope) => envelope.type === "rpc.request"), true);
+});
+
+test("decodeCoreHTTPRPCResponse rejects invalid protocol responses", async () => {
+  assert.throws(() => {
+    decodeCoreHTTPRPCResponse({ type: "rpc.response", payload: { ok: true } });
+  }, /result is required/);
+  assert.throws(() => {
+    decodeCoreHTTPRPCResponse({
+      type: "rpc.response",
+      payload: {
+        ok: true,
+        result: { status: "200", contentType: "text/plain", bodyBase64: "e30=" }
+      }
+    });
+  }, /status must be a number/);
+  assert.throws(() => {
+    decodeCoreHTTPRPCResponse({
+      type: "rpc.response",
+      payload: {
+        ok: true,
+        result: { status: 200, contentType: 10, bodyBase64: "e30=" }
+      }
+    });
+  }, /contentType must be a string/);
+  assert.throws(() => {
+    decodeCoreHTTPRPCResponse({
+      type: "rpc.response",
+      payload: {
+        ok: true,
+        result: { status: 200, contentType: "text/plain" }
+      }
+    });
+  }, /bodyBase64 must be a string/);
+  assert.throws(() => {
+    decodeCoreHTTPRPCResponse({
+      type: "rpc.response",
+      payload: {
+        ok: true,
+        result: { status: 200, contentType: "text/plain", bodyBase64: 13 }
+      }
+    });
+  }, /bodyBase64 must be a string/);
+  assert.throws(() => {
+    decodeCoreHTTPRPCResponse({
+      type: "rpc.response",
+      payload: {
+        ok: true,
+        result: { status: 200, contentType: "text/plain", bodyBase64: "not%base64" }
+      }
+    });
+  }, /bodyBase64 is not valid base64/);
 });
 
 function fakeCrypto(signature = "signature") {
