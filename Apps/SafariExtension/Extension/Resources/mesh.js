@@ -19,7 +19,7 @@ export function base64URLToBytes(value) {
 }
 
 export function parseMeshInviteBundle(token) {
-  const text = String(token || "").trim();
+  const text = String(token || "");
   const prefix = "slp_mesh_";
   if (!text.startsWith(prefix)) {
     throw new Error("Mesh invite bundle token is invalid.");
@@ -33,22 +33,43 @@ export function parseMeshInviteBundle(token) {
     throw new Error("Mesh invite bundle payload is invalid.");
   }
 
-  const version = Number(payload?.v);
-  if (version !== 1) {
-    throw new Error(`Mesh invite bundle version ${version} is not supported.`);
+  if (typeof payload?.v !== "number" || !Number.isInteger(payload.v)) {
+    throw new Error("Mesh invite bundle payload is invalid.");
   }
-  if (!payload.inviteToken || !payload.relayURL) {
+  if (payload.v !== 1) {
+    throw new Error(`Mesh invite bundle version ${payload.v} is not supported.`);
+  }
+  if (typeof payload.inviteToken !== "string" || !payload.inviteToken.length) {
+    throw new Error("Mesh invite bundle payload is invalid.");
+  }
+  if (typeof payload.relayURL !== "string" || !payload.relayURL.length) {
     throw new Error("Mesh invite bundle payload is invalid.");
   }
 
+  const getOptionalString = (key) => {
+    if (!Object.prototype.hasOwnProperty.call(payload, key)) {
+      return undefined;
+    }
+    const value = payload[key];
+    if (typeof value !== "string") {
+      throw new Error("Mesh invite bundle payload is invalid.");
+    }
+    return value.length > 0 ? value : undefined;
+  };
+
+  const networkId = getOptionalString("networkId");
+  const networkName = getOptionalString("networkName");
+  const nodeId = getOptionalString("nodeId");
+  const publicKey = getOptionalString("publicKey");
+
   return {
-    version,
-    inviteToken: String(payload.inviteToken),
-    relayURL: String(payload.relayURL),
-    networkId: payload.networkId ? String(payload.networkId) : undefined,
-    networkName: payload.networkName ? String(payload.networkName) : undefined,
-    nodeId: payload.nodeId ? String(payload.nodeId) : undefined,
-    publicKey: payload.publicKey ? String(payload.publicKey) : undefined,
+    version: payload.v,
+    inviteToken: payload.inviteToken,
+    relayURL: payload.relayURL,
+    networkId,
+    networkName,
+    nodeId,
+    publicKey,
     token: text
   };
 }
@@ -76,7 +97,7 @@ export function makeNodeId(name, randomToken = randomBase64URL(6)) {
   const slug = String(name || "")
     .trim()
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/[^\p{L}\p{N}]+/gu, "-")
     .replace(/^-+|-+$/g, "");
   return `node_${slug || "node"}_${randomToken}`;
 }

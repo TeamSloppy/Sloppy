@@ -46,6 +46,14 @@ test("parseMeshInviteBundle rejects invalid tokens and unsupported versions", ()
   assert.throws(() => parseMeshInviteBundle("slp_mesh_not-base64"), /payload is invalid/);
   assert.throws(() => parseMeshInviteBundle(bundleToken({ v: 2, inviteToken: "x", relayURL: "https://mesh.example.com" })), /version 2 is not supported/);
   assert.throws(() => parseMeshInviteBundle(bundleToken({ v: 1, inviteToken: "", relayURL: "" })), /payload is invalid/);
+  assert.throws(() => parseMeshInviteBundle(bundleToken({ v: "1", inviteToken: "x", relayURL: "https://mesh.example.com" })), /payload is invalid/);
+});
+
+test("parseMeshInviteBundle rejects malformed invite payload field types", () => {
+  assert.throws(() => parseMeshInviteBundle(bundleToken({ v: 1, inviteToken: 5, relayURL: "https://mesh.example.com" })), /payload is invalid/);
+  assert.throws(() => parseMeshInviteBundle(bundleToken({ v: 1, inviteToken: "x", relayURL: 4 })), /payload is invalid/);
+  assert.throws(() => parseMeshInviteBundle(bundleToken({ v: 1, inviteToken: "x", relayURL: "https://mesh.example.com", networkId: 7 })), /payload is invalid/);
+  assert.throws(() => parseMeshInviteBundle(bundleToken({ v: 1, inviteToken: "x", relayURL: "https://mesh.example.com", publicKey: null })), /payload is invalid/);
 });
 
 test("resolveRelayWebSocketURL matches Swift relay URL rules", () => {
@@ -59,6 +67,8 @@ test("resolveRelayWebSocketURL matches Swift relay URL rules", () => {
 test("makeNodeId creates Swift-style node IDs", () => {
   assert.equal(makeNodeId("Safari Extension", "abc123"), "node_safari-extension_abc123");
   assert.equal(makeNodeId("   ", "abc123"), "node_node_abc123");
+  assert.equal(makeNodeId("Секретный портал", "abc123"), "node_секретный-портал_abc123");
+  assert.equal(makeNodeId("Café Node", "abc123"), "node_café-node_abc123");
 });
 
 test("buildMeshInviteAcceptPayload uses the original bundled token and identity", () => {
