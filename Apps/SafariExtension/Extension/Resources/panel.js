@@ -9,6 +9,14 @@ export function normalizeCoreURL(value) {
   return url.replace(/\/+$/, "");
 }
 
+export function sanitizeSettings(settings = {}) {
+  return {
+    coreURLString: normalizeCoreURL(settings.coreURLString),
+    authToken: String(settings.authToken || "").trim(),
+    defaultAgentID: String(settings.defaultAgentID || "sloppy").trim() || "sloppy"
+  };
+}
+
 export function buildBrowserContextPayload(settings, page, selection, prompt) {
   return {
     source: "safari_extension",

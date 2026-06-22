@@ -15,15 +15,24 @@
 }
 
 #sloppy-safari-extension-panel textarea,
+#sloppy-safari-extension-panel input,
 #sloppy-safari-extension-panel pre {
   width: 100%;
   box-sizing: border-box;
-  margin: 10px 0;
+  margin: 6px 0 10px;
   padding: 10px;
   color: #f5f5f5;
   background: #20242a;
   border: 1px solid #454b53;
   border-radius: 8px;
+}
+
+#sloppy-safari-extension-panel label {
+  display: block;
+  margin-top: 10px;
+  color: #c7cbd1;
+  font-size: 12px;
+  font-weight: 700;
 }
 
 #sloppy-safari-extension-panel [data-sloppy-selection] {

@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { buildBrowserContextPayload, normalizeCoreURL } from "../Resources/panel.js";
+import { buildBrowserContextPayload, normalizeCoreURL, sanitizeSettings } from "../Resources/panel.js";
 
 test("normalizeCoreURL adds http scheme and removes trailing slashes", () => {
   assert.equal(normalizeCoreURL("192.168.1.50:25101/"), "http://192.168.1.50:25101");
@@ -29,5 +29,19 @@ test("buildBrowserContextPayload creates typed Safari context payload", () => {
       sessionId: null
     },
     userId: "safari_extension"
+  });
+});
+
+test("sanitizeSettings keeps a user-configured LAN Core URL for extension storage", () => {
+  const settings = sanitizeSettings({
+    coreURLString: "  192.168.1.50:25101/  ",
+    authToken: "  token-1  ",
+    defaultAgentID: "  web-agent  "
+  });
+
+  assert.deepEqual(settings, {
+    coreURLString: "http://192.168.1.50:25101",
+    authToken: "token-1",
+    defaultAgentID: "web-agent"
   });
 });

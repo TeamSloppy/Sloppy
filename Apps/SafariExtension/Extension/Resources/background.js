@@ -1,4 +1,4 @@
-import { postBrowserContext } from "./panel.js";
+import { postBrowserContext, sanitizeSettings } from "./panel.js";
 
 const defaultSettings = {
   coreURLString: "http://127.0.0.1:25101",
@@ -8,7 +8,13 @@ const defaultSettings = {
 
 async function loadSettings() {
   const stored = await chrome.storage.local.get(defaultSettings);
-  return { ...defaultSettings, ...stored };
+  return sanitizeSettings({ ...defaultSettings, ...stored });
+}
+
+async function saveSettings(settings) {
+  const sanitized = sanitizeSettings({ ...defaultSettings, ...settings });
+  await chrome.storage.local.set(sanitized);
+  return sanitized;
 }
 
 if (typeof chrome !== "undefined") {
@@ -20,6 +26,18 @@ if (typeof chrome !== "undefined") {
   });
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message?.type === "sloppy.settings.get") {
+      void loadSettings().then(sendResponse).catch((error) => {
+        sendResponse({ error: error.message || "Settings unavailable." });
+      });
+      return true;
+    }
+    if (message?.type === "sloppy.settings.save") {
+      void saveSettings(message.settings).then(sendResponse).catch((error) => {
+        sendResponse({ error: error.message || "Settings unavailable." });
+      });
+      return true;
+    }
     if (message?.type !== "sloppy.browserContext.send") {
       return false;
     }
