@@ -26,6 +26,18 @@ export function sanitizeSettings(settings = {}) {
   return sanitized;
 }
 
+export function publicMeshSettings(mesh = {}) {
+  const normalized = normalizeMeshSettings(mesh);
+  if (!normalized.identity || typeof normalized.identity !== "object") {
+    return normalized;
+  }
+  const { privateKey: _privateKey, ...identity } = normalized.identity;
+  return {
+    ...normalized,
+    identity
+  };
+}
+
 export async function coreFetch(settings, path, options = {}, fetchImpl = fetch, meshFetchImpl = meshCoreFetch) {
   if (settings.mesh?.enabled) {
     return meshFetchImpl(settings, path, options);

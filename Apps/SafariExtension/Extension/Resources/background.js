@@ -6,6 +6,7 @@ import {
   normalizeAgentSessions,
   postBrowserContext,
   postBrowserContextStreaming,
+  publicMeshSettings,
   sanitizeSettings,
   synthesizeVoiceSpeech,
   transcribeVoiceAudio
@@ -209,7 +210,7 @@ if (typeof chrome !== "undefined") {
     }
     if (message?.type === "sloppy.mesh.status") {
       void loadSettings().then((settings) => {
-        sendResponse({ mesh: settings.mesh || { enabled: false } });
+        sendResponse({ mesh: publicMeshSettings(settings.mesh) });
       }).catch((error) => {
         sendResponse({ error: error.message || "Mesh settings unavailable." });
       });
@@ -225,7 +226,10 @@ if (typeof chrome !== "undefined") {
             await saveSettings({ ...settings, mesh });
           }
         });
-        sendResponse(result);
+        sendResponse({
+          ...result,
+          mesh: publicMeshSettings(result.mesh)
+        });
       })().catch((error) => {
         sendResponse({ error: error.message || "Unable to join mesh." });
       });

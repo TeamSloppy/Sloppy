@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  buildVoicePrompt,
   buildBrowserContextPayload,
   chooseAgentID,
   coreFetch,
@@ -8,12 +9,17 @@ import {
   decodeSSEBlock,
   describeCoreError,
   fallbackSelectionText,
+  fetchVoiceConfig,
+  localSpeechAvailable,
   normalizeCoreURL,
   normalizeAgentSessions,
+  publicMeshSettings,
+  normalizeVoiceConfig,
   postBrowserContext,
   postBrowserContextStreaming,
   renderMarkdown,
-  sanitizeSettings
+  sanitizeSettings,
+  transcribeVoiceAudio
 } from "../Resources/panel.js";
 
 test("normalizeCoreURL adds http scheme and removes trailing slashes", () => {
@@ -111,6 +117,40 @@ test("sanitizeSettings preserves normalized mesh settings", () => {
     targetNodeId: "node_home",
     identity: { nodeId: "node_safari", publicKey: "ed25519:public", privateKey: "ed25519:private" }
   });
+});
+
+test("publicMeshSettings removes private keys from public mesh payloads", () => {
+  const mesh = publicMeshSettings({
+    enabled: true,
+    relayURL: " https://mesh.example.com/ ",
+    targetNodeId: " node_home ",
+    networkId: "mesh-1",
+    identity: {
+      nodeId: "node_safari",
+      name: "Safari Extension",
+      publicKey: "ed25519:public",
+      privateKey: "ed25519:private",
+      roles: ["client"],
+      capabilities: ["browser_context"],
+      createdAt: "2026-06-22T10:00:00Z"
+    }
+  });
+
+  assert.deepEqual(mesh, {
+    enabled: true,
+    relayURL: "https://mesh.example.com",
+    targetNodeId: "node_home",
+    networkId: "mesh-1",
+    identity: {
+      nodeId: "node_safari",
+      name: "Safari Extension",
+      publicKey: "ed25519:public",
+      roles: ["client"],
+      capabilities: ["browser_context"],
+      createdAt: "2026-06-22T10:00:00Z"
+    }
+  });
+  assert.equal("privateKey" in mesh.identity, false);
 });
 
 test("coreFetch uses direct Core URL when mesh is disabled", async () => {
