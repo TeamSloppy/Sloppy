@@ -1,0 +1,51 @@
+#sloppy-safari-extension-panel {
+  position: fixed;
+  z-index: 2147483647;
+  top: 0;
+  right: 0;
+  width: min(420px, 92vw);
+  height: 100vh;
+  box-sizing: border-box;
+  padding: 14px;
+  color: #f5f5f5;
+  background: #15171a;
+  border-left: 1px solid #3a3f45;
+  box-shadow: -12px 0 30px rgba(0, 0, 0, 0.28);
+  font: 14px -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+#sloppy-safari-extension-panel textarea,
+#sloppy-safari-extension-panel pre {
+  width: 100%;
+  box-sizing: border-box;
+  margin: 10px 0;
+  padding: 10px;
+  color: #f5f5f5;
+  background: #20242a;
+  border: 1px solid #454b53;
+  border-radius: 8px;
+}
+
+#sloppy-safari-extension-panel [data-sloppy-selection] {
+  min-height: 90px;
+}
+
+#sloppy-safari-extension-panel [data-sloppy-prompt] {
+  min-height: 110px;
+}
+
+#sloppy-safari-extension-panel button {
+  appearance: none;
+  padding: 8px 12px;
+  color: #101214;
+  background: #a9ff68;
+  border: 0;
+  border-radius: 8px;
+  font-weight: 700;
+}
+
+.sloppy-safari-extension-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}

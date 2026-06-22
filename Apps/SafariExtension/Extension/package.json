@@ -1,0 +1,8 @@
+{
+  "name": "sloppy-safari-extension",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test Tests/*.test.mjs"
+  }
+}
