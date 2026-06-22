@@ -129,9 +129,37 @@ test("createMeshIdentity creates Swift-compatible Ed25519 identity fields", asyn
   assert.equal(identity.nodeId, "node_safari-extension_abc123");
   assert.equal(identity.name, "Safari Extension");
   assert.equal(identity.publicKey, "ed25519:cHVibGljLWtleQ");
-  assert.equal(identity.privateKey, "ed25519:cHJpdmF0ZS1rZXk");
+  assert.equal(identity.privateKey, "ed25519-pkcs8:cHJpdmF0ZS1rZXk");
   assert.deepEqual(identity.roles, ["client"]);
   assert.deepEqual(identity.capabilities, ["browser_context", "core_http"]);
+});
+
+test("createMeshIdentity stores a real WebCrypto private key that can sign auth challenges", {
+  skip: !globalThis.crypto?.subtle ? "WebCrypto is unavailable in this runtime." : false
+}, async () => {
+  let identity;
+  try {
+    identity = await createMeshIdentity({ name: "Safari Extension", randomToken: "abc123" });
+  } catch (error) {
+    if (error?.message === "WebCrypto Ed25519 is unavailable.") {
+      return;
+    }
+    throw error;
+  }
+
+  assert.equal(identity.privateKey.startsWith("ed25519-pkcs8:"), true);
+  const response = await buildAuthResponseEnvelope(identity, {
+    type: "auth.challenge",
+    from: "relay",
+    payload: {
+      nonce: "nonce_auth",
+      nodeId: identity.nodeId,
+      publicKey: identity.publicKey
+    }
+  });
+
+  assert.equal(response.type, "auth.response");
+  assert.equal(response.payload.signature.startsWith("ed25519:"), true);
 });
 
 test("buildAuthResponseEnvelope signs auth challenge nonce", async () => {
@@ -418,10 +446,11 @@ function fakeCrypto(signature = "signature") {
         return { publicKey: "public", privateKey: "private" };
       },
       async exportKey(format, key) {
-        assert.equal(format, "raw");
+        assert.equal(format, key === "private" ? "pkcs8" : "raw");
         return new TextEncoder().encode(`${key}-key`);
       },
-      async importKey(_format, data) {
+      async importKey(format, data) {
+        assert.equal(format, "pkcs8");
         return new TextDecoder().decode(data);
       },
       async sign() {

@@ -144,6 +144,7 @@ export function buildMeshInviteAcceptPayload(token, identity, bundle = parseMesh
 
 const defaultRoles = ["client"];
 const defaultCapabilities = ["browser_context", "core_http"];
+const privateKeyPrefix = "ed25519-pkcs8:";
 
 export async function createMeshIdentity(options = {}) {
   const cryptoImpl = options.cryptoImpl || globalThis.crypto;
@@ -157,13 +158,13 @@ export async function createMeshIdentity(options = {}) {
     throw new Error("WebCrypto Ed25519 is unavailable.");
   }
   const publicBytes = new Uint8Array(await cryptoImpl.subtle.exportKey("raw", keyPair.publicKey));
-  const privateBytes = new Uint8Array(await cryptoImpl.subtle.exportKey("raw", keyPair.privateKey));
+  const privateBytes = new Uint8Array(await cryptoImpl.subtle.exportKey("pkcs8", keyPair.privateKey));
   const name = String(options.name || "Safari Extension").trim() || "Safari Extension";
   return {
     nodeId: makeNodeId(name, options.randomToken),
     name,
     publicKey: `ed25519:${bytesToBase64URL(publicBytes)}`,
-    privateKey: `ed25519:${bytesToBase64URL(privateBytes)}`,
+    privateKey: `${privateKeyPrefix}${bytesToBase64URL(privateBytes)}`,
     roles: defaultRoles,
     capabilities: defaultCapabilities,
     createdAt: new Date().toISOString()
@@ -175,8 +176,12 @@ export async function signMeshChallenge(identity, nonce, deps = {}) {
   if (!cryptoImpl?.subtle?.importKey || !cryptoImpl?.subtle?.sign) {
     throw new Error("WebCrypto Ed25519 is unavailable.");
   }
-  const privateKeyBytes = decodeKeyMaterial(identity.privateKey);
-  const key = await cryptoImpl.subtle.importKey("raw", privateKeyBytes, { name: "Ed25519" }, false, ["sign"]);
+  const privateKey = String(identity.privateKey || "");
+  const isPKCS8 = privateKey.startsWith(privateKeyPrefix);
+  const privateKeyBytes = isPKCS8
+    ? base64URLToBytes(privateKey.slice(privateKeyPrefix.length))
+    : decodeKeyMaterial(privateKey);
+  const key = await cryptoImpl.subtle.importKey(isPKCS8 ? "pkcs8" : "raw", privateKeyBytes, { name: "Ed25519" }, false, ["sign"]);
   const signature = await cryptoImpl.subtle.sign({ name: "Ed25519" }, key, new TextEncoder().encode(nonce));
   return `ed25519:${bytesToBase64URL(new Uint8Array(signature))}`;
 }
