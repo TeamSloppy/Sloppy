@@ -1,8 +1,15 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  acceptMeshInvite,
+  buildAuthResponseEnvelope,
+  buildCoreHTTPRPCEnvelope,
   buildMeshInviteAcceptPayload,
+  buildNodeHelloEnvelope,
+  createMeshIdentity,
+  decodeCoreHTTPRPCResponse,
   makeNodeId,
+  meshCoreFetch,
   normalizeMeshSettings,
   parseMeshInviteBundle,
   resolveRelayWebSocketURL
@@ -111,3 +118,198 @@ test("normalizeMeshSettings preserves configured mesh state and defaults disable
     identity: { nodeId: "node_safari", publicKey: "ed25519:public", privateKey: "ed25519:private" }
   });
 });
+
+test("createMeshIdentity creates Swift-compatible Ed25519 identity fields", async () => {
+  const identity = await createMeshIdentity({
+    name: "Safari Extension",
+    randomToken: "abc123",
+    cryptoImpl: fakeCrypto()
+  });
+
+  assert.equal(identity.nodeId, "node_safari-extension_abc123");
+  assert.equal(identity.name, "Safari Extension");
+  assert.equal(identity.publicKey, "ed25519:cHVibGljLWtleQ");
+  assert.equal(identity.privateKey, "ed25519:cHJpdmF0ZS1rZXk");
+  assert.deepEqual(identity.roles, ["client"]);
+  assert.deepEqual(identity.capabilities, ["browser_context", "core_http"]);
+});
+
+test("buildAuthResponseEnvelope signs auth challenge nonce", async () => {
+  const identity = await createMeshIdentity({ cryptoImpl: fakeCrypto(), randomToken: "abc123" });
+  const response = await buildAuthResponseEnvelope(identity, {
+    id: "challenge-1",
+    type: "auth.challenge",
+    from: "relay",
+    payload: {
+      nonce: "nonce_auth",
+      nodeId: identity.nodeId,
+      publicKey: identity.publicKey
+    }
+  }, { cryptoImpl: fakeCrypto("signature") });
+
+  assert.equal(response.type, "auth.response");
+  assert.equal(response.from, identity.nodeId);
+  assert.equal(response.to, "relay");
+  assert.deepEqual(response.payload, {
+    nonce: "nonce_auth",
+    nodeId: identity.nodeId,
+    publicKey: identity.publicKey,
+    signature: "ed25519:c2lnbmF0dXJl"
+  });
+});
+
+test("buildNodeHelloEnvelope announces the extension node", async () => {
+  const identity = await createMeshIdentity({ cryptoImpl: fakeCrypto(), randomToken: "abc123" });
+  assert.deepEqual(stripVolatileEnvelopeFields(buildNodeHelloEnvelope(identity)), {
+    type: "node.hello",
+    from: "node_safari-extension_abc123",
+    payload: {
+      name: "Safari Extension",
+      publicKey: "ed25519:cHVibGljLWtleQ",
+      roles: ["client"],
+      capabilities: ["browser_context", "core_http"]
+    }
+  });
+});
+
+test("acceptMeshInvite reuses existing identity and persists accepted mesh settings", async () => {
+  const token = bundleToken({ v: 1, inviteToken: "slp_invite_remote", relayURL: "https://mesh.example.com", networkId: "personal" });
+  const existingIdentity = await createMeshIdentity({ cryptoImpl: fakeCrypto(), randomToken: "abc123" });
+  const saved = [];
+  const fetchImpl = async (url, options) => {
+    assert.equal(url, "https://mesh.example.com/v1/node/mesh/invites/accept");
+    assert.equal(JSON.parse(options.body).nodeId, existingIdentity.nodeId);
+    return Response.json({ id: existingIdentity.nodeId, name: "Safari Extension" }, { status: 201 });
+  };
+
+  const result = await acceptMeshInvite({
+    token,
+    currentMesh: { identity: existingIdentity },
+    fetchImpl,
+    saveMesh: async (mesh) => saved.push(mesh)
+  });
+
+  assert.equal(result.mesh.identity.nodeId, existingIdentity.nodeId);
+  assert.equal(result.mesh.enabled, true);
+  assert.equal(result.mesh.relayURL, "https://mesh.example.com");
+  assert.equal(result.mesh.networkId, "personal");
+  assert.equal(saved[0].identity.nodeId, existingIdentity.nodeId);
+});
+
+test("buildCoreHTTPRPCEnvelope wraps Core requests for mesh core.http", async () => {
+  const identity = await createMeshIdentity({ cryptoImpl: fakeCrypto(), randomToken: "abc123" });
+  const envelope = buildCoreHTTPRPCEnvelope(identity, "node_home", {
+    method: "POST",
+    path: "/v1/agents/sloppy/sessions",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ title: "Safari" })
+  });
+
+  assert.equal(envelope.type, "rpc.request");
+  assert.equal(envelope.from, identity.nodeId);
+  assert.equal(envelope.to, "node_home");
+  assert.equal(envelope.payload.method, "core.http");
+  assert.equal(envelope.payload.params.method, "POST");
+  assert.equal(envelope.payload.params.path, "/v1/agents/sloppy/sessions");
+  assert.equal(Buffer.from(envelope.payload.params.bodyBase64, "base64").toString("utf8"), "{\"title\":\"Safari\"}");
+});
+
+test("decodeCoreHTTPRPCResponse returns a Response-like object", async () => {
+  const response = decodeCoreHTTPRPCResponse({
+    type: "rpc.response",
+    payload: {
+      requestId: "rpc-1",
+      method: "core.http",
+      ok: true,
+      result: {
+        status: 200,
+        contentType: "application/json",
+        bodyBase64: Buffer.from(JSON.stringify({ ok: true }), "utf8").toString("base64")
+      }
+    }
+  });
+
+  assert.equal(response.status, 200);
+  assert.equal(response.headers.get("content-type"), "application/json");
+  assert.deepEqual(await response.json(), { ok: true });
+});
+
+test("meshCoreFetch performs relay auth and returns core.http response", async () => {
+  const identity = await createMeshIdentity({ cryptoImpl: fakeCrypto(), randomToken: "abc123" });
+  const sent = [];
+  const socketFactory = () => fakeSocket([
+    { type: "auth.challenge", from: "relay", payload: { nonce: "nonce_auth", nodeId: identity.nodeId, publicKey: identity.publicKey } },
+    { type: "rpc.response", from: "node_home", payload: { requestId: "rpc-fixed", method: "core.http", ok: true, result: { status: 200, contentType: "application/json", bodyBase64: Buffer.from("{\"agents\":[]}", "utf8").toString("base64") } } }
+  ], sent);
+
+  const response = await meshCoreFetch({
+    mesh: {
+      enabled: true,
+      relayURL: "https://mesh.example.com",
+      targetNodeId: "node_home",
+      identity
+    }
+  }, "/v1/agents", { method: "GET" }, {
+    cryptoImpl: fakeCrypto("signature"),
+    makeRequestId: () => "rpc-fixed",
+    socketFactory
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { agents: [] });
+  assert.equal(sent.some((envelope) => envelope.type === "auth.response"), true);
+  assert.equal(sent.some((envelope) => envelope.type === "node.hello"), true);
+  assert.equal(sent.some((envelope) => envelope.type === "rpc.request"), true);
+});
+
+function fakeCrypto(signature = "signature") {
+  return {
+    subtle: {
+      async generateKey() {
+        return { publicKey: "public", privateKey: "private" };
+      },
+      async exportKey(format, key) {
+        assert.equal(format, "raw");
+        return new TextEncoder().encode(`${key}-key`);
+      },
+      async importKey(_format, data) {
+        return new TextDecoder().decode(data);
+      },
+      async sign() {
+        return new TextEncoder().encode(signature);
+      }
+    },
+    getRandomValues(bytes) {
+      bytes.fill(7);
+      return bytes;
+    }
+  };
+}
+
+function fakeSocket(inboundEnvelopes, sent) {
+  const listeners = {};
+  const socket = {
+    addEventListener(type, listener) {
+      listeners[type] = listener;
+    },
+    send(text) {
+      sent.push(JSON.parse(text));
+    },
+    close() {},
+    open() {
+      listeners.open?.({});
+      for (const envelope of inboundEnvelopes) {
+        listeners.message?.({ data: JSON.stringify(envelope) });
+      }
+    }
+  };
+  queueMicrotask(() => socket.open());
+  return socket;
+}
+
+function stripVolatileEnvelopeFields(envelope) {
+  const { id, timestamp, ...stable } = envelope;
+  assert.ok(id);
+  assert.ok(timestamp);
+  return stable;
+}
