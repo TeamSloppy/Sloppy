@@ -167,6 +167,42 @@ struct SystemAPIRouter: APIRouter {
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
         }
 
+        router.post("/v1/voice/transcriptions", metadata: RouteMetadata(summary: "Transcribe voice audio", description: "Transcribes bounded browser audio through configured OpenAI voice settings", tags: ["System"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: VoiceModeTranscriptionRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            do {
+                let response = try await service.transcribeVoice(payload)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch CoreService.VoiceModeError.invalidPayload {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            } catch CoreService.VoiceModeError.openAINotConfigured {
+                return CoreRouter.json(status: HTTPStatus.conflict, payload: ["error": "voice_openai_not_configured"])
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": "voice_transcription_failed"])
+            }
+        }
+
+        router.post("/v1/voice/speech", metadata: RouteMetadata(summary: "Generate voice speech", description: "Generates spoken audio through configured OpenAI voice settings", tags: ["System"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: VoiceModeSpeechRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            do {
+                let response = try await service.synthesizeVoice(payload)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch CoreService.VoiceModeError.invalidPayload {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            } catch CoreService.VoiceModeError.openAINotConfigured {
+                return CoreRouter.json(status: HTTPStatus.conflict, payload: ["error": "voice_openai_not_configured"])
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": "voice_speech_failed"])
+            }
+        }
+
         router.post("/v1/git-sync/run", metadata: RouteMetadata(summary: "Run workspace Git Sync", description: "Synchronizes the workspace configuration snapshot to the configured Git repository", tags: ["System"])) { _ in
             do {
                 let response = try await service.runWorkspaceGitSyncNow()

@@ -2,6 +2,12 @@ import Foundation
 import Protocols
 
 extension CoreService {
+    public enum VoiceModeError: Error {
+        case invalidPayload
+        case openAINotConfigured
+        case requestFailed(String)
+    }
+
     public func voiceModeConfig() async -> VoiceModeConfigResponse {
         let config = getConfig()
         let openAIConfigured = Self.voiceModeOpenAIConfigured(config)
@@ -42,6 +48,38 @@ extension CoreService {
         )
     }
 
+    public func transcribeVoice(_ request: VoiceModeTranscriptionRequest) async throws -> VoiceModeTranscriptionResponse {
+        let config = getConfig()
+        guard Self.voiceModeOpenAIConfigured(config) else {
+            throw VoiceModeError.openAINotConfigured
+        }
+        guard !request.audioBase64.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+              !request.mimeType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+            throw VoiceModeError.invalidPayload
+        }
+        guard let apiKey = Self.voiceModeOpenAIAPIKey(config) else {
+            throw VoiceModeError.openAINotConfigured
+        }
+
+        return try await OpenAIVoiceModeClient().transcribe(request: request, config: config, apiKey: apiKey)
+    }
+
+    public func synthesizeVoice(_ request: VoiceModeSpeechRequest) async throws -> VoiceModeSpeechResponse {
+        let config = getConfig()
+        guard !request.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            throw VoiceModeError.invalidPayload
+        }
+        guard Self.voiceModeOpenAIConfigured(config) else {
+            throw VoiceModeError.openAINotConfigured
+        }
+        guard let apiKey = Self.voiceModeOpenAIAPIKey(config) else {
+            throw VoiceModeError.openAINotConfigured
+        }
+
+        return try await OpenAIVoiceModeClient().speech(request: request, config: config, apiKey: apiKey)
+    }
+
     static func voiceModeOpenAIConfigured(_ config: CoreConfig) -> Bool {
         guard config.voiceMode.openAI.enabled else {
             return false
@@ -55,5 +93,17 @@ extension CoreService {
             return true
         }
         return ProcessInfo.processInfo.environment["OPENAI_API_KEY"].map { !$0.isEmpty } == true
+    }
+
+    static func voiceModeOpenAIAPIKey(_ config: CoreConfig) -> String? {
+        if let envKey = ProcessInfo.processInfo.environment["OPENAI_API_KEY"]?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !envKey.isEmpty {
+            return envKey
+        }
+        return config.models.first { model in
+            !model.disabled
+                && model.apiUrl.localizedCaseInsensitiveContains("openai.com")
+                && !model.apiKey.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }?.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

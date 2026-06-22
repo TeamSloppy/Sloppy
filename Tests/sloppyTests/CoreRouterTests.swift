@@ -1385,6 +1385,35 @@ func voiceConfigEndpointUsesOpenAIWhenConfigured() async throws {
 }
 
 @Test
+func voiceTranscriptionEndpointReturnsConfigErrorWithoutOpenAI() async throws {
+    var config = CoreConfig.test
+    config.voiceMode = .init(enabled: true, provider: .openAI, openAI: .init(enabled: false))
+    config.models = []
+    let router = CoreRouter(service: CoreService(config: config))
+    let body = try JSONEncoder().encode(VoiceModeTranscriptionRequest(audioBase64: "d2F2", mimeType: "audio/webm"))
+
+    let response = await router.handle(method: "POST", path: "/v1/voice/transcriptions", body: body)
+
+    #expect(response.status == 409)
+    let payload = try JSONDecoder().decode(ErrorResponse.self, from: response.body)
+    #expect(payload.error == "voice_openai_not_configured")
+}
+
+@Test
+func voiceSpeechEndpointReturnsBadRequestForEmptyText() async throws {
+    var config = CoreConfig.test
+    config.voiceMode = .init(enabled: true, provider: .openAI, openAI: .init(enabled: true))
+    let router = CoreRouter(service: CoreService(config: config))
+    let body = try JSONEncoder().encode(VoiceModeSpeechRequest(text: "   "))
+
+    let response = await router.handle(method: "POST", path: "/v1/voice/speech", body: body)
+
+    #expect(response.status == 400)
+    let payload = try JSONDecoder().decode(ErrorResponse.self, from: response.body)
+    #expect(payload.error == "invalid_body")
+}
+
+@Test
 func dashboardAuthProtectsAPIRoutesWhenEnabled() async throws {
     var config = CoreConfig.test
     config.ui.dashboardAuth.enabled = true
