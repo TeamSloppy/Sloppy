@@ -414,6 +414,27 @@ func parseMemoryScope(from arguments: [String: JSONValue]) -> MemoryScope? {
     return MemoryScope(type: type, id: scopeID)
 }
 
+func isSharedMemoryScope(_ scope: MemoryScope?) -> Bool {
+    guard let scope else { return false }
+    return scope.type == .global && scope.id == "shared"
+}
+
+func sharedMemoryDisabledFailure(tool: String) -> ToolInvocationResult {
+    toolFailure(
+        tool: tool,
+        code: "shared_memory_disabled",
+        message: "Shared memory is disabled for this agent. Use an agent, channel, or project scope instead.",
+        retryable: false
+    )
+}
+
+func rejectDisabledSharedMemory(scope: MemoryScope?, context: ToolContext, tool: String) -> ToolInvocationResult? {
+    guard isSharedMemoryScope(scope), !context.sharedMemoryEnabled else {
+        return nil
+    }
+    return sharedMemoryDisabledFailure(tool: tool)
+}
+
 // MARK: - Project helpers (pure functions)
 
 func trimmedStringArgument(_ arguments: [String: JSONValue], _ key: String) -> String? {

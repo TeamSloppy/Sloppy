@@ -36,6 +36,7 @@ extension CoreTool {
 struct ToolContext: @unchecked Sendable {
     let agentID: String
     let sessionID: String
+    let sharedMemoryEnabled: Bool
     let channelID: String?
     let policy: AgentToolsPolicy
     let workspaceRootURL: URL
@@ -67,6 +68,7 @@ struct ToolContext: @unchecked Sendable {
     init(
         agentID: String,
         sessionID: String,
+        sharedMemoryEnabled: Bool = true,
         channelID: String? = nil,
         policy: AgentToolsPolicy,
         workspaceRootURL: URL,
@@ -95,6 +97,7 @@ struct ToolContext: @unchecked Sendable {
     ) {
         self.agentID = agentID
         self.sessionID = sessionID
+        self.sharedMemoryEnabled = sharedMemoryEnabled
         self.channelID = channelID?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.policy = policy
         self.workspaceRootURL = workspaceRootURL

@@ -143,9 +143,11 @@ final class ToolExecutionService: @unchecked Sendable {
                 try await handler(agentID, field, markdown)
             }
         }
+        let sharedMemoryEnabled = (try? agentCatalogStore.getAgentRuntimeConfig(agentID: agentID).sharedMemoryEnabled) ?? true
         return ToolContext(
             agentID: agentID,
             sessionID: sessionID,
+            sharedMemoryEnabled: sharedMemoryEnabled,
             channelID: channelID,
             policy: policy,
             workspaceRootURL: workspaceRootURL,

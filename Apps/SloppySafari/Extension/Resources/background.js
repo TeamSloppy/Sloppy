@@ -1,7 +1,9 @@
+import "./i18n.js";
 import {
   chooseAgentID,
   coreFetch,
   fallbackSelectionText,
+  fetchProviderModels,
   fetchVoiceConfig,
   normalizeAgentSessions,
   postBrowserContext,
@@ -18,13 +20,52 @@ const defaultSettings = {
   coreURLString: "http://127.0.0.1:25101",
   authToken: "",
   defaultAgentID: "sloppy",
+  selectedModel: "",
   floatingButtonEnabled: true,
-  selectionBubbleEnabled: true
+  selectionBubbleEnabled: true,
+  voiceLanguage: "auto"
 };
+
+const summarizePageContextMenuId = "sloppy.summaryPage";
+
+function t(key, params = {}) {
+  return globalThis.SloppyI18n?.t(key, params) || key;
+}
 
 async function loadSettings() {
   const stored = await chrome.storage.local.get(defaultSettings);
   return sanitizeSettings({ ...defaultSettings, ...stored });
+}
+
+function createContextMenus() {
+  chrome.contextMenus?.create?.({
+    id: summarizePageContextMenuId,
+    title: t("summarizePageContextMenu"),
+    contexts: ["page"],
+    icons: {
+      16: "icons/text.aligncenter.svg",
+      32: "icons/text.aligncenter.svg"
+    }
+  });
+}
+
+function registerContextMenus() {
+  if (!chrome.contextMenus) {
+    return;
+  }
+  if (typeof chrome.contextMenus.removeAll === "function") {
+    const result = chrome.contextMenus.removeAll(() => createContextMenus());
+    result?.then?.(createContextMenus).catch?.(() => createContextMenus());
+    return;
+  }
+  createContextMenus();
+}
+
+async function handleContextMenuClick(info, tab) {
+  if (info?.menuItemId !== summarizePageContextMenuId || !tab?.id) {
+    return;
+  }
+  await chrome.tabs.sendMessage(tab.id, { type: "sloppy.page.summarize" });
 }
 
 function mergeMeshSettings(currentMesh, incomingMesh) {
@@ -59,6 +100,9 @@ async function saveSettings(settings) {
     mesh: mergeMeshSettings(current.mesh, settings?.mesh)
   });
   await chrome.storage.local.set(sanitized);
+  if (!sanitized.selectedModel) {
+    await chrome.storage.local.remove?.("selectedModel");
+  }
   return sanitized;
 }
 
@@ -166,6 +210,12 @@ async function runBrowserTool(action) {
 }
 
 if (typeof chrome !== "undefined") {
+  chrome.runtime.onInstalled?.addListener(() => registerContextMenus());
+  chrome.contextMenus?.onClicked?.addListener((info, tab) => {
+    void handleContextMenuClick(info, tab);
+  });
+  registerContextMenus();
+
   chrome.action.onClicked.addListener(async (tab) => {
     if (!tab.id) {
       return;
@@ -219,7 +269,7 @@ if (typeof chrome !== "undefined") {
           const sessions = await listSessions(settings, message.agentId || settings.defaultAgentID);
           sendResponse({ sessions, selectedSessionId: settings.sessionId || null });
         } catch (error) {
-          sendResponse({ sessions: [], error: error.message || "Sessions unavailable." });
+          sendResponse({ sessions: [], error: error.message || t("sessionsUnavailable") });
         }
       })();
       return true;
@@ -250,6 +300,23 @@ if (typeof chrome !== "undefined") {
           sendResponse({ commands });
         } catch (error) {
           sendResponse({ commands: [], error: error.message || "Commands unavailable." });
+        }
+      })();
+      return true;
+    }
+    if (message?.type === "sloppy.models.list") {
+      void (async () => {
+        try {
+          const settings = await loadSettings();
+          const models = await fetchProviderModels(settings);
+          sendResponse({ models, selectedModel: settings.selectedModel || "default" });
+        } catch (error) {
+          const settings = await loadSettings().catch(() => defaultSettings);
+          sendResponse({
+            models: [{ id: "default", title: t("defaultModel"), subtitle: t("defaultModelSubtitle") }],
+            selectedModel: settings.selectedModel || "default",
+            error: error.message || "Models unavailable."
+          });
         }
       })();
       return true;
@@ -329,6 +396,10 @@ if (typeof chrome !== "undefined") {
           return;
         }
         const settings = await loadSettings();
+        const selectedModel = String(message.model || "").trim();
+        const effectiveSettings = selectedModel && selectedModel !== "default"
+          ? { ...settings, selectedModel }
+          : { ...settings, selectedModel: "" };
         const selection = fallbackSelectionText(message.selection);
         const options = {
           tabs: message.tabs || [],
@@ -338,7 +409,7 @@ if (typeof chrome !== "undefined") {
         if (message.type === "sloppy.browserContext.stream") {
           const tabId = _sender.tab?.id;
           const requestId = message.requestId;
-          const result = await postBrowserContextStreaming(settings, message.page, selection, message.prompt, {
+          const result = await postBrowserContextStreaming(effectiveSettings, message.page, selection, message.prompt, {
             ...options,
             onEvent: (event) => {
               if (!tabId || !requestId) {
@@ -352,14 +423,14 @@ if (typeof chrome !== "undefined") {
             }
           });
           if (result?.sessionId) {
-            await saveSettings({ ...settings, sessionId: result.sessionId });
+            await saveSettings({ ...effectiveSettings, sessionId: result.sessionId });
           }
           sendResponse(result);
           return;
         }
-        const result = await postBrowserContext(settings, message.page, selection, message.prompt, options);
+        const result = await postBrowserContext(effectiveSettings, message.page, selection, message.prompt, options);
         if (result?.sessionId) {
-          await saveSettings({ ...settings, sessionId: result.sessionId });
+          await saveSettings({ ...effectiveSettings, sessionId: result.sessionId });
         }
         sendResponse(result);
       } catch (error) {

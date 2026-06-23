@@ -18,6 +18,21 @@ import Testing
 // MARK: - EventEnvelope Compatibility
 
 @Test
+func agentRuntimeConfigDecodesMissingSharedMemoryAsEnabled() throws {
+    let json = """
+    {
+        "type": "native"
+    }
+    """.data(using: .utf8)!
+
+    let config = try JSONDecoder().decode(AgentRuntimeConfig.self, from: json)
+
+    #expect(config.type == .native)
+    #expect(config.acp == nil)
+    #expect(config.sharedMemoryEnabled == true)
+}
+
+@Test
 func envelopeDecodesWithUnknownFields() throws {
     // Given: JSON with extra fields not defined in EventEnvelope
     let jsonWithUnknownFields = """

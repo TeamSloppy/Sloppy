@@ -9,6 +9,7 @@ struct PromptRenderContext: Sendable {
     var documents: AgentDocumentBundle?
     var installedSkills: [InstalledSkill]
     var agentDirectoryPath: String?
+    var sharedMemoryEnabled: Bool
 
     static func agentSessionBootstrap(
         agentID: String,
@@ -16,7 +17,8 @@ struct PromptRenderContext: Sendable {
         bootstrapMarker: String,
         documents: AgentDocumentBundle,
         installedSkills: [InstalledSkill],
-        agentDirectoryPath: String?
+        agentDirectoryPath: String?,
+        sharedMemoryEnabled: Bool = true
     ) -> PromptRenderContext {
         PromptRenderContext(
             processKind: .agentSessionBootstrap,
@@ -25,7 +27,8 @@ struct PromptRenderContext: Sendable {
             bootstrapMarker: bootstrapMarker,
             documents: documents,
             installedSkills: installedSkills,
-            agentDirectoryPath: agentDirectoryPath
+            agentDirectoryPath: agentDirectoryPath,
+            sharedMemoryEnabled: sharedMemoryEnabled
         )
     }
 }

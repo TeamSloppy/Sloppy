@@ -300,6 +300,43 @@ export function decodeCoreHTTPRPCResponse(envelope) {
   });
 }
 
+async function describeHTTPFailure(response, method, url) {
+  const responseText = await response.text().catch(() => "");
+  let message = responseText.trim();
+  if (message) {
+    try {
+      const body = JSON.parse(message);
+      if (isObject(body)) {
+        message = body.message || body.error || message;
+      }
+    } catch {
+      // Keep plain-text response bodies as-is.
+    }
+  }
+  const suffix = message ? `: ${message}` : ".";
+  return `${method} ${url} failed with HTTP ${response.status}${suffix}`;
+}
+
+async function fetchWithTimeout(fetchImpl, url, request, timeoutMs) {
+  const controller = typeof AbortController !== "undefined" ? new AbortController() : null;
+  const requestWithSignal = controller ? { ...request, signal: controller.signal } : request;
+  let timeoutId;
+  const timeout = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      controller?.abort();
+      reject(new Error(`${request.method || "GET"} ${url} timed out after ${timeoutMs}ms.`));
+    }, timeoutMs);
+  });
+  try {
+    return await Promise.race([
+      Promise.resolve().then(() => fetchImpl(url, requestWithSignal)),
+      timeout
+    ]);
+  } finally {
+    clearTimeout(timeoutId);
+  }
+}
+
 export async function acceptMeshInvite(options) {
   const token = String(options.token || "").trim();
   const bundle = parseMeshInviteBundle(token);
@@ -322,15 +359,16 @@ export async function acceptMeshInvite(options) {
   const url = relayURL;
   url.pathname = "/v1/node/mesh/invites/accept";
   url.search = "";
-  const response = await (options.fetchImpl || fetch)(url.toString(), {
+  const timeoutMs = Number.isFinite(options.timeoutMs) && options.timeoutMs > 0 ? options.timeoutMs : 15000;
+  const response = await fetchWithTimeout(options.fetchImpl || fetch, url.toString(), {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(payload)
-  });
-  const body = await response.json().catch(() => ({}));
+  }, timeoutMs);
   if (!response.ok) {
-    throw new Error(body.message || body.error || `Mesh invite accept failed with HTTP ${response.status}.`);
+    throw new Error(await describeHTTPFailure(response, "POST", url.toString()));
   }
+  const body = await response.json().catch(() => ({}));
   const mesh = normalizeMeshSettings({
     ...options.currentMesh,
     enabled: true,

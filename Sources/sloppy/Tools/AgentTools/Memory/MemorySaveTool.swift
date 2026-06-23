@@ -11,7 +11,7 @@ struct MemorySaveTool: CoreTool {
     let description = """
     Persist a hybrid memory entry. You must set scope (not the end user): either pass `scope_type` and `scope_id` together, or pass a `scope` object with `type` and `id`. \
     For this chat and the dashboard Memories list: `scope_type` = channel, `scope_id` = agent:<agentId>:session:<sessionId>. \
-    For agent-wide rows: `scope_type` = agent, `scope_id` = <agentId>. Calls without a resolved scope are rejected.
+    For agent-wide rows: `scope_type` = agent, `scope_id` = <agentId>. For shared rows visible to every enabled agent: `scope_type` = global, `scope_id` = shared. Calls without a resolved scope are rejected.
     """
 
     var parameters: GenerationSchema {
@@ -25,7 +25,7 @@ struct MemorySaveTool: CoreTool {
             ),
             .init(
                 name: "scope_id",
-                description: "Together with scope_type, or omit if using `scope` object. For channel: agent:<agentId>:session:<sessionId>.",
+                description: "Together with scope_type, or omit if using `scope` object. For channel: agent:<agentId>:session:<sessionId>. For shared memory: shared.",
                 schema: DynamicGenerationSchema(type: String.self),
                 isOptional: true
             ),
@@ -52,6 +52,9 @@ struct MemorySaveTool: CoreTool {
                 message: "Set memory scope: either `scope_type` + `scope_id`, or `scope` as { \"type\", \"id\", optional \"channel_id\", \"project_id\", \"agent_id\" }. Example channel scope_id: agent:<agentId>:session:<sessionId>.",
                 retryable: false
             )
+        }
+        if let failure = rejectDisabledSharedMemory(scope: scope, context: context, tool: name) {
+            return failure
         }
         let importance = arguments["importance"]?.asNumber
         let confidence = arguments["confidence"]?.asNumber

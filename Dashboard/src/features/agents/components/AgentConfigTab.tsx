@@ -72,7 +72,8 @@ function emptyAgentConfigDraft(agentId) {
     },
     runtime: {
       type: "native",
-      acp: null
+      acp: null,
+      sharedMemoryEnabled: true
     }
   };
 }
@@ -122,6 +123,7 @@ function normalizeConfigDraft(agentId, config) {
     },
     runtime: {
       type: String(config.runtime?.type || "native"),
+      sharedMemoryEnabled: config.runtime?.sharedMemoryEnabled !== false,
       acp: config.runtime?.acp
         ? {
             targetId: String(config.runtime.acp.targetId || ""),
@@ -454,6 +456,7 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
     setDraft((previous) => ({
       ...previous,
       runtime: {
+        ...previous.runtime,
         type,
         acp: type === "acp" ? (previous.runtime.acp || { targetId: "", cwd: null }) : null
       }
@@ -465,6 +468,7 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
       ...previous,
       runtime: {
         ...previous.runtime,
+        sharedMemoryEnabled: previous.runtime.sharedMemoryEnabled !== false,
         acp: {
           ...(previous.runtime.acp || { targetId: "", cwd: null }),
           [field]: value
@@ -506,7 +510,10 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
       return;
     }
 
-    const runtime = { type: runtimeType };
+    const runtime = {
+      type: runtimeType,
+      sharedMemoryEnabled: draft.runtime?.sharedMemoryEnabled !== false
+    };
     if (runtimeType === "acp" && draft.runtime?.acp) {
       (runtime as any).acp = {
         targetId: draft.runtime.acp.targetId,
@@ -784,6 +791,26 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
                 <option value="native">Native</option>
                 <option value="acp">ACP (Agent Client Protocol)</option>
               </select>
+            </label>
+
+            <label className="agent-config-checkbox-row" style={{ gridColumn: "1 / -1" }}>
+              <input
+                type="checkbox"
+                checked={draft.runtime?.sharedMemoryEnabled !== false}
+                onChange={(e) => {
+                  setDraft((previous) => ({
+                    ...previous,
+                    runtime: {
+                      ...(previous.runtime || { type: "native", acp: null }),
+                      sharedMemoryEnabled: e.target.checked
+                    }
+                  }));
+                }}
+              />
+              <span>
+                Shared memory
+                <small>Allow this agent to read and write the global shared memory scope.</small>
+              </span>
             </label>
 
             {isACP && (

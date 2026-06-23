@@ -8,7 +8,7 @@ struct MemorySearchTool: CoreTool {
     let title = "Memory file search"
     let status = "fully_functional"
     let name = "memory.search"
-    let description = "Keyword search in memory via canonical local index."
+    let description = "Keyword search in memory via canonical local index. Use `scope_type` = global and `scope_id` = shared for shared memory when enabled."
 
     var parameters: GenerationSchema {
         .objectSchema([
@@ -22,7 +22,7 @@ struct MemorySearchTool: CoreTool {
             ),
             .init(
                 name: "scope_id",
-                description: "Together with scope_type, or omit if using `scope` object. For channel: agent:<agentId>:session:<sessionId>.",
+                description: "Together with scope_type, or omit if using `scope` object. For channel: agent:<agentId>:session:<sessionId>. For shared memory: shared.",
                 schema: DynamicGenerationSchema(type: String.self),
                 isOptional: true
             ),
@@ -52,6 +52,9 @@ struct MemorySearchTool: CoreTool {
 
         let limit = max(1, arguments["limit"]?.asInt ?? 8)
         let scope = parseMemoryScope(from: arguments)
+        if let failure = rejectDisabledSharedMemory(scope: scope, context: context, tool: name) {
+            return failure
+        }
         let hits = await context.memoryStore.recall(
             request: MemoryRecallRequest(query: query, limit: limit, scope: scope)
         )

@@ -3511,6 +3511,28 @@ body.agent-chat-no-page-scroll .page {
   font-size: 0.88rem;
 }
 
+.agent-config-checkbox-row {
+  display: flex !important;
+  align-items: flex-start;
+  gap: 10px !important;
+  color: var(--text) !important;
+}
+
+.agent-config-checkbox-row input {
+  margin-top: 3px;
+}
+
+.agent-config-checkbox-row span {
+  display: grid;
+  gap: 3px;
+}
+
+.agent-config-checkbox-row small {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.35;
+}
+
 .agent-config-docs {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

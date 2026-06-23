@@ -29,6 +29,19 @@ test("extension declares tab access for browser context", () => {
   assert.equal(manifest.permissions.includes("tabs"), true);
 });
 
+test("extension declares context menu access for page summary shortcut", () => {
+  const manifest = loadManifest();
+  const backgroundSource = readFileSync(new URL("../Resources/background.js", import.meta.url), "utf8");
+  const contentSource = loadContentScript();
+
+  assert.equal(manifest.permissions.includes("contextMenus"), true);
+  assert.match(backgroundSource, /id:\s*summarizePageContextMenuId/);
+  assert.match(backgroundSource, /title:\s*t\("summarizePageContextMenu"\)/);
+  assert.match(backgroundSource, /contexts:\s*\["page"\]/);
+  assert.match(contentSource, /sloppy\.page\.summarize/);
+  assert.match(contentSource, /await summarizePage\(panel\)/);
+});
+
 test("extension does not request persistent microphone permission in manifest", () => {
   const manifest = loadManifest();
   assert.equal((manifest.permissions || []).includes("microphone"), false);
@@ -39,6 +52,16 @@ test("logo is web accessible for injected sidebar images", () => {
   const resources = manifest.web_accessible_resources || [];
   assert.equal(
     resources.some((entry) => entry.resources?.includes("so_logo.svg") && entry.matches?.includes("<all_urls>")),
+    true
+  );
+});
+
+test("SF-style icon assets are web accessible for mask-based controls", () => {
+  const manifest = loadManifest();
+  const resources = manifest.web_accessible_resources || [];
+
+  assert.equal(
+    resources.some((entry) => entry.resources?.includes("icons/*.svg") && entry.matches?.includes("<all_urls>")),
     true
   );
 });
@@ -59,6 +82,22 @@ test("fullscreen chat files are copied into every Safari web extension bundle", 
 
   assert.equal(chatHTMLCopies.length, 3);
   assert.equal(chatPageCopies.length, 3);
+});
+
+test("SF-style icon folder is copied into every Safari web extension bundle", () => {
+  const project = loadXcodeProject();
+  const iconFolderCopies = project.match(/\/\* icons in Resources \*\/,/g) || [];
+
+  assert.equal(iconFolderCopies.length, 3);
+});
+
+test("localization runtime is packaged with every Safari web extension bundle", () => {
+  const manifest = loadManifest();
+  const project = loadXcodeProject();
+  const i18nCopies = project.match(/\/\* i18n\.js in Resources \*\/,/g) || [];
+
+  assert.deepEqual(manifest.content_scripts?.[0]?.js, ["i18n.js", "contentScript.js"]);
+  assert.equal(i18nCopies.length, 3);
 });
 
 test("toolbar action uses the green Sloppy logo", () => {
@@ -93,11 +132,10 @@ test("empty assistant logo is grayscale and shimmers", () => {
   assert.match(css, /@keyframes sloppy-empty-mark-shimmer/);
 });
 
-test("streaming assistant messages show a small thinking animation", () => {
+test("streaming assistant messages show a compact thinking label", () => {
   const css = loadPanelCSS();
   assert.match(css, /\.sloppy-thinking\s*\{[\s\S]*display:\s*inline-flex;/);
-  assert.match(css, /\.sloppy-thinking span\s*\{[\s\S]*animation:\s*sloppy-thinking-dot/);
-  assert.match(css, /@keyframes sloppy-thinking-dot/);
+  assert.match(css, /\.sloppy-thinking span\s*\{[\s\S]*font-weight:\s*650;/);
 });
 
 test("search ask button keeps Siri-like waves contained inside the capsule", () => {
@@ -114,6 +152,17 @@ test("search ask button keeps Siri-like waves contained inside the capsule", () 
   assert.match(css, /@media\s*\(prefers-color-scheme:\s*dark\)[\s\S]*#sloppy-search-ask-button/);
   assert.match(css, /@keyframes sloppy-search-contained-wave-a/);
   assert.match(css, /@keyframes sloppy-search-contained-wave-b/);
+});
+
+test("command palette recent sessions scroll independently below the floating input", () => {
+  const css = loadPanelCSS();
+
+  assert.match(css, /#sloppy-command-palette,\n#sloppy-command-palette \*\s*\{[\s\S]*box-sizing:\s*border-box;/);
+  assert.match(css, /\.sloppy-command-palette-shell\s*\{[\s\S]*display:\s*grid;[\s\S]*grid-template-rows:\s*auto minmax\(0, 1fr\);[\s\S]*min-height:\s*0;/);
+  assert.match(css, /\.sloppy-command-palette-sessions\s*\{[\s\S]*min-height:\s*0;[\s\S]*max-height:\s*100%;/);
+  assert.match(css, /\.sloppy-command-palette-sessions\s*\{[\s\S]*overflow-y:\s*auto;/);
+  assert.match(css, /\.sloppy-command-palette-box > span\s*\{[\s\S]*display:\s*inline-grid;/);
+  assert.doesNotMatch(css, /#sloppy-command-palette span\s*\{/);
 });
 
 test("sidebar shell uses one neutral border for clean rounded corners", () => {
@@ -137,10 +186,61 @@ test("voice orb uses accent-colored free-motion layers and answering pulses", ()
   assert.match(css, /@keyframes sloppy-voice-answering-wave/);
 });
 
-test("square icon buttons reset native button padding for centered icons", () => {
+test("composer icon buttons are compact and only the primary action keeps a filled background", () => {
   const css = loadPanelCSS();
-  assert.match(css, /\.sloppy-icon-button,\n\.sloppy-send\s*\{[\s\S]*appearance:\s*none;[\s\S]*padding:\s*0;[\s\S]*place-items:\s*center;/);
+  const source = loadContentScript();
+
+  assert.match(css, /\.sloppy-composer \.sloppy-icon-button\s*\{[\s\S]*width:\s*30px;[\s\S]*height:\s*30px;/);
+  assert.match(css, /\.sloppy-composer \.sloppy-icon-button\s*\{[\s\S]*background:\s*transparent;/);
+  assert.match(css, /\.sloppy-primary-action\s*\{[\s\S]*background:\s*#e6e6e6;/);
+  assert.match(source, /data-sloppy-primary-action/);
+  assert.doesNotMatch(source, /class="sloppy-send"/);
+  assert.doesNotMatch(source, /data-sloppy-voice aria-label="Voice mode"/);
   assert.match(css, /\.sloppy-context-icon\s*\{[\s\S]*appearance:\s*none;[\s\S]*padding:\s*0;[\s\S]*place-items:\s*center;/);
+});
+
+test("controls render symbol mask icons instead of inline svg markup", () => {
+  const css = loadPanelCSS();
+  const source = loadContentScript();
+
+  assert.match(source, /data-sf-symbol/);
+  assert.match(source, /const path = `icons\/\$\{symbol\}\.svg`;/);
+  assert.match(source, /chrome\.runtime\.getURL\(path\)/);
+  assert.doesNotMatch(source, /return `<svg/);
+  assert.match(css, /\.sloppy-symbol\s*\{[\s\S]*-webkit-mask:\s*var\(--sloppy-symbol-url\)/);
+  assert.match(css, /\.sloppy-icon-button \.sloppy-symbol/);
+});
+
+test("assistant markdown and code blocks stay inside the chat viewport", () => {
+  const css = loadPanelCSS();
+
+  assert.match(css, /\.sloppy-thread\s*\{[\s\S]*min-width:\s*0;[\s\S]*overflow-x:\s*hidden;/);
+  assert.match(css, /\.sloppy-message\s*\{[\s\S]*min-width:\s*0;[\s\S]*max-width:\s*100%;/);
+  assert.match(css, /\.sloppy-message-body\s*\{[\s\S]*min-width:\s*0;[\s\S]*box-sizing:\s*border-box;/);
+  assert.match(css, /\.sloppy-markdown\s*\{[\s\S]*max-width:\s*100%;[\s\S]*overflow-wrap:\s*anywhere;/);
+  assert.match(css, /\.sloppy-markdown pre,\n\.sloppy-tool pre\s*\{[\s\S]*max-width:\s*100%;[\s\S]*overflow-x:\s*auto;/);
+  assert.match(css, /\.sloppy-markdown pre code\s*\{[\s\S]*white-space:\s*pre-wrap;[\s\S]*overflow-wrap:\s*anywhere;/);
+  assert.match(css, /\.sloppy-tool pre\s*\{[\s\S]*white-space:\s*pre-wrap;[\s\S]*overflow-wrap:\s*anywhere;/);
+});
+
+test("voice mode exposes a compact language picker", () => {
+  const source = loadContentScript();
+  const css = loadPanelCSS();
+
+  assert.match(source, /data-sloppy-voice-settings/);
+  assert.match(source, /data-sloppy-voice-language/);
+  assert.match(css, /\.sloppy-voice-settings/);
+  assert.match(css, /\.sloppy-voice-language/);
+});
+
+test("agent and model controls expose dropdown affordances", () => {
+  const css = loadPanelCSS();
+  const source = loadContentScript();
+
+  assert.match(source, /data-sloppy-model/);
+  assert.match(css, /\.sloppy-brand::after\s*\{[\s\S]*border-top:\s*5px solid/);
+  assert.match(css, /\.sloppy-model-picker::after\s*\{[\s\S]*border-top:\s*4px solid/);
+  assert.match(css, /\.sloppy-brand:hover select/);
 });
 
 test("fullscreen chat uses a flat dark canvas instead of glass or gradients", () => {

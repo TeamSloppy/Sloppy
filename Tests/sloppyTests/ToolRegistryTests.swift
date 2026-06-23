@@ -204,6 +204,34 @@ struct ToolRegistryTests {
         #expect(result.error?.message.contains("Set memory scope") == true)
     }
 
+    @Test("Memory tools reject shared scope when disabled")
+    func memoryToolsRejectSharedScopeWhenDisabled() async {
+        let context = makeMemoryToolContext(sharedMemoryEnabled: false)
+        let arguments: [String: Protocols.JSONValue] = [
+            "query": .string("user name"),
+            "scope_type": .string("global"),
+            "scope_id": .string("shared")
+        ]
+
+        let recallResult = await MemoryGetTool().invoke(arguments: arguments, context: context)
+        let searchResult = await MemorySearchTool().invoke(arguments: arguments, context: context)
+        let saveResult = await MemorySaveTool().invoke(
+            arguments: [
+                "note": .string("The user's name is Vlad."),
+                "scope_type": .string("global"),
+                "scope_id": .string("shared")
+            ],
+            context: context
+        )
+
+        #expect(recallResult.ok == false)
+        #expect(recallResult.error?.code == "shared_memory_disabled")
+        #expect(searchResult.ok == false)
+        #expect(searchResult.error?.code == "shared_memory_disabled")
+        #expect(saveResult.ok == false)
+        #expect(saveResult.error?.code == "shared_memory_disabled")
+    }
+
     @Test("Dynamic MCP tool ids use configured prefix or server default")
     func dynamicMCPToolIDNaming() {
         #expect(
@@ -254,11 +282,12 @@ struct ToolRegistryTests {
         return false
     }
 
-    private func makeMemoryToolContext() -> ToolContext {
+    private func makeMemoryToolContext(sharedMemoryEnabled: Bool = true) -> ToolContext {
         let tmp = FileManager.default.temporaryDirectory
         return ToolContext(
             agentID: "test-agent",
             sessionID: "test-session",
+            sharedMemoryEnabled: sharedMemoryEnabled,
             policy: AgentToolsPolicy(),
             workspaceRootURL: tmp,
             runtime: RuntimeSystem(),

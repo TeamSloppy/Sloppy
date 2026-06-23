@@ -179,8 +179,21 @@
 }
 
 .sloppy-brand {
+  position: relative;
   min-width: 0;
   gap: 10px;
+}
+
+.sloppy-brand::after {
+  content: "";
+  position: absolute;
+  right: 15px;
+  top: 50%;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 5px solid rgba(232, 232, 232, 0.7);
+  pointer-events: none;
+  transform: translateY(-35%);
 }
 
 .sloppy-mark,
@@ -230,13 +243,21 @@
   outline: none;
 }
 
+.sloppy-brand:hover select,
+.sloppy-brand select:focus {
+  background:
+    linear-gradient(135deg, rgba(255, 255, 255, 0.17), rgba(255, 255, 255, 0.06)),
+    rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.24);
+}
+
 .sloppy-actions,
 .sloppy-composer-tools {
   gap: 8px;
 }
 
 .sloppy-icon-button,
-.sloppy-send,
+.sloppy-primary-action,
 .sloppy-settings-save,
 .sloppy-attachment-chip {
   cursor: pointer;
@@ -244,7 +265,7 @@
 }
 
 .sloppy-icon-button,
-.sloppy-send {
+.sloppy-primary-action {
   appearance: none;
   display: inline-grid;
   width: 38px;
@@ -260,7 +281,7 @@
 }
 
 .sloppy-icon-button:hover,
-.sloppy-send:hover,
+.sloppy-primary-action:hover,
 .sloppy-attachment-chip:hover {
   color: #ffffff;
   background:
@@ -269,33 +290,110 @@
   border-color: rgba(255, 255, 255, 0.22);
 }
 
-.sloppy-icon-button svg,
-.sloppy-send svg,
-.sloppy-attachment-chip svg,
-.sloppy-context-row svg,
-.sloppy-tool svg {
+.sloppy-symbol {
+  display: inline-block;
+  flex: 0 0 auto;
+  width: 1em;
+  height: 1em;
+  background: currentColor;
+  -webkit-mask: var(--sloppy-symbol-url) center / contain no-repeat;
+  mask: var(--sloppy-symbol-url) center / contain no-repeat;
+}
+
+.sloppy-icon-button .sloppy-symbol,
+.sloppy-primary-action .sloppy-symbol,
+.sloppy-attachment-chip .sloppy-symbol,
+.sloppy-context-row .sloppy-symbol,
+.sloppy-tool .sloppy-symbol {
   width: 18px;
   height: 18px;
 }
 
-.sloppy-send {
+.sloppy-primary-action {
   color: #101010;
   background: #e6e6e6;
   border-color: rgba(255, 255, 255, 0.6);
   border-radius: 999px;
 }
 
-.sloppy-send svg {
-  transform: translateX(1px);
+.sloppy-primary-action .sloppy-symbol {
+  transform: none;
+}
+
+.sloppy-composer .sloppy-icon-button,
+.sloppy-model-picker {
+  width: 30px;
+  height: 30px;
+}
+
+.sloppy-composer .sloppy-icon-button {
+  width: 30px;
+  height: 30px;
+  color: rgba(232, 232, 232, 0.76);
+  background: transparent;
+  border-color: transparent;
+  border-radius: 999px;
+  box-shadow: none;
+}
+
+.sloppy-composer .sloppy-icon-button:hover {
+  color: #ffffff;
+  background: transparent;
+  border-color: transparent;
+}
+
+.sloppy-model-picker {
+  position: relative;
+  display: inline-grid;
+  place-items: center;
+  color: rgba(232, 232, 232, 0.76);
+  cursor: pointer;
+  border-radius: 999px;
+}
+
+.sloppy-model-picker:hover {
+  color: #ffffff;
+}
+
+.sloppy-model-picker span {
+  display: inline-grid;
+  place-items: center;
+}
+
+.sloppy-model-picker .sloppy-symbol {
+  width: 18px;
+  height: 18px;
+}
+
+.sloppy-model-picker select {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  cursor: pointer;
+  opacity: 0;
+}
+
+.sloppy-model-picker::after {
+  content: "";
+  position: absolute;
+  right: 1px;
+  bottom: 4px;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 4px solid currentColor;
+  pointer-events: none;
 }
 
 .sloppy-thread {
   position: relative;
   display: flex;
   min-height: 0;
+  min-width: 0;
   flex: 1 1 auto;
   flex-direction: column;
   gap: 14px;
+  overflow-x: hidden;
   overflow-y: auto;
   padding: 10px 18px 12px;
   scrollbar-width: thin;
@@ -320,6 +418,8 @@
 
 .sloppy-message {
   display: grid;
+  min-width: 0;
+  max-width: 100%;
   gap: 7px;
 }
 
@@ -345,7 +445,9 @@
 }
 
 .sloppy-message-body {
+  min-width: 0;
   max-width: min(100%, 340px);
+  box-sizing: border-box;
   padding: 12px 14px;
   color: #f0f0f0;
   background: rgba(255, 255, 255, 0.07);
@@ -365,7 +467,6 @@
   display: inline-flex;
   width: fit-content;
   align-items: center;
-  gap: 5px;
   padding: 9px 11px;
   background: rgba(255, 255, 255, 0.07);
   border: 1px solid rgba(255, 255, 255, 0.11);
@@ -373,19 +474,9 @@
 }
 
 .sloppy-thinking span {
-  width: 5px;
-  height: 5px;
-  background: rgba(183, 255, 0, 0.78);
-  border-radius: 999px;
-  animation: sloppy-thinking-dot 900ms ease-in-out infinite;
-}
-
-.sloppy-thinking span:nth-child(2) {
-  animation-delay: 140ms;
-}
-
-.sloppy-thinking span:nth-child(3) {
-  animation-delay: 280ms;
+  color: rgba(255, 255, 255, 0.72);
+  font-size: 12px;
+  font-weight: 650;
 }
 
 .sloppy-message-user .sloppy-message-body {
@@ -406,21 +497,11 @@
 
 .sloppy-markdown {
   display: grid;
+  min-width: 0;
+  max-width: 100%;
   gap: 10px;
   line-height: 1.45;
-}
-
-@keyframes sloppy-thinking-dot {
-  0%,
-  100% {
-    opacity: 0.38;
-    transform: translateY(0) scale(0.86);
-  }
-
-  50% {
-    opacity: 1;
-    transform: translateY(-2px) scale(1);
-  }
+  overflow-wrap: anywhere;
 }
 
 .sloppy-markdown ul {
@@ -434,19 +515,33 @@
 }
 
 .sloppy-markdown code {
+  max-width: 100%;
   padding: 2px 5px;
+  white-space: pre-wrap;
+  word-break: break-word;
   background: rgba(255, 255, 255, 0.1);
   border-radius: 6px;
 }
 
 .sloppy-markdown pre,
 .sloppy-tool pre {
+  max-width: 100%;
+  box-sizing: border-box;
   overflow-x: auto;
   padding: 10px;
   color: #d8faf5;
   background: rgba(0, 0, 0, 0.32);
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
+}
+
+.sloppy-markdown pre code {
+  display: block;
+  min-width: 0;
+  padding: 0;
+  white-space: pre;
+  word-break: normal;
+  background: transparent;
 }
 
 .sloppy-markdown a {
@@ -591,8 +686,8 @@
   border-color: rgba(255, 255, 255, 0.2);
 }
 
-.sloppy-context-actions svg,
-.sloppy-context-icon svg {
+.sloppy-context-actions .sloppy-symbol,
+.sloppy-context-icon .sloppy-symbol {
   width: 16px;
   height: 16px;
 }
@@ -650,7 +745,7 @@ button.sloppy-attachment-chip {
   color: rgba(232, 232, 232, 0.58);
 }
 
-.sloppy-attachment-remove svg {
+.sloppy-attachment-remove .sloppy-symbol {
   width: 13px;
   height: 13px;
 }
@@ -1085,12 +1180,12 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
 }
 
 #sloppy-search-ask-button span,
-#sloppy-command-palette span {
+.sloppy-command-palette-box > span {
   display: inline-grid;
   place-items: center;
 }
 
-#sloppy-search-ask-button svg {
+#sloppy-search-ask-button .sloppy-symbol {
   width: 17px;
   height: 17px;
 }
@@ -1106,6 +1201,11 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
   background: rgba(0, 0, 0, 0.46);
   color-scheme: dark;
   backdrop-filter: blur(10px);
+}
+
+#sloppy-command-palette,
+#sloppy-command-palette * {
+  box-sizing: border-box;
 }
 
 #sloppy-command-palette[hidden] {
@@ -1128,7 +1228,85 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
     inset 0 1px 0 rgba(255, 255, 255, 0.16);
 }
 
-.sloppy-command-palette-box svg {
+.sloppy-command-palette-shell {
+  display: grid;
+  width: min(860px, calc(100vw - 48px));
+  max-height: min(520px, calc(100vh - 190px));
+  gap: 12px;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-height: 0;
+}
+
+.sloppy-command-palette-shell .sloppy-command-palette-box {
+  width: 100%;
+}
+
+.sloppy-command-palette-sessions {
+  display: grid;
+  min-height: 0;
+  max-height: 100%;
+  overflow-y: auto;
+  padding: 8px;
+  gap: 4px;
+  align-content: start;
+  background: rgba(18, 18, 18, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.13);
+  border-radius: 22px;
+  box-shadow: 0 22px 60px rgba(0, 0, 0, 0.38);
+  scrollbar-width: thin;
+}
+
+.sloppy-command-palette-sessions[hidden] {
+  display: none;
+}
+
+.sloppy-command-palette-sessions button {
+  appearance: none;
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  min-height: 62px;
+  padding: 11px 14px;
+  gap: 3px;
+  color: #efefef;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: 14px;
+  cursor: pointer;
+}
+
+.sloppy-command-palette-sessions button:hover,
+.sloppy-command-palette-sessions button:focus-visible {
+  background: rgba(255, 255, 255, 0.08);
+  outline: none;
+}
+
+.sloppy-command-palette-sessions strong,
+.sloppy-command-palette-sessions span,
+.sloppy-command-palette-empty {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.sloppy-command-palette-sessions strong {
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.sloppy-command-palette-sessions span,
+.sloppy-command-palette-empty {
+  color: rgba(239, 239, 239, 0.58);
+  font-size: 12px;
+}
+
+.sloppy-command-palette-empty {
+  margin: 0;
+  padding: 10px 12px;
+}
+
+.sloppy-command-palette-box .sloppy-symbol {
   width: 32px;
   height: 32px;
   color: rgba(233, 233, 233, 0.72);
@@ -1308,8 +1486,8 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
   background: rgba(255, 255, 255, 0.08);
 }
 
-.sloppy-selection-actions svg,
-.sloppy-selection-hide svg {
+.sloppy-selection-actions .sloppy-symbol,
+.sloppy-selection-hide .sloppy-symbol {
   width: 18px;
   height: 18px;
   color: rgba(242, 242, 242, 0.76);
@@ -1391,8 +1569,11 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
     padding-top: 82px;
   }
 
-  .sloppy-command-palette-box {
+  .sloppy-command-palette-shell {
     width: calc(100vw - 28px);
+  }
+
+  .sloppy-command-palette-box {
     height: 58px;
     padding: 0 16px;
   }
@@ -1401,7 +1582,7 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
     font-size: 20px;
   }
 
-  .sloppy-command-palette-box svg {
+  .sloppy-command-palette-box .sloppy-symbol {
     width: 24px;
     height: 24px;
   }

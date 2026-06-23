@@ -649,25 +649,218 @@
 
 /* Voice Mode editor */
 
-.config-voice-layout {
-  grid-template-columns: minmax(0, 1fr);
-  gap: 16px;
-}
-
-.config-voice-card {
+.config-voice-shell {
+  display: grid;
+  gap: 12px;
+  align-content: start;
   min-width: 0;
 }
 
-.config-voice-grid {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 14px;
+.config-voice-hero,
+.config-voice-panel {
+  border: 1px solid var(--line);
+  background: var(--surface);
+  min-width: 0;
 }
 
-.config-voice-picker {
-  display: flex;
-  flex-direction: column;
+.config-voice-hero {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(300px, 420px);
+  gap: 14px;
+  padding: 14px;
+  background:
+    linear-gradient(135deg, color-mix(in srgb, var(--accent) 10%, transparent), transparent 42%),
+    var(--surface);
+}
+
+.config-voice-hero-copy {
+  display: grid;
   gap: 8px;
+  align-content: start;
+  min-width: 0;
+}
+
+.config-voice-hero-copy h3,
+.config-voice-panel-head h4 {
+  margin: 0;
+  color: var(--text);
+}
+
+.config-voice-hero-copy h3 {
+  font-size: 1.35rem;
+}
+
+.config-voice-hero-copy p {
+  margin: 0;
+  max-width: 760px;
+  color: var(--muted);
+  line-height: 1.5;
+  font-size: 0.9rem;
+}
+
+.config-voice-status {
+  width: fit-content;
+  border: 1px solid var(--line);
+  padding: 3px 8px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.config-voice-status.is-on {
+  border-color: color-mix(in srgb, var(--success) 70%, var(--line));
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 9%, transparent);
+}
+
+.config-voice-status.is-off {
+  border-color: color-mix(in srgb, var(--muted) 42%, var(--line));
+}
+
+.config-voice-summary {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+  align-content: start;
+}
+
+.config-voice-summary > div {
+  min-height: 64px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-3) 72%, transparent);
+  padding: 10px;
+  display: grid;
+  align-content: center;
+  gap: 4px;
+}
+
+.config-voice-summary > div span,
+.config-voice-field > span,
+.config-voice-slider > span {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 600;
+}
+
+.config-voice-summary > div strong {
+  color: var(--text);
+  font-size: 0.98rem;
+}
+
+.config-voice-summary .config-voice-toggle {
+  grid-column: 1 / -1;
+}
+
+.config-voice-panel {
+  padding: 12px;
+}
+
+.config-voice-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.config-voice-panel-head > div {
+  min-width: 0;
+}
+
+.config-voice-panel-head .config-voice-toggle {
+  min-width: 180px;
+}
+
+.config-voice-columns {
+  display: grid;
+  grid-template-columns: minmax(0, 1.15fr) minmax(280px, 0.85fr);
+  gap: 12px;
+  align-items: start;
+}
+
+.config-voice-two-column,
+.config-voice-form {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.config-voice-field {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+  color: var(--muted);
+}
+
+.config-voice-field-wide {
+  grid-column: 1 / -1;
+}
+
+.config-voice-field input,
+.config-voice-field textarea {
+  width: 100%;
+}
+
+.config-voice-field textarea {
+  min-height: 92px;
+  resize: vertical;
+}
+
+.config-voice-field small,
+.config-voice-toggle small {
+  color: var(--muted);
+  font-size: 0.75rem;
+  line-height: 1.35;
+  opacity: 0.78;
+}
+
+.config-voice-toggle {
+  min-height: 52px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-3) 72%, transparent);
+  color: var(--text);
+  padding: 8px 10px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  cursor: pointer;
+}
+
+.config-voice-toggle span {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.config-voice-toggle strong {
+  color: var(--text);
+  font-size: 0.88rem;
+}
+
+.config-voice-toggle input {
+  flex: 0 0 auto;
+}
+
+.config-voice-toggle:hover,
+.config-voice-summary > div:hover {
+  border-color: var(--line-strong);
+  background: var(--surface-3);
+}
+
+.config-voice-segmented {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.config-voice-segmented.is-three {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.config-voice-segmented button {
+  cursor: pointer;
+  transition: background-color 160ms ease, color 160ms ease;
 }
 
 .config-voice-choice-list {
@@ -675,10 +868,78 @@
   flex-wrap: wrap;
   gap: 8px;
   padding: 8px;
+  background: color-mix(in srgb, var(--surface-3) 64%, transparent);
 }
 
 .config-voice-choice-list .actor-team-search-option {
   width: auto;
   min-width: 74px;
   justify-content: center;
+  cursor: pointer;
+}
+
+.config-voice-choice-list .actor-team-search-option.active {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, transparent);
+}
+
+.config-voice-slider > span {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.config-voice-slider > span strong {
+  color: var(--text);
+  font-family: "Fira Code", monospace;
+  font-size: 0.78rem;
+}
+
+.config-voice-slider input[type="range"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.config-voice-field input:focus,
+.config-voice-field textarea:focus,
+.config-voice-toggle:focus-within,
+.config-voice-segmented button:focus-visible,
+.config-voice-choice-list .actor-team-search-option:focus-visible {
+  outline: 2px solid color-mix(in srgb, var(--accent) 70%, transparent);
+  outline-offset: 2px;
+}
+
+@media (max-width: 1180px) {
+  .config-voice-hero,
+  .config-voice-columns {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 760px) {
+  .config-voice-hero,
+  .config-voice-panel {
+    padding: 10px;
+  }
+
+  .config-voice-summary,
+  .config-voice-two-column,
+  .config-voice-form {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .config-voice-panel-head {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .config-voice-panel-head .config-voice-toggle {
+    min-width: 0;
+  }
+
+  .config-voice-segmented {
+    grid-template-columns: minmax(0, 1fr);
+  }
 }

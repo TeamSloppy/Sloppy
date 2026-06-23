@@ -1884,6 +1884,7 @@ actor AgentSessionOrchestrator {
         let installedSkills = loadInstalledSkills(agentID: agentID)
         let agentDirectoryPath = (try? agentCatalogStore.directoryURL(agentID: agentID).path)
         let runtimeContext = persistedModelContext.config.agentRuntimeContext
+        let sharedMemoryEnabled = (try? agentCatalogStore.getAgentRuntimeConfig(agentID: agentID).sharedMemoryEnabled) ?? true
         let bootstrapPrompt: Prompt
         do {
             let promptContext = PromptRenderContext.agentSessionBootstrap(
@@ -1892,7 +1893,8 @@ actor AgentSessionOrchestrator {
                 bootstrapMarker: Self.sessionContextBootstrapMarker,
                 documents: documents,
                 installedSkills: installedSkills,
-                agentDirectoryPath: agentDirectoryPath
+                agentDirectoryPath: agentDirectoryPath,
+                sharedMemoryEnabled: sharedMemoryEnabled
             )
             if runtimeContext.bootstrapMode == .lean {
                 bootstrapPrompt = try promptComposer.composeLeanAgentSessionBootstrap(
@@ -1917,7 +1919,8 @@ actor AgentSessionOrchestrator {
                 agentID: agentID,
                 sessionID: sessionID,
                 documents: documents,
-                agentDirectoryPath: agentDirectoryPath
+                agentDirectoryPath: agentDirectoryPath,
+                sharedMemoryEnabled: sharedMemoryEnabled
             )
         }
 
@@ -2020,7 +2023,8 @@ actor AgentSessionOrchestrator {
         agentID: String,
         sessionID: String,
         documents: AgentDocumentBundle,
-        agentDirectoryPath: String?
+        agentDirectoryPath: String?,
+        sharedMemoryEnabled: Bool
     ) -> Prompt {
         let capabilitiesSection = renderedFallbackPromptPartial(
             named: "session_capabilities",
@@ -2154,6 +2158,10 @@ actor AgentSessionOrchestrator {
             workerRulesSection
             ""
             toolsInstructionSection
+            if sharedMemoryEnabled {
+                ""
+                AgentPromptComposer().sharedMemoryPromptSection()
+            }
             ""
             taskPlanningRulesSection
             ""

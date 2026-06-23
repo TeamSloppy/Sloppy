@@ -1,16 +1,16 @@
 {
   "manifest_version": 3,
-  "name": "SloppySafari",
+  "name": "Sloppy",
   "version": "0.1.0",
   "description": "Send selected Safari page context to Sloppy.",
-  "permissions": ["activeTab", "storage", "scripting", "tabs"],
+  "permissions": ["activeTab", "storage", "scripting", "tabs", "contextMenus"],
   "host_permissions": ["http://127.0.0.1:25101/*", "http://localhost:25101/*", "<all_urls>"],
   "background": {
     "service_worker": "background.js",
     "type": "module"
   },
   "action": {
-    "default_title": "Open SloppySafari",
+    "default_title": "Open Sloppy",
     "default_icon": {
       "128": "so_logo.svg"
     }
@@ -18,7 +18,7 @@
   "content_scripts": [
     {
       "matches": ["http://*/*", "https://*/*"],
-      "js": ["contentScript.js"],
+      "js": ["i18n.js", "contentScript.js"],
       "css": ["panel.css"]
     }
   ],
@@ -27,7 +27,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["so_logo.svg", "chat.html", "chatPage.js"],
+      "resources": ["so_logo.svg", "chat.html", "chatPage.js", "icons/*.svg"],
       "matches": ["<all_urls>"]
     }
   ]

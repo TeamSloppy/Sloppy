@@ -4,18 +4,28 @@ import { test } from "node:test";
 import vm from "node:vm";
 
 function loadContentScriptSandbox() {
+  const i18nSource = readFileSync(new URL("../Resources/i18n.js", import.meta.url), "utf8");
   const source = readFileSync(new URL("../Resources/contentScript.js", import.meta.url), "utf8");
   assert.equal(/\bexport\s+function\b/.test(source), false);
 
   const sandbox = {
     chrome: undefined,
     document: undefined,
+    navigator: { language: "en-US", languages: ["en-US"] },
     URL,
     window: {},
     globalThis: {}
   };
   sandbox.globalThis = sandbox;
+  vm.runInNewContext(i18nSource, sandbox);
   vm.runInNewContext(source, sandbox);
+  return sandbox;
+}
+
+function loadContentScriptSandboxWithLocale(language) {
+  const sandbox = loadContentScriptSandbox();
+  sandbox.navigator = { language, languages: [language] };
+  vm.runInNewContext("SloppyI18n.systemLocale(navigator);", sandbox);
   return sandbox;
 }
 
@@ -67,6 +77,7 @@ function createPanelDocument() {
       id: "",
       style: { setProperty() {} },
       classList: { toggle() {}, add() {}, remove() {} },
+      addEventListener() {},
       set innerHTML(value) {
         html = String(value || "");
         for (const match of html.matchAll(/data-[a-z0-9-]+/g)) {
@@ -245,6 +256,59 @@ test("openFullscreenChat falls back when the background tab opener fails", async
   assert.equal(url.pathname, "/chat.html");
   assert.equal(url.searchParams.get("selection"), "Selected text");
   assert.equal(url.searchParams.get("sessionId"), "session-1");
+});
+
+test("command palette includes an independent recent sessions scroll container", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+
+  const palette = sandbox.ensureCommandPalette();
+
+  assert.match(palette.innerHTML, /data-sloppy-command-palette-shell/);
+  assert.match(palette.innerHTML, /data-sloppy-command-palette-sessions/);
+});
+
+test("panel shell localizes visible chrome from system language", () => {
+  const sandbox = loadContentScriptSandboxWithLocale("ru-RU");
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      }
+    }
+  };
+
+  const panel = sandbox.ensurePanel();
+
+  assert.match(panel.innerHTML, /placeholder="Спросить об этой странице"/);
+  assert.match(panel.innerHTML, /aria-label="Настройки"/);
+  assert.match(panel.innerHTML, /Новая сессия/);
+});
+
+test("floating button hides while the search ask button is visible", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      }
+    }
+  };
+  vm.runInNewContext("state.settings = { floatingButtonEnabled: true };", sandbox);
+  documentLike.location.href = "https://www.google.com/search?q=sloppy";
+
+  sandbox.renderSearchButton();
+  sandbox.renderFloatingButton();
+
+  const searchButton = documentLike.getElementById("sloppy-search-ask-button");
+  const floatingButton = documentLike.getElementById("sloppy-floating-button");
+  assert.equal(searchButton.hidden, false);
+  assert.equal(floatingButton, null);
 });
 
 test("cachedSelectionInfo falls back to the last mobile selection rect", () => {
@@ -448,6 +512,24 @@ test("normalizeAttachment assigns an id for screenshot attachments", () => {
   assert.equal(attachment.id.length > 0, true);
 });
 
+test("summarizePagePrompt asks the agent to read the active Safari page through the extension", () => {
+  const { summarizePagePrompt } = loadContentScriptSandbox();
+  const prompt = summarizePagePrompt();
+
+  assert.match(prompt, /browser\.dom_snapshot/);
+  assert.match(prompt, /Safari extension/i);
+  assert.match(prompt, /do not use web\.fetch/i);
+});
+
+test("summarizePagePrompt localizes prompt text from system language", () => {
+  const { summarizePagePrompt } = loadContentScriptSandboxWithLocale("zh-CN");
+  const prompt = summarizePagePrompt();
+
+  assert.match(prompt, /总结此页面/);
+  assert.match(prompt, /browser\.dom_snapshot/);
+  assert.match(prompt, /不要.*web\.fetch/);
+});
+
 test("applyAgentResponse reads assistant text from appended events", () => {
   const { applyAgentResponse } = loadContentScriptSandbox();
   const message = { text: "", attachments: [], toolCalls: [] };
@@ -480,6 +562,119 @@ test("animatedTextSteps continues from already streamed assistant text", () => {
   const steps = animatedTextSteps("Partial", "Partial answer");
 
   assert.equal(JSON.stringify(steps), JSON.stringify(["Partial a", "Partial ans", "Partial answe", "Partial answer"]));
+});
+
+test("agentResponseText ignores thinking-only assistant messages when final text is available", () => {
+  const { agentResponseText } = loadContentScriptSandbox();
+  const text = agentResponseText({
+    appendedEvents: [
+      {
+        message: {
+          role: "assistant",
+          segments: [{ kind: "thinking", text: "Thinking privately" }]
+        }
+      },
+      {
+        message: {
+          role: "assistant",
+          segments: [{ kind: "text", text: "Final answer" }]
+        }
+      }
+    ]
+  });
+
+  assert.equal(text, "Final answer");
+});
+
+test("agentResponseText reads assistant content fields from appended events", () => {
+  const { agentResponseText } = loadContentScriptSandbox();
+  const text = agentResponseText({
+    appendedEvents: [
+      {
+        message: {
+          role: "assistant",
+          content: "Content answer"
+        }
+      }
+    ]
+  });
+
+  assert.equal(text, "Content answer");
+});
+
+test("agentResponseText falls back to interrupted run status details when no assistant text exists", () => {
+  const { agentResponseText } = loadContentScriptSandbox();
+  const text = agentResponseText({
+    appendedEvents: [
+      {
+        message: {
+          role: "assistant",
+          segments: [{ kind: "thinking", text: "Inspecting privately" }]
+        }
+      },
+      {
+        type: "run_status",
+        runStatus: {
+          stage: "interrupted",
+          label: "Error",
+          details: "Model provider error: unsupportedModel(\"opencode:openai-yandex-team/gpt-5.4\")"
+        }
+      }
+    ]
+  });
+
+  assert.equal(text, "Model provider error: unsupportedModel(\"opencode:openai-yandex-team/gpt-5.4\")");
+});
+
+test("updateStreamingMessage replaces accumulated session deltas", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const message = { id: "assistant-1", text: "", attachments: [], toolCalls: [], streaming: true };
+  sandbox.__testMessage = message;
+  vm.runInNewContext("state.messages = [__testMessage]; state.streamingMessageId = 'assistant-1';", sandbox);
+
+  await sandbox.updateStreamingMessage({ type: "delta", text: "Hel", replace: true });
+  await sandbox.updateStreamingMessage({ type: "delta", text: "Hello", replace: true });
+
+  assert.equal(message.text, "Hello");
+});
+
+test("updateStreamingMessage reveals incoming assistant deltas with typing ticks", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const message = { id: "assistant-1", text: "", attachments: [], toolCalls: [], streaming: true };
+  let tickCount = 0;
+  sandbox.window.setTimeout = (callback) => {
+    tickCount += 1;
+    callback();
+    return tickCount;
+  };
+  sandbox.window.clearTimeout = () => {};
+  sandbox.__testMessage = message;
+  vm.runInNewContext("state.messages = [__testMessage]; state.streamingMessageId = 'assistant-1';", sandbox);
+
+  await sandbox.updateStreamingMessage({ type: "delta", text: "Animated streaming answer", replace: true });
+
+  assert.equal(message.text, "Animated streaming answer");
+  assert.equal(tickCount > 0, true);
+});
+
+test("updateStreamingMessage reveals assistant content field events", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const message = { id: "assistant-1", text: "", attachments: [], toolCalls: [], streaming: true };
+  sandbox.__testMessage = message;
+  vm.runInNewContext("state.messages = [__testMessage]; state.streamingMessageId = 'assistant-1';", sandbox);
+
+  await sandbox.updateStreamingMessage({
+    type: "assistant_message",
+    event: {
+      type: "message",
+      message: {
+        role: "assistant",
+        content: "Stream content answer"
+      }
+    }
+  });
+
+  assert.equal(message.text, "Stream content answer");
 });
 
 test("normalizeSessionMessages maps session detail events into chat messages", () => {
@@ -676,6 +871,42 @@ test("saveSettings persists mesh enabled and target node settings", async () => 
   assert.equal(saveRequest.settings.mesh.targetNodeId, "node-99");
   assert.equal(saveRequest.settings.mesh.relayURL, "https://relay.example.com");
   assert.equal(panel.querySelector("[data-sloppy-settings-dialog]").closeCalled, true);
+});
+
+test("voice language picker persists language setting", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  const savedRequests = [];
+  sandbox.document = documentLike;
+  sandbox.window = {
+    innerWidth: 1280,
+    innerHeight: 900,
+    navigator: { maxTouchPoints: 0 },
+    matchMedia: () => ({ matches: false })
+  };
+  sandbox.chrome = {
+    runtime: {
+      getURL: (path) => `safari-extension://sloppy/${path}`,
+      sendMessage: async (request) => {
+        savedRequests.push(request);
+        if (request.type === "sloppy.settings.save") {
+          return request.settings;
+        }
+        return {};
+      }
+    }
+  };
+
+  const panel = sandbox.ensurePanel();
+  vm.runInNewContext("state.settings = { defaultAgentID: 'sloppy', voiceLanguage: 'auto', mesh: { enabled: false } };", sandbox);
+  sandbox.wirePanel(panel);
+  const language = panel.querySelector("[data-sloppy-voice-language]");
+  language.value = "ru-RU";
+  await language.listeners.get("change")({ target: language });
+
+  const saveRequest = savedRequests.find((request) => request.type === "sloppy.settings.save");
+  assert.ok(saveRequest);
+  assert.equal(saveRequest.settings.voiceLanguage, "ru-RU");
 });
 
 test("mesh join updates public settings state and status without exposing private keys", async () => {

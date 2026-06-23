@@ -1,4 +1,5 @@
 import Foundation
+import Protocols
 import Testing
 @testable import sloppy
 
@@ -115,4 +116,49 @@ func promptTemplateLoaderFindsResourcesFromTopLevelSloppySourceFile() throws {
     )
 
     #expect(try loader.loadPartial(named: "runtime_rules") == "runtime-rules")
+}
+
+@Test
+func agentPromptComposerIncludesSharedMemoryRulesOnlyWhenEnabled() throws {
+    let loader = PromptTemplateLoader(resolver: { relativePath in
+        if relativePath.hasPrefix("partials/") {
+            return "[\(relativePath)]"
+        }
+        return "[\(relativePath)]"
+    })
+    let composer = AgentPromptComposer(templateLoader: loader)
+    let documents = AgentDocumentBundle(
+        userMarkdown: "User",
+        agentsMarkdown: "Agent",
+        soulMarkdown: "Soul",
+        identityMarkdown: "Identity"
+    )
+
+    let enabledPrompt = try composer.compose(
+        context: .agentSessionBootstrap(
+            agentID: "agent-a",
+            sessionID: "session-a",
+            bootstrapMarker: "BOOT",
+            documents: documents,
+            installedSkills: [],
+            agentDirectoryPath: nil,
+            sharedMemoryEnabled: true
+        )
+    ).description
+    let disabledPrompt = try composer.compose(
+        context: .agentSessionBootstrap(
+            agentID: "agent-a",
+            sessionID: "session-a",
+            bootstrapMarker: "BOOT",
+            documents: documents,
+            installedSkills: [],
+            agentDirectoryPath: nil,
+            sharedMemoryEnabled: false
+        )
+    ).description
+
+    #expect(enabledPrompt.contains("[Shared memory]"))
+    #expect(enabledPrompt.contains("scope_id: shared"))
+    #expect(!disabledPrompt.contains("[Shared memory]"))
+    #expect(!disabledPrompt.contains("scope_id: shared"))
 }

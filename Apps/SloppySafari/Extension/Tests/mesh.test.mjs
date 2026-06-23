@@ -224,6 +224,38 @@ test("acceptMeshInvite reuses existing identity and persists accepted mesh setti
   assert.equal(saved[0].identity.nodeId, existingIdentity.nodeId);
 });
 
+test("acceptMeshInvite includes request and response details for HTTP failures", async () => {
+  const token = bundleToken({ v: 1, inviteToken: "slp_invite_remote", relayURL: "https://mesh.example.com" });
+  const identity = await createMeshIdentity({ cryptoImpl: fakeCrypto(), randomToken: "abc123" });
+
+  await assert.rejects(
+    () => acceptMeshInvite({
+      token,
+      currentMesh: { identity },
+      fetchImpl: async () => new Response("Method not allowed", {
+        status: 405,
+        headers: { "content-type": "text/plain; charset=utf-8" }
+      })
+    }),
+    /POST https:\/\/mesh\.example\.com\/v1\/node\/mesh\/invites\/accept failed with HTTP 405: Method not allowed/
+  );
+});
+
+test("acceptMeshInvite times out stalled relay requests", async () => {
+  const token = bundleToken({ v: 1, inviteToken: "slp_invite_remote", relayURL: "https://mesh.example.com" });
+  const identity = await createMeshIdentity({ cryptoImpl: fakeCrypto(), randomToken: "abc123" });
+
+  await assert.rejects(
+    () => acceptMeshInvite({
+      token,
+      currentMesh: { identity },
+      fetchImpl: async () => new Promise(() => {}),
+      timeoutMs: 5
+    }),
+    /POST https:\/\/mesh\.example\.com\/v1\/node\/mesh\/invites\/accept timed out after 5ms/
+  );
+});
+
 test("acceptMeshInvite rejects invalid relay URLs", async () => {
   const token = bundleToken({ v: 1, inviteToken: "slp_invite_remote", relayURL: "not-a-url" });
   const identity = await createMeshIdentity({ cryptoImpl: fakeCrypto(), randomToken: "abc123" });

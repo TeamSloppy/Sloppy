@@ -22,12 +22,22 @@ import {
   transcribeVoiceAudio
 } from "../Resources/panel.js";
 
-async function loadBackgroundRuntime(storedSettings = {}, fetchImpl = async () => Response.json({})) {
+async function loadBackgroundRuntime(storedSettings = {}, fetchImpl = async () => Response.json({}), options = {}) {
   const originalChrome = globalThis.chrome;
   const originalFetch = globalThis.fetch;
+  const originalNavigator = globalThis.navigator;
   const storageState = structuredClone(storedSettings);
   let messageListener = null;
+  let contextMenuClickListener = null;
+  const contextMenus = [];
+  const tabMessages = [];
 
+  if (options.language) {
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: { language: options.language, languages: [options.language] }
+    });
+  }
   globalThis.fetch = fetchImpl;
   globalThis.chrome = {
     action: {
@@ -36,9 +46,26 @@ async function loadBackgroundRuntime(storedSettings = {}, fetchImpl = async () =
       }
     },
     runtime: {
+      onInstalled: {
+        addListener() {}
+      },
       onMessage: {
         addListener(listener) {
           messageListener = listener;
+        }
+      }
+    },
+    contextMenus: {
+      create(item) {
+        contextMenus.push(structuredClone(item));
+      },
+      removeAll(callback) {
+        contextMenus.length = 0;
+        callback?.();
+      },
+      onClicked: {
+        addListener(listener) {
+          contextMenuClickListener = listener;
         }
       }
     },
@@ -62,7 +89,9 @@ async function loadBackgroundRuntime(storedSettings = {}, fetchImpl = async () =
       async captureVisibleTab() {
         return "data:image/png;base64,abcd";
       },
-      async sendMessage() {}
+      async sendMessage(tabId, message) {
+        tabMessages.push({ tabId, message });
+      }
     }
   };
 
@@ -70,6 +99,11 @@ async function loadBackgroundRuntime(storedSettings = {}, fetchImpl = async () =
 
   return {
     storageState,
+    contextMenus,
+    tabMessages,
+    async clickContextMenu(info = {}, tab = {}) {
+      await contextMenuClickListener?.(info, tab);
+    },
     async sendMessage(message, sender = {}) {
       return await new Promise((resolve, reject) => {
         try {
@@ -87,6 +121,16 @@ async function loadBackgroundRuntime(storedSettings = {}, fetchImpl = async () =
         delete globalThis.chrome;
       } else {
         globalThis.chrome = originalChrome;
+      }
+      if (options.language) {
+        if (typeof originalNavigator === "undefined") {
+          delete globalThis.navigator;
+        } else {
+          Object.defineProperty(globalThis, "navigator", {
+            configurable: true,
+            value: originalNavigator
+          });
+        }
       }
       globalThis.fetch = originalFetch;
     }
@@ -151,6 +195,17 @@ test("buildBrowserContextPayload allows chat without selected text", () => {
   assert.equal(payload.target.sessionId, "session-1");
 });
 
+test("buildBrowserContextPayload carries selected model override", () => {
+  const payload = buildBrowserContextPayload(
+    { defaultAgentID: "sloppy", selectedModel: "openai/gpt-5.4" },
+    { url: "https://example.com/a", title: "Article" },
+    "",
+    "Explain this"
+  );
+
+  assert.equal(payload.target.model, "openai/gpt-5.4");
+});
+
 test("sanitizeSettings keeps a user-configured LAN Core URL for extension storage", () => {
   const settings = sanitizeSettings({
     coreURLString: "  192.168.1.50:25101/  ",
@@ -177,6 +232,12 @@ test("sanitizeSettings keeps selection bubble enabled by default", () => {
   assert.equal(sanitizeSettings({ selectionBubbleEnabled: false }).selectionBubbleEnabled, false);
 });
 
+test("sanitizeSettings preserves selected model override", () => {
+  assert.equal(sanitizeSettings({ selectedModel: " openai/gpt-5.4 " }).selectedModel, "openai/gpt-5.4");
+  assert.equal("selectedModel" in sanitizeSettings({ selectedModel: "default" }), false);
+  assert.equal("selectedModel" in sanitizeSettings({ selectedModel: "   " }), false);
+});
+
 test("background settings enable the floating button by default", async () => {
   const runtime = await loadBackgroundRuntime();
 
@@ -186,6 +247,44 @@ test("background settings enable the floating button by default", async () => {
   } finally {
     runtime.cleanup();
   }
+});
+
+test("background registers Safari context menu summary action", async () => {
+  const runtime = await loadBackgroundRuntime();
+
+  assert.deepEqual(runtime.contextMenus, [{
+    id: "sloppy.summaryPage",
+    title: "Summary Page",
+    contexts: ["page"],
+    icons: {
+      16: "icons/text.aligncenter.svg",
+      32: "icons/text.aligncenter.svg"
+    }
+  }]);
+
+  await runtime.clickContextMenu({ menuItemId: "sloppy.summaryPage" }, { id: 17 });
+  assert.deepEqual(runtime.tabMessages, [{
+    tabId: 17,
+    message: { type: "sloppy.page.summarize" }
+  }]);
+
+  runtime.cleanup();
+});
+
+test("background localizes Safari context menu summary action", async () => {
+  const runtime = await loadBackgroundRuntime({}, async () => Response.json({}), { language: "zh-CN" });
+
+  assert.deepEqual(runtime.contextMenus, [{
+    id: "sloppy.summaryPage",
+    title: "总结页面",
+    contexts: ["page"],
+    icons: {
+      16: "icons/text.aligncenter.svg",
+      32: "icons/text.aligncenter.svg"
+    }
+  }]);
+
+  runtime.cleanup();
 });
 
 test("sanitizeSettings preserves normalized mesh settings", () => {
@@ -627,6 +726,57 @@ test("decodeSSEBlock normalizes Core session stream assistant events", () => {
   assert.equal(event.sseEvent, "session_event");
 });
 
+test("decodeSSEBlock normalizes assistant message content fields", () => {
+  const event = decodeSSEBlock([
+    "id: 11",
+    "event: session_event",
+    'data: {"kind":"session_event","cursor":11,"event":{"type":"message","message":{"role":"assistant","content":"Content field answer"}}}'
+  ].join("\n"));
+
+  assert.equal(event.type, "assistant_message");
+  assert.equal(event.text, "Content field answer");
+});
+
+test("decodeSSEBlock normalizes Core session deltas as accumulated text", () => {
+  const event = decodeSSEBlock([
+    "id: 8",
+    "event: session_delta",
+    'data: {"kind":"session_delta","cursor":8,"message":"Partial answer"}'
+  ].join("\n"));
+
+  assert.equal(event.type, "delta");
+  assert.equal(event.text, "Partial answer");
+  assert.equal(event.replace, true);
+});
+
+test("decodeSSEBlock normalizes Core session delta fields as accumulated text", () => {
+  const event = decodeSSEBlock([
+    "id: 12",
+    "event: session_delta",
+    'data: {"kind":"session_delta","cursor":12,"delta":"Delta field answer"}'
+  ].join("\n"));
+
+  assert.equal(event.type, "delta");
+  assert.equal(event.text, "Delta field answer");
+  assert.equal(event.replace, true);
+});
+
+test("decodeSSEBlock exposes typed session tool and memory events", () => {
+  const toolEvent = decodeSSEBlock([
+    "event: session_event",
+    'data: {"kind":"session_event","cursor":9,"event":{"type":"tool_call","toolCall":{"tool":"web.read","arguments":{"url":"https://example.com"}}}}'
+  ].join("\n"));
+  const memoryEvent = decodeSSEBlock([
+    "event: session_event",
+    'data: {"kind":"session_event","cursor":10,"event":{"type":"memory_checkpoint","memoryCheckpoint":{"status":"done","message":"Saved preference."}}}'
+  ].join("\n"));
+
+  assert.equal(toolEvent.type, "tool_call");
+  assert.equal(toolEvent.tool.name, "Read web: https://example.com");
+  assert.equal(memoryEvent.type, "tool_call");
+  assert.equal(memoryEvent.tool.name, "Save memory");
+});
+
 test("postBrowserContextStreaming opens a session stream and posts the browser message", async () => {
   const requests = [];
   const encoder = new TextEncoder();
@@ -689,4 +839,156 @@ test("postBrowserContextStreaming opens a session stream and posts the browser m
       ["POST", "/v1/agents/sloppy/sessions/session-1/messages"]
     ]
   );
+});
+
+test("postBrowserContextStreaming reads final assistant content from message content field", async () => {
+  const fetchImpl = async (url) => {
+    if (url.endsWith("/v1/agents/sloppy/sessions")) {
+      return Response.json({ id: "session-1" });
+    }
+    if (url.endsWith("/v1/agents/sloppy/sessions/session-1/stream")) {
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.close();
+        }
+      }), {
+        headers: { "content-type": "text/event-stream" }
+      });
+    }
+    if (url.endsWith("/v1/agents/sloppy/sessions/session-1/messages")) {
+      return Response.json({
+        appendedEvents: [
+          {
+            id: "event-2",
+            message: {
+              id: "message-2",
+              role: "assistant",
+              content: "Final content answer"
+            }
+          }
+        ]
+      });
+    }
+    return new Response(JSON.stringify({ error: "unexpected" }), { status: 500 });
+  };
+
+  const result = await postBrowserContextStreaming(
+    { coreURLString: "http://127.0.0.1:25101", defaultAgentID: "sloppy" },
+    { url: "https://example.com", title: "Example" },
+    "",
+    "Summarize",
+    {},
+    fetchImpl
+  );
+
+  assert.equal(result.messageId, "message-2");
+  assert.equal(result.text, "Final content answer");
+});
+
+test("postBrowserContextStreaming keeps session stream long enough for late final assistant text", async () => {
+  const encoder = new TextEncoder();
+  let streamController = null;
+  const fetchImpl = async (url) => {
+    if (url.endsWith("/v1/agents/sloppy/sessions")) {
+      return Response.json({ id: "session-1" });
+    }
+    if (url.endsWith("/v1/agents/sloppy/sessions/session-1/stream")) {
+      return new Response(new ReadableStream({
+        start(controller) {
+          streamController = controller;
+          controller.enqueue(encoder.encode([
+            "event: session_delta",
+            'data: {"kind":"session_delta","cursor":1,"message":"Partial"}',
+            "",
+            ""
+          ].join("\n")));
+        }
+      }), {
+        headers: { "content-type": "text/event-stream" }
+      });
+    }
+    if (url.endsWith("/v1/agents/sloppy/sessions/session-1/messages")) {
+      setTimeout(() => {
+        streamController.enqueue(encoder.encode([
+          "event: session_event",
+          'data: {"kind":"session_event","cursor":2,"event":{"type":"message","message":{"role":"assistant","segments":[{"kind":"text","text":"Final answer"}]}}}',
+          "",
+          ""
+        ].join("\n")));
+        streamController.close();
+      });
+      return Response.json({ appendedEvents: [] });
+    }
+    return new Response(JSON.stringify({ error: "unexpected" }), { status: 500 });
+  };
+  const events = [];
+
+  const result = await postBrowserContextStreaming(
+    { coreURLString: "http://127.0.0.1:25101", defaultAgentID: "sloppy" },
+    { url: "https://example.com", title: "Example" },
+    "",
+    "Summarize",
+    { onEvent: (event) => events.push(event) },
+    fetchImpl
+  );
+
+  assert.equal(result.text, "Final answer");
+  assert.equal(events.some((event) => event.type === "assistant_message" && event.text === "Final answer"), true);
+});
+
+test("postBrowserContextStreaming returns interrupted run status details when final assistant text is missing", async () => {
+  const encoder = new TextEncoder();
+  const fetchImpl = async (url) => {
+    if (url.endsWith("/v1/agents/sloppy/sessions")) {
+      return Response.json({ id: "session-1" });
+    }
+    if (url.endsWith("/v1/agents/sloppy/sessions/session-1/stream")) {
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode([
+            "event: session_event",
+            'data: {"kind":"session_event","cursor":1,"event":{"type":"message","message":{"role":"assistant","segments":[{"kind":"thinking","text":"Inspecting privately"}]}}}',
+            "",
+            ""
+          ].join("\n")));
+          controller.close();
+        }
+      }), {
+        headers: { "content-type": "text/event-stream" }
+      });
+    }
+    if (url.endsWith("/v1/agents/sloppy/sessions/session-1/messages")) {
+      return Response.json({
+        appendedEvents: [
+          {
+            type: "message",
+            message: {
+              role: "assistant",
+              segments: [{ kind: "thinking", text: "Inspecting privately" }]
+            }
+          },
+          {
+            type: "run_status",
+            runStatus: {
+              stage: "interrupted",
+              label: "Error",
+              details: "Model provider error: unsupportedModel(\"opencode:openai-yandex-team/gpt-5.4\")"
+            }
+          }
+        ]
+      });
+    }
+    return new Response(JSON.stringify({ error: "unexpected" }), { status: 500 });
+  };
+
+  const result = await postBrowserContextStreaming(
+    { coreURLString: "http://127.0.0.1:25101", defaultAgentID: "sloppy" },
+    { url: "https://example.com", title: "Example" },
+    "",
+    "Summarize",
+    {},
+    fetchImpl
+  );
+
+  assert.equal(result.text, "Model provider error: unsupportedModel(\"opencode:openai-yandex-team/gpt-5.4\")");
 });

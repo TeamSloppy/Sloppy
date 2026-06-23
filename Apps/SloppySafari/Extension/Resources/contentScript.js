@@ -74,6 +74,10 @@ function escapeHTML(value) {
     .replaceAll("'", "&#39;");
 }
 
+function t(key, params = {}) {
+  return globalThis.SloppyI18n?.t(key, params) || key;
+}
+
 function renderInlineMarkdown(value) {
   return escapeHTML(value)
     .replace(/\*\*([^*]+)\*\*/g, "<strong>$1</strong>")
@@ -106,27 +110,30 @@ function renderMarkdown(markdown = "") {
 }
 
 function icon(name) {
-  const paths = {
-    close: '<path d="M18 6 6 18M6 6l12 12"/>',
-    mic: '<path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3Z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><path d="M12 19v3"/><path d="M8 22h8"/>',
-    send: '<path d="m22 2-7 20-4-9-9-4Z"/><path d="M22 2 11 13"/>',
-    plus: '<path d="M12 5v14M5 12h14"/>',
-    settings: '<path d="M12 15.5A3.5 3.5 0 1 0 12 8a3.5 3.5 0 0 0 0 7.5Z"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.88l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.7 1.7 0 0 0 15 19.4a1.7 1.7 0 0 0-1 .6 1.7 1.7 0 0 0-.35 1.1V21a2 2 0 1 1-4 0v-.09A1.7 1.7 0 0 0 8 19.4a1.7 1.7 0 0 0-1.88.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-.6-1 1.7 1.7 0 0 0-1.1-.35H3a2 2 0 1 1 0-4h.09A1.7 1.7 0 0 0 4.6 8a1.7 1.7 0 0 0-.34-1.88l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6a1.7 1.7 0 0 0 1-.6 1.7 1.7 0 0 0 .35-1.1V3a2 2 0 1 1 4 0v.09A1.7 1.7 0 0 0 16 4.6a1.7 1.7 0 0 0 1.88-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9c.23.38.6.66 1 .77.2.06.42.08.6.08H21a2 2 0 1 1 0 4h-.09A1.7 1.7 0 0 0 19.4 15Z"/>',
-    screenshot: '<path d="M4 7V5a2 2 0 0 1 2-2h2"/><path d="M16 3h2a2 2 0 0 1 2 2v2"/><path d="M20 17v2a2 2 0 0 1-2 2h-2"/><path d="M8 21H6a2 2 0 0 1-2-2v-2"/><rect x="7" y="8" width="10" height="8" rx="1"/>',
-    tab: '<path d="M4 5h16v14H4z"/><path d="M4 9h16"/>',
-    file: '<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/>',
-    tool: '<path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.8 2.8-2-2Z"/>',
-    sessions: '<path d="M8 6h13"/><path d="M8 12h13"/><path d="M8 18h13"/><path d="M3 6h.01"/><path d="M3 12h.01"/><path d="M3 18h.01"/>',
-    fact: '<path d="M12 3 4.5 6v5.5c0 4.5 3.1 7.4 7.5 9.5 4.4-2.1 7.5-5 7.5-9.5V6Z"/><path d="m9 12 2 2 4-5"/>',
-    define: '<path d="M4 6h8"/><path d="M4 12h8"/><path d="M4 18h5"/><path d="M15 8c1.2-1.2 3.8-1.1 4.7.2.8 1.2.2 2.9-1.4 3.5l-1.1.4c-1.5.5-2.2 1.4-2.2 2.9"/><path d="M15 20h.01"/>',
-    summarize: '<path d="M5 7h14"/><path d="M5 12h10"/><path d="M5 17h7"/>',
-    translate: '<path d="m5 8 6 6"/><path d="m4 14 6-6 2-3"/><path d="M2 5h12"/><path d="M7 2h1"/><path d="M22 22l-5-10-5 10"/><path d="M14 18h6"/>',
-    hide: '<path d="M10.7 5.1A10.9 10.9 0 0 1 12 5c7 0 10 7 10 7a13.2 13.2 0 0 1-3 4.2"/><path d="M6.6 6.6C3.4 8.4 2 12 2 12a13.2 13.2 0 0 0 5.1 5.4A10.8 10.8 0 0 0 12 19a10.9 10.9 0 0 0 3.5-.6"/><path d="m2 2 20 20"/><path d="M9.9 9.9A3 3 0 0 0 14.1 14.1"/>',
-    more: '<circle cx="5" cy="12" r="1"/><circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/>',
-    expand: '<path d="M15 3h6v6"/><path d="m10 14 11-11"/><path d="M9 21H3v-6"/><path d="m14 10-11 11"/>',
-    search: '<path d="m21 21-4.3-4.3"/><circle cx="11" cy="11" r="8"/>'
+  const symbols = {
+    close: "xmark",
+    mic: "waveform",
+    "arrow-up": "arrow.up",
+    plus: "plus",
+    settings: "gear",
+    screenshot: "camera.on.rectangle",
+    tab: "square.and.arrow.down",
+    file: "square.and.arrow.down",
+    tool: "brain",
+    sessions: "list.bullet",
+    fact: "checkmark.shield",
+    define: "questionmark.text.page",
+    summarize: "text.aligncenter",
+    translate: "translate",
+    hide: "eye.slash",
+    more: "ellipsis",
+    expand: "arrow.down.left.and.arrow.up.right",
+    search: "magnifyingglass"
   };
-  return `<svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">${paths[name] || ""}</svg>`;
+  const symbol = symbols[name] || "ellipsis";
+  const path = `icons/${symbol}.svg`;
+  const url = typeof chrome !== "undefined" && chrome.runtime?.getURL ? chrome.runtime.getURL(path) : path;
+  return `<span class="sloppy-symbol" aria-hidden="true" data-sf-symbol="${escapeHTML(symbol)}" style="--sloppy-symbol-url: url('${escapeHTML(url)}')"></span>`;
 }
 
 function logoURL() {
@@ -316,10 +323,10 @@ const selectionActions = [
 
 function selectionActionPrompt(actionId) {
   const prompts = {
-    "fact-check": "Fact check the selected text.",
-    define: "Define the selected text.",
-    summarize: "Summarize the selected text.",
-    translate: "Translate the selected text."
+    "fact-check": t("factCheckSelection"),
+    define: t("defineSelection"),
+    summarize: t("summarizeSelection"),
+    translate: t("translateSelection")
   };
   return prompts[actionId] || "";
 }
@@ -327,6 +334,7 @@ function selectionActionPrompt(actionId) {
 const state = {
   settings: null,
   agents: [],
+  models: [],
   sessions: [],
   slashCommands: [],
   tabs: [],
@@ -364,13 +372,13 @@ function ensurePanel() {
       <header class="sloppy-topbar">
         <div class="sloppy-brand">
           <img class="sloppy-mark" src="${logoURL()}" alt="" aria-hidden="true">
-          <select data-sloppy-agent aria-label="Agent"></select>
+          <select data-sloppy-agent aria-label="${escapeHTML(t("agent"))}"></select>
         </div>
         <div class="sloppy-actions">
-          <button class="sloppy-icon-button" type="button" data-sloppy-open-fullscreen aria-label="Open full-screen chat">${icon("expand")}</button>
-          <button class="sloppy-icon-button" type="button" data-sloppy-sessions aria-label="Sessions">${icon("sessions")}</button>
-          <button class="sloppy-icon-button" type="button" data-sloppy-settings aria-label="Settings">${icon("settings")}</button>
-          <button class="sloppy-icon-button" type="button" data-sloppy-close aria-label="Close">${icon("close")}</button>
+          <button class="sloppy-icon-button" type="button" data-sloppy-open-fullscreen aria-label="${escapeHTML(t("openFullscreenChat"))}">${icon("expand")}</button>
+          <button class="sloppy-icon-button" type="button" data-sloppy-sessions aria-label="${escapeHTML(t("sessions"))}">${icon("sessions")}</button>
+          <button class="sloppy-icon-button" type="button" data-sloppy-settings aria-label="${escapeHTML(t("settings"))}">${icon("settings")}</button>
+          <button class="sloppy-icon-button" type="button" data-sloppy-close aria-label="${escapeHTML(t("close"))}">${icon("close")}</button>
         </div>
       </header>
 
@@ -381,20 +389,32 @@ function ensurePanel() {
 
       <form class="sloppy-composer" data-sloppy-composer>
         <div class="sloppy-attachments" data-sloppy-attachments></div>
-        <textarea data-sloppy-prompt rows="1" placeholder="Ask about this page"></textarea>
+        <textarea data-sloppy-prompt rows="1" placeholder="${escapeHTML(t("askAboutPage"))}"></textarea>
         <div class="sloppy-composer-bar">
-          <button class="sloppy-icon-button sloppy-add" type="button" data-sloppy-attach aria-label="Attach file">${icon("plus")}</button>
+          <button class="sloppy-icon-button sloppy-add" type="button" data-sloppy-attach aria-label="${escapeHTML(t("attachFile"))}">${icon("plus")}</button>
           <input data-sloppy-file type="file" multiple hidden>
           <div class="sloppy-composer-tools">
-            <button class="sloppy-icon-button" type="button" data-sloppy-capture aria-label="Attach screenshot">${icon("screenshot")}</button>
-            <button class="sloppy-icon-button" type="button" data-sloppy-voice aria-label="Voice mode">${icon("mic")}</button>
-            <button class="sloppy-send" type="submit" aria-label="Send">${icon("send")}</button>
+            <label class="sloppy-model-picker" aria-label="${escapeHTML(t("model"))}">
+              <span aria-hidden="true">${icon("settings")}</span>
+              <select data-sloppy-model aria-label="${escapeHTML(t("model"))}"></select>
+            </label>
+            <button class="sloppy-icon-button" type="button" data-sloppy-capture aria-label="${escapeHTML(t("attachScreenshot"))}">${icon("screenshot")}</button>
+            <button class="sloppy-primary-action" type="button" data-sloppy-primary-action aria-label="${escapeHTML(t("voiceMode"))}">${icon("mic")}</button>
           </div>
         </div>
       </form>
     </div>
 
     <section class="sloppy-voice" data-sloppy-voice-panel hidden>
+      <label class="sloppy-voice-settings" aria-label="${escapeHTML(t("voiceSettings"))}">
+        <span aria-hidden="true">${icon("settings")}</span>
+        <select class="sloppy-voice-language" data-sloppy-voice-language aria-label="${escapeHTML(t("voiceLanguage"))}">
+          <option value="auto">${escapeHTML(t("voiceLanguageAuto"))}</option>
+          <option value="en-US">${escapeHTML(t("voiceLanguageEnglish"))}</option>
+          <option value="ru-RU">${escapeHTML(t("voiceLanguageRussian"))}</option>
+          <option value="zh-CN">${escapeHTML(t("voiceLanguageChinese"))}</option>
+        </select>
+      </label>
       <div class="sloppy-voice-orb" data-sloppy-voice-orb></div>
       <p data-sloppy-voice-status>Say something...</p>
       <div class="sloppy-voice-actions">
@@ -407,7 +427,7 @@ function ensurePanel() {
       <form method="dialog" class="sloppy-settings-card">
         <header>
           <strong>Connection</strong>
-          <button class="sloppy-icon-button" value="cancel" aria-label="Close settings">${icon("close")}</button>
+          <button class="sloppy-icon-button" value="cancel" aria-label="${escapeHTML(t("closeSettings"))}">${icon("close")}</button>
         </header>
         <label>Core URL<input data-sloppy-core-url placeholder="http://127.0.0.1:25101"></label>
         <label>Auth token<input data-sloppy-auth-token type="password" autocomplete="off"></label>
@@ -431,7 +451,7 @@ function ensurePanel() {
           <input data-sloppy-selection-bubble-enabled type="checkbox">
           <span>Show selection bubble</span>
         </label>
-        <a class="sloppy-settings-link" href="https://sloppy.team" target="_blank" rel="noreferrer">Download Sloppy</a>
+        <a class="sloppy-settings-link" href="https://sloppy.team" target="_blank" rel="noreferrer">${escapeHTML(t("downloadSloppy"))}</a>
         <button class="sloppy-settings-save" type="button" data-sloppy-save-settings>Save settings</button>
       </form>
     </dialog>
@@ -439,11 +459,11 @@ function ensurePanel() {
     <dialog class="sloppy-sessions-dialog" data-sloppy-sessions-dialog>
       <form method="dialog" class="sloppy-sessions-card">
         <header>
-          <strong>Sessions</strong>
-          <button class="sloppy-icon-button" value="cancel" aria-label="Close sessions">${icon("close")}</button>
+          <strong>${escapeHTML(t("sessions"))}</strong>
+          <button class="sloppy-icon-button" value="cancel" aria-label="${escapeHTML(t("closeSessions"))}">${icon("close")}</button>
         </header>
         <div class="sloppy-session-list" data-sloppy-session-list></div>
-        <button class="sloppy-settings-save" type="button" data-sloppy-new-session>New session</button>
+        <button class="sloppy-settings-save" type="button" data-sloppy-new-session>${escapeHTML(t("newSession"))}</button>
       </form>
     </dialog>
   `;
@@ -460,7 +480,7 @@ function ensureFloatingButton() {
   button = document.createElement("button");
   button.id = "sloppy-floating-button";
   button.type = "button";
-  button.setAttribute("aria-label", "Open Sloppy assistant");
+  button.setAttribute("aria-label", t("openSloppyAssistant"));
   button.innerHTML = `<img src="${logoURL()}" alt="" aria-hidden="true">`;
   button.addEventListener("click", () => {
     hideSelectionMenu();
@@ -478,7 +498,7 @@ function ensureSearchButton() {
   button = document.createElement("button");
   button.id = "sloppy-search-ask-button";
   button.type = "button";
-  button.innerHTML = `<span>${icon("search")}</span><strong>Ask Sloppy</strong>`;
+  button.innerHTML = `<span>${icon("search")}</span><strong>${escapeHTML(t("askSloppy"))}</strong>`;
   button.addEventListener("click", () => {
     const info = searchQueryInfo(document.location.href);
     if (info?.query) {
@@ -507,12 +527,22 @@ function renderSearchButton() {
   }
   const button = ensureSearchButton();
   button.hidden = false;
+  const floating = document.getElementById("sloppy-floating-button");
+  if (floating) {
+    floating.hidden = true;
+  }
+}
+
+function searchAskButtonVisible() {
+  const searchButton = document.getElementById("sloppy-search-ask-button");
+  return Boolean(searchButton && !searchButton.hidden);
 }
 
 function renderFloatingButton() {
   const existing = document.getElementById("sloppy-floating-button");
   const shouldShow = Boolean(state.settings?.floatingButtonEnabled)
-    && !document.getElementById("sloppy-safari-extension-panel");
+    && !document.getElementById("sloppy-safari-extension-panel")
+    && !searchAskButtonVisible();
   if (!shouldShow) {
     if (existing) {
       existing.hidden = true;
@@ -532,10 +562,13 @@ function ensureCommandPalette() {
   palette.id = "sloppy-command-palette";
   palette.hidden = true;
   palette.innerHTML = `
-    <form class="sloppy-command-palette-box" data-sloppy-command-palette-form>
-      <span>${icon("search")}</span>
-      <input data-sloppy-command-palette-input placeholder="Ask Sloppy" autocomplete="off">
-    </form>
+    <div class="sloppy-command-palette-shell" data-sloppy-command-palette-shell>
+      <form class="sloppy-command-palette-box" data-sloppy-command-palette-form>
+        <span>${icon("search")}</span>
+        <input data-sloppy-command-palette-input placeholder="${escapeHTML(t("askSloppy"))}" autocomplete="off">
+      </form>
+      <div class="sloppy-command-palette-sessions" data-sloppy-command-palette-sessions hidden></div>
+    </div>
   `;
   palette.addEventListener("mousedown", (event) => {
     if (event.target === palette) {
@@ -549,8 +582,44 @@ function ensureCommandPalette() {
     hideCommandPalette();
     void openFullscreenChat({ prompt });
   });
+  palette.querySelector("[data-sloppy-command-palette-sessions]").addEventListener("click", (event) => {
+    const button = event.target?.closest?.("[data-sloppy-command-palette-session]");
+    if (!button) {
+      return;
+    }
+    const sessionId = button.dataset.sloppyCommandPaletteSession || "";
+    if (!sessionId) {
+      return;
+    }
+    hideCommandPalette();
+    void openFullscreenChat({ sessionId });
+  });
   document.documentElement.appendChild(palette);
   return palette;
+}
+
+async function loadCommandPaletteSessions(palette) {
+  const container = palette?.querySelector?.("[data-sloppy-command-palette-sessions]");
+  if (!container) {
+    return;
+  }
+  container.hidden = false;
+  container.innerHTML = `<p class="sloppy-command-palette-empty">${escapeHTML(t("loadingRecentSessions"))}</p>`;
+  const response = await chrome.runtime.sendMessage({
+    type: "sloppy.sessions.list",
+    agentId: state.settings?.defaultAgentID || "sloppy"
+  }).catch((error) => ({ sessions: [], error: error.message || t("sessionsUnavailable") }));
+  const sessions = (response?.sessions || []).slice(0, 12);
+  if (!sessions.length) {
+    container.innerHTML = `<p class="sloppy-command-palette-empty">${escapeHTML(response?.error || t("noRecentSessions"))}</p>`;
+    return;
+  }
+  container.innerHTML = sessions.map((session) => `
+    <button type="button" data-sloppy-command-palette-session="${escapeHTML(session.id)}">
+      <strong>${escapeHTML(session.title || session.id)}</strong>
+      <span>${escapeHTML(session.subtitle || session.id)}</span>
+    </button>
+  `).join("");
 }
 
 function showCommandPalette() {
@@ -559,6 +628,7 @@ function showCommandPalette() {
   input.value = "";
   palette.hidden = false;
   input.focus();
+  void loadCommandPaletteSessions(palette);
 }
 
 function hideCommandPalette() {
@@ -578,7 +648,7 @@ function ensureSelectionMenu() {
   menu.id = "sloppy-selection-menu";
   menu.hidden = true;
   menu.innerHTML = `
-    <button class="sloppy-selection-bubble" type="button" data-sloppy-selection-bubble aria-label="Ask Sloppy about selection">
+    <button class="sloppy-selection-bubble" type="button" data-sloppy-selection-bubble aria-label="${escapeHTML(t("askSelection"))}">
       <img src="${logoURL()}" alt="" aria-hidden="true">
     </button>
     <div class="sloppy-selection-popover" data-sloppy-selection-popover hidden>
@@ -675,19 +745,46 @@ function wirePanel(frame) {
   frame.querySelector("[data-sloppy-attach]").addEventListener("click", () => frame.querySelector("[data-sloppy-file]").click());
   frame.querySelector("[data-sloppy-file]").addEventListener("change", (event) => addFiles(event.target.files, frame));
   frame.querySelector("[data-sloppy-capture]").addEventListener("click", () => captureScreenshot(frame));
-  frame.querySelector("[data-sloppy-voice]")?.addEventListener("click", () => {
+  frame.querySelector("[data-sloppy-primary-action]")?.addEventListener("click", () => {
+    if (composerHasPayload(frame)) {
+      void sendPrompt(frame);
+      return;
+    }
     void startVoice();
   });
   frame.querySelector("[data-sloppy-voice-record]")?.addEventListener("click", () => {
     void startVoice();
   });
   frame.querySelector("[data-sloppy-voice-cancel]")?.addEventListener("click", () => cancelVoice());
+  frame.querySelector("[data-sloppy-voice-language]")?.addEventListener("change", (event) => {
+    state.settings = {
+      ...(state.settings || {}),
+      voiceLanguage: normalizeVoiceLanguage(event.target.value)
+    };
+    state.voiceConfig = {
+      ...state.voiceConfig,
+      input: {
+        ...(state.voiceConfig?.input || {}),
+        language: state.settings.voiceLanguage
+      }
+    };
+    void chrome.runtime.sendMessage({ type: "sloppy.settings.save", settings: state.settings });
+  });
   frame.querySelector("[data-sloppy-agent]").addEventListener("change", (event) => {
     state.settings.defaultAgentID = event.target.value;
     delete state.settings.sessionId;
     void chrome.runtime.sendMessage({ type: "sloppy.settings.save", settings: state.settings });
     void loadSlashCommands(frame);
     renderContext(frame);
+  });
+  frame.querySelector("[data-sloppy-model]").addEventListener("change", (event) => {
+    const selectedModel = String(event.target.value || "").trim();
+    if (selectedModel && selectedModel !== "default") {
+      state.settings.selectedModel = selectedModel;
+    } else {
+      delete state.settings.selectedModel;
+    }
+    void chrome.runtime.sendMessage({ type: "sloppy.settings.save", settings: state.settings });
   });
   frame.querySelector("[data-sloppy-composer]").addEventListener("submit", (event) => {
     event.preventDefault();
@@ -711,6 +808,7 @@ function wirePanel(frame) {
     event.target.style.height = "auto";
     event.target.style.height = `${Math.min(event.target.scrollHeight, 132)}px`;
     renderCommandMenu(frame);
+    renderComposerAction(frame);
   });
 }
 
@@ -759,7 +857,15 @@ function setVoiceState(nextState, message = "") {
 
 async function loadVoiceConfig() {
   const response = await chrome.runtime.sendMessage({ type: "sloppy.voice.config.get" }).catch((error) => ({ error: error.message }));
-  state.voiceConfig = normalizeVoiceConfig(response?.config || {});
+  const config = normalizeVoiceConfig(response?.config || {});
+  const language = normalizeVoiceLanguage(state.settings?.voiceLanguage || config.input.language);
+  state.voiceConfig = {
+    ...config,
+    input: {
+      ...config.input,
+      language
+    }
+  };
   return state.voiceConfig;
 }
 
@@ -781,7 +887,7 @@ async function startVoice() {
     }
     startLocalVoice();
   } catch (error) {
-    setVoiceState("error", error.message || "Voice mode failed.");
+    setVoiceState("error", error.message || t("voiceModeFailed"));
   }
 }
 
@@ -894,15 +1000,23 @@ function submitVoiceTranscript() {
   if (promptInput) {
     promptInput.value = prompt;
   }
-  setVoiceState("sending", "Sending...");
+  setVoiceState("sending", t("sending"));
   document.querySelector("[data-sloppy-composer]")?.requestSubmit?.();
 }
 
 function render(frame) {
   renderAgents(frame);
+  renderModels(frame);
+  renderVoiceLanguage(frame);
   renderThread(frame);
   renderContext(frame);
   renderAttachments(frame);
+  renderComposerAction(frame);
+}
+
+function normalizeVoiceLanguage(value) {
+  const language = String(value || "auto").trim();
+  return ["auto", "en-US", "ru-RU", "zh-CN"].includes(language) ? language : "auto";
 }
 
 function renderAgents(frame) {
@@ -915,13 +1029,50 @@ function renderAgents(frame) {
   select.value = selected;
 }
 
+function renderModels(frame) {
+  const select = frame.querySelector("[data-sloppy-model]");
+  if (!select) {
+    return;
+  }
+  const selected = state.settings?.selectedModel || "default";
+  const models = state.models.length
+    ? state.models
+    : [{ id: "default", title: t("defaultModel"), subtitle: t("defaultModelSubtitle") }];
+  select.innerHTML = models
+    .map((model) => `<option value="${escapeHTML(model.id)}">${escapeHTML(model.title || model.id)}</option>`)
+    .join("");
+  select.value = models.some((model) => model.id === selected) ? selected : "default";
+}
+
+function renderVoiceLanguage(frame) {
+  const select = frame.querySelector("[data-sloppy-voice-language]");
+  if (select) {
+    select.value = normalizeVoiceLanguage(state.settings?.voiceLanguage || state.voiceConfig?.input?.language);
+  }
+}
+
+function composerHasPayload(frame) {
+  const prompt = frame.querySelector("[data-sloppy-prompt]")?.value?.trim() || "";
+  return Boolean(prompt || state.attachments.length);
+}
+
+function renderComposerAction(frame) {
+  const hasPayload = composerHasPayload(frame);
+  const action = frame.querySelector("[data-sloppy-primary-action]");
+  if (action) {
+    action.innerHTML = icon(hasPayload ? "arrow-up" : "mic");
+    action.setAttribute("aria-label", hasPayload ? t("send") : t("voiceMode"));
+    action.dataset.sloppyAction = hasPayload ? "send" : "voice";
+  }
+}
+
 function renderThread(frame) {
   const thread = frame.querySelector("[data-sloppy-thread]");
   if (!state.messages.length) {
     thread.innerHTML = `
       <div class="sloppy-empty">
         <img class="sloppy-empty-mark" src="${logoURL()}" alt="" aria-hidden="true">
-        <h2>Assistant</h2>
+        <h2>${escapeHTML(t("assistant"))}</h2>
       </div>
     `;
     return;
@@ -936,7 +1087,7 @@ function renderMessage(message) {
     : "";
   const tools = message.toolCalls?.length ? `<div class="sloppy-tools">${message.toolCalls.map(renderToolCall).join("")}</div>` : "";
   const thinking = message.role === "assistant" && message.streaming && !message.text
-    ? '<div class="sloppy-thinking" aria-label="Waiting for response"><span></span><span></span><span></span></div>'
+    ? `<div class="sloppy-thinking" aria-label="${escapeHTML(t("thinking"))}"><span>${escapeHTML(t("thinking"))}</span></div>`
     : "";
   const body = message.role === "assistant"
     ? `${thinking}<div class="sloppy-markdown">${renderMarkdown(message.text || "")}</div>`
@@ -953,7 +1104,7 @@ function renderMessage(message) {
 function renderToolCall(tool) {
   return `
     <details class="sloppy-tool" ${tool.open ? "open" : ""}>
-      <summary>${icon("tool")}<span>${escapeHTML(tool.name || "Tool call")}</span><small>${escapeHTML(tool.status || "done")}</small></summary>
+      <summary>${icon("tool")}<span>${escapeHTML(tool.name || t("toolCall"))}</span><small>${escapeHTML(tool.status || t("done"))}</small></summary>
       <pre>${escapeHTML(JSON.stringify(tool.input || tool.output || tool, null, 2))}</pre>
     </details>
   `;
@@ -998,7 +1149,7 @@ function normalizeSessionMessages(events = []) {
       return {
         id: message.id || event.id || globalThis.crypto?.randomUUID?.() || `${Date.now()}`,
         role: message.role,
-        label: message.role === "assistant" ? "Assistant" : "You",
+        label: message.role === "assistant" ? t("assistant") : t("you"),
         text: displayTextFromSessionMessage(message),
         attachments: attachmentsFromSessionSegments(message.segments || []),
         toolCalls: [],
@@ -1026,12 +1177,12 @@ function renderContext(frame) {
     <div class="sloppy-context-details">
       <div class="sloppy-context-url">${escapeHTML(context?.page.url || "")}</div>
       <div class="sloppy-context-pills">
-        <span>${selection ? `${selection.length} selected chars` : "No selection"}</span>
-        <span>${tabCount} accessible tabs</span>
-        <span>${escapeHTML(selectedSession?.title || (state.settings?.sessionId ? "Selected session" : "New session"))}</span>
+        <span>${selection ? escapeHTML(t("selectedChars", { count: selection.length })) : escapeHTML(t("noSelection"))}</span>
+        <span>${escapeHTML(t("accessibleTabs", { count: tabCount }))}</span>
+        <span>${escapeHTML(selectedSession?.title || (state.settings?.sessionId ? t("selectedSession") : t("newSession")))}</span>
       </div>
       <div class="sloppy-context-actions">
-        <button type="button" data-sloppy-summarize-page>${icon("summarize")}<span>Summarize page</span></button>
+        <button type="button" data-sloppy-summarize-page>${icon("summarize")}<span>${escapeHTML(t("summarizePage"))}</span></button>
       </div>
     </div>
   `;
@@ -1062,6 +1213,7 @@ function renderAttachments(frame) {
       const id = event.currentTarget?.dataset?.sloppyRemoveAttachmentId || "";
       state.attachments = state.attachments.filter((attachment) => attachment.id !== id);
       renderAttachments(frame);
+      renderComposerAction(frame);
     });
   });
 }
@@ -1076,9 +1228,13 @@ function normalizeAttachment(attachment) {
   };
 }
 
+function summarizePagePrompt() {
+  return t("summarizePagePrompt");
+}
+
 async function summarizePage(frame) {
   const textarea = frame.querySelector("[data-sloppy-prompt]");
-  textarea.value = "Summarize this page. Focus on the main points and any actionable details.";
+  textarea.value = summarizePagePrompt();
   await sendPrompt(frame);
 }
 
@@ -1101,6 +1257,8 @@ async function saveSettings(frame) {
     coreURLString: frame.querySelector("[data-sloppy-core-url]").value,
     authToken: frame.querySelector("[data-sloppy-auth-token]").value,
     defaultAgentID: frame.querySelector("[data-sloppy-default-agent]").value,
+    selectedModel: state.settings?.selectedModel || "",
+    voiceLanguage: normalizeVoiceLanguage(state.settings?.voiceLanguage),
     sessionId: state.settings?.sessionId || null,
     mesh: {
       ...(state.settings?.mesh || {}),
@@ -1113,6 +1271,7 @@ async function saveSettings(frame) {
   state.settings = await chrome.runtime.sendMessage({ type: "sloppy.settings.save", settings });
   frame.querySelector("[data-sloppy-settings-dialog]").close();
   await loadAgents(frame);
+  await loadModels(frame);
   render(frame);
   renderFloatingButton();
   if (!selectionBubbleEnabled()) {
@@ -1124,7 +1283,7 @@ async function saveSettings(frame) {
 
 async function openSessions(frame) {
   const list = frame.querySelector("[data-sloppy-session-list]");
-  list.innerHTML = '<p class="sloppy-session-empty">Loading sessions...</p>';
+  list.innerHTML = `<p class="sloppy-session-empty">${escapeHTML(t("loadingSessions"))}</p>`;
   frame.querySelector("[data-sloppy-sessions-dialog]").showModal();
 
   const response = await chrome.runtime.sendMessage({
@@ -1255,7 +1414,7 @@ function renderSessionList(frame) {
 async function selectSession(frame, sessionId) {
   const response = await loadSessionSelection(sessionId);
   if (response?.error) {
-    appendMessage({ role: "assistant", label: "Assistant", text: response.error });
+    appendMessage({ role: "assistant", label: t("assistant"), text: response.error });
     render(frame);
     return;
   }
@@ -1427,7 +1586,7 @@ async function openPanelWithSelection(selectionText) {
   state.context = extractPageContext(document, selectionText);
   const panel = ensurePanel();
   state.settings = state.settings || await chrome.runtime.sendMessage({ type: "sloppy.settings.get" });
-  await Promise.all([loadAgents(panel), refreshTabs(panel), loadSlashCommands(panel)]);
+  await Promise.all([loadAgents(panel), loadModels(panel), refreshTabs(panel), loadSlashCommands(panel)]);
   render(panel);
   renderFloatingButton();
   renderSearchButton();
@@ -1452,6 +1611,7 @@ async function addFiles(fileList, frame) {
   state.attachments.push(...attachments);
   frame.querySelector("[data-sloppy-file]").value = "";
   renderAttachments(frame);
+  renderComposerAction(frame);
 }
 
 function readFileAsDataURL(file) {
@@ -1505,6 +1665,17 @@ async function loadAgents(frame) {
   renderAgents(frame);
 }
 
+async function loadModels(frame) {
+  const response = await chrome.runtime.sendMessage({ type: "sloppy.models.list" });
+  state.models = response?.models || [];
+  if (response?.selectedModel && response.selectedModel !== "default") {
+    state.settings.selectedModel = response.selectedModel;
+  } else {
+    delete state.settings.selectedModel;
+  }
+  renderModels(frame);
+}
+
 async function loadSlashCommands(frame) {
   const response = await chrome.runtime.sendMessage({
     type: "sloppy.commands.list",
@@ -1530,7 +1701,7 @@ async function captureScreenshot(frame) {
     return;
   }
   if (response?.error) {
-    appendMessage({ role: "assistant", label: "Assistant", text: response.error });
+    appendMessage({ role: "assistant", label: t("assistant"), text: response.error });
     render(frame);
   }
 }
@@ -1552,18 +1723,26 @@ async function updateStreamingMessage(event, frame) {
   if (!message) {
     return;
   }
+  let nextAssistantText = "";
   const assistantText = assistantTextFromStreamEvent(event);
   if (assistantText) {
-    message.text = assistantText;
+    nextAssistantText = assistantText;
   }
   if (event.type === "delta") {
-    message.text += event.text || event.delta || "";
+    if (event.replace) {
+      nextAssistantText = event.text || event.delta || "";
+    } else {
+      nextAssistantText = message.text + (event.text || event.delta || "");
+    }
   }
   if (event.type === "assistant_message") {
-    message.text = event.text || message.text;
+    nextAssistantText = event.text || nextAssistantText;
+  }
+  if (nextAssistantText && nextAssistantText !== message.text) {
+    await animateAssistantText(message, nextAssistantText, frame);
   }
   if (event.type === "tool_call") {
-    message.toolCalls.push(event.tool || event);
+    message.toolCalls.push(event.tool || event.toolCall || event.tool_call || event);
   }
   if (event.type === "session_error") {
     stopStreamingAnimation();
@@ -1597,25 +1776,68 @@ async function updateStreamingMessage(event, frame) {
   }
 }
 
-function textFromMessageSegments(message = {}) {
-  return (message.segments || [])
-    .map((segment) => segment?.text || segment?.content || "")
+function textFromContentValue(value) {
+  if (!value) {
+    return "";
+  }
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => textFromContentValue(item))
+      .filter(Boolean)
+      .join("\n");
+  }
+  if (typeof value === "object") {
+    const kind = value.kind || value.type;
+    if (kind && kind !== "text") {
+      return "";
+    }
+    return textFromContentValue(value.text ?? value.content ?? value.value ?? value.delta ?? "");
+  }
+  return String(value || "").trim();
+}
+
+function textFromSessionMessage(message = {}) {
+  const segmentsText = (message.segments || [])
+    .filter((segment) => !segment.kind || segment.kind === "text")
+    .map((segment) => textFromContentValue(segment.text ?? segment.content ?? segment.value ?? segment))
     .filter(Boolean)
     .join("\n");
+  return segmentsText
+    || textFromContentValue(message.content)
+    || textFromContentValue(message.text)
+    || textFromContentValue(message.delta)
+    || textFromContentValue(message.output);
+}
+
+function messageFromEvent(event = {}) {
+  return event?.message || (event?.role === "assistant" ? event : null);
 }
 
 function latestAssistantTextFromEvents(events = []) {
-  const assistant = [...events].reverse().find((event) => event?.message?.role === "assistant");
-  return textFromMessageSegments(assistant?.message || {});
+  const assistant = [...events].reverse().find((event) => messageFromEvent(event)?.role === "assistant");
+  return textFromSessionMessage(messageFromEvent(assistant) || {});
+}
+
+function latestInterruptedRunStatusText(events = []) {
+  const statusEvent = [...events].reverse().find((event) => {
+    const status = event?.runStatus || event?.run_status;
+    const stage = String(status?.stage || "").toLowerCase();
+    return stage === "interrupted" || stage === "failed" || stage === "error";
+  });
+  const status = statusEvent?.runStatus || statusEvent?.run_status;
+  return String(status?.details || status?.message || status?.label || "").trim();
 }
 
 function assistantTextFromStreamEvent(event = {}) {
   const record = event.event || event.sessionEvent || event;
-  const message = record.message || event.message;
+  const message = messageFromEvent(record) || messageFromEvent(event);
   if (message?.role !== "assistant") {
     return "";
   }
-  return textFromMessageSegments(message);
+  return textFromSessionMessage(message);
 }
 
 function applyAgentResponse(message, response = {}) {
@@ -1629,6 +1851,7 @@ function agentResponseText(response = {}, fallback = "") {
     || response.message
     || response.output
     || latestAssistantTextFromEvents(response.appendedEvents || response.events || [])
+    || latestInterruptedRunStatusText(response.appendedEvents || response.events || [])
     || fallback;
 }
 
@@ -1651,7 +1874,8 @@ function animatedTextSteps(currentText = "", targetText = "") {
 
 function stopStreamingAnimation() {
   if (state.streamingAnimation) {
-    window.clearTimeout(state.streamingAnimation);
+    const clearTimer = window.clearTimeout?.bind(window) || globalThis.clearTimeout?.bind(globalThis) || (() => {});
+    clearTimer(state.streamingAnimation);
     state.streamingAnimation = null;
   }
 }
@@ -1677,7 +1901,11 @@ function animateAssistantText(message, targetText, frame) {
         resolve();
         return;
       }
-      state.streamingAnimation = window.setTimeout(tick, 18);
+      const setTimer = window.setTimeout?.bind(window) || globalThis.setTimeout?.bind(globalThis) || ((callback) => {
+        callback();
+        return null;
+      });
+      state.streamingAnimation = setTimer(tick, 18);
     };
     tick();
   });
@@ -1780,7 +2008,7 @@ async function performAgentBrowserActions(response, message) {
       const output = await runBrowserToolAction(action);
       message.toolCalls.push({
         name: action.name,
-        status: "done",
+        status: t("done"),
         input: action.input,
         output
       });
@@ -1801,23 +2029,23 @@ async function performAgentBrowserActions(response, message) {
 async function sendPrompt(frame) {
   const textarea = frame.querySelector("[data-sloppy-prompt]");
   const prompt = textarea.value.trim();
-  if (!prompt) {
+  if (!prompt && !state.attachments.length) {
     return;
   }
   hideCommandMenu(frame);
   if (prompt.toLowerCase() === "/help") {
-    appendMessage({ role: "user", label: "You", text: prompt });
-    appendMessage({ role: "assistant", label: "Assistant", text: slashHelpText() });
+    appendMessage({ role: "user", label: t("you"), text: prompt });
+    appendMessage({ role: "assistant", label: t("assistant"), text: slashHelpText() });
     textarea.value = "";
     textarea.style.height = "auto";
     render(frame);
     return;
   }
   if (prompt.toLowerCase() === "/status") {
-    appendMessage({ role: "user", label: "You", text: prompt });
+    appendMessage({ role: "user", label: t("you"), text: prompt });
     appendMessage({
       role: "assistant",
-      label: "Assistant",
+      label: t("assistant"),
       text: `Agent: ${state.settings?.defaultAgentID || "sloppy"}\nSession: ${state.settings?.sessionId || "none"}\nState: idle`
     });
     textarea.value = "";
@@ -1826,16 +2054,16 @@ async function sendPrompt(frame) {
     return;
   }
   const userAttachments = [...state.attachments];
-  appendMessage({ role: "user", label: "You", text: prompt, attachments: userAttachments });
+  appendMessage({ role: "user", label: t("you"), text: prompt, attachments: userAttachments });
   textarea.value = "";
   textarea.style.height = "auto";
   state.attachments = [];
 
   const assistantId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-assistant`;
   state.streamingMessageId = assistantId;
-  appendMessage({ id: assistantId, role: "assistant", label: "Assistant", text: "", streaming: true });
+  appendMessage({ id: assistantId, role: "assistant", label: t("assistant"), text: "", streaming: true });
   if (state.voice.state === "sending") {
-    setVoiceState("answering", "Assistant is answering...");
+    setVoiceState("answering", t("thinking"));
   }
   render(frame);
 
@@ -1849,7 +2077,8 @@ async function sendPrompt(frame) {
     prompt,
     tabs: state.tabs,
     pageSnapshot: buildDOMSnapshot(document),
-    attachments: userAttachments
+    attachments: userAttachments,
+    model: state.settings?.selectedModel || "default"
   });
   const message = state.messages.find((candidate) => candidate.id === assistantId);
   if (response?.error) {
@@ -1920,11 +2149,11 @@ async function initializeFullscreenChat() {
     state.settings.sessionId = launch.sessionId;
   }
   const panel = ensurePanel();
-  await Promise.all([loadAgents(panel), refreshTabs(panel), loadSlashCommands(panel)]);
+  await Promise.all([loadAgents(panel), loadModels(panel), refreshTabs(panel), loadSlashCommands(panel)]);
   if (launch.sessionId) {
     const response = await loadSessionSelection(launch.sessionId);
     if (response?.error) {
-      appendMessage({ role: "assistant", label: "Assistant", text: response.error });
+      appendMessage({ role: "assistant", label: t("assistant"), text: response.error });
     } else {
       state.messages = normalizeSessionMessages(response?.session?.events || []);
     }
@@ -1934,6 +2163,7 @@ async function initializeFullscreenChat() {
   if (prompt) {
     const textarea = panel.querySelector("[data-sloppy-prompt]");
     textarea.value = prompt;
+    renderComposerAction(panel);
     await sendPrompt(panel);
   } else {
     panel.querySelector("[data-sloppy-prompt]").focus();
@@ -1996,6 +2226,13 @@ if (typeof document !== "undefined" && typeof chrome !== "undefined" && chrome.r
   chrome.runtime.onMessage.addListener((message) => {
     if (message?.type === "sloppy.panel.open") {
       void openPanel();
+      return;
+    }
+    if (message?.type === "sloppy.page.summarize") {
+      void (async () => {
+        const panel = await openPanelWithSelection(selectedText());
+        await summarizePage(panel);
+      })();
       return;
     }
     if (message?.type === "sloppy.browserContext.streamEvent" && message.requestId === state.streamingRequestId) {

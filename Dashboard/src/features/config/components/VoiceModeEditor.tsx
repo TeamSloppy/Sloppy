@@ -2,11 +2,78 @@ import React from "react";
 
 const OPENAI_VOICES = ["alloy", "ash", "ballad", "coral", "echo", "fable", "marin", "nova", "onyx", "sage", "shimmer", "verse"];
 
+function ChoiceGroup({ label, value, options, onChange, columns = 2 }) {
+  return (
+    <div className="config-voice-field">
+      <span>{label}</span>
+      <div className={`provider-auth-mode-segmented config-segmented config-voice-segmented ${columns === 3 ? "is-three" : ""}`} role="tablist" aria-label={label}>
+        {options.map((option) => (
+          <button
+            key={option.value}
+            type="button"
+            className={value === option.value ? "active" : ""}
+            onClick={() => onChange(option.value)}
+          >
+            {option.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ToggleField({ id, title, description = "", checked, onChange }) {
+  return (
+    <label className="config-voice-toggle" htmlFor={id}>
+      <span>
+        <strong>{title}</strong>
+        {description ? <small>{description}</small> : null}
+      </span>
+      <input id={id} type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+    </label>
+  );
+}
+
+function TextField({ id, label, value, onChange, hint = "", wide = false }) {
+  return (
+    <label className={`config-voice-field ${wide ? "config-voice-field-wide" : ""}`} htmlFor={id}>
+      <span>{label}</span>
+      <input id={id} value={value} onChange={(event) => onChange(event.target.value)} />
+      {hint ? <small>{hint}</small> : null}
+    </label>
+  );
+}
+
+function SliderField({ id, label, value, min, max, step, onChange }) {
+  const numericValue = Number.isFinite(Number(value)) ? Number(value) : 1;
+
+  return (
+    <label className="config-voice-field config-voice-slider" htmlFor={id}>
+      <span>
+        {label}
+        <strong>{numericValue.toFixed(1)}</strong>
+      </span>
+      <input
+        id={id}
+        type="range"
+        min={min}
+        max={max}
+        step={step}
+        value={numericValue}
+        onChange={(event) => onChange(Number(event.target.value))}
+      />
+    </label>
+  );
+}
+
 export function VoiceModeEditor({ voiceMode, onUpdate }) {
   const provider = voiceMode?.provider || "auto";
   const input = voiceMode?.input || {};
   const openAI = voiceMode?.openAI || {};
   const local = voiceMode?.local || {};
+  const isEnabled = Boolean(voiceMode?.enabled);
+  const providerLabel = provider === "openai" ? "OpenAI" : provider === "local" ? "Local" : "Auto";
+  const inputModeLabel = input.mode === "auto_submit" ? "Auto submit" : "Push to talk";
 
   function update(patch) {
     onUpdate?.({ ...voiceMode, ...patch });
@@ -25,161 +92,180 @@ export function VoiceModeEditor({ voiceMode, onUpdate }) {
   }
 
   return (
-    <div className="entry-editor-layout config-voice-layout">
-      <section className="entry-editor-card config-voice-card">
-        <div className="entry-editor-head">
-          <div>
-            <span className="entry-editor-kicker">Voice Mode</span>
-            <h3>Voice conversation</h3>
-          </div>
-          <label className="config-field-toggle">
-            <input
-              type="checkbox"
-              checked={Boolean(voiceMode?.enabled)}
-              onChange={(event) => update({ enabled: event.target.checked })}
-            />
-            <span>Enabled</span>
-          </label>
+    <div className="config-voice-shell">
+      <section className="config-voice-hero" aria-labelledby="voice-mode-title">
+        <div className="config-voice-hero-copy">
+          <span className={`config-voice-status ${isEnabled ? "is-on" : "is-off"}`}>{isEnabled ? "Enabled" : "Disabled"}</span>
+          <h3 id="voice-mode-title">Voice Mode</h3>
+          <p>Speak to the agent from Dashboard and Safari. Auto prefers OpenAI audio when configured, with local browser speech as the fallback.</p>
         </div>
-
-        <section className="entry-editor-block">
-          <h4>Provider</h4>
-          <div className="provider-auth-mode-segmented config-segmented" role="tablist" aria-label="Voice provider">
-            {[
-              ["auto", "Auto"],
-              ["openai", "OpenAI"],
-              ["local", "Local"]
-            ].map(([value, label]) => (
-              <button
-                key={value}
-                type="button"
-                className={provider === value ? "active" : ""}
-                onClick={() => update({ provider: value })}
-              >
-                {label}
-              </button>
-            ))}
+        <div className="config-voice-summary">
+          <div>
+            <span>Provider</span>
+            <strong>{providerLabel}</strong>
           </div>
-          <span className="entry-form-hint">
-            Auto uses OpenAI when voice credentials are configured, otherwise local browser speech.
-          </span>
-        </section>
-
-        <section className="entry-editor-block config-voice-grid">
-          <label>
-            Input mode
-            <div className="provider-auth-mode-segmented config-segmented" role="tablist" aria-label="Voice input mode">
-              <button
-                type="button"
-                className={(input.mode || "push_to_talk") === "push_to_talk" ? "active" : ""}
-                onClick={() => updateInput({ mode: "push_to_talk" })}
-              >
-                Push to talk
-              </button>
-              <button
-                type="button"
-                className={input.mode === "auto_submit" ? "active" : ""}
-                onClick={() => updateInput({ mode: "auto_submit" })}
-              >
-                Auto submit
-              </button>
-            </div>
-          </label>
-          <label>
-            Language
-            <input value={input.language || "auto"} onChange={(event) => updateInput({ language: event.target.value })} />
-          </label>
-          <label className="config-field-toggle">
-            <input
-              type="checkbox"
-              checked={input.previewBeforeSend !== false}
-              onChange={(event) => updateInput({ previewBeforeSend: event.target.checked })}
-            />
-            <span>Preview before send</span>
-          </label>
-        </section>
+          <div>
+            <span>Input</span>
+            <strong>{inputModeLabel}</strong>
+          </div>
+          <ToggleField
+            id="voice-mode-enabled"
+            title="Voice mode"
+            description="Turns microphone workflows on or off."
+            checked={isEnabled}
+            onChange={(checked) => update({ enabled: checked })}
+          />
+        </div>
       </section>
 
-      <section className="entry-editor-card config-voice-card">
-        <div className="entry-editor-head">
+      <section className="config-voice-panel" aria-labelledby="voice-routing-title">
+        <div className="config-voice-panel-head">
           <div>
-            <span className="entry-editor-kicker">OpenAI</span>
-            <h3>Server audio</h3>
+            <span className="entry-editor-kicker">Routing</span>
+            <h4 id="voice-routing-title">How voice is handled</h4>
           </div>
-          <label className="config-field-toggle">
-            <input
-              type="checkbox"
+        </div>
+        <div className="config-voice-two-column">
+          <ChoiceGroup
+            label="Provider"
+            value={provider}
+            columns={3}
+            options={[
+              { value: "auto", label: "Auto" },
+              { value: "openai", label: "OpenAI" },
+              { value: "local", label: "Local" }
+            ]}
+            onChange={(value) => update({ provider: value })}
+          />
+          <ChoiceGroup
+            label="Input mode"
+            value={input.mode || "push_to_talk"}
+            options={[
+              { value: "push_to_talk", label: "Push to talk" },
+              { value: "auto_submit", label: "Auto submit" }
+            ]}
+            onChange={(value) => updateInput({ mode: value })}
+          />
+          <TextField
+            id="voice-mode-language"
+            label="Language"
+            value={input.language || "auto"}
+            hint="Use auto, en-US, ru-RU, or any browser/OpenAI language code."
+            onChange={(value) => updateInput({ language: value })}
+          />
+          <ToggleField
+            id="voice-preview-before-send"
+            title="Preview before send"
+            description="Review recognized text before it goes to the agent."
+            checked={input.previewBeforeSend !== false}
+            onChange={(checked) => updateInput({ previewBeforeSend: checked })}
+          />
+        </div>
+      </section>
+
+      <div className="config-voice-columns">
+        <section className="config-voice-panel" aria-labelledby="voice-openai-title">
+          <div className="config-voice-panel-head">
+            <div>
+              <span className="entry-editor-kicker">OpenAI</span>
+              <h4 id="voice-openai-title">Agent voice</h4>
+            </div>
+            <ToggleField
+              id="voice-openai-enabled"
+              title="Use OpenAI"
               checked={Boolean(openAI.enabled)}
-              onChange={(event) => updateOpenAI({ enabled: event.target.checked })}
+              onChange={(checked) => updateOpenAI({ enabled: checked })}
             />
-            <span>Use when available</span>
-          </label>
-        </div>
-        <div className="entry-form-grid">
-          <label>
-            Transcription model
-            <input value={openAI.transcriptionModel || ""} onChange={(event) => updateOpenAI({ transcriptionModel: event.target.value })} />
-          </label>
-          <label>
-            TTS model
-            <input value={openAI.ttsModel || ""} onChange={(event) => updateOpenAI({ ttsModel: event.target.value })} />
-          </label>
-          <label>
-            Voice
-            <input value={openAI.voice || "coral"} onChange={(event) => updateOpenAI({ voice: event.target.value })} />
-          </label>
-          <div className="entry-form-wide config-voice-picker">
-            <span className="entry-form-hint">Quick voice picker</span>
-            <div className="actor-team-search-wrap config-voice-choice-list">
-              {OPENAI_VOICES.map((voice) => (
-                <button
-                  key={voice}
-                  type="button"
-                  className={`actor-team-search-option ${(openAI.voice || "coral") === voice ? "active" : ""}`}
-                  onClick={() => updateOpenAI({ voice })}
-                >
-                  {voice}
-                </button>
-              ))}
+          </div>
+          <div className="config-voice-form">
+            <TextField
+              id="voice-transcription-model"
+              label="Transcription model"
+              value={openAI.transcriptionModel || ""}
+              onChange={(value) => updateOpenAI({ transcriptionModel: value })}
+            />
+            <TextField
+              id="voice-tts-model"
+              label="TTS model"
+              value={openAI.ttsModel || ""}
+              onChange={(value) => updateOpenAI({ ttsModel: value })}
+            />
+            <TextField
+              id="voice-openai-voice"
+              label="Voice"
+              value={openAI.voice || "coral"}
+              onChange={(value) => updateOpenAI({ voice: value })}
+            />
+            <div className="config-voice-field config-voice-field-wide">
+              <span>Quick voice picker</span>
+              <div className="actor-team-search-wrap config-voice-choice-list">
+                {OPENAI_VOICES.map((voice) => (
+                  <button
+                    key={voice}
+                    type="button"
+                    className={`actor-team-search-option ${(openAI.voice || "coral") === voice ? "active" : ""}`}
+                    onClick={() => updateOpenAI({ voice })}
+                  >
+                    {voice}
+                  </button>
+                ))}
+              </div>
             </div>
+            <label className="config-voice-field config-voice-field-wide" htmlFor="voice-openai-instructions">
+              <span>Voice instructions</span>
+              <textarea
+                id="voice-openai-instructions"
+                value={openAI.instructions || ""}
+                onChange={(event) => updateOpenAI({ instructions: event.target.value })}
+              />
+              <small>Tone and speaking style for generated audio.</small>
+            </label>
           </div>
-          <label className="entry-form-wide">
-            Instructions
-            <textarea value={openAI.instructions || ""} onChange={(event) => updateOpenAI({ instructions: event.target.value })} />
-          </label>
-        </div>
-      </section>
+        </section>
 
-      <section className="entry-editor-card config-voice-card">
-        <div className="entry-editor-head">
-          <div>
-            <span className="entry-editor-kicker">Local</span>
-            <h3>Browser fallback</h3>
-          </div>
-          <label className="config-field-toggle">
-            <input
-              type="checkbox"
+        <section className="config-voice-panel" aria-labelledby="voice-local-title">
+          <div className="config-voice-panel-head">
+            <div>
+              <span className="entry-editor-kicker">Local</span>
+              <h4 id="voice-local-title">Browser fallback</h4>
+            </div>
+            <ToggleField
+              id="voice-local-enabled"
+              title="Use local"
               checked={local.enabled !== false}
-              onChange={(event) => updateLocal({ enabled: event.target.checked })}
+              onChange={(checked) => updateLocal({ enabled: checked })}
             />
-            <span>Enabled</span>
-          </label>
-        </div>
-        <div className="entry-form-grid">
-          <label>
-            Voice name
-            <input value={local.voiceName || ""} onChange={(event) => updateLocal({ voiceName: event.target.value })} />
-          </label>
-          <label>
-            Rate
-            <input type="number" min="0.5" max="2" step="0.1" value={local.rate ?? 1} onChange={(event) => updateLocal({ rate: Number(event.target.value) })} />
-          </label>
-          <label>
-            Pitch
-            <input type="number" min="0" max="2" step="0.1" value={local.pitch ?? 1} onChange={(event) => updateLocal({ pitch: Number(event.target.value) })} />
-          </label>
-        </div>
-      </section>
+          </div>
+          <div className="config-voice-form">
+            <TextField
+              id="voice-local-name"
+              label="Voice name"
+              value={local.voiceName || ""}
+              hint="Leave empty for the browser default."
+              wide
+              onChange={(value) => updateLocal({ voiceName: value })}
+            />
+            <SliderField
+              id="voice-local-rate"
+              label="Rate"
+              min="0.5"
+              max="2"
+              step="0.1"
+              value={local.rate ?? 1}
+              onChange={(value) => updateLocal({ rate: value })}
+            />
+            <SliderField
+              id="voice-local-pitch"
+              label="Pitch"
+              min="0"
+              max="2"
+              step="0.1"
+              value={local.pitch ?? 1}
+              onChange={(value) => updateLocal({ pitch: value })}
+            />
+          </div>
+        </section>
+      </div>
     </div>
   );
 }

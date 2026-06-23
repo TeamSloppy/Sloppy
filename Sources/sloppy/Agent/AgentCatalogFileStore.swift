@@ -240,6 +240,22 @@ final class AgentCatalogFileStore {
         )
     }
 
+    func getAgentRuntimeConfig(agentID: String) throws -> AgentRuntimeConfig {
+        guard let normalizedAgentID = normalizedAgentID(agentID) else {
+            throw StoreError.invalidID
+        }
+        let summary = try getAgent(id: normalizedAgentID)
+        let configURL = agentConfigURL(for: summary.id, isSystem: summary.isSystem)
+        guard fileManager.fileExists(atPath: configURL.path) else {
+            return summary.runtime
+        }
+
+        let data = try Data(contentsOf: configURL)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return (try decoder.decode(AgentConfigFile.self, from: data).runtime) ?? summary.runtime
+    }
+
     func updateAgentConfig(
         agentID: String,
         request: AgentConfigUpdateRequest,

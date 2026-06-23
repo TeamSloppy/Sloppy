@@ -1,4 +1,9 @@
+import "./i18n.js";
 import { meshCoreFetch, normalizeMeshSettings } from "./mesh.js";
+
+function t(key, params = {}) {
+  return globalThis.SloppyI18n?.t(key, params) || key;
+}
 
 export function normalizeCoreURL(value) {
   let url = String(value || "").trim();
@@ -18,12 +23,22 @@ export function sanitizeSettings(settings = {}) {
     defaultAgentID: String(settings.defaultAgentID || "sloppy").trim() || "sloppy",
     floatingButtonEnabled: settings.floatingButtonEnabled !== false,
     selectionBubbleEnabled: settings.selectionBubbleEnabled !== false,
+    voiceLanguage: normalizeVoiceLanguage(settings.voiceLanguage),
     mesh: normalizeMeshSettings(settings.mesh)
   };
   if (settings.sessionId) {
     sanitized.sessionId = settings.sessionId;
   }
+  const selectedModel = String(settings.selectedModel || "").trim();
+  if (selectedModel && selectedModel !== "default") {
+    sanitized.selectedModel = selectedModel;
+  }
   return sanitized;
+}
+
+function normalizeVoiceLanguage(value) {
+  const language = String(value || "auto").trim();
+  return ["auto", "en-US", "ru-RU", "zh-CN"].includes(language) ? language : "auto";
 }
 
 export function publicMeshSettings(mesh = {}) {
@@ -103,7 +118,7 @@ export function chooseAgentID(currentAgentID, agents = []) {
 }
 
 export function fallbackSelectionText(selection) {
-  return String(selection || "").trim() || "No selected text.";
+  return String(selection || "").trim() || t("noSelectedText");
 }
 
 export function normalizeAgentSessions(records = []) {
@@ -120,6 +135,41 @@ export function normalizeAgentSessions(records = []) {
       };
     })
     .filter(Boolean);
+}
+
+export function normalizeProviderModels(records = []) {
+  const models = Array.isArray(records?.models) ? records.models : Array.isArray(records) ? records : [];
+  return [
+    {
+      id: "default",
+      title: t("defaultModel"),
+      subtitle: t("defaultModelSubtitle")
+    },
+    ...models
+      .map((model) => {
+        const id = String(model?.id || model?.model || model?.name || "").trim();
+        if (!id || id === "default") {
+          return null;
+        }
+        return {
+          id,
+          title: String(model.title || model.name || id).trim() || id,
+          subtitle: String(model.description || model.contextWindow || model.provider || "").trim()
+        };
+      })
+      .filter(Boolean)
+  ];
+}
+
+export async function fetchProviderModels(settings, fetchImpl = fetch) {
+  const response = await coreFetch(settings, "/v1/providers/models", {
+    headers: headersForSettings(settings)
+  }, fetchImpl);
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(body.error || `models_failed_${response.status}`);
+  }
+  return normalizeProviderModels(body);
 }
 
 function sanitizeTabs(tabs = []) {
@@ -184,7 +234,8 @@ export function buildBrowserContextPayload(settings, page, selection, prompt, op
     prompt: String(prompt || "").trim(),
     target: {
       agentId: String(settings.defaultAgentID || "sloppy").trim() || "sloppy",
-      sessionId: settings.sessionId || null
+      sessionId: settings.sessionId || null,
+      ...(settings.selectedModel ? { model: settings.selectedModel } : {})
     },
     userId: "safari_extension"
   };
@@ -215,31 +266,179 @@ function headersForSettings(settings) {
   return headers;
 }
 
-function latestAssistantText(events = []) {
-  const assistant = [...events].reverse().find((event) => event?.message?.role === "assistant");
-  const segments = assistant?.message?.segments || [];
-  return segments
-    .map((segment) => segment?.text || "")
+function textFromContentValue(value) {
+  if (!value) {
+    return "";
+  }
+  if (typeof value === "string") {
+    return value.trim();
+  }
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => textFromContentValue(item))
+      .filter(Boolean)
+      .join("\n");
+  }
+  if (typeof value === "object") {
+    const kind = value.kind || value.type;
+    if (kind && kind !== "text") {
+      return "";
+    }
+    return textFromContentValue(value.text ?? value.content ?? value.value ?? value.delta ?? "");
+  }
+  return String(value || "").trim();
+}
+
+function textFromMessage(message = {}) {
+  const segmentsText = (message.segments || [])
+    .filter((segment) => !segment.kind || segment.kind === "text")
+    .map((segment) => textFromContentValue(segment.text ?? segment.content ?? segment.value ?? segment))
     .filter(Boolean)
     .join("\n");
+  return segmentsText
+    || textFromContentValue(message.content)
+    || textFromContentValue(message.text)
+    || textFromContentValue(message.delta)
+    || textFromContentValue(message.output);
+}
+
+function messageFromEvent(event = {}) {
+  return event?.message || (event?.role === "assistant" ? event : null);
+}
+
+function latestAssistantText(events = []) {
+  const assistant = [...events].reverse().find((event) => messageFromEvent(event)?.role === "assistant");
+  return textFromMessage(messageFromEvent(assistant) || {});
+}
+
+function latestInterruptedRunStatusText(events = []) {
+  const statusEvent = [...events].reverse().find((event) => {
+    const status = event?.runStatus || event?.run_status;
+    const stage = String(status?.stage || "").toLowerCase();
+    return stage === "interrupted" || stage === "failed" || stage === "error";
+  });
+  const status = statusEvent?.runStatus || statusEvent?.run_status;
+  return String(status?.details || status?.message || status?.label || "").trim();
 }
 
 function assistantTextFromStreamEvent(event = {}) {
   const record = event.event || event.sessionEvent || event;
-  const message = record.message || event.message;
+  const message = messageFromEvent(record) || messageFromEvent(event);
   if (message?.role !== "assistant") {
     return "";
   }
-  return (message.segments || [])
-    .map((segment) => segment?.text || segment?.content || "")
-    .filter(Boolean)
-    .join("\n");
+  return textFromMessage(message);
+}
+
+function streamEventRecord(event = {}) {
+  return event.event || event.sessionEvent || event;
+}
+
+function firstString(...values) {
+  return values.map((value) => String(value || "").trim()).find(Boolean) || "";
+}
+
+function basename(path) {
+  const value = String(path || "").trim();
+  if (!value) {
+    return "";
+  }
+  return value.split(/[\\/]/).filter(Boolean).at(-1) || value;
+}
+
+function toolDisplayName(toolName, input = {}) {
+  const name = String(toolName || "").trim();
+  if (!name) {
+    return t("toolCall");
+  }
+  if (name === "web.fetch" || name === "web.request" || name === "web.read") {
+    return `${t("readWeb")}${firstString(input.url, input.uri) ? `: ${firstString(input.url, input.uri)}` : ""}`;
+  }
+  if (name === "web.search") {
+    return `${t("searchWeb")}${firstString(input.query, input.q) ? `: ${firstString(input.query, input.q)}` : ""}`;
+  }
+  if (name === "files.read" || name === "files.read_file" || name === "mcp.read_resource") {
+    return `${t("readFile")}${firstString(basename(input.path), basename(input.file), input.uri) ? `: ${firstString(basename(input.path), basename(input.file), input.uri)}` : ""}`;
+  }
+  if (name === "files.write" || name === "files.edit") {
+    return `${t("writeFile")}${firstString(basename(input.path), basename(input.file)) ? `: ${firstString(basename(input.path), basename(input.file))}` : ""}`;
+  }
+  if (name === "memory.save" || name === "project.meta_memory") {
+    return t("saveMemory");
+  }
+  return name
+    .replace(/[_-]+/g, " ")
+    .replace(/\b\w/g, (letter) => letter.toUpperCase());
+}
+
+function normalizeToolCallEvent(record = {}) {
+  const call = record.toolCall || record.tool_call || record.tool || record;
+  const toolName = call.tool || call.name || record.tool || record.name;
+  const input = call.arguments || call.input || record.arguments || {};
+  return {
+    name: toolDisplayName(toolName, input),
+    tool: toolName,
+    status: "running",
+    input,
+    reason: call.reason || record.reason || null
+  };
+}
+
+function normalizeToolResultEvent(record = {}) {
+  const result = record.toolResult || record.tool_result || record;
+  const toolName = result.tool || result.name;
+  return {
+    name: toolDisplayName(toolName, {}),
+    tool: toolName,
+    status: result.ok === false ? "failed" : "done",
+    output: result.data || result.error || result
+  };
+}
+
+function normalizeMemoryCheckpointEvent(record = {}) {
+  const checkpoint = record.memoryCheckpoint || record.memory_checkpoint || record;
+  return {
+    name: t("saveMemory"),
+    tool: "memory.save",
+    status: checkpoint.status || "done",
+    output: checkpoint.message || checkpoint.reason || checkpoint
+  };
 }
 
 function normalizeStreamEvent(event = {}) {
+  if (event.kind === "session_delta" || event.type === "session_delta") {
+    const deltaText = firstString(
+      event.message,
+      event.text,
+      textFromContentValue(event.delta),
+      textFromContentValue(event.content),
+      textFromContentValue(event.value)
+    );
+    return {
+      ...event,
+      type: "delta",
+      text: deltaText,
+      replace: true
+    };
+  }
+
+  const record = streamEventRecord(event);
+  const recordType = record.type || event.type || event.kind;
   const text = assistantTextFromStreamEvent(event);
   if (text) {
     return { ...event, type: "assistant_message", text };
+  }
+  if (recordType === "message" && record.message?.role === "assistant") {
+    return { ...event, type: "thinking" };
+  }
+  if (recordType === "tool_call" || record.toolCall || record.tool_call) {
+    return { ...event, type: "tool_call", tool: normalizeToolCallEvent(record) };
+  }
+  if (recordType === "tool_result" || record.toolResult || record.tool_result) {
+    return { ...event, type: "tool_call", tool: normalizeToolResultEvent(record) };
+  }
+  if (recordType === "memory_checkpoint" || record.memoryCheckpoint || record.memory_checkpoint) {
+    return { ...event, type: "tool_call", tool: normalizeMemoryCheckpointEvent(record) };
   }
   if (!event.type && event.kind) {
     return { ...event, type: event.kind };
@@ -310,6 +509,13 @@ async function readSSEStream(body, onEvent) {
   }
 }
 
+function waitForStreamCatchup(streamTask, timeoutMs = 800) {
+  return Promise.race([
+    streamTask,
+    new Promise((resolve) => setTimeout(resolve, timeoutMs))
+  ]).catch(() => {});
+}
+
 async function ensureBrowserContextSession(settings, payload, fetchImpl) {
   const encodedAgentId = encodeURIComponent(payload.target.agentId);
   let sessionId = payload.target.sessionId;
@@ -345,19 +551,21 @@ async function postSessionBrowserMessage(settings, payload, encodedAgentId, sess
       content: browserContextPrompt(payload.page, payload.selection.text, payload.prompt),
       attachments: payload.attachments || [],
       spawnSubSession: false,
-      mode: "ask"
+      mode: "ask",
+      ...(payload.target.model ? { model: payload.target.model } : {})
     })
   }, fetchImpl);
   return parseJSONResponse(messageResponse, { agentId: payload.target.agentId, endpoint });
 }
 
 function browserMessageResult(sessionId, body, streamedText = "") {
-  const assistantEvent = [...(body.appendedEvents || [])].reverse().find((event) => event?.message?.role === "assistant");
+  const assistantEvent = [...(body.appendedEvents || [])].reverse().find((event) => messageFromEvent(event)?.role === "assistant");
+  const assistantMessage = messageFromEvent(assistantEvent);
   return {
     sessionId,
-    messageId: assistantEvent?.message?.id || assistantEvent?.id || null,
+    messageId: assistantMessage?.id || assistantEvent?.id || null,
     status: "completed",
-    text: latestAssistantText(body.appendedEvents) || streamedText
+    text: latestAssistantText(body.appendedEvents) || latestInterruptedRunStatusText(body.appendedEvents) || streamedText
   };
 }
 
@@ -370,6 +578,7 @@ async function postBrowserContextLegacy(settings, payload, fetchImpl) {
 async function postBrowserContextViaSessionStream(settings, payload, options, fetchImpl) {
   const { encodedAgentId, sessionId } = await ensureBrowserContextSession(settings, payload, fetchImpl);
   let streamedText = "";
+  let sawAssistantMessage = false;
   let abortController = null;
   let streamTask = Promise.resolve();
 
@@ -393,6 +602,9 @@ async function postBrowserContextViaSessionStream(settings, payload, options, fe
       if (text) {
         streamedText = text;
       }
+      if (event.type === "assistant_message") {
+        sawAssistantMessage = true;
+      }
       options.onEvent?.(event);
     }).catch((error) => {
       if (error?.name !== "AbortError") {
@@ -403,6 +615,10 @@ async function postBrowserContextViaSessionStream(settings, payload, options, fe
 
   try {
     const body = await postSessionBrowserMessage(settings, payload, encodedAgentId, sessionId, fetchImpl);
+    const immediateText = latestAssistantText(body.appendedEvents || []);
+    if (!immediateText && !sawAssistantMessage) {
+      await waitForStreamCatchup(streamTask);
+    }
     const result = browserMessageResult(sessionId, body, streamedText);
     options.onEvent?.({ type: "complete", body: result });
     return result;

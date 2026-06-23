@@ -3788,6 +3788,16 @@ func browserContextMessageEndpointCreatesSessionAndPostsTypedContext() async thr
         page: BrowserContextPage(url: "https://example.com/article", title: "Example Article"),
         selection: BrowserContextSelection(text: "Important selected text."),
         prompt: "Explain the selection",
+        browser: BrowserContextBrowser(
+            pageSnapshot: .object([
+                "elements": .array([
+                    .object([
+                        "selector": .string("#buy"),
+                        "text": .string("Buy now")
+                    ])
+                ])
+            ])
+        ),
         target: BrowserContextTarget(agentId: "sloppy"),
         attachments: [
             AgentAttachmentUpload(
@@ -3827,6 +3837,9 @@ func browserContextMessageEndpointCreatesSessionAndPostsTypedContext() async thr
     #expect(userText.contains("Title: Example Article"))
     #expect(userText.contains("Selected text:"))
     #expect(userText.contains("Important selected text."))
+    #expect(userText.contains("Safari page snapshot:"))
+    #expect(userText.contains("\"selector\":\"#buy\""))
+    #expect(userText.contains("\"text\":\"Buy now\""))
     #expect(userText.contains("User prompt:"))
     #expect(userText.contains("Explain the selection"))
     let attachmentNames = detail.events

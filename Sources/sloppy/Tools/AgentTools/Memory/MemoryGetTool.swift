@@ -9,7 +9,7 @@ struct MemoryGetTool: CoreTool {
     let title = "Memory recall"
     let status = "fully_functional"
     let name = "memory.recall"
-    let description = "Recall scoped memory using hybrid retrieval."
+    let description = "Recall scoped memory using hybrid retrieval. Use `scope_type` = global and `scope_id` = shared for shared memory when enabled."
 
     var toolAliases: [String] { ["memory.get"] }
 
@@ -25,7 +25,7 @@ struct MemoryGetTool: CoreTool {
             ),
             .init(
                 name: "scope_id",
-                description: "Together with scope_type, or omit if using `scope` object. For channel: agent:<agentId>:session:<sessionId>.",
+                description: "Together with scope_type, or omit if using `scope` object. For channel: agent:<agentId>:session:<sessionId>. For shared memory: shared.",
                 schema: DynamicGenerationSchema(type: String.self),
                 isOptional: true
             ),
@@ -55,6 +55,9 @@ struct MemoryGetTool: CoreTool {
 
         let limit = max(1, arguments["limit"]?.asInt ?? 8)
         let scope = parseMemoryScope(from: arguments)
+        if let failure = rejectDisabledSharedMemory(scope: scope, context: context, tool: name) {
+            return failure
+        }
         let hits = await context.memoryStore.recall(
             request: MemoryRecallRequest(query: query, limit: limit, scope: scope)
         )

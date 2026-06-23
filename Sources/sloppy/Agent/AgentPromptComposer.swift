@@ -77,6 +77,10 @@ struct AgentPromptComposer {
             try templateLoader.loadPartial(named: "session_capabilities")
             ""
             try templateLoader.loadPartial(named: "tools_instruction")
+            if context.sharedMemoryEnabled {
+                ""
+                sharedMemoryPromptSection()
+            }
         }
     }
 
@@ -156,6 +160,10 @@ struct AgentPromptComposer {
             skillsRules
             ""
             memoryRules
+            if context.sharedMemoryEnabled {
+                ""
+                sharedMemoryPromptSection()
+            }
             ""
             taskPlanningRules
             ""
@@ -184,6 +192,16 @@ struct AgentPromptComposer {
         </available_skills>
 
         Only proceed without loading a skill if genuinely none are relevant to the task.
+        """
+    }
+
+    func sharedMemoryPromptSection() -> String {
+        """
+        [Shared memory]
+        Shared memory is available to all agents that have it enabled. Use it for durable user-wide facts and preferences that should help every agent, such as the user's name, work domain, standing preferences, and stable collaboration context.
+        To read shared memory, call `memory.recall` or `memory.search` with `scope_type: global` and `scope_id: shared`.
+        Before writing shared memory, search the same scope to avoid duplicates; save with `memory.save`, `scope_type: global`, and `scope_id: shared`.
+        Do not store secrets, credentials, short-lived task details, or guesses in shared memory.
         """
     }
 

@@ -1514,10 +1514,23 @@ public struct AgentACPConfig: Codable, Sendable, Equatable {
 public struct AgentRuntimeConfig: Codable, Sendable, Equatable {
     public var type: AgentRuntimeType
     public var acp: AgentACPConfig?
+    public var sharedMemoryEnabled: Bool
 
-    public init(type: AgentRuntimeType = .native, acp: AgentACPConfig? = nil) {
+    public init(type: AgentRuntimeType = .native, acp: AgentACPConfig? = nil, sharedMemoryEnabled: Bool = true) {
         self.type = type
         self.acp = acp
+        self.sharedMemoryEnabled = sharedMemoryEnabled
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case type, acp, sharedMemoryEnabled
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        type = try container.decodeIfPresent(AgentRuntimeType.self, forKey: .type) ?? .native
+        acp = try container.decodeIfPresent(AgentACPConfig.self, forKey: .acp)
+        sharedMemoryEnabled = try container.decodeIfPresent(Bool.self, forKey: .sharedMemoryEnabled) ?? true
     }
 }
 
