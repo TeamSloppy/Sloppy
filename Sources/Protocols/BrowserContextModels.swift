@@ -28,10 +28,21 @@ public struct BrowserContextTarget: Codable, Sendable, Equatable {
     }
 }
 
+public struct BrowserContextBrowser: Codable, Sendable, Equatable {
+    public var tabs: [JSONValue]
+    public var pageSnapshot: JSONValue?
+
+    public init(tabs: [JSONValue] = [], pageSnapshot: JSONValue? = nil) {
+        self.tabs = tabs
+        self.pageSnapshot = pageSnapshot
+    }
+}
+
 public struct BrowserContextMessageRequest: Codable, Sendable, Equatable {
     public var source: String
     public var page: BrowserContextPage
     public var selection: BrowserContextSelection
+    public var browser: BrowserContextBrowser?
     public var prompt: String
     public var target: BrowserContextTarget
     public var attachments: [AgentAttachmentUpload]
@@ -41,6 +52,7 @@ public struct BrowserContextMessageRequest: Codable, Sendable, Equatable {
         case source
         case page
         case selection
+        case browser
         case prompt
         case target
         case attachments
@@ -52,6 +64,7 @@ public struct BrowserContextMessageRequest: Codable, Sendable, Equatable {
         page: BrowserContextPage,
         selection: BrowserContextSelection,
         prompt: String,
+        browser: BrowserContextBrowser? = nil,
         target: BrowserContextTarget = BrowserContextTarget(),
         attachments: [AgentAttachmentUpload] = [],
         userId: String = "safari_extension"
@@ -59,6 +72,7 @@ public struct BrowserContextMessageRequest: Codable, Sendable, Equatable {
         self.source = source
         self.page = page
         self.selection = selection
+        self.browser = browser
         self.prompt = prompt
         self.target = target
         self.attachments = attachments
@@ -70,6 +84,7 @@ public struct BrowserContextMessageRequest: Codable, Sendable, Equatable {
         self.source = try container.decodeIfPresent(String.self, forKey: .source) ?? "safari_extension"
         self.page = try container.decode(BrowserContextPage.self, forKey: .page)
         self.selection = try container.decode(BrowserContextSelection.self, forKey: .selection)
+        self.browser = try container.decodeIfPresent(BrowserContextBrowser.self, forKey: .browser)
         self.prompt = try container.decode(String.self, forKey: .prompt)
         self.target = try container.decodeIfPresent(BrowserContextTarget.self, forKey: .target) ?? BrowserContextTarget()
         self.attachments = try container.decodeIfPresent([AgentAttachmentUpload].self, forKey: .attachments) ?? []

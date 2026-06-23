@@ -218,7 +218,7 @@ test("assistant markdown and code blocks stay inside the chat viewport", () => {
   assert.match(css, /\.sloppy-message\s*\{[\s\S]*min-width:\s*0;[\s\S]*max-width:\s*100%;/);
   assert.match(css, /\.sloppy-message-body\s*\{[\s\S]*min-width:\s*0;[\s\S]*box-sizing:\s*border-box;/);
   assert.match(css, /\.sloppy-markdown\s*\{[\s\S]*max-width:\s*100%;[\s\S]*overflow-wrap:\s*anywhere;/);
-  assert.match(css, /\.sloppy-markdown pre,\n\.sloppy-tool pre\s*\{[\s\S]*max-width:\s*100%;[\s\S]*overflow-x:\s*auto;/);
+  assert.match(css, /\.sloppy-markdown pre,\n\.sloppy-tool pre\s*\{[\s\S]*max-width:\s*100%;[\s\S]*overflow-x:\s*hidden;/);
   assert.match(css, /\.sloppy-markdown pre code\s*\{[\s\S]*white-space:\s*pre-wrap;[\s\S]*overflow-wrap:\s*anywhere;/);
   assert.match(css, /\.sloppy-tool pre\s*\{[\s\S]*white-space:\s*pre-wrap;[\s\S]*overflow-wrap:\s*anywhere;/);
 });

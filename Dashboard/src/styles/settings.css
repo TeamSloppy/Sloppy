@@ -829,18 +829,18 @@
   cursor: pointer;
 }
 
-.config-voice-toggle span {
+.config-voice-toggle-copy {
   display: grid;
   gap: 2px;
   min-width: 0;
 }
 
-.config-voice-toggle strong {
+.config-voice-toggle-copy strong {
   color: var(--text);
   font-size: 0.88rem;
 }
 
-.config-voice-toggle input {
+.config-voice-toggle .agent-tools-switch {
   flex: 0 0 auto;
 }
 

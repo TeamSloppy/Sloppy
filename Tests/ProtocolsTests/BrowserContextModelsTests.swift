@@ -51,6 +51,28 @@ struct BrowserContextModelsTests {
         #expect(decoded.userId == "safari_extension")
     }
 
+    @Test("browser context message request preserves browser page snapshot")
+    func browserContextMessageRequestPreservesBrowserPageSnapshot() throws {
+        let request = BrowserContextMessageRequest(
+            page: BrowserContextPage(url: "https://example.com/article"),
+            selection: BrowserContextSelection(text: ""),
+            prompt: "Summarize this",
+            browser: BrowserContextBrowser(
+                pageSnapshot: .object([
+                    "text": .string("Article body"),
+                    "elements": .array([
+                        .object(["selector": .string("#buy")])
+                    ])
+                ])
+            )
+        )
+
+        let data = try JSONEncoder().encode(request)
+        let decoded = try JSONDecoder().decode(BrowserContextMessageRequest.self, from: data)
+
+        #expect(decoded.browser?.pageSnapshot == request.browser?.pageSnapshot)
+    }
+
     @Test("browser context message response round-trips")
     func browserContextMessageResponseRoundTrips() throws {
         let response = BrowserContextMessageResponse(

@@ -221,6 +221,7 @@ test("sanitizeSettings keeps a user-configured LAN Core URL for extension storag
     defaultAgentID: "web-agent",
     floatingButtonEnabled: true,
     selectionBubbleEnabled: false,
+    voiceLanguage: "auto",
     mesh: { enabled: false }
   });
 });
@@ -236,6 +237,11 @@ test("sanitizeSettings preserves selected model override", () => {
   assert.equal(sanitizeSettings({ selectedModel: " openai/gpt-5.4 " }).selectedModel, "openai/gpt-5.4");
   assert.equal("selectedModel" in sanitizeSettings({ selectedModel: "default" }), false);
   assert.equal("selectedModel" in sanitizeSettings({ selectedModel: "   " }), false);
+});
+
+test("sanitizeSettings preserves supported voice language override", () => {
+  assert.equal(sanitizeSettings({ voiceLanguage: " ru-RU " }).voiceLanguage, "ru-RU");
+  assert.equal(sanitizeSettings({ voiceLanguage: "zz-ZZ" }).voiceLanguage, "auto");
 });
 
 test("background settings enable the floating button by default", async () => {
@@ -700,7 +706,10 @@ test("postBrowserContext falls back to session message endpoints when browser en
     { url: "https://github.com/", title: "GitHub" },
     "",
     "Привет",
-    { attachments: [{ name: "paste.png", mimeType: "image/png", sizeBytes: 4, contentBase64: "abcd" }] },
+    {
+      pageSnapshot: { title: "GitHub", text: "Repository page content" },
+      attachments: [{ name: "paste.png", mimeType: "image/png", sizeBytes: 4, contentBase64: "abcd" }]
+    },
     fetchImpl
   );
 
@@ -711,6 +720,8 @@ test("postBrowserContext falls back to session message endpoints when browser en
   assert.deepEqual(requests[2].body.attachments, [{ name: "paste.png", mimeType: "image/png", sizeBytes: 4, contentBase64: "abcd" }]);
   assert.equal(requests[2].body.mode, "ask");
   assert.match(requests[2].body.content, /No selected text\./);
+  assert.match(requests[2].body.content, /Safari page snapshot:/);
+  assert.match(requests[2].body.content, /Repository page content/);
   assert.match(requests[2].body.content, /Привет/);
 });
 

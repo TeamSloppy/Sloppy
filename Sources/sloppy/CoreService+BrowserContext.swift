@@ -40,6 +40,7 @@ extension CoreService {
         let message = Self.browserContextPrompt(
             page: request.page,
             selection: selectionText,
+            browser: request.browser,
             prompt: prompt
         )
         let response = try await postAgentSessionMessage(
@@ -65,7 +66,7 @@ extension CoreService {
         )
     }
 
-    static func browserContextPrompt(page: BrowserContextPage, selection: String, prompt: String) -> String {
+    static func browserContextPrompt(page: BrowserContextPage, selection: String, browser: BrowserContextBrowser? = nil, prompt: String) -> String {
         var lines: [String] = [
             "Source: Safari Extension",
             "URL: \(page.url)"
@@ -76,9 +77,31 @@ extension CoreService {
         lines.append("")
         lines.append("Selected text:")
         lines.append(selection)
+        if let snapshot = browser?.pageSnapshot,
+           let snapshotText = browserContextSnapshotText(snapshot),
+           !snapshotText.isEmpty {
+            lines.append("")
+            lines.append("Safari page snapshot:")
+            lines.append(snapshotText)
+        }
         lines.append("")
         lines.append("User prompt:")
         lines.append(prompt)
         return lines.joined(separator: "\n")
+    }
+
+    private static func browserContextSnapshotText(_ snapshot: JSONValue) -> String? {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        guard let data = try? encoder.encode(snapshot),
+              var text = String(data: data, encoding: .utf8)
+        else {
+            return nil
+        }
+        let limit = 24_000
+        if text.count > limit {
+            text = String(text.prefix(limit)) + "...[truncated]"
+        }
+        return text
     }
 }

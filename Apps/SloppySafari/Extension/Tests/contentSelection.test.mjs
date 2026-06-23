@@ -512,12 +512,11 @@ test("normalizeAttachment assigns an id for screenshot attachments", () => {
   assert.equal(attachment.id.length > 0, true);
 });
 
-test("summarizePagePrompt asks the agent to read the active Safari page through the extension", () => {
+test("summarizePagePrompt asks the agent to use attached Safari page context", () => {
   const { summarizePagePrompt } = loadContentScriptSandbox();
   const prompt = summarizePagePrompt();
 
-  assert.match(prompt, /browser\.dom_snapshot/);
-  assert.match(prompt, /Safari extension/i);
+  assert.match(prompt, /Safari page context/i);
   assert.match(prompt, /do not use web\.fetch/i);
 });
 
@@ -526,8 +525,23 @@ test("summarizePagePrompt localizes prompt text from system language", () => {
   const prompt = summarizePagePrompt();
 
   assert.match(prompt, /总结此页面/);
-  assert.match(prompt, /browser\.dom_snapshot/);
+  assert.match(prompt, /Safari 页面上下文/);
   assert.match(prompt, /不要.*web\.fetch/);
+});
+
+test("buildDOMSnapshot includes compact page body text for summaries", () => {
+  const { buildDOMSnapshot } = loadContentScriptSandbox();
+  const snapshot = buildDOMSnapshot({
+    title: "Article",
+    location: { href: "https://example.com/article" },
+    activeElement: null,
+    body: { innerText: " First paragraph.\n\nSecond paragraph. " },
+    querySelectorAll() {
+      return [];
+    }
+  });
+
+  assert.equal(snapshot.text, "First paragraph. Second paragraph.");
 });
 
 test("applyAgentResponse reads assistant text from appended events", () => {

@@ -25,11 +25,14 @@ function ChoiceGroup({ label, value, options, onChange, columns = 2 }) {
 function ToggleField({ id, title, description = "", checked, onChange }) {
   return (
     <label className="config-voice-toggle" htmlFor={id}>
-      <span>
+      <span className="config-voice-toggle-copy">
         <strong>{title}</strong>
         {description ? <small>{description}</small> : null}
       </span>
-      <input id={id} type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+      <span className="agent-tools-switch">
+        <input id={id} type="checkbox" checked={checked} onChange={(event) => onChange(event.target.checked)} />
+        <span className="agent-tools-switch-track" />
+      </span>
     </label>
   );
 }

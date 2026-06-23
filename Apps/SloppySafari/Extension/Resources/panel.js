@@ -241,7 +241,7 @@ export function buildBrowserContextPayload(settings, page, selection, prompt, op
   };
 }
 
-function browserContextPrompt(page, selection, prompt) {
+function browserContextPrompt(page, selection, browser, prompt) {
   const lines = [
     "Source: Safari Extension",
     `URL: ${page.url}`
@@ -252,6 +252,12 @@ function browserContextPrompt(page, selection, prompt) {
   lines.push("");
   lines.push("Selected text:");
   lines.push(fallbackSelectionText(selection));
+  const snapshotText = browser?.pageSnapshot ? JSON.stringify(browser.pageSnapshot).slice(0, 24000) : "";
+  if (snapshotText) {
+    lines.push("");
+    lines.push("Safari page snapshot:");
+    lines.push(snapshotText.length >= 24000 ? `${snapshotText}...[truncated]` : snapshotText);
+  }
   lines.push("");
   lines.push("User prompt:");
   lines.push(String(prompt || "").trim());
@@ -548,7 +554,7 @@ async function postSessionBrowserMessage(settings, payload, encodedAgentId, sess
     headers: headersForSettings(settings),
     body: JSON.stringify({
       userId: payload.userId || "safari_extension",
-      content: browserContextPrompt(payload.page, payload.selection.text, payload.prompt),
+      content: browserContextPrompt(payload.page, payload.selection.text, payload.browser, payload.prompt),
       attachments: payload.attachments || [],
       spawnSubSession: false,
       mode: "ask",

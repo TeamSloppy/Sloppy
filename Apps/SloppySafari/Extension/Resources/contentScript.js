@@ -28,6 +28,7 @@ function buildDOMSnapshot(documentLike = globalThis.document) {
     title: documentLike.title || null,
     url: documentLike.location?.href || null,
     activeElement: stableSelector(documentLike.activeElement),
+    text: String(documentLike.body?.innerText || "").replace(/\s+/g, " ").trim().slice(0, 24000),
     elements
   };
 }
@@ -406,7 +407,7 @@ function ensurePanel() {
     </div>
 
     <section class="sloppy-voice" data-sloppy-voice-panel hidden>
-      <label class="sloppy-voice-settings" aria-label="${escapeHTML(t("voiceSettings"))}">
+      <label class="sloppy-voice-settings" data-sloppy-voice-settings aria-label="${escapeHTML(t("voiceSettings"))}">
         <span aria-hidden="true">${icon("settings")}</span>
         <select class="sloppy-voice-language" data-sloppy-voice-language aria-label="${escapeHTML(t("voiceLanguage"))}">
           <option value="auto">${escapeHTML(t("voiceLanguageAuto"))}</option>
