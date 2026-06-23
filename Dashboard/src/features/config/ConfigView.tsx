@@ -10,6 +10,7 @@ import {
   fetchOpenAIModels,
   fetchOpenAIProviderStatus,
   fetchRuntimeConfig,
+  fetchVoiceCapabilities,
   fetchAvailableModels,
   fetchChannelPlugins,
   fetchSearchProviderStatus,
@@ -1691,6 +1692,7 @@ export function ConfigView({
       return (
         <VoiceModeEditor
           voiceMode={draftConfig.voiceMode}
+          fetchVoiceCapabilities={fetchVoiceCapabilities}
           onUpdate={(nextVoiceMode) => mutateDraft((next) => {
             next.voiceMode = nextVoiceMode;
           })}

@@ -35,6 +35,7 @@ export const fetchArtifact = coreApi.fetchArtifact;
 export const fetchPlanArtifact = coreApi.fetchPlanArtifact;
 export const planArtifactWebUrl = coreApi.planArtifactWebUrl;
 export const fetchRuntimeConfig = coreApi.fetchRuntimeConfig;
+export const fetchVoiceCapabilities = coreApi.fetchVoiceCapabilities;
 export const updateRuntimeConfig = coreApi.updateRuntimeConfig;
 export const runWorkspaceGitSync = coreApi.runWorkspaceGitSync;
 export const fetchSystemLogs = coreApi.fetchSystemLogs;

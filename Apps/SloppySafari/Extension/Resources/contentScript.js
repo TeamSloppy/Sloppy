@@ -129,10 +129,11 @@ function icon(name) {
     hide: "eye.slash",
     more: "ellipsis",
     expand: "arrow.down.left.and.arrow.up.right",
-    search: "magnifyingglass"
+    search: "magnifyingglass",
+    model: "brain"
   };
   const symbol = symbols[name] || "ellipsis";
-  const path = `icons/${symbol}.svg`;
+  const path = `${symbol}.svg`;
   const url = typeof chrome !== "undefined" && chrome.runtime?.getURL ? chrome.runtime.getURL(path) : path;
   return `<span class="sloppy-symbol" aria-hidden="true" data-sf-symbol="${escapeHTML(symbol)}" style="--sloppy-symbol-url: url('${escapeHTML(url)}')"></span>`;
 }
@@ -358,6 +359,11 @@ const state = {
   voice: { state: "idle", transcript: "", recognition: null, recorder: null, cancelled: false }
 };
 
+function ensureSettings() {
+  state.settings = state.settings || {};
+  return state.settings;
+}
+
 function ensurePanel() {
   updateViewportCSSVars();
   let frame = document.getElementById("sloppy-safari-extension-panel");
@@ -396,7 +402,7 @@ function ensurePanel() {
           <input data-sloppy-file type="file" multiple hidden>
           <div class="sloppy-composer-tools">
             <label class="sloppy-model-picker" aria-label="${escapeHTML(t("model"))}">
-              <span aria-hidden="true">${icon("settings")}</span>
+              <span aria-hidden="true">${icon("model")}</span>
               <select data-sloppy-model aria-label="${escapeHTML(t("model"))}"></select>
             </label>
             <button class="sloppy-icon-button" type="button" data-sloppy-capture aria-label="${escapeHTML(t("attachScreenshot"))}">${icon("screenshot")}</button>
@@ -483,9 +489,12 @@ function ensureFloatingButton() {
   button.type = "button";
   button.setAttribute("aria-label", t("openSloppyAssistant"));
   button.innerHTML = `<img src="${logoURL()}" alt="" aria-hidden="true">`;
+  button.addEventListener("pointerdown", snapshotSelectionForFloatingButton);
+  button.addEventListener("touchstart", snapshotSelectionForFloatingButton, { passive: true });
+  button.addEventListener("mousedown", snapshotSelectionForFloatingButton);
   button.addEventListener("click", () => {
-    hideSelectionMenu();
-    void openPanel();
+    const info = cachedSelectionInfo(selectedTextInfo());
+    void openPanelWithSelection(info?.text || "").then(() => hideSelectionMenu());
   });
   document.documentElement.appendChild(button);
   return button;
@@ -772,20 +781,22 @@ function wirePanel(frame) {
     void chrome.runtime.sendMessage({ type: "sloppy.settings.save", settings: state.settings });
   });
   frame.querySelector("[data-sloppy-agent]").addEventListener("change", (event) => {
-    state.settings.defaultAgentID = event.target.value;
-    delete state.settings.sessionId;
-    void chrome.runtime.sendMessage({ type: "sloppy.settings.save", settings: state.settings });
+    const settings = ensureSettings();
+    settings.defaultAgentID = event.target.value;
+    delete settings.sessionId;
+    void chrome.runtime.sendMessage({ type: "sloppy.settings.save", settings });
     void loadSlashCommands(frame);
     renderContext(frame);
   });
   frame.querySelector("[data-sloppy-model]").addEventListener("change", (event) => {
+    const settings = ensureSettings();
     const selectedModel = String(event.target.value || "").trim();
     if (selectedModel && selectedModel !== "default") {
-      state.settings.selectedModel = selectedModel;
+      settings.selectedModel = selectedModel;
     } else {
-      delete state.settings.selectedModel;
+      delete settings.selectedModel;
     }
-    void chrome.runtime.sendMessage({ type: "sloppy.settings.save", settings: state.settings });
+    void chrome.runtime.sendMessage({ type: "sloppy.settings.save", settings });
   });
   frame.querySelector("[data-sloppy-composer]").addEventListener("submit", (event) => {
     event.preventDefault();
@@ -1473,7 +1484,34 @@ function cachedSelectionInfo(info, stateLike = state) {
   };
 }
 
+function snapshotSelectionForFloatingButton() {
+  const info = cachedSelectionInfo(selectedTextInfo());
+  if (!info) {
+    return null;
+  }
+  state.selectionMenuText = info.text;
+  state.selectionMenuRect = info.rect;
+  return info;
+}
+
+function selectionMenuShouldUseBottomSheet(windowLike = window) {
+  const touchPoints = Number(windowLike.navigator?.maxTouchPoints || globalThis.navigator?.maxTouchPoints || 0);
+  const touchCapable = touchPoints > 0 || "ontouchstart" in windowLike;
+  return touchCapable && isMobileViewport(windowLike);
+}
+
 function positionSelectionMenu(menu, rect, showPopover = false) {
+  const useBottomSheet = showPopover && selectionMenuShouldUseBottomSheet(window);
+  if (useBottomSheet) {
+    menu.style.left = "0px";
+    menu.style.top = "0px";
+    menu.style.setProperty("--sloppy-selection-popover-x", "0px");
+    menu.classList.toggle("is-popover-open", true);
+    menu.classList.toggle("is-popover-above", false);
+    menu.classList.toggle("is-mobile-sheet", true);
+    return;
+  }
+
   const padding = 10;
   const bubbleSize = 26;
   const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0;
@@ -1491,6 +1529,16 @@ function positionSelectionMenu(menu, rect, showPopover = false) {
   menu.style.setProperty("--sloppy-selection-popover-x", `${popoverOffset}px`);
   menu.classList.toggle("is-popover-open", showPopover);
   menu.classList.toggle("is-popover-above", shouldOpenAbove);
+  menu.classList.toggle("is-mobile-sheet", false);
+}
+
+function refreshSelectionMenuPlacement() {
+  const menu = document.getElementById("sloppy-selection-menu");
+  if (!menu || menu.hidden || !state.selectionMenuRect) {
+    return false;
+  }
+  positionSelectionMenu(menu, state.selectionMenuRect, selectionPopoverIsOpen());
+  return true;
 }
 
 function selectionMenuHasFocus() {
@@ -1548,6 +1596,7 @@ function hideSelectionMenu() {
   state.selectionMenuRect = null;
   menu.classList.remove("is-popover-open");
   menu.classList.remove("is-popover-above");
+  menu.classList.remove("is-mobile-sheet");
   menu.querySelector("[data-sloppy-selection-popover]").hidden = true;
 }
 
@@ -1661,7 +1710,7 @@ async function loadAgents(frame) {
   const response = await chrome.runtime.sendMessage({ type: "sloppy.agents.list" });
   state.agents = response?.agents || [];
   if (response?.selectedAgentId) {
-    state.settings.defaultAgentID = response.selectedAgentId;
+    ensureSettings().defaultAgentID = response.selectedAgentId;
   }
   renderAgents(frame);
 }
@@ -1669,10 +1718,11 @@ async function loadAgents(frame) {
 async function loadModels(frame) {
   const response = await chrome.runtime.sendMessage({ type: "sloppy.models.list" });
   state.models = response?.models || [];
+  const settings = ensureSettings();
   if (response?.selectedModel && response.selectedModel !== "default") {
-    state.settings.selectedModel = response.selectedModel;
+    settings.selectedModel = response.selectedModel;
   } else {
-    delete state.settings.selectedModel;
+    delete settings.selectedModel;
   }
   renderModels(frame);
 }
@@ -2175,6 +2225,7 @@ if (typeof document !== "undefined" && typeof chrome !== "undefined" && chrome.r
   updateViewportCSSVars();
   const refreshViewportDependentUI = () => {
     updateViewportCSSVars();
+    refreshSelectionMenuPlacement();
     renderFloatingButton();
     renderSearchButton();
   };
@@ -2207,7 +2258,12 @@ if (typeof document !== "undefined" && typeof chrome !== "undefined" && chrome.r
       hideSelectionMenu();
     }
   });
-  window.addEventListener("scroll", hideSelectionMenu, true);
+  window.addEventListener("scroll", () => {
+    updateViewportCSSVars();
+    if (!refreshSelectionMenuPlacement()) {
+      hideSelectionMenu();
+    }
+  }, true);
 
   if (isFullscreenChatPage(document.location)) {
     void initializeFullscreenChat();

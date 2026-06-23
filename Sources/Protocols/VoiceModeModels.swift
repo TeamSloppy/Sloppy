@@ -73,6 +73,48 @@ public struct VoiceModeConfigResponse: Codable, Sendable, Equatable {
     }
 }
 
+public struct VoiceModeCapabilitiesResponse: Codable, Sendable, Equatable {
+    public struct Voice: Codable, Sendable, Equatable {
+        public var id: String
+        public var title: String
+        public var recommended: Bool
+        public var models: [String]
+
+        public init(id: String, title: String, recommended: Bool = false, models: [String] = []) {
+            self.id = id
+            self.title = title
+            self.recommended = recommended
+            self.models = models
+        }
+    }
+
+    public var provider: String
+    public var openAIConfigured: Bool
+    public var source: String
+    public var warning: String?
+    public var speechModels: [ProviderModelOption]
+    public var transcriptionModels: [ProviderModelOption]
+    public var voices: [Voice]
+
+    public init(
+        provider: String,
+        openAIConfigured: Bool,
+        source: String,
+        warning: String? = nil,
+        speechModels: [ProviderModelOption],
+        transcriptionModels: [ProviderModelOption],
+        voices: [Voice]
+    ) {
+        self.provider = provider
+        self.openAIConfigured = openAIConfigured
+        self.source = source
+        self.warning = warning
+        self.speechModels = speechModels
+        self.transcriptionModels = transcriptionModels
+        self.voices = voices
+    }
+}
+
 public struct VoiceModeTranscriptionRequest: Codable, Sendable, Equatable {
     public var audioBase64: String
     public var mimeType: String

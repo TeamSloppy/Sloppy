@@ -109,6 +109,7 @@ export interface CoreApi {
   fetchPlanArtifact: (projectId: string, planName: string) => Promise<AnyRecord | null>;
   fetchRuntimeConfig: () => Promise<AnyRecord | null>;
   fetchVoiceConfig: () => Promise<AnyRecord | null>;
+  fetchVoiceCapabilities: () => Promise<AnyRecord | null>;
   transcribeVoice: (payload: AnyRecord) => Promise<AnyRecord | null>;
   synthesizeVoice: (payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchDashboardAuthStatus: () => Promise<AnyRecord | null>;
@@ -766,6 +767,16 @@ export function createCoreApi(): CoreApi {
     fetchVoiceConfig: async () => {
       const response = await requestJson<AnyRecord>({
         path: "/v1/voice/config"
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    fetchVoiceCapabilities: async () => {
+      const response = await requestJson<AnyRecord>({
+        path: "/v1/voice/capabilities"
       });
       if (!response.ok) {
         return null;

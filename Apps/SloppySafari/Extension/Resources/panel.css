@@ -374,17 +374,6 @@
   opacity: 0;
 }
 
-.sloppy-model-picker::after {
-  content: "";
-  position: absolute;
-  right: 1px;
-  bottom: 4px;
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-  border-top: 4px solid currentColor;
-  pointer-events: none;
-}
-
 .sloppy-thread {
   position: relative;
   display: flex;
@@ -1418,6 +1407,36 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
   top: auto;
   bottom: 34px;
   transform-origin: 18px 100%;
+}
+
+#sloppy-selection-menu.is-mobile-sheet {
+  top: var(--sloppy-viewport-top, 0px) !important;
+  left: var(--sloppy-viewport-left, 0px) !important;
+  display: flex;
+  width: var(--sloppy-viewport-width, 100vw);
+  height: var(--sloppy-viewport-height, 100vh);
+  align-items: end;
+  justify-content: center;
+  padding: 12px 12px max(12px, var(--sloppy-mobile-bottom-inset, 0px));
+  pointer-events: none;
+}
+
+#sloppy-selection-menu.is-mobile-sheet .sloppy-selection-bubble {
+  display: none;
+}
+
+#sloppy-selection-menu.is-mobile-sheet .sloppy-selection-popover {
+  position: relative;
+  top: auto;
+  bottom: auto;
+  left: auto;
+  width: min(420px, calc(100% - 24px));
+  max-height: calc(var(--sloppy-viewport-height, 100vh) - 24px - var(--sloppy-mobile-bottom-inset, 0px));
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+  pointer-events: auto;
+  transform-origin: 50% 100%;
 }
 
 @keyframes sloppy-selection-menu-in {

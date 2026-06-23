@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 
 function loadManifest() {
@@ -12,6 +12,10 @@ function loadPanelCSS() {
 
 function loadContentScript() {
   return readFileSync(new URL("../Resources/contentScript.js", import.meta.url), "utf8");
+}
+
+function loadChatHTML() {
+  return readFileSync(new URL("../Resources/chat.html", import.meta.url), "utf8");
 }
 
 function loadXcodeProject() {
@@ -61,7 +65,7 @@ test("SF-style icon assets are web accessible for mask-based controls", () => {
   const resources = manifest.web_accessible_resources || [];
 
   assert.equal(
-    resources.some((entry) => entry.resources?.includes("icons/*.svg") && entry.matches?.includes("<all_urls>")),
+    resources.some((entry) => entry.resources?.includes("*.svg") && entry.matches?.includes("<all_urls>")),
     true
   );
 });
@@ -75,6 +79,16 @@ test("fullscreen chat page is packaged as an extension resource", () => {
   );
 });
 
+test("fullscreen chat page loads localization before content script", () => {
+  const html = loadChatHTML();
+  const i18nIndex = html.indexOf('src="i18n.js"');
+  const contentScriptIndex = html.indexOf('src="contentScript.js"');
+
+  assert.notEqual(i18nIndex, -1);
+  assert.notEqual(contentScriptIndex, -1);
+  assert.ok(i18nIndex < contentScriptIndex);
+});
+
 test("fullscreen chat files are copied into every Safari web extension bundle", () => {
   const project = loadXcodeProject();
   const chatHTMLCopies = project.match(/\/\* chat\.html in Resources \*\/,/g) || [];
@@ -84,11 +98,21 @@ test("fullscreen chat files are copied into every Safari web extension bundle", 
   assert.equal(chatPageCopies.length, 3);
 });
 
-test("SF-style icon folder is copied into every Safari web extension bundle", () => {
+test("SF-style icon assets are copied into every Safari web extension bundle", () => {
   const project = loadXcodeProject();
   const iconFolderCopies = project.match(/\/\* icons in Resources \*\/,/g) || [];
+  const iconFiles = readdirSync(new URL("../Resources/icons", import.meta.url)).filter((file) => file.endsWith(".svg"));
 
-  assert.equal(iconFolderCopies.length, 3);
+  if (iconFolderCopies.length > 0) {
+    assert.equal(iconFolderCopies.length, 3);
+    return;
+  }
+
+  for (const iconFile of iconFiles) {
+    const escapedIconFile = iconFile.replaceAll(".", "\\.");
+    const iconCopies = project.match(new RegExp(`/\\* ${escapedIconFile} in Resources \\*/,`, "g")) || [];
+    assert.equal(iconCopies.length, 3, `${iconFile} should be copied into every Safari web extension bundle`);
+  }
 });
 
 test("localization runtime is packaged with every Safari web extension bundle", () => {
@@ -117,6 +141,14 @@ test("mobile form controls use 16px text to avoid iOS Safari focus zoom", () => 
   const css = loadPanelCSS();
   assert.match(css, /@media\s*\(max-width:\s*520px\)[\s\S]*#sloppy-safari-extension-panel textarea[\s\S]*font-size:\s*16px/);
   assert.match(css, /@media\s*\(max-width:\s*520px\)[\s\S]*\.sloppy-selection-popover input[\s\S]*font-size:\s*16px/);
+});
+
+test("mobile selection menu can render as a bottom sheet", () => {
+  const css = loadPanelCSS();
+
+  assert.match(css, /#sloppy-selection-menu\.is-mobile-sheet\s*\{[\s\S]*align-items:\s*end/);
+  assert.match(css, /#sloppy-selection-menu\.is-mobile-sheet \.sloppy-selection-bubble\s*\{[\s\S]*display:\s*none/);
+  assert.match(css, /#sloppy-selection-menu\.is-mobile-sheet \.sloppy-selection-popover\s*\{[\s\S]*position:\s*relative/);
 });
 
 test("selection bubble scales smoothly on hover", () => {
@@ -204,7 +236,7 @@ test("controls render symbol mask icons instead of inline svg markup", () => {
   const source = loadContentScript();
 
   assert.match(source, /data-sf-symbol/);
-  assert.match(source, /const path = `icons\/\$\{symbol\}\.svg`;/);
+  assert.match(source, /const path = `\$\{symbol\}\.svg`;/);
   assert.match(source, /chrome\.runtime\.getURL\(path\)/);
   assert.doesNotMatch(source, /return `<svg/);
   assert.match(css, /\.sloppy-symbol\s*\{[\s\S]*-webkit-mask:\s*var\(--sloppy-symbol-url\)/);
@@ -233,13 +265,13 @@ test("voice mode exposes a compact language picker", () => {
   assert.match(css, /\.sloppy-voice-language/);
 });
 
-test("agent and model controls expose dropdown affordances", () => {
+test("agent control keeps dropdown affordance while model control stays icon-only", () => {
   const css = loadPanelCSS();
   const source = loadContentScript();
 
   assert.match(source, /data-sloppy-model/);
   assert.match(css, /\.sloppy-brand::after\s*\{[\s\S]*border-top:\s*5px solid/);
-  assert.match(css, /\.sloppy-model-picker::after\s*\{[\s\S]*border-top:\s*4px solid/);
+  assert.doesNotMatch(css, /\.sloppy-model-picker::after/);
   assert.match(css, /\.sloppy-brand:hover select/);
 });
 

@@ -1,6 +1,17 @@
 import React from "react";
 
-const OPENAI_VOICES = ["alloy", "ash", "ballad", "coral", "echo", "fable", "marin", "nova", "onyx", "sage", "shimmer", "verse"];
+const OPENAI_VOICES = ["alloy", "ash", "ballad", "coral", "echo", "fable", "marin", "nova", "onyx", "sage", "shimmer", "verse", "cedar"];
+const LEGACY_TTS_VOICES = ["alloy", "ash", "coral", "echo", "fable", "onyx", "nova", "sage", "shimmer"];
+const DEFAULT_TTS_MODELS = [
+  { id: "gpt-4o-mini-tts", title: "GPT-4o mini TTS" },
+  { id: "tts-1", title: "TTS 1" },
+  { id: "tts-1-hd", title: "TTS 1 HD" }
+];
+const DEFAULT_TRANSCRIPTION_MODELS = [
+  { id: "gpt-4o-mini-transcribe", title: "GPT-4o mini Transcribe" },
+  { id: "gpt-4o-transcribe", title: "GPT-4o Transcribe" },
+  { id: "whisper-1", title: "Whisper 1" }
+];
 
 function ChoiceGroup({ label, value, options, onChange, columns = 2 }) {
   return (
@@ -47,6 +58,34 @@ function TextField({ id, label, value, onChange, hint = "", wide = false }) {
   );
 }
 
+function CapabilityChoiceList({ label, value, options, onSelect, getId = (option) => option.id, getTitle = (option) => option.title || option.id }) {
+  if (!options.length) {
+    return null;
+  }
+
+  return (
+    <div className="config-voice-field config-voice-field-wide">
+      <span>{label}</span>
+      <div className="actor-team-search-wrap config-voice-choice-list">
+        {options.map((option) => {
+          const id = getId(option);
+          const title = getTitle(option);
+          return (
+            <button
+              key={id}
+              type="button"
+              className={`actor-team-search-option ${value === id ? "active" : ""}`}
+              onClick={() => onSelect(id)}
+            >
+              {title}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 function SliderField({ id, label, value, min, max, step, onChange }) {
   const numericValue = Number.isFinite(Number(value)) ? Number(value) : 1;
 
@@ -69,7 +108,9 @@ function SliderField({ id, label, value, min, max, step, onChange }) {
   );
 }
 
-export function VoiceModeEditor({ voiceMode, onUpdate }) {
+export function VoiceModeEditor({ voiceMode, onUpdate, fetchVoiceCapabilities = null }) {
+  const [capabilities, setCapabilities] = React.useState(null);
+  const [capabilityStatus, setCapabilityStatus] = React.useState(fetchVoiceCapabilities ? "Loading voice options..." : "");
   const provider = voiceMode?.provider || "auto";
   const input = voiceMode?.input || {};
   const openAI = voiceMode?.openAI || {};
@@ -77,6 +118,46 @@ export function VoiceModeEditor({ voiceMode, onUpdate }) {
   const isEnabled = Boolean(voiceMode?.enabled);
   const providerLabel = provider === "openai" ? "OpenAI" : provider === "local" ? "Local" : "Auto";
   const inputModeLabel = input.mode === "auto_submit" ? "Auto submit" : "Push to talk";
+  const ttsModel = openAI.ttsModel || "gpt-4o-mini-tts";
+  const voice = openAI.voice || "coral";
+  const speechModels = capabilities?.speechModels?.length ? capabilities.speechModels : DEFAULT_TTS_MODELS;
+  const transcriptionModels = capabilities?.transcriptionModels?.length ? capabilities.transcriptionModels : DEFAULT_TRANSCRIPTION_MODELS;
+  const voiceOptions = capabilities?.voices?.length
+    ? capabilities.voices
+    : OPENAI_VOICES.map((id) => ({
+        id,
+        title: id,
+        recommended: id === "marin" || id === "cedar",
+        models: LEGACY_TTS_VOICES.includes(id) ? ["gpt-4o-mini-tts", "tts-1", "tts-1-hd"] : ["gpt-4o-mini-tts"]
+      }));
+  const compatibleVoiceOptions = voiceOptions.filter((option) => !option.models?.length || option.models.includes(ttsModel));
+  const displayedVoiceOptions = compatibleVoiceOptions.length ? compatibleVoiceOptions : voiceOptions;
+
+  React.useEffect(() => {
+    let cancelled = false;
+    if (!fetchVoiceCapabilities) {
+      return () => {
+        cancelled = true;
+      };
+    }
+    setCapabilityStatus("Loading voice options...");
+    fetchVoiceCapabilities()
+      .then((nextCapabilities) => {
+        if (cancelled) {
+          return;
+        }
+        setCapabilities(nextCapabilities || null);
+        setCapabilityStatus(nextCapabilities?.warning || "");
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setCapabilityStatus("Unable to load voice options. Built-in defaults are shown.");
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [fetchVoiceCapabilities]);
 
   function update(patch) {
     onUpdate?.({ ...voiceMode, ...patch });
@@ -187,33 +268,38 @@ export function VoiceModeEditor({ voiceMode, onUpdate }) {
               value={openAI.transcriptionModel || ""}
               onChange={(value) => updateOpenAI({ transcriptionModel: value })}
             />
+            <CapabilityChoiceList
+              label="Available transcription models"
+              value={openAI.transcriptionModel || "gpt-4o-mini-transcribe"}
+              options={transcriptionModels}
+              onSelect={(value) => updateOpenAI({ transcriptionModel: value })}
+            />
             <TextField
               id="voice-tts-model"
               label="TTS model"
               value={openAI.ttsModel || ""}
               onChange={(value) => updateOpenAI({ ttsModel: value })}
             />
+            <CapabilityChoiceList
+              label="Available TTS models"
+              value={ttsModel}
+              options={speechModels}
+              onSelect={(value) => updateOpenAI({ ttsModel: value })}
+            />
             <TextField
               id="voice-openai-voice"
               label="Voice"
-              value={openAI.voice || "coral"}
+              value={voice}
               onChange={(value) => updateOpenAI({ voice: value })}
             />
-            <div className="config-voice-field config-voice-field-wide">
-              <span>Quick voice picker</span>
-              <div className="actor-team-search-wrap config-voice-choice-list">
-                {OPENAI_VOICES.map((voice) => (
-                  <button
-                    key={voice}
-                    type="button"
-                    className={`actor-team-search-option ${(openAI.voice || "coral") === voice ? "active" : ""}`}
-                    onClick={() => updateOpenAI({ voice })}
-                  >
-                    {voice}
-                  </button>
-                ))}
-              </div>
-            </div>
+            <CapabilityChoiceList
+              label={ttsModel === "gpt-4o-mini-tts" ? "Available voices" : "Compatible voices"}
+              value={voice}
+              options={displayedVoiceOptions}
+              onSelect={(value) => updateOpenAI({ voice: value })}
+              getTitle={(option) => option.recommended ? `${option.title || option.id} - recommended` : option.title || option.id}
+            />
+            {capabilityStatus ? <p className="config-voice-capability-status">{capabilityStatus}</p> : null}
             <label className="config-voice-field config-voice-field-wide" htmlFor="voice-openai-instructions">
               <span>Voice instructions</span>
               <textarea

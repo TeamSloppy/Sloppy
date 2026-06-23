@@ -43,8 +43,8 @@ function createContextMenus() {
     title: t("summarizePageContextMenu"),
     contexts: ["page"],
     icons: {
-      16: "icons/text.aligncenter.svg",
-      32: "icons/text.aligncenter.svg"
+      16: "text.aligncenter.svg",
+      32: "text.aligncenter.svg"
     }
   });
 }

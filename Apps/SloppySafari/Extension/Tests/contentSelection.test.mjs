@@ -322,6 +322,59 @@ test("cachedSelectionInfo falls back to the last mobile selection rect", () => {
   assert.equal(cachedSelectionInfo(null, { selectionMenuText: "", selectionMenuRect: rect }), null);
 });
 
+test("icon URLs match flattened Safari extension SVG resources", () => {
+  const sandbox = loadContentScriptSandbox();
+  const requestedPaths = [];
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        requestedPaths.push(path);
+        return `safari-web-extension://extension-id/${path}`;
+      }
+    }
+  };
+
+  const html = sandbox.icon("sessions");
+
+  assert.deepEqual(requestedPaths, ["list.bullet.svg"]);
+  assert.match(html, /safari-web-extension:\/\/extension-id\/list\.bullet\.svg/);
+  assert.doesNotMatch(html, /icons\/list\.bullet\.svg/);
+});
+
+test("snapshotSelectionForFloatingButton preserves selection before mobile Safari collapses it", () => {
+  const sandbox = loadContentScriptSandbox();
+  const rect = { left: 10, top: 20, right: 40, bottom: 60, width: 30, height: 40 };
+  const range = {
+    getClientRects() {
+      return [rect];
+    },
+    getBoundingClientRect() {
+      return rect;
+    }
+  };
+  sandbox.getSelection = () => ({
+    anchorNode: {},
+    focusNode: {},
+    rangeCount: 1,
+    getRangeAt() {
+      return range;
+    },
+    toString() {
+      return " Selected text ";
+    }
+  });
+
+  const info = sandbox.snapshotSelectionForFloatingButton();
+  const cached = vm.runInNewContext(
+    "({ text: state.selectionMenuText, rect: state.selectionMenuRect })",
+    sandbox
+  );
+
+  assert.equal(info.text, "Selected text");
+  assert.equal(cached.text, "Selected text");
+  assert.equal(cached.rect, rect);
+});
+
 test("positionSelectionMenu opens the popover above lower viewport selections", () => {
   const sandbox = loadContentScriptSandbox();
   const { positionSelectionMenu } = sandbox;
@@ -372,6 +425,92 @@ test("positionSelectionMenu keeps the popover below upper viewport selections", 
   assert.equal(menu.style.top, "118px");
   assert.equal(toggles.get("is-popover-open"), true);
   assert.equal(toggles.get("is-popover-above"), false);
+});
+
+test("positionSelectionMenu uses a mobile bottom sheet on touch viewports", () => {
+  const sandbox = loadContentScriptSandbox();
+  const { positionSelectionMenu } = sandbox;
+  const toggles = new Map();
+  const properties = new Map();
+  const menu = {
+    style: {
+      left: "",
+      top: "",
+      setProperty(name, value) {
+        properties.set(name, value);
+      }
+    },
+    classList: {
+      toggle(name, value) {
+        toggles.set(name, value);
+      }
+    }
+  };
+
+  sandbox.window = { innerWidth: 390, innerHeight: 700, navigator: { maxTouchPoints: 5 } };
+  sandbox.document = { documentElement: { clientWidth: 390, clientHeight: 700 } };
+  positionSelectionMenu(menu, { top: 620, right: 220, bottom: 650 }, true);
+
+  assert.equal(menu.style.left, "0px");
+  assert.equal(menu.style.top, "0px");
+  assert.equal(toggles.get("is-popover-open"), true);
+  assert.equal(toggles.get("is-mobile-sheet"), true);
+  assert.equal(toggles.get("is-popover-above"), false);
+  assert.equal(properties.get("--sloppy-selection-popover-x"), "0px");
+});
+
+test("updateSelectionMenu keeps mobile selection sheet closed until the bubble is tapped", () => {
+  const sandbox = loadContentScriptSandbox();
+  const toggles = new Map();
+  const rect = { left: 10, top: 20, right: 40, bottom: 60, width: 30, height: 40 };
+  const popover = { hidden: false };
+  const menu = {
+    hidden: true,
+    style: { left: "", top: "", setProperty() {} },
+    classList: {
+      toggle(name, value) {
+        toggles.set(name, value);
+      }
+    },
+    querySelector(selector) {
+      return selector === "[data-sloppy-selection-popover]" ? popover : null;
+    }
+  };
+  const range = {
+    getClientRects() {
+      return [rect];
+    },
+    getBoundingClientRect() {
+      return rect;
+    }
+  };
+
+  sandbox.window = { innerWidth: 390, innerHeight: 700, navigator: { maxTouchPoints: 5 }, clearTimeout() {}, setTimeout(callback) { callback(); } };
+  sandbox.document = {
+    activeElement: null,
+    documentElement: { clientWidth: 390, clientHeight: 700 },
+    getElementById(id) {
+      return id === "sloppy-selection-menu" ? menu : null;
+    }
+  };
+  sandbox.getSelection = () => ({
+    anchorNode: {},
+    focusNode: {},
+    rangeCount: 1,
+    getRangeAt() {
+      return range;
+    },
+    toString() {
+      return "Selected text";
+    }
+  });
+  sandbox.ensureSelectionMenu = () => menu;
+
+  sandbox.updateSelectionMenu();
+
+  assert.equal(menu.hidden, false);
+  assert.equal(popover.hidden, true);
+  assert.equal(toggles.get("is-mobile-sheet"), false);
 });
 
 test("selectionPopoverIsOpen detects an open selection popover after mobile selection collapses", () => {

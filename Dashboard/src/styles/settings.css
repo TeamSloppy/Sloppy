@@ -884,6 +884,14 @@
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
+.config-voice-capability-status {
+  margin: -2px 0 0;
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.5;
+  grid-column: 1 / -1;
+}
+
 .config-voice-slider > span {
   display: flex;
   align-items: center;

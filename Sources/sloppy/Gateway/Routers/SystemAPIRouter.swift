@@ -167,6 +167,11 @@ struct SystemAPIRouter: APIRouter {
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
         }
 
+        router.get("/v1/voice/capabilities", metadata: RouteMetadata(summary: "Get voice mode capabilities", description: "Returns available OpenAI voice mode models and built-in voices", tags: ["System"])) { _ in
+            let response = await service.voiceModeCapabilities()
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+        }
+
         router.post("/v1/voice/transcriptions", metadata: RouteMetadata(summary: "Transcribe voice audio", description: "Transcribes bounded browser audio through configured OpenAI voice settings", tags: ["System"])) { request in
             guard let body = request.body,
                   let payload = CoreRouter.decode(body, as: VoiceModeTranscriptionRequest.self)

@@ -1385,6 +1385,35 @@ func voiceConfigEndpointUsesOpenAIWhenConfigured() async throws {
 }
 
 @Test
+func voiceCapabilitiesEndpointReturnsFallbackSpeechOptions() async throws {
+    var config = CoreConfig.test
+    config.voiceMode = .init(enabled: true, provider: .auto)
+    config.models = [
+        .init(
+            title: "openai-api",
+            apiKey: "sk-test",
+            apiUrl: "http://openai.com@127.0.0.1:9/v1",
+            model: "gpt-5.4-mini"
+        ),
+    ]
+    let router = CoreRouter(service: CoreService(config: config))
+
+    let response = await router.handle(method: "GET", path: "/v1/voice/capabilities", body: nil)
+
+    #expect(response.status == 200)
+    let payload = try JSONDecoder().decode(VoiceModeCapabilitiesResponse.self, from: response.body)
+    #expect(payload.provider == "openai")
+    #expect(payload.openAIConfigured == false)
+    #expect(payload.source == "fallback")
+    #expect(payload.speechModels.contains { $0.id == "gpt-4o-mini-tts" })
+    #expect(payload.speechModels.contains { $0.id == "tts-1-hd" })
+    #expect(payload.transcriptionModels.contains { $0.id == "gpt-4o-mini-transcribe" })
+    #expect(payload.voices.contains { $0.id == "marin" && $0.recommended })
+    #expect(payload.voices.contains { $0.id == "cedar" && $0.recommended })
+    #expect(payload.voices.first(where: { $0.id == "cedar" })?.models.contains("tts-1") == false)
+}
+
+@Test
 func voiceTranscriptionEndpointReturnsConfigErrorWithoutOpenAI() async throws {
     var config = CoreConfig.test
     config.voiceMode = .init(enabled: true, provider: .openAI, openAI: .init(enabled: false))

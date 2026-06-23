@@ -55,3 +55,29 @@ func voiceModeAudioRequestsRoundTrip() throws {
     #expect(speechDecoded.text == "Привет")
     #expect(speechDecoded.voice == "marin")
 }
+
+@Test("voice mode capabilities response round-trips")
+func voiceModeCapabilitiesResponseRoundTrips() throws {
+    let response = VoiceModeCapabilitiesResponse(
+        provider: "openai",
+        openAIConfigured: true,
+        source: "fallback",
+        warning: nil,
+        speechModels: [
+            .init(id: "gpt-4o-mini-tts", title: "GPT-4o mini TTS", capabilities: ["tts"])
+        ],
+        transcriptionModels: [
+            .init(id: "gpt-4o-mini-transcribe", title: "GPT-4o mini Transcribe", capabilities: ["transcription"])
+        ],
+        voices: [
+            .init(id: "marin", title: "Marin", recommended: true, models: ["gpt-4o-mini-tts"])
+        ]
+    )
+
+    let decoded = try JSONDecoder().decode(VoiceModeCapabilitiesResponse.self, from: JSONEncoder().encode(response))
+
+    #expect(decoded.provider == "openai")
+    #expect(decoded.speechModels.first?.id == "gpt-4o-mini-tts")
+    #expect(decoded.transcriptionModels.first?.id == "gpt-4o-mini-transcribe")
+    #expect(decoded.voices.first?.recommended == true)
+}

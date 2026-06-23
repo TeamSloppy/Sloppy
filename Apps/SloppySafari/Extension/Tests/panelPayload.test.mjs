@@ -263,8 +263,8 @@ test("background registers Safari context menu summary action", async () => {
     title: "Summary Page",
     contexts: ["page"],
     icons: {
-      16: "icons/text.aligncenter.svg",
-      32: "icons/text.aligncenter.svg"
+      16: "text.aligncenter.svg",
+      32: "text.aligncenter.svg"
     }
   }]);
 
@@ -285,8 +285,8 @@ test("background localizes Safari context menu summary action", async () => {
     title: "总结页面",
     contexts: ["page"],
     icons: {
-      16: "icons/text.aligncenter.svg",
-      32: "icons/text.aligncenter.svg"
+      16: "text.aligncenter.svg",
+      32: "text.aligncenter.svg"
     }
   }]);
 

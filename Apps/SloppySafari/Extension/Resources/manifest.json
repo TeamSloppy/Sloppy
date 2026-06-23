@@ -27,7 +27,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["so_logo.svg", "chat.html", "chatPage.js", "icons/*.svg"],
+      "resources": ["so_logo.svg", "chat.html", "chatPage.js", "*.svg", "icons/*.svg"],
       "matches": ["<all_urls>"]
     }
   ]
