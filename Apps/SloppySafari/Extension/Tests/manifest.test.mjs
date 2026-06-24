@@ -241,6 +241,12 @@ test("sidebar shell uses one neutral border for clean rounded corners", () => {
   assert.doesNotMatch(css, /border-bottom-color:\s*rgba\(237, 190, 70/);
 });
 
+test("sidebar panel app layout stretches the chat shell to full height", () => {
+  const css = loadPanelCSS();
+
+  assert.match(css, /^\.sloppy-app-layout\s*\{[\s\S]*?width:\s*100%;[\s\S]*?height:\s*100%;[\s\S]*?min-height:\s*0;/m);
+});
+
 test("voice orb uses accent-colored free-motion layers and answering pulses", () => {
   const css = loadPanelCSS();
 
