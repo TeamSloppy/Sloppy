@@ -209,6 +209,7 @@ public actor CoreService {
     let toolsAuthorization: ToolAuthorizationService
     let toolLoopGuard: ToolLoopGuard
     let toolPreHookService: ToolPreHookService
+    let safariBridgeService: SafariBridgeService
     var toolExecution: ToolExecutionService
     let mcpRegistry: MCPClientRegistry
     let systemLogStore: SystemLogFileStore
@@ -481,6 +482,7 @@ public actor CoreService {
         self.toolsAuthorization = ToolAuthorizationService(store: toolsStore, mcpRegistry: self.mcpRegistry)
         self.toolLoopGuard = ToolLoopGuard()
         self.toolPreHookService = ToolPreHookService()
+        self.safariBridgeService = SafariBridgeService()
         let processRegistry = SessionProcessRegistry()
         self.toolExecution = ToolExecutionService(
             workspaceRootURL: self.workspaceRootURL,
@@ -491,6 +493,7 @@ public actor CoreService {
             agentSkillsStore: self.agentSkillsStore,
             processRegistry: processRegistry,
             browserConfig: config.browser,
+            safariBridgeService: self.safariBridgeService,
             channelSessionStore: self.channelSessionStore,
             store: self.store,
             searchProviderService: self.searchProviderService,

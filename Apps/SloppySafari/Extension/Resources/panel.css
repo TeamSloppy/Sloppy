@@ -1031,35 +1031,34 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
 }
 
 #sloppy-search-ask-button {
-  --sloppy-search-button-bg: color-mix(in srgb, Canvas 82%, white 18%);
-  --sloppy-search-button-fg: CanvasText;
+  --sloppy-star-duration: 3s;
+  --sloppy-star-light-width: 110px;
+  --sloppy-star-light-color: #fafafa;
+  --sloppy-star-background: #020202;
   position: fixed;
   right: 24px;
   bottom: 24px;
   z-index: 2147483644;
   display: inline-flex;
-  min-width: 132px;
-  height: 44px;
+  min-width: 150px;
+  height: 48px;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  padding: 0 16px;
-  color: var(--sloppy-search-button-fg);
+  gap: 0;
+  padding: 0 18px;
+  color: white;
   font: 700 14px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   cursor: pointer;
   isolation: isolate;
   overflow: hidden;
-  background:
-    radial-gradient(circle at 50% 50%, rgba(210, 246, 255, 0.28), transparent 58%),
-    color-mix(in srgb, var(--sloppy-search-button-bg) 88%, transparent);
-  border: 1px solid color-mix(in srgb, CanvasText 18%, transparent);
+  background: var(--sloppy-star-background);
+  border: 2px solid rgba(255, 255, 255, 0.16);
   border-radius: 999px;
   box-shadow:
-    0 16px 40px rgba(0, 0, 0, 0.3),
-    inset 0 2px 5px rgba(255, 255, 255, 0.42),
-    inset 0 -16px 28px rgba(0, 0, 0, 0.16);
+    0 16px 42px rgba(0, 0, 0, 0.34),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
   color-scheme: light dark;
-  backdrop-filter: blur(18px) saturate(1.35);
+  backdrop-filter: blur(14px) saturate(1.15);
   transform-origin: center;
   transition:
     transform 180ms cubic-bezier(0.2, 0.9, 0.2, 1),
@@ -1067,104 +1066,66 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
     border-color 180ms ease;
 }
 
-#sloppy-search-ask-button::before,
-#sloppy-search-ask-button::after {
+#sloppy-search-ask-button .sloppy-star-button-light {
   position: absolute;
+  inset: 0;
+  width: var(--sloppy-star-light-width);
+  aspect-ratio: 1;
+  background: radial-gradient(ellipse at center, var(--sloppy-star-light-color), transparent 64%);
+  offset-distance: 0%;
+  offset-path: var(--sloppy-star-path);
   pointer-events: none;
-  content: "";
-  border-radius: inherit;
+  animation: sloppy-star-btn var(--sloppy-star-duration) linear infinite;
 }
 
-#sloppy-search-ask-button::before {
-  inset: -22% -8%;
-  z-index: 0;
-  background:
-    radial-gradient(ellipse at 18% 32%, rgba(255, 255, 255, 0.92), transparent 15%),
-    radial-gradient(ellipse at 42% 34%, rgba(90, 198, 255, 0.72), transparent 30%),
-    radial-gradient(ellipse at 58% 72%, rgba(73, 230, 148, 0.58), transparent 28%),
-    radial-gradient(ellipse at 82% 42%, rgba(138, 118, 255, 0.52), transparent 29%),
-    linear-gradient(100deg, rgba(255, 215, 112, 0.28), rgba(78, 172, 255, 0.24), rgba(84, 236, 184, 0.22));
-  filter: blur(8px) saturate(1.45);
-  opacity: 0.78;
-  animation: sloppy-search-contained-wave-a 5s infinite cubic-bezier(0.6, -0.28, 0.735, 0.045);
-}
-
-#sloppy-search-ask-button::after {
-  inset: -20% -7%;
+#sloppy-search-ask-button .sloppy-star-button-background {
+  position: absolute;
+  inset: 0;
   z-index: 1;
-  background:
-    radial-gradient(ellipse at 42% 58%, rgba(0, 255, 128, 0.48), transparent 34%),
-    radial-gradient(ellipse at 70% 38%, rgba(255, 128, 0, 0.42), transparent 36%),
-    radial-gradient(ellipse at 52% 42%, rgba(128, 0, 255, 0.34), transparent 32%),
-    radial-gradient(ellipse at 62% 66%, rgba(255, 255, 0, 0.28), transparent 30%),
-    radial-gradient(circle at 18% 18%, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.22) 14%, transparent 32%),
-    linear-gradient(145deg, rgba(255, 255, 255, 0.26), rgba(255, 255, 255, 0.04) 48%, rgba(0, 0, 0, 0.2));
-  filter: blur(9px) saturate(1.35);
-  opacity: 0.7;
-  box-shadow:
-    inset 0 0 0 1px rgba(255, 255, 255, 0.26),
-    inset 0 10px 24px rgba(255, 255, 255, 0.14);
-  animation: sloppy-search-contained-wave-b 6.4s infinite ease-in-out;
+  overflow: hidden;
+  color: var(--sloppy-star-background);
+  border: 2px solid rgba(255, 255, 255, 0.18);
+  border-radius: inherit;
+  pointer-events: none;
 }
 
-#sloppy-search-ask-button > * {
+#sloppy-search-ask-button .sloppy-star-button-stars {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+#sloppy-search-ask-button strong {
   position: relative;
   z-index: 2;
+  display: inline-block;
+  color: transparent;
+  font: inherit;
+  line-height: 1;
+  background: linear-gradient(to top, #ffffff, #8a8f98);
+  background-clip: text;
+  -webkit-background-clip: text;
 }
 
 #sloppy-search-ask-button:hover,
 #sloppy-search-ask-button:focus-visible {
   transform: scale(1.06);
+  border-color: rgba(255, 255, 255, 0.32);
+  box-shadow:
+    0 18px 46px rgba(0, 0, 0, 0.38),
+    inset 0 1px 0 rgba(255, 255, 255, 0.14);
 }
 
 #sloppy-search-ask-button:active {
   transform: scale(1.025);
 }
 
-@media (prefers-color-scheme: dark) {
-  #sloppy-search-ask-button {
-    --sloppy-search-button-bg: color-mix(in srgb, Canvas 72%, #202020 28%);
-    --sloppy-search-button-fg: CanvasText;
-    box-shadow:
-      0 16px 40px rgba(0, 0, 0, 0.34),
-      inset 0 1px 0 rgba(255, 255, 255, 0.34),
-      inset 0 -8px 18px rgba(0, 0, 0, 0.32);
-  }
-}
-
-@keyframes sloppy-search-contained-wave-a {
+@keyframes sloppy-star-btn {
   0% {
-    transform: translate(0, 0) scale(1.18);
-  }
-  25% {
-    transform: translate(14%, -18%) scale(1);
-  }
-  50% {
-    transform: translate(24%, 8%) scale(0.92);
-  }
-  75% {
-    transform: translate(-16%, 18%) scale(1.1);
+    offset-distance: 0%;
   }
   100% {
-    transform: translate(0, 0) scale(1.18);
-  }
-}
-
-@keyframes sloppy-search-contained-wave-b {
-  0% {
-    transform: translate(0, 0) scale(1);
-  }
-  20% {
-    transform: translate(-16%, 16%) scale(0.92);
-  }
-  50% {
-    transform: translate(18%, -12%) scale(1.16);
-  }
-  80% {
-    transform: translate(24%, 18%) scale(0.88);
-  }
-  100% {
-    transform: translate(0, 0) scale(1);
+    offset-distance: 100%;
   }
 }
 

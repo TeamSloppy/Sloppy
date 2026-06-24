@@ -11,6 +11,7 @@ final class ToolExecutionService: @unchecked Sendable {
     private let agentSkillsStore: AgentSkillsFileStore?
     private let processRegistry: SessionProcessRegistry
     private let browserService: BrowserCDPService
+    private let safariBridgeService: SafariBridgeService
     private let channelSessionStore: ChannelSessionFileStore
     private var store: any PersistenceStore
     private let searchProviderService: SearchProviderService
@@ -36,6 +37,7 @@ final class ToolExecutionService: @unchecked Sendable {
         agentSkillsStore: AgentSkillsFileStore? = nil,
         processRegistry: SessionProcessRegistry,
         browserConfig: CoreConfig.Browser = CoreConfig.Browser(),
+        safariBridgeService: SafariBridgeService = SafariBridgeService(),
         channelSessionStore: ChannelSessionFileStore,
         store: any PersistenceStore,
         searchProviderService: SearchProviderService,
@@ -51,6 +53,7 @@ final class ToolExecutionService: @unchecked Sendable {
         self.agentSkillsStore = agentSkillsStore
         self.processRegistry = processRegistry
         self.browserService = BrowserCDPService(config: browserConfig, workspaceRootURL: workspaceRootURL)
+        self.safariBridgeService = safariBridgeService
         self.channelSessionStore = channelSessionStore
         self.store = store
         self.searchProviderService = searchProviderService
@@ -171,6 +174,7 @@ final class ToolExecutionService: @unchecked Sendable {
             skillsService: skillsService,
             lspManager: lspManager,
             browserService: browserService,
+            safariBridgeService: safariBridgeService,
             applyAgentMarkdown: boundApply,
             delegateSubagent: delegateSubagent
         )

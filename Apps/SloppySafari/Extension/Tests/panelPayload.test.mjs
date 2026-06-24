@@ -31,6 +31,8 @@ async function loadBackgroundRuntime(storedSettings = {}, fetchImpl = async () =
   let contextMenuClickListener = null;
   const contextMenus = [];
   const tabMessages = [];
+  const scriptCalls = [];
+  const tabs = options.tabs || [];
 
   if (options.language) {
     Object.defineProperty(globalThis, "navigator", {
@@ -80,8 +82,11 @@ async function loadBackgroundRuntime(storedSettings = {}, fetchImpl = async () =
       }
     },
     tabs: {
-      async query() {
-        return [];
+      async query(query = {}) {
+        if (query.active) {
+          return tabs.filter((tab) => tab.active);
+        }
+        return tabs;
       },
       async create({ url }) {
         return { id: 1, url, title: null };
@@ -92,6 +97,12 @@ async function loadBackgroundRuntime(storedSettings = {}, fetchImpl = async () =
       async sendMessage(tabId, message) {
         tabMessages.push({ tabId, message });
       }
+    },
+    scripting: {
+      async executeScript(call) {
+        scriptCalls.push(call);
+        return [{ result: options.scriptResult || { ok: true } }];
+      }
     }
   };
 
@@ -101,6 +112,7 @@ async function loadBackgroundRuntime(storedSettings = {}, fetchImpl = async () =
     storageState,
     contextMenus,
     tabMessages,
+    scriptCalls,
     async clickContextMenu(info = {}, tab = {}) {
       await contextMenuClickListener?.(info, tab);
     },
@@ -841,6 +853,73 @@ test("collectBrowserToolActions normalizes agent browser actions", () => {
     { name: "browser.scroll", input: { y: 500 } },
     { name: "browser.dom_snapshot", input: {} }
   ]);
+});
+
+test("background Safari bridge registration sends every accessible tab", async () => {
+  const requests = [];
+  const runtime = await loadBackgroundRuntime(
+    { coreURLString: "http://127.0.0.1:25101" },
+    async (url, options = {}) => {
+      requests.push({ url: String(url), body: options.body ? JSON.parse(options.body) : null });
+      return Response.json({ bridgeId: "safari-test", commandPollIntervalMs: 1000 });
+    },
+    {
+      tabs: [
+        { id: 1, url: "https://one.example", title: "One", active: true, currentWindow: true },
+        { id: 2, url: "https://two.example", title: "Two", active: false, currentWindow: true }
+      ]
+    }
+  );
+
+  try {
+    const response = await runtime.sendMessage({ type: "sloppy.safariBridge.sync" });
+
+    assert.equal(response.bridgeId, "safari-test");
+    assert.equal(requests.at(-1).url, "http://127.0.0.1:25101/v1/safari-bridge/register");
+    assert.deepEqual(requests.at(-1).body.tabs.map((tab) => tab.url), [
+      "https://one.example",
+      "https://two.example"
+    ]);
+  } finally {
+    runtime.cleanup();
+  }
+});
+
+test("background Safari bridge poll executes command and posts result", async () => {
+  const requests = [];
+  const runtime = await loadBackgroundRuntime(
+    { coreURLString: "http://127.0.0.1:25101" },
+    async (url, options = {}) => {
+      requests.push({ url: String(url), method: options.method || "GET", body: options.body ? JSON.parse(options.body) : null });
+      if (String(url).endsWith("/v1/safari-bridge/register")) {
+        return Response.json({ bridgeId: "safari-test", commandPollIntervalMs: 1000 });
+      }
+      if (String(url).includes("/v1/safari-bridge/commands?")) {
+        return Response.json({
+          commands: [
+            { id: "cmd-1", name: "safari.scroll", input: { y: 400 } }
+          ]
+        });
+      }
+      return Response.json({ status: "completed" });
+    },
+    {
+      tabs: [{ id: 1, url: "https://one.example", title: "One", active: true, currentWindow: true }],
+      scriptResult: { scrolled: { x: 0, y: 400 } }
+    }
+  );
+
+  try {
+    const response = await runtime.sendMessage({ type: "sloppy.safariBridge.poll" });
+
+    assert.equal(response.commands, 1);
+    assert.equal(runtime.scriptCalls.length, 1);
+    assert.match(requests.at(-1).url, /\/v1\/safari-bridge\/commands\/cmd-1\/result$/);
+    assert.equal(requests.at(-1).body.ok, true);
+    assert.deepEqual(requests.at(-1).body.data, { scrolled: { x: 0, y: 400 } });
+  } finally {
+    runtime.cleanup();
+  }
 });
 
 test("chooseAgentID falls back to first fetched agent when stored agent is unavailable", () => {

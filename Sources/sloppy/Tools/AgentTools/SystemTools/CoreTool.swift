@@ -51,6 +51,7 @@ struct ToolContext: @unchecked Sendable {
     let agentSkillsStore: AgentSkillsFileStore?
     let processRegistry: SessionProcessRegistry
     let browserService: BrowserCDPService
+    let safariBridgeService: SafariBridgeService
     let channelSessionStore: ChannelSessionFileStore
     let store: any PersistenceStore
     let searchProviderService: SearchProviderService
@@ -92,6 +93,7 @@ struct ToolContext: @unchecked Sendable {
         skillsService: (any SkillsToolService)?,
         lspManager: LSPServerManager?,
         browserService: BrowserCDPService? = nil,
+        safariBridgeService: SafariBridgeService? = nil,
         applyAgentMarkdown: ((AgentMarkdownDocumentField, String) async throws -> Void)?,
         delegateSubagent: (@Sendable (String, String, String, String?, [String]?, String?, String?) async -> String?)?
     ) {
@@ -113,6 +115,7 @@ struct ToolContext: @unchecked Sendable {
         self.agentSkillsStore = agentSkillsStore
         self.processRegistry = processRegistry
         self.browserService = browserService ?? BrowserCDPService(config: .init(), workspaceRootURL: workspaceRootURL)
+        self.safariBridgeService = safariBridgeService ?? SafariBridgeService()
         self.channelSessionStore = channelSessionStore
         self.store = store
         self.searchProviderService = searchProviderService

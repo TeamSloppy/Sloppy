@@ -602,6 +602,47 @@ struct AgentsAPIRouter: APIRouter {
             }
         }
 
+        router.post("/v1/safari-bridge/register", metadata: RouteMetadata(summary: "Register Safari bridge", description: "Registers SloppySafari and refreshes its tab snapshot", tags: ["Browser"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: SafariBridgeRegisterRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            let response = await service.safariBridgeService.register(payload)
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+        }
+
+        router.get("/v1/safari-bridge/status", metadata: RouteMetadata(summary: "Safari bridge status", description: "Returns the current SloppySafari bridge tab snapshot", tags: ["Browser"])) { _ in
+            let payload = await service.safariBridgeService.statusPayload()
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: payload)
+        }
+
+        router.get("/v1/safari-bridge/commands", metadata: RouteMetadata(summary: "Poll Safari bridge commands", description: "Returns pending browser commands for SloppySafari", tags: ["Browser"])) { request in
+            let bridgeId = request.queryParam("bridgeId") ?? ""
+            let limit = request.queryParam("limit").flatMap(Int.init) ?? 10
+            let response = await service.safariBridgeService.pollCommands(bridgeId: bridgeId, limit: limit)
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+        }
+
+        router.post("/v1/safari-bridge/commands/:commandId/result", metadata: RouteMetadata(summary: "Complete Safari bridge command", description: "Posts the result of a SloppySafari browser command", tags: ["Browser"])) { request in
+            guard let body = request.body,
+                  var payload = CoreRouter.decode(body, as: SafariBridgeCommandResultRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            if payload.commandId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                payload.commandId = request.pathParam("commandId") ?? ""
+            }
+            do {
+                try await service.safariBridgeService.completeCommand(payload)
+                return CoreRouter.json(status: HTTPStatus.ok, payload: ["status": "completed"])
+            } catch SafariBridgeError.commandNotFound {
+                return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": "safari_command_not_found"])
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": "safari_command_result_failed"])
+            }
+        }
+
         router.delete("/v1/agents/:agentId/sessions/:sessionId", metadata: RouteMetadata(summary: "Delete agent session", description: "Deletes a specific agent session", tags: ["Agents"])) { request in
             let agentId = request.pathParam("agentId") ?? ""
             let sessionId = request.pathParam("sessionId") ?? ""

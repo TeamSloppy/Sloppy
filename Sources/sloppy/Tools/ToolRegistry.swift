@@ -143,6 +143,6 @@ struct ToolRegistry: Sendable {
             AgentDocumentsSetUserMarkdownTool(),
             AgentDocumentsSetMemoryMarkdownTool(),
             ProjectMetaMemoryTool(),
-        ])
+        ] + SafariBridgeToolFactory.makeTools())
     }
 }

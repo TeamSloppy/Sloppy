@@ -34,6 +34,20 @@ const defaultSettings = {
 };
 
 const summarizePageContextMenuId = "sloppy.summaryPage";
+const safariBridgeCapabilities = [
+  "tabs",
+  "open_tab",
+  "capture_visible_tab",
+  "click",
+  "type",
+  "scroll",
+  "evaluate",
+  "print",
+  "dom_snapshot"
+];
+const safariBridgeState = {
+  bridgeId: ""
+};
 
 function t(key, params = {}) {
   return globalThis.SloppyI18n?.t(key, params) || key;
@@ -288,6 +302,181 @@ async function captureVisibleTab() {
   };
 }
 
+function bridgeHeaders(settings) {
+  const headers = { "content-type": "application/json" };
+  if (settings.authToken) {
+    headers.authorization = `Bearer ${settings.authToken}`;
+  }
+  return headers;
+}
+
+async function registerSafariBridge(settings = null) {
+  const effectiveSettings = settings || await loadSettings();
+  const tabs = await listTabs();
+  const response = await coreFetch(effectiveSettings, "/v1/safari-bridge/register", {
+    method: "POST",
+    headers: bridgeHeaders(effectiveSettings),
+    body: JSON.stringify({
+      bridgeId: safariBridgeState.bridgeId || null,
+      tabs,
+      capabilities: safariBridgeCapabilities
+    })
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(body.error || `safari_bridge_register_failed_${response.status}`);
+  }
+  safariBridgeState.bridgeId = String(body.bridgeId || safariBridgeState.bridgeId || "").trim();
+  return body;
+}
+
+async function pollSafariBridgeCommands(settings = null) {
+  const effectiveSettings = settings || await loadSettings();
+  if (!safariBridgeState.bridgeId) {
+    await registerSafariBridge(effectiveSettings);
+  }
+  if (!safariBridgeState.bridgeId) {
+    return { commands: 0 };
+  }
+  const response = await coreFetch(
+    effectiveSettings,
+    `/v1/safari-bridge/commands?bridgeId=${encodeURIComponent(safariBridgeState.bridgeId)}&limit=5`,
+    { headers: bridgeHeaders(effectiveSettings) }
+  );
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(body.error || `safari_bridge_poll_failed_${response.status}`);
+  }
+  const commands = Array.isArray(body.commands) ? body.commands : [];
+  for (const command of commands) {
+    await completeSafariBridgeCommand(effectiveSettings, command);
+  }
+  return { commands: commands.length };
+}
+
+async function completeSafariBridgeCommand(settings, command) {
+  const commandId = String(command?.id || "").trim();
+  if (!commandId) {
+    return;
+  }
+  let result;
+  try {
+    const data = await runSafariBridgeCommand(command);
+    result = { commandId, ok: true, data };
+  } catch (error) {
+    result = {
+      commandId,
+      ok: false,
+      error: error.message || "Safari bridge command failed."
+    };
+  }
+  await coreFetch(settings, `/v1/safari-bridge/commands/${encodeURIComponent(commandId)}/result`, {
+    method: "POST",
+    headers: bridgeHeaders(settings),
+    body: JSON.stringify(result)
+  });
+}
+
+async function activeTabId(input = {}) {
+  const explicit = Number(input.tabId);
+  if (Number.isFinite(explicit) && explicit > 0) {
+    return explicit;
+  }
+  const tabs = await chrome.tabs.query({ active: true, currentWindow: true });
+  const tabId = tabs[0]?.id;
+  if (!tabId) {
+    throw new Error("No active Safari tab is available.");
+  }
+  return tabId;
+}
+
+async function executeInTab(input, func, args = []) {
+  if (!chrome.scripting?.executeScript) {
+    throw new Error("Safari scripting API is unavailable.");
+  }
+  const tabId = await activeTabId(input);
+  const results = await chrome.scripting.executeScript({
+    target: { tabId },
+    func,
+    args
+  });
+  return results?.[0]?.result ?? {};
+}
+
+async function runSafariBridgeCommand(command) {
+  const input = command?.input || {};
+  switch (command?.name) {
+  case "safari.tabs":
+    return { tabs: await listTabs() };
+  case "safari.open_tab":
+    return { tab: await openTab(input.url) };
+  case "safari.capture_visible_tab":
+    return { attachment: await captureVisibleTab() };
+  case "safari.click":
+    return executeInTab(input, (selector) => {
+      const element = document.querySelector(selector);
+      if (!element) {
+        throw new Error(`Element not found: ${selector}`);
+      }
+      element.scrollIntoView?.({ block: "center", inline: "center" });
+      element.click();
+      return { clicked: selector, url: location.href, title: document.title };
+    }, [input.selector]);
+  case "safari.type":
+    return executeInTab(input, (selector, text) => {
+      const element = document.querySelector(selector);
+      if (!element) {
+        throw new Error(`Element not found: ${selector}`);
+      }
+      element.focus?.();
+      if ("value" in element) {
+        element.value = text || "";
+        element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text || "" }));
+        element.dispatchEvent(new Event("change", { bubbles: true }));
+      } else {
+        element.textContent = text || "";
+        element.dispatchEvent(new InputEvent("input", { bubbles: true, inputType: "insertText", data: text || "" }));
+      }
+      return { typed: selector, length: String(text || "").length, url: location.href, title: document.title };
+    }, [input.selector, input.text || ""]);
+  case "safari.scroll":
+    return executeInTab(input, (x, y, behavior) => {
+      window.scrollBy({ left: Number(x || 0), top: Number(y || 0), behavior: behavior === "smooth" ? "smooth" : "auto" });
+      return { scrolled: { x: Number(x || 0), y: Number(y || 0) }, url: location.href, title: document.title };
+    }, [input.x || 0, input.y || input.deltaY || 0, input.behavior || "auto"]);
+  case "safari.evaluate":
+    return executeInTab(input, (script) => {
+      const value = globalThis.eval(script);
+      return { value };
+    }, [input.script || ""]);
+  case "safari.print":
+    return executeInTab(input, () => {
+      window.print();
+      return { printed: true, url: location.href, title: document.title };
+    });
+  case "safari.dom_snapshot":
+    return executeInTab(input, () => {
+      const elements = Array.from(document.querySelectorAll("a, button, input, textarea, select, [role='button'], [contenteditable='true']"))
+        .slice(0, 80)
+        .map((element, index) => ({
+          index,
+          tag: element.tagName?.toLowerCase() || null,
+          text: String(element.innerText || element.value || element.getAttribute?.("aria-label") || element.title || "").trim().slice(0, 180),
+          role: element.getAttribute?.("role") || null,
+          type: element.getAttribute?.("type") || null
+        }));
+      return {
+        title: document.title || null,
+        url: location.href,
+        text: String(document.body?.innerText || "").replace(/\s+/g, " ").trim().slice(0, 24000),
+        elements
+      };
+    });
+  default:
+    throw new Error(`Unsupported Safari bridge command: ${command?.name || "unknown"}`);
+  }
+}
+
 async function runBrowserTool(action) {
   if (action?.name === "browser.open_tab") {
     return { tab: await openTab(action.input?.url) };
@@ -295,7 +484,24 @@ async function runBrowserTool(action) {
   if (action?.name === "browser.capture_visible_tab") {
     return { attachment: await captureVisibleTab() };
   }
+  if (String(action?.name || "").startsWith("safari.")) {
+    return runSafariBridgeCommand({ id: "direct", name: action.name, input: action.input || {} });
+  }
   throw new Error(`Unsupported browser tool: ${action?.name || "unknown"}`);
+}
+
+function nodeTestRuntime() {
+  return typeof process !== "undefined" && Boolean(process.versions?.node);
+}
+
+function startSafariBridgeLoop() {
+  void registerSafariBridge().catch(() => {});
+  if (nodeTestRuntime()) {
+    return;
+  }
+  globalThis.setInterval?.(() => {
+    void pollSafariBridgeCommands().catch(() => {});
+  }, 1000);
 }
 
 if (typeof chrome !== "undefined") {
@@ -304,6 +510,7 @@ if (typeof chrome !== "undefined") {
     void handleContextMenuClick(info, tab);
   });
   registerContextMenus();
+  startSafariBridgeLoop();
 
   chrome.action.onClicked.addListener(async (tab) => {
     if (!tab.id) {
@@ -447,6 +654,18 @@ if (typeof chrome !== "undefined") {
     if (message?.type === "sloppy.tabs.open") {
       void openTab(message.url).then((tab) => sendResponse({ tab })).catch((error) => {
         sendResponse({ error: error.message || "Unable to open tab." });
+      });
+      return true;
+    }
+    if (message?.type === "sloppy.safariBridge.sync") {
+      void registerSafariBridge().then(sendResponse).catch((error) => {
+        sendResponse({ error: error.message || "Safari bridge sync failed." });
+      });
+      return true;
+    }
+    if (message?.type === "sloppy.safariBridge.poll") {
+      void pollSafariBridgeCommands().then(sendResponse).catch((error) => {
+        sendResponse({ error: error.message || "Safari bridge poll failed." });
       });
       return true;
     }

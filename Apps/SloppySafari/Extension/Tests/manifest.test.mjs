@@ -170,20 +170,17 @@ test("streaming assistant messages show a compact thinking label", () => {
   assert.match(css, /\.sloppy-thinking span\s*\{[\s\S]*font-weight:\s*650;/);
 });
 
-test("search ask button keeps Siri-like waves contained inside the capsule", () => {
+test("search ask button uses the StarButton capsule animation", () => {
   const css = loadPanelCSS();
-  assert.match(css, /#sloppy-search-ask-button\s*\{[\s\S]*Canvas[\s\S]*CanvasText/);
   assert.match(css, /#sloppy-search-ask-button\s*\{[\s\S]*isolation:\s*isolate;/);
   assert.match(css, /#sloppy-search-ask-button\s*\{[\s\S]*overflow:\s*hidden;/);
   assert.match(css, /#sloppy-search-ask-button\s*\{[\s\S]*transition:\s*[\s\S]*transform 180ms/);
-  assert.match(css, /#sloppy-search-ask-button::before\s*\{[\s\S]*radial-gradient\(ellipse at 18% 32%/);
-  assert.match(css, /#sloppy-search-ask-button::before\s*\{[\s\S]*animation:\s*sloppy-search-contained-wave-a/);
-  assert.match(css, /#sloppy-search-ask-button::after\s*\{[\s\S]*radial-gradient\(ellipse at 42% 58%/);
-  assert.match(css, /#sloppy-search-ask-button::after\s*\{[\s\S]*animation:\s*sloppy-search-contained-wave-b/);
+  assert.match(css, /#sloppy-search-ask-button \.sloppy-star-button-light\s*\{[\s\S]*offset-path:\s*var\(--sloppy-star-path\)/);
+  assert.match(css, /#sloppy-search-ask-button \.sloppy-star-button-light\s*\{[\s\S]*animation:\s*sloppy-star-btn/);
+  assert.match(css, /#sloppy-search-ask-button \.sloppy-star-button-background\s*\{[\s\S]*border:\s*2px solid/);
+  assert.match(css, /#sloppy-search-ask-button \.sloppy-star-button-stars\s*\{[\s\S]*height:\s*100%/);
   assert.match(css, /#sloppy-search-ask-button:hover,\n#sloppy-search-ask-button:focus-visible\s*\{[\s\S]*transform:\s*scale\(1\.06\);/);
-  assert.match(css, /@media\s*\(prefers-color-scheme:\s*dark\)[\s\S]*#sloppy-search-ask-button/);
-  assert.match(css, /@keyframes sloppy-search-contained-wave-a/);
-  assert.match(css, /@keyframes sloppy-search-contained-wave-b/);
+  assert.match(css, /@keyframes sloppy-star-btn\s*\{[\s\S]*offset-distance:\s*100%/);
 });
 
 test("command palette recent sessions scroll independently below the floating input", () => {
