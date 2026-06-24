@@ -737,7 +737,10 @@ export function createCoreApi(): CoreApi {
       const response = await requestJson<AnyRecord>({
         path: "/v1/artifacts"
       });
-      if (!response.ok || !Array.isArray((response.data as AnyRecord)?.artifacts)) {
+      if (!response.ok) {
+        throw new Error(formatHttpError(response.status, response.data));
+      }
+      if (!Array.isArray((response.data as AnyRecord)?.artifacts)) {
         return [];
       }
       return (response.data as AnyRecord).artifacts as AnyRecord[];
@@ -758,6 +761,9 @@ export function createCoreApi(): CoreApi {
         path: `/v1/artifacts/${encodeURIComponent(id)}/widget`
       });
       if (!response.ok) {
+        throw new Error(formatHttpError(response.status, response.data));
+      }
+      if (!response.data || typeof response.data.html !== "string") {
         return null;
       }
       return response.data;

@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import type { CSSProperties } from "react";
 
 type AnyRecord = Record<string, any>;
+type WidgetLoadState = "idle" | "loading" | "ready" | "broken";
 
 interface ArtifactsViewProps {
   coreApi: {
@@ -71,40 +73,79 @@ export function ArtifactsView({ coreApi }: ArtifactsViewProps) {
 }
 
 function ArtifactCard({ artifact, coreApi }: { artifact: AnyRecord; coreApi: ArtifactsViewProps["coreApi"] }) {
+  const [widgetState, setWidgetState] = useState<WidgetLoadState>("idle");
   const [widget, setWidget] = useState<AnyRecord | null>(null);
+  const [widgetError, setWidgetError] = useState("");
 
   useEffect(() => {
     let cancelled = false;
     if (artifact?.kind !== "widget" || !artifact?.id) {
+      setWidgetState("idle");
       setWidget(null);
+      setWidgetError("");
       return () => {
         cancelled = true;
       };
     }
-    coreApi.fetchWidgetArtifact(String(artifact.id)).then((payload) => {
-      if (!cancelled) {
+    setWidgetState("loading");
+    setWidget(null);
+    setWidgetError("");
+    coreApi.fetchWidgetArtifact(String(artifact.id))
+      .then((payload) => {
+        if (cancelled) {
+          return;
+        }
+        if (!payload) {
+          setWidgetState("broken");
+          setWidgetError("Widget content is unavailable.");
+          return;
+        }
         setWidget(payload);
-      }
-    });
+        setWidgetState("ready");
+      })
+      .catch((err) => {
+        if (cancelled) {
+          return;
+        }
+        setWidgetState("broken");
+        setWidgetError(err?.message || "Widget failed to load.");
+      });
     return () => {
       cancelled = true;
     };
   }, [artifact?.id, artifact?.kind, coreApi]);
 
-  const width = Number(widget?.width || artifact?.widget?.width || 160);
-  const height = Number(widget?.height || artifact?.widget?.height || 120);
+  const width = normalizeDimension(widget?.width || artifact?.widget?.width, 160);
+  const height = normalizeDimension(widget?.height || artifact?.widget?.height, 120);
+  const previewStyle = {
+    "--artifact-preview-width": String(width),
+    "--artifact-preview-height": String(height)
+  } as CSSProperties;
 
   return (
     <article className="artifact-card">
-      <div className="artifact-preview" style={{ width, height }}>
-        {widget?.html ? (
-          <iframe title={artifact.title || artifact.id} sandbox="" srcDoc={String(widget.html)} />
-        ) : (
-          <span>{artifact.kind === "widget" ? "Widget" : "Artifact"}</span>
-        )}
+      <div className="artifact-preview" style={previewStyle}>
+        {artifact.kind !== "widget" ? <span className="artifact-preview-label">Artifact</span> : null}
+        {artifact.kind === "widget" && widgetState === "loading" ? (
+          <span className="artifact-preview-state artifact-preview-state--loading">Loading widget...</span>
+        ) : null}
+        {artifact.kind === "widget" && widgetState === "broken" ? (
+          <span className="artifact-preview-state artifact-preview-state--broken">{widgetError || "Widget failed to load."}</span>
+        ) : null}
+        {artifact.kind === "widget" && widgetState === "ready" && widget?.html ? (
+          <iframe title={artifact.title || artifact.id} sandbox="allow-scripts" srcDoc={String(widget.html)} />
+        ) : null}
       </div>
       <strong>{artifact.title || artifact.id}</strong>
       <span>{artifact.kind || "artifact"}</span>
     </article>
   );
+}
+
+function normalizeDimension(value: unknown, fallback: number) {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed) || parsed <= 0) {
+    return fallback;
+  }
+  return Math.round(parsed);
 }
