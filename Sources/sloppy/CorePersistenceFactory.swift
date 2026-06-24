@@ -380,14 +380,14 @@ public actor InMemoryPersistenceStore: PersistenceStore {
     }
 
     public func persistArtifact(id: String, content: String) async {
-        let createdAt = artifactRecords[id]?.createdAt ?? Date()
+        let record = artifactRecords[id]?.updatingContent(content) ?? PersistedArtifactRecord(
+            id: id,
+            content: content,
+            previewText: String(content.prefix(160)),
+            createdAt: Date()
+        )
         await persistArtifact(
-            record: PersistedArtifactRecord(
-                id: id,
-                content: content,
-                previewText: String(content.prefix(160)),
-                createdAt: createdAt
-            )
+            record: record
         )
     }
 

@@ -2059,6 +2059,74 @@ func artifactDetailReturnsPersistedMetadata() async throws {
 }
 
 @Test
+func artifactContentReadPreservesPersistedMetadata() async throws {
+    let service = CoreService(config: .test)
+    let artifactID = "artifact-content-test"
+    let originalCreatedAt = Date(timeIntervalSince1970: 3)
+    let runtimeContent = "<!doctype html><html><body>Updated Clock</body></html>"
+    await service.store.persistArtifact(
+        record: PersistedArtifactRecord(
+            id: artifactID,
+            title: "Clock Widget",
+            kind: "widget",
+            mediaType: "text/html",
+            content: "<!doctype html><html><body>Clock</body></html>",
+            previewText: "Clock",
+            widgetSize: "small",
+            widgetWidth: 160,
+            widgetHeight: 120,
+            widgetEntry: "index.html",
+            bundlePath: ".sloppy/artifacts/widgets/\(artifactID)",
+            createdAt: originalCreatedAt
+        )
+    )
+    await service.waitForStartup()
+    await service.runtime.recover(
+        channels: [],
+        tasks: [],
+        events: [],
+        artifacts: [
+            RecoveryArtifactState(
+                id: artifactID,
+                content: runtimeContent,
+                createdAt: originalCreatedAt.addingTimeInterval(10)
+            ),
+        ]
+    )
+
+    let router = CoreRouter(service: service)
+    let contentResponse = await router.handle(method: "GET", path: "/v1/artifacts/\(artifactID)/content", body: nil)
+    #expect(contentResponse.status == 200)
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let contentPayload = try decoder.decode(ArtifactContentResponse.self, from: contentResponse.body)
+    #expect(contentPayload.content == runtimeContent)
+
+    let detailResponse = await router.handle(method: "GET", path: "/v1/artifacts/\(artifactID)", body: nil)
+    #expect(detailResponse.status == 200)
+
+    let detailPayload = try decoder.decode(ArtifactDetailResponse.self, from: detailResponse.body)
+    #expect(detailPayload.artifact.title == "Clock Widget")
+    #expect(detailPayload.artifact.kind == "widget")
+    #expect(detailPayload.artifact.mediaType == "text/html")
+    #expect(detailPayload.artifact.widget?.entry == "index.html")
+
+    let persisted = try #require(await service.store.persistedArtifact(id: artifactID))
+    #expect(persisted.title == "Clock Widget")
+    #expect(persisted.kind == "widget")
+    #expect(persisted.mediaType == "text/html")
+    #expect(persisted.content == runtimeContent)
+    #expect(persisted.previewText == String(runtimeContent.prefix(160)))
+    #expect(persisted.widgetSize == "small")
+    #expect(persisted.widgetWidth == 160)
+    #expect(persisted.widgetHeight == 120)
+    #expect(persisted.widgetEntry == "index.html")
+    #expect(persisted.bundlePath == ".sloppy/artifacts/widgets/\(artifactID)")
+    #expect(persisted.createdAt == originalCreatedAt)
+}
+
+@Test
 func runtimeRecoveryAfterRestartReplaysPersistedState() async throws {
     let config = CoreConfig.test
     let channelID = "recovery-\(UUID().uuidString)"
@@ -3932,9 +4000,10 @@ func browserContextMessageEndpointCreatesSessionAndPostsTypedContext() async thr
     #expect(userText.contains("Title: Example Article"))
     #expect(userText.contains("Selected text:"))
     #expect(userText.contains("Important selected text."))
-    #expect(userText.contains("Safari page snapshot:"))
-    #expect(userText.contains("\"selector\":\"#buy\""))
-    #expect(userText.contains("\"text\":\"Buy now\""))
+    #expect(userText.contains("Use `safari.dom_snapshot` only when live page details are needed"))
+    #expect(!userText.contains("Safari page snapshot:"))
+    #expect(!userText.contains("\"selector\":\"#buy\""))
+    #expect(!userText.contains("\"text\":\"Buy now\""))
     #expect(userText.contains("User prompt:"))
     #expect(userText.contains("Explain the selection"))
     let attachmentNames = detail.events

@@ -82,6 +82,23 @@ public struct PersistedArtifactRecord: Sendable, Equatable {
         self.bundlePath = bundlePath
         self.createdAt = createdAt
     }
+
+    public func updatingContent(_ content: String) -> PersistedArtifactRecord {
+        PersistedArtifactRecord(
+            id: id,
+            title: title,
+            kind: kind,
+            mediaType: mediaType,
+            content: content,
+            previewText: String(content.prefix(160)),
+            widgetSize: widgetSize,
+            widgetWidth: widgetWidth,
+            widgetHeight: widgetHeight,
+            widgetEntry: widgetEntry,
+            bundlePath: bundlePath,
+            createdAt: createdAt
+        )
+    }
 }
 
 public struct PersistedEventCursor: Sendable, Equatable {
