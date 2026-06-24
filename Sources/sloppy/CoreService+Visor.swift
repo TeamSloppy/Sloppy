@@ -96,6 +96,9 @@ extension CoreService {
         }
 
         if let runtimeArtifact = await runtime.artifactContent(id: id) {
+            guard (try? WidgetArtifactService.validate(html: runtimeArtifact)) != nil else {
+                return nil
+            }
             await store.persistArtifact(id: id, content: runtimeArtifact)
             try? WidgetArtifactService.updateBundleHTML(
                 id: id,
@@ -105,6 +108,9 @@ extension CoreService {
             return WidgetArtifactContentResponse(id: id, html: runtimeArtifact, width: width, height: height)
         }
 
+        guard (try? WidgetArtifactService.validate(html: record.content)) != nil else {
+            return nil
+        }
         try? WidgetArtifactService.updateBundleHTML(
             id: id,
             html: record.content,

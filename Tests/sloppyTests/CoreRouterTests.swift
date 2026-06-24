@@ -2176,6 +2176,42 @@ func widgetGenerationCreatesWidgetArtifactBundle() async throws {
 }
 
 @Test
+func widgetPreviewRejectsInvalidRuntimeHTML() async throws {
+    let service = CoreService(config: .test)
+    let router = CoreRouter(service: service)
+    let body = try JSONEncoder().encode(WidgetArtifactGenerateRequest(prompt: "Make a tiny clock", size: "small"))
+
+    let generateResponse = await router.handle(method: "POST", path: "/v1/artifacts/widgets/generate", body: body)
+    #expect(generateResponse.status == 201)
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let payload = try decoder.decode(WidgetArtifactGenerateResponse.self, from: generateResponse.body)
+    let original = try #require(await service.store.persistedArtifact(id: payload.artifact.id))
+
+    await service.waitForStartup()
+    await service.runtime.recover(
+        channels: [],
+        tasks: [],
+        events: [],
+        artifacts: [
+            RecoveryArtifactState(
+                id: payload.artifact.id,
+                content: "not html at all",
+                createdAt: original.createdAt.addingTimeInterval(10)
+            ),
+        ]
+    )
+
+    let widgetResponse = await router.handle(method: "GET", path: "/v1/artifacts/\(payload.artifact.id)/widget", body: nil)
+    #expect(widgetResponse.status == 404)
+
+    let persisted = try #require(await service.store.persistedArtifact(id: payload.artifact.id))
+    #expect(persisted.content == original.content)
+    #expect(persisted.previewText == original.previewText)
+}
+
+@Test
 func runtimeRecoveryAfterRestartReplaysPersistedState() async throws {
     let config = CoreConfig.test
     let channelID = "recovery-\(UUID().uuidString)"
