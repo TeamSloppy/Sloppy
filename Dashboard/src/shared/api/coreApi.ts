@@ -104,7 +104,9 @@ export interface CoreApi {
   fetchMeshAuditLog: () => Promise<AnyRecord[]>;
   createMeshTask: (payload: AnyRecord) => Promise<AnyRecord | null>;
   updateMeshTask: (taskId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
+  fetchArtifacts: () => Promise<AnyRecord[]>;
   fetchArtifact: (id: string) => Promise<AnyRecord | null>;
+  fetchWidgetArtifact: (id: string) => Promise<AnyRecord | null>;
   planArtifactWebUrl: (projectId: string, planName: string) => string;
   fetchPlanArtifact: (projectId: string, planName: string) => Promise<AnyRecord | null>;
   fetchRuntimeConfig: () => Promise<AnyRecord | null>;
@@ -731,9 +733,29 @@ export function createCoreApi(): CoreApi {
       return response.data;
     },
 
+    fetchArtifacts: async () => {
+      const response = await requestJson<AnyRecord>({
+        path: "/v1/artifacts"
+      });
+      if (!response.ok || !Array.isArray((response.data as AnyRecord)?.artifacts)) {
+        return [];
+      }
+      return (response.data as AnyRecord).artifacts as AnyRecord[];
+    },
+
     fetchArtifact: async (id) => {
       const response = await requestJson<AnyRecord>({
         path: `/v1/artifacts/${encodeURIComponent(id)}/content`
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    fetchWidgetArtifact: async (id) => {
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/artifacts/${encodeURIComponent(id)}/widget`
       });
       if (!response.ok) {
         return null;

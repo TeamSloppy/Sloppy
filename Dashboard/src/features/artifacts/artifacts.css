@@ -1,0 +1,65 @@
+.artifacts-view {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 100%;
+  padding: 24px;
+}
+
+.artifacts-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.artifacts-header h1 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.artifacts-filters {
+  display: flex;
+  gap: 8px;
+}
+
+.artifacts-filters button {
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.05);
+  color: inherit;
+  padding: 7px 12px;
+}
+
+.artifacts-filters button.active {
+  background: rgba(190, 255, 0, 0.16);
+  border-color: rgba(190, 255, 0, 0.38);
+}
+
+.artifacts-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 18px;
+}
+
+.artifact-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+.artifact-preview {
+  display: grid;
+  place-items: center;
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.artifact-preview iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}

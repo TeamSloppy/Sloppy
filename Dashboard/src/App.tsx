@@ -16,6 +16,8 @@ import { useRuntimeOverview } from "./features/runtime-overview/model/useRuntime
 import { TerminalDrawer } from "./features/terminal/TerminalDrawer";
 import { UpdateBanner } from "./features/updates/UpdateBanner";
 import { useUpdateCheck } from "./features/updates/useUpdateCheck";
+import { ArtifactsView } from "./features/artifacts/ArtifactsView";
+import "./features/artifacts/artifacts.css";
 import { formatSecureSessionStatus } from "./app/sessionStatus";
 import { AgentsView } from "./views/AgentsView";
 import { ActorsView } from "./views/ActorsView";
@@ -385,6 +387,11 @@ function DashboardShell({
           }}
         />
       )
+    },
+    {
+      id: "artifacts",
+      label: { icon: "widgets", title: "Artifacts" },
+      content: <ArtifactsView coreApi={dependencies.coreApi} />
     },
     {
       id: "agents",

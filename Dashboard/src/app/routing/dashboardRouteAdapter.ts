@@ -1,6 +1,7 @@
 export const TOP_LEVEL_SECTIONS = [
   "chats",
   "projects",
+  "artifacts",
   "sessions",
   "overview",
   "actors",
