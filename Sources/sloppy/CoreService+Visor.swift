@@ -8,6 +8,20 @@ import Logging
 // MARK: - Visor
 
 extension CoreService {
+    public func listArtifacts() async -> ArtifactListResponse {
+        await waitForStartup()
+        let records = await store.listPersistedArtifacts()
+        return ArtifactListResponse(artifacts: records.map(Self.artifactRecord(from:)))
+    }
+
+    public func getArtifact(id: String) async -> ArtifactDetailResponse? {
+        await waitForStartup()
+        guard let record = await store.persistedArtifact(id: id) else {
+            return nil
+        }
+        return ArtifactDetailResponse(artifact: Self.artifactRecord(from: record))
+    }
+
     public func getBulletins() async -> [MemoryBulletin] {
         await waitForStartup()
         let runtimeBulletins = await runtime.bulletins()
@@ -63,6 +77,28 @@ extension CoreService {
         let bulletin = await runtime.generateVisorBulletin(taskSummary: taskSummary)
         await store.persistBulletin(bulletin)
         return bulletin
+    }
+
+    private static func artifactRecord(from record: PersistedArtifactRecord) -> ArtifactRecord {
+        let widget: ArtifactWidgetMetadata?
+        if let size = record.widgetSize,
+           let width = record.widgetWidth,
+           let height = record.widgetHeight,
+           let entry = record.widgetEntry {
+            widget = ArtifactWidgetMetadata(size: size, width: width, height: height, entry: entry)
+        } else {
+            widget = nil
+        }
+
+        return ArtifactRecord(
+            id: record.id,
+            title: record.title,
+            kind: record.kind,
+            mediaType: record.mediaType,
+            createdAt: record.createdAt,
+            previewText: record.previewText,
+            widget: widget
+        )
     }
 
     /// Processes autonomous task execution for all projects.

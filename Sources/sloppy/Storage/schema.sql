@@ -31,7 +31,16 @@ CREATE INDEX IF NOT EXISTS idx_events_task_created ON events(task_id, created_at
 
 CREATE TABLE IF NOT EXISTS artifacts (
     id TEXT PRIMARY KEY,
+    title TEXT,
+    kind TEXT,
+    media_type TEXT,
     content TEXT NOT NULL,
+    preview_text TEXT,
+    widget_size TEXT,
+    widget_width INTEGER,
+    widget_height INTEGER,
+    widget_entry TEXT,
+    bundle_path TEXT,
     created_at TEXT NOT NULL
 );
 

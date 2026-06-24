@@ -374,14 +374,29 @@ public actor InMemoryPersistenceStore: PersistenceStore {
         artifactRecords.values.sorted { $0.createdAt < $1.createdAt }
     }
 
+    public func persistArtifact(record: PersistedArtifactRecord) async {
+        artifacts[record.id] = record.content
+        artifactRecords[record.id] = record
+    }
+
     public func persistArtifact(id: String, content: String) async {
-        artifacts[id] = content
         let createdAt = artifactRecords[id]?.createdAt ?? Date()
-        artifactRecords[id] = PersistedArtifactRecord(id: id, content: content, createdAt: createdAt)
+        await persistArtifact(
+            record: PersistedArtifactRecord(
+                id: id,
+                content: content,
+                previewText: String(content.prefix(160)),
+                createdAt: createdAt
+            )
+        )
+    }
+
+    public func persistedArtifact(id: String) async -> PersistedArtifactRecord? {
+        artifactRecords[id]
     }
 
     public func artifactContent(id: String) async -> String? {
-        artifacts[id]
+        artifactRecords[id]?.content ?? artifacts[id]
     }
 
     public func listBulletins() async -> [MemoryBulletin] {
@@ -679,7 +694,16 @@ enum CorePersistenceFactory {
 
         CREATE TABLE IF NOT EXISTS artifacts (
             id TEXT PRIMARY KEY,
+            title TEXT,
+            kind TEXT,
+            media_type TEXT,
             content TEXT NOT NULL,
+            preview_text TEXT,
+            widget_size TEXT,
+            widget_width INTEGER,
+            widget_height INTEGER,
+            widget_entry TEXT,
+            bundle_path TEXT,
             created_at TEXT NOT NULL
         );
 

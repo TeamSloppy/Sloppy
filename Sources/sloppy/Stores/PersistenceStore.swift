@@ -43,12 +43,43 @@ public struct PersistedTaskRecord: Sendable, Equatable {
 
 public struct PersistedArtifactRecord: Sendable, Equatable {
     public var id: String
+    public var title: String
+    public var kind: String
+    public var mediaType: String
     public var content: String
+    public var previewText: String?
+    public var widgetSize: String?
+    public var widgetWidth: Int?
+    public var widgetHeight: Int?
+    public var widgetEntry: String?
+    public var bundlePath: String?
     public var createdAt: Date
 
-    public init(id: String, content: String, createdAt: Date) {
+    public init(
+        id: String,
+        title: String? = nil,
+        kind: String = "document",
+        mediaType: String = "text/plain",
+        content: String,
+        previewText: String? = nil,
+        widgetSize: String? = nil,
+        widgetWidth: Int? = nil,
+        widgetHeight: Int? = nil,
+        widgetEntry: String? = nil,
+        bundlePath: String? = nil,
+        createdAt: Date
+    ) {
         self.id = id
+        self.title = title ?? id
+        self.kind = kind
+        self.mediaType = mediaType
         self.content = content
+        self.previewText = previewText
+        self.widgetSize = widgetSize
+        self.widgetWidth = widgetWidth
+        self.widgetHeight = widgetHeight
+        self.widgetEntry = widgetEntry
+        self.bundlePath = bundlePath
         self.createdAt = createdAt
     }
 }
@@ -338,8 +369,14 @@ public protocol PersistenceStore: Sendable {
     /// Lists persisted artifacts in creation order.
     func listPersistedArtifacts() async -> [PersistedArtifactRecord]
 
+    /// Persists a complete artifact record by identifier.
+    func persistArtifact(record: PersistedArtifactRecord) async
+
     /// Persists an artifact payload by artifact identifier.
     func persistArtifact(id: String, content: String) async
+
+    /// Returns artifact metadata by identifier when available.
+    func persistedArtifact(id: String) async -> PersistedArtifactRecord?
 
     /// Returns artifact content by identifier when available.
     func artifactContent(id: String) async -> String?

@@ -1993,6 +1993,72 @@ func artifactContentNotFound() async {
 }
 
 @Test
+func artifactListIncludesPersistedMetadata() async throws {
+    let service = CoreService(config: .test)
+    await service.store.persistArtifact(
+        record: PersistedArtifactRecord(
+            id: "artifact-list-test",
+            title: "Clock Widget",
+            kind: "widget",
+            mediaType: "text/html",
+            content: "<!doctype html><html><body>Clock</body></html>",
+            previewText: "Clock",
+            widgetSize: "small",
+            widgetWidth: 160,
+            widgetHeight: 120,
+            widgetEntry: "index.html",
+            bundlePath: ".sloppy/artifacts/widgets/artifact-list-test",
+            createdAt: Date(timeIntervalSince1970: 1)
+        )
+    )
+
+    let router = CoreRouter(service: service)
+    let response = await router.handle(method: "GET", path: "/v1/artifacts", body: nil)
+    #expect(response.status == 200)
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let payload = try decoder.decode(ArtifactListResponse.self, from: response.body)
+    let artifact = try #require(payload.artifacts.first(where: { $0.id == "artifact-list-test" }))
+    #expect(artifact.title == "Clock Widget")
+    #expect(artifact.kind == "widget")
+    #expect(artifact.widget?.size == "small")
+    #expect(artifact.widget?.width == 160)
+    #expect(artifact.widget?.height == 120)
+}
+
+@Test
+func artifactDetailReturnsPersistedMetadata() async throws {
+    let service = CoreService(config: .test)
+    await service.store.persistArtifact(
+        record: PersistedArtifactRecord(
+            id: "artifact-detail-test",
+            title: "Sticky",
+            kind: "widget",
+            mediaType: "text/html",
+            content: "<!doctype html><html><body>Sticky</body></html>",
+            previewText: "Sticky",
+            widgetSize: "medium",
+            widgetWidth: 320,
+            widgetHeight: 180,
+            widgetEntry: "index.html",
+            bundlePath: ".sloppy/artifacts/widgets/artifact-detail-test",
+            createdAt: Date(timeIntervalSince1970: 2)
+        )
+    )
+
+    let router = CoreRouter(service: service)
+    let response = await router.handle(method: "GET", path: "/v1/artifacts/artifact-detail-test", body: nil)
+    #expect(response.status == 200)
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let payload = try decoder.decode(ArtifactDetailResponse.self, from: response.body)
+    #expect(payload.artifact.id == "artifact-detail-test")
+    #expect(payload.artifact.widget?.entry == "index.html")
+}
+
+@Test
 func runtimeRecoveryAfterRestartReplaysPersistedState() async throws {
     let config = CoreConfig.test
     let channelID = "recovery-\(UUID().uuidString)"

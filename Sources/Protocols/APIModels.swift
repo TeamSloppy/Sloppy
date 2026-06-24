@@ -182,6 +182,64 @@ public struct ArtifactContentResponse: Codable, Sendable {
     }
 }
 
+public struct ArtifactWidgetMetadata: Codable, Sendable, Equatable {
+    public var size: String
+    public var width: Int
+    public var height: Int
+    public var entry: String
+
+    public init(size: String, width: Int, height: Int, entry: String) {
+        self.size = size
+        self.width = width
+        self.height = height
+        self.entry = entry
+    }
+}
+
+public struct ArtifactRecord: Codable, Sendable, Equatable {
+    public var id: String
+    public var title: String
+    public var kind: String
+    public var mediaType: String
+    public var createdAt: Date
+    public var previewText: String?
+    public var widget: ArtifactWidgetMetadata?
+
+    public init(
+        id: String,
+        title: String,
+        kind: String,
+        mediaType: String,
+        createdAt: Date,
+        previewText: String? = nil,
+        widget: ArtifactWidgetMetadata? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.kind = kind
+        self.mediaType = mediaType
+        self.createdAt = createdAt
+        self.previewText = previewText
+        self.widget = widget
+    }
+}
+
+public struct ArtifactListResponse: Codable, Sendable, Equatable {
+    public var artifacts: [ArtifactRecord]
+
+    public init(artifacts: [ArtifactRecord]) {
+        self.artifacts = artifacts
+    }
+}
+
+public struct ArtifactDetailResponse: Codable, Sendable, Equatable {
+    public var artifact: ArtifactRecord
+
+    public init(artifact: ArtifactRecord) {
+        self.artifact = artifact
+    }
+}
+
 public struct PlanArtifactRecord: Codable, Sendable, Equatable {
     public var projectId: String
     public var projectName: String

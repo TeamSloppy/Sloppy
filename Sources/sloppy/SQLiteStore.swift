@@ -1226,11 +1226,11 @@ public actor SQLiteStore: PersistenceStore {
 #endif
     }
 
-    /// Persists artifact text payload by identifier.
-    public func persistArtifact(id: String, content: String) async {
+    /// Persists artifact metadata and content by identifier.
+    public func persistArtifact(record: PersistedArtifactRecord) async {
 #if canImport(CSQLite3)
         guard let db else {
-            persistFallbackArtifact(id: id, content: content, createdAt: Date())
+            persistFallbackArtifact(record: record)
             return
         }
 
@@ -1238,29 +1238,101 @@ public actor SQLiteStore: PersistenceStore {
             """
             INSERT OR REPLACE INTO artifacts(
                 id,
+                title,
+                kind,
+                media_type,
                 content,
+                preview_text,
+                widget_size,
+                widget_width,
+                widget_height,
+                widget_entry,
+                bundle_path,
                 created_at
-            ) VALUES(?, ?, ?);
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
 
         var statement: OpaquePointer?
         guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
-            persistFallbackArtifact(id: id, content: content, createdAt: Date())
+            persistFallbackArtifact(record: record)
             return
         }
         defer { sqlite3_finalize(statement) }
 
-        let createdAt = Date()
-        bindText(id, at: 1, statement: statement)
-        bindText(content, at: 2, statement: statement)
-        bindText(isoFormatter.string(from: createdAt), at: 3, statement: statement)
+        bindText(record.id, at: 1, statement: statement)
+        bindText(record.title, at: 2, statement: statement)
+        bindText(record.kind, at: 3, statement: statement)
+        bindText(record.mediaType, at: 4, statement: statement)
+        bindText(record.content, at: 5, statement: statement)
+        bindOptionalText(record.previewText, at: 6, statement: statement)
+        bindOptionalText(record.widgetSize, at: 7, statement: statement)
+        bindOptionalInt(record.widgetWidth, at: 8, statement: statement)
+        bindOptionalInt(record.widgetHeight, at: 9, statement: statement)
+        bindOptionalText(record.widgetEntry, at: 10, statement: statement)
+        bindOptionalText(record.bundlePath, at: 11, statement: statement)
+        bindText(isoFormatter.string(from: record.createdAt), at: 12, statement: statement)
 
         if sqlite3_step(statement) != SQLITE_DONE {
-            persistFallbackArtifact(id: id, content: content, createdAt: createdAt)
+            persistFallbackArtifact(record: record)
+            return
         }
+
+        fallbackArtifacts[record.id] = record
 #else
-        persistFallbackArtifact(id: id, content: content, createdAt: Date())
+        persistFallbackArtifact(record: record)
 #endif
+    }
+
+    /// Persists artifact text payload by identifier.
+    public func persistArtifact(id: String, content: String) async {
+        let createdAt = await persistedArtifact(id: id)?.createdAt ?? Date()
+        await persistArtifact(
+            record: PersistedArtifactRecord(
+                id: id,
+                content: content,
+                previewText: String(content.prefix(160)),
+                createdAt: createdAt
+            )
+        )
+    }
+
+    /// Returns artifact metadata by identifier.
+    public func persistedArtifact(id: String) async -> PersistedArtifactRecord? {
+#if canImport(CSQLite3)
+        if let db {
+            let sql =
+                """
+                SELECT
+                    id,
+                    title,
+                    kind,
+                    media_type,
+                    content,
+                    preview_text,
+                    widget_size,
+                    widget_width,
+                    widget_height,
+                    widget_entry,
+                    bundle_path,
+                    created_at
+                FROM artifacts
+                WHERE id = ?
+                LIMIT 1;
+                """
+
+            var statement: OpaquePointer?
+            guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+                return fallbackArtifacts[id]
+            }
+            defer { sqlite3_finalize(statement) }
+
+            bindText(id, at: 1, statement: statement)
+            if sqlite3_step(statement) == SQLITE_ROW {
+                return persistedArtifact(from: statement)
+            }
+        }
+#endif
+        return fallbackArtifacts[id]
     }
 
     /// Returns artifact text payload by identifier.
@@ -2093,13 +2165,8 @@ public actor SQLiteStore: PersistenceStore {
         upsertFallbackTask(event: event)
     }
 
-    private func persistFallbackArtifact(id: String, content: String, createdAt: Date) {
-        let preservedCreatedAt = fallbackArtifacts[id]?.createdAt ?? createdAt
-        fallbackArtifacts[id] = PersistedArtifactRecord(
-            id: id,
-            content: content,
-            createdAt: preservedCreatedAt
-        )
+    private func persistFallbackArtifact(record: PersistedArtifactRecord) {
+        fallbackArtifacts[record.id] = record
     }
 
     private func upsertFallbackChannel(channelId: String, timestamp: Date) {
@@ -2592,7 +2659,19 @@ public actor SQLiteStore: PersistenceStore {
     private func loadPersistedArtifacts(db: OpaquePointer) -> [PersistedArtifactRecord] {
         let sql =
             """
-            SELECT id, content, created_at
+            SELECT
+                id,
+                title,
+                kind,
+                media_type,
+                content,
+                preview_text,
+                widget_size,
+                widget_width,
+                widget_height,
+                widget_entry,
+                bundle_path,
+                created_at
             FROM artifacts
             ORDER BY created_at ASC, id ASC;
             """
@@ -2604,25 +2683,52 @@ public actor SQLiteStore: PersistenceStore {
 
         var result: [PersistedArtifactRecord] = []
         while sqlite3_step(statement) == SQLITE_ROW {
-            guard
-                let idPtr = sqlite3_column_text(statement, 0),
-                let contentPtr = sqlite3_column_text(statement, 1),
-                let createdAtPtr = sqlite3_column_text(statement, 2)
-            else {
+            guard let record = persistedArtifact(from: statement) else {
                 continue
             }
-
-            let createdAt = isoFormatter.date(from: String(cString: createdAtPtr)) ?? Date()
-            result.append(
-                PersistedArtifactRecord(
-                    id: String(cString: idPtr),
-                    content: String(cString: contentPtr),
-                    createdAt: createdAt
-                )
-            )
+            result.append(record)
         }
 
         return result
+    }
+
+    private func persistedArtifact(from statement: OpaquePointer?) -> PersistedArtifactRecord? {
+        guard
+            let statement,
+            let idPtr = sqlite3_column_text(statement, 0),
+            let contentPtr = sqlite3_column_text(statement, 4),
+            let createdAtPtr = sqlite3_column_text(statement, 11)
+        else {
+            return nil
+        }
+
+        let id = String(cString: idPtr)
+        let title = optionalText(statement: statement, index: 1) ?? id
+        let kind = optionalText(statement: statement, index: 2) ?? "document"
+        let mediaType = optionalText(statement: statement, index: 3) ?? "text/plain"
+        let content = String(cString: contentPtr)
+        let previewText = optionalText(statement: statement, index: 5)
+        let widgetSize = optionalText(statement: statement, index: 6)
+        let widgetWidth = optionalInt(statement: statement, index: 7)
+        let widgetHeight = optionalInt(statement: statement, index: 8)
+        let widgetEntry = optionalText(statement: statement, index: 9)
+        let bundlePath = optionalText(statement: statement, index: 10)
+        let createdAt = isoFormatter.date(from: String(cString: createdAtPtr)) ?? Date()
+
+        return PersistedArtifactRecord(
+            id: id,
+            title: title,
+            kind: kind,
+            mediaType: mediaType,
+            content: content,
+            previewText: previewText,
+            widgetSize: widgetSize,
+            widgetWidth: widgetWidth,
+            widgetHeight: widgetHeight,
+            widgetEntry: widgetEntry,
+            bundlePath: bundlePath,
+            createdAt: createdAt
+        )
     }
 
     private func upsertChannel(db: OpaquePointer, channelId: String, timestamp: Date) {
@@ -2749,6 +2855,14 @@ public actor SQLiteStore: PersistenceStore {
     private func bindOptionalText(_ value: String?, at index: Int32, statement: OpaquePointer?) {
         if let value {
             bindText(value, at: index, statement: statement)
+        } else {
+            sqlite3_bind_null(statement, index)
+        }
+    }
+
+    private func bindOptionalInt(_ value: Int?, at index: Int32, statement: OpaquePointer?) {
+        if let value {
+            sqlite3_bind_int(statement, index, Int32(value))
         } else {
             sqlite3_bind_null(statement, index)
         }
@@ -2953,6 +3067,28 @@ public actor SQLiteStore: PersistenceStore {
             "ALTER TABLE events ADD COLUMN extensions_json TEXT NOT NULL DEFAULT '{}';",
             nil, nil, nil
         )
+    }
+
+    private static func applyArtifactMigrations(db: OpaquePointer?) {
+        guard let db else {
+            return
+        }
+
+        let statements = [
+            "ALTER TABLE artifacts ADD COLUMN title TEXT;",
+            "ALTER TABLE artifacts ADD COLUMN kind TEXT;",
+            "ALTER TABLE artifacts ADD COLUMN media_type TEXT;",
+            "ALTER TABLE artifacts ADD COLUMN preview_text TEXT;",
+            "ALTER TABLE artifacts ADD COLUMN widget_size TEXT;",
+            "ALTER TABLE artifacts ADD COLUMN widget_width INTEGER;",
+            "ALTER TABLE artifacts ADD COLUMN widget_height INTEGER;",
+            "ALTER TABLE artifacts ADD COLUMN widget_entry TEXT;",
+            "ALTER TABLE artifacts ADD COLUMN bundle_path TEXT;"
+        ]
+
+        for statement in statements {
+            _ = sqlite3_exec(db, statement, nil, nil, nil)
+        }
     }
 
     private static func applyChannelPluginMigrations(db: OpaquePointer?) {
@@ -3936,6 +4072,7 @@ public actor SQLiteStore: PersistenceStore {
         }
 
         applyRuntimeEventMigrations(db: db)
+        applyArtifactMigrations(db: db)
         applyProjectTaskMigrations(db: db)
         applyChannelPluginMigrations(db: db)
         applyWorkflowMigrations(db: db)
