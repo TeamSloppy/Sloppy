@@ -51,7 +51,7 @@ extension CoreService {
                 content: message,
                 attachments: request.attachments,
                 spawnSubSession: false,
-                mode: .ask
+                mode: .auto
             )
         )
         let assistantText = latestAssistantText(from: response.appendedEvents)

@@ -426,6 +426,7 @@ extension CoreService {
         sessionID: String,
         request: AgentSessionPostMessageRequest
     ) async throws -> AgentSessionMessageResponse {
+        let effectiveRequest = AgentSessionOrchestrator.requestByApplyingOneShotModeCommand(request)
         await waitForStartup()
         guard let normalizedAgentID = normalizedAgentID(agentID) else {
             throw AgentSessionError.invalidAgentID
@@ -436,22 +437,22 @@ extension CoreService {
         }
 
         _ = try getAgent(id: normalizedAgentID)
-        if request.userId == "onboarding" {
+        if effectiveRequest.userId == "onboarding" {
             logger.info(
                 "onboarding.message.posted",
                 metadata: [
                     "agent_id": .string(normalizedAgentID),
                     "session_id": .string(normalizedSessionID),
-                    "content_chars": .stringConvertible(request.content.count)
+                    "content_chars": .stringConvertible(effectiveRequest.content.count)
                 ]
             )
         }
 
-        if request.mode == .debug {
+        if effectiveRequest.mode == .debug {
             do {
                 let detail = try sessionStore.loadSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
                 await ensureDebugDirectoryForSessionIfNeeded(
-                    chatMode: request.mode,
+                    chatMode: effectiveRequest.mode,
                     sessionID: normalizedSessionID,
                     sessionTitle: detail.summary.title,
                     projectID: detail.summary.projectId
@@ -461,7 +462,7 @@ extension CoreService {
             }
         }
 
-        let bypassToolUsageLimits = Self.shouldBypassToolUsageLimits(userID: request.userId)
+        let bypassToolUsageLimits = Self.shouldBypassToolUsageLimits(userID: effectiveRequest.userId)
         if bypassToolUsageLimits {
             sessionToolUsageLimitBypass.insert(normalizedSessionID)
         }
@@ -475,9 +476,9 @@ extension CoreService {
             let response = try await sessionOrchestrator.postMessage(
                 agentID: normalizedAgentID,
                 sessionID: normalizedSessionID,
-                request: request
+                request: effectiveRequest
             )
-            let uid = request.userId.lowercased()
+            let uid = effectiveRequest.userId.lowercased()
             let skipUserTurnCount = uid == "system_task_worker" || uid == "memory_checkpoint" || uid == "onboarding" || uid == "goal" || uid == "goal_loop"
             if !skipUserTurnCount {
                 do {
@@ -503,12 +504,12 @@ extension CoreService {
                 agentID: normalizedAgentID,
                 sessionID: normalizedSessionID,
                 response: response,
-                userID: request.userId
+                userID: effectiveRequest.userId
             )
             await scheduleGoalContinuationIfNeeded(
                 agentID: normalizedAgentID,
                 sessionID: normalizedSessionID,
-                request: request,
+                request: effectiveRequest,
                 response: response
             )
             return response

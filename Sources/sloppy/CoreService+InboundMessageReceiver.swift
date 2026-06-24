@@ -1157,24 +1157,7 @@ extension CoreService: InboundMessageReceiver {
     }
 
     func inboundOneShotChatModeCommand(_ content: String) -> (mode: AgentChatMode, message: String)? {
-        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        let lower = trimmed.lowercased()
-        let command: String
-        let mode: AgentChatMode
-        if lower == "/ask" || lower.hasPrefix("/ask ") {
-            command = "/ask"
-            mode = .ask
-        } else if lower == "/plan" || lower.hasPrefix("/plan ") {
-            command = "/plan"
-            mode = .plan
-        } else if lower == "/auto" || lower.hasPrefix("/auto ") {
-            command = "/auto"
-            mode = .auto
-        } else {
-            return nil
-        }
-        let message = String(trimmed.dropFirst(command.count)).trimmingCharacters(in: .whitespacesAndNewlines)
-        return (mode, message)
+        AgentSessionOrchestrator.oneShotModeCommand(content)
     }
 
     private func customPlanInputAnswers(

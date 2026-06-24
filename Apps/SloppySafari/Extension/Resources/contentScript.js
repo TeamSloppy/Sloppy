@@ -523,6 +523,7 @@ function ensureSearchButton() {
   button.innerHTML = `
     <span class="sloppy-star-button-light" aria-hidden="true"></span>
     <span class="sloppy-star-button-background" aria-hidden="true">${starButtonBackgroundMarkup()}</span>
+    <span class="sloppy-star-button-logo" style="--sloppy-logo-url: url('${escapeHTML(logoURL())}')" aria-hidden="true"></span>
     <strong>${escapeHTML(t("askSloppy"))}</strong>
   `;
   button.addEventListener("click", () => {

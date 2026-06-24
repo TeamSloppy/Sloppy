@@ -42,7 +42,7 @@ struct SafariBridgeRouterTests {
         )
         #expect(registerResponse.status == 200)
 
-        let toolResponse = await router.handle(
+        async let toolResponse = router.handle(
             method: "POST",
             path: "/v1/agents/sloppy/sessions/\(session.id)/tools/invoke",
             body: try encoder.encode(
@@ -50,9 +50,52 @@ struct SafariBridgeRouterTests {
             )
         )
 
-        #expect(toolResponse.status == 200)
-        let result = try decoder.decode(ToolInvocationResult.self, from: toolResponse.body)
+        let polled = await pollUntilCommandAvailable(service: service.safariBridgeService, bridgeId: "safari-router")
+        let command = try #require(polled.commands.first)
+        #expect(command.name == "safari.tabs")
+        try await service.safariBridgeService.completeCommand(
+            SafariBridgeCommandResultRequest(
+                commandId: command.id,
+                ok: true,
+                data: .object([
+                    "tabs": .array([
+                        .object([
+                            "id": .number(11),
+                            "url": .string("https://one.example"),
+                            "title": .string("One"),
+                            "active": .bool(true),
+                            "currentWindow": .bool(true),
+                        ]),
+                        .object([
+                            "id": .number(12),
+                            "url": .string("https://two.example"),
+                            "title": .string("Two"),
+                            "active": .bool(false),
+                            "currentWindow": .bool(true),
+                        ]),
+                    ])
+                ])
+            )
+        )
+
+        let response = try await toolResponse
+        #expect(response.status == 200)
+        let result = try decoder.decode(ToolInvocationResult.self, from: response.body)
         #expect(result.ok == true)
         #expect(result.data?.asObject?["tabs"]?.asArray?.count == 2)
+    }
+
+    private func pollUntilCommandAvailable(
+        service: SafariBridgeService,
+        bridgeId: String
+    ) async -> SafariBridgeCommandListResponse {
+        for _ in 0..<20 {
+            let response = await service.pollCommands(bridgeId: bridgeId, limit: 5)
+            if !response.commands.isEmpty {
+                return response
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
+        return SafariBridgeCommandListResponse()
     }
 }

@@ -557,7 +557,7 @@ async function postSessionBrowserMessage(settings, payload, encodedAgentId, sess
       content: browserContextPrompt(payload.page, payload.selection.text, payload.browser, payload.prompt),
       attachments: payload.attachments || [],
       spawnSubSession: false,
-      mode: "ask",
+      mode: "auto",
       ...(payload.target.model ? { model: payload.target.model } : {})
     })
   }, fetchImpl);

@@ -1040,12 +1040,12 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
   bottom: 24px;
   z-index: 2147483644;
   display: inline-flex;
-  min-width: 150px;
+  min-width: 178px;
   height: 48px;
   align-items: center;
   justify-content: center;
-  gap: 0;
-  padding: 0 18px;
+  gap: 9px;
+  padding: 0 20px;
   color: white;
   font: 700 14px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   cursor: pointer;
@@ -1093,6 +1093,17 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
   display: block;
   width: 100%;
   height: 100%;
+}
+
+#sloppy-search-ask-button .sloppy-star-button-logo {
+  position: relative;
+  z-index: 2;
+  width: 22px;
+  height: 22px;
+  flex: 0 0 auto;
+  background: linear-gradient(to top, #ffffff, #8a8f98);
+  -webkit-mask: var(--sloppy-logo-url) center / contain no-repeat;
+  mask: var(--sloppy-logo-url) center / contain no-repeat;
 }
 
 #sloppy-search-ask-button strong {

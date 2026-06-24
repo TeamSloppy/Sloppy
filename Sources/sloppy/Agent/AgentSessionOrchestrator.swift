@@ -233,6 +233,7 @@ actor AgentSessionOrchestrator {
         sessionID: String,
         request: AgentSessionPostMessageRequest
     ) async throws -> AgentSessionMessageResponse {
+        let effectiveRequest = Self.requestByApplyingOneShotModeCommand(request)
         do {
             try await ensureSessionContextLoaded(agentID: agentID, sessionID: sessionID)
         } catch {
@@ -252,7 +253,7 @@ actor AgentSessionOrchestrator {
 
         let catalogModel = agentConfig.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
         let availableModelIDs = Set(agentConfig.availableModels.map(\.id))
-        let overrideRaw = request.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let overrideRaw = effectiveRequest.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
         let selectedModel: String?
         if let raw = overrideRaw, !raw.isEmpty, availableModelIDs.contains(raw) {
             selectedModel = raw
@@ -268,11 +269,11 @@ actor AgentSessionOrchestrator {
                 .map { $0.lowercased() } ?? []
         )
         let reasoningEffort = agentConfig.runtime.type == .native && selectedModelCapabilities.contains("reasoning")
-            ? (request.reasoningEffort ?? agentConfig.reasoningEffort)
+            ? (effectiveRequest.reasoningEffort ?? agentConfig.reasoningEffort)
             : nil
 
-        let content = request.content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !content.isEmpty || !request.attachments.isEmpty else {
+        let content = effectiveRequest.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !content.isEmpty || !effectiveRequest.attachments.isEmpty else {
             throw OrchestratorError.invalidPayload
         }
 
@@ -284,11 +285,11 @@ actor AgentSessionOrchestrator {
             metadata: [
                 "agent_id": .string(agentID),
                 "session_id": .string(sessionID),
-                "user_id": .string(request.userId),
-                "mode": .string((request.mode ?? AgentChatMode.defaultMode).rawValue),
+                "user_id": .string(effectiveRequest.userId),
+                "mode": .string((effectiveRequest.mode ?? AgentChatMode.defaultMode).rawValue),
                 "planner_model": .string(optionalString(plannerModel)),
                 "executor_model": .string(optionalString(selectedModel)),
-                "attachment_count": .stringConvertible(request.attachments.count),
+                "attachment_count": .stringConvertible(effectiveRequest.attachments.count),
                 "prompt": .string(truncateForLog(content.isEmpty ? "[attachments_only_prompt]" : content))
             ]
         )
@@ -298,7 +299,7 @@ actor AgentSessionOrchestrator {
             attachments = try sessionStore.persistAttachments(
                 agentID: agentID,
                 sessionID: sessionID,
-                uploads: request.attachments
+                uploads: effectiveRequest.attachments
             )
         } catch {
             throw mapSessionStoreError(error)
@@ -315,7 +316,7 @@ actor AgentSessionOrchestrator {
         let userMessage = AgentSessionMessage(
             role: .user,
             segments: userSegments,
-            userId: request.userId
+            userId: effectiveRequest.userId
         )
 
         let thinkingText =
@@ -375,13 +376,13 @@ actor AgentSessionOrchestrator {
             throw mapSessionStoreError(error)
         }
 
-        let requestMode = request.mode ?? .defaultMode
+        let requestMode = effectiveRequest.mode ?? .defaultMode
         let installedSkills = requestMode == .auto ? loadInstalledSkills(agentID: agentID) : []
         let autoRouteCatalog = requestMode == .auto
             ? AutoRouteCatalog.markdown(installedSkills: installedSkills)
             : nil
         let runtimeContent = Self.contentWithFriendReminder(
-            Self.runtimeContent(content, mode: request.mode, autoRouteCatalog: autoRouteCatalog),
+            Self.runtimeContent(content, mode: effectiveRequest.mode, autoRouteCatalog: autoRouteCatalog),
             documents: agentConfig.documents
         )
 
@@ -404,7 +405,7 @@ actor AgentSessionOrchestrator {
             runtimeOutcome = await postNativeMessage(
                 agentID: agentID,
                 sessionID: sessionID,
-                userID: request.userId,
+                userID: effectiveRequest.userId,
                 content: plannedRuntimeContent,
                 selectedModel: selectedModel,
                 reasoningEffort: reasoningEffort,
@@ -474,7 +475,7 @@ actor AgentSessionOrchestrator {
             logSessionRunCompletion(
                 agentID: agentID,
                 sessionID: sessionID,
-                userID: request.userId,
+                userID: effectiveRequest.userId,
                 runtimeType: agentConfig.runtime.type,
                 requestMode: requestMode,
                 selectedModel: selectedModel,
@@ -512,7 +513,7 @@ actor AgentSessionOrchestrator {
                 )
             )
         }
-        if request.spawnSubSession {
+        if effectiveRequest.spawnSubSession {
             let childSummary: AgentSessionSummary
             do {
                 childSummary = try sessionStore.createSession(
@@ -955,6 +956,50 @@ actor AgentSessionOrchestrator {
             return headerWithCatalog
         }
         return "\(headerWithCatalog)\n\n[User request]\n\(trimmed)"
+    }
+
+    static func oneShotModeCommand(_ content: String) -> (mode: AgentChatMode, message: String)? {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        let lower = trimmed.lowercased()
+        let command: String
+        let mode: AgentChatMode
+        if lower == "/ask" || lower.hasPrefix("/ask ") {
+            command = "/ask"
+            mode = .ask
+        } else if lower == "/plan" || lower.hasPrefix("/plan ") {
+            command = "/plan"
+            mode = .plan
+        } else if lower == "/build" || lower.hasPrefix("/build ") {
+            command = "/build"
+            mode = .build
+        } else if lower == "/debug" || lower.hasPrefix("/debug ") {
+            command = "/debug"
+            mode = .debug
+        } else if lower == "/auto" || lower.hasPrefix("/auto ") {
+            command = "/auto"
+            mode = .auto
+        } else {
+            return nil
+        }
+        let message = String(trimmed.dropFirst(command.count)).trimmingCharacters(in: .whitespacesAndNewlines)
+        return (mode, message)
+    }
+
+    static func requestByApplyingOneShotModeCommand(
+        _ request: AgentSessionPostMessageRequest
+    ) -> AgentSessionPostMessageRequest {
+        guard let command = oneShotModeCommand(request.content), !command.message.isEmpty else {
+            return request
+        }
+        return AgentSessionPostMessageRequest(
+            userId: request.userId,
+            content: command.message,
+            attachments: request.attachments,
+            spawnSubSession: request.spawnSubSession,
+            reasoningEffort: request.reasoningEffort,
+            selectedModel: request.selectedModel,
+            mode: command.mode
+        )
     }
 
     private static func recoverySourceSessionID(from request: AgentSessionCreateRequest) -> String? {

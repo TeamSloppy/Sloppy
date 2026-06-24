@@ -1012,7 +1012,7 @@ test("postBrowserContext falls back to session message endpoints when browser en
   assert.equal(result.status, "completed");
   assert.equal(result.text, "Fallback answer");
   assert.deepEqual(requests[2].body.attachments, [{ name: "paste.png", mimeType: "image/png", sizeBytes: 4, contentBase64: "abcd" }]);
-  assert.equal(requests[2].body.mode, "ask");
+  assert.equal(requests[2].body.mode, "auto");
   assert.match(requests[2].body.content, /No selected text\./);
   assert.match(requests[2].body.content, /Safari page snapshot:/);
   assert.match(requests[2].body.content, /Repository page content/);
@@ -1144,6 +1144,7 @@ test("postBrowserContextStreaming opens a session stream and posts the browser m
       ["POST", "/v1/agents/sloppy/sessions/session-1/messages"]
     ]
   );
+  assert.equal(requests[2].body.mode, "auto");
 });
 
 test("postBrowserContextStreaming reads final assistant content from message content field", async () => {

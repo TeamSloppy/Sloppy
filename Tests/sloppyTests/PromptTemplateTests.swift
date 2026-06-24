@@ -119,6 +119,15 @@ func promptTemplateLoaderFindsResourcesFromTopLevelSloppySourceFile() throws {
 }
 
 @Test
+func completionReflectionTellsAgentToDecideInsteadOfAskingUser() throws {
+    let prompt = try PromptTemplateLoader().loadPartial(named: "completion_reflection")
+
+    #expect(prompt.contains("decide yourself"))
+    #expect(!prompt.contains("close your final response with a brief question"))
+    #expect(!prompt.contains("Ask in the user's language"))
+}
+
+@Test
 func agentPromptComposerIncludesSharedMemoryRulesOnlyWhenEnabled() throws {
     let loader = PromptTemplateLoader(resolver: { relativePath in
         if relativePath.hasPrefix("partials/") {

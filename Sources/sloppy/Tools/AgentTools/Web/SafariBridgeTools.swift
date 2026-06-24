@@ -12,8 +12,9 @@ struct SafariTabsTool: CoreTool {
     var parameters: GenerationSchema { .objectSchema([]) }
 
     func invoke(arguments _: [String: JSONValue], context: ToolContext) async -> ToolInvocationResult {
-        let payload = await context.safariBridgeService.statusPayload()
-        return toolSuccess(tool: name, data: payload)
+        await safariBridgeResult(tool: name) {
+            try await context.safariBridgeService.runCommand(name: name)
+        }
     }
 }
 

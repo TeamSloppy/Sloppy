@@ -43,6 +43,8 @@ func agentChatModeRuntimeInstructionsMatchModeSemantics() {
     #expect(ask.contains("web.search"))
     #expect(ask.contains("web.fetch"))
     #expect(ask.contains("Do not edit files"))
+    #expect(ask.contains("/build <request>"))
+    #expect(ask.contains("/debug <request>"))
     #expect(build.contains("Instructions are loaded from built-in skill `sloppy/mode-build`"))
     #expect(build.contains("Implement the requested change"))
     #expect(build.contains("writing code"))
@@ -100,6 +102,7 @@ func agentChatModeRuntimeInstructionsMatchModeSemantics() {
     #expect(auto.contains("route: mode-debug"))
     #expect(auto.contains("route: mode-build"))
     #expect(auto.contains("route: mode-ask"))
+    #expect(auto.contains("run JavaScript in Safari"))
     #expect(auto.contains("Do not mutate files unless the selected route permits it"))
 }
 

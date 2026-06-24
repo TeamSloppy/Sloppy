@@ -475,6 +475,43 @@ func nativeAgentRunPlansWithPlannerModelThenExecutesWithExecutorModel() async th
 }
 
 @Test
+func agentSessionOneShotBuildCommandOverridesAskMode() async throws {
+    let modelID = "mock:default"
+    let availableModels = [
+        ProviderModelOption(id: modelID, title: "Mock")
+    ]
+    let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
+        agentID: "one-shot-build-agent",
+        selectedModel: modelID,
+        availableModels: availableModels
+    )
+    let provider = SessionCapturingModelProvider(models: [modelID])
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: modelID)
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels
+    )
+
+    let session = try await orchestrator.createSession(agentID: "one-shot-build-agent", request: AgentSessionCreateRequest())
+    _ = try await orchestrator.postMessage(
+        agentID: "one-shot-build-agent",
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(
+            userId: "dashboard",
+            content: "/build Fix the router",
+            mode: .ask
+        )
+    )
+
+    let prompts = await provider.requestedPromptsSnapshot()
+    #expect(prompts.last?.contains("[Sloppy runtime mode]\nmode: build") == true)
+    #expect(prompts.last?.contains("[User request]\nFix the router") == true)
+    #expect(prompts.last?.contains("[User request]\n/build") == false)
+}
+
+@Test
 func agentSessionLeanBootstrapUsesManifestInsteadOfLargeDocuments() async throws {
     let agentID = "lean-bootstrap-agent"
     let modelID = "mock:default"
