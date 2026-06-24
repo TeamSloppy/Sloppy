@@ -23,6 +23,7 @@ struct WidgetArtifactService {
         case invalidSize
         case invalidPrompt
         case invalidHTML
+        case externalResource
     }
 
     static let entryFileName = "index.html"
@@ -39,6 +40,16 @@ struct WidgetArtifactService {
         default:
             throw WidgetError.invalidSize
         }
+    }
+
+    static func sizeName(width: Int, height: Int) -> String {
+        if width == 320 && height == 180 {
+            return "medium"
+        }
+        if width == 320 && height == 320 {
+            return "large"
+        }
+        return "small"
     }
 
     static func normalizedPrompt(_ prompt: String) throws -> String {
@@ -78,6 +89,18 @@ struct WidgetArtifactService {
         let lowercased = html.lowercased()
         guard lowercased.contains("<!doctype html>") || lowercased.contains("<html") else {
             throw WidgetError.invalidHTML
+        }
+        let forbiddenPatterns = [
+            #"\s(?:src|href|poster|data|action)\s*=\s*["']\s*(?:https?:|//)"#,
+            #"@import\s+(?:url\()?["']?\s*(?:https?:|//)"#,
+            #"url\(\s*["']?\s*(?:https?:|//)"#,
+            #"\b(?:fetch|xmlhttprequest|websocket|eventsource|beacon|sendbeacon|importscripts)\s*\("#,
+            #"<\s*(?:script|link)\b[^>]*\s(?:src|href)\s*="#
+        ]
+        for pattern in forbiddenPatterns {
+            if lowercased.range(of: pattern, options: .regularExpression) != nil {
+                throw WidgetError.externalResource
+            }
         }
     }
 

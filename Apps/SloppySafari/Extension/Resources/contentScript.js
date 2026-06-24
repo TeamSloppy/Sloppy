@@ -110,44 +110,168 @@ function renderMarkdown(markdown = "") {
     .join("");
 }
 
-function icon(name) {
-  const symbols = {
-    close: "xmark",
-    mic: "waveform",
-    microphone: "microphone",
-    "arrow-up": "arrow.up",
-    plus: "plus",
-    settings: "gear",
-    screenshot: "camera.on.rectangle",
-    tab: "square.and.arrow.down",
-    file: "square.and.arrow.down",
-    tool: "brain",
-    sessions: "list.bullet",
-    fact: "checkmark.shield",
-    define: "questionmark.text.page",
-    summarize: "text.aligncenter",
-    translate: "translate",
-    hide: "eye.slash",
-    more: "ellipsis",
-    expand: "arrow.down.left.and.arrow.up.right",
-    search: "magnifyingglass",
-    sidebar: "sidebar.leading",
-    model: "brain",
-    project: "folder",
-    customize: "gear",
-    artifacts: "wrench.and.screwdriver"
+function iconAsset(path) {
+  const assetPath = String(path || "").trim();
+  return typeof chrome !== "undefined" && typeof chrome.runtime?.getURL === "function"
+    ? chrome.runtime.getURL(assetPath)
+    : assetPath;
+}
+
+const iconSymbols = {
+  close: "xmark",
+  mic: "waveform",
+  microphone: "microphone",
+  "arrow-up": "arrow.up",
+  plus: "plus",
+  settings: "gear",
+  screenshot: "camera.on.rectangle",
+  tab: "square.and.arrow.down",
+  file: "square.and.arrow.down",
+  tool: "brain",
+  sessions: "list.bullet",
+  fact: "checkmark.shield",
+  define: "questionmark.text.page",
+  summarize: "text.aligncenter",
+  translate: "translate",
+  hide: "eye.slash",
+  more: "ellipsis",
+  expand: "arrow.down.left.and.arrow.up.right",
+  search: "magnifyingglass",
+  sidebar: "sidebar.leading",
+  model: "brain",
+  project: "folder",
+  customize: "gear",
+  artifacts: "xmark.triangle.circle.square"
+};
+
+function iconSymbol(name) {
+  return iconSymbols[name] || "ellipsis";
+}
+
+function icon(name, hoverIcon = "") {
+  const symbol = iconSymbol(name);
+  const iconURL = iconAsset(`${symbol}.svg`);
+  const safeIconURL = escapeHTML(iconURL);
+  const hoverVariable = String(hoverIcon || "").trim()
+    ? `; --sloppy-symbol-hover-url: url('${escapeHTML(iconAsset(hoverIcon))}')`
+    : "";
+  return `<span class="sloppy-symbol" aria-hidden="true" data-sf-symbol="${escapeHTML(symbol)}" style="--sloppy-symbol-base-url: url('${safeIconURL}'); --sloppy-symbol-url: url('${safeIconURL}')${hoverVariable}"></span>`;
+}
+
+function applySymbolFallbackVariables(frame) {
+  const symbols = frame.querySelectorAll(".sloppy-symbol[data-sf-symbol]");
+  symbols.forEach((symbolElement) => {
+    const dataSymbol = String(symbolElement.getAttribute("data-sf-symbol") || "").trim();
+    const symbol = iconSymbol(dataSymbol);
+    const iconURL = iconAsset(`${symbol}.svg`);
+    if (!iconURL) {
+      return;
+    }
+    const safeIconURL = escapeHTML(iconURL);
+    const baseVariable = symbolElement.style.getPropertyValue("--sloppy-symbol-base-url").trim();
+    const fallbackVariable = symbolElement.style.getPropertyValue("--sloppy-symbol-url").trim();
+    const isEmptyFallback = String(fallbackVariable).includes("url('')") || String(fallbackVariable).trim() === "";
+    if (!baseVariable || isEmptyFallback) {
+      symbolElement.style.setProperty("--sloppy-symbol-base-url", `url('${safeIconURL}')`);
+    }
+    if (!fallbackVariable || isEmptyFallback) {
+      symbolElement.style.setProperty("--sloppy-symbol-url", `url('${safeIconURL}')`);
+    }
+  });
+}
+
+function setSidebarChevronIcon(button, baseIconName) {
+  if (!button) {
+    return;
+  }
+  const symbolContainer = button.querySelector(".sloppy-symbol");
+  if (!symbolContainer) {
+    return;
+  }
+  const symbol = iconSymbol(baseIconName);
+  const baseURL = `url('${escapeHTML(iconAsset(`${symbol}.svg`))}')`;
+  const hoverURL = `url('${escapeHTML(iconAsset("icons/chevron.down.svg"))}')`;
+  symbolContainer.setAttribute("data-sf-symbol", symbol);
+  symbolContainer.style.setProperty("--sloppy-symbol-base-url", baseURL);
+  symbolContainer.style.setProperty("--sloppy-symbol-url", baseURL);
+  symbolContainer.style.setProperty("--sloppy-symbol-active-url", baseURL);
+  symbolContainer.style.setProperty("--sloppy-symbol-hover-url", hoverURL);
+}
+
+function refreshSidebarChevronIcons(frame) {
+  const projectsButton = frame.querySelector("[data-sloppy-sidebar-projects]");
+  const sessionsButton = frame.querySelector("[data-sloppy-sidebar-sessions]");
+  const artifactsButton = frame.querySelector("[data-sloppy-sidebar-artifacts]");
+  setSidebarChevronIcon(projectsButton, "project");
+  setSidebarChevronIcon(artifactsButton, "artifacts");
+  setSidebarChevronIcon(sessionsButton, "sessions");
+
+  wireSidebarChevronHover(projectsButton);
+  wireSidebarChevronHover(sessionsButton);
+  wireSidebarChevronHover(artifactsButton);
+}
+
+const sidebarChevronBindings = new WeakMap();
+
+function wireSidebarChevronHover(button) {
+  if (!button) {
+    return;
+  }
+  const cleanup = sidebarChevronBindings.get(button);
+  if (cleanup) {
+    button.removeEventListener("pointerenter", cleanup.onEnter);
+    button.removeEventListener("pointerleave", cleanup.onLeave);
+    button.removeEventListener("focus", cleanup.onEnter);
+    button.removeEventListener("blur", cleanup.onLeave);
+    button.removeEventListener("pointercancel", cleanup.onLeave);
+  }
+
+  const getSymbolState = () => {
+    const symbol = button.querySelector(".sloppy-symbol");
+    if (!symbol) {
+      return null;
+    }
+    const baseIcon = symbol.style.getPropertyValue("--sloppy-symbol-base-url").trim();
+    const hoverIcon = symbol.style.getPropertyValue("--sloppy-symbol-hover-url").trim();
+    const fallbackIcon = symbol.style.getPropertyValue("--sloppy-symbol-url").trim();
+    const base = baseIcon || fallbackIcon;
+    if (!base) {
+      return null;
+    }
+    return {
+      symbol,
+      base,
+      hover: hoverIcon || base
+    };
   };
-  const symbol = symbols[name] || "ellipsis";
-  const path = `${symbol}.svg`;
-  const iconURL = typeof chrome !== "undefined" && typeof chrome.runtime?.getURL === "function"
-    ? chrome.runtime.getURL(path)
-    : path;
-  return `<span class="sloppy-symbol" aria-hidden="true" data-sf-symbol="${escapeHTML(symbol)}" style="--sloppy-symbol-url: url('${escapeHTML(iconURL)}')"></span>`;
+
+  const setActive = (isHover) => {
+    const state = getSymbolState();
+    if (!state) {
+      return;
+    }
+    state.symbol.style.setProperty("--sloppy-symbol-active-url", isHover ? state.hover : state.base);
+  };
+
+  const onEnter = () => setActive(true);
+  const onLeave = () => setActive(false);
+
+  button.addEventListener("pointerenter", onEnter);
+  button.addEventListener("pointerleave", onLeave);
+  button.addEventListener("focus", onEnter);
+  button.addEventListener("blur", onLeave);
+  button.addEventListener("pointercancel", onLeave);
+  sidebarChevronBindings.set(button, { onEnter, onLeave });
+
+  const initialState = getSymbolState();
+  if (initialState) {
+    initialState.symbol.style.setProperty("--sloppy-symbol-active-url", initialState.base);
+  }
 }
 
 const sidebarMinWidth = 128;
 const sidebarMaxWidth = 360;
-const defaultSidebarWidth = 168;
+const defaultSidebarWidth = 280;
 
 function normalizeSidebarState(value = {}) {
   const width = Math.min(sidebarMaxWidth, Math.max(sidebarMinWidth, Number(value.width) || defaultSidebarWidth));
@@ -345,9 +469,11 @@ function updateViewportCSSVars() {
     return;
   }
   const metrics = viewportMetrics(window);
+  const safeWidth = Math.max(Number(metrics.width || 0), Number(window.innerWidth || 0));
+  const safeHeight = Math.max(Number(metrics.height || 0), Number(window.innerHeight || 0));
   const root = document.documentElement;
-  root.style.setProperty("--sloppy-viewport-width", `${metrics.width}px`);
-  root.style.setProperty("--sloppy-viewport-height", `${metrics.height}px`);
+  root.style.setProperty("--sloppy-viewport-width", `${safeWidth}px`);
+  root.style.setProperty("--sloppy-viewport-height", `${safeHeight}px`);
   root.style.setProperty("--sloppy-viewport-top", `${metrics.top}px`);
   root.style.setProperty("--sloppy-viewport-left", `${metrics.left}px`);
   root.style.setProperty("--sloppy-viewport-bottom-gap", `${metrics.bottomGap}px`);
@@ -397,6 +523,7 @@ const state = {
   quickChat: null,
   sidebar: normalizeSidebarState(),
   artifacts: [],
+  widgetHTMLByArtifactId: {},
   voiceConfig: {
     enabled: false,
     effectiveProvider: "local",
@@ -489,10 +616,12 @@ function ensurePanel() {
     if (isFullscreen) {
       frame.querySelector("[data-sloppy-sessions]")?.remove();
     }
+    refreshSidebarChevronIcons(frame);
     applySidebarState(frame);
     if (isFullscreen) {
       frame.querySelector("[data-sloppy-capture]")?.remove();
     }
+    applySymbolFallbackVariables(frame);
     return frame;
   }
 
@@ -509,23 +638,27 @@ function ensurePanel() {
       <nav class="sloppy-app-sidebar" data-sloppy-app-sidebar aria-label="${escapeHTML(t("navigation"))}">
         <button class="sloppy-icon-button sloppy-sidebar-collapse" type="button" data-sloppy-sidebar-collapse aria-label="${escapeHTML(t("hideSidebar"))}">${icon("sidebar")}</button>
         <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-new>${icon("plus")}<span>${escapeHTML(t("newSession"))}</span></button>
-        <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-projects>${icon("project")}<span>${escapeHTML(t("projects"))}</span></button>
-        <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-sessions>${icon("sessions")}<span>${escapeHTML(t("sessions"))}</span></button>
-        <div class="sloppy-sidebar-session-list" data-sloppy-sidebar-session-list></div>
-        <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-artifacts>${icon("artifacts")}<span>${escapeHTML(t("artifacts"))}</span></button>
+        <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-artifacts>${icon("artifacts", "icons/chevron.down.svg")}<span>${escapeHTML(t("artifacts"))}</span></button>
         <div class="sloppy-sidebar-artifact-list" data-sloppy-sidebar-artifact-list hidden></div>
+        <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-projects>${icon("project", "icons/chevron.down.svg")}<span>${escapeHTML(t("projects"))}</span></button>
+        <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-sessions>${icon("sessions", "icons/chevron.down.svg")}<span>${escapeHTML(t("sessions"))}</span></button>
+        <div class="sloppy-sidebar-session-list" data-sloppy-sidebar-session-list></div>
       </nav>
       <div class="sloppy-sidebar-resizer" data-sloppy-sidebar-resizer role="separator" aria-orientation="vertical" aria-label="${escapeHTML(t("sessions"))}" tabindex="0"></div>
 
       <div class="sloppy-shell">
       <header class="sloppy-topbar">
-        <div class="sloppy-brand">
-          <img class="sloppy-mark" src="${logoURL()}" alt="" aria-hidden="true">
-          <select data-sloppy-agent aria-label="${escapeHTML(t("agent"))}"></select>
+        <div class="sloppy-topbar-leading">
+          ${isFullscreen || isMobile || isStartPageMode() ? `<button class="sloppy-icon-button sloppy-sidebar-toggle sloppy-sidebar-restore" type="button" data-sloppy-sidebar-restore aria-label="${escapeHTML(t("showSidebar"))}">${icon("sidebar")}</button>` : ""}
+          <div class="sloppy-brand">
+            <img class="sloppy-mark" src="${logoURL()}" alt="" aria-hidden="true">
+            <label class="sloppy-agent-select" style="--sloppy-agent-chevron-url: url('${escapeHTML(iconAsset("icons/chevron.down.svg"))}')">
+              <select data-sloppy-agent aria-label="${escapeHTML(t("agent"))}"></select>
+            </label>
+          </div>
         </div>
         <div class="sloppy-actions">
           <button class="sloppy-icon-button" type="button" data-sloppy-open-fullscreen aria-label="${escapeHTML(t("openFullscreenChat"))}">${icon("expand")}</button>
-          ${isFullscreen || isMobile ? `<button class="sloppy-icon-button sloppy-sidebar-restore" type="button" data-sloppy-sidebar-restore aria-label="${escapeHTML(t("showSidebar"))}">${icon("sidebar")}</button>` : ""}
           ${!isFullscreen ? `<button class="sloppy-icon-button" type="button" data-sloppy-sessions aria-label="${escapeHTML(t("sessions"))}">${icon("sessions")}</button>` : ""}
           <button class="sloppy-icon-button" type="button" data-sloppy-settings aria-label="${escapeHTML(t("settings"))}">${icon("settings")}</button>
           <button class="sloppy-icon-button" type="button" data-sloppy-close aria-label="${escapeHTML(t("close"))}">${icon("close")}</button>
@@ -669,6 +802,7 @@ function ensurePanel() {
   if (isFullscreen) {
     frame.querySelector("[data-sloppy-capture]")?.remove();
   }
+  applySymbolFallbackVariables(frame);
   document.documentElement.appendChild(frame);
   wirePanel(frame);
   applySidebarState(frame);
@@ -1229,8 +1363,12 @@ function wirePanel(frame) {
     setStartPageMode(Boolean(globalThis.SloppyStartPageMode));
     render(frame);
   });
-  frame.querySelector("[data-sloppy-sidebar-sessions]")?.addEventListener("click", () => openSessions(frame, { presentation: "sidebar" }));
   frame.querySelector("[data-sloppy-sidebar-artifacts]")?.addEventListener("click", () => {
+    const artifactList = frame.querySelector("[data-sloppy-sidebar-artifact-list]");
+    if (artifactList && !artifactList.hidden) {
+      artifactList.hidden = true;
+      return;
+    }
     void loadArtifacts(frame);
   });
   frame.querySelector("[data-sloppy-sidebar-artifact-list]")?.addEventListener("click", async (event) => {
@@ -1250,6 +1388,17 @@ function wirePanel(frame) {
     transitionStartPageToChat(frame);
     render(frame);
   });
+  frame.querySelector("[data-sloppy-sidebar-sessions]")?.addEventListener("click", () => {
+    const sessionList = frame.querySelector("[data-sloppy-sidebar-session-list]");
+    if (sessionList && !sessionList.hidden) {
+      sessionList.hidden = true;
+      return;
+    }
+    void openSessions(frame, { presentation: "sidebar" });
+  });
+  wireSidebarChevronHover(frame.querySelector("[data-sloppy-sidebar-projects]"));
+  wireSidebarChevronHover(frame.querySelector("[data-sloppy-sidebar-sessions]"));
+  wireSidebarChevronHover(frame.querySelector("[data-sloppy-sidebar-artifacts]"));
   frame.querySelector("[data-sloppy-widget-picker]")?.addEventListener("click", (event) => {
     const button = event.target?.closest?.("[data-sloppy-pick-widget]");
     if (!button) {
@@ -1689,6 +1838,7 @@ function renderStartPageItems(frame) {
     ? settings.startPageItems
     : (settings.startPageShortcuts || []).map((shortcut) => ({ kind: "shortcut", ...shortcut }));
   renderStartPageShortcuts(frame, items);
+  void hydrateStartPageWidgets(frame, items);
 }
 
 function normalizedWidgetSize(size) {
@@ -1705,6 +1855,47 @@ function widgetDimensionsForSize(size) {
   return { width: 160, height: 120 };
 }
 
+function widgetSizeFromArtifact(artifact = {}, fallback = "small") {
+  return normalizedWidgetSize(String(artifact?.widget?.size || artifact?.size || fallback || "small").trim());
+}
+
+function widgetHTMLForItem(item = {}) {
+  const artifactId = String(item?.artifactId || item?.id || "").trim();
+  return artifactId ? String(state.widgetHTMLByArtifactId?.[artifactId] || "").trim() : "";
+}
+
+async function hydrateStartPageWidgets(frame, items = []) {
+  if (typeof chrome === "undefined" || typeof chrome.runtime?.sendMessage !== "function") {
+    return;
+  }
+  const missingIds = Array.from(new Set((items || [])
+    .filter((item) => String(item?.kind || "").trim() === "widget")
+    .map((item) => String(item?.artifactId || "").trim())
+    .filter((artifactId) => artifactId && !state.widgetHTMLByArtifactId?.[artifactId])));
+  if (!missingIds.length) {
+    return;
+  }
+  const loaded = {};
+  await Promise.all(missingIds.map(async (artifactId) => {
+    const response = await chrome.runtime.sendMessage({
+      type: "sloppy.artifacts.widget",
+      artifactId
+    }).catch(() => null);
+    const html = String(response?.html || "").trim();
+    if (html) {
+      loaded[artifactId] = html;
+    }
+  }));
+  if (!Object.keys(loaded).length) {
+    return;
+  }
+  state.widgetHTMLByArtifactId = {
+    ...(state.widgetHTMLByArtifactId || {}),
+    ...loaded
+  };
+  renderStartPageShortcuts(frame, items);
+}
+
 function renderStartPageShortcuts(frame, items) {
   const root = frame.querySelector("[data-sloppy-start-shortcuts]");
   if (!root) {
@@ -1714,9 +1905,12 @@ function renderStartPageShortcuts(frame, items) {
     if (String(item?.kind || "").trim() === "widget") {
       const size = normalizedWidgetSize(String(item.size || "").trim());
       const dimensions = widgetDimensionsForSize(size);
+      const html = widgetHTMLForItem(item);
       return `
         <article class="sloppy-start-widget" data-sloppy-start-widget="${escapeHTML(item.artifactId || "")}" style="width:${dimensions.width}px;height:${dimensions.height}px">
-          <iframe title="${escapeHTML(item.title || "Widget")}" sandbox="allow-scripts" srcdoc="${escapeHTML(item.html || "")}"></iframe>
+          ${html
+            ? `<iframe title="${escapeHTML(item.title || "Widget")}" sandbox="allow-scripts" srcdoc="${escapeHTML(html)}"></iframe>`
+            : `<div class="sloppy-start-widget-placeholder">${escapeHTML(t("loadingArtifacts"))}</div>`}
         </article>
       `;
     }
@@ -2172,7 +2366,7 @@ function renderArtifactList(frame) {
     ${String(artifact?.kind || "").trim() === "widget"
       ? `<button class="sloppy-session-row" type="button" data-sloppy-select-artifact="${escapeHTML(artifact.id || "")}">
       <strong>${escapeHTML(artifact.title || artifact.id || "artifact")}</strong>
-      <span>${escapeHTML(startPageWidgetItems(state.settings).some((item) => item?.artifactId === artifact.id) ? t("startPage") : (artifact.kind || "widget"))}</span>
+      <span>${escapeHTML(startPageWidgetItems(state.settings).some((item) => item?.artifactId === artifact.id) ? t("startPage") : widgetSizeFromArtifact(artifact, artifact.kind || "widget"))}</span>
     </button>`
       : `<div class="sloppy-artifact-row">
       <strong>${escapeHTML(artifact.title || artifact.id || "artifact")}</strong>
@@ -2194,7 +2388,7 @@ function renderWidgetPicker(frame) {
   root.innerHTML = widgets.map((artifact) => `
     <button class="sloppy-session-row" type="button" data-sloppy-pick-widget="${escapeHTML(artifact.id || "")}">
       <strong>${escapeHTML(artifact.title || artifact.id || "Widget")}</strong>
-      <span>${escapeHTML(artifact.size || artifact.kind || "widget")}</span>
+      <span>${escapeHTML(widgetSizeFromArtifact(artifact, artifact.kind || "widget"))}</span>
     </button>
   `).join("");
 }
@@ -2218,16 +2412,19 @@ async function addWidgetToStartPage(frame, artifactId, options = {}) {
     frame.querySelector("[data-sloppy-start-page-error]").textContent = response.error;
     return;
   }
-  const size = normalizedWidgetSize(String(response?.size || artifact.size || requestedSize).trim());
+  const size = normalizedWidgetSize(String(response?.size || artifact?.widget?.size || artifact.size || requestedSize).trim());
   const dimensions = widgetDimensionsForSize(size);
+  state.widgetHTMLByArtifactId = {
+    ...(state.widgetHTMLByArtifactId || {}),
+    [id]: String(response?.html || "").trim()
+  };
   const widget = {
     kind: "widget",
     artifactId: id,
     title: String(response?.title || artifact.title || id).trim() || id,
     size,
     width: dimensions.width,
-    height: dimensions.height,
-    html: String(response?.html || artifact.html || "").trim()
+    height: dimensions.height
   };
   const baseItems = startPageItemsForMutation(state.settings);
   state.settings = {
@@ -2327,8 +2524,9 @@ function commandQueryForTextarea(textarea) {
   };
 }
 
-function commandSuggestions(query, limit = 7) {
+function commandSuggestions(query, limit = Infinity) {
   const normalized = String(query || "").toLowerCase();
+  const maxSuggestions = Number.isFinite(Number(limit)) ? Math.max(1, Math.floor(Number(limit))) : state.slashCommands.length;
   return state.slashCommands
     .filter((command) => {
       const name = String(command.name || "").toLowerCase();
@@ -2346,7 +2544,7 @@ function commandSuggestions(query, limit = 7) {
       }
       return lhsName.localeCompare(rhsName);
     })
-    .slice(0, limit);
+    .slice(0, maxSuggestions);
 }
 
 function renderCommandMenu(frame) {

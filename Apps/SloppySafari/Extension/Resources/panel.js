@@ -107,10 +107,6 @@ function sanitizeStartPageItems(records = [], legacyShortcuts = []) {
           width: defaults.width,
           height: defaults.height
         };
-        const html = String(record?.html || "").trim();
-        if (html) {
-          widget.html = html;
-        }
         return widget;
       }
       const shortcut = sanitizeStartPageShortcuts([record])[0];

@@ -2156,6 +2156,7 @@ func widgetGenerationCreatesWidgetArtifactBundle() async throws {
     #expect(widgetResponse.status == 200)
     let widget = try decoder.decode(WidgetArtifactContentResponse.self, from: widgetResponse.body)
     #expect(widget.html.contains("<!doctype html>"))
+    #expect(widget.size == "small")
     #expect(widget.width == 160)
     #expect(widget.height == 120)
 
@@ -2173,6 +2174,20 @@ func widgetGenerationCreatesWidgetArtifactBundle() async throws {
 
     let persisted = try #require(await service.store.persistedArtifact(id: payload.artifact.id))
     #expect(persisted.bundlePath == ".sloppy/artifacts/widgets/\(payload.artifact.id)/")
+}
+
+@Test
+func widgetGenerationRejectsExternalResourceHTML() async throws {
+    let service = CoreService(config: .test)
+    let router = CoreRouter(service: service)
+    let html = """
+    <!doctype html>
+    <html><body><script src="https://example.com/widget.js"></script></body></html>
+    """
+    let body = try JSONEncoder().encode(WidgetArtifactGenerateRequest(prompt: "Make a clock", size: "small", html: html))
+
+    let response = await router.handle(method: "POST", path: "/v1/artifacts/widgets/generate", body: body)
+    #expect(response.status == 400)
 }
 
 @Test
@@ -2209,6 +2224,35 @@ func widgetPreviewRejectsInvalidRuntimeHTML() async throws {
     let persisted = try #require(await service.store.persistedArtifact(id: payload.artifact.id))
     #expect(persisted.content == original.content)
     #expect(persisted.previewText == original.previewText)
+}
+
+@Test
+func widgetPreviewRejectsExternalRuntimeHTML() async throws {
+    let service = CoreService(config: .test)
+    let router = CoreRouter(service: service)
+    let body = try JSONEncoder().encode(WidgetArtifactGenerateRequest(prompt: "Make a tiny clock", size: "small"))
+
+    let generateResponse = await router.handle(method: "POST", path: "/v1/artifacts/widgets/generate", body: body)
+    #expect(generateResponse.status == 201)
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let payload = try decoder.decode(WidgetArtifactGenerateResponse.self, from: generateResponse.body)
+
+    await service.waitForStartup()
+    await service.runtime.recover(
+        channels: [],
+        tasks: [],
+        artifacts: [
+            RecoveryArtifactState(
+                id: payload.artifact.id,
+                content: #"<!doctype html><html><body><img src="https://example.com/pixel.png"></body></html>"#
+            )
+        ]
+    )
+
+    let widgetResponse = await router.handle(method: "GET", path: "/v1/artifacts/\(payload.artifact.id)/widget", body: nil)
+    #expect(widgetResponse.status == 404)
 }
 
 @Test

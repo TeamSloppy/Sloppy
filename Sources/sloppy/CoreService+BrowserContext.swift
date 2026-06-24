@@ -77,31 +77,12 @@ extension CoreService {
         lines.append("")
         lines.append("Selected text:")
         lines.append(selection)
-        if let snapshot = browser?.pageSnapshot,
-           let snapshotText = browserContextSnapshotText(snapshot),
-           !snapshotText.isEmpty {
-            lines.append("")
-            lines.append("Safari page snapshot:")
-            lines.append(snapshotText)
-        }
+        lines.append("")
+        lines.append("Safari tools:")
+        lines.append("Use `safari.dom_snapshot` only when live page details are needed. Use `safari.click`, `safari.type`, and other `safari.*` tools for the user's current Safari tab; do not use `browser.*` for this Safari page.")
         lines.append("")
         lines.append("User prompt:")
         lines.append(prompt)
         return lines.joined(separator: "\n")
-    }
-
-    private static func browserContextSnapshotText(_ snapshot: JSONValue) -> String? {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.sortedKeys]
-        guard let data = try? encoder.encode(snapshot),
-              var text = String(data: data, encoding: .utf8)
-        else {
-            return nil
-        }
-        let limit = 24_000
-        if text.count > limit {
-            text = String(text.prefix(limit)) + "...[truncated]"
-        }
-        return text
     }
 }

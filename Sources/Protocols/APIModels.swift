@@ -243,10 +243,12 @@ public struct ArtifactDetailResponse: Codable, Sendable, Equatable {
 public struct WidgetArtifactGenerateRequest: Codable, Sendable, Equatable {
     public var prompt: String
     public var size: String
+    public var html: String?
 
-    public init(prompt: String, size: String) {
+    public init(prompt: String, size: String, html: String? = nil) {
         self.prompt = prompt
         self.size = size
+        self.html = html
     }
 }
 
@@ -263,12 +265,14 @@ public struct WidgetArtifactGenerateResponse: Codable, Sendable, Equatable {
 public struct WidgetArtifactContentResponse: Codable, Sendable, Equatable {
     public var id: String
     public var html: String
+    public var size: String
     public var width: Int
     public var height: Int
 
-    public init(id: String, html: String, width: Int, height: Int) {
+    public init(id: String, html: String, size: String, width: Int, height: Int) {
         self.id = id
         self.html = html
+        self.size = size
         self.width = width
         self.height = height
     }

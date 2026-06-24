@@ -68,7 +68,7 @@
 .sloppy-start-page #sloppy-safari-extension-panel .sloppy-app-layout {
   display: grid;
   position: relative;
-  grid-template-columns: var(--sloppy-sidebar-width, 168px) 6px minmax(0, 1fr);
+  grid-template-columns: var(--sloppy-sidebar-width, 280px) 6px minmax(0, 1fr);
   width: 100%;
   height: 100%;
 }
@@ -150,6 +150,11 @@
   pointer-events: none;
 }
 
+.sloppy-start-page #sloppy-safari-extension-panel .is-sidebar-collapsed [data-sloppy-sidebar-restore] {
+  display: inline-grid;
+  pointer-events: auto;
+}
+
 .sloppy-sidebar-item {
   display: grid;
   grid-template-columns: 20px minmax(0, 1fr);
@@ -168,6 +173,15 @@
 .sloppy-sidebar-item:hover,
 .sloppy-sidebar-item:focus-visible {
   background: rgba(255, 255, 255, 0.08);
+}
+
+[data-sloppy-sidebar-projects]:hover .sloppy-symbol,
+[data-sloppy-sidebar-projects]:focus-visible .sloppy-symbol,
+[data-sloppy-sidebar-artifacts]:hover .sloppy-symbol,
+[data-sloppy-sidebar-artifacts]:focus-visible .sloppy-symbol,
+[data-sloppy-sidebar-sessions]:hover .sloppy-symbol,
+[data-sloppy-sidebar-sessions]:focus-visible .sloppy-symbol {
+  --sloppy-symbol-active-url: var(--sloppy-symbol-hover-url);
 }
 
 .sloppy-sidebar-session-list {
@@ -195,6 +209,7 @@
 
 .sloppy-sidebar-session-list .sloppy-session-row,
 .sloppy-sidebar-artifact-list .sloppy-session-row,
+.sloppy-sidebar-artifact-list .sloppy-artifact-row,
 .sloppy-widget-picker .sloppy-session-row {
   width: 100%;
   padding: 7px 8px;
@@ -218,6 +233,8 @@
 .sloppy-sidebar-session-list .sloppy-session-row span,
 .sloppy-sidebar-artifact-list .sloppy-session-row strong,
 .sloppy-sidebar-artifact-list .sloppy-session-row span,
+.sloppy-sidebar-artifact-list .sloppy-artifact-row strong,
+.sloppy-sidebar-artifact-list .sloppy-artifact-row span,
 .sloppy-widget-picker .sloppy-session-row strong,
 .sloppy-widget-picker .sloppy-session-row span {
   display: block;
@@ -229,6 +246,7 @@
 .sloppy-sidebar-session-list .sloppy-session-row span,
 .sloppy-sidebar-session-list .sloppy-session-empty,
 .sloppy-sidebar-artifact-list .sloppy-session-row span,
+.sloppy-sidebar-artifact-list .sloppy-artifact-row span,
 .sloppy-sidebar-artifact-list .sloppy-session-empty,
 .sloppy-widget-picker .sloppy-session-row span {
   color: rgba(232, 232, 232, 0.5);
@@ -512,6 +530,23 @@
     grid-template-columns: minmax(0, 1fr);
   }
 
+  .sloppy-fullscreen-chat-page #sloppy-safari-extension-panel .sloppy-app-layout.is-sidebar-collapsed,
+  .sloppy-start-page #sloppy-safari-extension-panel .sloppy-app-layout.is-sidebar-collapsed {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .sloppy-start-page #sloppy-safari-extension-panel {
+    width: 100%;
+    max-width: 100vw;
+    height: 100dvh;
+    max-height: 100dvh;
+    min-height: 100dvh;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 0;
+  }
+
   .sloppy-fullscreen-chat-page #sloppy-safari-extension-panel .sloppy-shell,
   .sloppy-start-page #sloppy-safari-extension-panel .sloppy-shell {
     grid-column: 1;
@@ -555,7 +590,7 @@
 
   .sloppy-fullscreen-chat-page #sloppy-safari-extension-panel .is-sidebar-collapsed .sloppy-topbar,
   .sloppy-start-page #sloppy-safari-extension-panel .is-sidebar-collapsed .sloppy-topbar {
-    padding-left: 52px;
+    padding-left: 0;
   }
 
   .sloppy-fullscreen-chat-page #sloppy-safari-extension-panel .sloppy-sidebar-resizer,
@@ -633,6 +668,7 @@
 }
 
 .sloppy-brand,
+.sloppy-topbar-leading,
 .sloppy-actions,
 .sloppy-composer-tools,
 .sloppy-context-row,
@@ -644,6 +680,11 @@
 
 .sloppy-brand {
   position: relative;
+  min-width: 0;
+  gap: 10px;
+}
+
+.sloppy-topbar-leading {
   min-width: 0;
   gap: 10px;
 }
@@ -697,6 +738,7 @@
   min-width: 0;
   max-width: 220px;
   appearance: none;
+  width: 100%;
   padding: 8px 34px 8px 12px;
   color: #f0f0f0;
   background:
@@ -705,6 +747,29 @@
   border: 1px solid rgba(255, 255, 255, 0.12);
   border-radius: 999px;
   outline: none;
+}
+
+.sloppy-agent-select {
+  position: relative;
+  display: inline-grid;
+  width: 100%;
+  max-width: 220px;
+}
+
+.sloppy-agent-select::after {
+  content: "";
+  position: absolute;
+  right: 12px;
+  top: 50%;
+  width: 12px;
+  height: 12px;
+  pointer-events: none;
+  transform: translateY(-50%);
+  border-radius: 0;
+  background: currentColor;
+  -webkit-mask: var(--sloppy-agent-chevron-url) center / contain no-repeat;
+  mask: var(--sloppy-agent-chevron-url) center / contain no-repeat;
+  opacity: 0.86;
 }
 
 .sloppy-brand:hover select,
@@ -718,6 +783,21 @@
 .sloppy-actions,
 .sloppy-composer-tools {
   gap: 8px;
+}
+
+.sloppy-icon-button.sloppy-sidebar-toggle {
+  flex: 0 0 auto;
+  color: rgba(232, 232, 232, 0.78);
+  background: transparent;
+  border-color: transparent;
+  box-shadow: none;
+}
+
+.sloppy-icon-button.sloppy-sidebar-toggle:hover,
+.sloppy-icon-button.sloppy-sidebar-toggle:focus-visible {
+  color: #ffffff;
+  background: transparent;
+  border-color: transparent;
 }
 
 .sloppy-icon-button,
@@ -786,13 +866,14 @@
 }
 
 .sloppy-symbol {
+  --sloppy-symbol-active-url: var(--sloppy-symbol-base-url, var(--sloppy-symbol-url));
   display: inline-block;
   flex: 0 0 auto;
   width: 1em;
   height: 1em;
   background: currentColor;
-  -webkit-mask: var(--sloppy-symbol-url) center / contain no-repeat;
-  mask: var(--sloppy-symbol-url) center / contain no-repeat;
+  -webkit-mask: var(--sloppy-symbol-active-url) center / contain no-repeat;
+  mask: var(--sloppy-symbol-active-url) center / contain no-repeat;
 }
 
 .sloppy-icon-button .sloppy-symbol,
@@ -2235,20 +2316,22 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
   top: 18px;
   right: 18px;
   display: inline-grid;
-  width: 42px;
-  height: 42px;
+  width: 54px;
+  height: 54px;
   place-items: center;
   color: rgba(232, 232, 232, 0.78);
   cursor: pointer;
   border-radius: 999px;
-  border: 0;
-  background: transparent;
-  box-shadow: none;
+  padding: 0;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03)),
+    rgba(255, 255, 255, 0.04);
+  border: 1px solid rgba(255, 255, 255, 0.1);
 }
 
 .sloppy-voice-settings:hover {
   color: #ffffff;
-  background: transparent;
+  border-color: rgba(255, 255, 255, 0.18);
 }
 
 .sloppy-voice-settings .sloppy-symbol {
@@ -2276,7 +2359,8 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
 
 .sloppy-voice-orb {
   --sloppy-orb-accent: #b7ff00;
-  width: 190px;
+  width: clamp(130px, 42vmin, 190px);
+  height: clamp(130px, 42vmin, 190px);
   aspect-ratio: 1;
   position: relative;
   overflow: hidden;
@@ -2381,28 +2465,23 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
   height: 54px;
   color: rgba(255, 255, 255, 0.88);
   border-radius: 999px;
-  border-color: rgba(255, 255, 255, 0.13);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   background:
-    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.18), transparent 44%),
-    rgba(255, 255, 255, 0.08);
-  box-shadow:
-    inset 0 1px 1px rgba(255, 255, 255, 0.16),
-    0 14px 36px rgba(0, 0, 0, 0.34);
-  backdrop-filter: blur(18px) saturate(1.2);
+    linear-gradient(145deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.03)),
+    rgba(255, 255, 255, 0.04);
+  backdrop-filter: none;
+  box-shadow: none;
 }
 
 .sloppy-voice-actions .sloppy-icon-button .sloppy-symbol {
-  width: 28px;
-  height: 28px;
+  width: 20px;
+  height: 20px;
 }
 
 .sloppy-voice-actions .sloppy-icon-button:hover,
 .sloppy-voice-actions .sloppy-icon-button:focus-visible {
   color: #ffffff;
-  border-color: rgba(255, 255, 255, 0.24);
-  background:
-    radial-gradient(circle at 50% 0%, rgba(255, 255, 255, 0.24), transparent 44%),
-    rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.18);
 }
 
 #sloppy-quick-chat {

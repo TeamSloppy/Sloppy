@@ -27,7 +27,14 @@ extension CoreService {
 
         let size = try WidgetArtifactService.size(named: request.size)
         let prompt = try WidgetArtifactService.normalizedPrompt(request.prompt)
-        let html = try WidgetArtifactService.fallbackHTML(prompt: prompt, size: size)
+        let requestedHTML = request.html?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let html: String
+        if let requestedHTML, !requestedHTML.isEmpty {
+            html = requestedHTML
+        } else {
+            html = try WidgetArtifactService.fallbackHTML(prompt: prompt, size: size)
+        }
+        try WidgetArtifactService.validate(html: html)
         let id = UUID().uuidString
         try WidgetArtifactService.writeBundle(
             id: id,
@@ -105,7 +112,13 @@ extension CoreService {
                 html: runtimeArtifact,
                 currentRootURL: URL(fileURLWithPath: workspaceCurrentDirectory, isDirectory: true)
             )
-            return WidgetArtifactContentResponse(id: id, html: runtimeArtifact, width: width, height: height)
+            return WidgetArtifactContentResponse(
+                id: id,
+                html: runtimeArtifact,
+                size: record.widgetSize ?? WidgetArtifactService.sizeName(width: width, height: height),
+                width: width,
+                height: height
+            )
         }
 
         guard (try? WidgetArtifactService.validate(html: record.content)) != nil else {
@@ -116,7 +129,13 @@ extension CoreService {
             html: record.content,
             currentRootURL: URL(fileURLWithPath: workspaceCurrentDirectory, isDirectory: true)
         )
-        return WidgetArtifactContentResponse(id: id, html: record.content, width: width, height: height)
+        return WidgetArtifactContentResponse(
+            id: id,
+            html: record.content,
+            size: record.widgetSize ?? WidgetArtifactService.sizeName(width: width, height: height),
+            width: width,
+            height: height
+        )
     }
 
     /// Returns true after Visor has completed its first supervision tick.

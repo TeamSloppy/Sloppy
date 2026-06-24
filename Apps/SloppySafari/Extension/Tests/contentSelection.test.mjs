@@ -452,11 +452,11 @@ test("start page grid renders shortcuts and widget artifacts", () => {
           title: "Clock",
           size: "small",
           width: 999,
-          height: 1,
-          html: "<html><body>Clock</body></html>"
+          height: 1
         }
       ]
     };
+    state.widgetHTMLByArtifactId = { "widget-1": "<html><body>Clock</body></html>" };
   `, sandbox);
 
   const panel = sandbox.ensurePanel();
@@ -675,6 +675,7 @@ test("clicking a widget artifact row adds it to start page items", async () => {
           return Promise.resolve({
             artifactId: "widget-1",
             title: "Clock",
+            size: "medium",
             width: 999,
             height: 1,
             html: "<html><body>Clock</body></html>"
@@ -719,12 +720,15 @@ test("clicking a widget artifact row adds it to start page items", async () => {
         kind: "widget",
         artifactId: "widget-1",
         title: "Clock",
-        size: "large",
+        size: "medium",
         width: 320,
-        height: 320,
-        html: "<html><body>Clock</body></html>"
+        height: 180
       }
     ]
+  );
+  assert.equal(
+    vm.runInNewContext("state.widgetHTMLByArtifactId['widget-1']", sandbox),
+    "<html><body>Clock</body></html>"
   );
   assert.equal(savedRequests.length, 1);
   assert.deepEqual(

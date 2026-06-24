@@ -336,7 +336,7 @@ test("sanitizeSettings canonicalizes widget dimensions by size", () => {
   assert.deepEqual(
     sanitizeSettings({
       startPageItems: [
-        { kind: "widget", artifactId: "widget-1", title: "Clock", size: "medium", width: 999, height: 1 },
+        { kind: "widget", artifactId: "widget-1", title: "Clock", size: "medium", width: 999, height: 1, html: "<html></html>" },
         { kind: "widget", artifactId: "widget-2", title: "Stats", size: "large", width: 12, height: 900 }
       ]
     }).startPageItems,
