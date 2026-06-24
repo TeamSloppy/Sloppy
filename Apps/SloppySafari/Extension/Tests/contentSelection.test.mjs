@@ -353,11 +353,42 @@ test("start page mode renders centered composer and shortcuts", () => {
   const thread = panel.querySelector("[data-sloppy-thread]");
 
   assert.match(thread.innerHTML, /data-sloppy-start-surface/);
-  assert.match(thread.innerHTML, /data-sloppy-start-shortcut="https:\/\/github\.com\/"/);
+  assert.match(panel.querySelector("[data-sloppy-start-shortcuts]").innerHTML, /data-sloppy-start-shortcut="https:\/\/github\.com\/"/);
   assert.match(thread.innerHTML, /data-sloppy-start-theme="light"/);
+  assert.doesNotMatch(thread.innerHTML, /sloppy-empty-mark/);
+  assert.match(panel.innerHTML, /data-sloppy-start-shortcuts/);
+  assert.match(panel.innerHTML, /data-sloppy-customize/);
 });
 
-test("settings dialog includes start page customization controls", () => {
+test("start page initializes the chat UI immediately", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage(message) {
+        if (message?.type === "sloppy.settings.get") {
+          return Promise.resolve({
+            startPageEnabled: true,
+            startPageTheme: "dark",
+            startPageShortcuts: []
+          });
+        }
+        return Promise.resolve({});
+      }
+    }
+  };
+
+  assert.equal(typeof sandbox.initializeStartPage, "function");
+  await sandbox.initializeStartPage();
+
+  assert.ok(documentLike.getElementById("sloppy-safari-extension-panel"));
+});
+
+test("settings and customize use separate dialogs", () => {
   const sandbox = loadContentScriptSandbox();
   const documentLike = createPanelDocument();
   sandbox.document = documentLike;
@@ -371,10 +402,29 @@ test("settings dialog includes start page customization controls", () => {
 
   const panel = sandbox.ensurePanel();
 
-  assert.match(panel.innerHTML, /data-sloppy-start-page-enabled/);
-  assert.match(panel.innerHTML, /data-sloppy-start-page-theme/);
-  assert.match(panel.innerHTML, /data-sloppy-start-page-background/);
-  assert.match(panel.innerHTML, /data-sloppy-start-page-add-shortcut/);
+  assert.match(panel.innerHTML, /data-sloppy-settings-dialog/);
+  assert.match(panel.innerHTML, /data-sloppy-customize-dialog/);
+  assert.doesNotMatch(panel.innerHTML.match(/data-sloppy-settings-dialog[\s\S]*?<\/dialog>/)?.[0] || "", /data-sloppy-start-page-theme/);
+  assert.match(panel.innerHTML.match(/data-sloppy-customize-dialog[\s\S]*?<\/dialog>/)?.[0] || "", /data-sloppy-start-page-theme/);
+});
+
+test("sidebar uses inline sessions and no settings item", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      }
+    }
+  };
+
+  const panel = sandbox.ensurePanel();
+
+  assert.match(panel.innerHTML, /data-sloppy-sidebar-sessions/);
+  assert.match(panel.innerHTML, /data-sloppy-sidebar-session-list/);
+  assert.doesNotMatch(panel.innerHTML, /data-sloppy-sidebar-settings/);
 });
 
 test("fullscreen chat shell includes the shared app sidebar", () => {
@@ -395,7 +445,45 @@ test("fullscreen chat shell includes the shared app sidebar", () => {
   assert.match(panel.innerHTML, /data-sloppy-app-sidebar/);
   assert.match(panel.innerHTML, /data-sloppy-sidebar-new/);
   assert.match(panel.innerHTML, /data-sloppy-sidebar-sessions/);
-  assert.match(panel.innerHTML, /data-sloppy-sidebar-customize/);
+  assert.doesNotMatch(panel.innerHTML, /data-sloppy-sidebar-settings/);
+});
+
+test("adding a shortcut preserves unsaved shortcut editor values", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      }
+    }
+  };
+  vm.runInNewContext(`
+    state.settings = {
+      startPageShortcuts: [{ title: "Docs", url: "https://docs.example/" }]
+    };
+  `, sandbox);
+  const panel = sandbox.ensurePanel();
+  sandbox.renderStartPageShortcutEditor(panel);
+  const rows = [
+    {
+      querySelector(selector) {
+        return selector.includes("title")
+          ? { value: "Edited Docs" }
+          : { value: "https://edited.example/" };
+      }
+    }
+  ];
+  panel.querySelectorAll = (selector) => selector === "[data-sloppy-start-shortcut-row]" ? rows : [];
+
+  panel.querySelector("[data-sloppy-start-page-add-shortcut]").listeners.get("click")();
+
+  const shortcuts = vm.runInNewContext("state.settings.startPageShortcuts", sandbox);
+  assert.equal(JSON.stringify(shortcuts), JSON.stringify([
+    { title: "Edited Docs", url: "https://edited.example/" },
+    { title: "", url: "" }
+  ]));
 });
 
 test("transitionStartPageToChat exits start mode before sending", () => {

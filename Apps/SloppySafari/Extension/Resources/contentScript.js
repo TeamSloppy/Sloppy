@@ -411,9 +411,8 @@ function ensurePanel() {
       <nav class="sloppy-app-sidebar" data-sloppy-app-sidebar aria-label="${escapeHTML(t("navigation"))}">
         <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-new>${icon("plus")}<span>${escapeHTML(t("newSession"))}</span></button>
         <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-sessions>${icon("sessions")}<span>${escapeHTML(t("sessions"))}</span></button>
+        <div class="sloppy-sidebar-session-list" data-sloppy-sidebar-session-list hidden></div>
         <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-projects>${icon("project")}<span>${escapeHTML(t("projects"))}</span></button>
-        <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-settings>${icon("settings")}<span>${escapeHTML(t("settings"))}</span></button>
-        <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-customize>${icon("customize")}<span>${escapeHTML(t("customize"))}</span></button>
       </nav>
 
       <div class="sloppy-shell">
@@ -451,8 +450,10 @@ function ensurePanel() {
           </div>
         </div>
       </form>
+      <div class="sloppy-start-shortcuts" data-sloppy-start-shortcuts></div>
       </div>
     </div>
+    <button class="sloppy-start-config-button" type="button" data-sloppy-customize>${icon("customize")}<span>${escapeHTML(t("customize"))}</span></button>
 
     <section class="sloppy-voice" data-sloppy-voice-panel hidden>
       <label class="sloppy-voice-settings sloppy-voice-language-settings" data-sloppy-voice-settings aria-label="${escapeHTML(t("voiceLanguage"))}">
@@ -506,8 +507,18 @@ function ensurePanel() {
           <input data-sloppy-selection-bubble-enabled type="checkbox">
           <span>Show selection bubble</span>
         </label>
-        <div class="sloppy-settings-section">
+        <a class="sloppy-settings-link" href="https://sloppy.team" target="_blank" rel="noreferrer">${escapeHTML(t("downloadSloppy"))}</a>
+        <button class="sloppy-settings-save" type="button" data-sloppy-save-settings>Save settings</button>
+      </form>
+    </dialog>
+
+    <dialog class="sloppy-settings-dialog sloppy-customize-dialog" data-sloppy-customize-dialog>
+      <form method="dialog" class="sloppy-settings-card">
+        <header>
           <strong>${escapeHTML(t("startPage"))}</strong>
+          <button class="sloppy-icon-button" value="cancel" aria-label="${escapeHTML(t("closeSettings"))}">${icon("close")}</button>
+        </header>
+        <div class="sloppy-settings-section">
           <label class="sloppy-settings-toggle">
             <input data-sloppy-start-page-enabled type="checkbox">
             <span>${escapeHTML(t("enableStartPage"))}</span>
@@ -524,8 +535,7 @@ function ensurePanel() {
           <button class="sloppy-settings-save" type="button" data-sloppy-start-page-add-shortcut>${escapeHTML(t("addShortcut"))}</button>
           <p class="sloppy-settings-note" data-sloppy-start-page-error></p>
         </div>
-        <a class="sloppy-settings-link" href="https://sloppy.team" target="_blank" rel="noreferrer">${escapeHTML(t("downloadSloppy"))}</a>
-        <button class="sloppy-settings-save" type="button" data-sloppy-save-settings>Save settings</button>
+        <button class="sloppy-settings-save" type="button" data-sloppy-save-customize>Save settings</button>
       </form>
     </dialog>
 
@@ -1015,6 +1025,8 @@ function wirePanel(frame) {
   frame.querySelector("[data-sloppy-sessions]").addEventListener("click", () => openSessions(frame));
   frame.querySelector("[data-sloppy-new-session]").addEventListener("click", () => selectSession(frame, null));
   frame.querySelector("[data-sloppy-save-settings]").addEventListener("click", () => saveSettings(frame));
+  frame.querySelector("[data-sloppy-customize]")?.addEventListener("click", () => openCustomize(frame));
+  frame.querySelector("[data-sloppy-save-customize]")?.addEventListener("click", () => saveCustomize(frame));
   frame.querySelector("[data-sloppy-mesh-join]").addEventListener("click", async () => {
     const token = frame.querySelector("[data-sloppy-mesh-invite]").value;
     const status = frame.querySelector("[data-sloppy-mesh-status]");
@@ -1041,7 +1053,7 @@ function wirePanel(frame) {
     state.settings = {
       ...(state.settings || {}),
       startPageShortcuts: [
-        ...(state.settings?.startPageShortcuts || []),
+        ...readStartPageShortcutEditor(frame),
         { title: "", url: "" }
       ]
     };
@@ -1076,8 +1088,6 @@ function wirePanel(frame) {
     render(frame);
   });
   frame.querySelector("[data-sloppy-sidebar-sessions]")?.addEventListener("click", () => openSessions(frame));
-  frame.querySelector("[data-sloppy-sidebar-settings]")?.addEventListener("click", () => openSettings(frame));
-  frame.querySelector("[data-sloppy-sidebar-customize]")?.addEventListener("click", () => openSettings(frame));
   frame.querySelector("[data-sloppy-sidebar-projects]")?.addEventListener("click", () => {
     appendMessage({ role: "assistant", label: t("assistant"), text: t("projectsUnavailable") });
     transitionStartPageToChat(frame);
@@ -1386,6 +1396,7 @@ function render(frame) {
   renderContext(frame);
   renderAttachments(frame);
   renderComposerAction(frame);
+  renderStartPageShortcuts(frame, []);
 }
 
 function renderStartPageSurface(frame) {
@@ -1397,17 +1408,21 @@ function renderStartPageSurface(frame) {
   frame.style.setProperty("--sloppy-start-background-image", settings.startPageBackgroundImage ? `url("${settings.startPageBackgroundImage}")` : "none");
   thread.innerHTML = `
     <section class="sloppy-start-surface" data-sloppy-start-surface data-sloppy-start-theme="${escapeHTML(theme)}">
-      <img class="sloppy-empty-mark" src="${logoURL()}" alt="" aria-hidden="true">
-      <h1>${escapeHTML(t("assistant"))}</h1>
-      <div class="sloppy-start-shortcuts">
-        ${shortcuts.map((shortcut) => `
-          <a href="${escapeHTML(shortcut.url)}" data-sloppy-start-shortcut="${escapeHTML(shortcut.url)}">
-            <span>${escapeHTML(shortcut.title)}</span>
-          </a>
-        `).join("")}
-      </div>
     </section>
   `;
+  renderStartPageShortcuts(frame, shortcuts);
+}
+
+function renderStartPageShortcuts(frame, shortcuts) {
+  const root = frame.querySelector("[data-sloppy-start-shortcuts]");
+  if (!root) {
+    return;
+  }
+  root.innerHTML = (shortcuts || []).map((shortcut) => `
+    <a href="${escapeHTML(shortcut.url)}" data-sloppy-start-shortcut="${escapeHTML(shortcut.url)}">
+      <span>${escapeHTML(shortcut.title)}</span>
+    </a>
+  `).join("");
 }
 
 function transitionStartPageToChat(frame) {
@@ -1518,10 +1533,7 @@ function renderThread(frame) {
   const thread = frame.querySelector("[data-sloppy-thread]");
   if (!state.messages.length) {
     thread.innerHTML = `
-      <div class="sloppy-empty">
-        <img class="sloppy-empty-mark" src="${logoURL()}" alt="" aria-hidden="true">
-        <h2>${escapeHTML(t("assistant"))}</h2>
-      </div>
+      <div class="sloppy-empty" data-sloppy-empty></div>
     `;
     return;
   }
@@ -1697,10 +1709,14 @@ function openSettings(frame) {
   frame.querySelector("[data-sloppy-mesh-status]").textContent = meshStatusText(mesh);
   frame.querySelector("[data-sloppy-floating-button]").checked = Boolean(state.settings?.floatingButtonEnabled);
   frame.querySelector("[data-sloppy-selection-bubble-enabled]").checked = selectionBubbleEnabled();
+  frame.querySelector("[data-sloppy-settings-dialog]").showModal();
+}
+
+function openCustomize(frame) {
   frame.querySelector("[data-sloppy-start-page-enabled]").checked = state.settings?.startPageEnabled !== false;
   frame.querySelector("[data-sloppy-start-page-theme]").value = state.settings?.startPageTheme || "dark";
   renderStartPageShortcutEditor(frame);
-  frame.querySelector("[data-sloppy-settings-dialog]").showModal();
+  frame.querySelector("[data-sloppy-customize-dialog]").showModal();
 }
 
 async function saveSettings(frame) {
@@ -1719,10 +1735,10 @@ async function saveSettings(frame) {
     },
     floatingButtonEnabled: frame.querySelector("[data-sloppy-floating-button]").checked,
     selectionBubbleEnabled: frame.querySelector("[data-sloppy-selection-bubble-enabled]").checked,
-    startPageEnabled: frame.querySelector("[data-sloppy-start-page-enabled]").checked,
-    startPageTheme: frame.querySelector("[data-sloppy-start-page-theme]").value,
+    startPageEnabled: state.settings?.startPageEnabled !== false,
+    startPageTheme: state.settings?.startPageTheme || "dark",
     startPageBackgroundImage: state.settings?.startPageBackgroundImage || "",
-    startPageShortcuts: readStartPageShortcutEditor(frame)
+    startPageShortcuts: state.settings?.startPageShortcuts || []
   };
   state.settings = await chrome.runtime.sendMessage({ type: "sloppy.settings.save", settings });
   frame.querySelector("[data-sloppy-settings-dialog]").close();
@@ -1735,6 +1751,19 @@ async function saveSettings(frame) {
   } else {
     scheduleSelectionMenuUpdate();
   }
+}
+
+async function saveCustomize(frame) {
+  const settings = {
+    ...(state.settings || {}),
+    startPageEnabled: frame.querySelector("[data-sloppy-start-page-enabled]").checked,
+    startPageTheme: frame.querySelector("[data-sloppy-start-page-theme]").value,
+    startPageBackgroundImage: state.settings?.startPageBackgroundImage || "",
+    startPageShortcuts: readStartPageShortcutEditor(frame)
+  };
+  state.settings = await chrome.runtime.sendMessage({ type: "sloppy.settings.save", settings });
+  frame.querySelector("[data-sloppy-customize-dialog]").close();
+  render(frame);
 }
 
 function renderStartPageShortcutEditor(frame) {
@@ -1791,9 +1820,9 @@ function readStartPageBackgroundImage(file, frame) {
 }
 
 async function openSessions(frame) {
-  const list = frame.querySelector("[data-sloppy-session-list]");
+  const list = sessionListRoot(frame);
   list.innerHTML = `<p class="sloppy-session-empty">${escapeHTML(t("loadingSessions"))}</p>`;
-  frame.querySelector("[data-sloppy-sessions-dialog]").showModal();
+  list.hidden = false;
 
   const response = await chrome.runtime.sendMessage({
     type: "sloppy.sessions.list",
@@ -1809,6 +1838,10 @@ async function openSessions(frame) {
   }
   renderSessionList(frame);
   renderContext(frame);
+}
+
+function sessionListRoot(frame) {
+  return frame.querySelector("[data-sloppy-sidebar-session-list]") || frame.querySelector("[data-sloppy-session-list]");
 }
 
 function commandQueryForTextarea(textarea) {
@@ -1902,7 +1935,11 @@ function slashHelpText() {
 
 function renderSessionList(frame) {
   const selectedSessionId = state.settings?.sessionId || "";
-  const list = frame.querySelector("[data-sloppy-session-list]");
+  const list = sessionListRoot(frame);
+  if (!list) {
+    return;
+  }
+  list.hidden = false;
   if (!state.sessions.length) {
     list.innerHTML = '<p class="sloppy-session-empty">No sessions yet.</p>';
     return;
@@ -1928,7 +1965,7 @@ async function selectSession(frame, sessionId) {
     return;
   }
   state.messages = sessionId ? normalizeSessionMessages(response?.session?.events || []) : [];
-  frame.querySelector("[data-sloppy-sessions-dialog]").close();
+  frame.querySelector("[data-sloppy-sessions-dialog]")?.close();
   transitionStartPageToChat(frame);
   render(frame);
 }
@@ -2688,6 +2725,20 @@ async function openFullscreenChat(options = {}) {
   }
 }
 
+async function initializeStartPage() {
+  setStartPageMode(true);
+  state.context = {
+    page: { url: document.location?.href || "", title: document.title || t("startPage") },
+    selection: ""
+  };
+  state.settings = state.settings || await chrome.runtime.sendMessage({ type: "sloppy.settings.get" });
+  const panel = ensurePanel();
+  await Promise.all([loadAgents(panel), loadModels(panel), loadSlashCommands(panel)]);
+  render(panel);
+  panel.querySelector("[data-sloppy-prompt]")?.focus();
+  return panel;
+}
+
 async function initializeFullscreenChat() {
   document.documentElement.classList.add("sloppy-fullscreen-chat-page");
   const launch = chatLaunchOptionsFromURL(document.location.href);
@@ -2768,6 +2819,8 @@ if (typeof document !== "undefined" && typeof chrome !== "undefined" && chrome.r
 
   if (isFullscreenChatPage(document.location)) {
     void initializeFullscreenChat();
+  } else if (isStartPageMode()) {
+    void initializeStartPage();
   } else {
     void chrome.runtime.sendMessage({ type: "sloppy.settings.get" }).then((settings) => {
     if (!settings?.error) {
