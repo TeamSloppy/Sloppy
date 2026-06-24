@@ -85,8 +85,9 @@ struct WidgetArtifactService {
         ".sloppy/artifacts/widgets/\(id)/"
     }
 
-    static func bundleDirectoryURL(id: String, workspaceRootURL: URL) -> URL {
-        workspaceRootURL
+    static func bundleDirectoryURL(id: String, currentRootURL: URL) -> URL {
+        currentRootURL
+            .appendingPathComponent(CoreConfig.defaultWorkspaceName, isDirectory: true)
             .appendingPathComponent("artifacts", isDirectory: true)
             .appendingPathComponent("widgets", isDirectory: true)
             .appendingPathComponent(id, isDirectory: true)
@@ -97,12 +98,12 @@ struct WidgetArtifactService {
         prompt: String,
         html: String,
         size: Size,
-        workspaceRootURL: URL,
+        currentRootURL: URL,
         fileManager: FileManager = .default
     ) throws {
         try validate(html: html)
 
-        let directoryURL = bundleDirectoryURL(id: id, workspaceRootURL: workspaceRootURL)
+        let directoryURL = bundleDirectoryURL(id: id, currentRootURL: currentRootURL)
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         try Data(html.utf8).write(
             to: directoryURL.appendingPathComponent(entryFileName, isDirectory: false),
@@ -132,12 +133,12 @@ struct WidgetArtifactService {
     static func updateBundleHTML(
         id: String,
         html: String,
-        workspaceRootURL: URL,
+        currentRootURL: URL,
         fileManager: FileManager = .default
     ) throws {
         try validate(html: html)
 
-        let directoryURL = bundleDirectoryURL(id: id, workspaceRootURL: workspaceRootURL)
+        let directoryURL = bundleDirectoryURL(id: id, currentRootURL: currentRootURL)
         try fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
         try Data(html.utf8).write(
             to: directoryURL.appendingPathComponent(entryFileName, isDirectory: false),

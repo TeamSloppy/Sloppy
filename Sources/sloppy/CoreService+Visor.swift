@@ -34,7 +34,7 @@ extension CoreService {
             prompt: prompt,
             html: html,
             size: size,
-            workspaceRootURL: workspaceRootURL
+            currentRootURL: URL(fileURLWithPath: workspaceCurrentDirectory, isDirectory: true)
         )
 
         let record = PersistedArtifactRecord(
@@ -100,7 +100,7 @@ extension CoreService {
             try? WidgetArtifactService.updateBundleHTML(
                 id: id,
                 html: runtimeArtifact,
-                workspaceRootURL: workspaceRootURL
+                currentRootURL: URL(fileURLWithPath: workspaceCurrentDirectory, isDirectory: true)
             )
             return WidgetArtifactContentResponse(id: id, html: runtimeArtifact, width: width, height: height)
         }
@@ -108,7 +108,7 @@ extension CoreService {
         try? WidgetArtifactService.updateBundleHTML(
             id: id,
             html: record.content,
-            workspaceRootURL: workspaceRootURL
+            currentRootURL: URL(fileURLWithPath: workspaceCurrentDirectory, isDirectory: true)
         )
         return WidgetArtifactContentResponse(id: id, html: record.content, width: width, height: height)
     }

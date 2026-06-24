@@ -2159,7 +2159,8 @@ func widgetGenerationCreatesWidgetArtifactBundle() async throws {
     #expect(widget.width == 160)
     #expect(widget.height == 120)
 
-    let bundleURL = config.resolvedWorkspaceRootURL()
+    let bundleURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+        .appendingPathComponent(".sloppy", isDirectory: true)
         .appendingPathComponent("artifacts", isDirectory: true)
         .appendingPathComponent("widgets", isDirectory: true)
         .appendingPathComponent(payload.artifact.id, isDirectory: true)
