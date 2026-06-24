@@ -380,6 +380,28 @@ const state = {
   voice: { state: "idle", transcript: "", recognition: null, recorder: null, cancelled: false }
 };
 
+const chatPlaceholderKeys = [
+  "chatPlaceholderAskSomething",
+  "chatPlaceholderSlashCommands",
+  "chatPlaceholderUseContext"
+];
+
+function chatPlaceholderText(index = Math.floor(Date.now() / 3200)) {
+  const key = chatPlaceholderKeys[Math.abs(index) % chatPlaceholderKeys.length];
+  return t(key);
+}
+
+function applyRotatingChatPlaceholders(root = document, index) {
+  const text = chatPlaceholderText(index);
+  Array.from(root.querySelectorAll?.("[data-sloppy-chat-placeholder]") || []).forEach((element) => {
+    if ("placeholder" in element) {
+      element.placeholder = text;
+      return;
+    }
+    element.textContent = text;
+  });
+}
+
 function ensureSettings() {
   state.settings = state.settings || {};
   return state.settings;
@@ -436,7 +458,7 @@ function ensurePanel() {
 
       <form class="sloppy-composer" data-sloppy-composer>
         <div class="sloppy-attachments" data-sloppy-attachments></div>
-        <textarea data-sloppy-prompt rows="1" placeholder="${escapeHTML(t("askAboutPage"))}"></textarea>
+        <textarea data-sloppy-prompt data-sloppy-chat-placeholder rows="1" placeholder="${escapeHTML(chatPlaceholderText(0))}"></textarea>
         <div class="sloppy-composer-bar">
           <button class="sloppy-icon-button sloppy-add" type="button" data-sloppy-attach aria-label="${escapeHTML(t("attachFile"))}">${icon("plus")}</button>
           <input data-sloppy-file type="file" multiple hidden>
@@ -552,6 +574,7 @@ function ensurePanel() {
   `;
   document.documentElement.appendChild(frame);
   wirePanel(frame);
+  applyRotatingChatPlaceholders(frame);
   return frame;
 }
 
@@ -727,7 +750,7 @@ function renderQuickChat() {
         <div class="sloppy-quick-assistant ${quick.streaming ? "is-streaming" : ""}">${assistantHTML}</div>
       </main>
       <footer class="sloppy-quick-footer">
-        <button class="sloppy-quick-follow-up" type="button" data-sloppy-quick-follow-up>${icon("plus")}<span>${escapeHTML(t("askFollowUp"))}</span></button>
+        <button class="sloppy-quick-follow-up" type="button" data-sloppy-quick-follow-up>${icon("plus")}<span data-sloppy-chat-placeholder>${escapeHTML(chatPlaceholderText(0))}</span></button>
       </footer>
     </div>
   `;
@@ -738,6 +761,7 @@ function renderQuickChat() {
   chat.querySelector("[data-sloppy-quick-follow-up]")?.addEventListener("click", () => {
     void openQuickChatSidebar();
   });
+  applyRotatingChatPlaceholders(chat);
 }
 
 async function openQuickChatSidebar() {
@@ -869,7 +893,7 @@ function ensureCommandPalette() {
     <div class="sloppy-command-palette-shell" data-sloppy-command-palette-shell>
       <form class="sloppy-command-palette-box" data-sloppy-command-palette-form>
         <span>${icon("search")}</span>
-        <input data-sloppy-command-palette-input placeholder="${escapeHTML(t("askSloppy"))}" autocomplete="off">
+        <input data-sloppy-command-palette-input data-sloppy-chat-placeholder placeholder="${escapeHTML(chatPlaceholderText(0))}" autocomplete="off">
       </form>
       <div class="sloppy-command-palette-sessions" data-sloppy-command-palette-sessions hidden></div>
     </div>
@@ -899,6 +923,7 @@ function ensureCommandPalette() {
     void openFullscreenChat({ sessionId });
   });
   document.documentElement.appendChild(palette);
+  applyRotatingChatPlaceholders(palette);
   return palette;
 }
 
@@ -957,7 +982,7 @@ function ensureSelectionMenu() {
     </button>
     <div class="sloppy-selection-popover" data-sloppy-selection-popover hidden>
       <form data-sloppy-selection-form>
-        <input data-sloppy-selection-prompt placeholder="Ask anything..." autocomplete="off">
+        <input data-sloppy-selection-prompt data-sloppy-chat-placeholder placeholder="${escapeHTML(chatPlaceholderText(0))}" autocomplete="off">
       </form>
       <div class="sloppy-selection-actions">
         ${selectionActions.map((action) => `
@@ -974,6 +999,7 @@ function ensureSelectionMenu() {
   `;
   document.documentElement.appendChild(menu);
   wireSelectionMenu(menu);
+  applyRotatingChatPlaceholders(menu);
   return menu;
 }
 
@@ -2793,6 +2819,8 @@ async function initializeFullscreenChat() {
 
 if (typeof document !== "undefined" && typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   updateViewportCSSVars();
+  applyRotatingChatPlaceholders(document);
+  window.setInterval?.(() => applyRotatingChatPlaceholders(document), 3200);
   const refreshViewportDependentUI = () => {
     updateViewportCSSVars();
     refreshSelectionMenuPlacement();

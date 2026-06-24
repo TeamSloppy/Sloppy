@@ -323,9 +323,34 @@ test("panel shell localizes visible chrome from system language", () => {
 
   const panel = sandbox.ensurePanel();
 
-  assert.match(panel.innerHTML, /placeholder="Спросить об этой странице"/);
+  assert.match(panel.innerHTML, /placeholder="Спросите что-нибудь\.\.\."/);
   assert.match(panel.innerHTML, /aria-label="Настройки"/);
   assert.match(panel.innerHTML, /Новая сессия/);
+});
+
+test("chat placeholders rotate across shared chat surfaces", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      }
+    }
+  };
+
+  assert.equal(sandbox.chatPlaceholderText(0), "Ask something...");
+  assert.equal(sandbox.chatPlaceholderText(1), "Type / for commands");
+  assert.equal(sandbox.chatPlaceholderText(2), "Ask about this page");
+
+  const panel = sandbox.ensurePanel();
+  const source = readFileSync(new URL("../Resources/contentScript.js", import.meta.url), "utf8");
+
+  assert.match(panel.innerHTML, /data-sloppy-prompt data-sloppy-chat-placeholder/);
+  assert.match(source, /data-sloppy-command-palette-input data-sloppy-chat-placeholder/);
+  assert.match(source, /data-sloppy-selection-prompt data-sloppy-chat-placeholder/);
+  assert.match(source, /data-sloppy-quick-follow-up[\s\S]*data-sloppy-chat-placeholder/);
 });
 
 test("start page mode renders centered composer and shortcuts", () => {
