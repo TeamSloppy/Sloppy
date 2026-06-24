@@ -43,7 +43,8 @@ test("extension declares context menu access for page summary shortcut", () => {
   assert.match(backgroundSource, /title:\s*t\("summarizePageContextMenu"\)/);
   assert.match(backgroundSource, /contexts:\s*\["page"\]/);
   assert.match(contentSource, /sloppy\.page\.summarize/);
-  assert.match(contentSource, /await summarizePage\(panel\)/);
+  assert.doesNotMatch(contentSource, /await summarizePage\(panel\)/);
+  assert.match(contentSource, /openQuickChatForPrompt\(summarizePagePrompt\(\)/);
 });
 
 test("extension does not request persistent microphone permission in manifest", () => {
@@ -96,6 +97,44 @@ test("fullscreen chat files are copied into every Safari web extension bundle", 
 
   assert.equal(chatHTMLCopies.length, 3);
   assert.equal(chatPageCopies.length, 3);
+});
+
+test("extension overrides new tabs with the Sloppy start page", () => {
+  const manifest = loadManifest();
+
+  assert.equal(manifest.chrome_url_overrides?.newtab, "start.html");
+});
+
+test("start page is packaged as an extension resource", () => {
+  const manifest = loadManifest();
+  const resources = manifest.web_accessible_resources || [];
+
+  assert.equal(
+    resources.some((entry) => entry.resources?.includes("start.html") && entry.resources?.includes("startPage.js")),
+    true
+  );
+});
+
+test("start page loads mode marker before localization and content script", () => {
+  const html = readFileSync(new URL("../Resources/start.html", import.meta.url), "utf8");
+  const startPageIndex = html.indexOf('src="startPage.js"');
+  const i18nIndex = html.indexOf('src="i18n.js"');
+  const contentScriptIndex = html.indexOf('src="contentScript.js"');
+
+  assert.notEqual(startPageIndex, -1);
+  assert.notEqual(i18nIndex, -1);
+  assert.notEqual(contentScriptIndex, -1);
+  assert.ok(startPageIndex < i18nIndex);
+  assert.ok(i18nIndex < contentScriptIndex);
+});
+
+test("start page files are copied into every Safari web extension bundle", () => {
+  const project = loadXcodeProject();
+  const startHTMLCopies = project.match(/\/\* start\.html in Resources \*\/,/g) || [];
+  const startPageCopies = project.match(/\/\* startPage\.js in Resources \*\/,/g) || [];
+
+  assert.equal(startHTMLCopies.length, 3);
+  assert.equal(startPageCopies.length, 3);
 });
 
 test("SF-style icon assets are copied into every Safari web extension bundle", () => {
@@ -262,6 +301,29 @@ test("voice mode exposes a compact language picker", () => {
   assert.match(css, /\.sloppy-voice-language/);
 });
 
+test("voice mode exposes microphone picker and round lower actions", () => {
+  const source = loadContentScript();
+  const css = loadPanelCSS();
+
+  assert.match(source, /data-sloppy-voice-microphone/);
+  assert.match(source, /voiceInputDeviceId/);
+  assert.match(source, /getUserMedia\(\{\s*audio:\s*voiceAudioConstraints\(config\.input\.deviceId\)\s*\}\)/);
+  assert.match(css, /\.sloppy-voice-settings\s*\{[\s\S]*background:\s*transparent;[\s\S]*box-shadow:\s*none;/);
+  assert.doesNotMatch(css, /\.sloppy-voice-settings::after/);
+  assert.match(css, /\.sloppy-voice-actions\s*\{[\s\S]*bottom:\s*max\(28px,/);
+  assert.match(css, /\.sloppy-voice-actions \.sloppy-icon-button\s*\{[\s\S]*width:\s*54px;[\s\S]*height:\s*54px;[\s\S]*border-radius:\s*999px;/);
+  assert.match(css, /\.sloppy-voice \[data-sloppy-voice-status\]\s*\{[\s\S]*animation:\s*sloppy-voice-status-shimmer/);
+  assert.match(css, /@keyframes sloppy-voice-status-shimmer/);
+});
+
+test("settings and sessions dialogs stay centered in the viewport", () => {
+  const css = loadPanelCSS();
+
+  assert.match(css, /\.sloppy-settings-dialog,\n\.sloppy-sessions-dialog\s*\{[\s\S]*position:\s*fixed;[\s\S]*inset:\s*0;[\s\S]*margin:\s*auto;/);
+  assert.match(css, /\.sloppy-settings-dialog,\n\.sloppy-sessions-dialog\s*\{[\s\S]*max-height:\s*calc\(100vh - 48px\);/);
+  assert.match(css, /\.sloppy-settings-card,\n\.sloppy-sessions-card\s*\{[\s\S]*max-height:\s*inherit;[\s\S]*overflow:\s*auto;/);
+});
+
 test("agent control keeps dropdown affordance while model control stays icon-only", () => {
   const css = loadPanelCSS();
   const source = loadContentScript();
@@ -270,6 +332,27 @@ test("agent control keeps dropdown affordance while model control stays icon-onl
   assert.match(css, /\.sloppy-brand::after\s*\{[\s\S]*border-top:\s*5px solid/);
   assert.doesNotMatch(css, /\.sloppy-model-picker::after/);
   assert.match(css, /\.sloppy-brand:hover select/);
+});
+
+test("topbar actions are icon-only while the agent picker keeps glass chrome", () => {
+  const css = loadPanelCSS();
+
+  assert.match(css, /\.sloppy-brand select\s*\{[\s\S]*background:\s*[\s\S]*linear-gradient/);
+  assert.match(css, /\.sloppy-topbar \.sloppy-actions \.sloppy-icon-button\s*\{[\s\S]*background:\s*transparent;[\s\S]*border-color:\s*transparent;[\s\S]*box-shadow:\s*none;/);
+  assert.match(css, /\.sloppy-topbar \.sloppy-actions \.sloppy-icon-button:hover,\n\.sloppy-topbar \.sloppy-actions \.sloppy-icon-button:focus-visible\s*\{[\s\S]*background:\s*transparent;[\s\S]*border-color:\s*transparent;/);
+});
+
+test("quick chat stays compact like the Safari contextual answer bubble", () => {
+  const css = loadPanelCSS();
+  const quickRoot = css.match(/#sloppy-quick-chat\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const quickBody = css.match(/#sloppy-quick-chat \.sloppy-quick-body\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const quickFollowUp = css.match(/#sloppy-quick-chat \.sloppy-quick-follow-up\s*\{[\s\S]*?\n\}/)?.[0] || "";
+
+  assert.match(quickRoot, /width:\s*min\(520px,\s*calc\(var\(--sloppy-viewport-width,\s*100vw\)\s*-\s*32px\)\);/);
+  assert.match(quickBody, /font-size:\s*18px;/);
+  assert.match(quickBody, /line-height:\s*1\.45;/);
+  assert.match(quickFollowUp, /min-height:\s*44px;/);
+  assert.match(quickFollowUp, /font-size:\s*18px;/);
 });
 
 test("fullscreen chat uses a flat dark canvas instead of glass or gradients", () => {

@@ -30,6 +30,10 @@ const defaultSettings = {
   selectedModel: "",
   floatingButtonEnabled: true,
   selectionBubbleEnabled: true,
+  startPageEnabled: true,
+  startPageTheme: "dark",
+  startPageBackgroundImage: "",
+  startPageShortcuts: [],
   voiceLanguage: "auto"
 };
 
@@ -123,6 +127,9 @@ async function saveSettings(settings) {
   await chrome.storage.local.set(sanitized);
   if (!sanitized.selectedModel) {
     await chrome.storage.local.remove?.("selectedModel");
+  }
+  if (!sanitized.sessionId) {
+    await chrome.storage.local.remove?.("sessionId");
   }
   return sanitized;
 }
@@ -539,6 +546,9 @@ if (typeof chrome !== "undefined") {
           const agents = await listAgents(settings);
           const selectedAgentId = chooseAgentID(settings.defaultAgentID, agents);
           const nextSettings = { ...settings, defaultAgentID: selectedAgentId };
+          if (selectedAgentId !== settings.defaultAgentID) {
+            nextSettings.sessionId = null;
+          }
           if (settings.mesh?.enabled) {
             nextSettings.mesh = {
               ...settings.mesh,
@@ -585,7 +595,7 @@ if (typeof chrome !== "undefined") {
         if (sessionId) {
           nextSettings.sessionId = sessionId;
         } else {
-          delete nextSettings.sessionId;
+          nextSettings.sessionId = null;
         }
         const saved = await saveSettings(nextSettings);
         const session = sessionId ? await getSession(saved, message.agentId || saved.defaultAgentID, sessionId) : null;
@@ -733,9 +743,10 @@ if (typeof chrome !== "undefined") {
           return;
         }
         const routedSettings = settingsForAgent(settings, settings.defaultAgentID);
+        const activeSessionId = String(message.sessionId || "").trim();
         const effectiveSettings = selectedModel && selectedModel !== "default"
-          ? { ...routedSettings, selectedModel }
-          : { ...routedSettings, selectedModel: "" };
+          ? { ...routedSettings, selectedModel, ...(activeSessionId ? { sessionId: activeSessionId } : {}) }
+          : { ...routedSettings, selectedModel: "", ...(activeSessionId ? { sessionId: activeSessionId } : {}) };
         const selection = fallbackSelectionText(message.selection);
         const options = {
           tabs: message.tabs || [],

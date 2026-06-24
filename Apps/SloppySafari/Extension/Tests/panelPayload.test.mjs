@@ -19,6 +19,9 @@ import {
   postBrowserContextStreaming,
   renderMarkdown,
   sanitizeSettings,
+  sanitizeStartPageBackgroundImage,
+  sanitizeStartPageShortcuts,
+  sanitizeStartPageTheme,
   transcribeVoiceAudio
 } from "../Resources/panel.js";
 
@@ -78,6 +81,11 @@ async function loadBackgroundRuntime(storedSettings = {}, fetchImpl = async () =
         },
         async set(nextValues = {}) {
           Object.assign(storageState, structuredClone(nextValues));
+        },
+        async remove(keys) {
+          for (const key of Array.isArray(keys) ? keys : [keys]) {
+            delete storageState[key];
+          }
         }
       }
     },
@@ -233,6 +241,10 @@ test("sanitizeSettings keeps a user-configured LAN Core URL for extension storag
     defaultAgentID: "web-agent",
     floatingButtonEnabled: true,
     selectionBubbleEnabled: false,
+    startPageEnabled: true,
+    startPageTheme: "dark",
+    startPageBackgroundImage: "",
+    startPageShortcuts: [],
     voiceLanguage: "auto",
     mesh: { enabled: false }
   });
@@ -243,6 +255,39 @@ test("sanitizeSettings keeps selection bubble enabled by default", () => {
   assert.equal(sanitizeSettings({ floatingButtonEnabled: false }).floatingButtonEnabled, false);
   assert.equal(sanitizeSettings({}).selectionBubbleEnabled, true);
   assert.equal(sanitizeSettings({ selectionBubbleEnabled: false }).selectionBubbleEnabled, false);
+});
+
+test("sanitizeSettings defaults start page customization", () => {
+  const settings = sanitizeSettings({});
+
+  assert.equal(settings.startPageEnabled, true);
+  assert.equal(settings.startPageTheme, "dark");
+  assert.equal(settings.startPageBackgroundImage, "");
+  assert.deepEqual(settings.startPageShortcuts, []);
+});
+
+test("sanitizeStartPageTheme accepts only light and dark", () => {
+  assert.equal(sanitizeStartPageTheme("light"), "light");
+  assert.equal(sanitizeStartPageTheme("dark"), "dark");
+  assert.equal(sanitizeStartPageTheme("system"), "dark");
+});
+
+test("sanitizeStartPageShortcuts keeps only http and https urls", () => {
+  assert.deepEqual(sanitizeStartPageShortcuts([
+    { title: "GitHub", url: "https://github.com" },
+    { title: "", url: "http://localhost:25101" },
+    { title: "Bad", url: "javascript:alert(1)" },
+    { title: "File", url: "file:///tmp/a" }
+  ]), [
+    { title: "GitHub", url: "https://github.com/" },
+    { title: "localhost:25101", url: "http://localhost:25101/" }
+  ]);
+});
+
+test("sanitizeStartPageBackgroundImage keeps small image data urls only", () => {
+  assert.equal(sanitizeStartPageBackgroundImage("data:image/png;base64,abcd"), "data:image/png;base64,abcd");
+  assert.equal(sanitizeStartPageBackgroundImage("data:text/html;base64,abcd"), "");
+  assert.equal(sanitizeStartPageBackgroundImage("https://example.com/image.png"), "");
 });
 
 test("sanitizeSettings preserves selected model override", () => {
@@ -256,12 +301,39 @@ test("sanitizeSettings preserves supported voice language override", () => {
   assert.equal(sanitizeSettings({ voiceLanguage: "zz-ZZ" }).voiceLanguage, "auto");
 });
 
+test("sanitizeSettings preserves a selected voice input device", () => {
+  assert.equal(sanitizeSettings({ voiceInputDeviceId: " microphone-2 " }).voiceInputDeviceId, "microphone-2");
+  assert.equal("voiceInputDeviceId" in sanitizeSettings({ voiceInputDeviceId: "   " }), false);
+});
+
 test("background settings enable the floating button by default", async () => {
   const runtime = await loadBackgroundRuntime();
 
   try {
     const response = await runtime.sendMessage({ type: "sloppy.settings.get" });
     assert.equal(response.floatingButtonEnabled, true);
+  } finally {
+    runtime.cleanup();
+  }
+});
+
+test("background clears selected session when agent selection is normalized to another agent", async () => {
+  const runtime = await loadBackgroundRuntime(
+    { defaultAgentID: "missing-agent", sessionId: "session-from-missing-agent" },
+    async (url) => {
+      if (url.endsWith("/v1/agents")) {
+        return Response.json({ agents: [{ id: "front_dev", displayName: "Frontend" }] });
+      }
+      return Response.json({});
+    }
+  );
+
+  try {
+    const response = await runtime.sendMessage({ type: "sloppy.agents.list" });
+
+    assert.equal(response.selectedAgentId, "front_dev");
+    assert.equal(runtime.storageState.defaultAgentID, "front_dev");
+    assert.equal("sessionId" in runtime.storageState, false);
   } finally {
     runtime.cleanup();
   }
@@ -465,6 +537,7 @@ test("background sloppy.settings.save preserves stored mesh private key when pub
 test("background sloppy.sessions.select keeps mesh private key in storage but not public responses", async () => {
   const runtime = await loadBackgroundRuntime({
     defaultAgentID: "sloppy",
+    sessionId: "session-old",
     mesh: {
       enabled: false,
       identity: {
@@ -487,6 +560,7 @@ test("background sloppy.sessions.select keeps mesh private key in storage but no
       publicKey: "ed25519:public"
     });
     assert.equal(runtime.storageState.mesh.identity.privateKey, "ed25519:private");
+    assert.equal("sessionId" in runtime.storageState, false);
   } finally {
     runtime.cleanup();
   }
@@ -966,6 +1040,77 @@ test("describeCoreError explains missing browser context endpoint", () => {
   assert.match(message, /browser context endpoint/i);
   assert.match(message, /update or restart Sloppy Core/i);
   assert.match(message, /192\.168\.3\.199:25101/);
+});
+
+test("background browser context stream uses explicit active session from content script", async () => {
+  const requests = [];
+  const encoder = new TextEncoder();
+  const runtime = await loadBackgroundRuntime(
+    { defaultAgentID: "front_dev" },
+    async (url, options = {}) => {
+      requests.push({ url, method: options.method || "GET", body: options.body ? JSON.parse(options.body) : null });
+      if (url.endsWith("/v1/agents/front_dev/sessions")) {
+        return new Response(JSON.stringify({ error: "unexpected_session_create" }), { status: 500 });
+      }
+      if (url.endsWith("/v1/agents/front_dev/sessions/session-existing/stream")) {
+        return new Response(new ReadableStream({
+          start(controller) {
+            controller.enqueue(encoder.encode([
+              "event: session_event",
+              'data: {"kind":"session_event","cursor":1,"event":{"message":{"role":"assistant","segments":[{"text":"Still same session"}]}}}',
+              "",
+              ""
+            ].join("\n")));
+            controller.close();
+          }
+        }), {
+          headers: { "content-type": "text/event-stream" }
+        });
+      }
+      if (url.endsWith("/v1/agents/front_dev/sessions/session-existing/messages")) {
+        return Response.json({
+          appendedEvents: [
+            {
+              id: "event-2",
+              message: {
+                id: "message-2",
+                role: "assistant",
+                segments: [{ text: "Still same session" }]
+              }
+            }
+          ]
+        });
+      }
+      return new Response(JSON.stringify({ error: "unexpected" }), { status: 500 });
+    }
+  );
+
+  try {
+    const result = await runtime.sendMessage({
+      type: "sloppy.browserContext.stream",
+      requestId: "request-1",
+      sessionId: "session-existing",
+      page: { url: "https://example.com", title: "Example" },
+      selection: "",
+      prompt: "continue",
+      tabs: []
+    }, { tab: { id: 7 } });
+
+    assert.equal(result.sessionId, "session-existing");
+    assert.equal(runtime.storageState.sessionId, "session-existing");
+    const agentSessionRequests = requests.filter((request) =>
+      request.url.includes("/v1/agents/front_dev/sessions")
+    );
+    assert.deepEqual(
+      agentSessionRequests.map((request) => [request.method, request.url.replace("http://127.0.0.1:25101", "")]),
+      [
+        ["GET", "/v1/agents/front_dev/sessions/session-existing/stream"],
+        ["POST", "/v1/agents/front_dev/sessions/session-existing/messages"]
+      ]
+    );
+  } finally {
+    runtime.cleanup();
+  }
 });
 
 test("postBrowserContext falls back to session message endpoints when browser endpoint is missing", async () => {

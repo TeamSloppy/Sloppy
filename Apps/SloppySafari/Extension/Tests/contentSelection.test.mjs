@@ -258,6 +258,46 @@ test("openFullscreenChat falls back when the background tab opener fails", async
   assert.equal(url.searchParams.get("sessionId"), "session-1");
 });
 
+test("quick chat sidebar handoff preserves context and active session", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const opened = [];
+  sandbox.document = {
+    location: { href: "https://example.com/page" },
+    title: "Example Page"
+  };
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      },
+      async sendMessage(message) {
+        assert.equal(message.type, "sloppy.tabs.open");
+        opened.push(message.url);
+        return { tab: { id: 1, url: message.url } };
+      }
+    }
+  };
+  vm.runInNewContext("state.settings = { sessionId: 'session-quick' };", sandbox);
+  vm.runInNewContext(`
+    state.quickChat = {
+      context: {
+        page: { url: "https://example.com/page", title: "Example Page" },
+        selection: "Selected text"
+      },
+      sessionId: "session-quick"
+    };
+  `, sandbox);
+
+  await sandbox.openQuickChatSidebar();
+
+  assert.equal(opened.length, 1);
+  const url = new URL(opened[0]);
+  assert.equal(url.pathname, "/chat.html");
+  assert.equal(url.searchParams.get("selection"), "Selected text");
+  assert.equal(url.searchParams.get("pageURL"), "https://example.com/page");
+  assert.equal(url.searchParams.get("sessionId"), "session-quick");
+});
+
 test("command palette includes an independent recent sessions scroll container", () => {
   const sandbox = loadContentScriptSandbox();
   const documentLike = createPanelDocument();
@@ -286,6 +326,95 @@ test("panel shell localizes visible chrome from system language", () => {
   assert.match(panel.innerHTML, /placeholder="Спросить об этой странице"/);
   assert.match(panel.innerHTML, /aria-label="Настройки"/);
   assert.match(panel.innerHTML, /Новая сессия/);
+});
+
+test("start page mode renders centered composer and shortcuts", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      }
+    }
+  };
+  vm.runInNewContext(`
+    globalThis.SloppyStartPageMode = true;
+    state.settings = {
+      startPageEnabled: true,
+      startPageTheme: "light",
+      startPageShortcuts: [{ title: "GitHub", url: "https://github.com/" }]
+    };
+  `, sandbox);
+
+  const panel = sandbox.ensurePanel();
+  sandbox.render(panel);
+  const thread = panel.querySelector("[data-sloppy-thread]");
+
+  assert.match(thread.innerHTML, /data-sloppy-start-surface/);
+  assert.match(thread.innerHTML, /data-sloppy-start-shortcut="https:\/\/github\.com\/"/);
+  assert.match(thread.innerHTML, /data-sloppy-start-theme="light"/);
+});
+
+test("settings dialog includes start page customization controls", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      }
+    }
+  };
+
+  const panel = sandbox.ensurePanel();
+
+  assert.match(panel.innerHTML, /data-sloppy-start-page-enabled/);
+  assert.match(panel.innerHTML, /data-sloppy-start-page-theme/);
+  assert.match(panel.innerHTML, /data-sloppy-start-page-background/);
+  assert.match(panel.innerHTML, /data-sloppy-start-page-add-shortcut/);
+});
+
+test("fullscreen chat shell includes the shared app sidebar", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      }
+    }
+  };
+  vm.runInNewContext("document.documentElement.classList.add('sloppy-fullscreen-chat-page');", sandbox);
+
+  const panel = sandbox.ensurePanel();
+
+  assert.match(panel.innerHTML, /data-sloppy-app-sidebar/);
+  assert.match(panel.innerHTML, /data-sloppy-sidebar-new/);
+  assert.match(panel.innerHTML, /data-sloppy-sidebar-sessions/);
+  assert.match(panel.innerHTML, /data-sloppy-sidebar-customize/);
+});
+
+test("transitionStartPageToChat exits start mode before sending", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      }
+    }
+  };
+  vm.runInNewContext("globalThis.SloppyStartPageMode = true;", sandbox);
+  const panel = sandbox.ensurePanel();
+
+  sandbox.transitionStartPageToChat(panel);
+
+  assert.equal(sandbox.SloppyStartPageMode, false);
 });
 
 test("floating button hides while the search ask button is visible", () => {
@@ -320,6 +449,38 @@ test("cachedSelectionInfo falls back to the last mobile selection rect", () => {
     JSON.stringify({ text: "Selected text", rect })
   );
   assert.equal(cachedSelectionInfo(null, { selectionMenuText: "", selectionMenuRect: rect }), null);
+});
+
+test("quickChatPlacementStyle anchors the mini chat to the selection menu position", () => {
+  const { quickChatPlacementStyle } = loadContentScriptSandbox();
+  const rect = { left: 420, top: 120, right: 520, bottom: 144, width: 100, height: 24 };
+  const style = quickChatPlacementStyle(rect, {
+    innerWidth: 1200,
+    innerHeight: 800,
+    navigator: { maxTouchPoints: 0 }
+  });
+
+  assert.equal(JSON.stringify(style), JSON.stringify({
+    left: "494px",
+    top: "156px",
+    transform: "none"
+  }));
+});
+
+test("quickChatPlacementStyle flips above low selections", () => {
+  const { quickChatPlacementStyle } = loadContentScriptSandbox();
+  const rect = { left: 900, top: 710, right: 990, bottom: 734, width: 90, height: 24 };
+  const style = quickChatPlacementStyle(rect, {
+    innerWidth: 1200,
+    innerHeight: 800,
+    navigator: { maxTouchPoints: 0 }
+  });
+
+  assert.equal(JSON.stringify(style), JSON.stringify({
+    left: "664px",
+    top: "698px",
+    transform: "translateY(-100%)"
+  }));
 });
 
 test("icon URLs match flattened Safari extension SVG resources", () => {

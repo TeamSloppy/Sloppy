@@ -16,6 +16,47 @@ export function normalizeCoreURL(value) {
   return url.replace(/\/+$/, "");
 }
 
+const maxStartPageShortcuts = 8;
+const maxStartPageBackgroundImageLength = 750000;
+
+export function sanitizeStartPageTheme(value) {
+  return String(value || "dark").trim() === "light" ? "light" : "dark";
+}
+
+export function sanitizeStartPageBackgroundImage(value) {
+  const image = String(value || "").trim();
+  if (!image) {
+    return "";
+  }
+  if (image.length > maxStartPageBackgroundImageLength) {
+    return "";
+  }
+  return /^data:image\/(png|jpe?g|gif|webp);base64,[a-z0-9+/=\s]+$/i.test(image) ? image : "";
+}
+
+export function sanitizeStartPageShortcuts(records = []) {
+  return (Array.isArray(records) ? records : [])
+    .map((record) => {
+      const rawURL = String(record?.url || "").trim();
+      let url = null;
+      try {
+        url = new URL(rawURL);
+      } catch {
+        return null;
+      }
+      if (url.protocol !== "http:" && url.protocol !== "https:") {
+        return null;
+      }
+      const hostTitle = url.host || url.href;
+      return {
+        title: String(record?.title || hostTitle).trim() || hostTitle,
+        url: url.href
+      };
+    })
+    .filter(Boolean)
+    .slice(0, maxStartPageShortcuts);
+}
+
 export function sanitizeSettings(settings = {}) {
   const sanitized = {
     coreURLString: normalizeCoreURL(settings.coreURLString),
@@ -23,9 +64,17 @@ export function sanitizeSettings(settings = {}) {
     defaultAgentID: String(settings.defaultAgentID || "sloppy").trim() || "sloppy",
     floatingButtonEnabled: settings.floatingButtonEnabled !== false,
     selectionBubbleEnabled: settings.selectionBubbleEnabled !== false,
+    startPageEnabled: settings.startPageEnabled !== false,
+    startPageTheme: sanitizeStartPageTheme(settings.startPageTheme),
+    startPageBackgroundImage: sanitizeStartPageBackgroundImage(settings.startPageBackgroundImage),
+    startPageShortcuts: sanitizeStartPageShortcuts(settings.startPageShortcuts),
     voiceLanguage: normalizeVoiceLanguage(settings.voiceLanguage),
     mesh: normalizeMeshSettings(settings.mesh)
   };
+  const voiceInputDeviceId = String(settings.voiceInputDeviceId || "").trim();
+  if (voiceInputDeviceId) {
+    sanitized.voiceInputDeviceId = voiceInputDeviceId;
+  }
   if (settings.sessionId) {
     sanitized.sessionId = settings.sessionId;
   }

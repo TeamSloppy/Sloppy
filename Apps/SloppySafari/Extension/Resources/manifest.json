@@ -9,6 +9,9 @@
     "service_worker": "background.js",
     "type": "module"
   },
+  "chrome_url_overrides": {
+    "newtab": "start.html"
+  },
   "action": {
     "default_title": "Open Sloppy",
     "default_icon": {
@@ -27,7 +30,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["so_logo.svg", "chat.html", "chatPage.js", "*.svg", "icons/*.svg"],
+      "resources": ["so_logo.svg", "chat.html", "chatPage.js", "start.html", "startPage.js", "*.svg", "icons/*.svg"],
       "matches": ["<all_urls>"]
     }
   ]

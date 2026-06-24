@@ -130,7 +130,10 @@ function icon(name) {
     more: "ellipsis",
     expand: "arrow.down.left.and.arrow.up.right",
     search: "magnifyingglass",
-    model: "brain"
+    sidebar: "square.and.arrow.down",
+    model: "brain",
+    project: "square.and.arrow.down",
+    customize: "gear"
   };
   const symbol = symbols[name] || "ellipsis";
   const path = `${symbol}.svg`;
@@ -345,6 +348,10 @@ function selectionActionPrompt(actionId) {
   return prompts[actionId] || "";
 }
 
+function selectionActionTitle(actionId) {
+  return selectionActions.find((action) => action.id === actionId)?.title || t("assistant");
+}
+
 const state = {
   settings: null,
   agents: [],
@@ -362,18 +369,31 @@ const state = {
   selectionMenuText: "",
   selectionMenuRect: null,
   fullscreenLaunch: null,
+  quickChat: null,
   voiceConfig: {
     enabled: false,
     effectiveProvider: "local",
-    input: { mode: "push_to_talk", language: "auto", previewBeforeSend: true },
+    input: { mode: "push_to_talk", language: "auto", deviceId: "", previewBeforeSend: true },
     local: { enabled: true, voiceName: "", rate: 1, pitch: 1 }
   },
+  voiceInputDevices: [],
   voice: { state: "idle", transcript: "", recognition: null, recorder: null, cancelled: false }
 };
 
 function ensureSettings() {
   state.settings = state.settings || {};
   return state.settings;
+}
+
+function isStartPageMode() {
+  return Boolean(globalThis.SloppyStartPageMode)
+    && !document.documentElement.classList.contains?.("sloppy-fullscreen-chat-page");
+}
+
+function setStartPageMode(active) {
+  globalThis.SloppyStartPageMode = Boolean(active);
+  document.documentElement.classList.toggle("sloppy-start-page", Boolean(active));
+  document.documentElement.classList.toggle("sloppy-fullscreen-chat-page", !active);
 }
 
 function ensurePanel() {
@@ -387,7 +407,16 @@ function ensurePanel() {
   frame = document.createElement("aside");
   frame.id = "sloppy-safari-extension-panel";
   frame.innerHTML = `
-    <div class="sloppy-shell">
+    <div class="sloppy-app-layout">
+      <nav class="sloppy-app-sidebar" data-sloppy-app-sidebar aria-label="${escapeHTML(t("navigation"))}">
+        <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-new>${icon("plus")}<span>${escapeHTML(t("newSession"))}</span></button>
+        <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-sessions>${icon("sessions")}<span>${escapeHTML(t("sessions"))}</span></button>
+        <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-projects>${icon("project")}<span>${escapeHTML(t("projects"))}</span></button>
+        <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-settings>${icon("settings")}<span>${escapeHTML(t("settings"))}</span></button>
+        <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-customize>${icon("customize")}<span>${escapeHTML(t("customize"))}</span></button>
+      </nav>
+
+      <div class="sloppy-shell">
       <header class="sloppy-topbar">
         <div class="sloppy-brand">
           <img class="sloppy-mark" src="${logoURL()}" alt="" aria-hidden="true">
@@ -422,16 +451,23 @@ function ensurePanel() {
           </div>
         </div>
       </form>
+      </div>
     </div>
 
     <section class="sloppy-voice" data-sloppy-voice-panel hidden>
-      <label class="sloppy-voice-settings" data-sloppy-voice-settings aria-label="${escapeHTML(t("voiceSettings"))}">
+      <label class="sloppy-voice-settings sloppy-voice-language-settings" data-sloppy-voice-settings aria-label="${escapeHTML(t("voiceLanguage"))}">
         <span aria-hidden="true">${icon("settings")}</span>
         <select class="sloppy-voice-language" data-sloppy-voice-language aria-label="${escapeHTML(t("voiceLanguage"))}">
           <option value="auto">${escapeHTML(t("voiceLanguageAuto"))}</option>
           <option value="en-US">${escapeHTML(t("voiceLanguageEnglish"))}</option>
           <option value="ru-RU">${escapeHTML(t("voiceLanguageRussian"))}</option>
           <option value="zh-CN">${escapeHTML(t("voiceLanguageChinese"))}</option>
+        </select>
+      </label>
+      <label class="sloppy-voice-settings sloppy-voice-microphone-settings" data-sloppy-voice-microphone-settings aria-label="${escapeHTML(t("voiceMicrophone"))}">
+        <span aria-hidden="true">${icon("mic")}</span>
+        <select class="sloppy-voice-microphone" data-sloppy-voice-microphone aria-label="${escapeHTML(t("voiceMicrophone"))}">
+          <option value="">${escapeHTML(t("voiceMicrophoneDefault"))}</option>
         </select>
       </label>
       <div class="sloppy-voice-orb" data-sloppy-voice-orb></div>
@@ -470,6 +506,24 @@ function ensurePanel() {
           <input data-sloppy-selection-bubble-enabled type="checkbox">
           <span>Show selection bubble</span>
         </label>
+        <div class="sloppy-settings-section">
+          <strong>${escapeHTML(t("startPage"))}</strong>
+          <label class="sloppy-settings-toggle">
+            <input data-sloppy-start-page-enabled type="checkbox">
+            <span>${escapeHTML(t("enableStartPage"))}</span>
+          </label>
+          <label>${escapeHTML(t("theme"))}
+            <select data-sloppy-start-page-theme>
+              <option value="dark">${escapeHTML(t("darkTheme"))}</option>
+              <option value="light">${escapeHTML(t("lightTheme"))}</option>
+            </select>
+          </label>
+          <label>${escapeHTML(t("backgroundImage"))}<input data-sloppy-start-page-background type="file" accept="image/png,image/jpeg,image/gif,image/webp"></label>
+          <button class="sloppy-settings-save" type="button" data-sloppy-start-page-clear-background>${escapeHTML(t("clearBackground"))}</button>
+          <div class="sloppy-start-shortcut-editor" data-sloppy-start-page-shortcuts></div>
+          <button class="sloppy-settings-save" type="button" data-sloppy-start-page-add-shortcut>${escapeHTML(t("addShortcut"))}</button>
+          <p class="sloppy-settings-note" data-sloppy-start-page-error></p>
+        </div>
         <a class="sloppy-settings-link" href="https://sloppy.team" target="_blank" rel="noreferrer">${escapeHTML(t("downloadSloppy"))}</a>
         <button class="sloppy-settings-save" type="button" data-sloppy-save-settings>Save settings</button>
       </form>
@@ -571,6 +625,206 @@ function renderSearchButton() {
   if (floating) {
     floating.hidden = true;
   }
+}
+
+function ensureQuickChat() {
+  let chat = document.getElementById("sloppy-quick-chat");
+  if (chat) {
+    return chat;
+  }
+  chat = document.createElement("aside");
+  chat.id = "sloppy-quick-chat";
+  document.documentElement.appendChild(chat);
+  return chat;
+}
+
+function removeQuickChat() {
+  const chat = document.getElementById("sloppy-quick-chat");
+  if (chat) {
+    chat.remove();
+  }
+  state.quickChat = null;
+}
+
+function quickChatPlacementStyle(rect, windowLike = window) {
+  if (!rect) {
+    return null;
+  }
+  const padding = 16;
+  const viewportWidth = Number(windowLike.innerWidth || document.documentElement.clientWidth || 0);
+  const viewportHeight = Number(windowLike.innerHeight || document.documentElement.clientHeight || 0);
+  const quickWidth = Math.min(520, Math.max(0, viewportWidth - padding * 2));
+  const estimatedHeight = 340;
+  const anchorGap = 12;
+  const spaceBelow = viewportHeight - rect.bottom - padding;
+  const shouldOpenAbove = spaceBelow < estimatedHeight || rect.top > viewportHeight / 2;
+  const preferredLeft = Number(rect.right || rect.left || 0) - 26;
+  const maxLeft = Math.max(padding, viewportWidth - quickWidth - padding);
+  const left = Math.min(Math.max(preferredLeft, padding), maxLeft);
+  const top = shouldOpenAbove
+    ? Math.max(padding, Number(rect.top || 0) - anchorGap)
+    : Math.min(Math.max(Number(rect.bottom || 0) + anchorGap, padding), Math.max(padding, viewportHeight - padding));
+  return {
+    left: `${Math.round(left)}px`,
+    top: `${Math.round(top)}px`,
+    transform: shouldOpenAbove ? "translateY(-100%)" : "none"
+  };
+}
+
+function applyQuickChatPlacement(chat, anchorRect) {
+  const style = quickChatPlacementStyle(anchorRect);
+  if (!style) {
+    chat.classList.remove("is-anchored");
+    chat.style.removeProperty("--sloppy-quick-left");
+    chat.style.removeProperty("--sloppy-quick-top");
+    chat.style.removeProperty("--sloppy-quick-transform");
+    return;
+  }
+  chat.classList.add("is-anchored");
+  chat.style.setProperty("--sloppy-quick-left", style.left);
+  chat.style.setProperty("--sloppy-quick-top", style.top);
+  chat.style.setProperty("--sloppy-quick-transform", style.transform);
+}
+
+function quickChatTitle(prompt = "") {
+  return String(prompt || "").trim() || t("assistant");
+}
+
+function renderQuickChat() {
+  const quick = state.quickChat;
+  if (!quick) {
+    return;
+  }
+  const chat = ensureQuickChat();
+  applyQuickChatPlacement(chat, quick.anchorRect);
+  const assistantHTML = quick.assistantText
+    ? renderMarkdown(quick.assistantText)
+    : `<p class="sloppy-quick-status">${escapeHTML(quick.streaming ? t("thinking") : "")}</p>`;
+  chat.innerHTML = `
+    <div class="sloppy-quick-shell">
+      <header class="sloppy-quick-header">
+        <div class="sloppy-quick-title">
+          <img class="sloppy-mark" src="${logoURL()}" alt="" aria-hidden="true">
+          <strong>${escapeHTML(quickChatTitle(quick.title))}</strong>
+        </div>
+        <div class="sloppy-quick-actions">
+          <button class="sloppy-icon-button" type="button" data-sloppy-quick-sidebar aria-label="${escapeHTML(t("openFullscreenChat"))}">${icon("sidebar")}</button>
+          <button class="sloppy-icon-button" type="button" data-sloppy-quick-close aria-label="${escapeHTML(t("close"))}">${icon("close")}</button>
+        </div>
+      </header>
+      <main class="sloppy-quick-body">
+        ${quick.userText ? `<div class="sloppy-quick-user">${escapeHTML(quick.userText)}</div>` : ""}
+        <div class="sloppy-quick-assistant ${quick.streaming ? "is-streaming" : ""}">${assistantHTML}</div>
+      </main>
+      <footer class="sloppy-quick-footer">
+        <button class="sloppy-quick-follow-up" type="button" data-sloppy-quick-follow-up>${icon("plus")}<span>${escapeHTML(t("askFollowUp"))}</span></button>
+      </footer>
+    </div>
+  `;
+  chat.querySelector("[data-sloppy-quick-close]")?.addEventListener("click", removeQuickChat);
+  chat.querySelector("[data-sloppy-quick-sidebar]")?.addEventListener("click", () => {
+    void openQuickChatSidebar();
+  });
+  chat.querySelector("[data-sloppy-quick-follow-up]")?.addEventListener("click", () => {
+    void openQuickChatSidebar();
+  });
+}
+
+async function openQuickChatSidebar() {
+  const quick = state.quickChat || {};
+  const context = quick.context || state.context || extractPageContext(document, selectedText());
+  await openFullscreenChat({
+    selection: context.selection || "",
+    page: context.page,
+    sessionId: quick.sessionId || state.settings?.sessionId || ""
+  });
+}
+
+async function loadQuickChatTabs() {
+  const response = await chrome.runtime.sendMessage({ type: "sloppy.tabs.list" }).catch(() => ({ tabs: [] }));
+  return response?.tabs || [];
+}
+
+async function updateQuickChatStreaming(event = {}) {
+  const quick = state.quickChat;
+  if (!quick) {
+    return;
+  }
+  let nextText = assistantTextFromStreamEvent(event);
+  if (event.type === "delta") {
+    nextText = event.replace ? (event.text || event.delta || "") : `${quick.assistantText || ""}${event.text || event.delta || ""}`;
+  }
+  if (event.type === "assistant_message") {
+    nextText = event.text || nextText;
+  }
+  if (nextText) {
+    quick.assistantText = nextText;
+  }
+  if (event.type === "complete" || event.type === "done") {
+    const finalText = event.body ? agentResponseText(event.body, quick.assistantText) : quick.assistantText;
+    quick.assistantText = finalText || quick.assistantText;
+    quick.streaming = false;
+    if (event.body?.sessionId) {
+      quick.sessionId = event.body.sessionId;
+    }
+  }
+  if (event.type === "session_error") {
+    quick.assistantText = event.message || quick.assistantText || "Session stream failed.";
+    quick.streaming = false;
+  }
+  renderQuickChat();
+}
+
+async function openQuickChatForPrompt(prompt, options = {}) {
+  const context = options.context || extractPageContext(document, options.selection || selectedText());
+  state.context = context;
+  state.settings = state.settings || await chrome.runtime.sendMessage({ type: "sloppy.settings.get" });
+  state.quickChat = {
+    context,
+    prompt,
+    title: options.title || t("assistant"),
+    userText: options.userText || "",
+    anchorRect: options.anchorRect || null,
+    assistantText: "",
+    sessionId: state.settings?.sessionId || "",
+    requestId: globalThis.crypto?.randomUUID?.() || `${Date.now()}-quick`,
+    streaming: true
+  };
+  hideSelectionMenu();
+  renderQuickChat();
+
+  let response = null;
+  try {
+    response = await chrome.runtime.sendMessage({
+      type: "sloppy.browserContext.stream",
+      requestId: state.quickChat.requestId,
+      sessionId: state.settings?.sessionId || "",
+      page: context.page,
+      selection: context.selection,
+      prompt,
+      tabs: await loadQuickChatTabs(),
+      pageSnapshot: buildDOMSnapshot(document),
+      attachments: [],
+      model: state.settings?.selectedModel || "default"
+    });
+  } catch (error) {
+    response = { error: error.message || "Sloppy Core unavailable." };
+  }
+
+  const quick = state.quickChat;
+  if (!quick) {
+    return;
+  }
+  if (response?.error) {
+    quick.assistantText = response.error;
+    quick.streaming = false;
+  } else {
+    quick.assistantText = agentResponseText(response, quick.assistantText);
+    quick.sessionId = response?.sessionId || quick.sessionId;
+    await rememberSession(response, null);
+  }
+  quick.streaming = false;
+  renderQuickChat();
 }
 
 function searchAskButtonVisible() {
@@ -734,9 +988,10 @@ function wireSelectionMenu(menu) {
   });
   menu.querySelectorAll("[data-sloppy-selection-action]").forEach((button) => {
     button.addEventListener("click", () => {
-      const prompt = selectionActionPrompt(button.dataset.sloppySelectionAction);
+      const actionId = button.dataset.sloppySelectionAction;
+      const prompt = selectionActionPrompt(actionId);
       if (prompt) {
-        void sendSelectionPrompt(prompt);
+        void sendSelectionPrompt(prompt, selectionActionTitle(actionId));
       }
     });
   });
@@ -782,6 +1037,52 @@ function wirePanel(frame) {
       status.textContent = error?.message || "Unable to join mesh.";
     }
   });
+  frame.querySelector("[data-sloppy-start-page-add-shortcut]")?.addEventListener("click", () => {
+    state.settings = {
+      ...(state.settings || {}),
+      startPageShortcuts: [
+        ...(state.settings?.startPageShortcuts || []),
+        { title: "", url: "" }
+      ]
+    };
+    renderStartPageShortcutEditor(frame);
+  });
+  frame.querySelector("[data-sloppy-start-page-shortcuts]")?.addEventListener("click", (event) => {
+    const button = event.target?.closest?.("[data-sloppy-remove-start-shortcut]");
+    if (!button) {
+      return;
+    }
+    const removeIndex = Number(button.dataset.sloppyRemoveStartShortcut);
+    state.settings = {
+      ...(state.settings || {}),
+      startPageShortcuts: (state.settings?.startPageShortcuts || []).filter((_shortcut, index) => index !== removeIndex)
+    };
+    renderStartPageShortcutEditor(frame);
+  });
+  frame.querySelector("[data-sloppy-start-page-clear-background]")?.addEventListener("click", () => {
+    state.settings = {
+      ...(state.settings || {}),
+      startPageBackgroundImage: ""
+    };
+    frame.querySelector("[data-sloppy-start-page-error]").textContent = "";
+  });
+  frame.querySelector("[data-sloppy-start-page-background]")?.addEventListener("change", (event) => {
+    void readStartPageBackgroundImage(event.target.files?.[0], frame);
+  });
+  frame.querySelector("[data-sloppy-sidebar-new]")?.addEventListener("click", () => {
+    state.messages = [];
+    delete ensureSettings().sessionId;
+    setStartPageMode(Boolean(globalThis.SloppyStartPageMode));
+    render(frame);
+  });
+  frame.querySelector("[data-sloppy-sidebar-sessions]")?.addEventListener("click", () => openSessions(frame));
+  frame.querySelector("[data-sloppy-sidebar-settings]")?.addEventListener("click", () => openSettings(frame));
+  frame.querySelector("[data-sloppy-sidebar-customize]")?.addEventListener("click", () => openSettings(frame));
+  frame.querySelector("[data-sloppy-sidebar-projects]")?.addEventListener("click", () => {
+    appendMessage({ role: "assistant", label: t("assistant"), text: t("projectsUnavailable") });
+    transitionStartPageToChat(frame);
+    render(frame);
+  });
   frame.querySelector("[data-sloppy-attach]").addEventListener("click", () => frame.querySelector("[data-sloppy-file]").click());
   frame.querySelector("[data-sloppy-file]").addEventListener("change", (event) => addFiles(event.target.files, frame));
   frame.querySelector("[data-sloppy-capture]").addEventListener("click", () => captureScreenshot(frame));
@@ -806,6 +1107,24 @@ function wirePanel(frame) {
       input: {
         ...(state.voiceConfig?.input || {}),
         language: state.settings.voiceLanguage
+      }
+    };
+    void chrome.runtime.sendMessage({ type: "sloppy.settings.save", settings: state.settings });
+  });
+  frame.querySelector("[data-sloppy-voice-microphone]")?.addEventListener("change", (event) => {
+    const deviceId = normalizeVoiceInputDeviceId(event.target.value);
+    state.settings = {
+      ...(state.settings || {}),
+      voiceInputDeviceId: deviceId
+    };
+    if (!deviceId) {
+      delete state.settings.voiceInputDeviceId;
+    }
+    state.voiceConfig = {
+      ...state.voiceConfig,
+      input: {
+        ...(state.voiceConfig?.input || {}),
+        deviceId
       }
     };
     void chrome.runtime.sendMessage({ type: "sloppy.settings.save", settings: state.settings });
@@ -870,6 +1189,7 @@ function normalizeVoiceConfig(config = {}) {
     input: {
       mode: config.input?.mode === "auto_submit" ? "auto_submit" : "push_to_talk",
       language: String(config.input?.language || "auto"),
+      deviceId: normalizeVoiceInputDeviceId(config.input?.deviceId),
       previewBeforeSend: config.input?.previewBeforeSend !== false
     },
     local: {
@@ -901,11 +1221,13 @@ async function loadVoiceConfig() {
   const response = await chrome.runtime.sendMessage({ type: "sloppy.voice.config.get" }).catch((error) => ({ error: error.message }));
   const config = normalizeVoiceConfig(response?.config || {});
   const language = normalizeVoiceLanguage(state.settings?.voiceLanguage || config.input.language);
+  const deviceId = normalizeVoiceInputDeviceId(state.settings?.voiceInputDeviceId || config.input.deviceId);
   state.voiceConfig = {
     ...config,
     input: {
       ...config.input,
-      language
+      language,
+      deviceId
     }
   };
   return state.voiceConfig;
@@ -923,6 +1245,10 @@ function blobToBase64(blob) {
 async function startVoice() {
   try {
     const config = await loadVoiceConfig();
+    const frame = document.getElementById("sloppy-safari-extension-panel");
+    if (frame) {
+      await refreshVoiceInputDevices(frame);
+    }
     if (config.effectiveProvider === "openai") {
       await startOpenAIVoice(config);
       return;
@@ -938,7 +1264,7 @@ async function startOpenAIVoice(config) {
     setVoiceState("error", "Microphone recording is unavailable in this browser.");
     return;
   }
-  const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+  const stream = await navigator.mediaDevices.getUserMedia({ audio: voiceAudioConstraints(config.input.deviceId) });
   const chunks = [];
   const recorder = new MediaRecorder(stream);
   state.voice.recorder = recorder;
@@ -1049,16 +1375,66 @@ function submitVoiceTranscript() {
 function render(frame) {
   renderAgents(frame);
   renderModels(frame);
-  renderVoiceLanguage(frame);
+  renderVoiceControls(frame);
+  if (isStartPageMode() && state.settings?.startPageEnabled !== false && !state.messages.length) {
+    renderStartPageSurface(frame);
+    renderAttachments(frame);
+    renderComposerAction(frame);
+    return;
+  }
   renderThread(frame);
   renderContext(frame);
   renderAttachments(frame);
   renderComposerAction(frame);
 }
 
+function renderStartPageSurface(frame) {
+  const thread = frame.querySelector("[data-sloppy-thread]");
+  const settings = state.settings || {};
+  const theme = settings.startPageTheme === "light" ? "light" : "dark";
+  const shortcuts = settings.startPageShortcuts || [];
+  frame.classList.toggle("sloppy-theme-light", theme === "light");
+  frame.style.setProperty("--sloppy-start-background-image", settings.startPageBackgroundImage ? `url("${settings.startPageBackgroundImage}")` : "none");
+  thread.innerHTML = `
+    <section class="sloppy-start-surface" data-sloppy-start-surface data-sloppy-start-theme="${escapeHTML(theme)}">
+      <img class="sloppy-empty-mark" src="${logoURL()}" alt="" aria-hidden="true">
+      <h1>${escapeHTML(t("assistant"))}</h1>
+      <div class="sloppy-start-shortcuts">
+        ${shortcuts.map((shortcut) => `
+          <a href="${escapeHTML(shortcut.url)}" data-sloppy-start-shortcut="${escapeHTML(shortcut.url)}">
+            <span>${escapeHTML(shortcut.title)}</span>
+          </a>
+        `).join("")}
+      </div>
+    </section>
+  `;
+}
+
+function transitionStartPageToChat(frame) {
+  if (!isStartPageMode()) {
+    return;
+  }
+  setStartPageMode(false);
+  frame.classList.remove("sloppy-theme-light");
+}
+
 function normalizeVoiceLanguage(value) {
   const language = String(value || "auto").trim();
   return ["auto", "en-US", "ru-RU", "zh-CN"].includes(language) ? language : "auto";
+}
+
+function normalizeVoiceInputDeviceId(value) {
+  return String(value || "").trim();
+}
+
+function voiceAudioConstraints(deviceId) {
+  const normalizedDeviceId = normalizeVoiceInputDeviceId(deviceId);
+  if (!normalizedDeviceId) {
+    return true;
+  }
+  return {
+    deviceId: { exact: normalizedDeviceId }
+  };
 }
 
 function renderAgents(frame) {
@@ -1086,11 +1462,41 @@ function renderModels(frame) {
   select.value = models.some((model) => model.id === selected) ? selected : "default";
 }
 
-function renderVoiceLanguage(frame) {
+function renderVoiceControls(frame) {
   const select = frame.querySelector("[data-sloppy-voice-language]");
   if (select) {
     select.value = normalizeVoiceLanguage(state.settings?.voiceLanguage || state.voiceConfig?.input?.language);
   }
+  renderVoiceMicrophone(frame);
+}
+
+function renderVoiceMicrophone(frame) {
+  const select = frame.querySelector("[data-sloppy-voice-microphone]");
+  if (!select) {
+    return;
+  }
+  const selected = normalizeVoiceInputDeviceId(state.settings?.voiceInputDeviceId || state.voiceConfig?.input?.deviceId);
+  const options = [
+    { id: "", label: t("voiceMicrophoneDefault") },
+    ...state.voiceInputDevices.map((device, index) => ({
+      id: device.deviceId,
+      label: device.label || `${t("voiceMicrophone")} ${index + 1}`
+    }))
+  ];
+  select.innerHTML = options
+    .map((device) => `<option value="${escapeHTML(device.id)}">${escapeHTML(device.label)}</option>`)
+    .join("");
+  select.value = options.some((device) => device.id === selected) ? selected : "";
+}
+
+async function refreshVoiceInputDevices(frame) {
+  if (!navigator.mediaDevices?.enumerateDevices) {
+    renderVoiceMicrophone(frame);
+    return;
+  }
+  const devices = await navigator.mediaDevices.enumerateDevices().catch(() => []);
+  state.voiceInputDevices = devices.filter((device) => device.kind === "audioinput" && device.deviceId);
+  renderVoiceMicrophone(frame);
 }
 
 function composerHasPayload(frame) {
@@ -1103,7 +1509,7 @@ function renderComposerAction(frame) {
   const action = frame.querySelector("[data-sloppy-primary-action]");
   if (action) {
     action.innerHTML = icon(hasPayload ? "arrow-up" : "mic");
-    action.setAttribute("aria-label", hasPayload ? t("send") : t("voiceMode"));
+    action.setAttribute?.("aria-label", hasPayload ? t("send") : t("voiceMode"));
     action.dataset.sloppyAction = hasPayload ? "send" : "voice";
   }
 }
@@ -1249,7 +1655,7 @@ function renderAttachments(frame) {
       </button>
     `)
     .join("");
-  frame.querySelectorAll("[data-sloppy-remove-attachment-id]").forEach((button) => {
+  Array.from(frame.querySelectorAll?.("[data-sloppy-remove-attachment-id]") || []).forEach((button) => {
     button.addEventListener("click", (event) => {
       event.preventDefault();
       const id = event.currentTarget?.dataset?.sloppyRemoveAttachmentId || "";
@@ -1291,6 +1697,9 @@ function openSettings(frame) {
   frame.querySelector("[data-sloppy-mesh-status]").textContent = meshStatusText(mesh);
   frame.querySelector("[data-sloppy-floating-button]").checked = Boolean(state.settings?.floatingButtonEnabled);
   frame.querySelector("[data-sloppy-selection-bubble-enabled]").checked = selectionBubbleEnabled();
+  frame.querySelector("[data-sloppy-start-page-enabled]").checked = state.settings?.startPageEnabled !== false;
+  frame.querySelector("[data-sloppy-start-page-theme]").value = state.settings?.startPageTheme || "dark";
+  renderStartPageShortcutEditor(frame);
   frame.querySelector("[data-sloppy-settings-dialog]").showModal();
 }
 
@@ -1301,6 +1710,7 @@ async function saveSettings(frame) {
     defaultAgentID: frame.querySelector("[data-sloppy-default-agent]").value,
     selectedModel: state.settings?.selectedModel || "",
     voiceLanguage: normalizeVoiceLanguage(state.settings?.voiceLanguage),
+    voiceInputDeviceId: normalizeVoiceInputDeviceId(state.settings?.voiceInputDeviceId),
     sessionId: state.settings?.sessionId || null,
     mesh: {
       ...(state.settings?.mesh || {}),
@@ -1308,7 +1718,11 @@ async function saveSettings(frame) {
       targetNodeId: frame.querySelector("[data-sloppy-mesh-target-node]").value
     },
     floatingButtonEnabled: frame.querySelector("[data-sloppy-floating-button]").checked,
-    selectionBubbleEnabled: frame.querySelector("[data-sloppy-selection-bubble-enabled]").checked
+    selectionBubbleEnabled: frame.querySelector("[data-sloppy-selection-bubble-enabled]").checked,
+    startPageEnabled: frame.querySelector("[data-sloppy-start-page-enabled]").checked,
+    startPageTheme: frame.querySelector("[data-sloppy-start-page-theme]").value,
+    startPageBackgroundImage: state.settings?.startPageBackgroundImage || "",
+    startPageShortcuts: readStartPageShortcutEditor(frame)
   };
   state.settings = await chrome.runtime.sendMessage({ type: "sloppy.settings.save", settings });
   frame.querySelector("[data-sloppy-settings-dialog]").close();
@@ -1321,6 +1735,59 @@ async function saveSettings(frame) {
   } else {
     scheduleSelectionMenuUpdate();
   }
+}
+
+function renderStartPageShortcutEditor(frame) {
+  const root = frame.querySelector("[data-sloppy-start-page-shortcuts]");
+  if (!root) {
+    return;
+  }
+  const shortcuts = state.settings?.startPageShortcuts || [];
+  root.innerHTML = shortcuts.map((shortcut, index) => `
+    <div class="sloppy-start-shortcut-row" data-sloppy-start-shortcut-row>
+      <input data-sloppy-start-shortcut-title value="${escapeHTML(shortcut.title)}" placeholder="${escapeHTML(t("shortcutTitle"))}">
+      <input data-sloppy-start-shortcut-url value="${escapeHTML(shortcut.url)}" placeholder="https://example.com">
+      <button class="sloppy-icon-button" type="button" data-sloppy-remove-start-shortcut="${index}" aria-label="${escapeHTML(t("removeShortcut"))}">${icon("close")}</button>
+    </div>
+  `).join("");
+}
+
+function readStartPageShortcutEditor(frame) {
+  return Array.from(frame.querySelectorAll?.("[data-sloppy-start-shortcut-row]") || []).map((row) => ({
+    title: row.querySelector("[data-sloppy-start-shortcut-title]")?.value || "",
+    url: row.querySelector("[data-sloppy-start-shortcut-url]")?.value || ""
+  }));
+}
+
+function readStartPageBackgroundImage(file, frame) {
+  const error = frame.querySelector("[data-sloppy-start-page-error]");
+  if (!file) {
+    return Promise.resolve();
+  }
+  if (!/^image\/(png|jpe?g|gif|webp)$/i.test(file.type || "")) {
+    error.textContent = t("unsupportedBackgroundImage");
+    return Promise.resolve();
+  }
+  if (file.size > 560000) {
+    error.textContent = t("backgroundImageTooLarge");
+    return Promise.resolve();
+  }
+  return new Promise((resolve) => {
+    const reader = new FileReader();
+    reader.addEventListener("load", () => {
+      state.settings = {
+        ...(state.settings || {}),
+        startPageBackgroundImage: String(reader.result || "")
+      };
+      error.textContent = "";
+      resolve();
+    });
+    reader.addEventListener("error", () => {
+      error.textContent = t("backgroundImageReadFailed");
+      resolve();
+    });
+    reader.readAsDataURL(file);
+  });
 }
 
 async function openSessions(frame) {
@@ -1462,6 +1929,7 @@ async function selectSession(frame, sessionId) {
   }
   state.messages = sessionId ? normalizeSessionMessages(response?.session?.events || []) : [];
   frame.querySelector("[data-sloppy-sessions-dialog]").close();
+  transitionStartPageToChat(frame);
   render(frame);
 }
 
@@ -1673,16 +2141,17 @@ async function openPanelWithSelection(selectionText) {
   return panel;
 }
 
-async function sendSelectionPrompt(prompt) {
+async function sendSelectionPrompt(prompt, title = t("assistant")) {
   const selection = state.selectionMenuText || selectedText();
   if (!selection.trim()) {
     return;
   }
-  const panel = await openPanelWithSelection(selection);
-  hideSelectionMenu();
-  const textarea = panel.querySelector("[data-sloppy-prompt]");
-  textarea.value = prompt;
-  await sendPrompt(panel);
+  await openQuickChatForPrompt(prompt, {
+    selection,
+    title,
+    userText: selection,
+    anchorRect: state.selectionMenuRect
+  });
 }
 
 async function addFiles(fileList, frame) {
@@ -2113,6 +2582,7 @@ async function sendPrompt(frame) {
   if (!prompt && !state.attachments.length) {
     return;
   }
+  transitionStartPageToChat(frame);
   hideCommandMenu(frame);
   if (prompt.toLowerCase() === "/help") {
     appendMessage({ role: "user", label: t("you"), text: prompt });
@@ -2153,6 +2623,7 @@ async function sendPrompt(frame) {
   const response = await chrome.runtime.sendMessage({
     type: "sloppy.browserContext.stream",
     requestId,
+    sessionId: state.settings?.sessionId || "",
     page: state.context.page,
     selection: state.context.selection,
     prompt,
@@ -2317,14 +2788,21 @@ if (typeof document !== "undefined" && typeof chrome !== "undefined" && chrome.r
     }
     if (message?.type === "sloppy.page.summarize") {
       void (async () => {
-        const panel = await openPanelWithSelection(selectedText());
-        await summarizePage(panel);
+        await openQuickChatForPrompt(summarizePagePrompt(), {
+          selection: selectedText(),
+          title: t("summarizePage"),
+          anchorRect: selectedTextInfo()?.rect || state.selectionMenuRect
+        });
       })();
       return;
     }
     if (message?.type === "sloppy.browserContext.streamEvent" && message.requestId === state.streamingRequestId) {
       const panel = document.getElementById("sloppy-safari-extension-panel");
       void updateStreamingMessage(message.event || {}, panel);
+      return;
+    }
+    if (message?.type === "sloppy.browserContext.streamEvent" && message.requestId === state.quickChat?.requestId) {
+      void updateQuickChatStreaming(message.event || {});
     }
   });
 }
