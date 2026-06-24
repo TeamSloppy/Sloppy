@@ -13,8 +13,10 @@ import {
   localSpeechAvailable,
   normalizeCoreURL,
   normalizeAgentSessions,
+  normalizeSidebarState,
   publicMeshSettings,
   normalizeVoiceConfig,
+  sidebarStateAfterCollapseToggle,
   postBrowserContext,
   postBrowserContextStreaming,
   renderMarkdown,
@@ -164,6 +166,28 @@ function assertPublicMeshIdentity(mesh, expected = {}) {
 
 test("normalizeCoreURL adds http scheme and removes trailing slashes", () => {
   assert.equal(normalizeCoreURL("192.168.1.50:25101/"), "http://192.168.1.50:25101");
+});
+
+test("normalizeSidebarState clamps width and coerces collapsed flag", () => {
+  assert.deepEqual(normalizeSidebarState({ width: 90, collapsed: "yes" }), {
+    width: 128,
+    collapsed: true
+  });
+  assert.deepEqual(normalizeSidebarState({ width: 520, collapsed: false }), {
+    width: 360,
+    collapsed: false
+  });
+});
+
+test("sidebarStateAfterCollapseToggle preserves width while toggling collapsed state", () => {
+  assert.deepEqual(sidebarStateAfterCollapseToggle({ width: 244, collapsed: false }), {
+    width: 244,
+    collapsed: true
+  });
+  assert.deepEqual(sidebarStateAfterCollapseToggle({ width: 244, collapsed: true }), {
+    width: 244,
+    collapsed: false
+  });
 });
 
 test("buildBrowserContextPayload creates typed Safari context payload", () => {

@@ -141,6 +141,26 @@ function icon(name) {
   return `<span class="sloppy-symbol" aria-hidden="true" data-sf-symbol="${escapeHTML(symbol)}" style="--sloppy-symbol-url: url('${escapeHTML(url)}')"></span>`;
 }
 
+const sidebarMinWidth = 128;
+const sidebarMaxWidth = 360;
+const defaultSidebarWidth = 168;
+
+function normalizeSidebarState(value = {}) {
+  const width = Math.min(sidebarMaxWidth, Math.max(sidebarMinWidth, Number(value.width) || defaultSidebarWidth));
+  return {
+    width,
+    collapsed: Boolean(value.collapsed)
+  };
+}
+
+function sidebarStateAfterCollapseToggle(value = {}) {
+  const sidebar = normalizeSidebarState(value);
+  return {
+    ...sidebar,
+    collapsed: !sidebar.collapsed
+  };
+}
+
 function starButtonBackgroundMarkup() {
   return `
     <svg class="sloppy-star-button-stars" width="100%" height="100%" preserveAspectRatio="none" viewBox="0 0 100 40" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
@@ -370,6 +390,7 @@ const state = {
   selectionMenuRect: null,
   fullscreenLaunch: null,
   quickChat: null,
+  sidebar: normalizeSidebarState(),
   voiceConfig: {
     enabled: false,
     effectiveProvider: "local",
@@ -429,13 +450,16 @@ function ensurePanel() {
   frame = document.createElement("aside");
   frame.id = "sloppy-safari-extension-panel";
   frame.innerHTML = `
-    <div class="sloppy-app-layout">
+    <div class="sloppy-app-layout" data-sloppy-app-layout>
       <nav class="sloppy-app-sidebar" data-sloppy-app-sidebar aria-label="${escapeHTML(t("navigation"))}">
+        <button class="sloppy-sidebar-item sloppy-sidebar-collapse" type="button" data-sloppy-sidebar-collapse>${icon("hide")}<span>${escapeHTML(t("hideSidebar"))}</span></button>
         <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-new>${icon("plus")}<span>${escapeHTML(t("newSession"))}</span></button>
         <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-projects>${icon("project")}<span>${escapeHTML(t("projects"))}</span></button>
         <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-sessions>${icon("sessions")}<span>${escapeHTML(t("sessions"))}</span></button>
         <div class="sloppy-sidebar-session-list" data-sloppy-sidebar-session-list></div>
       </nav>
+      <div class="sloppy-sidebar-resizer" data-sloppy-sidebar-resizer role="separator" aria-orientation="vertical" aria-label="${escapeHTML(t("sessions"))}" tabindex="0"></div>
+      <button class="sloppy-icon-button sloppy-sidebar-restore" type="button" data-sloppy-sidebar-restore aria-label="${escapeHTML(t("sessions"))}">${icon("sessions")}</button>
 
       <div class="sloppy-shell">
       <header class="sloppy-topbar">
@@ -574,6 +598,7 @@ function ensurePanel() {
   `;
   document.documentElement.appendChild(frame);
   wirePanel(frame);
+  applySidebarState(frame);
   applyRotatingChatPlaceholders(frame);
   return frame;
 }
@@ -1107,6 +1132,18 @@ function wirePanel(frame) {
   frame.querySelector("[data-sloppy-start-page-background]")?.addEventListener("change", (event) => {
     void readStartPageBackgroundImage(event.target.files?.[0], frame);
   });
+  frame.querySelector("[data-sloppy-sidebar-collapse]")?.addEventListener("click", () => {
+    state.sidebar = sidebarStateAfterCollapseToggle(state.sidebar);
+    applySidebarState(frame);
+  });
+  frame.querySelector("[data-sloppy-sidebar-restore]")?.addEventListener("click", () => {
+    state.sidebar = {
+      ...normalizeSidebarState(state.sidebar),
+      collapsed: false
+    };
+    applySidebarState(frame);
+  });
+  wireSidebarResizer(frame);
   frame.querySelector("[data-sloppy-sidebar-new]")?.addEventListener("click", () => {
     state.messages = [];
     delete ensureSettings().sessionId;
@@ -1206,6 +1243,51 @@ function wirePanel(frame) {
     event.target.style.height = `${Math.min(event.target.scrollHeight, 132)}px`;
     renderCommandMenu(frame);
     renderComposerAction(frame);
+  });
+}
+
+function applySidebarState(frame) {
+  const sidebar = normalizeSidebarState(state.sidebar);
+  state.sidebar = sidebar;
+  frame.style.setProperty("--sloppy-sidebar-width", `${sidebar.width}px`);
+  frame.querySelector("[data-sloppy-app-layout]")?.classList.toggle("is-sidebar-collapsed", sidebar.collapsed);
+}
+
+function wireSidebarResizer(frame) {
+  const handle = frame.querySelector("[data-sloppy-sidebar-resizer]");
+  if (!handle) {
+    return;
+  }
+  let drag = null;
+  const endDrag = () => {
+    drag = null;
+    document.removeEventListener("pointermove", onPointerMove);
+    document.removeEventListener("pointerup", endDrag);
+    document.removeEventListener("pointercancel", endDrag);
+  };
+  const onPointerMove = (event) => {
+    if (!drag) {
+      return;
+    }
+    state.sidebar = normalizeSidebarState({
+      width: drag.width + event.clientX - drag.x,
+      collapsed: false
+    });
+    applySidebarState(frame);
+  };
+  handle.addEventListener("pointerdown", (event) => {
+    if (state.sidebar?.collapsed) {
+      return;
+    }
+    drag = {
+      x: event.clientX,
+      width: normalizeSidebarState(state.sidebar).width
+    };
+    event.preventDefault?.();
+    handle.setPointerCapture?.(event.pointerId);
+    document.addEventListener("pointermove", onPointerMove);
+    document.addEventListener("pointerup", endDrag);
+    document.addEventListener("pointercancel", endDrag);
   });
 }
 

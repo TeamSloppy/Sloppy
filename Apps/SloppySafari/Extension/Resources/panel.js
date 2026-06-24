@@ -18,6 +18,25 @@ export function normalizeCoreURL(value) {
 
 const maxStartPageShortcuts = 8;
 const maxStartPageBackgroundImageLength = 750000;
+const sidebarMinWidth = 128;
+const sidebarMaxWidth = 360;
+const defaultSidebarWidth = 168;
+
+export function normalizeSidebarState(value = {}) {
+  const width = Math.min(sidebarMaxWidth, Math.max(sidebarMinWidth, Number(value.width) || defaultSidebarWidth));
+  return {
+    width,
+    collapsed: Boolean(value.collapsed)
+  };
+}
+
+export function sidebarStateAfterCollapseToggle(value = {}) {
+  const state = normalizeSidebarState(value);
+  return {
+    ...state,
+    collapsed: !state.collapsed
+  };
+}
 
 export function sanitizeStartPageTheme(value) {
   return String(value || "dark").trim() === "light" ? "light" : "dark";
