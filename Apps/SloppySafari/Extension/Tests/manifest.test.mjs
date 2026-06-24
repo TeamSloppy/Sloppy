@@ -247,6 +247,40 @@ test("sidebar panel app layout stretches the chat shell to full height", () => {
   assert.match(css, /^\.sloppy-app-layout\s*\{[\s\S]*?width:\s*100%;[\s\S]*?height:\s*100%;[\s\S]*?min-height:\s*0;/m);
 });
 
+test("start page uses a unified gray canvas and hides redundant window controls", () => {
+  const css = loadPanelCSS();
+  const startPanelBlock = css.match(/\.sloppy-start-page #sloppy-safari-extension-panel\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const startShellBlock = css.match(/\.sloppy-start-page #sloppy-safari-extension-panel \.sloppy-shell\s*\{[\s\S]*?\n\}/)?.[0] || "";
+
+  assert.match(startPanelBlock, /background-color:\s*#202124;/);
+  assert.match(startShellBlock, /background:\s*transparent;/);
+  assert.match(css, /\.sloppy-start-page #sloppy-safari-extension-panel \[data-sloppy-close\],\n\.sloppy-start-page #sloppy-safari-extension-panel \[data-sloppy-open-fullscreen\]\s*\{[\s\S]*display:\s*none;/);
+});
+
+test("start page sidebar remains readable over custom backgrounds with one menu scroll", () => {
+  const css = loadPanelCSS();
+  const sidebarBlock = css.match(/\.sloppy-fullscreen-chat-page #sloppy-safari-extension-panel \.sloppy-app-sidebar,\n\.sloppy-start-page #sloppy-safari-extension-panel \.sloppy-app-sidebar\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const sessionListBlock = css.match(/\.sloppy-sidebar-session-list\s*\{[\s\S]*?\n\}/)?.[0] || "";
+
+  assert.match(sidebarBlock, /background:\s*rgba\(24, 24, 24, 0\.88\);/);
+  assert.match(sidebarBlock, /overflow-y:\s*auto;/);
+  assert.doesNotMatch(sessionListBlock, /max-height:/);
+  assert.doesNotMatch(sessionListBlock, /overflow-y:\s*auto;/);
+});
+
+test("customize dialog is a dark bottom sheet with restrained actions", () => {
+  const css = loadPanelCSS();
+  const dialogBlock = css.match(/\.sloppy-customize-dialog\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const cardBlock = css.match(/\.sloppy-customize-dialog \.sloppy-settings-card\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const actionBlock = css.match(/\.sloppy-customize-dialog \.sloppy-settings-save\s*\{[\s\S]*?\n\}/)?.[0] || "";
+
+  assert.match(dialogBlock, /inset:\s*auto 0 0;/);
+  assert.match(dialogBlock, /margin:\s*0 auto;/);
+  assert.match(cardBlock, /background:\s*rgba\(28, 28, 28, 0\.96\);/);
+  assert.match(actionBlock, /background:\s*rgba\(255, 255, 255, 0\.08\);/);
+  assert.doesNotMatch(actionBlock, /background:\s*#e8e8e8;/);
+});
+
 test("voice orb uses accent-colored free-motion layers and answering pulses", () => {
   const css = loadPanelCSS();
 

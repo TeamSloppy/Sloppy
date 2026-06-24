@@ -354,6 +354,7 @@ test("start page mode renders centered composer and shortcuts", () => {
 
   assert.match(thread.innerHTML, /data-sloppy-start-surface/);
   assert.match(panel.querySelector("[data-sloppy-start-shortcuts]").innerHTML, /data-sloppy-start-shortcut="https:\/\/github\.com\/"/);
+  assert.match(panel.querySelector("[data-sloppy-start-shortcuts]").innerHTML, /src="https:\/\/github\.com\/favicon\.ico"/);
   assert.match(thread.innerHTML, /data-sloppy-start-theme="light"/);
   assert.doesNotMatch(thread.innerHTML, /sloppy-empty-mark/);
   assert.match(panel.innerHTML, /data-sloppy-start-shortcuts/);
@@ -408,7 +409,7 @@ test("settings and customize use separate dialogs", () => {
   assert.match(panel.innerHTML.match(/data-sloppy-customize-dialog[\s\S]*?<\/dialog>/)?.[0] || "", /data-sloppy-start-page-theme/);
 });
 
-test("sidebar uses inline sessions and no settings item", () => {
+test("sidebar keeps sessions expanded below projects and no settings item", () => {
   const sandbox = loadContentScriptSandbox();
   const documentLike = createPanelDocument();
   sandbox.document = documentLike;
@@ -421,9 +422,14 @@ test("sidebar uses inline sessions and no settings item", () => {
   };
 
   const panel = sandbox.ensurePanel();
+  const projectsIndex = panel.innerHTML.indexOf("data-sloppy-sidebar-projects");
+  const sessionsIndex = panel.innerHTML.indexOf("data-sloppy-sidebar-sessions");
+  const listIndex = panel.innerHTML.indexOf("data-sloppy-sidebar-session-list");
 
-  assert.match(panel.innerHTML, /data-sloppy-sidebar-sessions/);
-  assert.match(panel.innerHTML, /data-sloppy-sidebar-session-list/);
+  assert.ok(projectsIndex >= 0);
+  assert.ok(sessionsIndex > projectsIndex);
+  assert.ok(listIndex > sessionsIndex);
+  assert.doesNotMatch(panel.innerHTML, /data-sloppy-sidebar-session-list hidden/);
   assert.doesNotMatch(panel.innerHTML, /data-sloppy-sidebar-settings/);
 });
 

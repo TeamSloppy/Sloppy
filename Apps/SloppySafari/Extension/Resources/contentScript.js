@@ -410,9 +410,9 @@ function ensurePanel() {
     <div class="sloppy-app-layout">
       <nav class="sloppy-app-sidebar" data-sloppy-app-sidebar aria-label="${escapeHTML(t("navigation"))}">
         <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-new>${icon("plus")}<span>${escapeHTML(t("newSession"))}</span></button>
-        <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-sessions>${icon("sessions")}<span>${escapeHTML(t("sessions"))}</span></button>
-        <div class="sloppy-sidebar-session-list" data-sloppy-sidebar-session-list hidden></div>
         <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-projects>${icon("project")}<span>${escapeHTML(t("projects"))}</span></button>
+        <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-sessions>${icon("sessions")}<span>${escapeHTML(t("sessions"))}</span></button>
+        <div class="sloppy-sidebar-session-list" data-sloppy-sidebar-session-list></div>
       </nav>
 
       <div class="sloppy-shell">
@@ -1420,9 +1420,24 @@ function renderStartPageShortcuts(frame, shortcuts) {
   }
   root.innerHTML = (shortcuts || []).map((shortcut) => `
     <a href="${escapeHTML(shortcut.url)}" data-sloppy-start-shortcut="${escapeHTML(shortcut.url)}">
+      <img src="${escapeHTML(shortcutIconURL(shortcut.url))}" alt="" aria-hidden="true">
       <span>${escapeHTML(shortcut.title)}</span>
     </a>
   `).join("");
+  root.querySelectorAll?.("img").forEach((image) => {
+    image.addEventListener("error", () => {
+      image.hidden = true;
+    });
+  });
+}
+
+function shortcutIconURL(url) {
+  try {
+    const parsed = new URL(url);
+    return `${parsed.origin}/favicon.ico`;
+  } catch (_error) {
+    return "";
+  }
 }
 
 function transitionStartPageToChat(frame) {
@@ -1837,7 +1852,9 @@ async function openSessions(frame) {
     state.settings.sessionId = response.selectedSessionId;
   }
   renderSessionList(frame);
-  renderContext(frame);
+  if (frame.querySelector("[data-sloppy-context]")?.querySelector) {
+    renderContext(frame);
+  }
 }
 
 function sessionListRoot(frame) {
@@ -2735,6 +2752,7 @@ async function initializeStartPage() {
   const panel = ensurePanel();
   await Promise.all([loadAgents(panel), loadModels(panel), loadSlashCommands(panel)]);
   render(panel);
+  await openSessions(panel);
   panel.querySelector("[data-sloppy-prompt]")?.focus();
   return panel;
 }
