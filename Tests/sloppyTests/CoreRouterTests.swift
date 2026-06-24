@@ -2127,6 +2127,50 @@ func artifactContentReadPreservesPersistedMetadata() async throws {
 }
 
 @Test
+func widgetGenerationRejectsInvalidSize() async throws {
+    let service = CoreService(config: .test)
+    let router = CoreRouter(service: service)
+    let body = try JSONEncoder().encode(WidgetArtifactGenerateRequest(prompt: "Make a clock", size: "huge"))
+
+    let response = await router.handle(method: "POST", path: "/v1/artifacts/widgets/generate", body: body)
+    #expect(response.status == 400)
+}
+
+@Test
+func widgetGenerationCreatesWidgetArtifactBundle() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config)
+    let router = CoreRouter(service: service)
+    let body = try JSONEncoder().encode(WidgetArtifactGenerateRequest(prompt: "Make a tiny clock", size: "small"))
+
+    let response = await router.handle(method: "POST", path: "/v1/artifacts/widgets/generate", body: body)
+    #expect(response.status == 201)
+
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let payload = try decoder.decode(WidgetArtifactGenerateResponse.self, from: response.body)
+    #expect(payload.artifact.kind == "widget")
+    #expect(payload.artifact.widget?.size == "small")
+
+    let widgetResponse = await router.handle(method: "GET", path: "/v1/artifacts/\(payload.artifact.id)/widget", body: nil)
+    #expect(widgetResponse.status == 200)
+    let widget = try decoder.decode(WidgetArtifactContentResponse.self, from: widgetResponse.body)
+    #expect(widget.html.contains("<!doctype html>"))
+    #expect(widget.width == 160)
+    #expect(widget.height == 120)
+
+    let bundleURL = config.resolvedWorkspaceRootURL()
+        .appendingPathComponent("artifacts", isDirectory: true)
+        .appendingPathComponent("widgets", isDirectory: true)
+        .appendingPathComponent(payload.artifact.id, isDirectory: true)
+    #expect(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("index.html").path))
+    #expect(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("manifest.json").path))
+
+    let persisted = try #require(await service.store.persistedArtifact(id: payload.artifact.id))
+    #expect(persisted.bundlePath == ".sloppy/artifacts/widgets/\(payload.artifact.id)")
+}
+
+@Test
 func runtimeRecoveryAfterRestartReplaysPersistedState() async throws {
     let config = CoreConfig.test
     let channelID = "recovery-\(UUID().uuidString)"

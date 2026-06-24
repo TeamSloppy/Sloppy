@@ -160,6 +160,7 @@ enum ErrorCode {
     static let unauthorized = "unauthorized"
     static let notFound = "not_found"
     static let artifactNotFound = "artifact_not_found"
+    static let artifactCreateFailed = "artifact_create_failed"
     static let configWriteFailed = "config_write_failed"
     static let invalidAgentId = "invalid_agent_id"
     static let invalidAgentPayload = "invalid_agent_payload"

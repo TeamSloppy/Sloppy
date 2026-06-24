@@ -22,6 +22,39 @@ extension CoreService {
         return ArtifactDetailResponse(artifact: Self.artifactRecord(from: record))
     }
 
+    public func generateWidgetArtifact(_ request: WidgetArtifactGenerateRequest) async throws -> WidgetArtifactGenerateResponse {
+        await waitForStartup()
+
+        let size = try WidgetArtifactService.size(named: request.size)
+        let prompt = try WidgetArtifactService.normalizedPrompt(request.prompt)
+        let html = try WidgetArtifactService.fallbackHTML(prompt: prompt, size: size)
+        let id = UUID().uuidString
+        try WidgetArtifactService.writeBundle(
+            id: id,
+            prompt: prompt,
+            html: html,
+            size: size,
+            workspaceRootURL: workspaceRootURL
+        )
+
+        let record = PersistedArtifactRecord(
+            id: id,
+            title: String(prompt.prefix(48)),
+            kind: "widget",
+            mediaType: "text/html",
+            content: html,
+            previewText: String(prompt.prefix(160)),
+            widgetSize: size.name,
+            widgetWidth: size.width,
+            widgetHeight: size.height,
+            widgetEntry: WidgetArtifactService.entryFileName,
+            bundlePath: WidgetArtifactService.bundlePath(id: id),
+            createdAt: Date()
+        )
+        await store.persistArtifact(record: record)
+        return WidgetArtifactGenerateResponse(artifact: Self.artifactRecord(from: record))
+    }
+
     public func getBulletins() async -> [MemoryBulletin] {
         await waitForStartup()
         let runtimeBulletins = await runtime.bulletins()
@@ -50,6 +83,34 @@ extension CoreService {
         }
 
         return nil
+    }
+
+    public func getWidgetArtifact(id: String) async -> WidgetArtifactContentResponse? {
+        await waitForStartup()
+        guard let record = await store.persistedArtifact(id: id),
+              record.kind == "widget",
+              let width = record.widgetWidth,
+              let height = record.widgetHeight
+        else {
+            return nil
+        }
+
+        if let runtimeArtifact = await runtime.artifactContent(id: id) {
+            await store.persistArtifact(id: id, content: runtimeArtifact)
+            try? WidgetArtifactService.updateBundleHTML(
+                id: id,
+                html: runtimeArtifact,
+                workspaceRootURL: workspaceRootURL
+            )
+            return WidgetArtifactContentResponse(id: id, html: runtimeArtifact, width: width, height: height)
+        }
+
+        try? WidgetArtifactService.updateBundleHTML(
+            id: id,
+            html: record.content,
+            workspaceRootURL: workspaceRootURL
+        )
+        return WidgetArtifactContentResponse(id: id, html: record.content, width: width, height: height)
     }
 
     /// Returns true after Visor has completed its first supervision tick.

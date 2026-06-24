@@ -240,6 +240,40 @@ public struct ArtifactDetailResponse: Codable, Sendable, Equatable {
     }
 }
 
+public struct WidgetArtifactGenerateRequest: Codable, Sendable, Equatable {
+    public var prompt: String
+    public var size: String
+
+    public init(prompt: String, size: String) {
+        self.prompt = prompt
+        self.size = size
+    }
+}
+
+public struct WidgetArtifactGenerateResponse: Codable, Sendable, Equatable {
+    public var artifact: ArtifactRecord
+    public var sessionId: String?
+
+    public init(artifact: ArtifactRecord, sessionId: String? = nil) {
+        self.artifact = artifact
+        self.sessionId = sessionId
+    }
+}
+
+public struct WidgetArtifactContentResponse: Codable, Sendable, Equatable {
+    public var id: String
+    public var html: String
+    public var width: Int
+    public var height: Int
+
+    public init(id: String, html: String, width: Int, height: Int) {
+        self.id = id
+        self.html = html
+        self.width = width
+        self.height = height
+    }
+}
+
 public struct PlanArtifactRecord: Codable, Sendable, Equatable {
     public var projectId: String
     public var projectName: String
