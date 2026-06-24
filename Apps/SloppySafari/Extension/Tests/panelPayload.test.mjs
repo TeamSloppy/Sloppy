@@ -213,8 +213,7 @@ test("buildBrowserContextPayload creates typed Safari context payload", () => {
       text: "Selected text"
     },
     browser: {
-      tabs: [{ id: 7, url: "https://example.com/other", title: "Other" }],
-      pageSnapshot: { elements: [{ selector: "#buy", text: "Buy" }] }
+      tabs: [{ id: 7, url: "https://example.com/other", title: "Other" }]
     },
     attachments: [{ name: "note.md", mimeType: "text/markdown", sizeBytes: 8, contentBase64: "IyBOb3Rl" }],
     prompt: "Explain this",
@@ -269,6 +268,7 @@ test("sanitizeSettings keeps a user-configured LAN Core URL for extension storag
     startPageTheme: "dark",
     startPageBackgroundImage: "",
     startPageShortcuts: [],
+    startPageItems: [],
     voiceLanguage: "auto",
     mesh: { enabled: false }
   });
@@ -288,6 +288,7 @@ test("sanitizeSettings defaults start page customization", () => {
   assert.equal(settings.startPageTheme, "dark");
   assert.equal(settings.startPageBackgroundImage, "");
   assert.deepEqual(settings.startPageShortcuts, []);
+  assert.deepEqual(settings.startPageItems, []);
 });
 
 test("sanitizeStartPageTheme accepts only light and dark", () => {
@@ -306,6 +307,29 @@ test("sanitizeStartPageShortcuts keeps only http and https urls", () => {
     { title: "GitHub", url: "https://github.com/" },
     { title: "localhost:25101", url: "http://localhost:25101/" }
   ]);
+});
+
+test("sanitizeSettings keeps mixed start page items and falls back to legacy shortcuts", () => {
+  assert.deepEqual(
+    sanitizeSettings({
+      startPageShortcuts: [{ title: "GitHub", url: "https://github.com" }],
+      startPageItems: [
+        { kind: "shortcut", title: "Docs", url: "https://docs.example/path" },
+        { kind: "widget", artifactId: "widget-1", title: "Clock", size: "small", width: 160, height: 120 }
+      ]
+    }).startPageItems,
+    [
+      { kind: "shortcut", title: "Docs", url: "https://docs.example/path" },
+      { kind: "widget", artifactId: "widget-1", title: "Clock", size: "small", width: 160, height: 120 }
+    ]
+  );
+
+  assert.deepEqual(
+    sanitizeSettings({
+      startPageShortcuts: [{ title: "GitHub", url: "https://github.com" }]
+    }).startPageItems,
+    [{ kind: "shortcut", title: "GitHub", url: "https://github.com/" }]
+  );
 });
 
 test("sanitizeStartPageBackgroundImage keeps small image data urls only", () => {
@@ -383,6 +407,78 @@ test("background registers Safari context menu summary action", async () => {
   }]);
 
   runtime.cleanup();
+});
+
+test("background sloppy.artifacts.list proxies Core artifacts", async () => {
+  const runtime = await loadBackgroundRuntime(
+    {},
+    async (url) => {
+      assert.equal(url, "http://127.0.0.1:25101/v1/artifacts");
+      return Response.json({
+        artifacts: [{ id: "artifact-1", title: "Clock", kind: "widget" }]
+      });
+    }
+  );
+
+  try {
+    const response = await runtime.sendMessage({ type: "sloppy.artifacts.list" });
+    assert.deepEqual(response, [{ id: "artifact-1", title: "Clock", kind: "widget" }]);
+  } finally {
+    runtime.cleanup();
+  }
+});
+
+test("background sloppy.artifacts.widget fetches widget payload", async () => {
+  const runtime = await loadBackgroundRuntime(
+    {},
+    async (url) => {
+      assert.equal(url, "http://127.0.0.1:25101/v1/artifacts/widget-1/widget");
+      return Response.json({
+        artifactId: "widget-1",
+        html: "<html><body>Clock</body></html>"
+      });
+    }
+  );
+
+  try {
+    const response = await runtime.sendMessage({ type: "sloppy.artifacts.widget", artifactId: "widget-1" });
+    assert.deepEqual(response, {
+      artifactId: "widget-1",
+      html: "<html><body>Clock</body></html>"
+    });
+  } finally {
+    runtime.cleanup();
+  }
+});
+
+test("background sloppy.artifacts.widget.generate posts prompt and size", async () => {
+  const runtime = await loadBackgroundRuntime(
+    {},
+    async (url, options) => {
+      assert.equal(url, "http://127.0.0.1:25101/v1/artifacts/widgets/generate");
+      assert.equal(options.method, "POST");
+      assert.deepEqual(JSON.parse(options.body), {
+        prompt: "Build a clock widget",
+        size: "medium"
+      });
+      return Response.json({
+        artifact: { id: "widget-1", title: "Clock", kind: "widget" }
+      });
+    }
+  );
+
+  try {
+    const response = await runtime.sendMessage({
+      type: "sloppy.artifacts.widget.generate",
+      prompt: "Build a clock widget",
+      size: "medium"
+    });
+    assert.deepEqual(response, {
+      artifact: { id: "widget-1", title: "Clock", kind: "widget" }
+    });
+  } finally {
+    runtime.cleanup();
+  }
 });
 
 test("background localizes Safari context menu summary action", async () => {
@@ -1183,8 +1279,9 @@ test("postBrowserContext falls back to session message endpoints when browser en
   assert.deepEqual(requests[2].body.attachments, [{ name: "paste.png", mimeType: "image/png", sizeBytes: 4, contentBase64: "abcd" }]);
   assert.equal(requests[2].body.mode, "auto");
   assert.match(requests[2].body.content, /No selected text\./);
-  assert.match(requests[2].body.content, /Safari page snapshot:/);
-  assert.match(requests[2].body.content, /Repository page content/);
+  assert.doesNotMatch(requests[2].body.content, /Safari page snapshot:/);
+  assert.doesNotMatch(requests[2].body.content, /Repository page content/);
+  assert.match(requests[2].body.content, /Use `safari\.dom_snapshot` only when live page details are needed/);
   assert.match(requests[2].body.content, /Привет/);
 });
 

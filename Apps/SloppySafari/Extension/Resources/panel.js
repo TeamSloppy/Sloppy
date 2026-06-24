@@ -17,10 +17,16 @@ export function normalizeCoreURL(value) {
 }
 
 const maxStartPageShortcuts = 8;
+const maxStartPageItems = 8;
 const maxStartPageBackgroundImageLength = 750000;
 const sidebarMinWidth = 128;
 const sidebarMaxWidth = 360;
 const defaultSidebarWidth = 168;
+const widgetSizeDimensions = {
+  small: { width: 160, height: 120 },
+  medium: { width: 320, height: 180 },
+  large: { width: 320, height: 320 }
+};
 
 export function normalizeSidebarState(value = {}) {
   const width = Math.min(sidebarMaxWidth, Math.max(sidebarMinWidth, Number(value.width) || defaultSidebarWidth));
@@ -76,7 +82,54 @@ export function sanitizeStartPageShortcuts(records = []) {
     .slice(0, maxStartPageShortcuts);
 }
 
+function normalizedWidgetSize(value) {
+  return Object.prototype.hasOwnProperty.call(widgetSizeDimensions, value) ? value : "small";
+}
+
+function clampWidgetDimension(value, fallback) {
+  const number = Math.round(Number(value));
+  if (!Number.isFinite(number)) {
+    return fallback;
+  }
+  return Math.min(640, Math.max(80, number));
+}
+
+function sanitizeStartPageItems(records = [], legacyShortcuts = []) {
+  const items = Array.isArray(records) && records.length
+    ? records
+    : sanitizeStartPageShortcuts(legacyShortcuts).map((shortcut) => ({ kind: "shortcut", ...shortcut }));
+  return items
+    .map((record) => {
+      if (String(record?.kind || "").trim() === "widget") {
+        const artifactId = String(record?.artifactId || record?.id || "").trim();
+        if (!artifactId) {
+          return null;
+        }
+        const size = normalizedWidgetSize(String(record?.size || "").trim());
+        const defaults = widgetSizeDimensions[size];
+        const widget = {
+          kind: "widget",
+          artifactId,
+          title: String(record?.title || artifactId).trim() || artifactId,
+          size,
+          width: clampWidgetDimension(record?.width, defaults.width),
+          height: clampWidgetDimension(record?.height, defaults.height)
+        };
+        const html = String(record?.html || "").trim();
+        if (html) {
+          widget.html = html;
+        }
+        return widget;
+      }
+      const shortcut = sanitizeStartPageShortcuts([record])[0];
+      return shortcut ? { kind: "shortcut", ...shortcut } : null;
+    })
+    .filter(Boolean)
+    .slice(0, maxStartPageItems);
+}
+
 export function sanitizeSettings(settings = {}) {
+  const startPageShortcuts = sanitizeStartPageShortcuts(settings.startPageShortcuts);
   const sanitized = {
     coreURLString: normalizeCoreURL(settings.coreURLString),
     authToken: String(settings.authToken || "").trim(),
@@ -86,7 +139,8 @@ export function sanitizeSettings(settings = {}) {
     startPageEnabled: settings.startPageEnabled !== false,
     startPageTheme: sanitizeStartPageTheme(settings.startPageTheme),
     startPageBackgroundImage: sanitizeStartPageBackgroundImage(settings.startPageBackgroundImage),
-    startPageShortcuts: sanitizeStartPageShortcuts(settings.startPageShortcuts),
+    startPageShortcuts,
+    startPageItems: sanitizeStartPageItems(settings.startPageItems, startPageShortcuts),
     voiceLanguage: normalizeVoiceLanguage(settings.voiceLanguage),
     mesh: normalizeMeshSettings(settings.mesh)
   };
@@ -295,8 +349,7 @@ export function buildBrowserContextPayload(settings, page, selection, prompt, op
       text: fallbackSelectionText(selection)
     },
     browser: {
-      tabs: sanitizeTabs(options.tabs),
-      ...(options.pageSnapshot ? { pageSnapshot: options.pageSnapshot } : {})
+      tabs: sanitizeTabs(options.tabs)
     },
     attachments: sanitizeAttachments(options.attachments),
     prompt: String(prompt || "").trim(),
@@ -320,12 +373,9 @@ function browserContextPrompt(page, selection, browser, prompt) {
   lines.push("");
   lines.push("Selected text:");
   lines.push(fallbackSelectionText(selection));
-  const snapshotText = browser?.pageSnapshot ? JSON.stringify(browser.pageSnapshot).slice(0, 24000) : "";
-  if (snapshotText) {
-    lines.push("");
-    lines.push("Safari page snapshot:");
-    lines.push(snapshotText.length >= 24000 ? `${snapshotText}...[truncated]` : snapshotText);
-  }
+  lines.push("");
+  lines.push("Safari tools:");
+  lines.push("Use `safari.dom_snapshot` only when live page details are needed. Use `safari.click`, `safari.type`, and other `safari.*` tools for the user's current Safari tab; do not use `browser.*` for this Safari page.");
   lines.push("");
   lines.push("User prompt:");
   lines.push(String(prompt || "").trim());

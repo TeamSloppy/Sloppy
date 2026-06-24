@@ -39,6 +39,7 @@ function createPanelDocument() {
     const ensureNode = (selector) => {
       if (!nodesBySelector.has(selector)) {
         const listeners = new Map();
+        const toggled = new Map();
         nodesBySelector.set(selector, {
           selector,
           value: "",
@@ -48,13 +49,26 @@ function createPanelDocument() {
           hidden: false,
           style: {},
           dataset: {},
-          classList: { toggle() {}, add() {}, remove() {} },
+          classList: {
+            toggled,
+            toggle(name, force) {
+              toggled.set(name, Boolean(force));
+            },
+            add(name) {
+              toggled.set(name, true);
+            },
+            remove(name) {
+              toggled.set(name, false);
+            }
+          },
           listeners,
           addEventListener(type, listener) {
             listeners.set(type, listener);
           },
           appendChild() {},
-          focus() {},
+          focus() {
+            this.focusCount = (this.focusCount || 0) + 1;
+          },
           async click() {
             const listener = listeners.get("click");
             if (listener) {
@@ -67,6 +81,23 @@ function createPanelDocument() {
           },
           close() {
             this.closeCalled = true;
+          },
+          querySelector(selector) {
+            const dataMatch = selector.match(/^\[([^\]]+)\]$/);
+            if (!dataMatch) {
+              return null;
+            }
+            return ensureNode(selector);
+          },
+          querySelectorAll(selector) {
+            if (selector === "[data-sloppy-select-session]") {
+              return Array.from(html.matchAll(/data-sloppy-select-session="([^"]*)"/g)).map((match) => {
+                const node = ensureNode(`[data-sloppy-select-session="${match[1]}"]`);
+                node.dataset.sloppySelectSession = match[1];
+                return node;
+              });
+            }
+            return [];
           }
         });
       }
@@ -76,7 +107,18 @@ function createPanelDocument() {
       tagName: String(tagName || "").toUpperCase(),
       id: "",
       style: { setProperty() {} },
-      classList: { toggle() {}, add() {}, remove() {} },
+      classList: {
+        toggled: new Map(),
+        toggle(name, force) {
+          this.toggled.set(name, Boolean(force));
+        },
+        add(name) {
+          this.toggled.set(name, true);
+        },
+        remove(name) {
+          this.toggled.set(name, false);
+        }
+      },
       addEventListener() {},
       set innerHTML(value) {
         html = String(value || "");
@@ -386,6 +428,46 @@ test("start page mode renders centered composer and shortcuts", () => {
   assert.match(panel.innerHTML, /data-sloppy-customize/);
 });
 
+test("start page grid renders shortcuts and widget artifacts", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      }
+    }
+  };
+  vm.runInNewContext(`
+    globalThis.SloppyStartPageMode = true;
+    state.settings = {
+      startPageEnabled: true,
+      startPageShortcuts: [{ title: "GitHub", url: "https://github.com/" }],
+      startPageItems: [
+        { kind: "shortcut", title: "GitHub", url: "https://github.com/" },
+        {
+          kind: "widget",
+          artifactId: "widget-1",
+          title: "Clock",
+          size: "small",
+          width: 160,
+          height: 120,
+          html: "<html><body>Clock</body></html>"
+        }
+      ]
+    };
+  `, sandbox);
+
+  const panel = sandbox.ensurePanel();
+  sandbox.render(panel);
+  const shortcuts = panel.querySelector("[data-sloppy-start-shortcuts]");
+
+  assert.match(shortcuts.innerHTML, /data-sloppy-start-shortcut="https:\/\/github\.com\/"/);
+  assert.match(shortcuts.innerHTML, /data-sloppy-start-widget="widget-1"/);
+  assert.match(shortcuts.innerHTML, /sandbox="allow-scripts"/);
+});
+
 test("start page initializes the chat UI immediately", async () => {
   const sandbox = loadContentScriptSandbox();
   const documentLike = createPanelDocument();
@@ -412,6 +494,52 @@ test("start page initializes the chat UI immediately", async () => {
   await sandbox.initializeStartPage();
 
   assert.ok(documentLike.getElementById("sloppy-safari-extension-panel"));
+  assert.equal(documentLike.getElementById("sloppy-safari-extension-panel").querySelector("[data-sloppy-prompt]").focusCount || 0, 0);
+});
+
+test("mobile fullscreen chat does not autofocus the prompt on open", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  documentLike.location.href = "safari-extension://sloppy/chat.html";
+  documentLike.location.pathname = "/chat.html";
+  sandbox.document = documentLike;
+  sandbox.window = {
+    innerWidth: 390,
+    innerHeight: 760,
+    navigator: { maxTouchPoints: 5 },
+    visualViewport: { width: 390, height: 680, offsetTop: 0, offsetLeft: 0 }
+  };
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage(message) {
+        if (message?.type === "sloppy.settings.get") {
+          return Promise.resolve({});
+        }
+        if (message?.type === "sloppy.agents.list") {
+          return Promise.resolve({ agents: [] });
+        }
+        if (message?.type === "sloppy.models.list") {
+          return Promise.resolve({ models: [] });
+        }
+        if (message?.type === "sloppy.tabs.list") {
+          return Promise.resolve({ tabs: [] });
+        }
+        if (message?.type === "sloppy.slashCommands.list") {
+          return Promise.resolve({ commands: [] });
+        }
+        return Promise.resolve({});
+      }
+    }
+  };
+
+  assert.equal(typeof sandbox.initializeFullscreenChat, "function");
+  await sandbox.initializeFullscreenChat();
+
+  const prompt = documentLike.getElementById("sloppy-safari-extension-panel").querySelector("[data-sloppy-prompt]");
+  assert.equal(prompt.focusCount || 0, 0);
 });
 
 test("settings and customize use separate dialogs", () => {
@@ -434,6 +562,26 @@ test("settings and customize use separate dialogs", () => {
   assert.match(panel.innerHTML.match(/data-sloppy-customize-dialog[\s\S]*?<\/dialog>/)?.[0] || "", /data-sloppy-start-page-theme/);
 });
 
+test("customize includes describe widget controls", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      }
+    }
+  };
+
+  const panel = sandbox.ensurePanel();
+  const customizeDialog = panel.innerHTML.match(/data-sloppy-customize-dialog[\s\S]*?<\/dialog>/)?.[0] || "";
+
+  assert.match(customizeDialog, /data-sloppy-describe-widget/);
+  assert.match(customizeDialog, /data-sloppy-widget-size/);
+  assert.match(customizeDialog, /data-sloppy-generate-widget/);
+});
+
 test("sidebar keeps sessions expanded below projects and no settings item", () => {
   const sandbox = loadContentScriptSandbox();
   const documentLike = createPanelDocument();
@@ -450,12 +598,33 @@ test("sidebar keeps sessions expanded below projects and no settings item", () =
   const projectsIndex = panel.innerHTML.indexOf("data-sloppy-sidebar-projects");
   const sessionsIndex = panel.innerHTML.indexOf("data-sloppy-sidebar-sessions");
   const listIndex = panel.innerHTML.indexOf("data-sloppy-sidebar-session-list");
+  const collapseIndex = panel.innerHTML.indexOf("data-sloppy-sidebar-collapse");
 
   assert.ok(projectsIndex >= 0);
+  assert.ok(collapseIndex >= 0);
   assert.ok(sessionsIndex > projectsIndex);
   assert.ok(listIndex > sessionsIndex);
   assert.doesNotMatch(panel.innerHTML, /data-sloppy-sidebar-session-list hidden/);
   assert.doesNotMatch(panel.innerHTML, /data-sloppy-sidebar-settings/);
+  assert.doesNotMatch(panel.innerHTML, /data-sloppy-sidebar-collapse[\s\S]*<span>Hide sidebar<\/span>/);
+});
+
+test("sidebar includes artifacts item and inline artifact list", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      }
+    }
+  };
+
+  const panel = sandbox.ensurePanel();
+
+  assert.match(panel.innerHTML, /data-sloppy-sidebar-artifacts/);
+  assert.match(panel.innerHTML, /data-sloppy-sidebar-artifact-list/);
 });
 
 test("fullscreen chat shell includes the shared app sidebar", () => {
@@ -477,6 +646,66 @@ test("fullscreen chat shell includes the shared app sidebar", () => {
   assert.match(panel.innerHTML, /data-sloppy-sidebar-new/);
   assert.match(panel.innerHTML, /data-sloppy-sidebar-sessions/);
   assert.doesNotMatch(panel.innerHTML, /data-sloppy-sidebar-settings/);
+});
+
+test("mobile start page initializes with the app sidebar collapsed behind the toggle", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.window = {
+    innerWidth: 390,
+    innerHeight: 760,
+    navigator: { maxTouchPoints: 5 },
+    visualViewport: { width: 390, height: 680, offsetTop: 0, offsetLeft: 0 }
+  };
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      }
+    }
+  };
+
+  const panel = sandbox.ensurePanel();
+  const layout = panel.querySelector("[data-sloppy-app-layout]");
+
+  assert.equal(layout.classList.toggled?.get("is-sidebar-collapsed"), true);
+  assert.match(panel.innerHTML, /data-sloppy-sidebar-restore/);
+});
+
+test("topbar sessions button opens the sessions dialog instead of the app sidebar list", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage(message) {
+        if (message?.type === "sloppy.sessions.list") {
+          return Promise.resolve({
+            selectedSessionId: "session-2",
+            sessions: [
+              { id: "session-1", title: "First", subtitle: "Older" },
+              { id: "session-2", title: "Second", subtitle: "Recent" }
+            ]
+          });
+        }
+        return Promise.resolve({});
+      }
+    }
+  };
+
+  const panel = sandbox.ensurePanel();
+  await panel.querySelector("[data-sloppy-sessions]").click();
+
+  const dialog = panel.querySelector("[data-sloppy-sessions-dialog]");
+  const dialogList = panel.querySelector("[data-sloppy-session-list]");
+  const sidebarList = panel.querySelector("[data-sloppy-sidebar-session-list]");
+  assert.equal(dialog.showModalCalled, true);
+  assert.match(dialogList.innerHTML, /Second/);
+  assert.doesNotMatch(sidebarList.innerHTML, /Second/);
 });
 
 test("adding a shortcut preserves unsaved shortcut editor values", () => {
@@ -534,6 +763,13 @@ test("transitionStartPageToChat exits start mode before sending", () => {
   sandbox.transitionStartPageToChat(panel);
 
   assert.equal(sandbox.SloppyStartPageMode, false);
+});
+
+test("browser context messages do not attach automatic Safari DOM snapshots", () => {
+  const source = readFileSync(new URL("../Resources/contentScript.js", import.meta.url), "utf8");
+
+  assert.doesNotMatch(source, /pageSnapshot:\s*buildDOMSnapshot\(document\)/);
+  assert.match(source, /browser\.dom_snapshot/);
 });
 
 test("floating button hides while the search ask button is visible", () => {

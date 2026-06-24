@@ -34,6 +34,7 @@ const defaultSettings = {
   startPageTheme: "dark",
   startPageBackgroundImage: "",
   startPageShortcuts: [],
+  startPageItems: [],
   voiceLanguage: "auto"
 };
 
@@ -215,6 +216,44 @@ async function getSession(settings, agentId, sessionId) {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(body.error || `session_failed_${response.status}`);
+  }
+  return body;
+}
+
+async function listArtifacts(settings) {
+  const response = await coreFetch(settings, "/v1/artifacts", {
+    headers: bridgeHeaders(settings)
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(body.error || `artifacts_failed_${response.status}`);
+  }
+  return Array.isArray(body.artifacts) ? body.artifacts : [];
+}
+
+async function getArtifactWidget(settings, artifactId) {
+  const response = await coreFetch(settings, `/v1/artifacts/${encodeURIComponent(String(artifactId || "").trim())}/widget`, {
+    headers: bridgeHeaders(settings)
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(body.error || `artifact_widget_failed_${response.status}`);
+  }
+  return body;
+}
+
+async function generateArtifactWidget(settings, prompt, size) {
+  const response = await coreFetch(settings, "/v1/artifacts/widgets/generate", {
+    method: "POST",
+    headers: bridgeHeaders(settings),
+    body: JSON.stringify({
+      prompt: String(prompt || ""),
+      size: String(size || "small")
+    })
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(body.error || `artifact_generate_failed_${response.status}`);
   }
   return body;
 }
@@ -603,6 +642,33 @@ if (typeof chrome !== "undefined") {
       })().catch((error) => {
         sendResponse({ error: error.message || "Unable to select session." });
       });
+      return true;
+    }
+    if (message?.type === "sloppy.artifacts.list") {
+      void loadSettings()
+        .then((settings) => listArtifacts(settings))
+        .then(sendResponse)
+        .catch((error) => sendResponse({ error: error.message || "Artifacts unavailable." }));
+      return true;
+    }
+    if (message?.type === "sloppy.artifacts.widget") {
+      void loadSettings()
+        .then((settings) => {
+          const artifactId = String(message.artifactId || "").trim();
+          if (!artifactId) {
+            return null;
+          }
+          return getArtifactWidget(settings, artifactId);
+        })
+        .then(sendResponse)
+        .catch((error) => sendResponse({ error: error.message || "Widget unavailable." }));
+      return true;
+    }
+    if (message?.type === "sloppy.artifacts.widget.generate") {
+      void loadSettings()
+        .then((settings) => generateArtifactWidget(settings, message.prompt, message.size))
+        .then(sendResponse)
+        .catch((error) => sendResponse({ error: error.message || "Widget generation failed." }));
       return true;
     }
     if (message?.type === "sloppy.commands.list") {

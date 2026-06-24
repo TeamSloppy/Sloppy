@@ -206,7 +206,17 @@ test("empty assistant logo is grayscale and shimmers", () => {
 test("streaming assistant messages show a compact thinking label", () => {
   const css = loadPanelCSS();
   assert.match(css, /\.sloppy-thinking\s*\{[\s\S]*display:\s*inline-flex;/);
+  assert.match(css, /\.sloppy-thinking,\n#sloppy-quick-chat \.sloppy-quick-status\s*\{[\s\S]*animation:\s*sloppy-thinking-shimmer/);
   assert.match(css, /\.sloppy-thinking span\s*\{[\s\S]*font-weight:\s*650;/);
+  assert.match(css, /@keyframes sloppy-thinking-shimmer/);
+});
+
+test("rotating chat placeholders crossfade instead of snapping", () => {
+  const css = loadPanelCSS();
+
+  assert.match(css, /\[data-sloppy-chat-placeholder\]\s*\{[\s\S]*transition:\s*opacity 180ms ease, transform 180ms ease;/);
+  assert.match(css, /\[data-sloppy-chat-placeholder\]\.is-placeholder-swapping\s*\{[\s\S]*opacity:\s*0;/);
+  assert.match(css, /\[data-sloppy-chat-placeholder\]\.is-placeholder-swapping\s*\{[\s\S]*transform:\s*translateY\(4px\);/);
 });
 
 test("search ask button uses the StarButton capsule animation", () => {
@@ -266,6 +276,42 @@ test("start page sidebar remains readable over custom backgrounds with one menu 
   assert.match(sidebarBlock, /overflow-y:\s*auto;/);
   assert.doesNotMatch(sessionListBlock, /max-height:/);
   assert.doesNotMatch(sessionListBlock, /overflow-y:\s*auto;/);
+});
+
+test("start page paints the mobile browser underlay dark", () => {
+  const css = loadPanelCSS();
+
+  assert.match(css, /\.sloppy-start-page,\n\.sloppy-start-page body\s*\{[\s\S]*background:\s*#202124;/);
+});
+
+test("mobile layout hides the sidebar until the toggle opens it", () => {
+  const css = loadPanelCSS();
+  const mobileBlock = css.match(/@media \(max-width: 720px\)\s*\{[\s\S]*?\n\}/)?.[0] || "";
+
+  assert.match(mobileBlock, /grid-template-columns:\s*minmax\(0, 1fr\);/);
+  assert.match(css, /@media \(max-width: 720px\)\s*\{[\s\S]*\.sloppy-start-page #sloppy-safari-extension-panel \.sloppy-app-sidebar\s*\{[\s\S]*position:\s*absolute;/);
+  assert.match(css, /@media \(max-width: 720px\)\s*\{[\s\S]*\.sloppy-start-page #sloppy-safari-extension-panel \.sloppy-app-sidebar\s*\{[\s\S]*width:\s*min\(260px, calc\(100% - 72px\)\);/);
+  assert.match(css, /@media \(max-width: 720px\)\s*\{[\s\S]*\.sloppy-start-page #sloppy-safari-extension-panel \.is-sidebar-collapsed \.sloppy-app-sidebar\s*\{[\s\S]*display:\s*none;/);
+  assert.doesNotMatch(css, /@media \(max-width: 720px\)\s*\{[\s\S]*\.sloppy-sidebar-item span\s*\{[\s\S]*display:\s*none;/);
+});
+
+test("sidebar collapse control is positioned apart from navigation labels", () => {
+  const css = loadPanelCSS();
+  const sidebarBlock = css.match(/\.sloppy-fullscreen-chat-page #sloppy-safari-extension-panel \.sloppy-app-sidebar,\n\.sloppy-start-page #sloppy-safari-extension-panel \.sloppy-app-sidebar\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const collapseBlock = css.match(/\.sloppy-sidebar-collapse\s*\{[\s\S]*?\n\}/)?.[0] || "";
+
+  assert.match(sidebarBlock, /padding:\s*58px 8px 16px;/);
+  assert.match(collapseBlock, /position:\s*absolute;/);
+  assert.match(collapseBlock, /right:\s*8px;/);
+  assert.match(collapseBlock, /width:\s*34px;/);
+  assert.match(collapseBlock, /height:\s*34px;/);
+});
+
+test("mobile start and fullscreen layouts keep the composer inside the visible viewport", () => {
+  const css = loadPanelCSS();
+
+  assert.match(css, /@media \(max-width: 720px\)\s*\{[\s\S]*\.sloppy-start-page #sloppy-safari-extension-panel \.sloppy-shell\s*\{[\s\S]*padding:\s*max\(72px, env\(safe-area-inset-top, 0px\)\) 16px calc\(104px \+ var\(--sloppy-mobile-bottom-inset, 0px\) \+ env\(safe-area-inset-bottom, 0px\)\);/);
+  assert.match(css, /@media \(max-width: 720px\)\s*\{[\s\S]*\.sloppy-start-page #sloppy-safari-extension-panel \.sloppy-composer\s*\{[\s\S]*width:\s*100%;/);
 });
 
 test("customize dialog is a dark bottom sheet with restrained actions", () => {
@@ -331,6 +377,20 @@ test("assistant markdown and code blocks stay inside the chat viewport", () => {
   assert.match(css, /\.sloppy-tool pre\s*\{[\s\S]*white-space:\s*pre-wrap;[\s\S]*overflow-wrap:\s*anywhere;/);
 });
 
+test("tool call cards keep long names contained in narrow sidebars", () => {
+  const css = loadPanelCSS();
+  const summaryBlock = css.match(/\.sloppy-tool summary\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const summaryNameBlock = css.match(/\.sloppy-tool summary span\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const summaryStatusBlock = css.match(/\.sloppy-tool summary small\s*\{[\s\S]*?\n\}/)?.[0] || "";
+
+  assert.match(summaryBlock, /display:\s*grid;/);
+  assert.match(summaryBlock, /grid-template-columns:\s*16px minmax\(0, 1fr\) auto;/);
+  assert.match(summaryBlock, /min-width:\s*0;/);
+  assert.match(summaryNameBlock, /overflow:\s*hidden;/);
+  assert.match(summaryNameBlock, /text-overflow:\s*ellipsis;/);
+  assert.match(summaryStatusBlock, /white-space:\s*nowrap;/);
+});
+
 test("voice mode exposes a compact language picker", () => {
   const source = loadContentScript();
   const css = loadPanelCSS();
@@ -393,6 +453,30 @@ test("quick chat stays compact like the Safari contextual answer bubble", () => 
   assert.match(quickBody, /line-height:\s*1\.45;/);
   assert.match(quickFollowUp, /min-height:\s*44px;/);
   assert.match(quickFollowUp, /font-size:\s*18px;/);
+});
+
+test("selection menu matches the mini chat compact dark surface", () => {
+  const css = loadPanelCSS();
+  const popoverBlock = css.match(/\.sloppy-selection-popover\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const inputBlock = css.match(/\.sloppy-selection-popover input\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const actionBlock = css.match(/\.sloppy-selection-actions button,\n\.sloppy-selection-hide\s*\{[\s\S]*?\n\}/)?.[0] || "";
+
+  assert.match(popoverBlock, /width:\s*min\(520px, calc\(100vw - 32px\)\);/);
+  assert.match(popoverBlock, /padding:\s*22px;/);
+  assert.match(popoverBlock, /background:\s*rgba\(18, 18, 18, 0\.94\);/);
+  assert.match(popoverBlock, /border-radius:\s*28px;/);
+  assert.match(inputBlock, /min-height:\s*44px;/);
+  assert.match(inputBlock, /font-size:\s*18px;/);
+  assert.match(actionBlock, /min-height:\s*44px;/);
+});
+
+test("user messages use the same dark gray bubble in panel and fullscreen chats", () => {
+  const css = loadPanelCSS();
+  const userBlock = css.match(/\.sloppy-message-user \.sloppy-message-body\s*\{[\s\S]*?\n\}/)?.[0] || "";
+
+  assert.match(userBlock, /color:\s*#f0f0f0;/);
+  assert.match(userBlock, /background:\s*rgba\(34, 34, 34, 0\.94\);/);
+  assert.match(userBlock, /border-color:\s*rgba\(255, 255, 255, 0\.08\);/);
 });
 
 test("fullscreen chat uses a flat dark canvas instead of glass or gradients", () => {

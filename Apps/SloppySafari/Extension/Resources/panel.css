@@ -23,6 +23,16 @@
   background: #171717;
 }
 
+.sloppy-start-page,
+.sloppy-start-page body {
+  width: 100%;
+  min-height: 100%;
+  margin: 0;
+  overflow: hidden;
+  background: #202124;
+  color-scheme: dark;
+}
+
 .sloppy-fullscreen-chat-page #sloppy-safari-extension-panel {
   top: var(--sloppy-viewport-top, 0px);
   right: 0;
@@ -74,15 +84,34 @@
 
 .sloppy-fullscreen-chat-page #sloppy-safari-extension-panel .sloppy-app-sidebar,
 .sloppy-start-page #sloppy-safari-extension-panel .sloppy-app-sidebar {
+  position: relative;
   display: grid;
   align-content: start;
   gap: 4px;
-  padding: 16px 8px;
+  padding: 58px 8px 16px;
   background: rgba(24, 24, 24, 0.88);
   border-right: 1px solid rgba(255, 255, 255, 0.1);
   overflow-y: auto;
   scrollbar-width: thin;
   backdrop-filter: blur(22px) saturate(1.1);
+}
+
+.sloppy-sidebar-collapse {
+  position: absolute;
+  top: 16px;
+  right: 8px;
+  width: 34px;
+  height: 34px;
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+}
+
+.sloppy-sidebar-collapse:hover,
+.sloppy-sidebar-collapse:focus-visible {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
 }
 
 .sloppy-fullscreen-chat-page #sloppy-safari-extension-panel .is-sidebar-collapsed .sloppy-app-sidebar,
@@ -115,17 +144,10 @@
   display: none;
 }
 
-.sloppy-sidebar-restore {
-  position: absolute;
-  top: 16px;
-  left: 12px;
-  z-index: 2;
+.sloppy-start-page #sloppy-safari-extension-panel .sloppy-sidebar-restore,
+.sloppy-start-page #sloppy-safari-extension-panel [data-sloppy-sidebar-restore] {
   display: none;
-}
-
-.sloppy-fullscreen-chat-page #sloppy-safari-extension-panel .is-sidebar-collapsed .sloppy-sidebar-restore,
-.sloppy-start-page #sloppy-safari-extension-panel .is-sidebar-collapsed .sloppy-sidebar-restore {
-  display: inline-grid;
+  pointer-events: none;
 }
 
 .sloppy-sidebar-item {
@@ -155,11 +177,25 @@
   margin: 0 0 8px;
 }
 
+.sloppy-sidebar-artifact-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  margin: 0 0 8px;
+}
+
 .sloppy-sidebar-session-list[hidden] {
   display: none;
 }
 
-.sloppy-sidebar-session-list .sloppy-session-row {
+.sloppy-sidebar-artifact-list[hidden] {
+  display: none;
+}
+
+.sloppy-sidebar-session-list .sloppy-session-row,
+.sloppy-sidebar-artifact-list .sloppy-session-row,
+.sloppy-widget-picker .sloppy-session-row {
   width: 100%;
   padding: 7px 8px;
   text-align: left;
@@ -170,12 +206,20 @@
 
 .sloppy-sidebar-session-list .sloppy-session-row:hover,
 .sloppy-sidebar-session-list .sloppy-session-row:focus-visible,
-.sloppy-sidebar-session-list .sloppy-session-row.is-selected {
+.sloppy-sidebar-session-list .sloppy-session-row.is-selected,
+.sloppy-sidebar-artifact-list .sloppy-session-row:hover,
+.sloppy-sidebar-artifact-list .sloppy-session-row:focus-visible,
+.sloppy-widget-picker .sloppy-session-row:hover,
+.sloppy-widget-picker .sloppy-session-row:focus-visible {
   background: rgba(255, 255, 255, 0.08);
 }
 
 .sloppy-sidebar-session-list .sloppy-session-row strong,
-.sloppy-sidebar-session-list .sloppy-session-row span {
+.sloppy-sidebar-session-list .sloppy-session-row span,
+.sloppy-sidebar-artifact-list .sloppy-session-row strong,
+.sloppy-sidebar-artifact-list .sloppy-session-row span,
+.sloppy-widget-picker .sloppy-session-row strong,
+.sloppy-widget-picker .sloppy-session-row span {
   display: block;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -183,7 +227,10 @@
 }
 
 .sloppy-sidebar-session-list .sloppy-session-row span,
-.sloppy-sidebar-session-list .sloppy-session-empty {
+.sloppy-sidebar-session-list .sloppy-session-empty,
+.sloppy-sidebar-artifact-list .sloppy-session-row span,
+.sloppy-sidebar-artifact-list .sloppy-session-empty,
+.sloppy-widget-picker .sloppy-session-row span {
   color: rgba(232, 232, 232, 0.5);
   font-size: 11px;
 }
@@ -222,6 +269,26 @@
   margin-inline: 8px;
 }
 
+.sloppy-fullscreen-chat-page #sloppy-safari-extension-panel [data-sloppy-sessions],
+.sloppy-fullscreen-chat-page #sloppy-safari-extension-panel [data-sloppy-settings],
+.sloppy-fullscreen-chat-page #sloppy-safari-extension-panel [data-sloppy-attach],
+.sloppy-fullscreen-chat-page #sloppy-safari-extension-panel [data-sloppy-capture] {
+  background: transparent !important;
+  border-color: transparent !important;
+  box-shadow: none !important;
+  outline: none !important;
+}
+
+.sloppy-fullscreen-chat-page #sloppy-safari-extension-panel [data-sloppy-sidebar-restore] {
+  display: none;
+  pointer-events: none;
+}
+
+.sloppy-fullscreen-chat-page #sloppy-safari-extension-panel .is-sidebar-collapsed [data-sloppy-sidebar-restore] {
+  display: inline-grid;
+  pointer-events: auto;
+}
+
 .sloppy-fullscreen-chat-page #sloppy-safari-extension-panel .sloppy-browser-context,
 .sloppy-fullscreen-chat-page #sloppy-safari-extension-panel .sloppy-composer {
   background: #202020;
@@ -231,6 +298,7 @@
 
 .sloppy-fullscreen-chat-page #sloppy-safari-extension-panel .sloppy-composer {
   margin-bottom: 28px;
+  width: calc(100% - 16px);
   border-radius: 18px;
 }
 
@@ -277,6 +345,10 @@
 
 .sloppy-start-page #sloppy-safari-extension-panel [data-sloppy-close],
 .sloppy-start-page #sloppy-safari-extension-panel [data-sloppy-open-fullscreen] {
+  display: none;
+}
+
+.sloppy-start-page #sloppy-safari-extension-panel [data-sloppy-sessions] {
   display: none;
 }
 
@@ -363,6 +435,19 @@
   border-radius: 8px;
 }
 
+.sloppy-start-widget {
+  overflow: hidden;
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  border-radius: 8px;
+  background: rgba(24, 24, 24, 0.72);
+}
+
+.sloppy-start-widget iframe {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
 .sloppy-start-shortcuts img {
   width: 18px;
   height: 18px;
@@ -395,6 +480,13 @@
   gap: 8px;
 }
 
+.sloppy-widget-generator,
+.sloppy-widget-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
 .sloppy-start-shortcut-row {
   display: grid;
   grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.4fr) 34px;
@@ -417,12 +509,53 @@
 @media (max-width: 720px) {
   .sloppy-fullscreen-chat-page #sloppy-safari-extension-panel .sloppy-app-layout,
   .sloppy-start-page #sloppy-safari-extension-panel .sloppy-app-layout {
-    grid-template-columns: 56px minmax(0, 1fr);
+    grid-template-columns: minmax(0, 1fr);
   }
 
   .sloppy-fullscreen-chat-page #sloppy-safari-extension-panel .sloppy-shell,
   .sloppy-start-page #sloppy-safari-extension-panel .sloppy-shell {
-    grid-column: auto;
+    grid-column: 1;
+  }
+
+  .sloppy-start-page #sloppy-safari-extension-panel .sloppy-shell {
+    width: 100%;
+    margin: 0;
+    padding: max(72px, env(safe-area-inset-top, 0px)) 16px calc(104px + var(--sloppy-mobile-bottom-inset, 0px) + env(safe-area-inset-bottom, 0px));
+    box-sizing: border-box;
+    justify-content: center;
+  }
+
+  .sloppy-start-page #sloppy-safari-extension-panel .sloppy-composer {
+    width: 100%;
+    max-width: 620px;
+  }
+
+  .sloppy-start-shortcuts {
+    width: 100%;
+    max-width: 620px;
+  }
+
+  .sloppy-fullscreen-chat-page #sloppy-safari-extension-panel .sloppy-app-sidebar,
+  .sloppy-start-page #sloppy-safari-extension-panel .sloppy-app-sidebar {
+    position: absolute;
+    z-index: 4;
+    top: 0;
+    bottom: 0;
+    left: 0;
+    width: min(260px, calc(100% - 72px));
+    max-width: calc(100% - 72px);
+    box-sizing: border-box;
+    box-shadow: 18px 0 42px rgba(0, 0, 0, 0.34);
+  }
+
+  .sloppy-fullscreen-chat-page #sloppy-safari-extension-panel .is-sidebar-collapsed .sloppy-app-sidebar,
+  .sloppy-start-page #sloppy-safari-extension-panel .is-sidebar-collapsed .sloppy-app-sidebar {
+    display: none;
+  }
+
+  .sloppy-fullscreen-chat-page #sloppy-safari-extension-panel .is-sidebar-collapsed .sloppy-topbar,
+  .sloppy-start-page #sloppy-safari-extension-panel .is-sidebar-collapsed .sloppy-topbar {
+    padding-left: 52px;
   }
 
   .sloppy-fullscreen-chat-page #sloppy-safari-extension-panel .sloppy-sidebar-resizer,
@@ -430,8 +563,9 @@
     display: none;
   }
 
-  .sloppy-sidebar-item span {
-    display: none;
+  .sloppy-start-page #sloppy-safari-extension-panel .sloppy-topbar {
+    left: 16px;
+    right: 16px;
   }
 }
 
@@ -503,8 +637,7 @@
 .sloppy-composer-tools,
 .sloppy-context-row,
 .sloppy-context-pills,
-.sloppy-message-meta,
-.sloppy-tool summary {
+.sloppy-message-meta {
   display: flex;
   align-items: center;
 }
@@ -595,6 +728,15 @@
   transition: border-color 180ms ease, background 180ms ease, color 180ms ease, opacity 180ms ease;
 }
 
+[data-sloppy-chat-placeholder] {
+  transition: opacity 180ms ease, transform 180ms ease;
+}
+
+[data-sloppy-chat-placeholder].is-placeholder-swapping {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
 .sloppy-icon-button,
 .sloppy-primary-action {
   appearance: none;
@@ -619,6 +761,14 @@
     linear-gradient(135deg, rgba(255, 255, 255, 0.2), rgba(255, 255, 255, 0.07)),
     rgba(255, 255, 255, 0.08);
   border-color: rgba(255, 255, 255, 0.22);
+}
+
+.sloppy-primary-action:disabled {
+  cursor: not-allowed;
+  color: rgba(232, 232, 232, 0.42);
+  background: rgba(255, 255, 255, 0.12);
+  border-color: rgba(255, 255, 255, 0.18);
+  opacity: 0.72;
 }
 
 .sloppy-topbar .sloppy-actions .sloppy-icon-button {
@@ -807,6 +957,27 @@
   border-radius: 999px;
 }
 
+.sloppy-thinking,
+#sloppy-quick-chat .sloppy-quick-status {
+  animation: sloppy-thinking-shimmer 1.7s ease-in-out infinite;
+}
+
+@keyframes sloppy-thinking-shimmer {
+  0%,
+  100% {
+    opacity: 0.42;
+    filter: brightness(0.92);
+  }
+  45% {
+    opacity: 0.84;
+    filter: brightness(1.18);
+  }
+  62% {
+    opacity: 0.58;
+    filter: brightness(1.02);
+  }
+}
+
 .sloppy-thinking span {
   color: rgba(255, 255, 255, 0.72);
   font-size: 12px;
@@ -814,9 +985,9 @@
 }
 
 .sloppy-message-user .sloppy-message-body {
-  color: #101010;
-  background: #e8e8e8;
-  border-color: rgba(255, 255, 255, 0.5);
+  color: #f0f0f0;
+  background: rgba(34, 34, 34, 0.94);
+  border-color: rgba(255, 255, 255, 0.08);
 }
 
 .sloppy-message-body p,
@@ -900,7 +1071,11 @@
 }
 
 .sloppy-tool summary {
+  display: grid;
+  grid-template-columns: 16px minmax(0, 1fr) auto;
+  align-items: center;
   gap: 8px;
+  min-width: 0;
   padding: 9px 10px;
   cursor: pointer;
   list-style: none;
@@ -913,6 +1088,14 @@
 .sloppy-tool summary small {
   margin-left: auto;
   color: rgba(232, 232, 232, 0.48);
+  white-space: nowrap;
+}
+
+.sloppy-tool summary span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sloppy-tool pre {
@@ -933,6 +1116,14 @@
 .sloppy-context-row {
   gap: 8px;
   min-width: 0;
+}
+
+.sloppy-context-favicon {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  object-fit: cover;
 }
 
 .sloppy-context-row[data-sloppy-context-toggle] {
@@ -1043,6 +1234,7 @@
   position: relative;
   flex: 0 0 auto;
   margin: 0 18px 18px;
+  width: auto;
   padding: 12px;
   background:
     linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03)),
@@ -1113,6 +1305,7 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
 .sloppy-command-menu {
   flex: 0 0 auto;
   margin: 0 18px 8px;
+  width: auto;
   display: grid;
   max-height: min(150px, 26vh);
   gap: 4px;
@@ -1157,6 +1350,53 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
 .sloppy-command-menu span {
   color: rgba(232, 232, 232, 0.58);
   font-size: 12px;
+}
+
+.sloppy-agent-warning {
+  margin: 0 18px 8px;
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  color: #3b2a0c;
+  background: linear-gradient(135deg, rgba(255, 215, 120, 0.28), rgba(255, 206, 84, 0.2));
+  border: 1px solid rgba(255, 217, 104, 0.64);
+  border-radius: 12px;
+  box-shadow: 0 0 0 1px rgba(255, 237, 188, 0.08) inset;
+  backdrop-filter: blur(12px);
+  font-size: 12px;
+}
+
+.sloppy-agent-warning[hidden] {
+  display: none;
+}
+
+.sloppy-agent-warning strong {
+  font-size: 12px;
+}
+
+.sloppy-fullscreen-chat-page #sloppy-safari-extension-panel .sloppy-command-menu {
+  margin-inline: 8px;
+  width: calc(100% - 16px);
+}
+
+.sloppy-start-page #sloppy-safari-extension-panel .sloppy-command-menu {
+  width: min(620px, calc(100% - 32px));
+  margin: 0 auto 8px;
+}
+
+.sloppy-fullscreen-chat-page #sloppy-safari-extension-panel .sloppy-agent-warning,
+.sloppy-start-page #sloppy-safari-extension-panel .sloppy-agent-warning {
+  margin-inline: 8px;
+}
+
+.sloppy-fullscreen-chat-page #sloppy-safari-extension-panel .sloppy-agent-warning {
+  width: calc(100% - 16px);
+}
+
+.sloppy-start-page #sloppy-safari-extension-panel .sloppy-agent-warning {
+  width: min(620px, calc(100% - 32px));
+  margin: 0 auto 8px;
 }
 
 .sloppy-composer-bar {
@@ -1749,18 +1989,16 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
   top: 34px;
   left: var(--sloppy-selection-popover-x, 0);
   display: grid;
-  width: min(310px, calc(100vw - 24px));
-  gap: 10px;
-  padding: 10px;
-  background:
-    linear-gradient(145deg, rgba(255, 255, 255, 0.09), rgba(255, 255, 255, 0.03)),
-    rgba(27, 29, 29, 0.94);
+  width: min(520px, calc(100vw - 32px));
+  gap: 14px;
+  padding: 22px;
+  background: rgba(18, 18, 18, 0.94);
   border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 18px;
+  border-radius: 28px;
   box-shadow:
-    0 24px 60px rgba(0, 0, 0, 0.42),
-    inset 0 1px 0 rgba(255, 255, 255, 0.12);
-  backdrop-filter: blur(26px) saturate(1.25);
+    0 18px 48px rgba(0, 0, 0, 0.38),
+    0 0 0 1px rgba(0, 0, 0, 0.64);
+  backdrop-filter: blur(22px) saturate(1.12);
   transform-origin: 18px 0;
   animation: sloppy-selection-popover-in 180ms cubic-bezier(0.2, 0.9, 0.2, 1);
 }
@@ -1834,12 +2072,14 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
 
 .sloppy-selection-popover input {
   width: 100%;
-  padding: 11px 12px;
+  min-height: 44px;
+  padding: 0 16px;
   color: #f2f2f2;
-  background: rgba(255, 255, 255, 0.05);
+  background: rgba(255, 255, 255, 0.025);
   border: 1px solid rgba(255, 255, 255, 0.14);
-  border-radius: 12px;
+  border-radius: 999px;
   outline: none;
+  font-size: 18px;
 }
 
 .sloppy-selection-popover input::placeholder {
@@ -1857,7 +2097,8 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
   width: 100%;
   align-items: center;
   gap: 10px;
-  padding: 10px 8px;
+  min-height: 44px;
+  padding: 0 12px;
   color: #f0f0f0;
   cursor: pointer;
   background: transparent;
@@ -1937,8 +2178,10 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
 
   .sloppy-browser-context,
   .sloppy-command-menu,
-  .sloppy-composer {
+  .sloppy-composer,
+  .sloppy-agent-warning {
     margin-inline: 14px;
+    width: auto;
   }
 
   .sloppy-composer {
