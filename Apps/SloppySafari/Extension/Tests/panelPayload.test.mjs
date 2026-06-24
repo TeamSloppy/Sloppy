@@ -315,7 +315,7 @@ test("sanitizeSettings keeps mixed start page items and falls back to legacy sho
       startPageShortcuts: [{ title: "GitHub", url: "https://github.com" }],
       startPageItems: [
         { kind: "shortcut", title: "Docs", url: "https://docs.example/path" },
-        { kind: "widget", artifactId: "widget-1", title: "Clock", size: "small", width: 160, height: 120 }
+        { kind: "widget", artifactId: "widget-1", title: "Clock", size: "small", width: 999, height: 42 }
       ]
     }).startPageItems,
     [
@@ -329,6 +329,21 @@ test("sanitizeSettings keeps mixed start page items and falls back to legacy sho
       startPageShortcuts: [{ title: "GitHub", url: "https://github.com" }]
     }).startPageItems,
     [{ kind: "shortcut", title: "GitHub", url: "https://github.com/" }]
+  );
+});
+
+test("sanitizeSettings canonicalizes widget dimensions by size", () => {
+  assert.deepEqual(
+    sanitizeSettings({
+      startPageItems: [
+        { kind: "widget", artifactId: "widget-1", title: "Clock", size: "medium", width: 999, height: 1 },
+        { kind: "widget", artifactId: "widget-2", title: "Stats", size: "large", width: 12, height: 900 }
+      ]
+    }).startPageItems,
+    [
+      { kind: "widget", artifactId: "widget-1", title: "Clock", size: "medium", width: 320, height: 180 },
+      { kind: "widget", artifactId: "widget-2", title: "Stats", size: "large", width: 320, height: 320 }
+    ]
   );
 });
 

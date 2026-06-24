@@ -1233,6 +1233,18 @@ function wirePanel(frame) {
   frame.querySelector("[data-sloppy-sidebar-artifacts]")?.addEventListener("click", () => {
     void loadArtifacts(frame);
   });
+  frame.querySelector("[data-sloppy-sidebar-artifact-list]")?.addEventListener("click", async (event) => {
+    const button = event.target?.closest?.("[data-sloppy-select-artifact]");
+    if (!button) {
+      return;
+    }
+    const artifactId = String(button.dataset.sloppySelectArtifact || "").trim();
+    const artifact = (state.artifacts || []).find((candidate) => String(candidate?.id || "").trim() === artifactId);
+    if (String(artifact?.kind || "").trim() !== "widget") {
+      return;
+    }
+    await addWidgetToStartPage(frame, artifactId);
+  });
   frame.querySelector("[data-sloppy-sidebar-projects]")?.addEventListener("click", () => {
     appendMessage({ role: "assistant", label: t("assistant"), text: t("projectsUnavailable") });
     transitionStartPageToChat(frame);
@@ -1258,6 +1270,7 @@ function wirePanel(frame) {
       return;
     }
     if (response?.artifact) {
+      state.artifactError = "";
       state.artifacts = [response.artifact, ...(state.artifacts || []).filter((artifact) => artifact?.id !== response.artifact.id)];
       renderArtifactList(frame);
       renderWidgetPicker(frame);
@@ -1671,11 +1684,15 @@ function renderStartPageItems(frame) {
   renderStartPageShortcuts(frame, items);
 }
 
+function normalizedWidgetSize(size) {
+  return size === "medium" || size === "large" ? size : "small";
+}
+
 function widgetDimensionsForSize(size) {
-  if (size === "medium") {
+  if (normalizedWidgetSize(size) === "medium") {
     return { width: 320, height: 180 };
   }
-  if (size === "large") {
+  if (normalizedWidgetSize(size) === "large") {
     return { width: 320, height: 320 };
   }
   return { width: 160, height: 120 };
@@ -1688,11 +1705,10 @@ function renderStartPageShortcuts(frame, items) {
   }
   root.innerHTML = (items || []).map((item) => {
     if (String(item?.kind || "").trim() === "widget") {
-      const dimensions = widgetDimensionsForSize(String(item.size || "").trim());
-      const width = Number(item.width || dimensions.width) || dimensions.width;
-      const height = Number(item.height || dimensions.height) || dimensions.height;
+      const size = normalizedWidgetSize(String(item.size || "").trim());
+      const dimensions = widgetDimensionsForSize(size);
       return `
-        <article class="sloppy-start-widget" data-sloppy-start-widget="${escapeHTML(item.artifactId || "")}" style="width:${width}px;height:${height}px">
+        <article class="sloppy-start-widget" data-sloppy-start-widget="${escapeHTML(item.artifactId || "")}" style="width:${dimensions.width}px;height:${dimensions.height}px">
           <iframe title="${escapeHTML(item.title || "Widget")}" sandbox="allow-scripts" srcdoc="${escapeHTML(item.html || "")}"></iframe>
         </article>
       `;
@@ -2113,12 +2129,21 @@ async function loadArtifacts(frame) {
   }
   list.hidden = false;
   list.innerHTML = `<p class="sloppy-session-empty">${escapeHTML(t("loadingArtifacts"))}</p>`;
-  const artifacts = await chrome.runtime.sendMessage({ type: "sloppy.artifacts.list" }).catch(() => []);
-  state.artifacts = Array.isArray(artifacts)
-    ? artifacts
-    : Array.isArray(artifacts?.artifacts)
-      ? artifacts.artifacts
-      : [];
+  const response = await chrome.runtime.sendMessage({ type: "sloppy.artifacts.list" }).catch((error) => ({
+    error: error?.message || t("noArtifacts")
+  }));
+  if (response?.error) {
+    state.artifacts = [];
+    state.artifactError = String(response.error || "").trim() || t("noArtifacts");
+  } else {
+    const artifacts = Array.isArray(response)
+      ? response
+      : Array.isArray(response?.artifacts)
+        ? response.artifacts
+        : [];
+    state.artifacts = artifacts;
+    state.artifactError = "";
+  }
   renderArtifactList(frame);
   renderWidgetPicker(frame);
 }
@@ -2128,15 +2153,24 @@ function renderArtifactList(frame) {
   if (!list) {
     return;
   }
+  if (state.artifactError) {
+    list.innerHTML = `<p class="sloppy-session-empty">${escapeHTML(state.artifactError)}</p>`;
+    return;
+  }
   if (!state.artifacts?.length) {
     list.innerHTML = `<p class="sloppy-session-empty">${escapeHTML(t("noArtifacts"))}</p>`;
     return;
   }
   list.innerHTML = state.artifacts.map((artifact) => `
-    <button class="sloppy-session-row" type="button" data-sloppy-select-artifact="${escapeHTML(artifact.id || "")}">
+    ${String(artifact?.kind || "").trim() === "widget"
+      ? `<button class="sloppy-session-row" type="button" data-sloppy-select-artifact="${escapeHTML(artifact.id || "")}">
+      <strong>${escapeHTML(artifact.title || artifact.id || "artifact")}</strong>
+      <span>${escapeHTML(startPageWidgetItems(state.settings).some((item) => item?.artifactId === artifact.id) ? t("startPage") : (artifact.kind || "widget"))}</span>
+    </button>`
+      : `<div class="sloppy-artifact-row">
       <strong>${escapeHTML(artifact.title || artifact.id || "artifact")}</strong>
       <span>${escapeHTML(artifact.kind || "artifact")}</span>
-    </button>
+    </div>`}
   `).join("");
 }
 
@@ -2164,7 +2198,7 @@ async function addWidgetToStartPage(frame, artifactId) {
     return;
   }
   syncStartPageItemsFromEditor(frame);
-  const size = String(frame.querySelector("[data-sloppy-widget-size]")?.value || "small").trim() || "small";
+  const requestedSize = normalizedWidgetSize(String(frame.querySelector("[data-sloppy-widget-size]")?.value || "small").trim());
   const artifact = (state.artifacts || []).find((candidate) => candidate?.id === id) || {};
   const response = await chrome.runtime.sendMessage({
     type: "sloppy.artifacts.widget",
@@ -2174,14 +2208,15 @@ async function addWidgetToStartPage(frame, artifactId) {
     frame.querySelector("[data-sloppy-start-page-error]").textContent = response.error;
     return;
   }
+  const size = normalizedWidgetSize(String(response?.size || artifact.size || requestedSize).trim());
   const dimensions = widgetDimensionsForSize(size);
   const widget = {
     kind: "widget",
     artifactId: id,
     title: String(response?.title || artifact.title || id).trim() || id,
     size,
-    width: Number(response?.width || artifact.width || dimensions.width) || dimensions.width,
-    height: Number(response?.height || artifact.height || dimensions.height) || dimensions.height,
+    width: dimensions.width,
+    height: dimensions.height,
     html: String(response?.html || artifact.html || "").trim()
   };
   state.settings = {
@@ -2192,6 +2227,9 @@ async function addWidgetToStartPage(frame, artifactId) {
     ]
   };
   frame.querySelector("[data-sloppy-start-page-error]").textContent = "";
+  renderArtifactList(frame);
+  renderStartPageItems(frame);
+  renderWidgetPicker(frame);
 }
 
 function readStartPageBackgroundImage(file, frame) {

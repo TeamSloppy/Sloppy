@@ -86,14 +86,6 @@ function normalizedWidgetSize(value) {
   return Object.prototype.hasOwnProperty.call(widgetSizeDimensions, value) ? value : "small";
 }
 
-function clampWidgetDimension(value, fallback) {
-  const number = Math.round(Number(value));
-  if (!Number.isFinite(number)) {
-    return fallback;
-  }
-  return Math.min(640, Math.max(80, number));
-}
-
 function sanitizeStartPageItems(records = [], legacyShortcuts = []) {
   const items = Array.isArray(records) && records.length
     ? records
@@ -112,8 +104,8 @@ function sanitizeStartPageItems(records = [], legacyShortcuts = []) {
           artifactId,
           title: String(record?.title || artifactId).trim() || artifactId,
           size,
-          width: clampWidgetDimension(record?.width, defaults.width),
-          height: clampWidgetDimension(record?.height, defaults.height)
+          width: defaults.width,
+          height: defaults.height
         };
         const html = String(record?.html || "").trim();
         if (html) {

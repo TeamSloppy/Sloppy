@@ -451,8 +451,8 @@ test("start page grid renders shortcuts and widget artifacts", () => {
           artifactId: "widget-1",
           title: "Clock",
           size: "small",
-          width: 160,
-          height: 120,
+          width: 999,
+          height: 1,
           html: "<html><body>Clock</body></html>"
         }
       ]
@@ -465,6 +465,7 @@ test("start page grid renders shortcuts and widget artifacts", () => {
 
   assert.match(shortcuts.innerHTML, /data-sloppy-start-shortcut="https:\/\/github\.com\/"/);
   assert.match(shortcuts.innerHTML, /data-sloppy-start-widget="widget-1"/);
+  assert.match(shortcuts.innerHTML, /style="width:160px;height:120px"/);
   assert.match(shortcuts.innerHTML, /sandbox="allow-scripts"/);
 });
 
@@ -625,6 +626,98 @@ test("sidebar includes artifacts item and inline artifact list", () => {
 
   assert.match(panel.innerHTML, /data-sloppy-sidebar-artifacts/);
   assert.match(panel.innerHTML, /data-sloppy-sidebar-artifact-list/);
+});
+
+test("loadArtifacts shows an error state when artifact fetch fails", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const list = { hidden: true, innerHTML: "" };
+  const picker = { innerHTML: "" };
+  const frame = {
+    querySelector(selector) {
+      if (selector === "[data-sloppy-sidebar-artifact-list]") {
+        return list;
+      }
+      if (selector === "[data-sloppy-widget-picker]") {
+        return picker;
+      }
+      return null;
+    }
+  };
+  sandbox.chrome = {
+    runtime: {
+      sendMessage() {
+        return Promise.resolve({ error: "Artifacts unavailable." });
+      }
+    }
+  };
+  vm.runInNewContext("state.artifacts = [{ id: 'stale-widget', title: 'Old', kind: 'widget' }];", sandbox);
+
+  await sandbox.loadArtifacts(frame);
+
+  assert.equal(list.hidden, false);
+  assert.match(list.innerHTML, /Artifacts unavailable\./);
+  assert.doesNotMatch(list.innerHTML, /No artifacts yet\./);
+  assert.deepEqual(JSON.parse(vm.runInNewContext("JSON.stringify(state.artifacts)", sandbox)), []);
+});
+
+test("clicking a widget artifact row adds it to start page items", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage(message) {
+        if (message?.type === "sloppy.artifacts.widget") {
+          return Promise.resolve({
+            artifactId: "widget-1",
+            title: "Clock",
+            width: 999,
+            height: 1,
+            html: "<html><body>Clock</body></html>"
+          });
+        }
+        return Promise.resolve({});
+      }
+    }
+  };
+  vm.runInNewContext(`
+    state.settings = {
+      startPageShortcuts: [],
+      startPageItems: []
+    };
+    state.artifacts = [{ id: "widget-1", title: "Clock", kind: "widget" }];
+  `, sandbox);
+
+  const panel = sandbox.ensurePanel();
+  panel.querySelector("[data-sloppy-widget-size]").value = "large";
+  sandbox.renderArtifactList(panel);
+
+  await panel.querySelector("[data-sloppy-sidebar-artifact-list]").listeners.get("click")({
+    target: {
+      closest(selector) {
+        if (selector === "[data-sloppy-select-artifact]") {
+          return { dataset: { sloppySelectArtifact: "widget-1" } };
+        }
+        return null;
+      }
+    }
+  });
+
+  assert.deepEqual(
+    JSON.parse(vm.runInNewContext("JSON.stringify(state.settings.startPageItems)", sandbox)),
+    [{
+      kind: "widget",
+      artifactId: "widget-1",
+      title: "Clock",
+      size: "large",
+      width: 320,
+      height: 320,
+      html: "<html><body>Clock</body></html>"
+    }]
+  );
 });
 
 test("fullscreen chat shell includes the shared app sidebar", () => {
