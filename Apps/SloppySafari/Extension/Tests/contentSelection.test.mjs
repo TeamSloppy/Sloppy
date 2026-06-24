@@ -663,6 +663,7 @@ test("loadArtifacts shows an error state when artifact fetch fails", async () =>
 test("clicking a widget artifact row adds it to start page items", async () => {
   const sandbox = loadContentScriptSandbox();
   const documentLike = createPanelDocument();
+  const savedRequests = [];
   sandbox.document = documentLike;
   sandbox.chrome = {
     runtime: {
@@ -679,14 +680,18 @@ test("clicking a widget artifact row adds it to start page items", async () => {
             html: "<html><body>Clock</body></html>"
           });
         }
+        if (message?.type === "sloppy.settings.save") {
+          savedRequests.push(message);
+          return Promise.resolve(message.settings);
+        }
         return Promise.resolve({});
       }
     }
   };
   vm.runInNewContext(`
     state.settings = {
-      startPageShortcuts: [],
-      startPageItems: []
+      startPageShortcuts: [{ title: "GitHub", url: "https://github.com/" }],
+      startPageItems: [{ kind: "shortcut", title: "GitHub", url: "https://github.com/" }]
     };
     state.artifacts = [{ id: "widget-1", title: "Clock", kind: "widget" }];
   `, sandbox);
@@ -708,15 +713,23 @@ test("clicking a widget artifact row adds it to start page items", async () => {
 
   assert.deepEqual(
     JSON.parse(vm.runInNewContext("JSON.stringify(state.settings.startPageItems)", sandbox)),
-    [{
-      kind: "widget",
-      artifactId: "widget-1",
-      title: "Clock",
-      size: "large",
-      width: 320,
-      height: 320,
-      html: "<html><body>Clock</body></html>"
-    }]
+    [
+      { kind: "shortcut", title: "GitHub", url: "https://github.com/" },
+      {
+        kind: "widget",
+        artifactId: "widget-1",
+        title: "Clock",
+        size: "large",
+        width: 320,
+        height: 320,
+        html: "<html><body>Clock</body></html>"
+      }
+    ]
+  );
+  assert.equal(savedRequests.length, 1);
+  assert.deepEqual(
+    JSON.parse(JSON.stringify(savedRequests[0].settings.startPageShortcuts)),
+    [{ title: "GitHub", url: "https://github.com/" }]
   );
 });
 

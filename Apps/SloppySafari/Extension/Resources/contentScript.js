@@ -1243,7 +1243,7 @@ function wirePanel(frame) {
     if (String(artifact?.kind || "").trim() !== "widget") {
       return;
     }
-    await addWidgetToStartPage(frame, artifactId);
+    await addWidgetToStartPage(frame, artifactId, { syncEditor: false, persist: true });
   });
   frame.querySelector("[data-sloppy-sidebar-projects]")?.addEventListener("click", () => {
     appendMessage({ role: "assistant", label: t("assistant"), text: t("projectsUnavailable") });
@@ -1674,6 +1674,13 @@ function syncStartPageItemsFromEditor(frame) {
       ...widgets
     ]
   };
+}
+
+function startPageItemsForMutation(settings = state.settings || {}) {
+  if (Array.isArray(settings.startPageItems) && settings.startPageItems.length) {
+    return settings.startPageItems;
+  }
+  return (settings.startPageShortcuts || []).map((shortcut) => ({ kind: "shortcut", ...shortcut }));
 }
 
 function renderStartPageItems(frame) {
@@ -2192,12 +2199,15 @@ function renderWidgetPicker(frame) {
   `).join("");
 }
 
-async function addWidgetToStartPage(frame, artifactId) {
+async function addWidgetToStartPage(frame, artifactId, options = {}) {
   const id = String(artifactId || "").trim();
   if (!id) {
     return;
   }
-  syncStartPageItemsFromEditor(frame);
+  const shouldSyncEditor = options.syncEditor !== false && Boolean(frame.querySelectorAll?.("[data-sloppy-start-shortcut-row]")?.length);
+  if (shouldSyncEditor) {
+    syncStartPageItemsFromEditor(frame);
+  }
   const requestedSize = normalizedWidgetSize(String(frame.querySelector("[data-sloppy-widget-size]")?.value || "small").trim());
   const artifact = (state.artifacts || []).find((candidate) => candidate?.id === id) || {};
   const response = await chrome.runtime.sendMessage({
@@ -2219,14 +2229,19 @@ async function addWidgetToStartPage(frame, artifactId) {
     height: dimensions.height,
     html: String(response?.html || artifact.html || "").trim()
   };
+  const baseItems = startPageItemsForMutation(state.settings);
   state.settings = {
     ...(state.settings || {}),
     startPageItems: [
-      ...(state.settings?.startPageItems || []).filter((item) => String(item?.artifactId || "") !== id),
+      ...baseItems.filter((item) => String(item?.artifactId || "") !== id),
       widget
     ]
   };
+  state.settings.startPageShortcuts = startPageShortcutItems(state.settings);
   frame.querySelector("[data-sloppy-start-page-error]").textContent = "";
+  if (options.persist) {
+    state.settings = await chrome.runtime.sendMessage({ type: "sloppy.settings.save", settings: state.settings });
+  }
   renderArtifactList(frame);
   renderStartPageItems(frame);
   renderWidgetPicker(frame);
