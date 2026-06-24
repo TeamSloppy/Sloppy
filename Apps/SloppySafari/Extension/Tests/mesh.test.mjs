@@ -4,13 +4,18 @@ import {
   acceptMeshInvite,
   buildAuthResponseEnvelope,
   buildCoreHTTPRPCEnvelope,
+  buildMeshAgentAddress,
   buildMeshInviteAcceptPayload,
   buildNodeHelloEnvelope,
   createMeshIdentity,
   decodeCoreHTTPRPCResponse,
   makeNodeId,
   meshCoreFetch,
+  meshListAgentDirectory,
+  meshQueueBrowserContextMessage,
+  normalizeMeshAgentDirectory,
   normalizeMeshSettings,
+  parseMeshAgentAddress,
   parseMeshInviteBundle,
   resolveRelayWebSocketURL
 } from "../Resources/mesh.js";
@@ -76,6 +81,152 @@ test("makeNodeId creates Swift-style node IDs", () => {
   assert.equal(makeNodeId("   ", "abc123"), "node_node_abc123");
   assert.equal(makeNodeId("Секретный портал", "abc123"), "node_секретный-портал_abc123");
   assert.equal(makeNodeId("Café Node", "abc123"), "node_café-node_abc123");
+});
+
+test("mesh agent addresses round-trip node and agent ids", () => {
+  assert.equal(buildMeshAgentAddress("node_home", "sloppy"), "mesh:node_home:sloppy");
+  assert.deepEqual(parseMeshAgentAddress("mesh:node_home:sloppy"), {
+    nodeId: "node_home",
+    agentId: "sloppy"
+  });
+  assert.equal(parseMeshAgentAddress("sloppy"), null);
+  assert.throws(() => buildMeshAgentAddress("", "sloppy"), /node id is required/);
+  assert.throws(() => buildMeshAgentAddress("node_home", ""), /agent id is required/);
+});
+
+test("normalizeMeshAgentDirectory keeps online and offline agents for picker use", () => {
+  const directory = normalizeMeshAgentDirectory([
+    {
+      nodeId: "node_home",
+      nodeName: "Home",
+      nodeStatus: "online",
+      lastSeenAt: "2026-06-23T20:00:00.000Z",
+      agents: [
+        { id: "sloppy", title: "Sloppy" },
+        { id: "builder", title: "Builder" }
+      ]
+    },
+    {
+      nodeId: "node_work",
+      nodeName: "Work",
+      nodeStatus: "offline",
+      lastSeenAt: "2026-06-22T10:00:00.000Z",
+      agents: [{ id: "researcher", title: "Researcher" }]
+    }
+  ]);
+
+  assert.deepEqual(directory.map((agent) => agent.id), [
+    "mesh:node_home:sloppy",
+    "mesh:node_home:builder",
+    "mesh:node_work:researcher"
+  ]);
+  assert.equal(directory[0].title, "Home / Sloppy");
+  assert.equal(directory[2].nodeStatus, "offline");
+  assert.equal(directory[2].lastSeenAt, "2026-06-22T10:00:00.000Z");
+});
+
+test("normalizeMeshSettings preserves cached mesh agent directory", () => {
+  const settings = normalizeMeshSettings({
+    enabled: true,
+    relayURL: "https://mesh.example.com",
+    targetNodeId: "node_home",
+    agentDirectory: [
+      {
+        id: "mesh:node_home:sloppy",
+        agentId: "sloppy",
+        nodeId: "node_home",
+        nodeName: "Home",
+        nodeStatus: "online",
+        title: "Home / Sloppy"
+      }
+    ]
+  });
+
+  assert.equal(settings.agentDirectory.length, 1);
+  assert.equal(settings.agentDirectory[0].id, "mesh:node_home:sloppy");
+});
+
+test("meshListAgentDirectory refreshes online nodes and keeps cached offline agents", async () => {
+  const calls = [];
+  const directory = await meshListAgentDirectory({
+    mesh: {
+      enabled: true,
+      relayURL: "https://mesh.example.com",
+      targetNodeId: "node_home",
+      identity: { nodeId: "node_safari" },
+      agentDirectory: [
+        {
+          id: "mesh:node_work:researcher",
+          agentId: "researcher",
+          nodeId: "node_work",
+          nodeName: "Work",
+          nodeStatus: "offline",
+          title: "Work / Researcher",
+          lastSeenAt: "2026-06-22T10:00:00.000Z"
+        }
+      ]
+    }
+  }, {
+    fetchImpl: async (url) => {
+      assert.equal(url, "https://mesh.example.com/v1/node/mesh");
+      return Response.json({
+        nodes: [
+          { id: "node_home", name: "Home", status: "online", lastSeenAt: "2026-06-23T20:00:00.000Z" },
+          { id: "node_work", name: "Work", status: "offline", lastSeenAt: "2026-06-22T10:00:00.000Z" }
+        ]
+      });
+    },
+    meshFetchImpl: async (settings, path) => {
+      calls.push({ targetNodeId: settings.mesh.targetNodeId, path });
+      return Response.json({ agents: [{ id: "sloppy", title: "Sloppy" }] });
+    }
+  });
+
+  assert.deepEqual(calls, [{ targetNodeId: "node_home", path: "/v1/agents" }]);
+  assert.deepEqual(directory.map((agent) => agent.id), [
+    "mesh:node_home:sloppy",
+    "mesh:node_work:researcher"
+  ]);
+  assert.equal(directory[0].nodeStatus, "online");
+  assert.equal(directory[1].nodeStatus, "offline");
+});
+
+test("meshQueueBrowserContextMessage publishes an offline browser message envelope", async () => {
+  const identity = await createMeshIdentity({ cryptoImpl: fakeCrypto(), randomToken: "abc123" });
+  const sent = [];
+  const socketFactory = () => fakeSocket([
+    { type: "auth.challenge", from: "relay", payload: { nonce: "nonce_auth", nodeId: identity.nodeId, publicKey: identity.publicKey } }
+  ], sent);
+  const payload = {
+    source: "safari_extension",
+    page: { url: "https://example.com", title: "Example" },
+    selection: { text: "No selected text." },
+    browser: { tabs: [] },
+    attachments: [],
+    prompt: "ping",
+    target: { agentId: "sloppy", sessionId: null },
+    userId: "safari_extension"
+  };
+
+  const result = await meshQueueBrowserContextMessage({
+    mesh: {
+      enabled: true,
+      relayURL: "https://mesh.example.com",
+      identity
+    }
+  }, "node_home", payload, {
+    cryptoImpl: fakeCrypto("signature"),
+    makeRequestId: () => "mailbox-fixed",
+    socketFactory
+  });
+
+  const published = sent.find((envelope) => envelope.type === "event.publish");
+  assert.equal(result.status, "queued");
+  assert.equal(result.messageId, "mailbox-fixed");
+  assert.equal(published.id, "mailbox-fixed");
+  assert.equal(published.to, "node_home");
+  assert.equal(published.payload.kind, "agent.browser_context_message");
+  assert.deepEqual(published.payload.request, payload);
 });
 
 test("buildMeshInviteAcceptPayload uses the original bundled token and identity", () => {

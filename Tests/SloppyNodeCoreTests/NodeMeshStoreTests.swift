@@ -327,6 +327,46 @@ struct NodeMeshStoreTests {
         #expect(syncEvents.last?.payload.asObject?["projectId"] == .string(project.id))
     }
 
+    @Test("mailbox event ack removes delivered envelope")
+    func mailboxEventAckRemovesDeliveredEnvelope() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+        let safari = NodeIdentityGenerator.makeIdentity(name: "Safari", roles: ["client"], capabilities: ["browser_context"])
+        let worker = NodeIdentityGenerator.makeIdentity(name: "Worker", roles: ["worker"], capabilities: ["run_agent"])
+        try store.registerNode(safari)
+        try store.registerNode(worker)
+        try store.routeEnvelope(MeshEnvelope(
+            id: "mailbox_1",
+            type: .eventPublish,
+            from: safari.nodeId,
+            to: worker.nodeId,
+            payload: .object(["kind": .string("agent.browser_context_message")])
+        ))
+
+        try store.ackEnvelope(id: "mailbox_1", acknowledgedBy: worker.nodeId)
+
+        let state = try store.load()
+        #expect(state.envelopes.contains { $0.id == "mailbox_1" } == false)
+        #expect(state.auditLog.last?.action == "event.ack")
+        #expect(state.auditLog.last?.actor == worker.nodeId)
+        #expect(state.auditLog.last?.target == safari.nodeId)
+        #expect(state.auditLog.last?.allowed == true)
+    }
+
+    @Test("processed mailbox envelope ids are recorded idempotently")
+    func processedMailboxEnvelopeIDsAreRecordedIdempotently() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+
+        let first = try store.recordProcessedEnvelope(id: "mailbox_1", processedBy: "node_worker")
+        let second = try store.recordProcessedEnvelope(id: "mailbox_1", processedBy: "node_worker")
+
+        let state = try store.load()
+        #expect(first == true)
+        #expect(second == false)
+        #expect(state.processedEnvelopeIDs == ["mailbox_1"])
+        #expect(state.auditLog.last?.action == "event.processed")
+        #expect(state.auditLog.last?.allowed == true)
+    }
+
     @Test("mesh permissions encode stable protocol values")
     func meshPermissionsEncodeStableProtocolValues() throws {
         #expect(MeshPermission.projectRead.rawValue == "project.read")

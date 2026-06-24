@@ -170,6 +170,7 @@ public struct Start: AsyncParsableCommand {
                             "to": envelope.to.map(Logger.MetadataValue.string) ?? .string("-"),
                         ]
                     )
+                    return []
                 }
             )
             try await client.run(relayURL: relayURL)

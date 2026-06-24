@@ -8,6 +8,7 @@ public enum MeshMessageType: String, Codable, Sendable, Equatable {
     case nodeHeartbeat = "node.heartbeat"
     case nodeRegistryUpdate = "node.registry.update"
     case eventPublish = "event.publish"
+    case eventAck = "event.ack"
     case eventSubscribe = "event.subscribe"
     case rpcRequest = "rpc.request"
     case rpcResponse = "rpc.response"
@@ -825,6 +826,7 @@ public struct MeshState: Codable, Sendable, Equatable {
     public var auditLog: [MeshAuditLogEntry]
     public var events: [SignedMeshEvent]
     public var eventCursors: [String: String]
+    public var processedEnvelopeIDs: [String]
 
     public init(
         networkId: String = "personal",
@@ -837,7 +839,8 @@ public struct MeshState: Codable, Sendable, Equatable {
         envelopes: [MeshEnvelope] = [],
         auditLog: [MeshAuditLogEntry] = [],
         events: [SignedMeshEvent] = [],
-        eventCursors: [String: String] = [:]
+        eventCursors: [String: String] = [:],
+        processedEnvelopeIDs: [String] = []
     ) {
         self.networkId = networkId
         self.networkName = networkName
@@ -850,6 +853,7 @@ public struct MeshState: Codable, Sendable, Equatable {
         self.auditLog = auditLog
         self.events = events
         self.eventCursors = eventCursors
+        self.processedEnvelopeIDs = processedEnvelopeIDs
     }
 
     enum CodingKeys: String, CodingKey {
@@ -864,6 +868,7 @@ public struct MeshState: Codable, Sendable, Equatable {
         case auditLog
         case events
         case eventCursors
+        case processedEnvelopeIDs
     }
 
     public init(from decoder: Decoder) throws {
@@ -879,6 +884,7 @@ public struct MeshState: Codable, Sendable, Equatable {
         auditLog = try container.decodeIfPresent([MeshAuditLogEntry].self, forKey: .auditLog) ?? []
         events = try container.decodeIfPresent([SignedMeshEvent].self, forKey: .events) ?? []
         eventCursors = try container.decodeIfPresent([String: String].self, forKey: .eventCursors) ?? [:]
+        processedEnvelopeIDs = try container.decodeIfPresent([String].self, forKey: .processedEnvelopeIDs) ?? []
     }
 }
 
@@ -1453,6 +1459,65 @@ public struct NodeMeshStore: Sendable {
         state.auditLog.append(MeshAuditLogEntry(actor: envelope.from, target: envelope.to, action: envelope.type.rawValue, project: projectFromScope(envelope.scope), allowed: true))
         try save(state)
         return envelope
+    }
+
+    public func ackEnvelope(id: String, acknowledgedBy nodeId: String) throws {
+        var state = try load()
+        guard let index = state.envelopes.firstIndex(where: { $0.id == id }) else {
+            state.auditLog.append(MeshAuditLogEntry(
+                actor: nodeId,
+                action: MeshMessageType.eventAck.rawValue,
+                allowed: true,
+                message: "already acknowledged: \(id)"
+            ))
+            try save(state)
+            return
+        }
+        let envelope = state.envelopes[index]
+        guard envelope.to == nodeId else {
+            state.auditLog.append(MeshAuditLogEntry(
+                actor: nodeId,
+                target: envelope.to,
+                action: MeshMessageType.eventAck.rawValue,
+                allowed: false,
+                message: "acknowledging node is not the envelope target: \(id)"
+            ))
+            try save(state)
+            throw NodeMeshStoreError.permissionDenied("event.ack")
+        }
+        state.envelopes.remove(at: index)
+        state.auditLog.append(MeshAuditLogEntry(
+            actor: nodeId,
+            target: envelope.from,
+            action: MeshMessageType.eventAck.rawValue,
+            allowed: true,
+            message: id
+        ))
+        try save(state)
+    }
+
+    @discardableResult
+    public func recordProcessedEnvelope(id: String, processedBy nodeId: String) throws -> Bool {
+        var state = try load()
+        if state.processedEnvelopeIDs.contains(id) {
+            state.auditLog.append(MeshAuditLogEntry(
+                actor: nodeId,
+                action: "event.processed",
+                allowed: true,
+                message: "duplicate: \(id)"
+            ))
+            try save(state)
+            return false
+        }
+        state.processedEnvelopeIDs.append(id)
+        state.auditLog.append(MeshAuditLogEntry(
+            actor: nodeId,
+            action: "event.processed",
+            allowed: true,
+            message: id
+        ))
+        try save(state)
+        return true
     }
 
     public func recordRouteFailure(_ envelope: MeshEnvelope, target: String, message: String) throws {

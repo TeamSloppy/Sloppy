@@ -523,6 +523,221 @@ test("coreFetch uses mesh fetch when mesh is enabled", async () => {
   assert.deepEqual(await response.json(), { agents: [{ id: "remote" }] });
 });
 
+test("background agent list includes cached offline mesh agents", async () => {
+  const originalWebSocket = globalThis.WebSocket;
+  const originalCrypto = globalThis.crypto;
+  const identity = {
+    nodeId: "node_safari",
+    name: "Safari Extension",
+    publicKey: "ed25519:public",
+    privateKey: "ed25519-pkcs8:private",
+    roles: ["client"],
+    capabilities: ["browser_context", "core_http"]
+  };
+  const runtime = await loadBackgroundRuntime({
+    defaultAgentID: "mesh:node_home:sloppy",
+    mesh: {
+      enabled: true,
+      relayURL: "https://mesh.example.com",
+      targetNodeId: "node_home",
+      identity,
+      agentDirectory: [
+        {
+          id: "mesh:node_work:researcher",
+          agentId: "researcher",
+          nodeId: "node_work",
+          nodeName: "Work",
+          nodeStatus: "offline",
+          title: "Work / Researcher",
+          lastSeenAt: "2026-06-22T10:00:00.000Z"
+        }
+      ]
+    }
+  }, async () => {
+    throw new Error("direct fetch should not run");
+  });
+
+  try {
+    Object.defineProperty(globalThis, "crypto", {
+      configurable: true,
+      value: {
+        subtle: {
+          async importKey() {
+            return {};
+          },
+          async sign() {
+            return Buffer.from("signature");
+          }
+        }
+      }
+    });
+    globalThis.WebSocket = class {
+      constructor() {
+        this.listeners = {};
+        queueMicrotask(() => this.emit("message", {
+          data: JSON.stringify({
+            type: "auth.challenge",
+            from: "relay",
+            payload: { nonce: "nonce_auth", nodeId: "node_safari", publicKey: "ed25519:public" }
+          })
+        }));
+      }
+
+      addEventListener(type, listener) {
+        this.listeners[type] = listener;
+      }
+
+      send(text) {
+        const envelope = JSON.parse(text);
+        if (envelope.type !== "rpc.request") {
+          return;
+        }
+        queueMicrotask(() => this.emit("message", {
+          data: JSON.stringify({
+            type: "rpc.response",
+            from: "node_home",
+            payload: {
+              requestId: envelope.id,
+              method: "core.http",
+              ok: true,
+              result: {
+                status: 200,
+                contentType: "application/json",
+                bodyBase64: Buffer.from(JSON.stringify({
+                  agents: [{ id: "sloppy", title: "Sloppy" }]
+                }), "utf8").toString("base64")
+              }
+            }
+          })
+        }));
+      }
+
+      close() {}
+
+      emit(type, event) {
+        this.listeners[type]?.(event);
+      }
+    };
+
+    const response = await runtime.sendMessage({ type: "sloppy.agents.list" });
+
+    assert.deepEqual(response.agents.map((agent) => agent.id), [
+      "mesh:node_home:sloppy",
+      "mesh:node_work:researcher"
+    ]);
+    assert.equal(response.agents[0].nodeStatus, "online");
+    assert.equal(response.agents[1].nodeStatus, "offline");
+    assert.equal(response.selectedAgentId, "mesh:node_home:sloppy");
+    assert.equal(runtime.storageState.mesh.agentDirectory.length, 2);
+  } finally {
+    runtime.cleanup();
+    globalThis.WebSocket = originalWebSocket;
+    Object.defineProperty(globalThis, "crypto", {
+      configurable: true,
+      value: originalCrypto
+    });
+  }
+});
+
+test("background queues browser context for offline mesh agents", async () => {
+  const originalWebSocket = globalThis.WebSocket;
+  const originalCrypto = globalThis.crypto;
+  const sent = [];
+  const identity = {
+    nodeId: "node_safari",
+    name: "Safari Extension",
+    publicKey: "ed25519:public",
+    privateKey: "ed25519-pkcs8:private",
+    roles: ["client"],
+    capabilities: ["browser_context", "core_http"]
+  };
+  const runtime = await loadBackgroundRuntime({
+    defaultAgentID: "mesh:node_work:researcher",
+    mesh: {
+      enabled: true,
+      relayURL: "https://mesh.example.com",
+      targetNodeId: "node_home",
+      identity,
+      agentDirectory: [
+        {
+          id: "mesh:node_work:researcher",
+          agentId: "researcher",
+          nodeId: "node_work",
+          nodeName: "Work",
+          nodeStatus: "offline",
+          title: "Work / Researcher"
+        }
+      ]
+    }
+  }, async () => {
+    throw new Error("direct fetch should not run");
+  });
+
+  try {
+    Object.defineProperty(globalThis, "crypto", {
+      configurable: true,
+      value: {
+        subtle: {
+          async importKey() {
+            return {};
+          },
+          async sign() {
+            return Buffer.from("signature");
+          }
+        }
+      }
+    });
+    globalThis.WebSocket = class {
+      constructor() {
+        this.listeners = {};
+        queueMicrotask(() => this.emit("message", {
+          data: JSON.stringify({
+            type: "auth.challenge",
+            from: "relay",
+            payload: { nonce: "nonce_auth", nodeId: "node_safari", publicKey: "ed25519:public" }
+          })
+        }));
+      }
+
+      addEventListener(type, listener) {
+        this.listeners[type] = listener;
+      }
+
+      send(text) {
+        sent.push(JSON.parse(text));
+      }
+
+      close() {}
+
+      emit(type, event) {
+        this.listeners[type]?.(event);
+      }
+    };
+
+    const response = await runtime.sendMessage({
+      type: "sloppy.browserContext.send",
+      page: { url: "https://example.com", title: "Example" },
+      selection: "",
+      prompt: "read later",
+      tabs: []
+    });
+
+    const published = sent.find((envelope) => envelope.type === "event.publish");
+    assert.equal(response.status, "queued");
+    assert.equal(response.queued, true);
+    assert.equal(published.to, "node_work");
+    assert.equal(published.payload.request.target.agentId, "researcher");
+    assert.equal(published.payload.request.prompt, "read later");
+  } finally {
+    runtime.cleanup();
+    globalThis.WebSocket = originalWebSocket;
+    Object.defineProperty(globalThis, "crypto", {
+      configurable: true,
+      value: originalCrypto
+    });
+  }
+});
+
 test("normalizeVoiceConfig falls back to local mode", () => {
   const config = normalizeVoiceConfig({});
   assert.equal(config.enabled, false);

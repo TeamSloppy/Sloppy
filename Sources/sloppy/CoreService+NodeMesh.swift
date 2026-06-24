@@ -2,6 +2,7 @@ import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+import Protocols
 import SloppyNodeCore
 
 extension CoreService {
@@ -75,6 +76,10 @@ extension CoreService {
         let client = NodeMeshClient(
             config: config,
             meshStore: nodeMeshStore,
+            onEnvelope: { [weak self] envelope in
+                guard let self else { return [] }
+                return await self.handleMeshMailboxEnvelope(envelope)
+            },
             rpcHandler: { [weak self] envelope, method, params in
                 guard let self else { return nil }
                 return await self.handleMeshCoreHTTPRPC(envelope: envelope, method: method, params: params)
@@ -396,6 +401,41 @@ extension CoreService {
                 "bodyBase64": .string(response.body.base64EncodedString()),
             ]),
         ])
+    }
+
+    func handleMeshMailboxEnvelope(_ envelope: MeshEnvelope) async -> [MeshEnvelope] {
+        guard envelope.type == .eventPublish,
+              envelope.payload.asObject?["kind"]?.asString == "agent.browser_context_message",
+              let requestValue = envelope.payload.asObject?["request"]
+        else {
+            return []
+        }
+        let localNodeId = envelope.to ?? ""
+        if (try? nodeMeshStore.load().processedEnvelopeIDs.contains(envelope.id)) == true {
+            return [meshMailboxAck(for: envelope, from: localNodeId)]
+        }
+        do {
+            let request = try JSONValueCoder.decode(BrowserContextMessageRequest.self, from: requestValue)
+            _ = try await postBrowserContextMessage(request)
+            try nodeMeshStore.recordProcessedEnvelope(id: envelope.id, processedBy: localNodeId)
+            return [meshMailboxAck(for: envelope, from: localNodeId)]
+        } catch {
+            logger.warning("node.mesh.mailbox.browser_context.failed", metadata: [
+                "envelope": .string(envelope.id),
+                "from": .string(envelope.from),
+                "error": .string(String(describing: error)),
+            ])
+            return []
+        }
+    }
+
+    private func meshMailboxAck(for envelope: MeshEnvelope, from nodeId: String) -> MeshEnvelope {
+        MeshEnvelope(
+            type: .eventAck,
+            from: nodeId,
+            to: envelope.from,
+            payload: .object(["messageId": .string(envelope.id)])
+        )
     }
 
     private func meshCoreRPCErrorPayload(requestId: String, method: String, code: String, message: String) -> JSONValue {

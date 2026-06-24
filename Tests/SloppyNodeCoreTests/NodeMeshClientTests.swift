@@ -140,6 +140,43 @@ struct NodeMeshClientTests {
         #expect(response.payload.asObject?["ok"] == .bool(true))
     }
 
+    @Test("client returns mailbox handler response envelopes")
+    func clientReturnsMailboxHandlerResponseEnvelopes() async throws {
+        let identity = NodeIdentityGenerator.makeIdentity(
+            name: "Worker",
+            roles: ["worker"],
+            capabilities: ["run_agent", "git"]
+        )
+        let client = NodeMeshClient(
+            config: NodeConfig(identity: identity),
+            onEnvelope: { envelope in
+                #expect(envelope.id == "mailbox_1")
+                return [
+                    MeshEnvelope(
+                        type: .eventAck,
+                        from: identity.nodeId,
+                        to: envelope.from,
+                        payload: .object(["messageId": .string(envelope.id)])
+                    ),
+                ]
+            }
+        )
+        _ = try await client.response(to: authChallengeEnvelope(for: identity, nonce: "nonce_mailbox_handler"))
+
+        let response = try #require(await client.response(to: MeshEnvelope(
+            id: "mailbox_1",
+            type: .eventPublish,
+            from: "node_safari",
+            to: identity.nodeId,
+            payload: .object(["kind": .string("agent.browser_context_message")])
+        )))
+
+        #expect(response.type == .eventAck)
+        #expect(response.from == identity.nodeId)
+        #expect(response.to == "node_safari")
+        #expect(response.payload.asObject?["messageId"] == .string("mailbox_1"))
+    }
+
     @Test("client signs relay auth challenge")
     func clientSignsRelayAuthChallenge() async throws {
         let identity = NodeIdentityGenerator.makeIdentity(

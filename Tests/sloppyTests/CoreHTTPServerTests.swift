@@ -2462,6 +2462,225 @@ func nodeMeshRelaySkipsPendingTaskDispatchForProjectedRemovedAssignee() async th
 }
 
 @Test
+func nodeMeshRelayStoresAndReplaysOfflineMailboxEvents() async throws {
+    let stateURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-relay-tests-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("mesh.json")
+    let store = NodeMeshStore(stateURL: stateURL)
+    let safariIdentity = NodeIdentityGenerator.makeIdentity(name: "Safari", roles: ["client"], capabilities: ["browser_context"])
+    let workerIdentity = NodeIdentityGenerator.makeIdentity(name: "Worker", roles: ["worker"], capabilities: ["run_agent"])
+    try store.registerNode(safariIdentity, status: .offline)
+    try store.registerNode(workerIdentity, status: .offline)
+
+    let relay = NodeMeshRelay(store: store, logger: Logger(label: "sloppy.node.mesh.relay.mailbox.tests"))
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    var safariContinuation: AsyncStream<String>.Continuation!
+    let safariMessages = WebSocketSentMessageRecorder()
+    let safariStream = AsyncStream<String> { next in
+        safariContinuation = next
+    }
+    let safariConnection = WebSocketConnectionContext(
+        sendText: { text in
+            await safariMessages.append(text)
+            return true
+        },
+        close: {},
+        incomingMessages: { safariStream }
+    )
+    let safariTask = Task {
+        await relay.attach(connection: safariConnection, remoteAddress: "127.0.0.1")
+    }
+    try await authenticateRelayConnection(
+        identity: safariIdentity,
+        continuation: safariContinuation,
+        sentMessages: safariMessages,
+        encoder: encoder,
+        decoder: decoder
+    )
+
+    safariContinuation.yield(try encodedMeshEnvelope(
+        MeshEnvelope(
+            id: "mailbox_offline_1",
+            type: .eventPublish,
+            from: safariIdentity.nodeId,
+            to: workerIdentity.nodeId,
+            payload: .object([
+                "kind": .string("agent.browser_context_message"),
+                "request": .object([
+                    "prompt": .string("hello later"),
+                    "target": .object(["agentId": .string("sloppy")]),
+                ]),
+            ])
+        ),
+        encoder: encoder
+    ))
+
+    try await waitUntil("mailbox event persisted") {
+        (try? store.load().envelopes.contains { $0.id == "mailbox_offline_1" && $0.type == .eventPublish }) == true
+    }
+    #expect(await safariMessages.all.contains { message in
+        guard let envelope = try? decoder.decode(MeshEnvelope.self, from: Data(message.utf8)) else {
+            return false
+        }
+        return envelope.type == .rpcResponse
+            && envelope.payload.asObject?["error"]?.asObject?["code"] == .string("node_unavailable")
+    } == false)
+
+    var workerContinuation: AsyncStream<String>.Continuation!
+    let workerMessages = WebSocketSentMessageRecorder()
+    let workerStream = AsyncStream<String> { next in
+        workerContinuation = next
+    }
+    let workerConnection = WebSocketConnectionContext(
+        sendText: { text in
+            await workerMessages.append(text)
+            return true
+        },
+        close: {},
+        incomingMessages: { workerStream }
+    )
+    let workerTask = Task {
+        await relay.attach(connection: workerConnection, remoteAddress: "127.0.0.2")
+    }
+    try await authenticateRelayConnection(
+        identity: workerIdentity,
+        continuation: workerContinuation,
+        sentMessages: workerMessages,
+        encoder: encoder,
+        decoder: decoder
+    )
+
+    try await waitUntil("mailbox event replayed") {
+        await workerMessages.all.contains { message in
+            guard let envelope = try? decoder.decode(MeshEnvelope.self, from: Data(message.utf8)) else {
+                return false
+            }
+            return envelope.id == "mailbox_offline_1" && envelope.type == .eventPublish
+        }
+    }
+
+    workerContinuation.finish()
+    await workerTask.value
+
+    var workerAckContinuation: AsyncStream<String>.Continuation!
+    let workerAckMessages = WebSocketSentMessageRecorder()
+    let workerAckStream = AsyncStream<String> { next in
+        workerAckContinuation = next
+    }
+    let workerAckConnection = WebSocketConnectionContext(
+        sendText: { text in
+            await workerAckMessages.append(text)
+            return true
+        },
+        close: {},
+        incomingMessages: { workerAckStream }
+    )
+    let workerAckTask = Task {
+        await relay.attach(connection: workerAckConnection, remoteAddress: "127.0.0.2")
+    }
+    try await authenticateRelayConnection(
+        identity: workerIdentity,
+        continuation: workerAckContinuation,
+        sentMessages: workerAckMessages,
+        encoder: encoder,
+        decoder: decoder
+    )
+    try await waitUntil("mailbox event replayed before ack") {
+        await workerAckMessages.all.contains { message in
+            guard let envelope = try? decoder.decode(MeshEnvelope.self, from: Data(message.utf8)) else {
+                return false
+            }
+            return envelope.id == "mailbox_offline_1" && envelope.type == .eventPublish
+        }
+    }
+    workerAckContinuation.yield(try encodedMeshEnvelope(
+        MeshEnvelope(
+            type: .eventAck,
+            from: workerIdentity.nodeId,
+            to: safariIdentity.nodeId,
+            payload: .object(["messageId": .string("mailbox_offline_1")])
+        ),
+        encoder: encoder
+    ))
+    try await waitUntil("mailbox event acknowledged") {
+        (try? store.load().envelopes.contains { $0.id == "mailbox_offline_1" }) == false
+    }
+    workerAckContinuation.finish()
+    await workerAckTask.value
+
+    var workerReplayContinuation: AsyncStream<String>.Continuation!
+    let workerReplayMessages = WebSocketSentMessageRecorder()
+    let workerReplayStream = AsyncStream<String> { next in
+        workerReplayContinuation = next
+    }
+    let workerReplayConnection = WebSocketConnectionContext(
+        sendText: { text in
+            await workerReplayMessages.append(text)
+            return true
+        },
+        close: {},
+        incomingMessages: { workerReplayStream }
+    )
+    let workerReplayTask = Task {
+        await relay.attach(connection: workerReplayConnection, remoteAddress: "127.0.0.2")
+    }
+    try await authenticateRelayConnection(
+        identity: workerIdentity,
+        continuation: workerReplayContinuation,
+        sentMessages: workerReplayMessages,
+        encoder: encoder,
+        decoder: decoder
+    )
+    try await Task.sleep(nanoseconds: 100_000_000)
+    #expect(await workerReplayMessages.all.contains { message in
+        guard let envelope = try? decoder.decode(MeshEnvelope.self, from: Data(message.utf8)) else {
+            return false
+        }
+        return envelope.id == "mailbox_offline_1" && envelope.type == .eventPublish
+    } == false)
+
+    safariContinuation.finish()
+    workerReplayContinuation.finish()
+    await safariTask.value
+    await workerReplayTask.value
+}
+
+@Test
+func nodeMeshMailboxDuplicateReturnsAckWithoutReprocessing() async throws {
+    let workspaceURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-mailbox-handler-\(UUID().uuidString)", isDirectory: true)
+    var config = CoreConfig.test
+    config.nodeMeshStatePath = "mesh/state.json"
+    let service = CoreService(
+        config: config,
+        currentDirectory: workspaceURL.path,
+        persistenceBuilder: InMemoryCorePersistenceBuilder()
+    )
+    try service.nodeMeshStore.recordProcessedEnvelope(id: "mailbox_duplicate_1", processedBy: "node_worker")
+
+    let responses = await service.handleMeshMailboxEnvelope(MeshEnvelope(
+        id: "mailbox_duplicate_1",
+        type: .eventPublish,
+        from: "node_safari",
+        to: "node_worker",
+        payload: .object([
+            "kind": .string("agent.browser_context_message"),
+            "request": .string("not a request"),
+        ])
+    ))
+
+    let ack = try #require(responses.first)
+    #expect(ack.type == .eventAck)
+    #expect(ack.from == "node_worker")
+    #expect(ack.to == "node_safari")
+    #expect(ack.payload.asObject?["messageId"] == .string("mailbox_duplicate_1"))
+}
+
+@Test
 func nodeMeshRelayRejectsUnknownNodeAuth() async throws {
     let stateURL = FileManager.default.temporaryDirectory
         .appendingPathComponent("sloppy-relay-tests-\(UUID().uuidString)", isDirectory: true)

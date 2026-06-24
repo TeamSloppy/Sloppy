@@ -124,7 +124,124 @@ export function normalizeMeshSettings(mesh = {}) {
   if (mesh.acceptedNode && typeof mesh.acceptedNode === "object") {
     normalized.acceptedNode = mesh.acceptedNode;
   }
+  const agentDirectory = normalizeMeshAgentDirectory(mesh.agentDirectory);
+  if (agentDirectory.length) {
+    normalized.agentDirectory = agentDirectory;
+  }
   return normalized;
+}
+
+export function buildMeshAgentAddress(nodeId, agentId) {
+  const normalizedNodeId = String(nodeId || "").trim();
+  const normalizedAgentId = String(agentId || "").trim();
+  if (!normalizedNodeId) {
+    throw new Error("Mesh agent node id is required.");
+  }
+  if (!normalizedAgentId) {
+    throw new Error("Mesh agent id is required.");
+  }
+  return `mesh:${normalizedNodeId}:${normalizedAgentId}`;
+}
+
+export function parseMeshAgentAddress(value) {
+  const text = String(value || "").trim();
+  if (!text.startsWith("mesh:")) {
+    return null;
+  }
+  const parts = text.split(":");
+  if (parts.length !== 3 || !parts[1] || !parts[2]) {
+    return null;
+  }
+  return {
+    nodeId: parts[1],
+    agentId: parts[2]
+  };
+}
+
+export function normalizeMeshAgentDirectory(records = []) {
+  if (!Array.isArray(records)) {
+    return [];
+  }
+  const agents = [];
+  for (const record of records) {
+    if (!isObject(record)) {
+      continue;
+    }
+    if (Array.isArray(record.agents)) {
+      const nodeId = String(record.nodeId || record.id || "").trim();
+      if (!nodeId) {
+        continue;
+      }
+      const nodeName = String(record.nodeName || record.name || nodeId).trim() || nodeId;
+      const nodeStatus = normalizeNodeStatus(record.nodeStatus || record.status);
+      const lastSeenAt = normalizeOptionalString(record.lastSeenAt);
+      for (const agent of record.agents) {
+        const normalized = normalizeMeshAgentRecord(agent, {
+          nodeId,
+          nodeName,
+          nodeStatus,
+          lastSeenAt
+        });
+        if (normalized) {
+          agents.push(normalized);
+        }
+      }
+      continue;
+    }
+    const normalized = normalizeMeshAgentRecord(record, {});
+    if (normalized) {
+      agents.push(normalized);
+    }
+  }
+  return dedupeMeshAgents(agents);
+}
+
+export async function meshListAgentDirectory(settings, deps = {}) {
+  const mesh = normalizeMeshSettings(settings.mesh);
+  if (!mesh.enabled || !mesh.relayURL || !mesh.identity) {
+    throw new Error("Mesh is not configured.");
+  }
+  const state = await fetchMeshState(mesh.relayURL, deps.fetchImpl || fetch);
+  const cached = normalizeMeshAgentDirectory(mesh.agentDirectory);
+  const nodes = Array.isArray(state.nodes) ? state.nodes : [];
+  const meshFetchImpl = deps.meshFetchImpl || meshCoreFetch;
+  const refreshed = [];
+  for (const node of nodes) {
+    const nodeId = String(node?.id || node?.nodeId || "").trim();
+    if (!nodeId || nodeId === mesh.identity.nodeId) {
+      continue;
+    }
+    const nodeStatus = normalizeNodeStatus(node.status);
+    if (nodeStatus === "offline") {
+      continue;
+    }
+    try {
+      const response = await meshFetchImpl({
+        ...settings,
+        mesh: {
+          ...mesh,
+          targetNodeId: nodeId
+        }
+      }, "/v1/agents", { method: "GET" });
+      if (!response.ok) {
+        continue;
+      }
+      const body = await response.json().catch(() => ({}));
+      const records = Array.isArray(body.agents) ? body.agents : Array.isArray(body) ? body : [];
+      refreshed.push(...normalizeMeshAgentDirectory([{
+        nodeId,
+        nodeName: node.name || nodeId,
+        nodeStatus,
+        lastSeenAt: node.lastSeenAt,
+        agents: records
+      }]));
+    } catch {
+      refreshed.push(...cached
+        .filter((agent) => agent.nodeId === nodeId)
+        .map((agent) => ({ ...agent, nodeStatus: "degraded" })));
+    }
+  }
+  return mergeMeshAgentDirectories(refreshed, cached);
 }
 
 export function buildMeshInviteAcceptPayload(token, identity, bundle = parseMeshInviteBundle(token)) {
@@ -433,12 +550,162 @@ export async function meshCoreFetch(settings, path, options = {}, deps = {}) {
   });
 }
 
+export async function meshQueueBrowserContextMessage(settings, targetNodeId, payload, deps = {}) {
+  const mesh = normalizeMeshSettings(settings.mesh);
+  if (!mesh.enabled || !mesh.relayURL || !mesh.identity) {
+    throw new Error("Mesh is not configured.");
+  }
+  const requestId = deps.makeRequestId?.() || cryptoRandomId();
+  const envelope = makeEnvelope({
+    id: requestId,
+    type: "event.publish",
+    from: mesh.identity.nodeId,
+    to: targetNodeId,
+    payload: {
+      kind: "agent.browser_context_message",
+      request: payload
+    }
+  });
+  const socketFactory = deps.socketFactory || ((url) => new WebSocket(url));
+  const socket = socketFactory(resolveRelayWebSocketURL(mesh.relayURL));
+  return new Promise((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      socket.close?.();
+      reject(new Error(`Mesh mailbox request timed out: ${requestId}`));
+    }, deps.timeoutMs || 30000);
+    const finish = () => {
+      clearTimeout(timeout);
+      socket.close?.();
+      resolve({
+        status: "queued",
+        queued: true,
+        messageId: requestId,
+        targetNodeId
+      });
+    };
+    const fail = (error) => {
+      clearTimeout(timeout);
+      socket.close?.();
+      reject(error instanceof Error ? error : new Error(String(error)));
+    };
+    const sendEnvelope = (nextEnvelope) => socket.send(JSON.stringify(nextEnvelope));
+    socket.addEventListener("error", () => fail(new Error("Relay WebSocket failed.")));
+    socket.addEventListener("message", (event) => {
+      void (async () => {
+        const inbound = JSON.parse(String(event.data));
+        if (inbound.type === "auth.challenge") {
+          const auth = await buildAuthResponseEnvelope(mesh.identity, inbound, deps);
+          if (!auth) {
+            fail(new Error("Relay auth challenge does not match this node."));
+            return;
+          }
+          sendEnvelope(auth);
+          sendEnvelope(buildNodeHelloEnvelope(mesh.identity));
+          sendEnvelope(envelope);
+          finish();
+        }
+      })().catch(fail);
+    });
+  });
+}
+
 function trimTrailingSlashes(value) {
   return String(value || "").trim().replace(/\/+$/, "");
 }
 
 function isObject(value) {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function normalizeMeshAgentRecord(agent, nodeDefaults) {
+  if (!isObject(agent)) {
+    return null;
+  }
+  const parsedAddress = parseMeshAgentAddress(agent.id);
+  const nodeId = String(agent.nodeId || parsedAddress?.nodeId || nodeDefaults.nodeId || "").trim();
+  const agentId = String(agent.agentId || parsedAddress?.agentId || agent.id || agent.name || "").trim();
+  if (!nodeId || !agentId) {
+    return null;
+  }
+  const nodeName = String(agent.nodeName || nodeDefaults.nodeName || nodeId).trim() || nodeId;
+  const agentTitle = String(agent.title || agent.displayName || agent.name || agentId).trim() || agentId;
+  const nodeStatus = normalizeNodeStatus(agent.nodeStatus || nodeDefaults.nodeStatus);
+  const normalized = {
+    id: buildMeshAgentAddress(nodeId, agentId),
+    agentId,
+    nodeId,
+    nodeName,
+    nodeStatus,
+    title: `${nodeName} / ${agentTitle}`
+  };
+  const lastSeenAt = normalizeOptionalString(agent.lastSeenAt || nodeDefaults.lastSeenAt);
+  if (lastSeenAt) {
+    normalized.lastSeenAt = lastSeenAt;
+  }
+  return normalized;
+}
+
+async function fetchMeshState(relayURL, fetchImpl) {
+  let url;
+  try {
+    url = new URL(String(relayURL || "").trim());
+  } catch {
+    throw new Error(`Invalid relay URL: ${relayURL}`);
+  }
+  if (url.protocol === "ws:") {
+    url.protocol = "http:";
+  } else if (url.protocol === "wss:") {
+    url.protocol = "https:";
+  }
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new Error(`Unsupported relay URL scheme: ${url.protocol.replace(":", "")}`);
+  }
+  url.pathname = "/v1/node/mesh";
+  url.search = "";
+  const response = await fetchImpl(url.toString(), { method: "GET" });
+  if (!response.ok) {
+    throw new Error(`Mesh state request failed with HTTP ${response.status}.`);
+  }
+  return await response.json().catch(() => ({}));
+}
+
+function mergeMeshAgentDirectories(primary, secondary) {
+  const seen = new Set();
+  const merged = [];
+  for (const agent of [
+    ...normalizeMeshAgentDirectory(primary),
+    ...normalizeMeshAgentDirectory(secondary)
+  ]) {
+    if (seen.has(agent.id)) {
+      continue;
+    }
+    seen.add(agent.id);
+    merged.push(agent);
+  }
+  return merged;
+}
+
+function normalizeNodeStatus(value) {
+  const status = String(value || "offline").trim().toLowerCase();
+  return ["online", "offline", "degraded"].includes(status) ? status : "offline";
+}
+
+function normalizeOptionalString(value) {
+  const text = String(value || "").trim();
+  return text || undefined;
+}
+
+function dedupeMeshAgents(agents) {
+  const seen = new Set();
+  const deduped = [];
+  for (const agent of agents) {
+    if (seen.has(agent.id)) {
+      continue;
+    }
+    seen.add(agent.id);
+    deduped.push(agent);
+  }
+  return deduped;
 }
 
 function valueForBase64Validation(value) {

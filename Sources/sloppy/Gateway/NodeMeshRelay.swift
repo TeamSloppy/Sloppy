@@ -162,6 +162,15 @@ actor NodeMeshRelay {
             }
             persistTaskStatusUpdate(envelope)
         }
+        if envelope.type == .eventAck {
+            guard let messageId = envelope.payload.asObject?["messageId"]?.asString else {
+                return
+            }
+            persist {
+                try store?.ackEnvelope(id: messageId, acknowledgedBy: envelope.from)
+            }
+            return
+        }
         guard let target = envelope.to else {
             if envelope.type == .projectSyncEvent {
                 if let denial = projectSyncAuthorizationDenial(for: envelope, target: nil) {
@@ -191,6 +200,16 @@ actor NodeMeshRelay {
             persist {
                 try store?.recordRouteFailure(envelope, target: target, message: denial)
             }
+            return
+        }
+        if envelope.type == .eventPublish {
+            persist {
+                try store?.routeEnvelope(envelope)
+            }
+            guard let connection = connections[target] else {
+                return
+            }
+            try await send(envelope, over: connection.context)
             return
         }
         guard let connection = connections[target] else {
@@ -247,6 +266,9 @@ actor NodeMeshRelay {
             guard try node(nodeId, canReceiveProjectSync: envelope, store: store) else {
                 continue
             }
+            try await send(envelope, over: connection.context)
+        }
+        for envelope in state.envelopes where envelope.type == .eventPublish && envelope.to == nodeId {
             try await send(envelope, over: connection.context)
         }
     }

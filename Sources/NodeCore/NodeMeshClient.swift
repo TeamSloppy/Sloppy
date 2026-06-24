@@ -23,7 +23,7 @@ public enum NodeMeshClientError: LocalizedError, Equatable {
 }
 
 public actor NodeMeshClient {
-    public typealias EnvelopeObserver = @Sendable (MeshEnvelope) async -> Void
+    public typealias EnvelopeHandler = @Sendable (MeshEnvelope) async -> [MeshEnvelope]
     public typealias RPCRequestHandler = @Sendable (MeshEnvelope, String, JSONValue) async -> JSONValue?
 
     private let config: NodeConfig
@@ -31,7 +31,7 @@ public actor NodeMeshClient {
     private let meshStore: NodeMeshStore?
     private let heartbeatInterval: TimeInterval
     private let reconnectDelay: TimeInterval
-    private let onEnvelope: EnvelopeObserver?
+    private let onEnvelope: EnvelopeHandler?
     private let rpcHandler: RPCRequestHandler?
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
@@ -43,7 +43,7 @@ public actor NodeMeshClient {
         meshStore: NodeMeshStore? = nil,
         heartbeatInterval: TimeInterval = 15,
         reconnectDelay: TimeInterval = 2,
-        onEnvelope: EnvelopeObserver? = nil,
+        onEnvelope: EnvelopeHandler? = nil,
         rpcHandler: RPCRequestHandler? = nil
     ) {
         self.config = config
@@ -168,7 +168,7 @@ public actor NodeMeshClient {
 
         guard envelope.type == .rpcRequest else {
             if let onEnvelope {
-                await onEnvelope(envelope)
+                return await onEnvelope(envelope)
             }
             return []
         }

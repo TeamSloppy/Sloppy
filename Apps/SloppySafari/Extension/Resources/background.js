@@ -1,6 +1,7 @@
 import "./i18n.js";
 import {
   chooseAgentID,
+  buildBrowserContextPayload,
   coreFetch,
   fallbackSelectionText,
   fetchProviderModels,
@@ -14,7 +15,13 @@ import {
   synthesizeVoiceSpeech,
   transcribeVoiceAudio
 } from "./panel.js";
-import { acceptMeshInvite } from "./mesh.js";
+import {
+  acceptMeshInvite,
+  meshQueueBrowserContextMessage,
+  meshListAgentDirectory,
+  normalizeMeshAgentDirectory,
+  parseMeshAgentAddress
+} from "./mesh.js";
 
 const defaultSettings = {
   coreURLString: "http://127.0.0.1:25101",
@@ -107,6 +114,13 @@ async function saveSettings(settings) {
 }
 
 async function listAgents(settings) {
+  if (settings.mesh?.enabled) {
+    try {
+      return await meshListAgentDirectory(settings);
+    } catch {
+      return listSelectedMeshNodeAgents(settings);
+    }
+  }
   const headers = {};
   if (settings.authToken) {
     headers.authorization = `Bearer ${settings.authToken}`;
@@ -125,13 +139,41 @@ async function listAgents(settings) {
     .filter((agent) => agent.id);
 }
 
+async function listSelectedMeshNodeAgents(settings) {
+  const headers = {};
+  if (settings.authToken) {
+    headers.authorization = `Bearer ${settings.authToken}`;
+  }
+  const effectiveSettings = settingsForAgent(settings, settings.defaultAgentID);
+  const response = await coreFetch(effectiveSettings, "/v1/agents", { headers });
+  const body = await response.json().catch(() => ({}));
+  const records = response.ok
+    ? (Array.isArray(body.agents) ? body.agents : Array.isArray(body) ? body : [])
+    : [];
+  const agents = records
+    .map((agent) => ({
+      id: String(agent.id || agent.name || "").trim(),
+      title: String(agent.title || agent.displayName || agent.name || agent.id || "").trim()
+    }))
+    .filter((agent) => agent.id);
+  const targetNodeId = effectiveSettings.mesh?.targetNodeId || settings.mesh.targetNodeId;
+  const onlineDirectory = normalizeMeshAgentDirectory([{
+    nodeId: targetNodeId,
+    nodeName: settings.mesh.targetNodeName || targetNodeId,
+    nodeStatus: "online",
+    agents
+  }]);
+  return mergeAgentDirectory(onlineDirectory, settings.mesh.agentDirectory);
+}
+
 async function listSessions(settings, agentId) {
   const headers = {};
   if (settings.authToken) {
     headers.authorization = `Bearer ${settings.authToken}`;
   }
-  const encodedAgentId = encodeURIComponent(String(agentId || settings.defaultAgentID || "sloppy"));
-  const response = await coreFetch(settings, `/v1/agents/${encodedAgentId}/sessions?limit=50`, { headers });
+  const effectiveSettings = settingsForAgent(settings, agentId || settings.defaultAgentID);
+  const encodedAgentId = encodeURIComponent(agentIdForCore(agentId || settings.defaultAgentID || "sloppy"));
+  const response = await coreFetch(effectiveSettings, `/v1/agents/${encodedAgentId}/sessions?limit=50`, { headers });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(body.error || `sessions_failed_${response.status}`);
@@ -145,9 +187,10 @@ async function getSession(settings, agentId, sessionId) {
   if (settings.authToken) {
     headers.authorization = `Bearer ${settings.authToken}`;
   }
-  const encodedAgentId = encodeURIComponent(String(agentId || settings.defaultAgentID || "sloppy"));
+  const effectiveSettings = settingsForAgent(settings, agentId || settings.defaultAgentID);
+  const encodedAgentId = encodeURIComponent(agentIdForCore(agentId || settings.defaultAgentID || "sloppy"));
   const encodedSessionId = encodeURIComponent(String(sessionId || ""));
-  const response = await coreFetch(settings, `/v1/agents/${encodedAgentId}/sessions/${encodedSessionId}`, { headers });
+  const response = await coreFetch(effectiveSettings, `/v1/agents/${encodedAgentId}/sessions/${encodedSessionId}`, { headers });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(body.error || `session_failed_${response.status}`);
@@ -160,13 +203,59 @@ async function listSlashCommands(settings, agentId) {
   if (settings.authToken) {
     headers.authorization = `Bearer ${settings.authToken}`;
   }
-  const encodedAgentId = encodeURIComponent(String(agentId || settings.defaultAgentID || "sloppy"));
-  const response = await coreFetch(settings, `/v1/agents/${encodedAgentId}/chat-slash-commands`, { headers });
+  const effectiveSettings = settingsForAgent(settings, agentId || settings.defaultAgentID);
+  const encodedAgentId = encodeURIComponent(agentIdForCore(agentId || settings.defaultAgentID || "sloppy"));
+  const response = await coreFetch(effectiveSettings, `/v1/agents/${encodedAgentId}/chat-slash-commands`, { headers });
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(body.error || `commands_failed_${response.status}`);
   }
   return Array.isArray(body.commands) ? body.commands : [];
+}
+
+function settingsForAgent(settings, agentId) {
+  const address = parseMeshAgentAddress(agentId);
+  if (!address || !settings.mesh?.enabled) {
+    return settings;
+  }
+  return {
+    ...settings,
+    defaultAgentID: address.agentId,
+    mesh: {
+      ...settings.mesh,
+      targetNodeId: address.nodeId
+    }
+  };
+}
+
+function agentIdForCore(agentId) {
+  return parseMeshAgentAddress(agentId)?.agentId || String(agentId || "sloppy");
+}
+
+function mergeAgentDirectory(primary, cached) {
+  const merged = [];
+  const seen = new Set();
+  for (const agent of [
+    ...normalizeMeshAgentDirectory(primary),
+    ...normalizeMeshAgentDirectory(cached)
+  ]) {
+    if (seen.has(agent.id)) {
+      continue;
+    }
+    seen.add(agent.id);
+    merged.push(agent);
+  }
+  return merged;
+}
+
+function selectedOfflineMeshAgent(settings) {
+  const address = parseMeshAgentAddress(settings.defaultAgentID);
+  if (!address || !settings.mesh?.enabled) {
+    return null;
+  }
+  const agent = normalizeMeshAgentDirectory(settings.mesh.agentDirectory)
+    .find((candidate) => candidate.id === settings.defaultAgentID);
+  return agent?.nodeStatus === "offline" ? { ...agent, ...address } : null;
 }
 
 async function listTabs() {
@@ -242,8 +331,15 @@ if (typeof chrome !== "undefined") {
           const settings = await loadSettings();
           const agents = await listAgents(settings);
           const selectedAgentId = chooseAgentID(settings.defaultAgentID, agents);
-          if (selectedAgentId !== settings.defaultAgentID) {
-            await saveSettings({ ...settings, defaultAgentID: selectedAgentId });
+          const nextSettings = { ...settings, defaultAgentID: selectedAgentId };
+          if (settings.mesh?.enabled) {
+            nextSettings.mesh = {
+              ...settings.mesh,
+              agentDirectory: agents
+            };
+          }
+          if (selectedAgentId !== settings.defaultAgentID || settings.mesh?.enabled) {
+            await saveSettings(nextSettings);
           }
           sendResponse({ agents, selectedAgentId });
         } catch (error) {
@@ -397,9 +493,30 @@ if (typeof chrome !== "undefined") {
         }
         const settings = await loadSettings();
         const selectedModel = String(message.model || "").trim();
+        const offlineMeshAgent = selectedOfflineMeshAgent(settings);
+        if (offlineMeshAgent) {
+          const queuedSettings = settingsForAgent(settings, settings.defaultAgentID);
+          const payload = buildBrowserContextPayload(
+            selectedModel && selectedModel !== "default"
+              ? { ...queuedSettings, selectedModel }
+              : { ...queuedSettings, selectedModel: "" },
+            message.page,
+            fallbackSelectionText(message.selection),
+            message.prompt,
+            {
+              tabs: message.tabs || [],
+              pageSnapshot: message.pageSnapshot || null,
+              attachments: message.attachments || []
+            }
+          );
+          const result = await meshQueueBrowserContextMessage(settings, offlineMeshAgent.nodeId, payload);
+          sendResponse(result);
+          return;
+        }
+        const routedSettings = settingsForAgent(settings, settings.defaultAgentID);
         const effectiveSettings = selectedModel && selectedModel !== "default"
-          ? { ...settings, selectedModel }
-          : { ...settings, selectedModel: "" };
+          ? { ...routedSettings, selectedModel }
+          : { ...routedSettings, selectedModel: "" };
         const selection = fallbackSelectionText(message.selection);
         const options = {
           tabs: message.tabs || [],
