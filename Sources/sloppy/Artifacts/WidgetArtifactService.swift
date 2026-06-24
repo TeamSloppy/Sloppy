@@ -82,7 +82,7 @@ struct WidgetArtifactService {
     }
 
     static func bundlePath(id: String) -> String {
-        ".sloppy/artifacts/widgets/\(id)"
+        ".sloppy/artifacts/widgets/\(id)/"
     }
 
     static func bundleDirectoryURL(id: String, workspaceRootURL: URL) -> URL {

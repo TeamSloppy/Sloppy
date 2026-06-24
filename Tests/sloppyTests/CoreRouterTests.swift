@@ -2007,7 +2007,7 @@ func artifactListIncludesPersistedMetadata() async throws {
             widgetWidth: 160,
             widgetHeight: 120,
             widgetEntry: "index.html",
-            bundlePath: ".sloppy/artifacts/widgets/artifact-list-test",
+            bundlePath: ".sloppy/artifacts/widgets/artifact-list-test/",
             createdAt: Date(timeIntervalSince1970: 1)
         )
     )
@@ -2042,7 +2042,7 @@ func artifactDetailReturnsPersistedMetadata() async throws {
             widgetWidth: 320,
             widgetHeight: 180,
             widgetEntry: "index.html",
-            bundlePath: ".sloppy/artifacts/widgets/artifact-detail-test",
+            bundlePath: ".sloppy/artifacts/widgets/artifact-detail-test/",
             createdAt: Date(timeIntervalSince1970: 2)
         )
     )
@@ -2076,7 +2076,7 @@ func artifactContentReadPreservesPersistedMetadata() async throws {
             widgetWidth: 160,
             widgetHeight: 120,
             widgetEntry: "index.html",
-            bundlePath: ".sloppy/artifacts/widgets/\(artifactID)",
+            bundlePath: ".sloppy/artifacts/widgets/\(artifactID)/",
             createdAt: originalCreatedAt
         )
     )
@@ -2122,7 +2122,7 @@ func artifactContentReadPreservesPersistedMetadata() async throws {
     #expect(persisted.widgetWidth == 160)
     #expect(persisted.widgetHeight == 120)
     #expect(persisted.widgetEntry == "index.html")
-    #expect(persisted.bundlePath == ".sloppy/artifacts/widgets/\(artifactID)")
+    #expect(persisted.bundlePath == ".sloppy/artifacts/widgets/\(artifactID)/")
     #expect(persisted.createdAt == originalCreatedAt)
 }
 
@@ -2166,8 +2166,12 @@ func widgetGenerationCreatesWidgetArtifactBundle() async throws {
     #expect(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("index.html").path))
     #expect(FileManager.default.fileExists(atPath: bundleURL.appendingPathComponent("manifest.json").path))
 
+    let manifestData = try Data(contentsOf: bundleURL.appendingPathComponent("manifest.json"))
+    let manifest = try JSONSerialization.jsonObject(with: manifestData) as? [String: Any]
+    #expect(manifest?["bundlePath"] as? String == ".sloppy/artifacts/widgets/\(payload.artifact.id)/")
+
     let persisted = try #require(await service.store.persistedArtifact(id: payload.artifact.id))
-    #expect(persisted.bundlePath == ".sloppy/artifacts/widgets/\(payload.artifact.id)")
+    #expect(persisted.bundlePath == ".sloppy/artifacts/widgets/\(payload.artifact.id)/")
 }
 
 @Test
