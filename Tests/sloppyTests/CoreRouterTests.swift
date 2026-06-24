@@ -4000,10 +4000,9 @@ func browserContextMessageEndpointCreatesSessionAndPostsTypedContext() async thr
     #expect(userText.contains("Title: Example Article"))
     #expect(userText.contains("Selected text:"))
     #expect(userText.contains("Important selected text."))
-    #expect(userText.contains("Use `safari.dom_snapshot` only when live page details are needed"))
-    #expect(!userText.contains("Safari page snapshot:"))
-    #expect(!userText.contains("\"selector\":\"#buy\""))
-    #expect(!userText.contains("\"text\":\"Buy now\""))
+    #expect(userText.contains("Safari page snapshot:"))
+    #expect(userText.contains("\"selector\":\"#buy\""))
+    #expect(userText.contains("\"text\":\"Buy now\""))
     #expect(userText.contains("User prompt:"))
     #expect(userText.contains("Explain the selection"))
     let attachmentNames = detail.events
