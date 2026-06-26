@@ -947,6 +947,131 @@ func geminiOAuthURLProtocolCapturesCachedUsageFromWrappedResponse() throws {
 }
 
 @Test
+func geminiOAuthURLProtocolRestoresThoughtSignatureOnFollowUpFunctionCall() throws {
+    GeminiThoughtSignatureStore.shared.removeAll()
+    let wrapped = Data(
+        """
+        {
+          "response": {
+            "candidates": [
+              {
+                "content": {
+                  "role": "model",
+                  "parts": [
+                    {
+                      "functionCall": {
+                        "name": "planning_select_route",
+                        "args": { "route": "build" }
+                      },
+                      "thoughtSignature": "signature-123"
+                    }
+                  ]
+                }
+              }
+            ]
+          }
+        }
+        """.utf8
+    )
+    _ = try GeminiOAuthURLProtocol.responseBodyForGeminiParser(from: wrapped)
+
+    var request = URLRequest(url: try #require(URL(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent")))
+    request.setValue("oauth-token", forHTTPHeaderField: "x-goog-api-key")
+    request.httpBody = Data(
+        """
+        {
+          "contents": [
+            {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "planning_select_route",
+                    "args": { "route": "build" }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+        """.utf8
+    )
+
+    let modified = try GeminiOAuthURLProtocol.modifiedRequest(
+        from: request,
+        projectID: "project-123",
+        requestID: "request-123"
+    )
+    let body = try #require(modified.httpBody)
+    let object = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+    let nestedRequest = try #require(object["request"] as? [String: Any])
+    let contents = try #require(nestedRequest["contents"] as? [[String: Any]])
+    let parts = try #require(contents.first?["parts"] as? [[String: Any]])
+
+    #expect(parts.first?["thoughtSignature"] as? String == "signature-123")
+}
+
+@Test
+func geminiThoughtSignatureURLProtocolRestoresThoughtSignatureWithoutOAuthRewrite() throws {
+    GeminiThoughtSignatureStore.shared.removeAll()
+    let response = Data(
+        """
+        {
+          "candidates": [
+            {
+              "content": {
+                "role": "model",
+                "parts": [
+                  {
+                    "functionCall": {
+                      "name": "planning_select_route",
+                      "args": { "route": "ask" }
+                    },
+                    "thoughtSignature": "signature-456"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+        """.utf8
+    )
+    GeminiThoughtSignatureURLProtocol.captureThoughtSignatures(from: response)
+
+    var request = URLRequest(url: try #require(URL(string: "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent")))
+    request.setValue("api-key", forHTTPHeaderField: "x-goog-api-key")
+    request.httpBody = Data(
+        """
+        {
+          "contents": [
+            {
+              "role": "model",
+              "parts": [
+                {
+                  "functionCall": {
+                    "name": "planning_select_route",
+                    "args": { "route": "ask" }
+                  }
+                }
+              ]
+            }
+          ]
+        }
+        """.utf8
+    )
+
+    let modified = try GeminiThoughtSignatureURLProtocol.modifiedRequest(from: request)
+    #expect(modified.url == request.url)
+    #expect(modified.value(forHTTPHeaderField: "x-goog-api-key") == "api-key")
+    let body = try #require(modified.httpBody)
+    let object = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+    let contents = try #require(object["contents"] as? [[String: Any]])
+    let parts = try #require(contents.first?["parts"] as? [[String: Any]])
+
+    #expect(parts.first?["thoughtSignature"] as? String == "signature-456")
+}
+
+@Test
 func sloppyExtraCertificateAuthorityExtractsMultiplePEMCertificates() {
     let first = Data([0x01, 0x02, 0x03]).base64EncodedString()
     let second = Data([0x04, 0x05, 0x06]).base64EncodedString()

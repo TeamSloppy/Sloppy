@@ -83,11 +83,14 @@ test("fullscreen chat page is packaged as an extension resource", () => {
 test("fullscreen chat page loads localization before content script", () => {
   const html = loadChatHTML();
   const i18nIndex = html.indexOf('src="i18n.js"');
+  const customizeIndex = html.indexOf('src="startPageCustomize.js"');
   const contentScriptIndex = html.indexOf('src="contentScript.js"');
 
   assert.notEqual(i18nIndex, -1);
+  assert.notEqual(customizeIndex, -1);
   assert.notEqual(contentScriptIndex, -1);
-  assert.ok(i18nIndex < contentScriptIndex);
+  assert.ok(i18nIndex < customizeIndex);
+  assert.ok(customizeIndex < contentScriptIndex);
 });
 
 test("fullscreen chat files are copied into every Safari web extension bundle", () => {
@@ -110,7 +113,7 @@ test("start page is packaged as an extension resource", () => {
   const resources = manifest.web_accessible_resources || [];
 
   assert.equal(
-    resources.some((entry) => entry.resources?.includes("start.html") && entry.resources?.includes("startPage.js")),
+    resources.some((entry) => entry.resources?.includes("start.html") && entry.resources?.includes("startPage.js") && entry.resources?.includes("startPageCustomize.js")),
     true
   );
 });
@@ -119,22 +122,27 @@ test("start page loads mode marker before localization and content script", () =
   const html = readFileSync(new URL("../Resources/start.html", import.meta.url), "utf8");
   const startPageIndex = html.indexOf('src="startPage.js"');
   const i18nIndex = html.indexOf('src="i18n.js"');
+  const customizeIndex = html.indexOf('src="startPageCustomize.js"');
   const contentScriptIndex = html.indexOf('src="contentScript.js"');
 
   assert.notEqual(startPageIndex, -1);
   assert.notEqual(i18nIndex, -1);
+  assert.notEqual(customizeIndex, -1);
   assert.notEqual(contentScriptIndex, -1);
   assert.ok(startPageIndex < i18nIndex);
-  assert.ok(i18nIndex < contentScriptIndex);
+  assert.ok(i18nIndex < customizeIndex);
+  assert.ok(customizeIndex < contentScriptIndex);
 });
 
 test("start page files are copied into every Safari web extension bundle", () => {
   const project = loadXcodeProject();
   const startHTMLCopies = project.match(/\/\* start\.html in Resources \*\/,/g) || [];
   const startPageCopies = project.match(/\/\* startPage\.js in Resources \*\/,/g) || [];
+  const startPageCustomizeCopies = project.match(/\/\* startPageCustomize\.js in Resources \*\/,/g) || [];
 
   assert.equal(startHTMLCopies.length, 3);
   assert.equal(startPageCopies.length, 3);
+  assert.equal(startPageCustomizeCopies.length, 3);
 });
 
 test("SF-style icon assets are copied into every Safari web extension bundle", () => {
@@ -159,7 +167,7 @@ test("localization runtime is packaged with every Safari web extension bundle", 
   const project = loadXcodeProject();
   const i18nCopies = project.match(/\/\* i18n\.js in Resources \*\/,/g) || [];
 
-  assert.deepEqual(manifest.content_scripts?.[0]?.js, ["i18n.js", "contentScript.js"]);
+  assert.deepEqual(manifest.content_scripts?.[0]?.js, ["i18n.js", "startPageCustomize.js", "contentScript.js"]);
   assert.equal(i18nCopies.length, 3);
 });
 
@@ -257,12 +265,12 @@ test("sidebar panel app layout stretches the chat shell to full height", () => {
   assert.match(css, /^\.sloppy-app-layout\s*\{[\s\S]*?width:\s*100%;[\s\S]*?height:\s*100%;[\s\S]*?min-height:\s*0;/m);
 });
 
-test("start page uses a unified gray canvas and hides redundant window controls", () => {
+test("start page uses the fullscreen chat canvas and hides redundant window controls", () => {
   const css = loadPanelCSS();
   const startPanelBlock = css.match(/\.sloppy-start-page #sloppy-safari-extension-panel\s*\{[\s\S]*?\n\}/)?.[0] || "";
   const startShellBlock = css.match(/\.sloppy-start-page #sloppy-safari-extension-panel \.sloppy-shell\s*\{[\s\S]*?\n\}/)?.[0] || "";
 
-  assert.match(startPanelBlock, /background-color:\s*#202124;/);
+  assert.match(startPanelBlock, /background-color:\s*#171717;/);
   assert.match(startShellBlock, /background:\s*transparent;/);
   assert.match(css, /\.sloppy-start-page #sloppy-safari-extension-panel \[data-sloppy-close\],\n\.sloppy-start-page #sloppy-safari-extension-panel \[data-sloppy-open-fullscreen\]\s*\{[\s\S]*display:\s*none;/);
 });
@@ -281,7 +289,7 @@ test("start page sidebar remains readable over custom backgrounds with one menu 
 test("start page paints the mobile browser underlay dark", () => {
   const css = loadPanelCSS();
 
-  assert.match(css, /\.sloppy-start-page,\n\.sloppy-start-page body\s*\{[\s\S]*background:\s*#202124;/);
+  assert.match(css, /\.sloppy-start-page,\n\.sloppy-start-page body\s*\{[\s\S]*background:\s*#171717;/);
 });
 
 test("mobile layout hides the sidebar until the toggle opens it", () => {
@@ -445,14 +453,27 @@ test("topbar actions are icon-only while the agent picker keeps glass chrome", (
 test("quick chat stays compact like the Safari contextual answer bubble", () => {
   const css = loadPanelCSS();
   const quickRoot = css.match(/#sloppy-quick-chat\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const quickShell = css.match(/#sloppy-quick-chat \.sloppy-quick-shell\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const quickChrome = css.match(/#sloppy-quick-chat \.sloppy-quick-header,\n#sloppy-quick-chat \.sloppy-quick-footer\s*\{[\s\S]*?\n\}/)?.[0] || "";
   const quickBody = css.match(/#sloppy-quick-chat \.sloppy-quick-body\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const quickUser = css.match(/#sloppy-quick-chat \.sloppy-quick-user\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const quickActionButton = css.match(/#sloppy-quick-chat \.sloppy-quick-actions \.sloppy-icon-button\s*\{[\s\S]*?\n\}/)?.[0] || "";
   const quickFollowUp = css.match(/#sloppy-quick-chat \.sloppy-quick-follow-up\s*\{[\s\S]*?\n\}/)?.[0] || "";
 
-  assert.match(quickRoot, /width:\s*min\(520px,\s*calc\(var\(--sloppy-viewport-width,\s*100vw\)\s*-\s*32px\)\);/);
-  assert.match(quickBody, /font-size:\s*18px;/);
-  assert.match(quickBody, /line-height:\s*1\.45;/);
-  assert.match(quickFollowUp, /min-height:\s*44px;/);
-  assert.match(quickFollowUp, /font-size:\s*18px;/);
+  assert.match(quickRoot, /width:\s*min\(360px,\s*calc\(var\(--sloppy-viewport-width,\s*100vw\)\s*-\s*32px\)\);/);
+  assert.match(quickRoot, /max-height:\s*min\(380px,\s*calc\(var\(--sloppy-viewport-height,\s*100vh\)\s*-\s*44px\)\);/);
+  assert.match(quickShell, /border-radius:\s*18px;/);
+  assert.match(quickChrome, /padding:\s*12px 16px;/);
+  assert.match(quickBody, /font-size:\s*14px;/);
+  assert.match(quickBody, /line-height:\s*1\.42;/);
+  assert.match(quickUser, /border-radius:\s*18px;/);
+  assert.match(quickUser, /white-space:\s*pre-wrap;/);
+  assert.match(quickUser, /overflow-wrap:\s*anywhere;/);
+  assert.match(quickActionButton, /background:\s*transparent;/);
+  assert.match(quickActionButton, /border-color:\s*transparent;/);
+  assert.match(quickActionButton, /box-shadow:\s*none;/);
+  assert.match(quickFollowUp, /min-height:\s*34px;/);
+  assert.match(quickFollowUp, /font-size:\s*14px;/);
 });
 
 test("selection menu matches the mini chat compact dark surface", () => {
@@ -461,13 +482,15 @@ test("selection menu matches the mini chat compact dark surface", () => {
   const inputBlock = css.match(/\.sloppy-selection-popover input\s*\{[\s\S]*?\n\}/)?.[0] || "";
   const actionBlock = css.match(/\.sloppy-selection-actions button,\n\.sloppy-selection-hide\s*\{[\s\S]*?\n\}/)?.[0] || "";
 
-  assert.match(popoverBlock, /width:\s*min\(520px, calc\(100vw - 32px\)\);/);
-  assert.match(popoverBlock, /padding:\s*22px;/);
+  assert.match(popoverBlock, /width:\s*min\(250px, calc\(100vw - 32px\)\);/);
+  assert.match(popoverBlock, /gap:\s*8px;/);
+  assert.match(popoverBlock, /padding:\s*10px;/);
   assert.match(popoverBlock, /background:\s*rgba\(18, 18, 18, 0\.94\);/);
-  assert.match(popoverBlock, /border-radius:\s*28px;/);
-  assert.match(inputBlock, /min-height:\s*44px;/);
-  assert.match(inputBlock, /font-size:\s*18px;/);
-  assert.match(actionBlock, /min-height:\s*44px;/);
+  assert.match(popoverBlock, /border-radius:\s*14px;/);
+  assert.match(inputBlock, /min-height:\s*36px;/);
+  assert.match(inputBlock, /font-size:\s*12px;/);
+  assert.match(actionBlock, /min-height:\s*36px;/);
+  assert.match(actionBlock, /font-size:\s*13px;/);
 });
 
 test("user messages use the same dark gray bubble in panel and fullscreen chats", () => {

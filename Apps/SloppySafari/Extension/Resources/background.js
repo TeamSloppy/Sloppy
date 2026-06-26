@@ -775,6 +775,30 @@ if (typeof chrome !== "undefined") {
       })().catch((error) => sendResponse({ error: error.message || "Voice speech failed." }));
       return true;
     }
+    if (message?.type === "sloppy.bookmarks.list") {
+      void (async () => {
+        try {
+          const browserBookmarks = globalThis.chrome?.bookmarks;
+          if (!browserBookmarks?.search || typeof browserBookmarks.search !== "function") {
+            sendResponse({ error: "bookmarks_unavailable" });
+            return;
+          }
+          const items = await browserBookmarks.search({});
+          sendResponse(Array.isArray(items)
+            ? items
+              .filter((item) => String(item?.url || "").trim())
+              .map((item) => ({
+                id: String(item.id || ""),
+                title: String(item.title || item.url || "").trim(),
+                url: String(item.url || "").trim()
+              }))
+            : []);
+        } catch (error) {
+          sendResponse({ error: error?.message || "bookmarks_unavailable" });
+        }
+      })();
+      return true;
+    }
     if (message?.type !== "sloppy.browserContext.send") {
       if (message?.type !== "sloppy.browserContext.stream") {
         return false;
@@ -801,7 +825,8 @@ if (typeof chrome !== "undefined") {
             {
               tabs: message.tabs || [],
               pageSnapshot: message.pageSnapshot || null,
-              attachments: message.attachments || []
+              attachments: message.attachments || [],
+              widgetSession: message.widgetSession || null
             }
           );
           const result = await meshQueueBrowserContextMessage(settings, offlineMeshAgent.nodeId, payload);
@@ -817,7 +842,8 @@ if (typeof chrome !== "undefined") {
         const options = {
           tabs: message.tabs || [],
           pageSnapshot: message.pageSnapshot || null,
-          attachments: message.attachments || []
+          attachments: message.attachments || [],
+          widgetSession: message.widgetSession || null
         };
         if (message.type === "sloppy.browserContext.stream") {
           const tabId = _sender.tab?.id;

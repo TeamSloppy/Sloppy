@@ -3,6 +3,7 @@
   "private": true,
   "type": "module",
   "scripts": {
+    "dev": "node ../../../Dashboard/node_modules/vite/bin/vite.js --config vite.config.js --host 127.0.0.1",
     "test": "node --test Tests/*.test.mjs"
   }
 }

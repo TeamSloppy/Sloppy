@@ -249,6 +249,49 @@ test("buildBrowserContextPayload carries selected model override", () => {
   assert.equal(payload.target.model, "openai/gpt-5.4");
 });
 
+test("buildBrowserContextPayload carries widget editor session metadata", () => {
+  const payload = buildBrowserContextPayload(
+    { defaultAgentID: "sloppy" },
+    { url: "https://example.com/start", title: "Start" },
+    "",
+    "/widget make a clock",
+    {
+      widgetSession: {
+        mode: "widget_editor",
+        isolated: true,
+        sessionId: null,
+        sourceItemId: "widget-card-1",
+        widget: {
+          kind: "widget",
+          title: "Clock",
+          size: "2x1",
+          colSpan: 2,
+          rowSpan: 1,
+          artifactId: "artifact-clock",
+          sourceItemId: "widget-card-1"
+        }
+      }
+    }
+  );
+
+  assert.equal(payload.mode, "widget_editor");
+  assert.deepEqual(payload.widgetSession, {
+    mode: "widget_editor",
+    isolated: true,
+    sessionId: null,
+    sourceItemId: "widget-card-1",
+    widget: {
+      kind: "widget",
+      title: "Clock",
+      size: "2x1",
+      colSpan: 2,
+      rowSpan: 1,
+      artifactId: "artifact-clock",
+      sourceItemId: "widget-card-1"
+    }
+  });
+});
+
 test("sanitizeSettings keeps a user-configured LAN Core URL for extension storage", () => {
   const settings = sanitizeSettings({
     coreURLString: "  192.168.1.50:25101/  ",
@@ -1282,7 +1325,17 @@ test("postBrowserContext falls back to session message endpoints when browser en
     "Привет",
     {
       pageSnapshot: { title: "GitHub", text: "Repository page content" },
-      attachments: [{ name: "paste.png", mimeType: "image/png", sizeBytes: 4, contentBase64: "abcd" }]
+      attachments: [{ name: "paste.png", mimeType: "image/png", sizeBytes: 4, contentBase64: "abcd" }],
+      widgetSession: {
+        mode: "widget_editor",
+        isolated: true,
+        widget: {
+          title: "Clock",
+          size: "2x1",
+          sourceItemId: "widget-card-1",
+          artifactId: "artifact-clock"
+        }
+      }
     },
     fetchImpl
   );
@@ -1297,6 +1350,10 @@ test("postBrowserContext falls back to session message endpoints when browser en
   assert.doesNotMatch(requests[2].body.content, /Safari page snapshot:/);
   assert.doesNotMatch(requests[2].body.content, /Repository page content/);
   assert.match(requests[2].body.content, /Use `safari\.dom_snapshot` only when live page details are needed/);
+  assert.match(requests[2].body.content, /Widget session:/);
+  assert.match(requests[2].body.content, /This session is dedicated only to generating and iterating the start-page widget preview\./);
+  assert.match(requests[2].body.content, /Widget title: Clock/);
+  assert.match(requests[2].body.content, /Existing artifact id: artifact-clock/);
   assert.match(requests[2].body.content, /Привет/);
 });
 

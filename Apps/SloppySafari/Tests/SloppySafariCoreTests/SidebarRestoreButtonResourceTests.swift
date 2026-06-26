@@ -49,5 +49,62 @@ func sidebarRestoreButtonUsesLeadingTransparentStyle() throws {
 
     #expect(contentScript.contains("sloppy-topbar-leading"))
     #expect(contentScript.contains("sloppy-sidebar-toggle"))
-    #expect(panelCSS.contains(".sloppy-sidebar-toggle"))
+    #expect(!contentScript.contains("${!isFullscreen ? `<button class=\"sloppy-icon-button\" type=\"button\" data-sloppy-sessions"))
+    #expect(panelCSS.contains(".sloppy-icon-button.sloppy-sidebar-toggle"))
+    #expect(panelCSS.contains("background: transparent;"))
+}
+
+@Test("customize button is rendered inside sloppy shell flow")
+func customizeButtonLivesInsideShell() throws {
+    let packageRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let contentScriptURL = packageRoot.appendingPathComponent("Extension/Resources/contentScript.js")
+    let panelCSSURL = packageRoot.appendingPathComponent("Extension/Resources/panel.css")
+
+    let contentScript = try String(contentsOf: contentScriptURL, encoding: .utf8)
+    let panelCSS = try String(contentsOf: panelCSSURL, encoding: .utf8)
+
+    #expect(contentScript.contains("""
+      <div class="sloppy-start-shortcuts" data-sloppy-start-shortcuts></div>
+      <button class="sloppy-start-config-button" type="button" data-sloppy-customize>
+"""))
+    #expect(panelCSS.contains("align-self: center;"))
+    #expect(!panelCSS.contains("""
+.sloppy-start-config-button {
+  position: fixed;
+"""))
+}
+
+@Test("sidebar switches between artifacts and sessions instead of keeping both expanded")
+func sidebarSectionsCollapseEachOther() throws {
+    let packageRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let contentScriptURL = packageRoot.appendingPathComponent("Extension/Resources/contentScript.js")
+
+    let contentScript = try String(contentsOf: contentScriptURL, encoding: .utf8)
+
+    #expect(contentScript.contains("""
+  frame.querySelector("[data-sloppy-sidebar-artifacts]")?.addEventListener("click", () => {
+    const artifactList = frame.querySelector("[data-sloppy-sidebar-artifact-list]");
+    const sessionList = frame.querySelector("[data-sloppy-sidebar-session-list]");
+"""))
+    #expect(contentScript.contains("""
+    if (sessionList) {
+      sessionList.hidden = true;
+    }
+"""))
+    #expect(contentScript.contains("""
+  frame.querySelector("[data-sloppy-sidebar-sessions]")?.addEventListener("click", () => {
+    const sessionList = frame.querySelector("[data-sloppy-sidebar-session-list]");
+    const artifactList = frame.querySelector("[data-sloppy-sidebar-artifact-list]");
+"""))
+    #expect(contentScript.contains("""
+    if (artifactList) {
+      artifactList.hidden = true;
+    }
+"""))
 }

@@ -5,19 +5,25 @@ import vm from "node:vm";
 
 function loadContentScriptSandbox() {
   const i18nSource = readFileSync(new URL("../Resources/i18n.js", import.meta.url), "utf8");
+  const startPageCustomizeSource = readFileSync(new URL("../Resources/startPageCustomize.js", import.meta.url), "utf8");
   const source = readFileSync(new URL("../Resources/contentScript.js", import.meta.url), "utf8");
   assert.equal(/\bexport\s+function\b/.test(source), false);
+  assert.equal(/\bexport\s+function\b/.test(startPageCustomizeSource), false);
 
   const sandbox = {
     chrome: undefined,
     document: undefined,
     navigator: { language: "en-US", languages: ["en-US"] },
+    requestAnimationFrame(callback) {
+      callback();
+    },
     URL,
     window: {},
     globalThis: {}
   };
   sandbox.globalThis = sandbox;
   vm.runInNewContext(i18nSource, sandbox);
+  vm.runInNewContext(startPageCustomizeSource, sandbox);
   vm.runInNewContext(source, sandbox);
   return sandbox;
 }
@@ -59,13 +65,25 @@ function createPanelDocument() {
             },
             remove(name) {
               toggled.set(name, false);
+            },
+            contains(name) {
+              return toggled.get(name) === true;
             }
           },
           listeners,
           addEventListener(type, listener) {
             listeners.set(type, listener);
           },
+          removeEventListener(type) {
+            listeners.delete(type);
+          },
           appendChild() {},
+          insertAdjacentHTML(_position, value) {
+            this.innerHTML += String(value || "");
+          },
+          remove() {
+            this.removed = true;
+          },
           focus() {
             this.focusCount = (this.focusCount || 0) + 1;
           },
@@ -117,6 +135,9 @@ function createPanelDocument() {
         },
         remove(name) {
           this.toggled.set(name, false);
+        },
+        contains(name) {
+          return this.toggled.get(name) === true;
         }
       },
       addEventListener() {},
@@ -135,6 +156,12 @@ function createPanelDocument() {
           return null;
         }
         return html.includes(dataMatch[1]) ? ensureNode(selector) : null;
+      },
+      querySelectorAll(selector) {
+        if (selector === ".sloppy-symbol") {
+          return [];
+        }
+        return [];
       }
     };
   }
@@ -359,6 +386,9 @@ test("panel shell localizes visible chrome from system language", () => {
     runtime: {
       getURL(path) {
         return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage() {
+        return Promise.resolve({ artifacts: [] });
       }
     }
   };
@@ -378,6 +408,9 @@ test("chat placeholders rotate across shared chat surfaces", () => {
     runtime: {
       getURL(path) {
         return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage() {
+        return Promise.resolve({ artifacts: [] });
       }
     }
   };
@@ -392,7 +425,8 @@ test("chat placeholders rotate across shared chat surfaces", () => {
   assert.match(panel.innerHTML, /data-sloppy-prompt data-sloppy-chat-placeholder/);
   assert.match(source, /data-sloppy-command-palette-input data-sloppy-chat-placeholder/);
   assert.match(source, /data-sloppy-selection-prompt data-sloppy-chat-placeholder/);
-  assert.match(source, /data-sloppy-quick-follow-up[\s\S]*data-sloppy-chat-placeholder/);
+  assert.doesNotMatch(source, /data-sloppy-quick-follow-up[\s\S]{0,160}data-sloppy-chat-placeholder/);
+  assert.match(source, /data-sloppy-quick-follow-up[\s\S]*continueInChat/);
 });
 
 test("start page mode renders centered composer and shortcuts", () => {
@@ -403,6 +437,9 @@ test("start page mode renders centered composer and shortcuts", () => {
     runtime: {
       getURL(path) {
         return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage() {
+        return Promise.resolve({ artifacts: [] });
       }
     }
   };
@@ -465,8 +502,338 @@ test("start page grid renders shortcuts and widget artifacts", () => {
 
   assert.match(shortcuts.innerHTML, /data-sloppy-start-shortcut="https:\/\/github\.com\/"/);
   assert.match(shortcuts.innerHTML, /data-sloppy-start-widget="widget-1"/);
-  assert.match(shortcuts.innerHTML, /style="width:160px;height:120px"/);
+  assert.match(shortcuts.innerHTML, /class="sloppy-start-shortcut-icon"[^>]*src="https:\/\/github\.com\/favicon\.ico"/);
+  assert.match(shortcuts.innerHTML, /<strong>GitHub<\/strong>/);
+  assert.match(shortcuts.innerHTML, /<span>https:\/\/github\.com\/<\/span>/);
+  assert.match(shortcuts.innerHTML, /style="--sloppy-col-span:1;--sloppy-row-span:1;"/);
+  assert.doesNotMatch(shortcuts.innerHTML, /width:160px;height:120px/);
   assert.match(shortcuts.innerHTML, /sandbox="allow-scripts"/);
+});
+
+test("start page shortcuts always render as one grid cell", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      }
+    }
+  };
+  vm.runInNewContext(`
+    globalThis.SloppyStartPageMode = true;
+    state.settings = {
+      startPageEnabled: true,
+      startPageItems: [
+        {
+          id: "shortcut-1",
+          kind: "shortcut",
+          title: "VK",
+          url: "https://vk.com/",
+          colSpan: 2,
+          rowSpan: 2
+        },
+        {
+          id: "widget-1",
+          kind: "widget",
+          artifactId: "widget-1",
+          title: "Widget draft",
+          colSpan: 2,
+          rowSpan: 2
+        }
+      ]
+    };
+    state.widgetHTMLByArtifactId = { "widget-1": "<html><body>Widget</body></html>" };
+  `, sandbox);
+
+  const panel = sandbox.ensurePanel();
+  sandbox.render(panel);
+  const shortcuts = panel.querySelector("[data-sloppy-start-shortcuts]");
+
+  assert.match(shortcuts.innerHTML, /class="sloppy-start-shortcut-card"[^>]*style="--sloppy-col-span:1;--sloppy-row-span:1;"/);
+  assert.match(shortcuts.innerHTML, /class="sloppy-start-widget"[^>]*style="--sloppy-col-span:2;--sloppy-row-span:2;"/);
+});
+
+test("open customize enables editing controls on start shortcuts", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage() {
+        return Promise.resolve({ artifacts: [] });
+      }
+    }
+  };
+  vm.runInNewContext(`
+    globalThis.SloppyStartPageMode = true;
+    state.settings = {
+      startPageEnabled: true,
+      startPageItems: [
+        {
+          id: "shortcut-1",
+          kind: "shortcut",
+          title: "GitHub",
+          url: "https://github.com/",
+          colSpan: 1,
+          rowSpan: 1,
+          order: 0
+        }
+      ]
+    };
+  `, sandbox);
+
+  const panel = sandbox.ensurePanel();
+  sandbox.render(panel);
+  sandbox.openCustomize(panel);
+
+  const customizeButton = panel.querySelector("[data-sloppy-customize]");
+  const shortcuts = panel.querySelector("[data-sloppy-start-shortcuts]");
+  const customizeBody = panel.querySelector("[data-sloppy-customize-body]");
+
+  assert.equal(customizeButton.hidden, true);
+  assert.equal(panel.classList.toggled.get("is-start-customizing"), true);
+  assert.match(shortcuts.innerHTML, /data-sloppy-grid-draggable="shortcut-1"/);
+  assert.match(shortcuts.innerHTML, /data-sloppy-start-item-menu="shortcut-1"/);
+  assert.match(shortcuts.innerHTML, /data-sf-symbol="ellipsis"/);
+  assert.match(shortcuts.innerHTML, /data-sloppy-start-item-menu-panel="shortcut-1" role="menu" hidden/);
+  assert.match(shortcuts.innerHTML, /data-sloppy-grid-menu="shortcut-1" role="menuitem">Edit<\/button>/);
+  assert.match(shortcuts.innerHTML, /data-sloppy-delete-item="shortcut-1" role="menuitem">Delete<\/button>/);
+  assert.doesNotMatch(shortcuts.innerHTML, /data-sf-symbol="brain"/);
+  assert.doesNotMatch(shortcuts.innerHTML, /data-sf-symbol="xmark"/);
+  assert.doesNotMatch(shortcuts.innerHTML, /data-sloppy-resize-handle="shortcut-1"/);
+  assert.doesNotMatch(shortcuts.innerHTML, /data-sloppy-resize-item="shortcut-1"/);
+  assert.match(shortcuts.innerHTML, /style="--sloppy-col-span:1;--sloppy-row-span:1;"/);
+  assert.doesNotMatch(customizeBody.innerHTML, /data-sloppy-resize-item="shortcut-1"/);
+  assert.doesNotMatch(customizeBody.innerHTML, /sloppy-grid-item-controls/);
+});
+
+test("saving customize exits start page editing mode", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage(message) {
+        if (message?.type === "sloppy.settings.save") {
+          return Promise.resolve(message.settings);
+        }
+        return Promise.resolve({ artifacts: [] });
+      }
+    }
+  };
+  vm.runInNewContext(`
+    globalThis.SloppyStartPageMode = true;
+    state.settings = {
+      startPageEnabled: true,
+      startPageItems: [
+        {
+          id: "shortcut-1",
+          kind: "shortcut",
+          title: "GitHub",
+          url: "https://github.com/",
+          colSpan: 1,
+          rowSpan: 1,
+          order: 0
+        }
+      ]
+    };
+  `, sandbox);
+
+  const panel = sandbox.ensurePanel();
+  sandbox.render(panel);
+  sandbox.openCustomize(panel);
+  await sandbox.saveCustomize(panel);
+
+  const customizeButton = panel.querySelector("[data-sloppy-customize]");
+  const shortcuts = panel.querySelector("[data-sloppy-start-shortcuts]");
+
+  assert.equal(customizeButton.hidden, false);
+  assert.equal(panel.classList.toggled.get("is-start-customizing"), false);
+  assert.equal(vm.runInNewContext("state.customizeNavigation.editing", sandbox), false);
+  assert.doesNotMatch(shortcuts.innerHTML, /data-sloppy-grid-draggable="shortcut-1"/);
+  assert.doesNotMatch(shortcuts.innerHTML, /data-sloppy-start-item-menu="shortcut-1"/);
+  assert.match(shortcuts.innerHTML, /draggable="false"/);
+});
+
+test("widgets customize grid lists create shortcut and available widgets independent of start layout", () => {
+  const sandbox = loadContentScriptSandbox();
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      }
+    }
+  };
+  vm.runInNewContext(`
+    globalThis.SloppyStartPageMode = true;
+    state.settings = {
+      startPageEnabled: true,
+      startPageItems: [
+        { id: "shortcut-1", kind: "shortcut", title: "VK", url: "https://vk.com/" },
+        { id: "widget-start", kind: "widget", artifactId: "widget-start", title: "Placed widget", colSpan: 2, rowSpan: 2 }
+      ]
+    };
+    state.artifacts = [
+      { id: "widget-available", title: "Available widget", kind: "widget", size: "medium" }
+    ];
+  `, sandbox);
+
+  const widgetsGrid = { innerHTML: "" };
+  sandbox.renderWidgetsGrid({
+    querySelector(selector) {
+      return selector === "[data-sloppy-widgets-grid]" ? widgetsGrid : null;
+    }
+  });
+
+  assert.match(widgetsGrid.innerHTML, /data-sloppy-create-widget-card[\s\S]*Create widget/);
+  assert.match(widgetsGrid.innerHTML, /data-sloppy-pick-shortcut-widget[\s\S]*Shortcut[\s\S]*Add quick link/);
+  assert.match(widgetsGrid.innerHTML, /data-sloppy-pick-ready-widget="widget-available"[\s\S]*Available widget/);
+  assert.ok(widgetsGrid.innerHTML.indexOf("data-sloppy-create-widget-card") < widgetsGrid.innerHTML.indexOf("data-sloppy-pick-shortcut-widget"));
+  assert.ok(widgetsGrid.innerHTML.indexOf("data-sloppy-pick-shortcut-widget") < widgetsGrid.innerHTML.indexOf("data-sloppy-pick-ready-widget"));
+  assert.doesNotMatch(widgetsGrid.innerHTML, /VK|Placed widget|data-sloppy-grid-item|--sloppy-col-span/);
+
+  const panelCSS = readFileSync(new URL("../Resources/panel.css", import.meta.url), "utf8");
+  const createCardBlock = panelCSS.match(/^\.sloppy-widget-create-card\s*\{[\s\S]*?\n\}/m)?.[0] || "";
+  const createCardHoverBlock = panelCSS.match(/^\.sloppy-widget-create-card:hover,\n\.sloppy-widget-create-card:focus-visible\s*\{[\s\S]*?\n\}/m)?.[0] || "";
+  const createCardIconBlock = panelCSS.match(/^\.sloppy-widget-create-card span\s*\{[\s\S]*?\n\}/m)?.[0] || "";
+  const createCardLabelBlock = panelCSS.match(/^\.sloppy-widget-create-card strong\s*\{[\s\S]*?\n\}/m)?.[0] || "";
+  const pickerCardBlock = panelCSS.match(/^\.sloppy-widget-picker-card\s*\{[\s\S]*?\n\}/m)?.[0] || "";
+  const pickerCardInteractiveBlock = panelCSS.match(/^\.sloppy-widget-picker-card:hover,\n\.sloppy-widget-picker-card:focus-visible\s*\{[\s\S]*?\n\}/m)?.[0] || "";
+
+  assert.match(createCardBlock, /place-items:\s*center;/);
+  assert.match(createCardBlock, /align-content:\s*center;/);
+  assert.match(createCardBlock, /background:\s*transparent;/);
+  assert.match(createCardBlock, /border:\s*1px dashed/);
+  assert.match(createCardBlock, /cursor:\s*pointer;/);
+  assert.match(createCardBlock, /transition:\s*transform 160ms ease/);
+  assert.match(createCardHoverBlock, /transform:\s*translateY\(-2px\);/);
+  assert.match(createCardHoverBlock, /background:\s*rgba\(255, 255, 255, 0\.06\);/);
+  assert.match(pickerCardBlock, /cursor:\s*pointer;/);
+  assert.match(pickerCardBlock, /transition:\s*transform 160ms ease/);
+  assert.match(pickerCardInteractiveBlock, /transform:\s*translateY\(-2px\);/);
+  assert.match(pickerCardInteractiveBlock, /border-color:\s*rgba\(183, 255, 0, 0\.46\);/);
+  assert.match(createCardIconBlock, /line-height:\s*1;/);
+  assert.match(createCardLabelBlock, /line-height:\s*1\.15;/);
+});
+
+test("start shortcut content keeps a fixed height inside resized grid cells", () => {
+  const panelCSS = readFileSync(new URL("../Resources/panel.css", import.meta.url), "utf8");
+  const startPageCustomize = readFileSync(new URL("../Resources/startPageCustomize.js", import.meta.url), "utf8");
+  const startCardBlock = panelCSS.match(/\.sloppy-start-shortcut-card,\n\.sloppy-start-widget\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const startLinkBlock = panelCSS.match(/\.sloppy-start-shortcuts a\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const startShortcutCopyBlock = panelCSS.match(/^\.sloppy-start-shortcut-copy\s*\{[\s\S]*?\n\}/m)?.[0] || "";
+  const startShortcutStrongBlock = panelCSS.match(/^\.sloppy-start-shortcut-copy strong\s*\{[\s\S]*?\n\}/m)?.[0] || "";
+  const startShortcutSubtitleBlock = panelCSS.match(/^\.sloppy-start-shortcut-copy span\s*\{[\s\S]*?\n\}/m)?.[0] || "";
+  const startWidgetBlock = Array.from(panelCSS.matchAll(/^\.sloppy-start-widget\s*\{[\s\S]*?\n\}/gm)).at(-1)?.[0] || "";
+  const startConfigButtonBlock = panelCSS.match(/^\.sloppy-start-config-button\s*\{[\s\S]*?\n\}/m)?.[0] || "";
+  const startConfigButtonHoverBlock = panelCSS.match(/^\.sloppy-start-config-button:hover,\n\.sloppy-start-config-button:focus-visible\s*\{[\s\S]*?\n\}/m)?.[0] || "";
+  const startConfigBaseBlock = panelCSS.match(/\.sloppy-start-page #sloppy-safari-extension-panel \.sloppy-start-config-panel\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const startConfigOpenBlock = panelCSS.match(/#sloppy-safari-extension-panel\.is-start-customizing \.sloppy-start-config-panel\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const startComposerOpenBlock = panelCSS.match(/#sloppy-safari-extension-panel\.is-start-customizing \.sloppy-composer\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const customizeDialogBlock = panelCSS.match(/^\.sloppy-customize-dialog\s*\{[\s\S]*?\n\}/m)?.[0] || "";
+  const startItemMenuBlock = panelCSS.match(/^\.sloppy-start-item-menu\s*\{[\s\S]*?\n\}/m)?.[0] || "";
+  const startItemControlsBlock = panelCSS.match(/^\.sloppy-start-item-controls\s*\{[\s\S]*?\n\}/m)?.[0] || "";
+  const startItemMenuHiddenBlock = panelCSS.match(/^\.sloppy-start-item-menu\[hidden\]\s*\{[\s\S]*?\n\}/m)?.[0] || "";
+  const startItemMenuButtonBlock = panelCSS.match(/^\.sloppy-start-item-menu button\s*\{[\s\S]*?\n\}/m)?.[0] || "";
+  const startItemMenuOpenBlock = panelCSS.match(/\.sloppy-start-shortcut-card:has\(\.sloppy-start-item-menu:not\(\[hidden\]\)\),\n\.sloppy-start-widget:has\(\.sloppy-start-item-menu:not\(\[hidden\]\)\)\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const editingWidgetIframeBlock = panelCSS.match(/^#sloppy-safari-extension-panel\.is-start-customizing \.sloppy-start-widget iframe\s*\{[\s\S]*?\n\}/m)?.[0] || "";
+  const startMotionBlock = panelCSS.match(/^\.sloppy-start-shortcut-card,\n\.sloppy-start-widget\s*\{[\s\S]*?\n\}/m)?.[0] || "";
+  const reducedMotionBlock = panelCSS.match(/@media \(prefers-reduced-motion: reduce\)\s*\{[\s\S]*?\.sloppy-start-shortcut-card,\n\s*\.sloppy-start-widget\s*\{[\s\S]*?\n\s*\}/)?.[0] || "";
+
+  assert.match(panelCSS, /\.sloppy-start-shortcuts\s*\{[\s\S]*grid-template-columns:\s*repeat\(4, minmax\(0, 1fr\)\);[\s\S]*grid-auto-rows:\s*88px;/);
+  assert.match(startConfigBaseBlock, /left:\s*50%;/);
+  assert.match(startConfigBaseBlock, /right:\s*auto;/);
+  assert.match(startConfigBaseBlock, /width:\s*min\(620px, calc\(100% - 32px\)\);/);
+  assert.match(startConfigBaseBlock, /transform:\s*translateX\(-50%\);/);
+  assert.match(startConfigButtonBlock, /cursor:\s*pointer;/);
+  assert.match(startConfigButtonBlock, /transition:\s*transform 160ms ease/);
+  assert.match(startConfigButtonHoverBlock, /transform:\s*translateY\(-2px\);/);
+  assert.match(startConfigButtonHoverBlock, /border-color:\s*rgba\(183, 255, 0, 0\.46\);/);
+  assert.match(startConfigOpenBlock, /position:\s*static;/);
+  assert.match(startConfigOpenBlock, /width:\s*min\(620px, calc\(100% - 32px\)\);/);
+  assert.match(startConfigOpenBlock, /transform:\s*none;/);
+  assert.match(startConfigOpenBlock, /margin-top:\s*auto;/);
+  assert.match(startConfigOpenBlock, /pointer-events:\s*auto;/);
+  assert.match(panelCSS, /#sloppy-safari-extension-panel\.is-start-customizing \.sloppy-shell\s*\{[\s\S]*justify-content:\s*flex-start;[\s\S]*overflow-y:\s*auto;/);
+  assert.match(startComposerOpenBlock, /margin-top:\s*auto;/);
+  assert.match(startComposerOpenBlock, /margin-inline:\s*auto;/);
+  assert.match(customizeDialogBlock, /width:\s*100%;/);
+  assert.match(customizeDialogBlock, /box-sizing:\s*border-box;/);
+  assert.match(panelCSS, /\.sloppy-customize-dialog \.sloppy-settings-card\s*\{[\s\S]*width:\s*100%;[\s\S]*box-sizing:\s*border-box;/);
+  assert.match(panelCSS, /\.sloppy-start-shortcut-card\s*\{[\s\S]*align-content:\s*start;/);
+  assert.match(panelCSS, /\.sloppy-start-shortcut-card\s*\{[\s\S]*grid-column:\s*span 1;[\s\S]*grid-row:\s*span 1;/);
+  assert.match(startItemMenuBlock, /position:\s*absolute;[\s\S]*top:\s*30px;[\s\S]*right:\s*0;/);
+  assert.match(startItemControlsBlock, /z-index:\s*4;/);
+  assert.match(startItemMenuBlock, /min-width:\s*86px;/);
+  assert.match(startItemMenuHiddenBlock, /display:\s*none;/);
+  assert.match(startItemMenuButtonBlock, /padding:\s*5px 7px;[\s\S]*background:\s*transparent;[\s\S]*border:\s*0;/);
+  assert.match(startItemMenuOpenBlock, /overflow:\s*visible;[\s\S]*z-index:\s*5;/);
+  assert.match(editingWidgetIframeBlock, /pointer-events:\s*none;/);
+  assert.match(startMotionBlock, /transition:\s*transform 220ms cubic-bezier\(0\.22, 1, 0\.36, 1\),\s*opacity 180ms ease,\s*border-color 180ms ease,\s*box-shadow 180ms ease;/);
+  assert.match(reducedMotionBlock, /transition:\s*none;/);
+  assert.match(startCardBlock, /background:\s*rgba\(255, 255, 255, 0\.04\);/);
+  assert.match(startCardBlock, /border:\s*1px solid rgba\(255, 255, 255, 0\.1\);/);
+  assert.match(startCardBlock, /border-radius:\s*16px;/);
+  assert.match(startLinkBlock, /background:\s*transparent;/);
+  assert.match(startLinkBlock, /border:\s*0;/);
+  assert.match(startLinkBlock, /grid-template-rows:\s*auto 1fr auto;/);
+  assert.match(startShortcutCopyBlock, /align-self:\s*end;/);
+  assert.match(startShortcutStrongBlock, /font-weight:\s*700;/);
+  assert.match(startShortcutSubtitleBlock, /color:\s*rgba\(232, 232, 232, 0\.56\);/);
+  assert.match(startWidgetBlock, /width:\s*100%;[\s\S]*height:\s*100%;/);
+  assert.match(startLinkBlock, /height:\s*100%;/);
+  assert.match(panelCSS, /\.sloppy-start-resize-handle\s*\{[^}]*cursor:\s*nwse-resize;[^}]*animation:\s*sloppy-resize-handle-appear/);
+  assert.match(panelCSS, /\.sloppy-start-resize-handle\s*\{[^}]*z-index:\s*3;/);
+  assert.match(panelCSS, /\.sloppy-start-resize-handle\s*\{[^}]*top 0\.26s cubic-bezier/);
+  assert.match(panelCSS, /\.sloppy-start-resize-handle::before\s*\{[^}]*width:\s*30px;[^}]*height:\s*6px;[^}]*border-radius:\s*999px;/);
+  assert.match(panelCSS, /@keyframes sloppy-resize-handle-appear/);
+  assert.doesNotMatch(panelCSS, /\.sloppy-start-resize-handle\s*\{[^}]*radial-gradient/);
+  assert.match(panelCSS, /\.sloppy-start-resize-handle\.is-moving/);
+  assert.match(panelCSS, /\.sloppy-start-resize-handle\.is-edge-bottom\s*\{[^}]*top:\s*calc\(100% - 52px\);[\s\S]*left:\s*calc\(50% - 26px\);[\s\S]*cursor:\s*ns-resize;/);
+  assert.match(panelCSS, /\.sloppy-start-resize-handle\.is-edge-right\s*\{[^}]*top:\s*calc\(50% - 26px\);[\s\S]*left:\s*calc\(100% - 52px\);[\s\S]*cursor:\s*ew-resize;/);
+  assert.match(panelCSS, /\.sloppy-start-resize-handle\.is-edge-bottom\.is-edge-right\s*\{[^}]*top:\s*calc\(100% - 52px\);[\s\S]*left:\s*calc\(100% - 52px\);[\s\S]*cursor:\s*nwse-resize;/);
+  assert.match(panelCSS, /\.sloppy-start-resize-handle\.is-edge-top\.is-edge-left\s*\{[^}]*top:\s*0;[\s\S]*left:\s*0;[\s\S]*cursor:\s*nwse-resize;/);
+  assert.match(panelCSS, /\.sloppy-start-resize-handle\.is-edge-top\.is-edge-right\s*\{[^}]*top:\s*0;[\s\S]*left:\s*calc\(100% - 52px\);[\s\S]*cursor:\s*nesw-resize;/);
+  assert.match(panelCSS, /\.sloppy-start-resize-handle\.is-edge-bottom\.is-edge-left\s*\{[^}]*top:\s*calc\(100% - 52px\);[\s\S]*left:\s*0;[\s\S]*cursor:\s*nesw-resize;/);
+  assert.match(panelCSS, /\.sloppy-start-resize-handle\.is-edge-left::before,\n\.sloppy-start-resize-handle\.is-edge-right::before\s*\{[^}]*rotate\(90deg\)/);
+  assert.match(panelCSS, /\.sloppy-start-resize-handle\.is-edge-top\.is-edge-left::before,\n\.sloppy-start-resize-handle\.is-edge-top\.is-edge-right::before,\n\.sloppy-start-resize-handle\.is-edge-bottom\.is-edge-left::before,\n\.sloppy-start-resize-handle\.is-edge-bottom\.is-edge-right::before\s*\{[\s\S]*width:\s*24px;[\s\S]*height:\s*24px;[\s\S]*background:\s*transparent;[\s\S]*border:\s*solid rgba\(255, 255, 255, 0\.94\);[\s\S]*border-width:\s*0;[\s\S]*border-radius:\s*0;[\s\S]*box-sizing:\s*border-box;/);
+  assert.match(panelCSS, /\.sloppy-start-resize-handle\.is-edge-bottom\.is-edge-right::before\s*\{[\s\S]*border-width:\s*0 6px 6px 0;[\s\S]*border-bottom-right-radius:\s*16px;/);
+  assert.match(panelCSS, /\.sloppy-start-resize-handle\.is-edge-bottom\.is-edge-left::before\s*\{[\s\S]*border-width:\s*0 0 6px 6px;[\s\S]*border-bottom-left-radius:\s*16px;/);
+  assert.match(panelCSS, /\.sloppy-start-resize-handle\.is-edge-top\.is-edge-right::before\s*\{[\s\S]*border-width:\s*6px 6px 0 0;[\s\S]*border-top-right-radius:\s*16px;/);
+  assert.match(panelCSS, /\.sloppy-start-resize-handle\.is-edge-top\.is-edge-left::before\s*\{[\s\S]*border-width:\s*6px 0 0 6px;[\s\S]*border-top-left-radius:\s*16px;/);
+  assert.match(startPageCustomize, /const cornerActivationInset = 36;/);
+  assert.match(startPageCustomize, /return verticalEdge;/);
+  assert.match(startPageCustomize, /return horizontalEdge;/);
+  assert.match(panelCSS, /\.sloppy-customize-dialog \.sloppy-customize-toolbar \.sloppy-settings-save\s*\{[\s\S]*background:\s*transparent;[\s\S]*border-color:\s*transparent;/);
+  assert.match(startPageCustomize, /function renderStartPageItemsAnimated\(frame, mutate\)/);
+  assert.match(startPageCustomize, /function captureStartPageLayout\(frame\)/);
+  assert.match(startPageCustomize, /function animateStartPageLayout\(frame, beforeRects\)/);
+  assert.match(startPageCustomize, /const customizeMotionSelectors = \[/);
+  assert.match(startPageCustomize, /function captureCustomizeMotion\(frame\)/);
+  assert.match(startPageCustomize, /function animateCustomizeMotion\(frame, beforeRects\)/);
+  assert.doesNotMatch(startPageCustomize.match(/const customizeMotionSelectors = \[[\s\S]*?\];/)?.[0] || "", /data-sloppy-customize-dialog/);
+  assert.match(startPageCustomize, /requestAnimationFrame\?\.\(\(\) => animateCustomizeMotion\(frame, motionRects\)\)/);
+  assert.match(startPageCustomize, /duration:\s*280,\s*easing:\s*"cubic-bezier\(0\.22, 1, 0\.36, 1\)"/);
+  assert.match(panelCSS, /\.sloppy-start-page #sloppy-safari-extension-panel \.sloppy-app-layout,\n\.sloppy-start-page #sloppy-safari-extension-panel \.sloppy-shell\s*\{[\s\S]*transition:\s*transform 280ms cubic-bezier\(0\.22, 1, 0\.36, 1\),\s*opacity 220ms ease;/);
+  assert.match(panelCSS, /\.sloppy-start-shortcuts\s*\{[\s\S]*transition:\s*transform 280ms cubic-bezier\(0\.22, 1, 0\.36, 1\),\s*opacity 220ms ease;/);
+  assert.match(startPageCustomize, /function startPageDropIndexForEvent\(root, event\)/);
+  assert.match(startPageCustomize, /function moveStartPageItemToIndex\(activeId, targetIndex\)/);
+  assert.match(startPageCustomize, /node\.animate\?\.\(\[/);
+  assert.match(startPageCustomize, /prefers-reduced-motion: reduce/);
+  assert.match(startPageCustomize, /renderStartPageItemsAnimated\(frame, \(\) => \{\s*resizeStartPageItem/);
+  assert.match(startPageCustomize, /renderStartPageItemsAnimated\(frame, \(\) => \{\s*removeStartPageItem/);
+  assert.match(startPageCustomize, /root\.addEventListener\("dragover"/);
+  assert.match(startPageCustomize, /moveStartPageItemToIndex\(state\.gridDrag\.activeId, dropIndex\)/);
+  assert.match(startPageCustomize, /class="sloppy-grid-landing-slot"/);
+  assert.match(panelCSS, /\.sloppy-grid-landing-slot\s*\{[\s\S]*border:\s*1px dashed rgba\(183, 255, 0, 0\.64\);/);
 });
 
 test("start page initializes the chat UI immediately", async () => {
@@ -556,11 +923,18 @@ test("settings and customize use separate dialogs", () => {
   };
 
   const panel = sandbox.ensurePanel();
+  sandbox.renderCustomizeDialog(panel);
+  const customizeBody = panel.querySelector("[data-sloppy-customize-body]");
+  const startPageCustomize = readFileSync(new URL("../Resources/startPageCustomize.js", import.meta.url), "utf8");
 
   assert.match(panel.innerHTML, /data-sloppy-settings-dialog/);
   assert.match(panel.innerHTML, /data-sloppy-customize-dialog/);
   assert.doesNotMatch(panel.innerHTML.match(/data-sloppy-settings-dialog[\s\S]*?<\/dialog>/)?.[0] || "", /data-sloppy-start-page-theme/);
-  assert.match(panel.innerHTML.match(/data-sloppy-customize-dialog[\s\S]*?<\/dialog>/)?.[0] || "", /data-sloppy-start-page-theme/);
+  assert.match(customizeBody?.innerHTML || "", /data-sloppy-widgets-grid/);
+  assert.match(startPageCustomize, /data-sloppy-create-widget-card/);
+  assert.match(startPageCustomize, /data-sloppy-pick-shortcut-widget/);
+  assert.match(startPageCustomize, /data-sloppy-pick-ready-widget/);
+  assert.doesNotMatch(customizeBody?.innerHTML || "", /sloppy-customize-toolbar-actions/);
 });
 
 test("customize includes describe widget controls", () => {
@@ -576,11 +950,102 @@ test("customize includes describe widget controls", () => {
   };
 
   const panel = sandbox.ensurePanel();
-  const customizeDialog = panel.innerHTML.match(/data-sloppy-customize-dialog[\s\S]*?<\/dialog>/)?.[0] || "";
+  sandbox.openWidgetEditor(panel);
+  const customizeBody = panel.querySelector("[data-sloppy-customize-body]");
+  const customizeDialog = panel.querySelector("[data-sloppy-customize-dialog]");
+  const panelCSS = readFileSync(new URL("../Resources/panel.css", import.meta.url), "utf8");
+  const editorScreenBlock = panelCSS.match(/\.sloppy-widget-editor-screen\s*\{[\s\S]*?\n\}/)?.[0] || "";
 
-  assert.match(customizeDialog, /data-sloppy-describe-widget/);
-  assert.match(customizeDialog, /data-sloppy-widget-size/);
-  assert.match(customizeDialog, /data-sloppy-generate-widget/);
+  assert.equal(customizeDialog.classList.toggled.get("is-widget-editor"), true);
+  assert.equal(panel.classList.toggled.get("is-widget-editing"), true);
+  assert.match(customizeBody?.innerHTML || "", /sloppy-widget-editor-canvas/);
+  assert.match(customizeBody?.innerHTML || "", /sloppy-widget-editor-topbar/);
+  assert.match(customizeBody?.innerHTML || "", /sloppy-widget-editor-actions[\s\S]*data-sloppy-widget-editor-done[\s\S]*data-sloppy-widget-editor-cancel/);
+  assert.match(customizeBody?.innerHTML || "", /sloppy-widget-editor-title/);
+  assert.match(customizeBody?.innerHTML || "", /data-sloppy-widget-editor-resize="2x1"/);
+  assert.match(customizeBody?.innerHTML || "", /sloppy-widget-editor-layout/);
+  assert.match(customizeBody?.innerHTML || "", /sloppy-widget-editor-preview-pane[\s\S]*data-sloppy-widget-preview/);
+  assert.match(customizeBody?.innerHTML || "", /--sloppy-widget-preview-width:306px;--sloppy-widget-preview-height:88px;/);
+  assert.doesNotMatch(customizeBody?.innerHTML || "", /data-sloppy-widget-editor-prompt/);
+  assert.doesNotMatch(customizeBody?.innerHTML || "", /data-sloppy-widget-editor-send/);
+  assert.doesNotMatch(customizeBody?.innerHTML || "", /sloppy-widget-editor-rail/);
+  assert.doesNotMatch(customizeBody?.innerHTML || "", /sloppy-widget-editor-chat-shell/);
+  assert.doesNotMatch(customizeBody?.innerHTML || "", /sloppy-widget-editor-composer/);
+  assert.doesNotMatch(customizeBody?.innerHTML || "", /sloppy-quick-shell/);
+  assert.match(panel.innerHTML, /data-sloppy-thread/);
+  assert.match(panel.innerHTML, /data-sloppy-composer/);
+  assert.match(panelCSS, /\.sloppy-customize-dialog\.is-widget-editor\s*\{[\s\S]*position:\s*fixed;[\s\S]*inset:\s*0 0 0 calc\(-1 \* \(100vw - var\(--sloppy-widget-chat-width, 0px\)\)\);[\s\S]*z-index:\s*30;/);
+  assert.match(editorScreenBlock, /min-height:\s*100vh;/);
+  assert.match(editorScreenBlock, /background:\s*#242424;/);
+  assert.doesNotMatch(editorScreenBlock, /background-image:/);
+  assert.match(panelCSS, /\.sloppy-widget-editor-layout\s*\{[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\);/);
+  assert.match(panelCSS, /\.sloppy-widget-editor-controls\s*\{[\s\S]*position:\s*absolute;[\s\S]*bottom:\s*24px;/);
+  assert.match(panelCSS, /\.sloppy-widget-editor-preview\s*\{[\s\S]*width:\s*min\(var\(--sloppy-widget-preview-width, 306px\), calc\(100% - 32px\)\);[\s\S]*height:\s*var\(--sloppy-widget-preview-height, 88px\);[\s\S]*border-radius:\s*18px;[\s\S]*backdrop-filter:\s*blur\(18px\) saturate\(1\.08\);/);
+  assert.match(panelCSS, /#sloppy-safari-extension-panel\.is-widget-editing \.sloppy-app-layout[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\) var\(--sloppy-widget-chat-width\);/);
+  assert.match(panelCSS, /#sloppy-safari-extension-panel\.is-widget-editing \.sloppy-app-layout > \.sloppy-shell\s*\{[\s\S]*grid-column:\s*2;[\s\S]*overflow:\s*visible;/);
+  assert.match(panelCSS, /#sloppy-safari-extension-panel\.is-widget-editing > \.sloppy-app-layout > \.sloppy-shell > \.sloppy-thread\s*\{[\s\S]*display:\s*flex;/);
+  assert.match(panelCSS, /#sloppy-safari-extension-panel\.is-widget-editing > \.sloppy-app-layout > \.sloppy-shell > \.sloppy-composer\s*\{[\s\S]*display:\s*block;/);
+  assert.doesNotMatch(panelCSS, /sloppy-widget-editor-chat-shell/);
+  assert.doesNotMatch(panelCSS, /sloppy-widget-editor-composer/);
+  assert.match(panelCSS, /@media\s*\(max-width:\s*760px\)\s*\{[\s\S]*\.sloppy-widget-editor-layout\s*\{[\s\S]*grid-template-columns:\s*1fr;/);
+});
+
+test("widget editor sends widget slash command through the shared side chat composer", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  const sentMessages = [];
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage(message) {
+        sentMessages.push(message);
+        if (message?.type === "sloppy.browserContext.stream") {
+          return Promise.resolve({ sessionId: "session-widget", text: "Widget created" });
+        }
+        if (message?.type === "sloppy.artifacts.list") {
+          return Promise.resolve({ artifacts: [{ id: "widget-clock", title: "Clock", kind: "widget" }] });
+        }
+        if (message?.type === "sloppy.artifacts.widget") {
+          return Promise.resolve({
+            artifactId: "widget-clock",
+            html: "<!doctype html><html><body>Clock</body></html>",
+            size: "medium"
+          });
+        }
+        return Promise.resolve({});
+      }
+    }
+  };
+
+  const panel = sandbox.ensurePanel();
+  vm.runInNewContext(`
+    state.settings = { defaultAgentID: "sloppy", sessionId: "session-old" };
+    state.context = { page: { url: "https://example.com", title: "Example" }, selection: "" };
+  `, sandbox);
+  sandbox.openWidgetEditor(panel);
+  const promptField = panel.querySelector("[data-sloppy-prompt]");
+  promptField.value = "make a clock";
+
+  await sandbox.sendPrompt(panel);
+
+  assert.equal(sentMessages.some((message) => message?.type === "sloppy.artifacts.widget.generate"), false);
+  const streamMessage = sentMessages.find((message) => message?.type === "sloppy.browserContext.stream");
+  assert.match(streamMessage?.prompt || "", /^\/widget make a clock/);
+  assert.match(streamMessage?.prompt || "", /Widget session context:/);
+  assert.match(streamMessage?.prompt || "", /This session is dedicated only to generating and iterating the start-page widget preview\./);
+  assert.equal(streamMessage?.sessionId, "");
+  assert.equal(streamMessage?.widgetSession?.mode, "widget_editor");
+  assert.equal(streamMessage?.widgetSession?.isolated, true);
+  assert.equal(streamMessage?.widgetSession?.widget?.title, "Widget draft");
+  assert.equal(streamMessage?.widgetSession?.widget?.size, "2x1");
+  assert.equal(streamMessage?.page.url, "https://example.com");
+  assert.equal(vm.runInNewContext("state.settings.sessionId", sandbox), "session-old");
+  assert.equal(vm.runInNewContext("state.customizeNavigation.widgetSessionId", sandbox), "session-widget");
+  assert.equal(panel.classList.toggled.get("is-widget-editing"), true);
+  assert.match(panel.querySelector("[data-sloppy-thread]").innerHTML, /Widget created/);
 });
 
 test("sidebar keeps sessions expanded below projects and no settings item", () => {
@@ -610,7 +1075,7 @@ test("sidebar keeps sessions expanded below projects and no settings item", () =
   assert.doesNotMatch(panel.innerHTML, /data-sloppy-sidebar-collapse[\s\S]*<span>Hide sidebar<\/span>/);
 });
 
-test("sidebar includes artifacts item and inline artifact list", () => {
+test("sidebar includes artifacts item", () => {
   const sandbox = loadContentScriptSandbox();
   const documentLike = createPanelDocument();
   sandbox.document = documentLike;
@@ -625,18 +1090,13 @@ test("sidebar includes artifacts item and inline artifact list", () => {
   const panel = sandbox.ensurePanel();
 
   assert.match(panel.innerHTML, /data-sloppy-sidebar-artifacts/);
-  assert.match(panel.innerHTML, /data-sloppy-sidebar-artifact-list/);
 });
 
 test("loadArtifacts shows an error state when artifact fetch fails", async () => {
   const sandbox = loadContentScriptSandbox();
-  const list = { hidden: true, innerHTML: "" };
   const picker = { innerHTML: "" };
   const frame = {
     querySelector(selector) {
-      if (selector === "[data-sloppy-sidebar-artifact-list]") {
-        return list;
-      }
       if (selector === "[data-sloppy-widget-picker]") {
         return picker;
       }
@@ -654,13 +1114,119 @@ test("loadArtifacts shows an error state when artifact fetch fails", async () =>
 
   await sandbox.loadArtifacts(frame);
 
-  assert.equal(list.hidden, false);
-  assert.match(list.innerHTML, /Artifacts unavailable\./);
-  assert.doesNotMatch(list.innerHTML, /No artifacts yet\./);
+  assert.equal(picker.innerHTML, "");
+  assert.equal(vm.runInNewContext("state.artifactError", sandbox), "Artifacts unavailable.");
   assert.deepEqual(JSON.parse(vm.runInNewContext("JSON.stringify(state.artifacts)", sandbox)), []);
 });
 
-test("clicking a widget artifact row adds it to start page items", async () => {
+test("loadArtifacts refreshes widgets customize catalog", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const picker = { innerHTML: "" };
+  const widgetsGrid = { innerHTML: "" };
+  const frame = {
+    querySelector(selector) {
+      if (selector === "[data-sloppy-widget-picker]") {
+        return picker;
+      }
+      if (selector === "[data-sloppy-widgets-grid]") {
+        return widgetsGrid;
+      }
+      return null;
+    }
+  };
+  sandbox.chrome = {
+    runtime: {
+      sendMessage() {
+        return Promise.resolve({
+          artifacts: [{ id: "weather-widget", title: "Weather", kind: "widget", size: "medium" }]
+        });
+      }
+    }
+  };
+
+  await sandbox.loadArtifacts(frame);
+
+  assert.match(widgetsGrid.innerHTML, /data-sloppy-create-widget-card/);
+  assert.match(widgetsGrid.innerHTML, /data-sloppy-pick-shortcut-widget/);
+  assert.match(widgetsGrid.innerHTML, /data-sloppy-pick-ready-widget="weather-widget"[\s\S]*Weather/);
+  assert.match(widgetsGrid.innerHTML, /data-sloppy-delete-ready-widget="weather-widget"/);
+  assert.match(widgetsGrid.innerHTML, /data-sloppy-delete-ready-widget="weather-widget"[\s\S]*sloppy-symbol[\s\S]*trash\.svg/);
+});
+
+test("deleteCreatedWidget removes generated widget artifacts and placed items", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const savedRequests = [];
+  sandbox.chrome = {
+    runtime: {
+      sendMessage(message) {
+        savedRequests.push(message);
+        return Promise.resolve(message.settings);
+      }
+    }
+  };
+  vm.runInNewContext(`
+    state.settings = {
+      startPageItems: [
+        { id: "shortcut-1", kind: "shortcut", title: "Docs", url: "https://docs.example/" },
+        { id: "placed-weather", kind: "widget", artifactId: "weather-widget", title: "Weather" }
+      ]
+    };
+    state.artifacts = [
+      { id: "weather-widget", title: "Weather", kind: "widget" },
+      { id: "clock-widget", title: "Clock", kind: "widget" }
+    ];
+    state.widgetHTMLByArtifactId = {
+      "weather-widget": "<div>weather</div>",
+      "clock-widget": "<div>clock</div>"
+    };
+  `, sandbox);
+  const frame = {
+    querySelector() {
+      return null;
+    }
+  };
+
+  await sandbox.deleteCreatedWidget(frame, "weather-widget", { persist: true });
+
+  assert.deepEqual(
+    JSON.parse(vm.runInNewContext("JSON.stringify(state.artifacts)", sandbox)),
+    [{ id: "clock-widget", title: "Clock", kind: "widget" }]
+  );
+  assert.deepEqual(
+    JSON.parse(vm.runInNewContext("JSON.stringify(state.settings.startPageItems)", sandbox)),
+    [{ id: "shortcut-1", kind: "shortcut", title: "Docs", url: "https://docs.example/", order: 0, colSpan: 1, rowSpan: 1 }]
+  );
+  assert.equal(vm.runInNewContext("state.widgetHTMLByArtifactId['weather-widget']", sandbox), undefined);
+  assert.equal(savedRequests.at(-1)?.type, "sloppy.settings.save");
+});
+
+test("clicking sidebar artifacts opens the widgets customize screen", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage() {
+        return Promise.resolve({
+          artifacts: [{ id: "widget-1", title: "Clock", kind: "widget" }]
+        });
+      }
+    }
+  };
+
+  const panel = sandbox.ensurePanel();
+  const artifactsButton = panel.querySelector("[data-sloppy-sidebar-artifacts]");
+  const dialog = panel.querySelector("[data-sloppy-customize-dialog]");
+  await artifactsButton?.listeners?.get("click")?.();
+
+  assert.equal(dialog?.showModalCalled, true);
+  assert.equal(vm.runInNewContext("state.customizeNavigation.screen", sandbox), "widgets");
+});
+
+test("addWidgetToStartPage adds widget to start page items", async () => {
   const sandbox = loadContentScriptSandbox();
   const documentLike = createPanelDocument();
   const savedRequests = [];
@@ -698,19 +1264,7 @@ test("clicking a widget artifact row adds it to start page items", async () => {
   `, sandbox);
 
   const panel = sandbox.ensurePanel();
-  panel.querySelector("[data-sloppy-widget-size]").value = "large";
-  sandbox.renderArtifactList(panel);
-
-  await panel.querySelector("[data-sloppy-sidebar-artifact-list]").listeners.get("click")({
-    target: {
-      closest(selector) {
-        if (selector === "[data-sloppy-select-artifact]") {
-          return { dataset: { sloppySelectArtifact: "widget-1" } };
-        }
-        return null;
-      }
-    }
-  });
+  await sandbox.addWidgetToStartPage(panel, "widget-1", { persist: true });
 
   assert.deepEqual(
     JSON.parse(vm.runInNewContext("JSON.stringify(state.settings.startPageItems)", sandbox)),
@@ -818,7 +1372,7 @@ test("topbar sessions button opens the sessions dialog instead of the app sideba
   assert.doesNotMatch(sidebarList.innerHTML, /Second/);
 });
 
-test("adding a shortcut preserves unsaved shortcut editor values", () => {
+test("shortcut editor surfaces available browser bookmarks", async () => {
   const sandbox = loadContentScriptSandbox();
   const documentLike = createPanelDocument();
   sandbox.document = documentLike;
@@ -826,34 +1380,110 @@ test("adding a shortcut preserves unsaved shortcut editor values", () => {
     runtime: {
       getURL(path) {
         return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage(message) {
+        if (message?.type === "sloppy.bookmarks.list") {
+          return Promise.resolve([
+            { id: "1", title: "GitHub", url: "https://github.com/" },
+            { id: "2", title: "Safari", url: "https://developer.apple.com/safari/" }
+          ]);
+        }
+        return Promise.resolve({});
       }
     }
   };
-  vm.runInNewContext(`
-    state.settings = {
-      startPageShortcuts: [{ title: "Docs", url: "https://docs.example/" }]
-    };
-  `, sandbox);
+  vm.runInNewContext("state.settings = { startPageItems: [] };", sandbox);
   const panel = sandbox.ensurePanel();
-  sandbox.renderStartPageShortcutEditor(panel);
-  const rows = [
-    {
-      querySelector(selector) {
-        return selector.includes("title")
-          ? { value: "Edited Docs" }
-          : { value: "https://edited.example/" };
+
+  await sandbox.openShortcutEditor(panel);
+  await new Promise((resolve) => setImmediate(resolve));
+  const customizeBody = panel.querySelector("[data-sloppy-customize-body]");
+
+  assert.match(customizeBody?.innerHTML || "", /data-sloppy-shortcut-bookmarks/);
+  assert.match(customizeBody?.innerHTML || "", /Bookmarks/);
+  assert.match(customizeBody?.innerHTML || "", /Pick a saved site/);
+  assert.match(customizeBody?.innerHTML || "", /sloppy-shortcut-bookmark-card/);
+  assert.match(customizeBody?.innerHTML || "", /data-sloppy-pick-bookmark="1"/);
+  assert.match(customizeBody?.innerHTML || "", /GitHub/);
+  assert.match(customizeBody?.innerHTML || "", /https:\/\/github\.com\//);
+});
+
+test("shortcut bookmark cards update the draft after async bookmark render", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage(message) {
+        if (message?.type === "sloppy.bookmarks.list") {
+          return Promise.resolve([
+            { id: "vk", title: "vk.com", url: "https://vk.com/" },
+            { id: "github", title: "GitHub", url: "https://github.com/" }
+          ]);
+        }
+        return Promise.resolve({});
       }
     }
-  ];
-  panel.querySelectorAll = (selector) => selector === "[data-sloppy-start-shortcut-row]" ? rows : [];
+  };
+  vm.runInNewContext("state.settings = { startPageItems: [] };", sandbox);
+  const panel = sandbox.ensurePanel();
 
-  panel.querySelector("[data-sloppy-start-page-add-shortcut]").listeners.get("click")();
+  await sandbox.openShortcutEditor(panel);
+  await new Promise((resolve) => setImmediate(resolve));
+  const customizeBody = panel.querySelector("[data-sloppy-customize-body]");
+  await customizeBody.listeners.get("click")({
+    target: {
+      closest(selector) {
+        if (selector === "[data-sloppy-pick-bookmark]") {
+          return { dataset: { sloppyPickBookmark: "github" } };
+        }
+        return null;
+      }
+    }
+  });
 
-  const shortcuts = vm.runInNewContext("state.settings.startPageShortcuts", sandbox);
-  assert.equal(JSON.stringify(shortcuts), JSON.stringify([
-    { title: "Edited Docs", url: "https://edited.example/" },
-    { title: "", url: "" }
-  ]));
+  assert.deepEqual(
+    JSON.parse(vm.runInNewContext("JSON.stringify(state.customizeNavigation.widgetDraft)", sandbox)),
+    {
+      id: JSON.parse(vm.runInNewContext("JSON.stringify(state.customizeNavigation.widgetDraft.id)", sandbox)),
+      kind: "shortcut",
+      title: "GitHub",
+      url: "https://github.com/",
+      colSpan: 1,
+      rowSpan: 1
+    }
+  );
+  assert.match(customizeBody?.innerHTML || "", /value="GitHub"/);
+  assert.match(customizeBody?.innerHTML || "", /value="https:\/\/github\.com\/"/);
+});
+
+test("shortcut editor hides bookmark list when bookmarks are unavailable", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage(message) {
+        if (message?.type === "sloppy.bookmarks.list") {
+          return Promise.resolve({ error: "bookmarks_unavailable" });
+        }
+        return Promise.resolve({});
+      }
+    }
+  };
+  vm.runInNewContext("state.settings = { startPageItems: [] };", sandbox);
+  const panel = sandbox.ensurePanel();
+
+  await sandbox.openShortcutEditor(panel);
+  await Promise.resolve();
+
+  assert.equal(panel.querySelector("[data-sloppy-shortcut-bookmarks]"), null);
 });
 
 test("transitionStartPageToChat exits start mode before sending", () => {
@@ -864,15 +1494,85 @@ test("transitionStartPageToChat exits start mode before sending", () => {
     runtime: {
       getURL(path) {
         return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage() {
+        return Promise.resolve({ artifacts: [] });
       }
     }
   };
   vm.runInNewContext("globalThis.SloppyStartPageMode = true;", sandbox);
   const panel = sandbox.ensurePanel();
+  sandbox.openCustomize(panel);
+  const customizeButton = panel.querySelector("[data-sloppy-customize]");
+  const customizeDialog = panel.querySelector("[data-sloppy-customize-dialog]");
+  customizeDialog.open = true;
 
   sandbox.transitionStartPageToChat(panel);
 
   assert.equal(sandbox.SloppyStartPageMode, false);
+  assert.equal(customizeButton.hidden, false);
+  assert.equal(panel.classList.toggled.get("is-start-customizing"), false);
+  assert.equal(vm.runInNewContext("state.customizeNavigation.editing", sandbox), false);
+  assert.equal(customizeDialog.closeCalled, true);
+});
+
+test("transitionStartPageToChat closes customize even after start mode already ended", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage() {
+        return Promise.resolve({ artifacts: [] });
+      }
+    }
+  };
+  vm.runInNewContext("globalThis.SloppyStartPageMode = false;", sandbox);
+  const panel = sandbox.ensurePanel();
+  sandbox.openCustomize(panel);
+  const customizeButton = panel.querySelector("[data-sloppy-customize]");
+  const customizeDialog = panel.querySelector("[data-sloppy-customize-dialog]");
+  customizeDialog.open = true;
+
+  sandbox.transitionStartPageToChat(panel);
+
+  assert.equal(sandbox.SloppyStartPageMode, false);
+  assert.equal(customizeButton.hidden, false);
+  assert.equal(panel.classList.toggled.get("is-start-customizing"), false);
+  assert.equal(vm.runInNewContext("state.customizeNavigation.editing", sandbox), false);
+  assert.equal(customizeDialog.closeCalled, true);
+});
+
+test("sidebar new session closes start page customize editing", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage() {
+        return Promise.resolve({ artifacts: [] });
+      }
+    }
+  };
+  vm.runInNewContext("globalThis.SloppyStartPageMode = true;", sandbox);
+  const panel = sandbox.ensurePanel();
+  sandbox.openCustomize(panel);
+  const customizeButton = panel.querySelector("[data-sloppy-customize]");
+  const customizeDialog = panel.querySelector("[data-sloppy-customize-dialog]");
+  customizeDialog.open = true;
+
+  await panel.querySelector("[data-sloppy-sidebar-new]").listeners.get("click")();
+
+  assert.equal(customizeButton.hidden, false);
+  assert.equal(panel.classList.toggled.get("is-start-customizing"), false);
+  assert.equal(vm.runInNewContext("state.customizeNavigation.editing", sandbox), false);
+  assert.equal(customizeDialog.closeCalled, true);
 });
 
 test("browser context messages do not attach automatic Safari DOM snapshots", () => {
@@ -942,7 +1642,7 @@ test("quickChatPlacementStyle flips above low selections", () => {
   });
 
   assert.equal(JSON.stringify(style), JSON.stringify({
-    left: "664px",
+    left: "824px",
     top: "698px",
     transform: "translateY(-100%)"
   }));

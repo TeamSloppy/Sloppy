@@ -26,7 +26,10 @@ struct GeminiModelProviderFactory: ModelProviderFactory {
                 baseURL: baseURL,
                 tools: config.tools,
                 systemInstructions: config.systemInstructions,
-                session: config.proxySession
+                session: ProxySessionFactory.makeSession(
+                    proxy: config.coreConfig.proxy,
+                    protocolClasses: [GeminiThoughtSignatureURLProtocol.self]
+                )
             )
         }
 

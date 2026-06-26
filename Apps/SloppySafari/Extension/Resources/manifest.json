@@ -21,7 +21,7 @@
   "content_scripts": [
     {
       "matches": ["http://*/*", "https://*/*"],
-      "js": ["i18n.js", "contentScript.js"],
+      "js": ["i18n.js", "startPageCustomize.js", "contentScript.js"],
       "css": ["panel.css"]
     }
   ],
@@ -30,7 +30,7 @@
   },
   "web_accessible_resources": [
     {
-      "resources": ["so_logo.svg", "chat.html", "chatPage.js", "start.html", "startPage.js", "*.svg", "icons/*.svg"],
+      "resources": ["so_logo.svg", "chat.html", "chatPage.js", "start.html", "startPage.js", "startPageCustomize.js", "*.svg", "icons/*.svg"],
       "matches": ["<all_urls>"]
     }
   ]

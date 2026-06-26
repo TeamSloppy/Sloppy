@@ -26,6 +26,7 @@ test("i18n translates parameterized strings", () => {
   assert.equal(i18n.t("askSloppy"), "Спросить Sloppy");
   assert.equal(i18n.t("accessibleTabs", { count: 3 }), "Доступных вкладок: 3");
   assert.equal(i18n.t("readWeb"), "Чтение web");
+  assert.equal(loadI18nSandbox("en-US").t("continueInChat"), "Continue in chat");
 });
 
 test("i18n falls back to English for missing locales", () => {

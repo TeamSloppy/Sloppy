@@ -115,7 +115,7 @@ final class GeminiOAuthURLProtocol: URLProtocol {
             accept: route.isStreaming ? "text/event-stream" : "application/json"
         )
         mutable.httpBody = try cloudCodeBody(
-            from: request.httpBody,
+            from: GeminiThoughtSignatureStore.shared.bodyByRestoringSignatures(in: request.httpBody),
             model: route.model,
             projectID: projectID,
             requestID: requestID
@@ -135,10 +135,13 @@ final class GeminiOAuthURLProtocol: URLProtocol {
         guard let object = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let response = object["response"] as? [String: Any]
         else {
+            GeminiThoughtSignatureStore.shared.record(from: data)
             return data
         }
         captureUsage(from: response, into: tokenUsageCapture)
-        return try JSONSerialization.data(withJSONObject: response)
+        let unwrapped = try JSONSerialization.data(withJSONObject: response)
+        GeminiThoughtSignatureStore.shared.record(from: unwrapped)
+        return unwrapped
     }
 
     private static func responseDataForGeminiParser(

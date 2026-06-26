@@ -327,8 +327,12 @@ function dataURLContent(dataURL) {
 }
 
 export function buildBrowserContextPayload(settings, page, selection, prompt, options = {}) {
+  const widgetSession = options.widgetSession && typeof options.widgetSession === "object"
+    ? options.widgetSession
+    : null;
   return {
     source: "safari_extension",
+    ...(widgetSession ? { mode: "widget_editor", widgetSession } : {}),
     page: {
       url: page.url,
       title: page.title || null
@@ -350,7 +354,30 @@ export function buildBrowserContextPayload(settings, page, selection, prompt, op
   };
 }
 
-function browserContextPrompt(page, selection, browser, prompt) {
+function widgetSessionPromptBlock(widgetSession) {
+  if (!widgetSession || typeof widgetSession !== "object") {
+    return [];
+  }
+  const widget = widgetSession.widget && typeof widgetSession.widget === "object"
+    ? widgetSession.widget
+    : {};
+  const lines = [
+    "Widget session:",
+    "This session is dedicated only to generating and iterating the start-page widget preview.",
+    "Do not answer as a normal page chat; update the widget artifact for the preview.",
+    `Mode: ${String(widgetSession.mode || "widget_editor")}`,
+    `Isolated: ${widgetSession.isolated === false ? "false" : "true"}`,
+    `Widget title: ${String(widget.title || "Widget draft")}`,
+    `Widget size: ${String(widget.size || `${widget.colSpan || 2}x${widget.rowSpan || 1}`)}`,
+    `Widget source item id: ${String(widget.sourceItemId || widgetSession.sourceItemId || "new-widget")}`
+  ];
+  if (widget.artifactId) {
+    lines.push(`Existing artifact id: ${String(widget.artifactId)}`);
+  }
+  return lines;
+}
+
+function browserContextPrompt(page, selection, browser, prompt, widgetSession = null) {
   const lines = [
     "Source: Safari Extension",
     `URL: ${page.url}`
@@ -364,6 +391,11 @@ function browserContextPrompt(page, selection, browser, prompt) {
   lines.push("");
   lines.push("Safari tools:");
   lines.push("Use `safari.dom_snapshot` only when live page details are needed. Use `safari.click`, `safari.type`, and other `safari.*` tools for the user's current Safari tab; do not use `browser.*` for this Safari page.");
+  const widgetLines = widgetSessionPromptBlock(widgetSession);
+  if (widgetLines.length) {
+    lines.push("");
+    lines.push(...widgetLines);
+  }
   lines.push("");
   lines.push("User prompt:");
   lines.push(String(prompt || "").trim());
@@ -660,7 +692,7 @@ async function postSessionBrowserMessage(settings, payload, encodedAgentId, sess
     headers: headersForSettings(settings),
     body: JSON.stringify({
       userId: payload.userId || "safari_extension",
-      content: browserContextPrompt(payload.page, payload.selection.text, payload.browser, payload.prompt),
+      content: browserContextPrompt(payload.page, payload.selection.text, payload.browser, payload.prompt, payload.widgetSession),
       attachments: payload.attachments || [],
       spawnSubSession: false,
       mode: "auto",

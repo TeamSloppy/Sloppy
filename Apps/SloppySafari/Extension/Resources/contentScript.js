@@ -141,7 +141,8 @@ const iconSymbols = {
   model: "brain",
   project: "folder",
   customize: "gear",
-  artifacts: "xmark.triangle.circle.square"
+  artifacts: "xmark.triangle.circle.square",
+  trash: "icons/trash"
 };
 
 function iconSymbol(name) {
@@ -524,6 +525,19 @@ const state = {
   sidebar: normalizeSidebarState(),
   artifacts: [],
   widgetHTMLByArtifactId: {},
+  widgetPickerSheet: { open: false },
+  gridDrag: {
+    activeId: null,
+    overId: null,
+    dropPosition: null
+  },
+  availableBookmarks: [],
+  customizeNavigation: {
+    screen: "home",
+    editing: false,
+    widgetDraft: null,
+    widgetDraftSourceId: null
+  },
   voiceConfig: {
     enabled: false,
     effectiveProvider: "local",
@@ -639,7 +653,6 @@ function ensurePanel() {
         <button class="sloppy-icon-button sloppy-sidebar-collapse" type="button" data-sloppy-sidebar-collapse aria-label="${escapeHTML(t("hideSidebar"))}">${icon("sidebar")}</button>
         <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-new>${icon("plus")}<span>${escapeHTML(t("newSession"))}</span></button>
         <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-artifacts>${icon("artifacts", "icons/chevron.down.svg")}<span>${escapeHTML(t("artifacts"))}</span></button>
-        <div class="sloppy-sidebar-artifact-list" data-sloppy-sidebar-artifact-list hidden></div>
         <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-projects>${icon("project", "icons/chevron.down.svg")}<span>${escapeHTML(t("projects"))}</span></button>
         <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-sessions>${icon("sessions", "icons/chevron.down.svg")}<span>${escapeHTML(t("sessions"))}</span></button>
         <div class="sloppy-sidebar-session-list" data-sloppy-sidebar-session-list></div>
@@ -659,7 +672,6 @@ function ensurePanel() {
         </div>
         <div class="sloppy-actions">
           <button class="sloppy-icon-button" type="button" data-sloppy-open-fullscreen aria-label="${escapeHTML(t("openFullscreenChat"))}">${icon("expand")}</button>
-          ${!isFullscreen ? `<button class="sloppy-icon-button" type="button" data-sloppy-sessions aria-label="${escapeHTML(t("sessions"))}">${icon("sessions")}</button>` : ""}
           <button class="sloppy-icon-button" type="button" data-sloppy-settings aria-label="${escapeHTML(t("settings"))}">${icon("settings")}</button>
           <button class="sloppy-icon-button" type="button" data-sloppy-close aria-label="${escapeHTML(t("close"))}">${icon("close")}</button>
         </div>
@@ -688,9 +700,49 @@ function ensurePanel() {
         </div>
       </form>
       <div class="sloppy-start-shortcuts" data-sloppy-start-shortcuts></div>
+      <div class="sloppy-start-config-panel">
+        <dialog class="sloppy-settings-dialog" data-sloppy-settings-dialog>
+          <form method="dialog" class="sloppy-settings-card">
+            <header>
+              <strong>Connection</strong>
+              <button class="sloppy-icon-button" value="cancel" aria-label="${escapeHTML(t("closeSettings"))}">${icon("close")}</button>
+            </header>
+            <label>Core URL<input data-sloppy-core-url placeholder="http://127.0.0.1:25101"></label>
+            <label>Auth token<input data-sloppy-auth-token type="password" autocomplete="off"></label>
+            <label>Default agent<input data-sloppy-default-agent placeholder="sloppy"></label>
+            <div class="sloppy-settings-section">
+              <strong>Mesh</strong>
+              <label class="sloppy-settings-toggle">
+                <input data-sloppy-mesh-enabled type="checkbox">
+                <span>Use mesh relay</span>
+              </label>
+              <label>Invite token<textarea data-sloppy-mesh-invite rows="3"></textarea></label>
+              <label>Target node<input data-sloppy-mesh-target-node></label>
+              <button class="sloppy-settings-save" type="button" data-sloppy-mesh-join>Join mesh</button>
+              <p class="sloppy-settings-note" data-sloppy-mesh-status>Mesh is not configured.</p>
+            </div>
+            <label class="sloppy-settings-toggle">
+              <input data-sloppy-floating-button type="checkbox">
+              <span>Show floating button</span>
+            </label>
+            <label class="sloppy-settings-toggle">
+              <input data-sloppy-selection-bubble-enabled type="checkbox">
+              <span>Show selection bubble</span>
+            </label>
+            <a class="sloppy-settings-link" href="https://sloppy.team" target="_blank" rel="noreferrer">${escapeHTML(t("downloadSloppy"))}</a>
+            <button class="sloppy-settings-save" type="button" data-sloppy-save-settings>Save settings</button>
+          </form>
+        </dialog>
+
+        <dialog class="sloppy-settings-dialog sloppy-customize-dialog" data-sloppy-customize-dialog>
+          <form method="dialog" class="sloppy-settings-card">
+            <div class="sloppy-customize-body" data-sloppy-customize-body></div>
+          </form>
+        </dialog>
+        <button class="sloppy-start-config-button" type="button" data-sloppy-customize>${icon("customize")}<span>${escapeHTML(t("customize"))}</span></button>
+      </div>
       </div>
     </div>
-    <button class="sloppy-start-config-button" type="button" data-sloppy-customize>${icon("customize")}<span>${escapeHTML(t("customize"))}</span></button>
 
     <section class="sloppy-voice" data-sloppy-voice-panel hidden>
       <label class="sloppy-voice-settings sloppy-voice-language-settings" data-sloppy-voice-settings aria-label="${escapeHTML(t("voiceLanguage"))}">
@@ -715,78 +767,6 @@ function ensurePanel() {
         <button class="sloppy-icon-button" type="button" data-sloppy-voice-record aria-label="Record">${icon("mic")}</button>
       </div>
     </section>
-
-    <dialog class="sloppy-settings-dialog" data-sloppy-settings-dialog>
-      <form method="dialog" class="sloppy-settings-card">
-        <header>
-          <strong>Connection</strong>
-          <button class="sloppy-icon-button" value="cancel" aria-label="${escapeHTML(t("closeSettings"))}">${icon("close")}</button>
-        </header>
-        <label>Core URL<input data-sloppy-core-url placeholder="http://127.0.0.1:25101"></label>
-        <label>Auth token<input data-sloppy-auth-token type="password" autocomplete="off"></label>
-        <label>Default agent<input data-sloppy-default-agent placeholder="sloppy"></label>
-        <div class="sloppy-settings-section">
-          <strong>Mesh</strong>
-          <label class="sloppy-settings-toggle">
-            <input data-sloppy-mesh-enabled type="checkbox">
-            <span>Use mesh relay</span>
-          </label>
-          <label>Invite token<textarea data-sloppy-mesh-invite rows="3"></textarea></label>
-          <label>Target node<input data-sloppy-mesh-target-node></label>
-          <button class="sloppy-settings-save" type="button" data-sloppy-mesh-join>Join mesh</button>
-          <p class="sloppy-settings-note" data-sloppy-mesh-status>Mesh is not configured.</p>
-        </div>
-        <label class="sloppy-settings-toggle">
-          <input data-sloppy-floating-button type="checkbox">
-          <span>Show floating button</span>
-        </label>
-        <label class="sloppy-settings-toggle">
-          <input data-sloppy-selection-bubble-enabled type="checkbox">
-          <span>Show selection bubble</span>
-        </label>
-        <a class="sloppy-settings-link" href="https://sloppy.team" target="_blank" rel="noreferrer">${escapeHTML(t("downloadSloppy"))}</a>
-        <button class="sloppy-settings-save" type="button" data-sloppy-save-settings>Save settings</button>
-      </form>
-    </dialog>
-
-    <dialog class="sloppy-settings-dialog sloppy-customize-dialog" data-sloppy-customize-dialog>
-      <form method="dialog" class="sloppy-settings-card">
-        <header>
-          <strong>${escapeHTML(t("startPage"))}</strong>
-          <button class="sloppy-icon-button" value="cancel" aria-label="${escapeHTML(t("closeSettings"))}">${icon("close")}</button>
-        </header>
-        <div class="sloppy-settings-section">
-          <label class="sloppy-settings-toggle">
-            <input data-sloppy-start-page-enabled type="checkbox">
-            <span>${escapeHTML(t("enableStartPage"))}</span>
-          </label>
-          <label>${escapeHTML(t("theme"))}
-            <select data-sloppy-start-page-theme>
-              <option value="dark">${escapeHTML(t("darkTheme"))}</option>
-              <option value="light">${escapeHTML(t("lightTheme"))}</option>
-            </select>
-          </label>
-          <label>${escapeHTML(t("backgroundImage"))}<input data-sloppy-start-page-background type="file" accept="image/png,image/jpeg,image/gif,image/webp"></label>
-          <button class="sloppy-settings-save" type="button" data-sloppy-start-page-clear-background>${escapeHTML(t("clearBackground"))}</button>
-          <div class="sloppy-start-shortcut-editor" data-sloppy-start-page-shortcuts></div>
-          <button class="sloppy-settings-save" type="button" data-sloppy-start-page-add-shortcut>${escapeHTML(t("addShortcut"))}</button>
-          <div class="sloppy-widget-generator">
-            <label>${escapeHTML(t("describeWidget"))}<textarea data-sloppy-describe-widget rows="3"></textarea></label>
-            <label>${escapeHTML(t("widgetSize"))}
-              <select data-sloppy-widget-size>
-                <option value="small">${escapeHTML(t("widgetSizeSmall"))}</option>
-                <option value="medium">${escapeHTML(t("widgetSizeMedium"))}</option>
-                <option value="large">${escapeHTML(t("widgetSizeLarge"))}</option>
-              </select>
-            </label>
-            <button class="sloppy-settings-save" type="button" data-sloppy-generate-widget>${escapeHTML(t("generateWidget"))}</button>
-            <div class="sloppy-widget-picker" data-sloppy-widget-picker></div>
-          </div>
-          <p class="sloppy-settings-note" data-sloppy-start-page-error></p>
-        </div>
-        <button class="sloppy-settings-save" type="button" data-sloppy-save-customize>Save settings</button>
-      </form>
-    </dialog>
 
     <dialog class="sloppy-sessions-dialog" data-sloppy-sessions-dialog>
       <form method="dialog" class="sloppy-sessions-card">
@@ -918,8 +898,8 @@ function quickChatPlacementStyle(rect, windowLike = window) {
   const padding = 16;
   const viewportWidth = Number(windowLike.innerWidth || document.documentElement.clientWidth || 0);
   const viewportHeight = Number(windowLike.innerHeight || document.documentElement.clientHeight || 0);
-  const quickWidth = Math.min(520, Math.max(0, viewportWidth - padding * 2));
-  const estimatedHeight = 340;
+  const quickWidth = Math.min(360, Math.max(0, viewportWidth - padding * 2));
+  const estimatedHeight = 300;
   const anchorGap = 12;
   const spaceBelow = viewportHeight - rect.bottom - padding;
   const shouldOpenAbove = spaceBelow < estimatedHeight || rect.top > viewportHeight / 2;
@@ -982,7 +962,7 @@ function renderQuickChat() {
         <div class="sloppy-quick-assistant ${quick.streaming ? "is-streaming" : ""}">${assistantHTML}</div>
       </main>
       <footer class="sloppy-quick-footer">
-        <button class="sloppy-quick-follow-up" type="button" data-sloppy-quick-follow-up>${icon("plus")}<span data-sloppy-chat-placeholder>${escapeHTML(chatPlaceholderText(0))}</span></button>
+        <button class="sloppy-quick-follow-up" type="button" data-sloppy-quick-follow-up>${icon("plus")}<span>${escapeHTML(t("continueInChat"))}</span></button>
       </footer>
     </div>
   `;
@@ -1279,11 +1259,208 @@ function wirePanel(frame) {
     });
   });
   frame.querySelector("[data-sloppy-settings]").addEventListener("click", () => openSettings(frame));
-  frame.querySelector("[data-sloppy-sessions]").addEventListener("click", () => openSessions(frame, { presentation: "dialog" }));
+  frame.querySelector("[data-sloppy-sessions]")?.addEventListener("click", () => openSessions(frame, { presentation: "dialog" }));
   frame.querySelector("[data-sloppy-new-session]").addEventListener("click", () => selectSession(frame, null));
   frame.querySelector("[data-sloppy-save-settings]").addEventListener("click", () => saveSettings(frame));
   frame.querySelector("[data-sloppy-customize]")?.addEventListener("click", () => openCustomize(frame));
-  frame.querySelector("[data-sloppy-save-customize]")?.addEventListener("click", () => saveCustomize(frame));
+  const customizeDialog = frame.querySelector("[data-sloppy-customize-dialog]");
+  customizeDialog?.addEventListener("close", () => {
+    if (state.ignoreCustomizeCloseReset) {
+      customizeDialog.classList.remove("sloppy-customize-dialog-open");
+      return;
+    }
+    exitCustomizeMode(frame);
+    render(frame);
+  });
+  frame.querySelector("[data-sloppy-customize-body]")?.addEventListener("click", (event) => {
+    if (event.target?.closest?.("[data-sloppy-open-general]")) {
+      navigateCustomize(frame, "general");
+      return;
+    }
+    if (event.target?.closest?.("[data-sloppy-open-widgets]")) {
+      navigateCustomize(frame, "widgets");
+      return;
+    }
+    if (event.target?.closest?.("[data-sloppy-customize-back]")) {
+      navigateCustomize(frame, "widgets");
+      return;
+    }
+    if (event.target?.closest?.("[data-sloppy-save-customize]")) {
+      void saveCustomize(frame);
+      return;
+    }
+    if (event.target?.closest?.("[data-sloppy-open-widget-picker]")) {
+      openWidgetPickerSheet(frame);
+      return;
+    }
+    if (event.target?.closest?.("[data-sloppy-widget-picker-done]")) {
+      closeWidgetPickerSheet(frame);
+      return;
+    }
+    if (event.target?.closest?.("[data-sloppy-create-widget-card]")) {
+      closeWidgetPickerSheet(frame);
+      openWidgetEditor(frame);
+      return;
+    }
+    const deleteReadyWidget = event.target?.closest?.("[data-sloppy-delete-ready-widget]");
+    if (deleteReadyWidget) {
+      void deleteCreatedWidget(frame, deleteReadyWidget.dataset.sloppyDeleteReadyWidget, { persist: true });
+      return;
+    }
+    const pickReadyWidget = event.target?.closest?.("[data-sloppy-pick-ready-widget]");
+    if (pickReadyWidget) {
+      void addWidgetToStartPage(frame, pickReadyWidget.dataset.sloppyPickReadyWidget, { persist: false });
+      closeWidgetPickerSheet(frame);
+      return;
+    }
+    const pickShortcutWidget = event.target?.closest?.("[data-sloppy-pick-shortcut-widget]");
+    if (pickShortcutWidget) {
+      void openShortcutEditor(frame);
+      return;
+    }
+    const pickBookmark = event.target?.closest?.("[data-sloppy-pick-bookmark]");
+    if (pickBookmark) {
+      const bookmarkId = String(pickBookmark.dataset.sloppyPickBookmark || "").trim();
+      const bookmark = state.availableBookmarks.find((candidate) => String(candidate.id || "") === bookmarkId);
+      if (!bookmark?.id) {
+        return;
+      }
+      state.customizeNavigation = {
+        ...state.customizeNavigation,
+        widgetDraft: {
+          ...(state.customizeNavigation?.widgetDraft || {}),
+          title: String(bookmark.title || "").trim() || String(bookmark.url || "").trim(),
+          url: String(bookmark.url || "").trim(),
+          kind: "shortcut",
+          colSpan: 1,
+          rowSpan: 1
+        }
+      };
+      renderCustomizeDialog(frame);
+      return;
+    }
+    const gridMenuButton = event.target?.closest?.("[data-sloppy-grid-menu]");
+    if (gridMenuButton) {
+      const itemId = String(gridMenuButton.dataset.sloppyGridMenu || "").trim();
+      const item = normalizedStartPageItems(state.settings).find((candidate) => String(candidate.id || "") === itemId);
+      if (!item?.id) {
+        return;
+      }
+      if (String(item.kind || "").trim() === "shortcut") {
+        void openShortcutEditor(frame, item.id);
+        return;
+      }
+      if (String(item.kind || "").trim() === "widget") {
+        openWidgetEditor(frame, item.id);
+        return;
+      }
+    }
+    if (event.target?.closest?.("[data-sloppy-open-widget-editor]")) {
+      openWidgetEditor(frame);
+      return;
+    }
+    if (event.target?.closest?.("[data-sloppy-start-page-clear-background]")) {
+      state.settings = {
+        ...(state.settings || {}),
+        startPageBackgroundImage: ""
+      };
+      const startPageError = frame.querySelector("[data-sloppy-start-page-error]");
+      if (startPageError) {
+        startPageError.textContent = "";
+      }
+      return;
+    }
+    const widgetButton = event.target?.closest?.("[data-sloppy-pick-widget]");
+    if (widgetButton) {
+      void addWidgetToStartPage(frame, widgetButton.dataset.sloppyPickWidget);
+      return;
+    }
+    const moveButton = event.target?.closest?.("[data-sloppy-move-item]");
+    if (moveButton) {
+      moveStartPageItem(moveButton.dataset.sloppyMoveItem, moveButton.dataset.direction);
+      renderCustomizeDialog(frame);
+      return;
+    }
+    const deleteButton = event.target?.closest?.("[data-sloppy-delete-item]");
+    if (deleteButton) {
+      removeStartPageItem(deleteButton.dataset.sloppyDeleteItem);
+      renderCustomizeDialog(frame);
+      return;
+    }
+    const editWidgetButton = event.target?.closest?.("[data-sloppy-edit-widget]");
+    if (editWidgetButton) {
+      openWidgetEditor(frame, editWidgetButton.dataset.sloppyEditWidget);
+      return;
+    }
+    const resizeButton = event.target?.closest?.("[data-sloppy-resize-item]");
+    if (resizeButton) {
+      const itemId = resizeButton.dataset.sloppyResizeItem;
+      const item = normalizedStartPageItems(state.settings).find((candidate) => candidate.id === itemId);
+      if (item) {
+        const nextSpan = item.colSpan === 1 && item.rowSpan === 1
+          ? { colSpan: 2, rowSpan: 1 }
+          : item.colSpan === 2 && item.rowSpan === 1
+            ? { colSpan: 2, rowSpan: 2 }
+            : { colSpan: 1, rowSpan: 1 };
+        resizeStartPageItem(itemId, nextSpan.colSpan, nextSpan.rowSpan);
+        renderCustomizeDialog(frame);
+      }
+      return;
+    }
+    if (event.target?.closest?.("[data-sloppy-widget-editor-cancel]")) {
+      state.customizeNavigation = {
+        ...state.customizeNavigation,
+        screen: "widgets",
+        widgetDraft: null,
+        widgetDraftSourceId: null
+      };
+      renderCustomizeDialog(frame);
+      return;
+    }
+    if (event.target?.closest?.("[data-sloppy-widget-editor-done]")) {
+      commitWidgetDraft(frame);
+      return;
+    }
+    const widgetEditorResizeButton = event.target?.closest?.("[data-sloppy-widget-editor-resize]");
+    if (widgetEditorResizeButton) {
+      const nextSpan = parseGridSpan(widgetEditorResizeButton.dataset.sloppyWidgetEditorResize);
+      state.customizeNavigation = {
+        ...state.customizeNavigation,
+        widgetDraft: {
+          ...(state.customizeNavigation?.widgetDraft || {}),
+          ...nextSpan
+        }
+      };
+      renderCustomizeDialog(frame);
+      return;
+    }
+    if (event.target?.closest?.("[data-sloppy-generate-widget]")) {
+      const prompt = frame.querySelector("[data-sloppy-describe-widget]")?.value?.trim() || "";
+      if (prompt) {
+        openWidgetEditor(frame);
+        void updateWidgetDraftFromPrompt(frame, prompt);
+      }
+    }
+  });
+  frame.querySelector("[data-sloppy-customize-body]")?.addEventListener("change", (event) => {
+    if (event.target?.matches?.("[data-sloppy-start-page-background]")) {
+      void readStartPageBackgroundImage(event.target.files?.[0], frame);
+    }
+    const titleInput = event.target?.matches?.("[data-sloppy-shortcut-title]");
+    const urlInput = event.target?.matches?.("[data-sloppy-shortcut-url]");
+    if (!titleInput && !urlInput) {
+      return;
+    }
+    const currentDraft = state.customizeNavigation?.widgetDraft || {};
+    state.customizeNavigation = {
+      ...state.customizeNavigation,
+      widgetDraft: {
+        ...currentDraft,
+        title: titleInput ? String(event.target.value || "").trim() : String(currentDraft.title || ""),
+        url: urlInput ? String(event.target.value || "").trim() : String(currentDraft.url || "")
+      }
+    };
+  });
   frame.querySelector("[data-sloppy-mesh-join]").addEventListener("click", async () => {
     const token = frame.querySelector("[data-sloppy-mesh-invite]").value;
     const status = frame.querySelector("[data-sloppy-mesh-status]");
@@ -1306,44 +1483,24 @@ function wirePanel(frame) {
       status.textContent = error?.message || "Unable to join mesh.";
     }
   });
-  frame.querySelector("[data-sloppy-start-page-add-shortcut]")?.addEventListener("click", () => {
-    syncStartPageItemsFromEditor(frame);
-    state.settings = {
-      ...(state.settings || {}),
-      startPageShortcuts: [
-        ...readStartPageShortcutEditor(frame),
-        { title: "", url: "" }
-      ]
-    };
-    state.settings.startPageItems = [
-      ...(state.settings.startPageShortcuts || []).map((shortcut) => ({ kind: "shortcut", ...shortcut })),
-      ...startPageWidgetItems(state.settings)
-    ];
-    renderStartPageShortcutEditor(frame);
-  });
-  frame.querySelector("[data-sloppy-start-page-shortcuts]")?.addEventListener("click", (event) => {
-    const button = event.target?.closest?.("[data-sloppy-remove-start-shortcut]");
-    if (!button) {
-      return;
-    }
-    const removeIndex = Number(button.dataset.sloppyRemoveStartShortcut);
-    const shortcuts = readStartPageShortcutEditor(frame);
-    state.settings = {
-      ...(state.settings || {}),
-      startPageShortcuts: shortcuts.filter((_shortcut, index) => index !== removeIndex)
-    };
-    state.settings.startPageItems = [
-      ...(state.settings.startPageShortcuts || []).map((shortcut) => ({ kind: "shortcut", ...shortcut })),
-      ...startPageWidgetItems(state.settings)
-    ];
-    renderStartPageShortcutEditor(frame);
-  });
   frame.querySelector("[data-sloppy-start-page-clear-background]")?.addEventListener("click", () => {
     state.settings = {
       ...(state.settings || {}),
       startPageBackgroundImage: ""
     };
     frame.querySelector("[data-sloppy-start-page-error]").textContent = "";
+  });
+  frame.querySelector("[data-sloppy-shortcut-editor-cancel]")?.addEventListener("click", () => {
+    navigateCustomize(frame, "widgets");
+  });
+  frame.querySelector("[data-sloppy-shortcut-editor-done]")?.addEventListener("click", () => {
+    commitShortcutDraft(frame);
+  });
+  frame.querySelector("[data-sloppy-open-widget-picker]")?.addEventListener("click", () => {
+    openWidgetPickerSheet(frame);
+  });
+  frame.querySelector("[data-sloppy-pick-shortcut-widget]")?.addEventListener("click", () => {
+    void openShortcutEditor(frame);
   });
   frame.querySelector("[data-sloppy-start-page-background]")?.addEventListener("change", (event) => {
     void readStartPageBackgroundImage(event.target.files?.[0], frame);
@@ -1358,30 +1515,20 @@ function wirePanel(frame) {
   });
   wireSidebarResizer(frame);
   frame.querySelector("[data-sloppy-sidebar-new]")?.addEventListener("click", () => {
+    closeCustomize(frame);
     state.messages = [];
     delete ensureSettings().sessionId;
     setStartPageMode(Boolean(globalThis.SloppyStartPageMode));
     render(frame);
   });
   frame.querySelector("[data-sloppy-sidebar-artifacts]")?.addEventListener("click", () => {
-    const artifactList = frame.querySelector("[data-sloppy-sidebar-artifact-list]");
-    if (artifactList && !artifactList.hidden) {
-      artifactList.hidden = true;
-      return;
+    const sessionList = frame.querySelector("[data-sloppy-sidebar-session-list]");
+    if (sessionList) {
+      sessionList.hidden = true;
     }
+    openCustomize(frame);
+    navigateCustomize(frame, "widgets");
     void loadArtifacts(frame);
-  });
-  frame.querySelector("[data-sloppy-sidebar-artifact-list]")?.addEventListener("click", async (event) => {
-    const button = event.target?.closest?.("[data-sloppy-select-artifact]");
-    if (!button) {
-      return;
-    }
-    const artifactId = String(button.dataset.sloppySelectArtifact || "").trim();
-    const artifact = (state.artifacts || []).find((candidate) => String(candidate?.id || "").trim() === artifactId);
-    if (String(artifact?.kind || "").trim() !== "widget") {
-      return;
-    }
-    await addWidgetToStartPage(frame, artifactId, { syncEditor: false, persist: true });
   });
   frame.querySelector("[data-sloppy-sidebar-projects]")?.addEventListener("click", () => {
     appendMessage({ role: "assistant", label: t("assistant"), text: t("projectsUnavailable") });
@@ -1407,24 +1554,10 @@ function wirePanel(frame) {
     void addWidgetToStartPage(frame, button.dataset.sloppyPickWidget);
   });
   frame.querySelector("[data-sloppy-generate-widget]")?.addEventListener("click", async () => {
-    const prompt = frame.querySelector("[data-sloppy-describe-widget]")?.value || "";
-    const size = frame.querySelector("[data-sloppy-widget-size]")?.value || "small";
-    const response = await chrome.runtime.sendMessage({
-      type: "sloppy.artifacts.widget.generate",
-      prompt,
-      size
-    }).catch((error) => ({ error: error.message }));
-    if (response?.error) {
-      frame.querySelector("[data-sloppy-start-page-error]").textContent = response.error;
-      return;
-    }
-    if (response?.artifact) {
-      state.artifactError = "";
-      state.artifacts = [response.artifact, ...(state.artifacts || []).filter((artifact) => artifact?.id !== response.artifact.id)];
-      renderArtifactList(frame);
-      renderWidgetPicker(frame);
-      await addWidgetToStartPage(frame, response.artifact.id);
-      frame.querySelector("[data-sloppy-describe-widget]").value = "";
+    const prompt = frame.querySelector("[data-sloppy-describe-widget]")?.value?.trim() || "";
+    if (prompt) {
+      openWidgetEditor(frame);
+      await updateWidgetDraftFromPrompt(frame, prompt);
     }
   });
   frame.querySelector("[data-sloppy-attach]").addEventListener("click", () => frame.querySelector("[data-sloppy-file]").click());
@@ -1781,168 +1914,20 @@ function render(frame) {
   renderStartPageShortcuts(frame, []);
 }
 
-function renderStartPageSurface(frame) {
-  const thread = frame.querySelector("[data-sloppy-thread]");
-  const settings = state.settings || {};
-  const theme = settings.startPageTheme === "light" ? "light" : "dark";
-  frame.classList.toggle("sloppy-theme-light", theme === "light");
-  frame.style.setProperty("--sloppy-start-background-image", settings.startPageBackgroundImage ? `url("${settings.startPageBackgroundImage}")` : "none");
-  thread.innerHTML = `
-    <section class="sloppy-start-surface" data-sloppy-start-surface data-sloppy-start-theme="${escapeHTML(theme)}">
-    </section>
-  `;
-  renderStartPageItems(frame);
-}
-
-function startPageShortcutItems(settings = state.settings || {}) {
-  if (Array.isArray(settings.startPageItems) && settings.startPageItems.length) {
-    return settings.startPageItems
-      .filter((item) => String(item?.kind || "").trim() === "shortcut")
-      .map((item) => ({
-        title: String(item.title || "").trim(),
-        url: String(item.url || "").trim()
-      }));
-  }
-  return Array.isArray(settings.startPageShortcuts) ? settings.startPageShortcuts : [];
-}
-
-function startPageWidgetItems(settings = state.settings || {}) {
-  return Array.isArray(settings.startPageItems)
-    ? settings.startPageItems.filter((item) => String(item?.kind || "").trim() === "widget")
-    : [];
-}
-
-function syncStartPageItemsFromEditor(frame) {
-  const shortcuts = readStartPageShortcutEditor(frame);
-  const widgets = startPageWidgetItems(state.settings);
-  state.settings = {
-    ...(state.settings || {}),
-    startPageShortcuts: shortcuts,
-    startPageItems: [
-      ...shortcuts.map((shortcut) => ({ kind: "shortcut", ...shortcut })),
-      ...widgets
-    ]
-  };
-}
-
-function startPageItemsForMutation(settings = state.settings || {}) {
-  if (Array.isArray(settings.startPageItems) && settings.startPageItems.length) {
-    return settings.startPageItems;
-  }
-  return (settings.startPageShortcuts || []).map((shortcut) => ({ kind: "shortcut", ...shortcut }));
-}
-
-function renderStartPageItems(frame) {
-  const settings = state.settings || {};
-  const items = Array.isArray(settings.startPageItems) && settings.startPageItems.length
-    ? settings.startPageItems
-    : (settings.startPageShortcuts || []).map((shortcut) => ({ kind: "shortcut", ...shortcut }));
-  renderStartPageShortcuts(frame, items);
-  void hydrateStartPageWidgets(frame, items);
-}
-
-function normalizedWidgetSize(size) {
-  return size === "medium" || size === "large" ? size : "small";
-}
-
-function widgetDimensionsForSize(size) {
-  if (normalizedWidgetSize(size) === "medium") {
-    return { width: 320, height: 180 };
-  }
-  if (normalizedWidgetSize(size) === "large") {
-    return { width: 320, height: 320 };
-  }
-  return { width: 160, height: 120 };
-}
-
-function widgetSizeFromArtifact(artifact = {}, fallback = "small") {
-  return normalizedWidgetSize(String(artifact?.widget?.size || artifact?.size || fallback || "small").trim());
-}
-
-function widgetHTMLForItem(item = {}) {
-  const artifactId = String(item?.artifactId || item?.id || "").trim();
-  return artifactId ? String(state.widgetHTMLByArtifactId?.[artifactId] || "").trim() : "";
-}
-
-async function hydrateStartPageWidgets(frame, items = []) {
-  if (typeof chrome === "undefined" || typeof chrome.runtime?.sendMessage !== "function") {
-    return;
-  }
-  const missingIds = Array.from(new Set((items || [])
-    .filter((item) => String(item?.kind || "").trim() === "widget")
-    .map((item) => String(item?.artifactId || "").trim())
-    .filter((artifactId) => artifactId && !state.widgetHTMLByArtifactId?.[artifactId])));
-  if (!missingIds.length) {
-    return;
-  }
-  const loaded = {};
-  await Promise.all(missingIds.map(async (artifactId) => {
-    const response = await chrome.runtime.sendMessage({
-      type: "sloppy.artifacts.widget",
-      artifactId
-    }).catch(() => null);
-    const html = String(response?.html || "").trim();
-    if (html) {
-      loaded[artifactId] = html;
-    }
-  }));
-  if (!Object.keys(loaded).length) {
-    return;
-  }
-  state.widgetHTMLByArtifactId = {
-    ...(state.widgetHTMLByArtifactId || {}),
-    ...loaded
-  };
-  renderStartPageShortcuts(frame, items);
-}
-
-function renderStartPageShortcuts(frame, items) {
-  const root = frame.querySelector("[data-sloppy-start-shortcuts]");
-  if (!root) {
-    return;
-  }
-  root.innerHTML = (items || []).map((item) => {
-    if (String(item?.kind || "").trim() === "widget") {
-      const size = normalizedWidgetSize(String(item.size || "").trim());
-      const dimensions = widgetDimensionsForSize(size);
-      const html = widgetHTMLForItem(item);
-      return `
-        <article class="sloppy-start-widget" data-sloppy-start-widget="${escapeHTML(item.artifactId || "")}" style="width:${dimensions.width}px;height:${dimensions.height}px">
-          ${html
-            ? `<iframe title="${escapeHTML(item.title || "Widget")}" sandbox="allow-scripts" srcdoc="${escapeHTML(html)}"></iframe>`
-            : `<div class="sloppy-start-widget-placeholder">${escapeHTML(t("loadingArtifacts"))}</div>`}
-        </article>
-      `;
-    }
-    return `
-      <a href="${escapeHTML(item.url)}" data-sloppy-start-shortcut="${escapeHTML(item.url)}">
-        <img src="${escapeHTML(shortcutIconURL(item.url))}" alt="" aria-hidden="true">
-        <span>${escapeHTML(item.title)}</span>
-      </a>
-    `;
-  }).join("");
-  root.querySelectorAll?.("img").forEach((image) => {
-    image.addEventListener("error", () => {
-      image.hidden = true;
-    });
-  });
-}
-
-function shortcutIconURL(url) {
-  try {
-    const parsed = new URL(url);
-    return `${parsed.origin}/favicon.ico`;
-  } catch (_error) {
-    return "";
-  }
-}
-
 function transitionStartPageToChat(frame) {
+  const isCustomizing = frame?.classList?.contains?.("is-start-customizing") || state.customizeNavigation?.editing;
+  if (isCustomizing) {
+    closeCustomize(frame);
+  }
   if (!isStartPageMode()) {
     return;
   }
   setStartPageMode(false);
   frame.classList.remove("sloppy-theme-light");
+}
+
+function widgetEditorIsActive(frame) {
+  return Boolean(frame?.classList?.contains?.("is-widget-editing") && state.customizeNavigation?.screen === "widget-editor");
 }
 
 function normalizeVoiceLanguage(value) {
@@ -2240,17 +2225,6 @@ function openSettings(frame) {
   frame.querySelector("[data-sloppy-settings-dialog]").showModal();
 }
 
-function openCustomize(frame) {
-  frame.querySelector("[data-sloppy-start-page-enabled]").checked = state.settings?.startPageEnabled !== false;
-  frame.querySelector("[data-sloppy-start-page-theme]").value = state.settings?.startPageTheme || "dark";
-  renderStartPageShortcutEditor(frame);
-  renderWidgetPicker(frame);
-  if (!state.artifacts.length) {
-    void loadArtifacts(frame);
-  }
-  frame.querySelector("[data-sloppy-customize-dialog]").showModal();
-}
-
 async function saveSettings(frame) {
   const settings = {
     coreURLString: frame.querySelector("[data-sloppy-core-url]").value,
@@ -2286,195 +2260,6 @@ async function saveSettings(frame) {
   }
 }
 
-async function saveCustomize(frame) {
-  syncStartPageItemsFromEditor(frame);
-  const settings = {
-    ...(state.settings || {}),
-    startPageEnabled: frame.querySelector("[data-sloppy-start-page-enabled]").checked,
-    startPageTheme: frame.querySelector("[data-sloppy-start-page-theme]").value,
-    startPageBackgroundImage: state.settings?.startPageBackgroundImage || "",
-    startPageShortcuts: startPageShortcutItems(state.settings),
-    startPageItems: state.settings?.startPageItems || []
-  };
-  state.settings = await chrome.runtime.sendMessage({ type: "sloppy.settings.save", settings });
-  frame.querySelector("[data-sloppy-customize-dialog]").close();
-  render(frame);
-}
-
-function renderStartPageShortcutEditor(frame) {
-  const root = frame.querySelector("[data-sloppy-start-page-shortcuts]");
-  if (!root) {
-    return;
-  }
-  const shortcuts = startPageShortcutItems(state.settings);
-  root.innerHTML = shortcuts.map((shortcut, index) => `
-    <div class="sloppy-start-shortcut-row" data-sloppy-start-shortcut-row>
-      <input data-sloppy-start-shortcut-title value="${escapeHTML(shortcut.title)}" placeholder="${escapeHTML(t("shortcutTitle"))}">
-      <input data-sloppy-start-shortcut-url value="${escapeHTML(shortcut.url)}" placeholder="https://example.com">
-      <button class="sloppy-icon-button" type="button" data-sloppy-remove-start-shortcut="${index}" aria-label="${escapeHTML(t("removeShortcut"))}">${icon("close")}</button>
-    </div>
-  `).join("");
-}
-
-function readStartPageShortcutEditor(frame) {
-  return Array.from(frame.querySelectorAll?.("[data-sloppy-start-shortcut-row]") || []).map((row) => ({
-    title: row.querySelector("[data-sloppy-start-shortcut-title]")?.value || "",
-    url: row.querySelector("[data-sloppy-start-shortcut-url]")?.value || ""
-  }));
-}
-
-async function loadArtifacts(frame) {
-  const list = frame.querySelector("[data-sloppy-sidebar-artifact-list]");
-  if (!list) {
-    return;
-  }
-  list.hidden = false;
-  list.innerHTML = `<p class="sloppy-session-empty">${escapeHTML(t("loadingArtifacts"))}</p>`;
-  const response = await chrome.runtime.sendMessage({ type: "sloppy.artifacts.list" }).catch((error) => ({
-    error: error?.message || t("noArtifacts")
-  }));
-  if (response?.error) {
-    state.artifacts = [];
-    state.artifactError = String(response.error || "").trim() || t("noArtifacts");
-  } else {
-    const artifacts = Array.isArray(response)
-      ? response
-      : Array.isArray(response?.artifacts)
-        ? response.artifacts
-        : [];
-    state.artifacts = artifacts;
-    state.artifactError = "";
-  }
-  renderArtifactList(frame);
-  renderWidgetPicker(frame);
-}
-
-function renderArtifactList(frame) {
-  const list = frame.querySelector("[data-sloppy-sidebar-artifact-list]");
-  if (!list) {
-    return;
-  }
-  if (state.artifactError) {
-    list.innerHTML = `<p class="sloppy-session-empty">${escapeHTML(state.artifactError)}</p>`;
-    return;
-  }
-  if (!state.artifacts?.length) {
-    list.innerHTML = `<p class="sloppy-session-empty">${escapeHTML(t("noArtifacts"))}</p>`;
-    return;
-  }
-  list.innerHTML = state.artifacts.map((artifact) => `
-    ${String(artifact?.kind || "").trim() === "widget"
-      ? `<button class="sloppy-session-row" type="button" data-sloppy-select-artifact="${escapeHTML(artifact.id || "")}">
-      <strong>${escapeHTML(artifact.title || artifact.id || "artifact")}</strong>
-      <span>${escapeHTML(startPageWidgetItems(state.settings).some((item) => item?.artifactId === artifact.id) ? t("startPage") : widgetSizeFromArtifact(artifact, artifact.kind || "widget"))}</span>
-    </button>`
-      : `<div class="sloppy-artifact-row">
-      <strong>${escapeHTML(artifact.title || artifact.id || "artifact")}</strong>
-      <span>${escapeHTML(artifact.kind || "artifact")}</span>
-    </div>`}
-  `).join("");
-}
-
-function renderWidgetPicker(frame) {
-  const root = frame.querySelector("[data-sloppy-widget-picker]");
-  if (!root) {
-    return;
-  }
-  const widgets = (state.artifacts || []).filter((artifact) => String(artifact?.kind || "").trim() === "widget");
-  if (!widgets.length) {
-    root.innerHTML = "";
-    return;
-  }
-  root.innerHTML = widgets.map((artifact) => `
-    <button class="sloppy-session-row" type="button" data-sloppy-pick-widget="${escapeHTML(artifact.id || "")}">
-      <strong>${escapeHTML(artifact.title || artifact.id || "Widget")}</strong>
-      <span>${escapeHTML(widgetSizeFromArtifact(artifact, artifact.kind || "widget"))}</span>
-    </button>
-  `).join("");
-}
-
-async function addWidgetToStartPage(frame, artifactId, options = {}) {
-  const id = String(artifactId || "").trim();
-  if (!id) {
-    return;
-  }
-  const shouldSyncEditor = options.syncEditor !== false && Boolean(frame.querySelectorAll?.("[data-sloppy-start-shortcut-row]")?.length);
-  if (shouldSyncEditor) {
-    syncStartPageItemsFromEditor(frame);
-  }
-  const requestedSize = normalizedWidgetSize(String(frame.querySelector("[data-sloppy-widget-size]")?.value || "small").trim());
-  const artifact = (state.artifacts || []).find((candidate) => candidate?.id === id) || {};
-  const response = await chrome.runtime.sendMessage({
-    type: "sloppy.artifacts.widget",
-    artifactId: id
-  }).catch((error) => ({ error: error.message }));
-  if (response?.error) {
-    frame.querySelector("[data-sloppy-start-page-error]").textContent = response.error;
-    return;
-  }
-  const size = normalizedWidgetSize(String(response?.size || artifact?.widget?.size || artifact.size || requestedSize).trim());
-  const dimensions = widgetDimensionsForSize(size);
-  state.widgetHTMLByArtifactId = {
-    ...(state.widgetHTMLByArtifactId || {}),
-    [id]: String(response?.html || "").trim()
-  };
-  const widget = {
-    kind: "widget",
-    artifactId: id,
-    title: String(response?.title || artifact.title || id).trim() || id,
-    size,
-    width: dimensions.width,
-    height: dimensions.height
-  };
-  const baseItems = startPageItemsForMutation(state.settings);
-  state.settings = {
-    ...(state.settings || {}),
-    startPageItems: [
-      ...baseItems.filter((item) => String(item?.artifactId || "") !== id),
-      widget
-    ]
-  };
-  state.settings.startPageShortcuts = startPageShortcutItems(state.settings);
-  frame.querySelector("[data-sloppy-start-page-error]").textContent = "";
-  if (options.persist) {
-    state.settings = await chrome.runtime.sendMessage({ type: "sloppy.settings.save", settings: state.settings });
-  }
-  renderArtifactList(frame);
-  renderStartPageItems(frame);
-  renderWidgetPicker(frame);
-}
-
-function readStartPageBackgroundImage(file, frame) {
-  const error = frame.querySelector("[data-sloppy-start-page-error]");
-  if (!file) {
-    return Promise.resolve();
-  }
-  if (!/^image\/(png|jpe?g|gif|webp)$/i.test(file.type || "")) {
-    error.textContent = t("unsupportedBackgroundImage");
-    return Promise.resolve();
-  }
-  if (file.size > 560000) {
-    error.textContent = t("backgroundImageTooLarge");
-    return Promise.resolve();
-  }
-  return new Promise((resolve) => {
-    const reader = new FileReader();
-    reader.addEventListener("load", () => {
-      state.settings = {
-        ...(state.settings || {}),
-        startPageBackgroundImage: String(reader.result || "")
-      };
-      error.textContent = "";
-      resolve();
-    });
-    reader.addEventListener("error", () => {
-      error.textContent = t("backgroundImageReadFailed");
-      resolve();
-    });
-    reader.readAsDataURL(file);
-  });
-}
-
 async function openSessions(frame, options = {}) {
   const presentation = options.presentation || "sidebar";
   const list = sessionListRoot(frame, presentation);
@@ -2486,7 +2271,7 @@ async function openSessions(frame, options = {}) {
   const response = await chrome.runtime.sendMessage({
     type: "sloppy.sessions.list",
     agentId: state.settings?.defaultAgentID || "sloppy"
-  });
+  }).catch((error) => ({ error: error?.message || t("sessionsUnavailable") }));
   if (response?.error) {
     list.innerHTML = `<p class="sloppy-session-empty">${escapeHTML(response.error)}</p>`;
     return;
@@ -2640,7 +2425,7 @@ async function loadSessionSelection(sessionId) {
     type: "sloppy.sessions.select",
     sessionId: sessionId || "",
     agentId: state.settings?.defaultAgentID || "sloppy"
-  });
+  }).catch((error) => ({ error: error?.message || t("sessionsUnavailable") }));
   if (!response?.error) {
     state.settings = response?.settings || state.settings;
   }
@@ -2908,13 +2693,13 @@ async function handleComposerPaste(event, frame) {
 }
 
 async function refreshTabs(frame) {
-  const response = await chrome.runtime.sendMessage({ type: "sloppy.tabs.list" });
+  const response = await chrome.runtime.sendMessage({ type: "sloppy.tabs.list" }).catch(() => ({ tabs: [] }));
   state.tabs = response?.tabs || [];
   renderContext(frame);
 }
 
 async function loadAgents(frame) {
-  const response = await chrome.runtime.sendMessage({ type: "sloppy.agents.list" });
+  const response = await chrome.runtime.sendMessage({ type: "sloppy.agents.list" }).catch(() => ({ agents: [] }));
   state.agents = response?.agents || [];
   state.agentsLoaded = true;
   if (response?.selectedAgentId) {
@@ -2953,7 +2738,7 @@ function renderAgentSetupWarning(frame) {
 }
 
 async function loadModels(frame) {
-  const response = await chrome.runtime.sendMessage({ type: "sloppy.models.list" });
+  const response = await chrome.runtime.sendMessage({ type: "sloppy.models.list" }).catch(() => ({ models: [] }));
   state.models = response?.models || [];
   const settings = ensureSettings();
   if (response?.selectedModel && response.selectedModel !== "default") {
@@ -2968,7 +2753,7 @@ async function loadSlashCommands(frame) {
   const response = await chrome.runtime.sendMessage({
     type: "sloppy.commands.list",
     agentId: state.settings?.defaultAgentID || "sloppy"
-  });
+  }).catch(() => null);
   state.slashCommands = response?.commands?.length
     ? response.commands
     : [
@@ -3324,6 +3109,28 @@ async function sendPrompt(frame) {
   if (!prompt && !state.attachments.length) {
     return;
   }
+  if (widgetEditorIsActive(frame)) {
+    hideCommandMenu(frame);
+    const userAttachments = [...state.attachments];
+    appendMessage({ role: "user", label: t("you"), text: prompt, attachments: userAttachments });
+    textarea.value = "";
+    textarea.style.height = "auto";
+    state.attachments = [];
+    const assistantId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-assistant`;
+    appendMessage({ id: assistantId, role: "assistant", label: t("assistant"), text: "", streaming: true });
+    render(frame);
+
+    const result = typeof updateWidgetDraftFromPrompt === "function"
+      ? await updateWidgetDraftFromPrompt(frame, prompt)
+      : { error: "Widget editor is unavailable." };
+    const message = state.messages.find((candidate) => candidate.id === assistantId);
+    if (message) {
+      message.text = result?.error || result?.text || t("widgetPreviewUpdated");
+      message.streaming = false;
+    }
+    render(frame);
+    return;
+  }
   transitionStartPageToChat(frame);
   hideCommandMenu(frame);
   if (prompt.toLowerCase() === "/help") {
@@ -3435,9 +3242,9 @@ async function initializeStartPage() {
     page: { url: document.location?.href || "", title: document.title || t("startPage") },
     selection: ""
   };
-  state.settings = state.settings || await chrome.runtime.sendMessage({ type: "sloppy.settings.get" });
+  state.settings = state.settings || await chrome.runtime.sendMessage({ type: "sloppy.settings.get" }).catch(() => ({}));
   const panel = ensurePanel();
-  await Promise.all([loadAgents(panel), loadModels(panel), loadSlashCommands(panel)]);
+  await Promise.allSettled([loadAgents(panel), loadModels(panel), loadSlashCommands(panel)]);
   render(panel);
   await openSessions(panel);
   return panel;
@@ -3451,12 +3258,12 @@ async function initializeFullscreenChat() {
     page: launch.page,
     selection: launch.selection || ""
   };
-  state.settings = state.settings || await chrome.runtime.sendMessage({ type: "sloppy.settings.get" });
+  state.settings = state.settings || await chrome.runtime.sendMessage({ type: "sloppy.settings.get" }).catch(() => ({}));
   if (launch.sessionId) {
     state.settings.sessionId = launch.sessionId;
   }
   const panel = ensurePanel();
-  await Promise.all([loadAgents(panel), loadModels(panel), refreshTabs(panel), loadSlashCommands(panel)]);
+  await Promise.allSettled([loadAgents(panel), loadModels(panel), refreshTabs(panel), loadSlashCommands(panel)]);
   if (launch.sessionId) {
     const response = await loadSessionSelection(launch.sessionId);
     if (response?.error) {
