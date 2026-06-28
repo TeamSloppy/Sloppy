@@ -477,6 +477,28 @@ function assistantTextFromStreamEvent(event = {}) {
   return textFromMessage(message);
 }
 
+function runStatusFromStreamEvent(event = {}) {
+  const record = streamEventRecord(event);
+  return record.runStatus || record.run_status || event.runStatus || event.run_status || null;
+}
+
+function runStatusTextFromStreamEvent(event = {}) {
+  const status = runStatusFromStreamEvent(event);
+  return String(status?.details || status?.message || status?.label || "").trim();
+}
+
+function isTerminalRunStatusEvent(event = {}) {
+  const stage = String(runStatusFromStreamEvent(event)?.stage || "").trim().toLowerCase();
+  return stage === "done"
+    || stage === "completed"
+    || stage === "complete"
+    || stage === "interrupted"
+    || stage === "failed"
+    || stage === "error"
+    || stage === "cancelled"
+    || stage === "canceled";
+}
+
 function streamEventRecord(event = {}) {
   return event.event || event.sessionEvent || event;
 }
@@ -656,11 +678,56 @@ async function readSSEStream(body, onEvent) {
   }
 }
 
-function waitForStreamCatchup(streamTask, timeoutMs = 800) {
-  return Promise.race([
-    streamTask,
-    new Promise((resolve) => setTimeout(resolve, timeoutMs))
-  ]).catch(() => {});
+function createStreamCompletionWaiter(timeoutMs = 45_000, settleMs = 1_500) {
+  let resolved = false;
+  let timeoutId = null;
+  let settleTimeoutId = null;
+  let resolvePromise = () => {};
+  const promise = new Promise((resolve) => {
+    resolvePromise = resolve;
+    timeoutId = setTimeout(() => {
+      resolved = true;
+      resolve();
+    }, timeoutMs);
+  }).finally(() => {
+    if (timeoutId) {
+      clearTimeout(timeoutId);
+    }
+    if (settleTimeoutId) {
+      clearTimeout(settleTimeoutId);
+    }
+  });
+
+  return {
+    promise,
+    arm() {
+      if (resolved) {
+        return;
+      }
+      if (settleTimeoutId) {
+        clearTimeout(settleTimeoutId);
+      }
+      settleTimeoutId = setTimeout(() => {
+        settleTimeoutId = null;
+        this.resolve();
+      }, settleMs);
+    },
+    resolve() {
+      if (resolved) {
+        return;
+      }
+      resolved = true;
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      if (settleTimeoutId) {
+        clearTimeout(settleTimeoutId);
+        settleTimeoutId = null;
+      }
+      resolvePromise();
+    }
+  };
 }
 
 async function ensureBrowserContextSession(settings, payload, fetchImpl) {
@@ -728,6 +795,7 @@ async function postBrowserContextViaSessionStream(settings, payload, options, fe
   let sawAssistantMessage = false;
   let abortController = null;
   let streamTask = Promise.resolve();
+  const streamCompletion = createStreamCompletionWaiter();
 
   if (typeof AbortController !== "undefined") {
     abortController = new AbortController();
@@ -751,26 +819,38 @@ async function postBrowserContextViaSessionStream(settings, payload, options, fe
       }
       if (event.type === "assistant_message") {
         sawAssistantMessage = true;
+        streamCompletion.arm();
+      }
+      if (!text && !streamedText && isTerminalRunStatusEvent(event)) {
+        streamedText = runStatusTextFromStreamEvent(event) || streamedText;
+      }
+      if (event.type === "session_error" || event.type === "session_closed" || isTerminalRunStatusEvent(event)) {
+        streamCompletion.resolve();
       }
       options.onEvent?.(event);
+    }).then(() => {
+      streamCompletion.resolve();
     }).catch((error) => {
       if (error?.name !== "AbortError") {
         options.onEvent?.({ type: "session_error", message: String(error?.message || error) });
       }
+      streamCompletion.resolve();
     });
   }
 
   try {
     const body = await postSessionBrowserMessage(settings, payload, encodedAgentId, sessionId, fetchImpl);
     const immediateText = latestAssistantText(body.appendedEvents || []);
-    if (!immediateText && !sawAssistantMessage) {
-      await waitForStreamCatchup(streamTask);
+    const interruptedText = latestInterruptedRunStatusText(body.appendedEvents || []);
+    if (!immediateText && !interruptedText && !sawAssistantMessage) {
+      await streamCompletion.promise;
     }
     const result = browserMessageResult(sessionId, body, streamedText);
     options.onEvent?.({ type: "complete", body: result });
     return result;
   } finally {
     abortController?.abort();
+    streamCompletion.resolve();
     await streamTask.catch(() => {});
   }
 }

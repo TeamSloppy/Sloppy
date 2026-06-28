@@ -161,7 +161,9 @@ Once `sloppy` is in your `PATH`, you can install it as a persistent background s
 sloppy service install
 ```
 
-That's it. The server is now running in the background and will start again on every login.
+On Linux, `sloppy` also checks `systemd` lingering during install so the user service can keep running after logout. If enabling lingering needs `sudo`, the install output prints the exact `loginctl enable-linger` command to run once.
+
+The server is now running in the background and will start again on every login.
 
 To verify:
 
@@ -199,7 +201,7 @@ The path is embedded in the service definition so every restart picks it up auto
 
 **macOS** — registers a LaunchAgent at `~/Library/LaunchAgents/com.sloppy.server.plist`. The OS uses `KeepAlive` to restart the process if it exits. Logs go to `~/.sloppy/logs/service.log`.
 
-**Linux** — creates a systemd user unit at `~/.config/systemd/user/sloppy.service` and enables it with `systemctl --user`. Logs are available via `journalctl --user -u sloppy.service`.
+**Linux** — creates a systemd user unit at `~/.config/systemd/user/sloppy.service` and enables it with `systemctl --user`. Install also checks `loginctl` lingering so the service can survive logout; if auto-enabling lingering is not permitted, `sloppy` prints the one-time `sudo loginctl enable-linger <user>` command. Logs are available via `journalctl --user -u sloppy.service`.
 
 :::
 

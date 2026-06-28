@@ -1015,11 +1015,13 @@ async function updateQuickChatStreaming(event = {}) {
     quick.assistantText = nextText;
   }
   if (event.type === "complete" || event.type === "done") {
-    const finalText = event.body ? agentResponseText(event.body, quick.assistantText) : quick.assistantText;
-    quick.assistantText = finalText || quick.assistantText;
-    quick.streaming = false;
-    if (event.body?.sessionId) {
-      quick.sessionId = event.body.sessionId;
+    if (event.body) {
+      const finalText = agentResponseText(event.body, quick.assistantText);
+      quick.assistantText = finalText || quick.assistantText;
+      quick.streaming = false;
+      if (event.body?.sessionId) {
+        quick.sessionId = event.body.sessionId;
+      }
     }
   }
   if (event.type === "session_error") {
@@ -2956,6 +2958,8 @@ async function updateStreamingMessage(event, frame) {
       const finalText = agentResponseText(event.body, message.text);
       await animateAssistantText(message, finalText, frame);
     } else if (state.streamingAnimation) {
+      return;
+    } else if (message.streaming) {
       return;
     }
     completeAssistantStreaming(message);

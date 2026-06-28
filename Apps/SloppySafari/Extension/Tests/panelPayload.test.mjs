@@ -1600,6 +1600,58 @@ test("postBrowserContextStreaming keeps session stream long enough for late fina
   assert.equal(events.some((event) => event.type === "assistant_message" && event.text === "Final answer"), true);
 });
 
+test("postBrowserContextStreaming waits for terminal run status instead of a short fixed catch-up timeout", async () => {
+  const encoder = new TextEncoder();
+  let streamController = null;
+  const fetchImpl = async (url) => {
+    if (url.endsWith("/v1/agents/sloppy/sessions")) {
+      return Response.json({ id: "session-1" });
+    }
+    if (url.endsWith("/v1/agents/sloppy/sessions/session-1/stream")) {
+      return new Response(new ReadableStream({
+        start(controller) {
+          streamController = controller;
+          controller.enqueue(encoder.encode([
+            "event: session_event",
+            'data: {"kind":"session_event","cursor":1,"event":{"type":"message","message":{"role":"assistant","segments":[{"kind":"thinking","text":"Inspecting"}]}}}',
+            "",
+            ""
+          ].join("\n")));
+        }
+      }), {
+        headers: { "content-type": "text/event-stream" }
+      });
+    }
+    if (url.endsWith("/v1/agents/sloppy/sessions/session-1/messages")) {
+      setTimeout(() => {
+        streamController.enqueue(encoder.encode([
+          "event: session_event",
+          'data: {"kind":"session_event","cursor":2,"event":{"type":"message","message":{"role":"assistant","segments":[{"kind":"text","text":"Final answer after long work"}]}}}',
+          "",
+          "event: session_event",
+          'data: {"kind":"session_event","cursor":3,"event":{"type":"run_status","runStatus":{"stage":"done","label":"Done","details":"Completed."}}}',
+          "",
+          ""
+        ].join("\n")));
+        streamController.close();
+      }, 1200);
+      return Response.json({ appendedEvents: [] });
+    }
+    return new Response(JSON.stringify({ error: "unexpected" }), { status: 500 });
+  };
+
+  const result = await postBrowserContextStreaming(
+    { coreURLString: "http://127.0.0.1:25101", defaultAgentID: "sloppy" },
+    { url: "https://example.com", title: "Example" },
+    "",
+    "Summarize",
+    {},
+    fetchImpl
+  );
+
+  assert.equal(result.text, "Final answer after long work");
+});
+
 test("postBrowserContextStreaming returns interrupted run status details when final assistant text is missing", async () => {
   const encoder = new TextEncoder();
   const fetchImpl = async (url) => {

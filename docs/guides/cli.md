@@ -99,6 +99,8 @@ See [Terminal UI](/tui/overview) for keys, slash commands, model/provider setup,
 
 Install and manage Sloppy as a persistent background service (starts on login, restarts on crash).
 
+On Linux, `sloppy service install` also checks `systemd` lingering so the user service can stay up after logout. If that step requires `sudo`, the command prints the exact one-time `loginctl enable-linger` fix.
+
 ```bash
 sloppy service install                              # register + start (macOS LaunchAgent / Linux systemd)
 sloppy service install --config-path /path/to/sloppy.json

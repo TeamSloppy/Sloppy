@@ -69,6 +69,12 @@ private enum ServicePlatform {
 /// Shared constants and helpers for interacting with the host service manager
 /// (launchctl on macOS, systemctl on Linux).
 enum ServiceManager {
+    enum LinuxLingerResult: Equatable {
+        case alreadyEnabled
+        case enabledNow
+        case requiresManualSetup
+    }
+
     /// Reverse-DNS label used as the LaunchAgent label and systemd unit base name.
     static let label = "com.sloppy.server"
 
@@ -208,6 +214,51 @@ enum ServiceManager {
         """
     }
 
+    static func currentUsername(
+        environment: [String: String] = ProcessInfo.processInfo.environment
+    ) -> String? {
+        if let user = environment["USER"]?.trimmingCharacters(in: .whitespacesAndNewlines), !user.isEmpty {
+            return user
+        }
+
+        let fallback = NSUserName().trimmingCharacters(in: .whitespacesAndNewlines)
+        return fallback.isEmpty ? nil : fallback
+    }
+
+    static func linuxLingerStatusCommand(username: String) -> [String] {
+        ["loginctl", "show-user", username, "-p", "Linger"]
+    }
+
+    static func linuxEnableLingerCommand(username: String) -> [String] {
+        ["loginctl", "enable-linger", username]
+    }
+
+    static func linuxLingerHint(username: String) -> String {
+        "To keep sloppy running without an active login session, enable lingering once: sudo loginctl enable-linger \(username)"
+    }
+
+    static func isLinuxUserLingerEnabled(_ output: String) -> Bool {
+        output
+            .split(whereSeparator: \.isNewline)
+            .contains { line in
+                line.trimmingCharacters(in: .whitespacesAndNewlines) == "Linger=yes"
+            }
+    }
+
+    static func ensureLinuxUserLinger(
+        username: String,
+        shell: ([String]) throws -> String = ServiceManager.shell,
+        shellStatus: ([String]) -> Int32 = ServiceManager.shellStatus
+    ) -> LinuxLingerResult {
+        if let output = try? shell(linuxLingerStatusCommand(username: username)),
+           isLinuxUserLingerEnabled(output) {
+            return .alreadyEnabled
+        }
+
+        let status = shellStatus(linuxEnableLingerCommand(username: username))
+        return status == 0 ? .enabledNow : .requiresManualSetup
+    }
+
     // MARK: Shell helpers
 
     @discardableResult
@@ -244,7 +295,8 @@ enum ServiceManager {
 ///
 /// macOS: writes `~/Library/LaunchAgents/com.sloppy.server.plist` then calls
 /// `launchctl load -w`.
-/// Linux: writes `~/.config/systemd/user/sloppy.service` then calls
+/// Linux: writes `~/.config/systemd/user/sloppy.service`, ensures lingering is
+/// enabled when possible so the user service survives logout, then calls
 /// `systemctl --user enable --now`.
 struct ServiceInstallCommand: AsyncParsableCommand {
     static let configuration = CommandConfiguration(
@@ -323,6 +375,18 @@ struct ServiceInstallCommand: AsyncParsableCommand {
         let unit = ServiceManager.makeSystemdUnit(executablePath: executablePath, configPath: configPath)
         try unit.write(to: serviceURL, atomically: true, encoding: .utf8)
         print(CLIStyle.dim("  Written: \(serviceURL.path)"))
+
+        if let username = ServiceManager.currentUsername() {
+            switch ServiceManager.ensureLinuxUserLinger(username: username) {
+            case .alreadyEnabled:
+                print(CLIStyle.dim("  Linger:  enabled for \(username)"))
+            case .enabledNow:
+                print(CLIStyle.dim("  Linger:  enabled for \(username)"))
+            case .requiresManualSetup:
+                print("\(CLIStyle.yellow("!")) User lingering is not enabled, so the service may stop after logout.")
+                print(CLIStyle.dim("  Fix:     \(ServiceManager.linuxLingerHint(username: username))"))
+            }
+        }
 
         ServiceManager.shellStatus(["systemctl", "--user", "daemon-reload"])
 

@@ -2403,6 +2403,17 @@ test("updateStreamingMessage reveals assistant content field events", async () =
   assert.equal(message.text, "Stream content answer");
 });
 
+test("updateStreamingMessage keeps streaming active for done events without a final body", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const message = { id: "assistant-1", text: "", attachments: [], toolCalls: [], streaming: true };
+  sandbox.__testMessage = message;
+  vm.runInNewContext("state.messages = [__testMessage]; state.streamingMessageId = 'assistant-1';", sandbox);
+
+  await sandbox.updateStreamingMessage({ type: "done" });
+
+  assert.equal(message.streaming, true);
+});
+
 test("normalizeSessionMessages maps session detail events into chat messages", () => {
   const { normalizeSessionMessages } = loadContentScriptSandbox();
   const messages = normalizeSessionMessages([

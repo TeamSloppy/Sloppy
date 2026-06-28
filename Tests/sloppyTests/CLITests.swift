@@ -120,6 +120,68 @@ func serviceMacOSRestartReloadsLaunchAgentPlist() {
     ])
 }
 
+@Test
+func serviceEnsureLinuxUserLingerRunsLoginctlEnableLinger() {
+    var commands: [[String]] = []
+
+    let enabled = ServiceManager.ensureLinuxUserLinger(
+        username: "vlad",
+        shell: { args in
+            commands.append(args)
+            return "Linger=no\n"
+        },
+        shellStatus: { args in
+            commands.append(args)
+            return 0
+        }
+    )
+
+    #expect(enabled == .enabledNow)
+    #expect(commands == [
+        ["loginctl", "show-user", "vlad", "-p", "Linger"],
+        ["loginctl", "enable-linger", "vlad"],
+    ])
+}
+
+@Test
+func serviceEnsureLinuxUserLingerSkipsEnableWhenAlreadyConfigured() {
+    var commands: [[String]] = []
+
+    let enabled = ServiceManager.ensureLinuxUserLinger(
+        username: "vlad",
+        shell: { args in
+            commands.append(args)
+            return "Linger=yes\n"
+        },
+        shellStatus: { args in
+            commands.append(args)
+            return 0
+        }
+    )
+
+    #expect(enabled == .alreadyEnabled)
+    #expect(commands == [["loginctl", "show-user", "vlad", "-p", "Linger"]])
+}
+
+@Test
+func serviceEnsureLinuxUserLingerReturnsManualSetupWhenLoginctlFails() {
+    let enabled = ServiceManager.ensureLinuxUserLinger(
+        username: "vlad",
+        shell: { _ in "Linger=no\n" },
+        shellStatus: { _ in 1 }
+    )
+
+    #expect(enabled == .requiresManualSetup)
+}
+
+@Test
+func serviceLinuxLingerHintIncludesRecoveryCommand() {
+    let hint = ServiceManager.linuxLingerHint(username: "vlad")
+
+    #expect(hint.contains("sudo loginctl enable-linger vlad"))
+    #expect(hint.contains("without an active login session"))
+}
+
 // MARK: - CLIFormatters tests
 
 @Test
