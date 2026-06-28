@@ -179,6 +179,7 @@ async function deleteCreatedWidget(frame, artifactId, options = {}) {
   renderWidgetsGrid(frame);
   renderWidgetPicker(frame);
   if (options.persist) {
+    await chrome.runtime.sendMessage({ type: "sloppy.artifacts.delete", artifactId: id }).catch(() => null);
     state.settings = await chrome.runtime.sendMessage({ type: "sloppy.settings.save", settings: state.settings });
   }
 }
@@ -608,11 +609,17 @@ function renderStartPageShortcutDragHandlers(frame, root) {
 
 function renderStartPageItems(frame) {
   const settings = state.settings || {};
-  const items = Array.isArray(settings.startPageItems) && settings.startPageItems.length
-    ? settings.startPageItems
-    : (settings.startPageShortcuts || []).map((shortcut) => ({ kind: "shortcut", ...shortcut }));
+  const items = normalizedStartPageItems(settings);
   renderStartPageShortcuts(frame, items);
   void hydrateStartPageWidgets(frame, items);
+}
+
+function syncStartPagePreview(frame, options = {}) {
+  if (options.animate === false) {
+    renderStartPageItems(frame);
+    return;
+  }
+  renderStartPageItemsAnimated(frame, () => {});
 }
 
 function normalizedWidgetSize(size) {
@@ -866,6 +873,7 @@ function openWidgetEditor(frame, sourceItemId = null) {
     screen: "widget-editor",
     widgetDraftSourceId: sourceItemId,
     widgetSessionId: null,
+    widgetChatExpanded: false,
     widgetDraft: sourceItem
       ? { ...sourceItem, html: widgetHTMLForItem(sourceItem) || "" }
       : { id: `widget-${Date.now()}`, kind: "widget", title: "", artifactId: "", colSpan: 2, rowSpan: 1, html: "" }
@@ -971,6 +979,7 @@ function commitShortcutDraft(frame) {
     widgetDraft: null,
     widgetDraftSourceId: null
   };
+  syncStartPagePreview(frame);
   renderCustomizeDialog(frame);
 }
 
@@ -1087,6 +1096,11 @@ function renderCustomizeDialog(frame, options = {}) {
   const customizeDialog = frame.querySelector("[data-sloppy-customize-dialog]");
   customizeDialog?.classList?.toggle?.("is-widget-editor", screen === "widget-editor");
   frame.classList?.toggle?.("is-widget-editing", screen === "widget-editor");
+  frame.classList?.toggle?.("is-widget-chat-expanded", screen === "widget-editor" && Boolean(state.customizeNavigation?.widgetChatExpanded));
+  frame.querySelector("[data-sloppy-widget-chat-sheet-toggle]")?.setAttribute?.(
+    "aria-expanded",
+    screen === "widget-editor" && state.customizeNavigation?.widgetChatExpanded ? "true" : "false"
+  );
   if (screen === "general") {
     renderCustomizeGeneralScreen(frame);
     renderCustomizeBottomAction(frame);
@@ -1198,6 +1212,7 @@ async function saveCustomize(frame) {
   };
   state.settings = await chrome.runtime.sendMessage({ type: "sloppy.settings.save", settings });
   closeCustomize(frame);
+  syncStartPagePreview(frame, { animate: false });
   render(frame);
 }
 
@@ -1232,6 +1247,9 @@ function widgetSessionPrompt(prompt) {
     "Widget session context:",
     "- This session is dedicated only to generating and iterating the start-page widget preview.",
     "- Do not answer as a normal page chat; update the widget artifact for the preview.",
+    "- Create or update the preview only with the `artifacts.widget.generate` tool.",
+    "- Never use `files.write`, `files.edit`, or any arbitrary filesystem path for widget output.",
+    "- Persist the result as a widget artifact under the artifact system, not as a standalone file.",
     `- Widget title: ${String(draft.title || "Widget draft").trim()}`,
     `- Widget size: ${Math.max(1, Number(draft.colSpan) || 2)}x${Math.max(1, Number(draft.rowSpan) || 1)}`,
     `- Widget source item id: ${sourceId || "new-widget"}`
@@ -1413,6 +1431,7 @@ function commitWidgetDraft(frame) {
     widgetDraft: null,
     widgetDraftSourceId: null
   };
+  syncStartPagePreview(frame);
   renderCustomizeDialog(frame);
 }
 

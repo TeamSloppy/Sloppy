@@ -66,6 +66,7 @@ struct ToolRegistry: Sendable {
             FilesGrepTool(),
             FilesEditTool(),
             FilesWriteTool(),
+            WidgetArtifactGenerateTool(),
             RuntimeExecTool(),
             RuntimeProcessTool(),
             ComputerClickTool(),

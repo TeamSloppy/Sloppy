@@ -2,6 +2,15 @@ import Foundation
 import Protocols
 
 extension CoreService {
+    private static let widgetEditorAllowedTools: Set<String> = [
+        "artifacts.widget.generate",
+        "planning.select_route",
+        "safari.dom_snapshot",
+        "safari.tabs",
+        "session.complete",
+        "system.list_tools"
+    ]
+
     public enum BrowserContextError: Error {
         case invalidPayload
         case invalidAgentID
@@ -37,6 +46,10 @@ extension CoreService {
             sessionID = created.id
         }
 
+        if Self.isWidgetEditorSession(request.widgetSession) {
+            configureWidgetEditorToolAllowList(sessionID: sessionID)
+        }
+
         let message = Self.browserContextPrompt(
             page: request.page,
             selection: selectionText,
@@ -64,6 +77,17 @@ extension CoreService {
             status: "completed",
             text: assistantText
         )
+    }
+
+    private static func isWidgetEditorSession(_ widgetSession: BrowserWidgetSession?) -> Bool {
+        let normalizedMode = widgetSession?.mode?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased()
+        return normalizedMode == "widget_editor"
+    }
+
+    func configureWidgetEditorToolAllowList(sessionID: String) {
+        sessionSubagentToolAllowList[sessionID] = Self.widgetEditorAllowedTools
     }
 
     static func browserContextPrompt(page: BrowserContextPage, selection: String, browser: BrowserContextBrowser? = nil, prompt: String) -> String {

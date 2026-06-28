@@ -1296,6 +1296,31 @@ public actor SQLiteStore: PersistenceStore {
         )
     }
 
+    /// Removes persisted artifact metadata and content by identifier.
+    public func deleteArtifact(id: String) async -> Bool {
+        let removedFallback = fallbackArtifacts.removeValue(forKey: id) != nil
+#if canImport(CSQLite3)
+        guard let db else {
+            return removedFallback
+        }
+
+        let sql = "DELETE FROM artifacts WHERE id = ?;"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            return removedFallback
+        }
+        defer { sqlite3_finalize(statement) }
+
+        bindText(id, at: 1, statement: statement)
+        guard sqlite3_step(statement) == SQLITE_DONE else {
+            return removedFallback
+        }
+        return sqlite3_changes(db) > 0 || removedFallback
+#else
+        return removedFallback
+#endif
+    }
+
     /// Returns artifact metadata by identifier.
     public func persistedArtifact(id: String) async -> PersistedArtifactRecord? {
 #if canImport(CSQLite3)

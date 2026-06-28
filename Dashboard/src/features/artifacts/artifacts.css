@@ -44,30 +44,45 @@
 }
 
 .artifact-card {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
   min-width: 0;
+  padding: 16px;
+  gap: 12px;
+  min-height: 0;
 }
 
 .artifact-preview {
   display: grid;
   place-items: center;
   width: 100%;
-  max-width: calc(var(--artifact-preview-width, 160) * 1px);
   aspect-ratio: var(--artifact-preview-width, 160) / var(--artifact-preview-height, 120);
   min-height: 120px;
-  margin: 0 auto;
   overflow: hidden;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 8px;
-  background: rgba(255, 255, 255, 0.05);
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 78%, transparent);
 }
 
 .artifact-preview iframe {
   width: 100%;
   height: 100%;
   border: 0;
+  background: #fff;
+}
+
+.artifact-card-description {
+  min-height: 0;
+  -webkit-line-clamp: 2;
+}
+
+.artifact-card-footer {
+  padding-top: 0;
+}
+
+.artifact-card-meta {
+  display: block;
+  width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .artifact-preview-label,

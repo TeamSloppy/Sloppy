@@ -38,11 +38,62 @@ public struct BrowserContextBrowser: Codable, Sendable, Equatable {
     }
 }
 
+public struct BrowserWidgetSessionWidget: Codable, Sendable, Equatable {
+    public var kind: String?
+    public var title: String?
+    public var size: String?
+    public var colSpan: Int?
+    public var rowSpan: Int?
+    public var artifactId: String?
+    public var sourceItemId: String?
+
+    public init(
+        kind: String? = nil,
+        title: String? = nil,
+        size: String? = nil,
+        colSpan: Int? = nil,
+        rowSpan: Int? = nil,
+        artifactId: String? = nil,
+        sourceItemId: String? = nil
+    ) {
+        self.kind = kind
+        self.title = title
+        self.size = size
+        self.colSpan = colSpan
+        self.rowSpan = rowSpan
+        self.artifactId = artifactId
+        self.sourceItemId = sourceItemId
+    }
+}
+
+public struct BrowserWidgetSession: Codable, Sendable, Equatable {
+    public var mode: String?
+    public var isolated: Bool?
+    public var sessionId: String?
+    public var sourceItemId: String?
+    public var widget: BrowserWidgetSessionWidget?
+
+    public init(
+        mode: String? = nil,
+        isolated: Bool? = nil,
+        sessionId: String? = nil,
+        sourceItemId: String? = nil,
+        widget: BrowserWidgetSessionWidget? = nil
+    ) {
+        self.mode = mode
+        self.isolated = isolated
+        self.sessionId = sessionId
+        self.sourceItemId = sourceItemId
+        self.widget = widget
+    }
+}
+
 public struct BrowserContextMessageRequest: Codable, Sendable, Equatable {
     public var source: String
     public var page: BrowserContextPage
     public var selection: BrowserContextSelection
     public var browser: BrowserContextBrowser?
+    public var widgetSession: BrowserWidgetSession?
     public var prompt: String
     public var target: BrowserContextTarget
     public var attachments: [AgentAttachmentUpload]
@@ -53,6 +104,7 @@ public struct BrowserContextMessageRequest: Codable, Sendable, Equatable {
         case page
         case selection
         case browser
+        case widgetSession
         case prompt
         case target
         case attachments
@@ -65,6 +117,7 @@ public struct BrowserContextMessageRequest: Codable, Sendable, Equatable {
         selection: BrowserContextSelection,
         prompt: String,
         browser: BrowserContextBrowser? = nil,
+        widgetSession: BrowserWidgetSession? = nil,
         target: BrowserContextTarget = BrowserContextTarget(),
         attachments: [AgentAttachmentUpload] = [],
         userId: String = "safari_extension"
@@ -73,6 +126,7 @@ public struct BrowserContextMessageRequest: Codable, Sendable, Equatable {
         self.page = page
         self.selection = selection
         self.browser = browser
+        self.widgetSession = widgetSession
         self.prompt = prompt
         self.target = target
         self.attachments = attachments
@@ -85,6 +139,7 @@ public struct BrowserContextMessageRequest: Codable, Sendable, Equatable {
         self.page = try container.decode(BrowserContextPage.self, forKey: .page)
         self.selection = try container.decode(BrowserContextSelection.self, forKey: .selection)
         self.browser = try container.decodeIfPresent(BrowserContextBrowser.self, forKey: .browser)
+        self.widgetSession = try container.decodeIfPresent(BrowserWidgetSession.self, forKey: .widgetSession)
         self.prompt = try container.decode(String.self, forKey: .prompt)
         self.target = try container.decodeIfPresent(BrowserContextTarget.self, forKey: .target) ?? BrowserContextTarget()
         self.attachments = try container.decodeIfPresent([AgentAttachmentUpload].self, forKey: .attachments) ?? []

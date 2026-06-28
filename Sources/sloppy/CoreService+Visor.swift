@@ -22,6 +22,11 @@ extension CoreService {
         return ArtifactDetailResponse(artifact: Self.artifactRecord(from: record))
     }
 
+    public func deleteArtifact(id: String) async -> Bool {
+        await waitForStartup()
+        return await store.deleteArtifact(id: id)
+    }
+
     public func generateWidgetArtifact(_ request: WidgetArtifactGenerateRequest) async throws -> WidgetArtifactGenerateResponse {
         await waitForStartup()
 

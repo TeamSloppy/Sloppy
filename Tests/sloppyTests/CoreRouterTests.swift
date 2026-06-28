@@ -2028,6 +2028,41 @@ func artifactListIncludesPersistedMetadata() async throws {
 }
 
 @Test
+func artifactDeleteRemovesPersistedMetadata() async throws {
+    let service = CoreService(config: .test)
+    await service.store.persistArtifact(
+        record: PersistedArtifactRecord(
+            id: "artifact-delete-test",
+            title: "Clock Widget",
+            kind: "widget",
+            mediaType: "text/html",
+            content: "<!doctype html><html><body>Clock</body></html>",
+            previewText: "Clock",
+            widgetSize: "small",
+            widgetWidth: 160,
+            widgetHeight: 120,
+            widgetEntry: "index.html",
+            bundlePath: ".sloppy/artifacts/widgets/artifact-delete-test/",
+            createdAt: Date(timeIntervalSince1970: 1)
+        )
+    )
+
+    let router = CoreRouter(service: service)
+    let deleteResponse = await router.handle(method: "DELETE", path: "/v1/artifacts/artifact-delete-test", body: nil)
+    #expect(deleteResponse.status == 200)
+
+    let detailResponse = await router.handle(method: "GET", path: "/v1/artifacts/artifact-delete-test", body: nil)
+    #expect(detailResponse.status == 404)
+
+    let listResponse = await router.handle(method: "GET", path: "/v1/artifacts", body: nil)
+    #expect(listResponse.status == 200)
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let payload = try decoder.decode(ArtifactListResponse.self, from: listResponse.body)
+    #expect(!payload.artifacts.contains { $0.id == "artifact-delete-test" })
+}
+
+@Test
 func artifactDetailReturnsPersistedMetadata() async throws {
     let service = CoreService(config: .test)
     await service.store.persistArtifact(
@@ -2243,10 +2278,12 @@ func widgetPreviewRejectsExternalRuntimeHTML() async throws {
     await service.runtime.recover(
         channels: [],
         tasks: [],
+        events: [],
         artifacts: [
             RecoveryArtifactState(
                 id: payload.artifact.id,
-                content: #"<!doctype html><html><body><img src="https://example.com/pixel.png"></body></html>"#
+                content: #"<!doctype html><html><body><img src="https://example.com/pixel.png"></body></html>"#,
+                createdAt: Date(timeIntervalSince1970: 2)
             )
         ]
     )

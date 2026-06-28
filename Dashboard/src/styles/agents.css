@@ -1223,6 +1223,32 @@ body.agent-chat-no-page-scroll .page {
   gap: 4px;
 }
 
+.agent-chat-session-skeleton {
+  gap: 4px;
+}
+
+.agent-chat-session-skeleton-item {
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 58px;
+  padding: 10px 12px;
+  border-left: 2px solid transparent;
+}
+
+.agent-chat-session-skeleton-lines {
+  display: grid;
+  gap: 8px;
+}
+
+.agent-chat-session-skeleton .loading-skeleton__line--strong {
+  width: min(210px, 82%);
+  height: 14px;
+}
+
+.agent-chat-session-skeleton .loading-skeleton__line--short {
+  width: min(118px, 46%);
+  height: 10px;
+}
+
 .agent-chat-session-item {
   all: unset;
   box-sizing: border-box;
@@ -2468,6 +2494,29 @@ body.agent-chat-no-page-scroll .page {
   display: grid;
   gap: 6px;
   min-width: 0;
+}
+
+.agent-chat-run-summary {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  padding-bottom: 10px;
+  margin-bottom: 2px;
+  border-bottom: 1px solid var(--line);
+  color: var(--muted);
+  font-size: 0.82rem;
+  line-height: 1.15;
+}
+
+.agent-chat-run-summary-label {
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.agent-chat-run-summary-arrow {
+  font-size: 16px;
+  opacity: 0.72;
 }
 
 .agent-chat-message-body.user {

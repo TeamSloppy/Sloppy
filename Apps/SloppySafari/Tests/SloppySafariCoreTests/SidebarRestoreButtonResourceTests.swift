@@ -77,6 +77,57 @@ func customizeButtonLivesInsideShell() throws {
 """))
 }
 
+@Test("start page shell keeps composer and widget grid in the visible vertical flow")
+func startPageShellKeepsGridVisible() throws {
+    let packageRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let panelCSSURL = packageRoot.appendingPathComponent("Extension/Resources/panel.css")
+
+    let panelCSS = try String(contentsOf: panelCSSURL, encoding: .utf8)
+
+    #expect(panelCSS.contains("""
+.sloppy-start-page #sloppy-safari-extension-panel .sloppy-shell {
+  position: relative;
+  grid-column: 3;
+  max-width: none;
+  margin: 0 auto;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+  justify-content: center;
+  overflow-y: auto;
+}
+"""))
+    #expect(panelCSS.contains("position: absolute;"))
+    #expect(panelCSS.contains("top: 50%;"))
+    #expect(panelCSS.contains("transform: translate(-50%, -50%) translateY(var(--sloppy-start-surface-offset, 0px));"))
+    #expect(panelCSS.contains("top: calc(50% + 92px);"))
+    #expect(panelCSS.contains("transform: translateX(-50%) translateY(var(--sloppy-start-surface-offset, 0px));"))
+    #expect(panelCSS.contains("--sloppy-start-surface-offset: -148px;"))
+}
+
+@Test("widget editor centers the composer when the chat thread is still empty")
+func widgetEditorCentersComposerWhenThreadIsEmpty() throws {
+    let packageRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let panelCSSURL = packageRoot.appendingPathComponent("Extension/Resources/panel.css")
+
+    let panelCSS = try String(contentsOf: panelCSSURL, encoding: .utf8)
+
+    #expect(panelCSS.contains(""":has(> .sloppy-thread:empty) {
+  justify-content: center;
+}"""))
+    #expect(panelCSS.contains("""> .sloppy-shell > .sloppy-thread:empty {
+  display: none;
+}"""))
+    #expect(panelCSS.contains("margin: auto 18px;"))
+}
+
 @Test("sidebar switches between artifacts and sessions instead of keeping both expanded")
 func sidebarSectionsCollapseEachOther() throws {
     let packageRoot = URL(fileURLWithPath: #filePath)

@@ -174,3 +174,32 @@ func shortcutEditorSupportsBookmarksWhenAvailable() throws {
     #expect(contentScript.contains("data-sloppy-pick-bookmark"))
     #expect(background.contains("sloppy.bookmarks.list"))
 }
+
+@Test("customize commits keep the visible start page preview in sync")
+func customizeCommitsSyncVisibleStartPagePreview() throws {
+    let packageRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let customizeURL = packageRoot.appendingPathComponent("Extension/Resources/startPageCustomize.js")
+
+    let customize = try String(contentsOf: customizeURL, encoding: .utf8)
+
+    #expect(customize.contains("function syncStartPagePreview(frame, options = {})"))
+    #expect(customize.contains("syncStartPagePreview(frame);"))
+    #expect(customize.contains("syncStartPagePreview(frame, { animate: false });"))
+}
+
+@Test("widget picker delete action uses the standard trash symbol mapping")
+func widgetPickerDeleteActionUsesStandardTrashSymbol() throws {
+    let packageRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let contentScriptURL = packageRoot.appendingPathComponent("Extension/Resources/contentScript.js")
+
+    let contentScript = try String(contentsOf: contentScriptURL, encoding: .utf8)
+
+    #expect(contentScript.contains("trash: \"trash\""))
+    #expect(!contentScript.contains("trash: \"icons/trash\""))
+}

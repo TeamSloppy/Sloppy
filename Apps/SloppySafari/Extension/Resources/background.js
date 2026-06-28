@@ -242,6 +242,18 @@ async function getArtifactWidget(settings, artifactId) {
   return body;
 }
 
+async function deleteArtifact(settings, artifactId) {
+  const response = await coreFetch(settings, `/v1/artifacts/${encodeURIComponent(String(artifactId || "").trim())}`, {
+    method: "DELETE",
+    headers: bridgeHeaders(settings)
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(body.error || `artifact_delete_failed_${response.status}`);
+  }
+  return body;
+}
+
 async function generateArtifactWidget(settings, prompt, size) {
   const response = await coreFetch(settings, "/v1/artifacts/widgets/generate", {
     method: "POST",
@@ -662,6 +674,19 @@ if (typeof chrome !== "undefined") {
         })
         .then(sendResponse)
         .catch((error) => sendResponse({ error: error.message || "Widget unavailable." }));
+      return true;
+    }
+    if (message?.type === "sloppy.artifacts.delete") {
+      void loadSettings()
+        .then((settings) => {
+          const artifactId = String(message.artifactId || "").trim();
+          if (!artifactId) {
+            return { error: "artifact_id_required" };
+          }
+          return deleteArtifact(settings, artifactId);
+        })
+        .then(sendResponse)
+        .catch((error) => sendResponse({ error: error.message || "Artifact delete failed." }));
       return true;
     }
     if (message?.type === "sloppy.artifacts.widget.generate") {

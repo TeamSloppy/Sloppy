@@ -1,6 +1,10 @@
 import Foundation
 import Protocols
 
+private struct ArtifactDeleteResponse: Encodable {
+    var deleted: Bool
+}
+
 struct ArtifactsAPIRouter: APIRouter {
     private let service: CoreService
 
@@ -39,6 +43,14 @@ struct ArtifactsAPIRouter: APIRouter {
                 return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.artifactNotFound])
             }
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+        }
+
+        router.delete("/v1/artifacts/:artifactId", metadata: RouteMetadata(summary: "Delete artifact", description: "Removes a persisted local artifact", tags: ["Artifacts"])) { request in
+            let artifactId = request.pathParam("artifactId") ?? ""
+            guard await service.deleteArtifact(id: artifactId) else {
+                return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.artifactNotFound])
+            }
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: ArtifactDeleteResponse(deleted: true))
         }
 
         router.get("/v1/artifacts/:artifactId/content", metadata: RouteMetadata(summary: "Get artifact content", description: "Returns the content of a specific artifact", tags: ["Artifacts"])) { request in

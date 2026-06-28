@@ -100,6 +100,17 @@ enum ToolCatalog {
             ]),
             "required": .array([.string("path"), .string("content")])
         ]),
+        "artifacts.widget.generate": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "html": .object(["type": .string("string")]),
+                "size": .object(["type": .string("string")]),
+                "prompt": .object(["type": .string("string")]),
+                "artifactId": .object(["type": .string("string")]),
+                "title": .object(["type": .string("string")])
+            ]),
+            "required": .array([.string("html"), .string("size"), .string("prompt")])
+        ]),
         "files.edit": .object([
             "type": .string("object"),
             "properties": .object([

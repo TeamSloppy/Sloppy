@@ -391,6 +391,12 @@ public actor InMemoryPersistenceStore: PersistenceStore {
         )
     }
 
+    public func deleteArtifact(id: String) async -> Bool {
+        let removedRecord = artifactRecords.removeValue(forKey: id) != nil
+        let removedContent = artifacts.removeValue(forKey: id) != nil
+        return removedRecord || removedContent
+    }
+
     public func persistedArtifact(id: String) async -> PersistedArtifactRecord? {
         artifactRecords[id]
     }

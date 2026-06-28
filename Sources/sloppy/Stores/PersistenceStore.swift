@@ -392,6 +392,9 @@ public protocol PersistenceStore: Sendable {
     /// Persists an artifact payload by artifact identifier.
     func persistArtifact(id: String, content: String) async
 
+    /// Removes a persisted artifact by identifier.
+    func deleteArtifact(id: String) async -> Bool
+
     /// Returns artifact metadata by identifier when available.
     func persistedArtifact(id: String) async -> PersistedArtifactRecord?
 

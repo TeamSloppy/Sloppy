@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   createAgentSession,
   deleteAgentSession,
@@ -134,6 +134,16 @@ function mergeDashboardSlashCommands(
   }
   return Array.from(byKey.values()).sort((a, b) => a.name.localeCompare(b.name, undefined, { sensitivity: "base" }));
 }
+
+function filterUserSessionsForScope(sessions, scopedProjectId) {
+  const scoped = String(scopedProjectId || "").trim();
+  const serverProjectList = Boolean(scoped);
+  const allSessions = Array.isArray(sessions) ? sortSessionsByUpdate(sessions) : [];
+  return allSessions.filter(
+    (session) => isUserCreatedSession(session) && sessionMatchesProjectScope(session, scoped, serverProjectList)
+  );
+}
+
 const SLASH_CMD_INLINE_PATTERN = /\/([a-z][a-z0-9_-]*)/g;
 
 function commandInvocationPrefix(command) {
@@ -1053,6 +1063,54 @@ function formatFullEventDateTime(value) {
     return "";
   }
   return date.toLocaleString();
+}
+
+function eventCreatedAt(value) {
+  return value?.message?.createdAt || value?.createdAt || "";
+}
+
+function eventCreatedAtMs(value) {
+  const ms = new Date(eventCreatedAt(value) || 0).getTime();
+  return Number.isFinite(ms) ? ms : 0;
+}
+
+function formatGenerationDurationMs(durationMs) {
+  const ms = Number(durationMs || 0);
+  if (!Number.isFinite(ms) || ms <= 0) {
+    return "";
+  }
+  if (ms < 10000) {
+    return `${(ms / 1000).toFixed(1)}s`;
+  }
+  const totalSeconds = Math.round(ms / 1000);
+  if (totalSeconds < 60) {
+    return `${totalSeconds}s`;
+  }
+  const minutes = Math.floor(totalSeconds / 60);
+  const seconds = totalSeconds % 60;
+  return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
+
+function buildAssistantGenerationStarts(events, optimisticUserEvent = null) {
+  const startsByMessageId = new Map();
+  let latestUserStartedAtMs = 0;
+  for (const eventItem of Array.isArray(events) ? events : []) {
+    const role = eventItem?.message?.role;
+    if (role === "user") {
+      latestUserStartedAtMs = eventCreatedAtMs(eventItem);
+      continue;
+    }
+    if (role === "assistant" && eventItem?.id && latestUserStartedAtMs > 0) {
+      startsByMessageId.set(String(eventItem.id), latestUserStartedAtMs);
+    }
+  }
+  if (optimisticUserEvent?.message?.role === "user") {
+    latestUserStartedAtMs = eventCreatedAtMs(optimisticUserEvent);
+  }
+  return {
+    startsByMessageId,
+    latestUserStartedAtMs
+  };
 }
 
 function latestRespondingTextFromEvents(events) {
@@ -2018,6 +2076,7 @@ function buildTimelineItems({
     latestRunStatus,
     (eventItem) => segmentsToPlainText(eventItem?.message?.segments || [])
   );
+  const assistantGeneration = buildAssistantGenerationStarts(safeEvents, optimisticUserEvent);
   const planArtifactsByMessageId = new Map();
   for (const eventItem of safeEvents) {
     const artifact = eventItem?.type === "plan_artifact" ? eventItem?.planArtifact?.artifact : null;
@@ -2065,7 +2124,8 @@ function buildTimelineItems({
         id: extractEventKey(eventItem, index),
         kind: "message",
         event: eventItem,
-        planArtifact: planArtifactsByMessageId.get(String(eventItem.id || "")) || null
+        planArtifact: planArtifactsByMessageId.get(String(eventItem.id || "")) || null,
+        generationStartedAtMs: assistantGeneration.startsByMessageId.get(String(eventItem.id || "")) || 0
       });
       if (deepResearchProcess?.startEventId && deepResearchProcess.startEventId === String(eventItem.id || "")) {
         timelineItems.push({
@@ -2116,7 +2176,8 @@ function buildTimelineItems({
             ? [{ kind: "text", text: streamedAssistantText }]
             : []
         }
-      }
+      },
+      generationStartedAtMs: assistantGeneration.latestUserStartedAtMs
     });
   }
 
@@ -2546,6 +2607,13 @@ function AgentChatEvents({
             const isStreaming = Boolean(timelineItem.isStreaming);
             const isThinkingActive = latestRunStatus?.stage === "thinking" && latestThinkingMessageId === eventKey;
             const planArtifact = timelineItem.planArtifact || null;
+            const generationStartedAtMs = Number(timelineItem.generationStartedAtMs || 0);
+            const messageCreatedAtMs = eventCreatedAtMs(eventItem);
+            const generationDurationMs =
+              role === "assistant" && generationStartedAtMs > 0
+                ? Math.max(0, (isStreaming ? timeNowMs : messageCreatedAtMs || timeNowMs) - generationStartedAtMs)
+                : 0;
+            const generationDurationLabel = formatGenerationDurationMs(generationDurationMs);
 
             return (
               <article key={eventKey} className={`agent-chat-message ${role}${isStreaming ? " streaming" : ""}`} data-testid={`agent-chat-message-${role}-${index}`}>
@@ -2554,6 +2622,14 @@ function AgentChatEvents({
                   <span>{formatEventTime(eventItem?.message?.createdAt || eventItem?.createdAt)}</span>
                 </div>
                 <div className="agent-chat-message-body">
+                  {role === "assistant" && generationDurationLabel && !isThinkingActive ? (
+                    <div className="agent-chat-run-summary" title={`Generated in ${generationDurationLabel}`}>
+                      <span className="agent-chat-run-summary-label">Worked for {generationDurationLabel}</span>
+                      <span className="material-symbols-rounded agent-chat-run-summary-arrow" aria-hidden="true">
+                        chevron_right
+                      </span>
+                    </div>
+                  ) : null}
                   {isWaitingForStream ? (
                     <div className="agent-chat-stream-indicator">
                       <span className="agent-chat-stream-dot" />
@@ -2573,7 +2649,9 @@ function AgentChatEvents({
                           onClick={() => onToggleRecord(thoughtId)}
                           aria-expanded={isThoughtExpanded}
                         >
-                          <span className="agent-chat-tech-trigger-label">Thinking</span>
+                          <span className="agent-chat-tech-trigger-label">
+                            {generationDurationLabel && isThinkingActive ? `Thinking (${generationDurationLabel})` : "Thinking"}
+                          </span>
                           <span className="material-symbols-rounded agent-chat-tech-trigger-arrow" aria-hidden="true">
                             chevron_right
                           </span>
@@ -4644,65 +4722,71 @@ export function AgentChatTab({
       runStateRef.current.abortController = null;
 
       const scoped = projectId && String(projectId).trim() ? String(projectId).trim() : "";
-      const serverProjectList = Boolean(scoped);
       const sessionOpts = scoped ? { projectId: scoped } : undefined;
-      const [sessionsResponse, configResponse] = await Promise.all([
-        fetchAgentSessions(agentId, sessionOpts),
-        fetchAgentConfig(agentId)
-      ]);
-      if (isCancelled) {
-        return;
-      }
+      const configPromise = fetchAgentConfig(agentId)
+        .then((configResponse) => {
+          if (isCancelled || !configResponse || typeof configResponse !== "object") {
+            return;
+          }
+          setSelectedModel(String(configResponse.selectedModel || "").trim());
+          setAvailableModels(Array.isArray(configResponse.availableModels) ? configResponse.availableModels : []);
+        })
+        .catch(() => {});
 
-      if (configResponse && typeof configResponse === "object") {
-        setSelectedModel(String(configResponse.selectedModel || "").trim());
-        setAvailableModels(Array.isArray(configResponse.availableModels) ? configResponse.availableModels : []);
-      }
+      const sessionsPromise = fetchAgentSessions(agentId, sessionOpts)
+        .then(async (sessionsResponse) => {
+          if (isCancelled) {
+            return;
+          }
 
-      const allSessions = Array.isArray(sessionsResponse) ? sortSessionsByUpdate(sessionsResponse) : [];
-      const nextSessions = allSessions.filter(
-        (s) => isUserCreatedSession(s) && sessionMatchesProjectScope(s, scoped, serverProjectList)
-      );
-      setSessions(nextSessions);
-      setIsLoadingSessions(false);
+          if (!Array.isArray(sessionsResponse)) {
+            setStatusText("Failed to load sessions.");
+            setIsLoadingSessions(false);
+            return;
+          }
 
-      if (!Array.isArray(sessionsResponse)) {
-        setStatusText("Failed to load sessions.");
-        return;
-      }
+          const nextSessions = filterUserSessionsForScope(sessionsResponse, scoped);
+          startTransition(() => {
+            setSessions(nextSessions);
+          });
+          setIsLoadingSessions(false);
 
-      if (nextSessions.length === 0) {
-        setStatusText(
-          scoped ? "No sessions for this project yet. Create one." : "No sessions yet. Create one."
-        );
-        return;
-      }
+          if (nextSessions.length === 0) {
+            setStatusText(
+              scoped ? "No sessions for this project yet. Create one." : "No sessions yet. Create one."
+            );
+            return;
+          }
 
-      const count = nextSessions.length;
-      setStatusText(`Loaded ${count} session${count === 1 ? "" : "s"}`);
-      const urlSessionRaw = initialSessionIdRef.current;
-      const urlSessionId =
-        urlSessionRaw && String(urlSessionRaw).trim() ? String(urlSessionRaw).trim() : "";
-      const preferredId =
-        urlSessionId && nextSessions.some((s) => s.id === urlSessionId)
-          ? urlSessionId
-          : nextSessions[0]?.id;
-      if (!preferredId) {
-        setStatusText(
-          scoped ? "No sessions for this project yet. Create one." : "No sessions yet. Create one."
-        );
-        return;
-      }
-      setActiveSessionId(preferredId);
-      await openSession(preferredId, isCancelled);
+          const count = nextSessions.length;
+          setStatusText(`Loaded ${count} session${count === 1 ? "" : "s"}`);
+          const urlSessionRaw = initialSessionIdRef.current;
+          const urlSessionId =
+            urlSessionRaw && String(urlSessionRaw).trim() ? String(urlSessionRaw).trim() : "";
+          const preferredId =
+            urlSessionId && nextSessions.some((session) => session.id === urlSessionId)
+              ? urlSessionId
+              : nextSessions[0]?.id;
+          if (!preferredId) {
+            setStatusText(
+              scoped ? "No sessions for this project yet. Create one." : "No sessions yet. Create one."
+            );
+            return;
+          }
+          setActiveSessionId(preferredId);
+          await openSession(preferredId, isCancelled);
+        })
+        .catch(() => {
+          if (!isCancelled) {
+            setStatusText("Failed to initialize chat.");
+            setIsLoadingSessions(false);
+          }
+        });
+
+      await Promise.allSettled([configPromise, sessionsPromise]);
     }
 
-    bootstrap().catch(() => {
-      if (!isCancelled) {
-        setStatusText("Failed to initialize chat.");
-        setIsLoadingSessions(false);
-      }
-    });
+    bootstrap().catch(() => {});
 
     return () => {
       isCancelled = true;
@@ -4870,12 +4954,10 @@ export function AgentChatTab({
       return;
     }
 
-    const nextSessions = sortSessionsByUpdate(
-      response.filter((s) =>
-        isUserCreatedSession(s) && sessionMatchesProjectScope(s, scoped, Boolean(scoped))
-      )
-    );
-    setSessions(nextSessions);
+    const nextSessions = filterUserSessionsForScope(response, scoped);
+    startTransition(() => {
+      setSessions(nextSessions);
+    });
 
     if (nextSessions.length === 0) {
       setActiveSessionId(null);
@@ -6202,6 +6284,21 @@ export function AgentChatTab({
     );
   }
 
+  function renderSessionSidebarSkeleton() {
+    return (
+      <div className="agent-chat-session-skeleton loading-skeleton loading-skeleton--list" aria-hidden="true">
+        {Array.from({ length: 7 }, (_, index) => (
+          <div key={`session-skeleton-${index}`} className="agent-chat-session-skeleton-item loading-skeleton__row">
+            <div className="agent-chat-session-skeleton-lines">
+              <span className="loading-skeleton__line loading-skeleton__line--strong" />
+              <span className="loading-skeleton__line loading-skeleton__line--short" />
+            </div>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   function toggleSessionDirectory(directoryId) {
     setSessionDirectoryOpenById((previous) => ({
       ...previous,
@@ -6482,9 +6579,11 @@ export function AgentChatTab({
           ) : null}
         </div>
         <div className="agent-chat-session-list" data-testid="agent-chat-session-list">
-          {sessions.length === 0 ? (
+          {isLoadingSessions ? (
+            renderSessionSidebarSkeleton()
+          ) : sessions.length === 0 ? (
             <p className="placeholder-text" style={{ padding: "0 12px" }}>
-              {isLoadingSessions ? "Loading sessions..." : "No sessions"}
+              No sessions
             </p>
           ) : null}
           {sessionSearchNoMatches ? (

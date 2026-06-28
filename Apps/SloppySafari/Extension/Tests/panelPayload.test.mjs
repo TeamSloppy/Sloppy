@@ -509,6 +509,24 @@ test("background sloppy.artifacts.widget fetches widget payload", async () => {
   }
 });
 
+test("background sloppy.artifacts.delete removes artifact through Core", async () => {
+  const runtime = await loadBackgroundRuntime(
+    {},
+    async (url, options) => {
+      assert.equal(url, "http://127.0.0.1:25101/v1/artifacts/widget-1");
+      assert.equal(options.method, "DELETE");
+      return Response.json({ deleted: true });
+    }
+  );
+
+  try {
+    const response = await runtime.sendMessage({ type: "sloppy.artifacts.delete", artifactId: "widget-1" });
+    assert.deepEqual(response, { deleted: true });
+  } finally {
+    runtime.cleanup();
+  }
+});
+
 test("background sloppy.artifacts.widget.generate posts prompt and size", async () => {
   const runtime = await loadBackgroundRuntime(
     {},
@@ -1352,6 +1370,8 @@ test("postBrowserContext falls back to session message endpoints when browser en
   assert.match(requests[2].body.content, /Use `safari\.dom_snapshot` only when live page details are needed/);
   assert.match(requests[2].body.content, /Widget session:/);
   assert.match(requests[2].body.content, /This session is dedicated only to generating and iterating the start-page widget preview\./);
+  assert.match(requests[2].body.content, /Create or update the preview only with the `artifacts\.widget\.generate` tool\./);
+  assert.match(requests[2].body.content, /Never use `files\.write`, `files\.edit`, or any arbitrary filesystem path for widget output\./);
   assert.match(requests[2].body.content, /Widget title: Clock/);
   assert.match(requests[2].body.content, /Existing artifact id: artifact-clock/);
   assert.match(requests[2].body.content, /Привет/);

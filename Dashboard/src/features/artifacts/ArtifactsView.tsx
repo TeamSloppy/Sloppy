@@ -121,9 +121,21 @@ function ArtifactCard({ artifact, coreApi }: { artifact: AnyRecord; coreApi: Art
     "--artifact-preview-width": String(width),
     "--artifact-preview-height": String(height)
   } as CSSProperties;
+  const title = String(artifact?.title || artifact?.id || "Artifact");
+  const kind = String(artifact?.kind || "artifact");
+  const artifactId = typeof artifact?.id === "string" ? artifact.id : "";
+  const description = artifactId
+    ? `ID: ${artifactId}`
+    : kind === "widget"
+      ? "Interactive widget artifact"
+      : "Stored artifact";
 
   return (
-    <article className="artifact-card">
+    <article className="artifact-card skill-card hover-levitate">
+      <div className="skill-card-header">
+        <h4 className="skill-name">{title}</h4>
+        <span className="skill-owner">{kind}</span>
+      </div>
       <div className="artifact-preview" style={previewStyle}>
         {artifact.kind !== "widget" ? <span className="artifact-preview-label">Artifact</span> : null}
         {artifact.kind === "widget" && widgetState === "loading" ? (
@@ -136,8 +148,10 @@ function ArtifactCard({ artifact, coreApi }: { artifact: AnyRecord; coreApi: Art
           <iframe title={artifact.title || artifact.id} sandbox="allow-scripts" srcDoc={String(widget.html)} />
         ) : null}
       </div>
-      <strong>{artifact.title || artifact.id}</strong>
-      <span>{artifact.kind || "artifact"}</span>
+      <p className="skill-description artifact-card-description">{description}</p>
+      <div className="skill-card-footer artifact-card-footer">
+        <span className="skill-installs artifact-card-meta">{artifactId || "No identifier"}</span>
+      </div>
     </article>
   );
 }

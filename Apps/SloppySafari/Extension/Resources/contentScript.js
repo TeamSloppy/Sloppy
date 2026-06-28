@@ -142,7 +142,7 @@ const iconSymbols = {
   project: "folder",
   customize: "gear",
   artifacts: "xmark.triangle.circle.square",
-  trash: "icons/trash"
+  trash: "trash"
 };
 
 function iconSymbol(name) {
@@ -375,6 +375,9 @@ function searchQueryInfo(urlLike = globalThis.location?.href || "") {
     if (/(^|\.)yandex\./.test(host) && path.startsWith("/search")) {
       return "yandex";
     }
+    if (/(^|\.)ya\./.test(host) && path.startsWith("/search")) {
+      return "yandex";
+    }
     if ((host === "duckduckgo.com" || host === "html.duckduckgo.com") && (path === "/" || path.startsWith("/html"))) {
       return "duckduckgo";
     }
@@ -383,7 +386,8 @@ function searchQueryInfo(urlLike = globalThis.location?.href || "") {
   if (!engine) {
     return null;
   }
-  const query = String(url.searchParams.get(engine === "yandex" ? "text" : "q") || "").trim();
+  const isYandex = engine === "yandex" || engine === "ya";
+  const query = String(url.searchParams.get(isYandex ? "text" : "q") || "").trim();
   return query ? { engine, query } : null;
 }
 
@@ -518,6 +522,7 @@ const state = {
   streamingMessageId: null,
   streamingRequestId: null,
   streamingAnimation: null,
+  streamingStatusTimer: null,
   selectionMenuText: "",
   selectionMenuRect: null,
   fullscreenLaunch: null,
@@ -660,6 +665,9 @@ function ensurePanel() {
       <div class="sloppy-sidebar-resizer" data-sloppy-sidebar-resizer role="separator" aria-orientation="vertical" aria-label="${escapeHTML(t("sessions"))}" tabindex="0"></div>
 
       <div class="sloppy-shell">
+      <button class="sloppy-widget-chat-sheet-toggle" type="button" data-sloppy-widget-chat-sheet-toggle aria-label="Toggle widget chat">
+        <span aria-hidden="true"></span>
+      </button>
       <header class="sloppy-topbar">
         <div class="sloppy-topbar-leading">
           ${isFullscreen || isMobile || isStartPageMode() ? `<button class="sloppy-icon-button sloppy-sidebar-toggle sloppy-sidebar-restore" type="button" data-sloppy-sidebar-restore aria-label="${escapeHTML(t("showSidebar"))}">${icon("sidebar")}</button>` : ""}
@@ -701,39 +709,6 @@ function ensurePanel() {
       </form>
       <div class="sloppy-start-shortcuts" data-sloppy-start-shortcuts></div>
       <div class="sloppy-start-config-panel">
-        <dialog class="sloppy-settings-dialog" data-sloppy-settings-dialog>
-          <form method="dialog" class="sloppy-settings-card">
-            <header>
-              <strong>Connection</strong>
-              <button class="sloppy-icon-button" value="cancel" aria-label="${escapeHTML(t("closeSettings"))}">${icon("close")}</button>
-            </header>
-            <label>Core URL<input data-sloppy-core-url placeholder="http://127.0.0.1:25101"></label>
-            <label>Auth token<input data-sloppy-auth-token type="password" autocomplete="off"></label>
-            <label>Default agent<input data-sloppy-default-agent placeholder="sloppy"></label>
-            <div class="sloppy-settings-section">
-              <strong>Mesh</strong>
-              <label class="sloppy-settings-toggle">
-                <input data-sloppy-mesh-enabled type="checkbox">
-                <span>Use mesh relay</span>
-              </label>
-              <label>Invite token<textarea data-sloppy-mesh-invite rows="3"></textarea></label>
-              <label>Target node<input data-sloppy-mesh-target-node></label>
-              <button class="sloppy-settings-save" type="button" data-sloppy-mesh-join>Join mesh</button>
-              <p class="sloppy-settings-note" data-sloppy-mesh-status>Mesh is not configured.</p>
-            </div>
-            <label class="sloppy-settings-toggle">
-              <input data-sloppy-floating-button type="checkbox">
-              <span>Show floating button</span>
-            </label>
-            <label class="sloppy-settings-toggle">
-              <input data-sloppy-selection-bubble-enabled type="checkbox">
-              <span>Show selection bubble</span>
-            </label>
-            <a class="sloppy-settings-link" href="https://sloppy.team" target="_blank" rel="noreferrer">${escapeHTML(t("downloadSloppy"))}</a>
-            <button class="sloppy-settings-save" type="button" data-sloppy-save-settings>Save settings</button>
-          </form>
-        </dialog>
-
         <dialog class="sloppy-settings-dialog sloppy-customize-dialog" data-sloppy-customize-dialog>
           <form method="dialog" class="sloppy-settings-card">
             <div class="sloppy-customize-body" data-sloppy-customize-body></div>
@@ -767,6 +742,39 @@ function ensurePanel() {
         <button class="sloppy-icon-button" type="button" data-sloppy-voice-record aria-label="Record">${icon("mic")}</button>
       </div>
     </section>
+
+    <dialog class="sloppy-settings-dialog" data-sloppy-settings-dialog>
+      <form method="dialog" class="sloppy-settings-card">
+        <header>
+          <strong>Connection</strong>
+          <button class="sloppy-icon-button" value="cancel" aria-label="${escapeHTML(t("closeSettings"))}">${icon("close")}</button>
+        </header>
+        <label>Core URL<input data-sloppy-core-url placeholder="http://127.0.0.1:25101"></label>
+        <label>Auth token<input data-sloppy-auth-token type="password" autocomplete="off"></label>
+        <label>Default agent<input data-sloppy-default-agent placeholder="sloppy"></label>
+        <div class="sloppy-settings-section">
+          <strong>Mesh</strong>
+          <label class="sloppy-settings-toggle">
+            <input data-sloppy-mesh-enabled type="checkbox">
+            <span>Use mesh relay</span>
+          </label>
+          <label>Invite token<textarea data-sloppy-mesh-invite rows="3"></textarea></label>
+          <label>Target node<input data-sloppy-mesh-target-node></label>
+          <button class="sloppy-settings-save" type="button" data-sloppy-mesh-join>Join mesh</button>
+          <p class="sloppy-settings-note" data-sloppy-mesh-status>Mesh is not configured.</p>
+        </div>
+        <label class="sloppy-settings-toggle">
+          <input data-sloppy-floating-button type="checkbox">
+          <span>Show floating button</span>
+        </label>
+        <label class="sloppy-settings-toggle">
+          <input data-sloppy-selection-bubble-enabled type="checkbox">
+          <span>Show selection bubble</span>
+        </label>
+        <a class="sloppy-settings-link" href="https://sloppy.team" target="_blank" rel="noreferrer">${escapeHTML(t("downloadSloppy"))}</a>
+        <button class="sloppy-settings-save" type="button" data-sloppy-save-settings>Save settings</button>
+      </form>
+    </dialog>
 
     <dialog class="sloppy-sessions-dialog" data-sloppy-sessions-dialog>
       <form method="dialog" class="sloppy-sessions-card">
@@ -1246,6 +1254,8 @@ function wireSelectionMenu(menu) {
 }
 
 function wirePanel(frame) {
+  frame.addEventListener("pointerdown", focusPanelControlFromEvent, true);
+  frame.addEventListener("click", focusPanelControlFromEvent, true);
   frame.querySelector("[data-sloppy-close]").addEventListener("click", () => {
     frame.remove();
     renderFloatingButton();
@@ -1421,6 +1431,14 @@ function wirePanel(frame) {
       commitWidgetDraft(frame);
       return;
     }
+    if (event.target?.closest?.("[data-sloppy-shortcut-editor-cancel]")) {
+      navigateCustomize(frame, "widgets");
+      return;
+    }
+    if (event.target?.closest?.("[data-sloppy-shortcut-editor-done]")) {
+      commitShortcutDraft(frame);
+      return;
+    }
     const widgetEditorResizeButton = event.target?.closest?.("[data-sloppy-widget-editor-resize]");
     if (widgetEditorResizeButton) {
       const nextSpan = parseGridSpan(widgetEditorResizeButton.dataset.sloppyWidgetEditorResize);
@@ -1501,6 +1519,15 @@ function wirePanel(frame) {
   });
   frame.querySelector("[data-sloppy-pick-shortcut-widget]")?.addEventListener("click", () => {
     void openShortcutEditor(frame);
+  });
+  frame.querySelector("[data-sloppy-widget-chat-sheet-toggle]")?.addEventListener("click", (event) => {
+    const expanded = !state.customizeNavigation?.widgetChatExpanded;
+    state.customizeNavigation = {
+      ...(state.customizeNavigation || {}),
+      widgetChatExpanded: expanded
+    };
+    frame.classList.toggle("is-widget-chat-expanded", expanded);
+    event.currentTarget?.setAttribute?.("aria-expanded", expanded ? "true" : "false");
   });
   frame.querySelector("[data-sloppy-start-page-background]")?.addEventListener("change", (event) => {
     void readStartPageBackgroundImage(event.target.files?.[0], frame);
@@ -2044,21 +2071,42 @@ function renderThread(frame) {
   thread.scrollTop = thread.scrollHeight;
 }
 
+function formatStreamingElapsed(milliseconds = 0) {
+  const seconds = Math.round((Math.max(0, Number(milliseconds) || 0) / 1000) * 10) / 10;
+  return `${seconds.toFixed(1)}s`;
+}
+
+function assistantElapsedText(message, now = Date.now()) {
+  if (message.role !== "assistant") {
+    return "";
+  }
+  if (typeof message.elapsedMs === "number") {
+    return formatStreamingElapsed(message.elapsedMs);
+  }
+  if (message.streaming && typeof message.startedAt === "number") {
+    return formatStreamingElapsed(now - message.startedAt);
+  }
+  return "";
+}
+
 function renderMessage(message) {
   const attachments = message.attachments?.length
     ? `<div class="sloppy-message-attachments">${message.attachments.map(renderAttachmentChip).join("")}</div>`
     : "";
   const tools = message.toolCalls?.length ? `<div class="sloppy-tools">${message.toolCalls.map(renderToolCall).join("")}</div>` : "";
+  const elapsed = assistantElapsedText(message);
   const thinking = message.role === "assistant" && message.streaming && !message.text
     ? `<div class="sloppy-thinking" aria-label="${escapeHTML(t("thinking"))}"><span>${escapeHTML(t("thinking"))}</span></div>`
     : "";
   const body = message.role === "assistant"
     ? `${thinking}<div class="sloppy-markdown">${renderMarkdown(message.text || "")}</div>`
     : `<p>${escapeHTML(message.text || "")}</p>`;
-  const streaming = message.streaming ? '<span class="sloppy-streaming">Streaming</span>' : "";
+  const meta = message.role === "assistant"
+    ? (elapsed ? `<div class="sloppy-message-meta sloppy-message-meta-assistant">${escapeHTML(elapsed)}</div>` : "")
+    : `<div class="sloppy-message-meta">${escapeHTML(message.label || message.role)}</div>`;
   return `
     <article class="sloppy-message sloppy-message-${message.role}">
-      <div class="sloppy-message-meta">${escapeHTML(message.label || message.role)}${streaming}</div>
+      ${meta}
       <div class="sloppy-message-body">${body}${attachments}${tools}</div>
     </article>
   `;
@@ -2211,6 +2259,17 @@ async function summarizePage(frame) {
   await sendPrompt(frame);
 }
 
+function openPanelDialog(dialog) {
+  if (!dialog || dialog.open) {
+    return;
+  }
+  if (typeof dialog.show === "function") {
+    dialog.show();
+    return;
+  }
+  dialog.setAttribute?.("open", "");
+}
+
 function openSettings(frame) {
   const mesh = state.settings?.mesh || { enabled: false };
   frame.querySelector("[data-sloppy-core-url]").value = state.settings?.coreURLString || "";
@@ -2222,7 +2281,7 @@ function openSettings(frame) {
   frame.querySelector("[data-sloppy-mesh-status]").textContent = meshStatusText(mesh);
   frame.querySelector("[data-sloppy-floating-button]").checked = Boolean(state.settings?.floatingButtonEnabled);
   frame.querySelector("[data-sloppy-selection-bubble-enabled]").checked = selectionBubbleEnabled();
-  frame.querySelector("[data-sloppy-settings-dialog]").showModal();
+  openPanelDialog(frame.querySelector("[data-sloppy-settings-dialog]"));
 }
 
 async function saveSettings(frame) {
@@ -2266,7 +2325,7 @@ async function openSessions(frame, options = {}) {
   const dialog = presentation === "dialog" ? frame.querySelector("[data-sloppy-sessions-dialog]") : null;
   list.innerHTML = `<p class="sloppy-session-empty">${escapeHTML(t("loadingSessions"))}</p>`;
   list.hidden = false;
-  dialog?.showModal?.();
+  openPanelDialog(dialog);
 
   const response = await chrome.runtime.sendMessage({
     type: "sloppy.sessions.list",
@@ -2374,6 +2433,25 @@ function applyCommandSuggestion(frame, commandName, query) {
   textarea.setSelectionRange(caret, caret);
   textarea.focus();
   hideCommandMenu(frame);
+}
+
+function panelFocusableControlFromEvent(event) {
+  const selector = "input, textarea, select, button, a[href], [tabindex]:not([tabindex='-1'])";
+  const target = event.target;
+  const directControl = target?.closest?.(selector);
+  if (directControl) {
+    return directControl;
+  }
+  const labelControl = target?.closest?.("label")?.querySelector?.("input, textarea, select");
+  return labelControl || null;
+}
+
+function focusPanelControlFromEvent(event) {
+  const control = panelFocusableControlFromEvent(event);
+  if (!control || control.disabled || control.hidden) {
+    return;
+  }
+  control.focus?.({ preventScroll: true });
 }
 
 function slashHelpText() {
@@ -2787,8 +2865,48 @@ function appendMessage(message) {
     text: message.text || "",
     attachments: message.attachments || [],
     toolCalls: message.toolCalls || [],
-    streaming: Boolean(message.streaming)
+    streaming: Boolean(message.streaming),
+    startedAt: message.startedAt ?? (message.streaming ? Date.now() : null),
+    elapsedMs: typeof message.elapsedMs === "number" ? message.elapsedMs : null
   });
+}
+
+function stopStreamingStatusTimer() {
+  if (state.streamingStatusTimer) {
+    const clearTimer = window.clearTimeout?.bind(window) || globalThis.clearTimeout?.bind(globalThis) || (() => {});
+    clearTimer(state.streamingStatusTimer);
+    state.streamingStatusTimer = null;
+  }
+}
+
+function startStreamingStatusTimer(frame) {
+  if (!frame || state.streamingStatusTimer) {
+    return;
+  }
+  const setTimer = window.setTimeout?.bind(window) || globalThis.setTimeout?.bind(globalThis);
+  if (!setTimer) {
+    return;
+  }
+  const tick = () => {
+    if (!state.messages.some((message) => message.streaming && message.role === "assistant")) {
+      state.streamingStatusTimer = null;
+      return;
+    }
+    render(frame);
+    state.streamingStatusTimer = setTimer(tick, 100);
+  };
+  state.streamingStatusTimer = setTimer(tick, 100);
+}
+
+function completeAssistantStreaming(message) {
+  if (!message) {
+    return;
+  }
+  message.elapsedMs = typeof message.startedAt === "number"
+    ? Math.max(0, Date.now() - message.startedAt)
+    : 0;
+  message.streaming = false;
+  stopStreamingStatusTimer();
 }
 
 async function updateStreamingMessage(event, frame) {
@@ -2820,6 +2938,7 @@ async function updateStreamingMessage(event, frame) {
   if (event.type === "session_error") {
     stopStreamingAnimation();
     message.text = event.message || message.text || "Session stream failed.";
+    completeAssistantStreaming(message);
   }
   if (event.type === "complete") {
     const finalText = agentResponseText(event.body, message.text);
@@ -2827,7 +2946,7 @@ async function updateStreamingMessage(event, frame) {
     applyAgentResponse(message, { ...event.body, text: finalText });
     await rememberSession(event.body, frame);
     await performAgentBrowserActions(event.body, message);
-    message.streaming = false;
+    completeAssistantStreaming(message);
     if (state.voice.state === "answering") {
       setVoiceState("idle");
     }
@@ -2839,7 +2958,7 @@ async function updateStreamingMessage(event, frame) {
     } else if (state.streamingAnimation) {
       return;
     }
-    message.streaming = false;
+    completeAssistantStreaming(message);
     if (state.voice.state === "answering") {
       setVoiceState("idle");
     }
@@ -3119,6 +3238,7 @@ async function sendPrompt(frame) {
     const assistantId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-assistant`;
     appendMessage({ id: assistantId, role: "assistant", label: t("assistant"), text: "", streaming: true });
     render(frame);
+    startStreamingStatusTimer(frame);
 
     const result = typeof updateWidgetDraftFromPrompt === "function"
       ? await updateWidgetDraftFromPrompt(frame, prompt)
@@ -3126,7 +3246,7 @@ async function sendPrompt(frame) {
     const message = state.messages.find((candidate) => candidate.id === assistantId);
     if (message) {
       message.text = result?.error || result?.text || t("widgetPreviewUpdated");
-      message.streaming = false;
+      completeAssistantStreaming(message);
     }
     render(frame);
     return;
@@ -3166,6 +3286,7 @@ async function sendPrompt(frame) {
     setVoiceState("answering", t("thinking"));
   }
   render(frame);
+  startStreamingStatusTimer(frame);
 
   const requestId = globalThis.crypto?.randomUUID?.() || `${Date.now()}-request`;
   state.streamingRequestId = requestId;
@@ -3184,14 +3305,14 @@ async function sendPrompt(frame) {
   if (response?.error) {
     stopStreamingAnimation();
     message.text = response.error;
-    message.streaming = false;
+    completeAssistantStreaming(message);
   } else {
     const finalText = agentResponseText(response, message.text);
     await animateAssistantText(message, finalText, frame);
     applyAgentResponse(message, { ...response, text: finalText });
     await rememberSession(response, frame);
     await performAgentBrowserActions(response, message);
-    message.streaming = false;
+    completeAssistantStreaming(message);
   }
   state.streamingRequestId = null;
   if (state.voice.state === "sending" || state.voice.state === "answering") {

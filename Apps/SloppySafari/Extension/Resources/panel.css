@@ -336,6 +336,7 @@
   border-radius: 0;
   box-shadow: none;
   justify-content: center;
+  overflow-y: auto;
 }
 
 .sloppy-start-page #sloppy-safari-extension-panel [data-sloppy-close],
@@ -363,12 +364,17 @@
 }
 
 .sloppy-start-page #sloppy-safari-extension-panel .sloppy-composer {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  z-index: 2;
   width: min(620px, calc(100% - 32px));
-  margin: 0 auto;
+  margin: 0;
   background: #202020;
   border-color: #3b3b3b;
   border-radius: 18px;
   box-shadow: none;
+  transform: translate(-50%, -50%) translateY(var(--sloppy-start-surface-offset, 0px));
   transition:
     transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
     opacity 220ms ease,
@@ -391,12 +397,16 @@
 
 .sloppy-start-shortcuts {
   display: grid;
+  position: absolute;
+  top: calc(50% + 92px);
+  left: 50%;
   width: min(620px, calc(100% - 32px));
   grid-template-columns: repeat(4, minmax(0, 1fr));
   grid-auto-rows: 88px;
   grid-auto-flow: dense;
   gap: 8px;
-  margin: 10px auto 0;
+  margin: 0;
+  transform: translateX(-50%) translateY(var(--sloppy-start-surface-offset, 0px));
   transition:
     transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
     opacity 220ms ease;
@@ -478,6 +488,10 @@
   overflow-y: auto;
 }
 
+#sloppy-safari-extension-panel.is-start-customizing:not(.is-widget-editing) {
+  --sloppy-start-surface-offset: -148px;
+}
+
 #sloppy-safari-extension-panel.is-start-customizing .sloppy-composer {
   margin-top: auto;
   margin-inline: auto;
@@ -549,6 +563,18 @@
     rgba(24, 24, 24, 0.86);
   border-color: rgba(255, 255, 255, 0.14);
   border-radius: 22px;
+}
+
+#sloppy-safari-extension-panel.is-widget-editing > .sloppy-app-layout > .sloppy-shell:has(> .sloppy-thread:empty) {
+  justify-content: center;
+}
+
+#sloppy-safari-extension-panel.is-widget-editing > .sloppy-app-layout > .sloppy-shell > .sloppy-thread:empty {
+  display: none;
+}
+
+#sloppy-safari-extension-panel.is-widget-editing > .sloppy-app-layout > .sloppy-shell > .sloppy-thread:empty + .sloppy-composer {
+  margin: auto 18px;
 }
 
 .sloppy-start-page #sloppy-safari-extension-panel .sloppy-start-config-panel .sloppy-start-config-button,
@@ -1002,6 +1028,10 @@
     justify-content: center;
   }
 
+  #sloppy-safari-extension-panel.is-start-customizing:not(.is-widget-editing) .sloppy-shell {
+    padding: max(72px, env(safe-area-inset-top, 0px)) 16px max(12px, env(safe-area-inset-bottom, 0px));
+  }
+
   .sloppy-start-page #sloppy-safari-extension-panel .sloppy-composer {
     width: 100%;
     max-width: 620px;
@@ -1084,6 +1114,10 @@
     -18px 18px 60px rgba(0, 0, 0, 0.42),
     inset 0 1px 0 rgba(255, 255, 255, 0.12);
   backdrop-filter: blur(28px) saturate(1.25);
+}
+
+.sloppy-widget-chat-sheet-toggle {
+  display: none;
 }
 
 .sloppy-spatial-panel-effects #sloppy-safari-extension-panel .sloppy-shell {
@@ -1446,8 +1480,8 @@
   text-transform: uppercase;
 }
 
-.sloppy-streaming {
-  color: #14b8a6;
+.sloppy-message-meta-assistant {
+  color: rgba(232, 232, 232, 0.58);
   text-transform: none;
 }
 
@@ -1474,10 +1508,10 @@
   display: inline-flex;
   width: fit-content;
   align-items: center;
-  padding: 9px 11px;
-  background: rgba(255, 255, 255, 0.07);
-  border: 1px solid rgba(255, 255, 255, 0.11);
-  border-radius: 999px;
+  padding: 0;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
 }
 
 .sloppy-thinking,
@@ -2549,7 +2583,189 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
   outline: none;
 }
 
-@media (max-width: 760px) {
+@media (max-width: 900px) {
+  #sloppy-safari-extension-panel.is-widget-editing {
+    --sloppy-widget-editor-pane-height: calc(var(--sloppy-viewport-height, 100vh) * 0.5);
+    --sloppy-widget-chat-collapsed-height: var(--sloppy-widget-editor-pane-height);
+    --sloppy-widget-chat-expanded-height: var(--sloppy-widget-editor-pane-height);
+    overflow: hidden;
+  }
+
+  #sloppy-safari-extension-panel.is-widget-editing .sloppy-app-layout,
+  #sloppy-safari-extension-panel.is-widget-editing .sloppy-app-layout.is-sidebar-collapsed {
+    display: block;
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  #sloppy-safari-extension-panel.is-widget-editing .sloppy-start-config-panel {
+    position: fixed;
+    top: calc(-1 * var(--sloppy-widget-editor-pane-height));
+    right: 0;
+    bottom: auto;
+    left: 0;
+    z-index: 20;
+    width: auto;
+    height: var(--sloppy-widget-editor-pane-height);
+    padding: 0;
+    transform: none;
+  }
+
+  #sloppy-safari-extension-panel.is-widget-editing .sloppy-customize-dialog.is-widget-editor {
+    top: 0;
+    right: 0;
+    bottom: auto;
+    left: 0;
+    width: 100vw;
+    height: var(--sloppy-widget-editor-pane-height);
+    max-height: var(--sloppy-widget-editor-pane-height);
+    margin: 0;
+  }
+
+  #sloppy-safari-extension-panel.is-widget-editing .sloppy-customize-dialog.is-widget-editor .sloppy-settings-card {
+    height: var(--sloppy-widget-editor-pane-height);
+    padding-bottom: 0;
+  }
+
+  #sloppy-safari-extension-panel.is-widget-editing.is-widget-chat-expanded .sloppy-customize-dialog.is-widget-editor .sloppy-settings-card {
+    padding-bottom: 0;
+  }
+
+  #sloppy-safari-extension-panel.is-widget-editing .sloppy-app-layout > .sloppy-shell {
+    position: fixed;
+    top: var(--sloppy-widget-editor-pane-height);
+    left: 0;
+    right: 0;
+    bottom: auto;
+    z-index: 60;
+    grid-column: 1;
+    display: flex;
+    width: auto;
+    height: var(--sloppy-widget-chat-collapsed-height);
+    max-height: calc(var(--sloppy-viewport-height, 100vh) - 24px);
+    margin: 0;
+    overflow: visible;
+    padding: 44px 16px max(12px, env(safe-area-inset-bottom, 0px));
+    border-radius: 24px 24px 0 0;
+    box-shadow:
+      0 -18px 60px rgba(0, 0, 0, 0.44),
+      inset 0 1px 0 rgba(255, 255, 255, 0.12);
+    transform: translateY(0);
+    transition:
+      height 280ms cubic-bezier(0.22, 1, 0.36, 1),
+      transform 280ms cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 180ms ease;
+  }
+
+  #sloppy-safari-extension-panel.is-widget-editing.is-widget-chat-expanded .sloppy-app-layout > .sloppy-shell {
+    height: var(--sloppy-widget-chat-expanded-height);
+  }
+
+  #sloppy-safari-extension-panel.is-widget-editing .sloppy-widget-chat-sheet-toggle {
+    position: absolute;
+    top: 10px;
+    left: 50%;
+    display: grid;
+    width: 96px;
+    height: 28px;
+    min-height: 28px;
+    place-items: center;
+    padding: 0;
+    cursor: pointer;
+    background: transparent;
+    border: 0;
+    box-shadow: none;
+    transform: translateX(-50%);
+  }
+
+  #sloppy-safari-extension-panel.is-widget-editing .sloppy-widget-chat-sheet-toggle span {
+    display: block;
+    width: 54px;
+    height: 5px;
+    background: rgba(232, 232, 232, 0.24);
+    border-radius: 999px;
+    transition:
+      width 180ms ease,
+      background 180ms ease,
+      transform 180ms ease;
+  }
+
+  #sloppy-safari-extension-panel.is-widget-editing .sloppy-widget-chat-sheet-toggle:hover span,
+  #sloppy-safari-extension-panel.is-widget-editing .sloppy-widget-chat-sheet-toggle:focus-visible span {
+    width: 64px;
+    background: rgba(183, 255, 0, 0.58);
+  }
+
+  #sloppy-safari-extension-panel.is-widget-editing .sloppy-app-layout > .sloppy-shell > .sloppy-topbar,
+  #sloppy-safari-extension-panel.is-widget-editing .sloppy-app-layout > .sloppy-shell > .sloppy-browser-context {
+    display: none;
+  }
+
+  #sloppy-safari-extension-panel.is-widget-editing .sloppy-app-layout > .sloppy-shell > .sloppy-thread {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  #sloppy-safari-extension-panel.is-widget-editing.is-widget-chat-expanded .sloppy-app-layout > .sloppy-shell > .sloppy-topbar {
+    display: none;
+  }
+
+  #sloppy-safari-extension-panel.is-widget-editing.is-widget-chat-expanded .sloppy-app-layout > .sloppy-shell > .sloppy-thread {
+    display: flex;
+    flex: 1 1 auto;
+    min-height: 0;
+  }
+
+  #sloppy-safari-extension-panel.is-widget-editing > .sloppy-app-layout > .sloppy-shell > .sloppy-composer {
+    flex: 0 0 auto;
+    width: auto;
+    margin: 0 12px 12px;
+    border-radius: 22px;
+  }
+
+  #sloppy-safari-extension-panel.is-widget-editing .sloppy-widget-editor-screen {
+    min-height: var(--sloppy-widget-editor-pane-height);
+    height: var(--sloppy-widget-editor-pane-height);
+  }
+
+  #sloppy-safari-extension-panel.is-widget-editing .sloppy-widget-editor-topbar {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+    padding: max(14px, env(safe-area-inset-top, 0px)) 16px 0;
+  }
+
+  #sloppy-safari-extension-panel.is-widget-editing .sloppy-widget-editor-actions {
+    justify-content: space-between;
+  }
+
+  #sloppy-safari-extension-panel.is-widget-editing .sloppy-widget-editor-title {
+    justify-self: start;
+    font-size: 20px;
+  }
+
+  #sloppy-safari-extension-panel.is-widget-editing .sloppy-widget-editor-preview-pane {
+    align-items: center;
+    padding: 18px 16px 56px;
+  }
+
+  #sloppy-safari-extension-panel.is-widget-editing.is-widget-chat-expanded .sloppy-widget-editor-preview-pane {
+    padding-bottom: 56px;
+  }
+
+  #sloppy-safari-extension-panel.is-widget-editing .sloppy-widget-editor-preview {
+    width: min(var(--sloppy-widget-preview-width, 306px), calc(100vw - 32px));
+  }
+
+  #sloppy-safari-extension-panel.is-widget-editing .sloppy-widget-editor-controls {
+    left: 16px;
+    bottom: 12px;
+    margin: 0;
+  }
+
+  #sloppy-safari-extension-panel.is-widget-editing.is-widget-chat-expanded .sloppy-widget-editor-controls {
+    bottom: 12px;
+  }
+
   .sloppy-widget-editor-screen {
     grid-template-rows: auto minmax(0, 1fr);
   }
@@ -3042,7 +3258,10 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
   color: #f4f4f4;
   background: transparent;
   border: 0;
+  -webkit-appearance: none;
+  appearance: none;
   outline: none;
+  box-shadow: none;
   font: 400 34px Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   letter-spacing: 0;
 }

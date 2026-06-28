@@ -40,9 +40,6 @@ public struct SettingsView: View {
                 settingsContent
                 settingsActionButtons
             }
-            .padding(.horizontal, 24)
-            .padding(.vertical, 24)
-            .frame(maxWidth: 560)
             .frame(maxWidth: .infinity)
         }
     #else

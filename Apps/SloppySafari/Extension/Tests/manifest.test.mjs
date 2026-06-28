@@ -214,6 +214,8 @@ test("empty assistant logo is grayscale and shimmers", () => {
 test("streaming assistant messages show a compact thinking label", () => {
   const css = loadPanelCSS();
   assert.match(css, /\.sloppy-thinking\s*\{[\s\S]*display:\s*inline-flex;/);
+  assert.match(css, /\.sloppy-thinking\s*\{[\s\S]*background:\s*transparent;/);
+  assert.match(css, /\.sloppy-thinking\s*\{[\s\S]*border:\s*0;/);
   assert.match(css, /\.sloppy-thinking,\n#sloppy-quick-chat \.sloppy-quick-status\s*\{[\s\S]*animation:\s*sloppy-thinking-shimmer/);
   assert.match(css, /\.sloppy-thinking span\s*\{[\s\S]*font-weight:\s*650;/);
   assert.match(css, /@keyframes sloppy-thinking-shimmer/);
@@ -249,6 +251,13 @@ test("command palette recent sessions scroll independently below the floating in
   assert.match(css, /\.sloppy-command-palette-sessions\s*\{[\s\S]*overflow-y:\s*auto;/);
   assert.match(css, /\.sloppy-command-palette-box > span\s*\{[\s\S]*display:\s*inline-grid;/);
   assert.doesNotMatch(css, /#sloppy-command-palette span\s*\{/);
+});
+
+test("command palette input suppresses native Safari textfield focus chrome", () => {
+  const css = loadPanelCSS();
+
+  assert.match(css, /\.sloppy-command-palette-box input\s*\{[\s\S]*appearance:\s*none;/);
+  assert.match(css, /\.sloppy-command-palette-box input\s*\{[\s\S]*box-shadow:\s*none;/);
 });
 
 test("sidebar shell uses one neutral border for clean rounded corners", () => {

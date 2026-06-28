@@ -94,11 +94,23 @@ function createPanelDocument() {
             }
             return undefined;
           },
+          show() {
+            this.showCalled = true;
+            this.open = true;
+          },
           showModal() {
             this.showModalCalled = true;
+            this.open = true;
           },
           close() {
             this.closeCalled = true;
+            this.open = false;
+          },
+          setAttribute(name, value) {
+            this.attributes = { ...(this.attributes || {}), [name]: value };
+            if (name === "open") {
+              this.open = true;
+            }
           },
           querySelector(selector) {
             const dataMatch = selector.match(/^\[([^\]]+)\]$/);
@@ -269,6 +281,49 @@ test("keyboard shortcut helpers match only the intended combinations", () => {
   assert.equal(matchesCommandPaletteShortcut({ key: "P", metaKey: true, shiftKey: true }), true);
   assert.equal(matchesCommandPaletteShortcut({ key: "P", code: "KeyP", metaKey: true, shiftKey: true }), true);
   assert.equal(matchesCommandPaletteShortcut({ key: "p", metaKey: true }), false);
+});
+
+test("panel pointer focus bridge focuses direct form controls", () => {
+  const { focusPanelControlFromEvent } = loadContentScriptSandbox();
+  const input = {
+    disabled: false,
+    hidden: false,
+    closest(selector) {
+      return selector.includes("input") ? this : null;
+    },
+    focus(options) {
+      this.focusOptions = options;
+    }
+  };
+
+  focusPanelControlFromEvent({ target: input });
+
+  assert.equal(input.focusOptions?.preventScroll, true);
+});
+
+test("panel pointer focus bridge focuses controls inside labels", () => {
+  const { focusPanelControlFromEvent } = loadContentScriptSandbox();
+  const checkbox = {
+    disabled: false,
+    hidden: false,
+    focus(options) {
+      this.focusOptions = options;
+    }
+  };
+  const label = {
+    querySelector(selector) {
+      return selector.includes("input") ? checkbox : null;
+    }
+  };
+  const labelText = {
+    closest(selector) {
+      return selector === "label" ? label : null;
+    }
+  };
+
+  focusPanelControlFromEvent({ target: labelText });
+
+  assert.equal(checkbox.focusOptions?.preventScroll, true);
 });
 
 test("buildChatURL encodes fullscreen chat launch parameters", () => {
@@ -612,6 +667,57 @@ test("open customize enables editing controls on start shortcuts", () => {
   assert.doesNotMatch(customizeBody.innerHTML, /sloppy-grid-item-controls/);
 });
 
+test("open customize enables editing controls for legacy start items without ids", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage() {
+        return Promise.resolve({ artifacts: [] });
+      }
+    }
+  };
+  vm.runInNewContext(`
+    globalThis.SloppyStartPageMode = true;
+    state.settings = {
+      startPageEnabled: true,
+      startPageItems: [
+        {
+          kind: "shortcut",
+          title: "VK",
+          url: "https://vk.com/",
+          colSpan: 1,
+          rowSpan: 1,
+          order: 0
+        },
+        {
+          kind: "widget",
+          artifactId: "widget-1",
+          title: "Widget draft",
+          colSpan: 2,
+          rowSpan: 1,
+          order: 1
+        }
+      ]
+    };
+  `, sandbox);
+
+  const panel = sandbox.ensurePanel();
+  sandbox.render(panel);
+  sandbox.openCustomize(panel);
+
+  const shortcuts = panel.querySelector("[data-sloppy-start-shortcuts]");
+
+  assert.match(shortcuts.innerHTML, /data-sloppy-grid-draggable="https:\/\/vk\.com\/"/);
+  assert.match(shortcuts.innerHTML, /data-sloppy-start-item-menu="https:\/\/vk\.com\/"/);
+  assert.match(shortcuts.innerHTML, /data-sloppy-grid-draggable="widget-1"/);
+  assert.match(shortcuts.innerHTML, /data-sloppy-start-item-menu="widget-1"/);
+});
+
 test("saving customize exits start page editing mode", async () => {
   const sandbox = loadContentScriptSandbox();
   const documentLike = createPanelDocument();
@@ -763,6 +869,7 @@ test("start shortcut content keeps a fixed height inside resized grid cells", ()
   assert.match(startConfigOpenBlock, /margin-top:\s*auto;/);
   assert.match(startConfigOpenBlock, /pointer-events:\s*auto;/);
   assert.match(panelCSS, /#sloppy-safari-extension-panel\.is-start-customizing \.sloppy-shell\s*\{[\s\S]*justify-content:\s*flex-start;[\s\S]*overflow-y:\s*auto;/);
+  assert.match(panelCSS, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*#sloppy-safari-extension-panel\.is-start-customizing:not\(\.is-widget-editing\) \.sloppy-shell\s*\{[\s\S]*padding:\s*max\(72px, env\(safe-area-inset-top, 0px\)\) 16px max\(12px, env\(safe-area-inset-bottom, 0px\)\);/);
   assert.match(startComposerOpenBlock, /margin-top:\s*auto;/);
   assert.match(startComposerOpenBlock, /margin-inline:\s*auto;/);
   assert.match(customizeDialogBlock, /width:\s*100%;/);
@@ -937,6 +1044,25 @@ test("settings and customize use separate dialogs", () => {
   assert.doesNotMatch(customizeBody?.innerHTML || "", /sloppy-customize-toolbar-actions/);
 });
 
+test("settings dialog stays outside start config panel so fixed positioning remains viewport-based", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      }
+    }
+  };
+
+  const panel = sandbox.ensurePanel();
+  const startConfigPanelBlock = panel.innerHTML.match(/<div class="sloppy-start-config-panel">([\s\S]*?)<\/div>\s*<\/div>\s*<\/div>/)?.[1] || "";
+
+  assert.match(panel.innerHTML, /data-sloppy-settings-dialog/);
+  assert.doesNotMatch(startConfigPanelBlock, /data-sloppy-settings-dialog/);
+});
+
 test("customize includes describe widget controls", () => {
   const sandbox = loadContentScriptSandbox();
   const documentLike = createPanelDocument();
@@ -955,6 +1081,7 @@ test("customize includes describe widget controls", () => {
   const customizeDialog = panel.querySelector("[data-sloppy-customize-dialog]");
   const panelCSS = readFileSync(new URL("../Resources/panel.css", import.meta.url), "utf8");
   const editorScreenBlock = panelCSS.match(/\.sloppy-widget-editor-screen\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const expandedTopbarBlock = panelCSS.match(/#sloppy-safari-extension-panel\.is-widget-editing\.is-widget-chat-expanded \.sloppy-app-layout > \.sloppy-shell > \.sloppy-topbar\s*\{[\s\S]*?\n\s*\}/)?.[0] || "";
 
   assert.equal(customizeDialog.classList.toggled.get("is-widget-editor"), true);
   assert.equal(panel.classList.toggled.get("is-widget-editing"), true);
@@ -974,6 +1101,7 @@ test("customize includes describe widget controls", () => {
   assert.doesNotMatch(customizeBody?.innerHTML || "", /sloppy-quick-shell/);
   assert.match(panel.innerHTML, /data-sloppy-thread/);
   assert.match(panel.innerHTML, /data-sloppy-composer/);
+  assert.match(panel.innerHTML, /data-sloppy-widget-chat-sheet-toggle/);
   assert.match(panelCSS, /\.sloppy-customize-dialog\.is-widget-editor\s*\{[\s\S]*position:\s*fixed;[\s\S]*inset:\s*0 0 0 calc\(-1 \* \(100vw - var\(--sloppy-widget-chat-width, 0px\)\)\);[\s\S]*z-index:\s*30;/);
   assert.match(editorScreenBlock, /min-height:\s*100vh;/);
   assert.match(editorScreenBlock, /background:\s*#242424;/);
@@ -985,9 +1113,45 @@ test("customize includes describe widget controls", () => {
   assert.match(panelCSS, /#sloppy-safari-extension-panel\.is-widget-editing \.sloppy-app-layout > \.sloppy-shell\s*\{[\s\S]*grid-column:\s*2;[\s\S]*overflow:\s*visible;/);
   assert.match(panelCSS, /#sloppy-safari-extension-panel\.is-widget-editing > \.sloppy-app-layout > \.sloppy-shell > \.sloppy-thread\s*\{[\s\S]*display:\s*flex;/);
   assert.match(panelCSS, /#sloppy-safari-extension-panel\.is-widget-editing > \.sloppy-app-layout > \.sloppy-shell > \.sloppy-composer\s*\{[\s\S]*display:\s*block;/);
+  assert.match(panelCSS, /\.sloppy-widget-chat-sheet-toggle\s*\{[\s\S]*display:\s*none;/);
+  assert.match(panelCSS, /@media\s*\(max-width:\s*900px\)\s*\{[\s\S]*#sloppy-safari-extension-panel\.is-widget-editing \.sloppy-app-layout,\n\s*#sloppy-safari-extension-panel\.is-widget-editing \.sloppy-app-layout\.is-sidebar-collapsed\s*\{[\s\S]*display:\s*block;[\s\S]*grid-template-columns:\s*minmax\(0, 1fr\);/);
+  assert.match(panelCSS, /--sloppy-widget-editor-pane-height:\s*calc\(var\(--sloppy-viewport-height, 100vh\) \* 0\.5\);/);
+  assert.match(panelCSS, /@media\s*\(max-width:\s*900px\)\s*\{[\s\S]*#sloppy-safari-extension-panel\.is-widget-editing \.sloppy-customize-dialog\.is-widget-editor\s*\{[\s\S]*top:\s*0;[\s\S]*bottom:\s*auto;[\s\S]*height:\s*var\(--sloppy-widget-editor-pane-height\);/);
+  assert.match(panelCSS, /@media\s*\(max-width:\s*900px\)\s*\{[\s\S]*#sloppy-safari-extension-panel\.is-widget-editing \.sloppy-start-config-panel\s*\{[\s\S]*top:\s*calc\(-1 \* var\(--sloppy-widget-editor-pane-height\)\);[\s\S]*bottom:\s*auto;[\s\S]*height:\s*var\(--sloppy-widget-editor-pane-height\);/);
+  assert.match(panelCSS, /@media\s*\(max-width:\s*900px\)\s*\{[\s\S]*#sloppy-safari-extension-panel\.is-widget-editing \.sloppy-app-layout > \.sloppy-shell\s*\{[\s\S]*position:\s*fixed;[\s\S]*top:\s*var\(--sloppy-widget-editor-pane-height\);[\s\S]*bottom:\s*auto;[\s\S]*height:\s*var\(--sloppy-widget-chat-collapsed-height\);/);
+  assert.match(panelCSS, /@media\s*\(max-width:\s*900px\)\s*\{[\s\S]*#sloppy-safari-extension-panel\.is-widget-editing \.sloppy-app-layout > \.sloppy-shell\s*\{[\s\S]*overflow:\s*visible;/);
+  assert.match(panelCSS, /@media\s*\(max-width:\s*900px\)\s*\{[\s\S]*#sloppy-safari-extension-panel\.is-widget-editing \.sloppy-app-layout > \.sloppy-shell\s*\{[\s\S]*padding:\s*44px 16px max\(12px, env\(safe-area-inset-bottom, 0px\)\);/);
+  assert.match(panelCSS, /#sloppy-safari-extension-panel\.is-widget-editing \.sloppy-widget-chat-sheet-toggle\s*\{[\s\S]*position:\s*absolute;[\s\S]*top:\s*10px;[\s\S]*left:\s*50%;[\s\S]*width:\s*96px;[\s\S]*transform:\s*translateX\(-50%\);/);
+  assert.match(panelCSS, /#sloppy-safari-extension-panel\.is-widget-editing\.is-widget-chat-expanded \.sloppy-app-layout > \.sloppy-shell\s*\{[\s\S]*height:\s*var\(--sloppy-widget-chat-expanded-height\);/);
+  assert.match(panelCSS, /#sloppy-safari-extension-panel\.is-widget-editing \.sloppy-app-layout > \.sloppy-shell > \.sloppy-topbar,\n\s*#sloppy-safari-extension-panel\.is-widget-editing \.sloppy-app-layout > \.sloppy-shell > \.sloppy-browser-context\s*\{[\s\S]*display:\s*none;/);
+  assert.match(expandedTopbarBlock, /display:\s*none;/);
+  assert.doesNotMatch(expandedTopbarBlock, /display:\s*flex;/);
+  assert.match(panelCSS, /#sloppy-safari-extension-panel\.is-widget-editing \.sloppy-app-layout > \.sloppy-shell > \.sloppy-thread\s*\{[\s\S]*display:\s*flex;[\s\S]*flex:\s*1 1 auto;/);
   assert.doesNotMatch(panelCSS, /sloppy-widget-editor-chat-shell/);
   assert.doesNotMatch(panelCSS, /sloppy-widget-editor-composer/);
-  assert.match(panelCSS, /@media\s*\(max-width:\s*760px\)\s*\{[\s\S]*\.sloppy-widget-editor-layout\s*\{[\s\S]*grid-template-columns:\s*1fr;/);
+  assert.match(panelCSS, /@media\s*\(max-width:\s*900px\)\s*\{[\s\S]*\.sloppy-widget-editor-layout\s*\{[\s\S]*grid-template-columns:\s*1fr;/);
+});
+
+test("widget editor mobile chat sheet toggle expands the real side chat shell", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      }
+    }
+  };
+
+  const panel = sandbox.ensurePanel();
+  sandbox.openWidgetEditor(panel);
+  const toggle = panel.querySelector("[data-sloppy-widget-chat-sheet-toggle]");
+
+  toggle.listeners.get("click")({ currentTarget: toggle });
+
+  assert.equal(vm.runInNewContext("state.customizeNavigation.widgetChatExpanded", sandbox), true);
+  assert.equal(panel.classList.toggled.get("is-widget-chat-expanded"), true);
 });
 
 test("widget editor sends widget slash command through the shared side chat composer", async () => {
@@ -1036,6 +1200,8 @@ test("widget editor sends widget slash command through the shared side chat comp
   assert.match(streamMessage?.prompt || "", /^\/widget make a clock/);
   assert.match(streamMessage?.prompt || "", /Widget session context:/);
   assert.match(streamMessage?.prompt || "", /This session is dedicated only to generating and iterating the start-page widget preview\./);
+  assert.match(streamMessage?.prompt || "", /Create or update the preview only with the `artifacts\.widget\.generate` tool\./);
+  assert.match(streamMessage?.prompt || "", /Never use `files\.write`, `files\.edit`, or any arbitrary filesystem path for widget output\./);
   assert.equal(streamMessage?.sessionId, "");
   assert.equal(streamMessage?.widgetSession?.mode, "widget_editor");
   assert.equal(streamMessage?.widgetSession?.isolated, true);
@@ -1197,6 +1363,8 @@ test("deleteCreatedWidget removes generated widget artifacts and placed items", 
     [{ id: "shortcut-1", kind: "shortcut", title: "Docs", url: "https://docs.example/", order: 0, colSpan: 1, rowSpan: 1 }]
   );
   assert.equal(vm.runInNewContext("state.widgetHTMLByArtifactId['weather-widget']", sandbox), undefined);
+  assert.equal(savedRequests.at(-2)?.type, "sloppy.artifacts.delete");
+  assert.equal(savedRequests.at(-2)?.artifactId, "weather-widget");
   assert.equal(savedRequests.at(-1)?.type, "sloppy.settings.save");
 });
 
@@ -1222,7 +1390,8 @@ test("clicking sidebar artifacts opens the widgets customize screen", async () =
   const dialog = panel.querySelector("[data-sloppy-customize-dialog]");
   await artifactsButton?.listeners?.get("click")?.();
 
-  assert.equal(dialog?.showModalCalled, true);
+  assert.equal(dialog?.showCalled, true);
+  assert.equal(dialog?.showModalCalled || false, false);
   assert.equal(vm.runInNewContext("state.customizeNavigation.screen", sandbox), "widgets");
 });
 
@@ -1367,7 +1536,8 @@ test("topbar sessions button opens the sessions dialog instead of the app sideba
   const dialog = panel.querySelector("[data-sloppy-sessions-dialog]");
   const dialogList = panel.querySelector("[data-sloppy-session-list]");
   const sidebarList = panel.querySelector("[data-sloppy-sidebar-session-list]");
-  assert.equal(dialog.showModalCalled, true);
+  assert.equal(dialog.showCalled, true);
+  assert.equal(dialog.showModalCalled || false, false);
   assert.match(dialogList.innerHTML, /Second/);
   assert.doesNotMatch(sidebarList.innerHTML, /Second/);
 });
@@ -1458,6 +1628,57 @@ test("shortcut bookmark cards update the draft after async bookmark render", asy
   );
   assert.match(customizeBody?.innerHTML || "", /value="GitHub"/);
   assert.match(customizeBody?.innerHTML || "", /value="https:\/\/github\.com\/"/);
+});
+
+test("shortcut editor done and cancel actions work after dynamic render", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage(message) {
+        if (message?.type === "sloppy.bookmarks.list") {
+          return Promise.resolve({ error: "bookmarks_unavailable" });
+        }
+        return Promise.resolve({});
+      }
+    }
+  };
+  vm.runInNewContext("state.settings = { startPageItems: [] };", sandbox);
+  const panel = sandbox.ensurePanel();
+  const customizeBody = panel.querySelector("[data-sloppy-customize-body]");
+
+  await sandbox.openShortcutEditor(panel);
+  await customizeBody.listeners.get("click")({
+    target: {
+      closest(selector) {
+        return selector === "[data-sloppy-shortcut-editor-cancel]" ? {} : null;
+      }
+    }
+  });
+
+  assert.equal(vm.runInNewContext("state.customizeNavigation.screen", sandbox), "widgets");
+
+  await sandbox.openShortcutEditor(panel, null, {
+    title: "Library Dashboard",
+    url: "https://mobile-libs.s3-website.mds.yandex.net/"
+  });
+  await customizeBody.listeners.get("click")({
+    target: {
+      closest(selector) {
+        return selector === "[data-sloppy-shortcut-editor-done]" ? {} : null;
+      }
+    }
+  });
+
+  const savedItems = JSON.parse(vm.runInNewContext("JSON.stringify(state.settings.startPageItems)", sandbox));
+  assert.equal(vm.runInNewContext("state.customizeNavigation.screen", sandbox), "widgets");
+  assert.equal(savedItems.length, 1);
+  assert.equal(savedItems[0].title, "Library Dashboard");
+  assert.equal(savedItems[0].url, "https://mobile-libs.s3-website.mds.yandex.net/");
 });
 
 test("shortcut editor hides bookmark list when bookmarks are unavailable", async () => {
@@ -2105,6 +2326,32 @@ test("agentResponseText falls back to interrupted run status details when no ass
   assert.equal(text, "Model provider error: unsupportedModel(\"opencode:openai-yandex-team/gpt-5.4\")");
 });
 
+test("formatStreamingElapsed renders assistant timing in seconds", () => {
+  const sandbox = loadContentScriptSandbox();
+
+  assert.equal(sandbox.formatStreamingElapsed(0), "0.0s");
+  assert.equal(sandbox.formatStreamingElapsed(850), "0.9s");
+  assert.equal(sandbox.formatStreamingElapsed(12_340), "12.3s");
+});
+
+test("renderMessage shows assistant elapsed time without assistant or streaming labels", () => {
+  const sandbox = loadContentScriptSandbox();
+  const html = sandbox.renderMessage({
+    role: "assistant",
+    label: "Assistant",
+    text: "",
+    attachments: [],
+    toolCalls: [],
+    streaming: true,
+    startedAt: Date.now() - 850
+  });
+
+  assert.match(html, /sloppy-message-meta[\s\S]*0\.[89]s/);
+  assert.match(html, /sloppy-thinking/);
+  assert.doesNotMatch(html, /Assistant/);
+  assert.doesNotMatch(html, /Streaming/);
+});
+
 test("updateStreamingMessage replaces accumulated session deltas", async () => {
   const sandbox = loadContentScriptSandbox();
   const message = { id: "assistant-1", text: "", attachments: [], toolCalls: [], streaming: true };
@@ -2284,7 +2531,9 @@ test("openSettings loads mesh settings values into the dialog", () => {
     assert.equal(panel.querySelector("[data-sloppy-mesh-enabled]").checked, true);
     assert.equal(panel.querySelector("[data-sloppy-mesh-target-node]").value, "node-42");
     assert.equal(panel.querySelector("[data-sloppy-mesh-status]").textContent, "Mesh: Test Mesh as local-node");
-    assert.equal(panel.querySelector("[data-sloppy-settings-dialog]").showModalCalled, true);
+    const dialog = panel.querySelector("[data-sloppy-settings-dialog]");
+    assert.equal(dialog.showCalled, true);
+    assert.equal(dialog.showModalCalled || false, false);
   });
 });
 
