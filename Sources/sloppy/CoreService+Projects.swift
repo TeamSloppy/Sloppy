@@ -2129,6 +2129,10 @@ extension CoreService {
         projectDirectoryURL(projectID: projectID).appendingPathComponent(".meta", isDirectory: true)
     }
 
+    func projectMetaStore() -> ProjectMetaStore {
+        ProjectMetaStore(workspaceRootURL: workspaceRootURL)
+    }
+
     func projectMetaMemoryFileURL(projectID: String) -> URL {
         projectMetaDirectoryURL(projectID: projectID).appendingPathComponent("MEMORY.md", isDirectory: false)
     }
