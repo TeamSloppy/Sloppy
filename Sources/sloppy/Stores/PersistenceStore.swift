@@ -419,6 +419,24 @@ public protocol PersistenceStore: Sendable {
     /// Deletes one dashboard project and all nested records.
     func deleteProject(id: String) async
 
+    /// Lists durable initiative records for one project.
+    func listInitiatives(projectID: String) async -> [InitiativeRecord]
+
+    /// Returns one initiative record when present.
+    func getInitiative(projectID: String, initiativeID: String) async -> InitiativeRecord?
+
+    /// Creates or replaces one initiative record.
+    func saveInitiative(_ record: InitiativeRecord) async
+
+    /// Deletes one initiative and its nested decision packets.
+    func deleteInitiative(projectID: String, initiativeID: String) async -> Bool
+
+    /// Lists decision packets for one initiative ordered by creation time.
+    func listDecisionPackets(projectID: String, initiativeID: String) async -> [DecisionPacketRecord]
+
+    /// Creates or replaces one decision packet.
+    func saveDecisionPacket(_ record: DecisionPacketRecord) async
+
     /// Lists all channel plugin records.
     func listChannelPlugins() async -> [ChannelPluginRecord]
 

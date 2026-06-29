@@ -31,6 +31,8 @@ public actor InMemoryPersistenceStore: PersistenceStore {
     private var channels: [String: PersistedChannelRecord] = [:]
     private var tasks: [String: PersistedTaskRecord] = [:]
     private var projects: [String: ProjectRecord] = [:]
+    private var initiatives: [String: InitiativeRecord] = [:]
+    private var decisionPackets: [String: DecisionPacketRecord] = [:]
     private var selfImprovementProposalReviewJobs: [String: SelfImprovementProposalReviewJob] = [:]
     private var autodreamSessionReviews: [String: AutodreamSessionReviewRecord] = [:]
     private var workflowRuns: [String: WorkflowRun] = [:]
@@ -429,6 +431,44 @@ public actor InMemoryPersistenceStore: PersistenceStore {
 
     public func deleteProject(id: String) async {
         projects[id] = nil
+    }
+
+    public func listInitiatives(projectID: String) async -> [InitiativeRecord] {
+        initiatives.values
+            .filter { $0.projectID == projectID }
+            .sorted { $0.createdAt < $1.createdAt }
+    }
+
+    public func getInitiative(projectID: String, initiativeID: String) async -> InitiativeRecord? {
+        guard let record = initiatives[initiativeID], record.projectID == projectID else {
+            return nil
+        }
+        return record
+    }
+
+    public func saveInitiative(_ record: InitiativeRecord) async {
+        initiatives[record.id] = record
+    }
+
+    public func deleteInitiative(projectID: String, initiativeID: String) async -> Bool {
+        guard let record = initiatives[initiativeID], record.projectID == projectID else {
+            return false
+        }
+        initiatives[initiativeID] = nil
+        decisionPackets = decisionPackets.filter { _, packet in
+            !(packet.projectID == projectID && packet.initiativeID == record.id)
+        }
+        return true
+    }
+
+    public func listDecisionPackets(projectID: String, initiativeID: String) async -> [DecisionPacketRecord] {
+        decisionPackets.values
+            .filter { $0.projectID == projectID && $0.initiativeID == initiativeID }
+            .sorted { $0.createdAt < $1.createdAt }
+    }
+
+    public func saveDecisionPacket(_ record: DecisionPacketRecord) async {
+        decisionPackets[record.id] = record
     }
 
     private var cronTasks: [String: AgentCronTask] = [:]
@@ -969,6 +1009,43 @@ enum CorePersistenceFactory {
         );
 
         CREATE INDEX IF NOT EXISTS idx_dashboard_project_tasks_project ON dashboard_project_tasks(project_id);
+
+        CREATE TABLE IF NOT EXISTS project_initiatives (
+            id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            title TEXT NOT NULL,
+            goal TEXT NOT NULL,
+            phase TEXT NOT NULL,
+            execution_mode TEXT NOT NULL,
+            success_metrics_json TEXT NOT NULL DEFAULT '[]',
+            constraints_json TEXT NOT NULL DEFAULT '[]',
+            resume_point TEXT,
+            blocker TEXT,
+            metadata_json TEXT NOT NULL DEFAULT '{}',
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (project_id, id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_project_initiatives_project ON project_initiatives(project_id, created_at DESC);
+
+        CREATE TABLE IF NOT EXISTS initiative_decision_packets (
+            id TEXT NOT NULL,
+            project_id TEXT NOT NULL,
+            initiative_id TEXT NOT NULL,
+            summary TEXT NOT NULL,
+            rationale TEXT NOT NULL,
+            tradeoffs_json TEXT NOT NULL DEFAULT '[]',
+            requested_action TEXT NOT NULL,
+            resume_point TEXT,
+            status TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (project_id, id)
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_initiative_decision_packets_initiative
+            ON initiative_decision_packets(project_id, initiative_id, created_at DESC);
 
         CREATE TABLE IF NOT EXISTS channel_plugins (
             id TEXT PRIMARY KEY,

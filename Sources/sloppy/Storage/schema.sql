@@ -44,6 +44,43 @@ CREATE TABLE IF NOT EXISTS artifacts (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS project_initiatives (
+    id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    title TEXT NOT NULL,
+    goal TEXT NOT NULL,
+    phase TEXT NOT NULL,
+    execution_mode TEXT NOT NULL,
+    success_metrics_json TEXT NOT NULL DEFAULT '[]',
+    constraints_json TEXT NOT NULL DEFAULT '[]',
+    resume_point TEXT,
+    blocker TEXT,
+    metadata_json TEXT NOT NULL DEFAULT '{}',
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (project_id, id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_project_initiatives_project ON project_initiatives(project_id, created_at DESC);
+
+CREATE TABLE IF NOT EXISTS initiative_decision_packets (
+    id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    initiative_id TEXT NOT NULL,
+    summary TEXT NOT NULL,
+    rationale TEXT NOT NULL,
+    tradeoffs_json TEXT NOT NULL DEFAULT '[]',
+    requested_action TEXT NOT NULL,
+    resume_point TEXT,
+    status TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL,
+    PRIMARY KEY (project_id, id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_initiative_decision_packets_initiative
+    ON initiative_decision_packets(project_id, initiative_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS memory_bulletins (
     id TEXT PRIMARY KEY,
     headline TEXT NOT NULL,
