@@ -1,6 +1,6 @@
 import Foundation
-import SwiftUI
 import Observation
+import SwiftUI
 import SloppyClientCore
 import SloppyClientUI
 
@@ -31,17 +31,11 @@ final class RootShellViewModel {
         connectionMonitor = ConnectionMonitor(baseURL: URL(string: "http://localhost:25101")!)
     }
 
-    func startDeepLinkListener() {
-        Task { @MainActor in
-            let notifications = NotificationCenter.default.sloppyNotifications(named: .adaEngineOpenURL)
-            for await notification in notifications {
-                guard let url = notification.rawValue.object as? URL,
-                      let deepLink = DeepLink.parse(url),
-                      let serverURL = deepLink.serverURL else { continue }
-                settings.useServer(deepLink.savedServer)
-                startConnected(url: serverURL)
-            }
-        }
+    func handleDeepLink(_ url: URL) {
+        guard let deepLink = DeepLink.parse(url),
+              let serverURL = deepLink.serverURL else { return }
+        settings.useServer(deepLink.savedServer)
+        startConnected(url: serverURL)
     }
 
     func startDesktopWindowIntegration() {

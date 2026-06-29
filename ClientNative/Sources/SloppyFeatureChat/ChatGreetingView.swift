@@ -22,7 +22,7 @@ public struct ChatGreetingView: View {
             Text("Hi Camille,\nwhat can I help with?")
                 .font(.system(size: isPhone ? ty.title : ty.hero))
                 .foregroundColor(c.textPrimary)
-                .multilineTextAligment(.center)
+                .multilineTextAlignment(.center)
                 .lineLimit(isPhone ? 3 : 2)
                 .frame(minWidth: 0, maxWidth: .infinity)
         }

@@ -783,6 +783,39 @@ function browserMessageResult(sessionId, body, streamedText = "") {
   };
 }
 
+async function loadBrowserContextSessionDetail(settings, encodedAgentId, sessionId, agentId, fetchImpl) {
+  const endpoint = `/v1/agents/${encodedAgentId}/sessions/${encodeURIComponent(sessionId)}`;
+  const response = await coreFetch(settings, endpoint, {
+    headers: headersForSettings(settings)
+  }, fetchImpl);
+  return parseJSONResponse(response, {
+    agentId,
+    endpoint
+  });
+}
+
+async function recoverBrowserMessageResultFromSession(settings, encodedAgentId, sessionId, agentId, fetchImpl, attempts = 5, delayMs = 350) {
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    const detail = await loadBrowserContextSessionDetail(settings, encodedAgentId, sessionId, agentId, fetchImpl).catch(() => null);
+    const events = detail?.events || [];
+    const text = latestAssistantText(events) || latestInterruptedRunStatusText(events);
+    const assistantEvent = [...events].reverse().find((event) => messageFromEvent(event)?.role === "assistant");
+    const assistantMessage = messageFromEvent(assistantEvent);
+    if (text) {
+      return {
+        sessionId,
+        messageId: assistantMessage?.id || assistantEvent?.id || null,
+        status: "completed",
+        text
+      };
+    }
+    if (attempt < attempts - 1) {
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+    }
+  }
+  return null;
+}
+
 async function postBrowserContextLegacy(settings, payload, fetchImpl) {
   const { encodedAgentId, sessionId } = await ensureBrowserContextSession(settings, payload, fetchImpl);
   const body = await postSessionBrowserMessage(settings, payload, encodedAgentId, sessionId, fetchImpl);
@@ -845,7 +878,16 @@ async function postBrowserContextViaSessionStream(settings, payload, options, fe
     if (!immediateText && !interruptedText && !sawAssistantMessage) {
       await streamCompletion.promise;
     }
-    const result = browserMessageResult(sessionId, body, streamedText);
+    let result = browserMessageResult(sessionId, body, streamedText);
+    if (!String(result.text || "").trim()) {
+      result = await recoverBrowserMessageResultFromSession(
+        settings,
+        encodedAgentId,
+        sessionId,
+        payload.target.agentId,
+        fetchImpl
+      ) || result;
+    }
     options.onEvent?.({ type: "complete", body: result });
     return result;
   } finally {

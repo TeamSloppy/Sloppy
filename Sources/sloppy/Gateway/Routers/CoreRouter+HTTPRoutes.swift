@@ -8,6 +8,7 @@ extension CoreRouter {
             ChannelsAPIRouter(service: service),
             SessionsAPIRouter(service: service),
             ProjectsAPIRouter(service: service),
+            ProjectAutomationsAPIRouter(service: service),
             ProjectWorkflowsAPIRouter(service: service),
             TasksAPIRouter(service: service),
             NodeMeshAPIRouter(service: service),

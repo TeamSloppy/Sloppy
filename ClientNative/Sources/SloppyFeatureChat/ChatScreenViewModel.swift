@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import Observation
 import SloppyClientCore
+import SloppyClientUI
 
 @Observable
 @MainActor

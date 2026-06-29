@@ -19,7 +19,6 @@ let package = Package(
         .library(name: "SloppyFeatureChat", targets: ["SloppyFeatureChat"])
     ],
     dependencies: [
-        .package(name: "SloppyComputerControl", path: "../Packages/SloppyComputerControl"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.6.0"),
     ],
     targets: [

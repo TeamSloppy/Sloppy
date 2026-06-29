@@ -1,72 +1,83 @@
-import Foundation
 import SwiftUI
 
 public enum MaterialSymbol: String, CaseIterable, Sendable {
-    case add = "\u{e145}"
-    case arrowForward = "\u{e5c8}"
-    case arrowUpward = "\u{e5d8}"
-    case autoAwesome = "\u{e65f}"
-    case chatAddOn = "\u{f0f3}"
-    case check = "\u{e5ca}"
-    case close = "\u{e5cd}"
-    case collapseContent = "\u{f507}"
-    case expandMore = "\u{e5cf}"
-    case fiberManualRecord = "\u{e061}"
-    case folder = "\u{e2c7}"
-    case keyboardCommandKey = "\u{eae7}"
-    case keyboardReturn = "\u{e31b}"
-    case menu = "\u{e5d2}"
-    case moreHoriz = "\u{e5d3}"
-    case openInNew = "\u{e89e}"
-    case radioButtonChecked = "\u{e837}"
-    case radioButtonPartial = "\u{f560}"
-    case pushPin = "\u{f10d}"
-    case settings = "\u{e8b8}"
-    case warning = "\u{e002}"
+    case add
+    case arrowForward
+    case arrowUpward
+    case autoAwesome
+    case chatAddOn
+    case check
+    case close
+    case collapseContent
+    case expandMore
+    case fiberManualRecord
+    case folder
+    case keyboardCommandKey
+    case keyboardReturn
+    case menu
+    case moreHoriz
+    case openInNew
+    case radioButtonChecked
+    case radioButtonPartial
+    case pushPin
+    case settings
+    case warning
 
-    var codepoint: UInt32 {
-        rawValue.unicodeScalars.first?.value ?? 0
+    var systemName: String {
+        switch self {
+        case .add: "plus"
+        case .arrowForward: "arrow.forward"
+        case .arrowUpward: "arrow.up"
+        case .autoAwesome: "sparkles"
+        case .chatAddOn: "plus.message"
+        case .check: "checkmark"
+        case .close: "xmark"
+        case .collapseContent: "rectangle.compress.vertical"
+        case .expandMore: "chevron.down"
+        case .fiberManualRecord: "circle.fill"
+        case .folder: "folder"
+        case .keyboardCommandKey: "command"
+        case .keyboardReturn: "return"
+        case .menu: "line.3.horizontal"
+        case .moreHoriz: "ellipsis"
+        case .openInNew: "arrow.up.right.square"
+        case .radioButtonChecked: "circle.inset.filled"
+        case .radioButtonPartial: "circle.lefthalf.filled"
+        case .pushPin: "pin.fill"
+        case .settings: "gearshape"
+        case .warning: "exclamationmark.triangle"
+        }
+    }
+}
+
+public enum AppIcon: Sendable {
+    case home
+    case star
+    case gamedev
+
+    var systemName: String {
+        switch self {
+        case .home: "house.fill"
+        case .star: "star.fill"
+        case .gamedev: "gamecontroller.fill"
+        }
     }
 }
 
 public enum Icons {
-    public static let home = IconsAtlas.image(.home)
-    public static let star = IconsAtlas.image(.star)
-    public static let gamedev = IconsAtlas.image(.gamedev)
-
-    public static func materialSymbolsRounded(size: Double) -> Font {
-        Font(fontResource: materialSymbolsRoundedResource, pointSize: size)
+    public static func image(_ icon: AppIcon) -> Image {
+        Image(systemName: icon.systemName)
     }
 
-    @MainActor public static func symbol(_ symbol: MaterialSymbol, size: Double) -> some View {
-        Text(symbol.rawValue)
-            .font(materialSymbolsRounded(size: size))
-            .frame(width: Float(size), height: Float(size))
+    public static let home = image(.home)
+    public static let star = image(.star)
+    public static let gamedev = image(.gamedev)
+
+    @MainActor
+    public static func symbol(_ symbol: MaterialSymbol, size: Double) -> some View {
+        Image(systemName: symbol.systemName)
+            .font(.system(size: size))
+            .symbolRenderingMode(.monochrome)
+            .frame(width: size, height: size)
     }
-
-    private static let materialSymbolsRoundedResource: FontResource = {
-        let url = Bundle.module.url(
-            forResource: "MaterialSymbolsRounded",
-            withExtension: "ttf"
-        ) ?? Bundle.module.url(
-            forResource: "MaterialSymbolsRounded",
-            withExtension: "ttf",
-            subdirectory: "Fonts/MaterialSymbols"
-        )
-
-        guard let url else {
-            fatalError("[Icons]: MaterialSymbolsRounded.ttf is missing from SloppyClientUI resources")
-        }
-
-        guard let resource = FontResource.custom(
-            fontPath: url,
-            emFontScale: 48,
-            includeDefaultCharset: false,
-            additionalCodepoints: MaterialSymbol.allCases.map(\.codepoint)
-        ) else {
-            fatalError("[Icons]: Failed to load Material Symbols Rounded font")
-        }
-
-        return resource
-    }()
 }

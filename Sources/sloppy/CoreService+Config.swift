@@ -80,6 +80,7 @@ extension CoreService {
         agentSkillsStore.updateAgentsRootURL(agentsRootURL)
         actorBoardStore.updateWorkspaceRootURL(workspaceRootURL)
         workflowDefinitionStore.updateWorkspaceRootURL(workspaceRootURL)
+        automationDefinitionStore.updateWorkspaceRootURL(workspaceRootURL)
         await channelModelStore.updateWorkspaceRootURL(workspaceRootURL)
         await channelChatModeStore.updateWorkspaceRootURL(workspaceRootURL)
         await sessionOrchestrator.updateAgentsRootURL(agentsRootURL)

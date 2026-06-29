@@ -27,7 +27,7 @@ struct AgentChatView: View {
 
     var body: some View {
         sessionListView
-            .fullScreenCover(isPresented: $showTranscript) {
+            .sheet(isPresented: $showTranscript) {
                 if let sessionId = selectedSessionId {
                     ChatTranscriptView(
                         sessionId: sessionId,
@@ -403,7 +403,7 @@ struct ChatTranscriptView: View {
             GeometryReader { proxy in
                 let contentWidth = transcriptContentWidth(for: proxy.size.width)
 
-                ZStack(anchor: .bottom) {
+                ZStack(alignment: .bottom) {
                     ScrollViewReader { proxy in
                         ScrollView {
                             if messages.isEmpty {
@@ -419,16 +419,12 @@ struct ChatTranscriptView: View {
                             } else {
                                 HStack {
                                     Spacer(minLength: 0)
-                                    LazyVStack(
-                                        messages,
-                                        alignment: .leading,
-                                        spacing: sp.s,
-                                        estimatedRowHeight: 156,
-                                        overscan: 8
-                                    ) { msg in
-                                        ChatBubbleView(message: msg)
-                                            .frame(minWidth: 0, maxWidth: .infinity)
-                                            .allowsHitTesting(false)
+                                    LazyVStack(alignment: .leading, spacing: sp.s) {
+                                        ForEach(messages) { msg in
+                                            ChatBubbleView(message: msg)
+                                                .frame(minWidth: 0, maxWidth: .infinity)
+                                                .allowsHitTesting(false)
+                                        }
                                     }
                                     .padding(sp.m)
                                     .padding(.bottom, composerScrollInset)
@@ -477,7 +473,7 @@ struct ChatTranscriptView: View {
         .background(c.background)
     }
 
-    private var composerScrollInset: Float {
+    private var composerScrollInset: CGFloat {
         ChatComposerView.panelHeight + theme.spacing.xxl
     }
 
@@ -489,7 +485,7 @@ struct ChatTranscriptView: View {
         return "\(message.id):\(message.textContent.count)"
     }
 
-    private func transcriptContentWidth(for availableWidth: Float) -> Float {
+    private func transcriptContentWidth(for availableWidth: CGFloat) -> CGFloat {
         max(0, min(availableWidth, ChatComposerView.panelWidth))
     }
 }

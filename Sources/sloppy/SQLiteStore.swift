@@ -30,6 +30,7 @@ public actor SQLiteStore: PersistenceStore {
     private var fallbackWorkflowRuns: [String: WorkflowRun] = [:]
     private var fallbackWorkflowRunSteps: [String: WorkflowRunStep] = [:]
     private var fallbackWorkflowPendingActions: [String: WorkflowPendingAction] = [:]
+    private var fallbackAutomationRuns: [String: AutomationRun] = [:]
 
     /// Creates a persistence store and applies schema when SQLite is available.
     public init(path: String, schemaSQL: String, fallbackProjectsPath: String? = nil) {
@@ -1064,6 +1065,120 @@ public actor SQLiteStore: PersistenceStore {
         return workflowPendingAction(id: actionId)
 #else
         return resolveFallbackWorkflowPendingAction(actionId: actionId, resolvedAt: resolvedAt)
+#endif
+    }
+
+    public func saveAutomationRun(_ run: AutomationRun) async {
+#if canImport(CSQLite3)
+        guard let db else {
+            fallbackAutomationRuns[run.id] = run
+            return
+        }
+        let sql =
+            """
+            INSERT OR REPLACE INTO automation_runs(
+                id, automation_id, project_id, workflow_id, workflow_run_id, repository_full_name,
+                trigger_type, trigger_event_id, status, task_id, summary, started_at, finished_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            fallbackAutomationRuns[run.id] = run
+            return
+        }
+        defer { sqlite3_finalize(statement) }
+
+        bindText(run.id, at: 1, statement: statement)
+        bindText(run.automationId, at: 2, statement: statement)
+        bindText(run.projectId, at: 3, statement: statement)
+        bindText(run.workflowId, at: 4, statement: statement)
+        bindOptionalText(run.workflowRunId, at: 5, statement: statement)
+        bindText(run.repositoryFullName, at: 6, statement: statement)
+        bindText(run.triggerType.rawValue, at: 7, statement: statement)
+        bindOptionalText(run.triggerEventId, at: 8, statement: statement)
+        bindText(run.status.rawValue, at: 9, statement: statement)
+        bindOptionalText(run.taskId, at: 10, statement: statement)
+        bindOptionalText(run.summary, at: 11, statement: statement)
+        bindText(isoFormatter.string(from: run.startedAt), at: 12, statement: statement)
+        bindOptionalText(run.finishedAt.map { isoFormatter.string(from: $0) }, at: 13, statement: statement)
+
+        if sqlite3_step(statement) != SQLITE_DONE {
+            fallbackAutomationRuns[run.id] = run
+        }
+#else
+        fallbackAutomationRuns[run.id] = run
+#endif
+    }
+
+    public func listAutomationRuns(projectId: String) async -> [AutomationRun] {
+#if canImport(CSQLite3)
+        guard let db else { return fallbackAutomationRuns(projectId: projectId) }
+        let sql =
+            """
+            SELECT id, automation_id, project_id, workflow_id, workflow_run_id, repository_full_name, trigger_type, trigger_event_id, status, task_id, summary, started_at, finished_at
+            FROM automation_runs
+            WHERE project_id = ?
+            ORDER BY started_at DESC;
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+        bindText(projectId, at: 1, statement: statement)
+        var result: [AutomationRun] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let run = decodeAutomationRun(statement: statement) {
+                result.append(run)
+            }
+        }
+        return result
+#else
+        return fallbackAutomationRuns(projectId: projectId)
+#endif
+    }
+
+    public func listAutomationRuns(automationId: String) async -> [AutomationRun] {
+#if canImport(CSQLite3)
+        guard let db else { return fallbackAutomationRuns(automationId: automationId) }
+        let sql =
+            """
+            SELECT id, automation_id, project_id, workflow_id, workflow_run_id, repository_full_name, trigger_type, trigger_event_id, status, task_id, summary, started_at, finished_at
+            FROM automation_runs
+            WHERE automation_id = ?
+            ORDER BY started_at DESC;
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+        bindText(automationId, at: 1, statement: statement)
+        var result: [AutomationRun] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let run = decodeAutomationRun(statement: statement) {
+                result.append(run)
+            }
+        }
+        return result
+#else
+        return fallbackAutomationRuns(automationId: automationId)
+#endif
+    }
+
+    public func getAutomationRun(id: String) async -> AutomationRun? {
+#if canImport(CSQLite3)
+        guard let db else { return fallbackAutomationRuns[id] }
+        let sql =
+            """
+            SELECT id, automation_id, project_id, workflow_id, workflow_run_id, repository_full_name, trigger_type, trigger_event_id, status, task_id, summary, started_at, finished_at
+            FROM automation_runs
+            WHERE id = ?;
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(statement) }
+        bindText(id, at: 1, statement: statement)
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        return decodeAutomationRun(statement: statement)
+#else
+        return fallbackAutomationRuns[id]
 #endif
     }
 
@@ -2939,6 +3054,18 @@ public actor SQLiteStore: PersistenceStore {
             .sorted { $0.createdAt > $1.createdAt }
     }
 
+    private func fallbackAutomationRuns(projectId: String) -> [AutomationRun] {
+        fallbackAutomationRuns.values
+            .filter { $0.projectId == projectId }
+            .sorted { $0.startedAt > $1.startedAt }
+    }
+
+    private func fallbackAutomationRuns(automationId: String) -> [AutomationRun] {
+        fallbackAutomationRuns.values
+            .filter { $0.automationId == automationId }
+            .sorted { $0.startedAt > $1.startedAt }
+    }
+
     private func resolveFallbackWorkflowPendingAction(actionId: String, resolvedAt: Date) -> WorkflowPendingAction? {
         guard var action = fallbackWorkflowPendingActions[actionId] else {
             return nil
@@ -3053,6 +3180,38 @@ public actor SQLiteStore: PersistenceStore {
             decisions: decisions,
             createdAt: createdAt,
             resolvedAt: resolvedAt
+        )
+    }
+
+    private func decodeAutomationRun(statement: OpaquePointer?) -> AutomationRun? {
+        guard
+            let idPtr = sqlite3_column_text(statement, 0),
+            let automationIdPtr = sqlite3_column_text(statement, 1),
+            let projectIdPtr = sqlite3_column_text(statement, 2),
+            let workflowIdPtr = sqlite3_column_text(statement, 3),
+            let repositoryPtr = sqlite3_column_text(statement, 5),
+            let triggerTypePtr = sqlite3_column_text(statement, 6),
+            let statusPtr = sqlite3_column_text(statement, 8),
+            let startedAtPtr = sqlite3_column_text(statement, 11)
+        else {
+            return nil
+        }
+        let startedAt = isoFormatter.date(from: String(cString: startedAtPtr)) ?? Date()
+        let finishedAt = optionalText(statement: statement, index: 12).flatMap { isoFormatter.date(from: $0) }
+        return AutomationRun(
+            id: String(cString: idPtr),
+            automationId: String(cString: automationIdPtr),
+            projectId: String(cString: projectIdPtr),
+            workflowId: String(cString: workflowIdPtr),
+            workflowRunId: optionalText(statement: statement, index: 4),
+            repositoryFullName: String(cString: repositoryPtr),
+            triggerType: AutomationTriggerKind(rawValue: String(cString: triggerTypePtr)) ?? .manual,
+            triggerEventId: optionalText(statement: statement, index: 7),
+            status: AutomationRunStatus(rawValue: String(cString: statusPtr)) ?? .failed,
+            taskId: optionalText(statement: statement, index: 9),
+            summary: optionalText(statement: statement, index: 10),
+            startedAt: startedAt,
+            finishedAt: finishedAt
         )
     }
 
@@ -3173,6 +3332,33 @@ public actor SQLiteStore: PersistenceStore {
             );
             CREATE INDEX IF NOT EXISTS idx_workflow_pending_actions_project ON workflow_pending_actions(project_id, resolved_at, created_at DESC);
             CREATE INDEX IF NOT EXISTS idx_workflow_pending_actions_run ON workflow_pending_actions(workflow_run_id);
+            """,
+            nil, nil, nil
+        )
+    }
+
+    private static func applyAutomationMigrations(db: OpaquePointer?) {
+        guard let db else { return }
+        _ = sqlite3_exec(
+            db,
+            """
+            CREATE TABLE IF NOT EXISTS automation_runs (
+                id TEXT PRIMARY KEY,
+                automation_id TEXT NOT NULL,
+                project_id TEXT NOT NULL,
+                workflow_id TEXT NOT NULL,
+                workflow_run_id TEXT,
+                repository_full_name TEXT NOT NULL,
+                trigger_type TEXT NOT NULL,
+                trigger_event_id TEXT,
+                status TEXT NOT NULL,
+                task_id TEXT,
+                summary TEXT,
+                started_at TEXT NOT NULL,
+                finished_at TEXT
+            );
+            CREATE INDEX IF NOT EXISTS idx_automation_runs_project ON automation_runs(project_id, started_at DESC);
+            CREATE INDEX IF NOT EXISTS idx_automation_runs_automation ON automation_runs(automation_id, started_at DESC);
             """,
             nil, nil, nil
         )
@@ -4101,6 +4287,7 @@ public actor SQLiteStore: PersistenceStore {
         applyProjectTaskMigrations(db: db)
         applyChannelPluginMigrations(db: db)
         applyWorkflowMigrations(db: db)
+        applyAutomationMigrations(db: db)
         applyAutodreamMigrations(db: db)
         applyCronTaskMigrations(db: db)
         applyTokenUsageMigrations(db: db)

@@ -14,6 +14,14 @@ function loadContentScript() {
   return readFileSync(new URL("../Resources/contentScript.js", import.meta.url), "utf8");
 }
 
+function loadSettingsPanelScript() {
+  return readFileSync(new URL("../Resources/settingsPanel.js", import.meta.url), "utf8");
+}
+
+function loadPanelUISource() {
+  return `${loadSettingsPanelScript()}\n${loadContentScript()}`;
+}
+
 function loadChatHTML() {
   return readFileSync(new URL("../Resources/chat.html", import.meta.url), "utf8");
 }
@@ -167,7 +175,7 @@ test("localization runtime is packaged with every Safari web extension bundle", 
   const project = loadXcodeProject();
   const i18nCopies = project.match(/\/\* i18n\.js in Resources \*\/,/g) || [];
 
-  assert.deepEqual(manifest.content_scripts?.[0]?.js, ["i18n.js", "startPageCustomize.js", "contentScript.js"]);
+  assert.deepEqual(manifest.content_scripts?.[0]?.js, ["i18n.js", "startPageCustomize.js", "settingsPanel.js", "contentScript.js"]);
   assert.equal(i18nCopies.length, 3);
 });
 
@@ -177,8 +185,8 @@ test("toolbar action uses the green Sloppy logo", () => {
 });
 
 test("floating button is not gated by mobile viewport size", () => {
-  const source = loadContentScript();
-  const renderFloatingButton = source.match(/function renderFloatingButton\(\) \{[\s\S]*?\n\}/)?.[0] || "";
+  const source = loadPanelUISource();
+  const renderFloatingButton = loadContentScript().match(/function renderFloatingButton\(\) \{[\s\S]*?\n\}/)?.[0] || "";
 
   assert.match(source, /<span>Show floating button<\/span>/);
   assert.doesNotMatch(renderFloatingButton, /isMobileViewport/);
@@ -333,7 +341,8 @@ test("mobile start and fullscreen layouts keep the composer inside the visible v
 
 test("customize dialog is a dark bottom sheet with restrained actions", () => {
   const css = loadPanelCSS();
-  const dialogBlock = css.match(/\.sloppy-customize-dialog\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const dialogBlocks = Array.from(css.matchAll(/\.sloppy-customize-dialog\s*\{[\s\S]*?\n\}/g)).map((match) => match[0]);
+  const dialogBlock = dialogBlocks.at(-1) || "";
   const cardBlock = css.match(/\.sloppy-customize-dialog \.sloppy-settings-card\s*\{[\s\S]*?\n\}/)?.[0] || "";
   const actionBlock = css.match(/\.sloppy-customize-dialog \.sloppy-settings-save\s*\{[\s\S]*?\n\}/)?.[0] || "";
 
@@ -372,7 +381,7 @@ test("composer icon buttons are compact and only the primary action keeps a fill
 
 test("controls render symbol mask icons instead of inline svg markup", () => {
   const css = loadPanelCSS();
-  const source = loadContentScript();
+  const source = loadPanelUISource();
 
   assert.match(source, /data-sf-symbol/);
   assert.match(source, /const path = `\$\{symbol\}\.svg`;/);

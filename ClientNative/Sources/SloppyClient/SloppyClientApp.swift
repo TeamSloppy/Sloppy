@@ -1,4 +1,3 @@
-import Foundation
 import SwiftUI
 import SloppyClientCore
 import SloppyClientUI
@@ -16,4 +15,3 @@ struct SloppyClientApp: App {
         }
     }
 }
-

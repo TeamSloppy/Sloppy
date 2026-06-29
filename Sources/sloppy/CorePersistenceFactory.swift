@@ -432,6 +432,7 @@ public actor InMemoryPersistenceStore: PersistenceStore {
     }
 
     private var cronTasks: [String: AgentCronTask] = [:]
+    private var automationRuns: [String: AutomationRun] = [:]
 
     private static func projectListRecord(_ project: ProjectRecord) -> ProjectListRecord {
         var counts = ProjectTaskCountSummary(total: project.tasks.count)
@@ -484,6 +485,26 @@ public actor InMemoryPersistenceStore: PersistenceStore {
 
     public func deleteCronTask(id: String) async {
         cronTasks[id] = nil
+    }
+
+    public func listAutomationRuns(projectId: String) async -> [AutomationRun] {
+        automationRuns.values
+            .filter { $0.projectId == projectId }
+            .sorted { $0.startedAt > $1.startedAt }
+    }
+
+    public func listAutomationRuns(automationId: String) async -> [AutomationRun] {
+        automationRuns.values
+            .filter { $0.automationId == automationId }
+            .sorted { $0.startedAt > $1.startedAt }
+    }
+
+    public func getAutomationRun(id: String) async -> AutomationRun? {
+        automationRuns[id]
+    }
+
+    public func saveAutomationRun(_ run: AutomationRun) async {
+        automationRuns[run.id] = run
     }
 
     private var channelPlugins: [String: ChannelPluginRecord] = [:]

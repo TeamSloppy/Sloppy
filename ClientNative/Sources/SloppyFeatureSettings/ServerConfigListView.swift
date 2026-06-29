@@ -71,7 +71,7 @@ struct ServerConfigListView: View {
             .background(c.surface)
             .border(c.border, lineWidth: bo.thin)
             .padding(.horizontal, sp.m)
-            .navigate(for: ConfigSection.self) { section in
+            .navigationDestination(for: ConfigSection.self) { section in
                 configDetailView(section)
             }
         }

@@ -54,21 +54,17 @@ public struct AgentPickerView: View {
             .padding(.vertical, sp.m)
 
             ScrollView {
-                LazyVStack(
-                    agents,
-                    alignment: .leading,
-                    spacing: sp.xs,
-                    estimatedRowHeight: 62,
-                    overscan: 12
-                ) { agent in
-                    AgentPickerRow(
-                        agent: agent,
-                        isSelected: agent.id == selectedAgent?.id,
-                        onSelect: onSelect,
-                        colors: c,
-                        spacing: sp,
-                        typography: ty
-                    )
+                LazyVStack(alignment: .leading, spacing: sp.xs) {
+                    ForEach(agents) { agent in
+                        AgentPickerRow(
+                            agent: agent,
+                            isSelected: agent.id == selectedAgent?.id,
+                            onSelect: onSelect,
+                            colors: c,
+                            spacing: sp,
+                            typography: ty
+                        )
+                    }
                 }
             }
             .padding(.horizontal, sp.s)

@@ -21,7 +21,7 @@
   "content_scripts": [
     {
       "matches": ["http://*/*", "https://*/*"],
-      "js": ["i18n.js", "startPageCustomize.js", "contentScript.js"],
+      "js": ["i18n.js", "startPageCustomize.js", "settingsPanel.js", "contentScript.js"],
       "css": ["panel.css"]
     }
   ],

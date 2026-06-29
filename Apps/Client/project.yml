@@ -259,3 +259,18 @@ schemes:
       config: Debug
     archive:
       config: Release
+
+  SloppyClient-iOS:
+    build:
+      targets:
+        SloppyClient-iOS: all
+    run:
+      config: Debug
+      executable: SloppyClient-iOS
+    profile:
+      config: Release
+      executable: SloppyClient-iOS
+    analyze:
+      config: Debug
+    archive:
+      config: Release

@@ -24,10 +24,17 @@ struct ProjectDetailView: View {
     @State private var selectedTab: ProjectDetailTab = .info
 
     var body: some View {
-        TabView(selection: $selectedTab) {
-            Tab(ProjectDetailTab.info.title, value: ProjectDetailTab.info) { tabContent(.info) }
-            Tab(ProjectDetailTab.tasks.title, value: ProjectDetailTab.tasks) { tabContent(.tasks) }
-            Tab(ProjectDetailTab.channels.title, value: ProjectDetailTab.channels) { tabContent(.channels) }
+        VStack(alignment: .leading, spacing: 0) {
+            Picker("", selection: $selectedTab) {
+                ForEach(ProjectDetailTab.allCases, id: \.self) { tab in
+                    Text(tab.title).tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding()
+
+            tabContent(selectedTab)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
         .navigationTitle(project.name.uppercased())
         .navigationTitlePosition(.leading)

@@ -24,15 +24,15 @@ final class MainViewModel {
     var chatViewModel: ChatScreenViewModel
     var chatNavigationSerial = 0
     
-    var sidebarWidth: Float {
+    var sidebarWidth: CGFloat {
         isSidebarCollapsed ? MainSidebarView.collapsedWidth : MainSidebarView.expandedWidth
     }
     
-    var sidebarMinimumWidth: Float {
+    var sidebarMinimumWidth: CGFloat {
         isSidebarCollapsed ? MainSidebarView.collapsedWidth : MainSidebarView.minimumWidth
     }
     
-    var sidebarMaximumWidth: Float {
+    var sidebarMaximumWidth: CGFloat {
         isSidebarCollapsed ? MainSidebarView.collapsedWidth : MainSidebarView.maximumWidth
     }
     
@@ -219,10 +219,8 @@ struct MainView: View {
                 )
         } detail: {
             chatScreen(showsSidebarControl: false)
-                .debugOverlay(.layoutBounds)
         }
-        .navigationSplitViewSeparators(.hidden)
-        .debugOverlay(.layoutBounds)
+        .navigationSplitViewStyle(.balanced)
     }
     
     private func fullScreenCompactLayout() -> some View {
@@ -252,4 +250,8 @@ struct MainView: View {
             isOverlay: isOverlay
         )
     }
+}
+
+#Preview {
+    RootShellView()
 }

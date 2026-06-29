@@ -181,7 +181,7 @@
 [data-sloppy-sidebar-artifacts]:focus-visible .sloppy-symbol,
 [data-sloppy-sidebar-sessions]:hover .sloppy-symbol,
 [data-sloppy-sidebar-sessions]:focus-visible .sloppy-symbol {
-  --sloppy-symbol-active-url: var(--sloppy-symbol-hover-url);
+  --sloppy-symbol-url: var(--sloppy-symbol-hover-url);
 }
 
 .sloppy-sidebar-session-list {
@@ -1342,14 +1342,14 @@
 }
 
 .sloppy-symbol {
-  --sloppy-symbol-active-url: var(--sloppy-symbol-base-url, var(--sloppy-symbol-url));
+  --sloppy-symbol-url: var(--sloppy-symbol-base-url, var(--sloppy-symbol-url));
   display: inline-block;
   flex: 0 0 auto;
   width: 1em;
   height: 1em;
   background: currentColor;
-  -webkit-mask: var(--sloppy-symbol-active-url) center / contain no-repeat;
-  mask: var(--sloppy-symbol-active-url) center / contain no-repeat;
+  -webkit-mask: var(--sloppy-symbol-url) center / contain no-repeat;
+  mask: var(--sloppy-symbol-url) center / contain no-repeat;
 }
 
 .sloppy-icon-button .sloppy-symbol,
@@ -1966,7 +1966,7 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
 .sloppy-sessions-dialog {
   position: fixed;
   inset: 0;
-  width: min(360px, calc(100vw - 48px));
+  width: min(880px, calc(100vw - 48px));
   max-height: calc(100vh - 48px);
   margin: auto;
   padding: 0;
@@ -1984,7 +1984,7 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
 
 .sloppy-customize-dialog {
   position: static;
-  inset: auto;
+  inset: auto 0 0;
   width: 100%;
   box-sizing: border-box;
   max-height: min(78vh, 720px);
@@ -2019,6 +2019,95 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
   box-shadow: 0 22px 60px rgba(0, 0, 0, 0.42);
   max-height: inherit;
   overflow: auto;
+}
+
+.sloppy-settings-layout {
+  grid-template-columns: minmax(196px, 220px) minmax(0, 1fr);
+  gap: 0;
+  padding: 0;
+  overflow: hidden;
+}
+
+.sloppy-settings-sidebar {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  padding: 22px 18px;
+  background: rgba(255, 255, 255, 0.03);
+  border-right: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sloppy-settings-sidebar-header strong,
+.sloppy-settings-main-header strong {
+  font-size: 17px;
+}
+
+.sloppy-settings-nav {
+  display: grid;
+  gap: 8px;
+}
+
+.sloppy-settings-nav-item {
+  width: 100%;
+  padding: 11px 13px;
+  color: rgba(240, 240, 240, 0.76);
+  text-align: left;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 14px;
+  font-weight: 700;
+}
+
+.sloppy-settings-nav-item.is-active {
+  color: #f4f4f4;
+  background: rgba(255, 255, 255, 0.08);
+  border-color: rgba(255, 255, 255, 0.08);
+}
+
+.sloppy-settings-main {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-height: min(620px, calc(100vh - 48px));
+}
+
+.sloppy-settings-main-header {
+  display: flex;
+  align-items: start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 22px 24px 18px;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.sloppy-settings-pane {
+  display: grid;
+  align-content: start;
+  gap: 18px;
+  padding: 22px 24px;
+}
+
+.sloppy-settings-group {
+  display: grid;
+  gap: 14px;
+}
+
+.sloppy-settings-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.sloppy-settings-secondary-action {
+  color: #f0f0f0;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+}
+
+.sloppy-settings-footer {
+  display: flex;
+  justify-content: flex-end;
+  padding: 18px 24px 22px;
+  border-top: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 .sloppy-customize-dialog .sloppy-settings-card {
@@ -2895,6 +2984,37 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
 #sloppy-safari-extension-panel [data-sloppy-mesh-invite] {
   min-height: 72px;
   resize: vertical;
+}
+
+@media (max-width: 760px) {
+  .sloppy-settings-dialog {
+    width: min(100vw - 20px, 520px);
+    max-height: calc(100vh - 20px);
+  }
+
+  .sloppy-settings-layout {
+    grid-template-columns: 1fr;
+  }
+
+  .sloppy-settings-sidebar {
+    gap: 12px;
+    padding: 18px 18px 14px;
+    border-right: 0;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .sloppy-settings-nav {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .sloppy-settings-nav-item {
+    text-align: center;
+    font-size: 12px;
+  }
+
+  .sloppy-settings-main {
+    min-height: auto;
+  }
 }
 
 .sloppy-session-list {

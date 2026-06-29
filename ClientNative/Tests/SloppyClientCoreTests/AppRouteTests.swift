@@ -7,7 +7,8 @@ struct AppRouteTests {
     @Test("all cases present")
     func allCasesPresent() {
         let routes = AppRoute.allCases
-        #expect(routes.count == 5)
+        #expect(routes.count == 6)
+        #expect(routes.contains(.settings))
         #expect(routes.contains(.overview))
         #expect(routes.contains(.projects))
         #expect(routes.contains(.agents))

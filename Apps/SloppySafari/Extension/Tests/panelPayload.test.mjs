@@ -1652,6 +1652,106 @@ test("postBrowserContextStreaming waits for terminal run status instead of a sho
   assert.equal(result.text, "Final answer after long work");
 });
 
+test("postBrowserContextStreaming reloads session detail when message post returns before final assistant text is persisted", async () => {
+  const encoder = new TextEncoder();
+  let detailReads = 0;
+  const fetchImpl = async (url) => {
+    if (url.endsWith("/v1/agents/sloppy/sessions")) {
+      return Response.json({ id: "session-1" });
+    }
+    if (url.endsWith("/v1/agents/sloppy/sessions/session-1/stream")) {
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode([
+            "event: session_event",
+            'data: {"kind":"session_event","cursor":1,"event":{"type":"tool_call","toolCall":{"tool":"planning.select_route","arguments":{"route":"mode-ask"}}}}',
+            "",
+            "event: session_event",
+            'data: {"kind":"session_event","cursor":2,"event":{"type":"tool_result","toolResult":{"tool":"planning.select_route","ok":true,"data":{"route":"mode-ask"}}}}',
+            "",
+            ""
+          ].join("\n")));
+          controller.close();
+        }
+      }), {
+        headers: { "content-type": "text/event-stream" }
+      });
+    }
+    if (url.endsWith("/v1/agents/sloppy/sessions/session-1/messages")) {
+      return Response.json({
+        appendedEvents: [
+          {
+            type: "tool_call",
+            toolCall: {
+              tool: "planning.select_route",
+              arguments: { route: "mode-ask" }
+            }
+          },
+          {
+            type: "tool_result",
+            toolResult: {
+              tool: "planning.select_route",
+              ok: true,
+              data: { route: "mode-ask" }
+            }
+          }
+        ]
+      });
+    }
+    if (url.endsWith("/v1/agents/sloppy/sessions/session-1")) {
+      detailReads += 1;
+      if (detailReads < 2) {
+        return Response.json({
+          summary: { id: "session-1", title: "Safari: Example" },
+          events: [
+            {
+              type: "tool_call",
+              toolCall: {
+                tool: "planning.select_route",
+                arguments: { route: "mode-ask" }
+              }
+            }
+          ]
+        });
+      }
+      return Response.json({
+        summary: { id: "session-1", title: "Safari: Example" },
+        events: [
+          {
+            id: "event-final",
+            message: {
+              id: "message-final",
+              role: "assistant",
+              segments: [{ kind: "text", text: "Recovered final answer" }]
+            }
+          },
+          {
+            type: "run_status",
+            runStatus: {
+              stage: "done",
+              label: "Done",
+              details: "Response is ready."
+            }
+          }
+        ]
+      });
+    }
+    return new Response(JSON.stringify({ error: "unexpected" }), { status: 500 });
+  };
+
+  const result = await postBrowserContextStreaming(
+    { coreURLString: "http://127.0.0.1:25101", defaultAgentID: "sloppy" },
+    { url: "https://example.com", title: "Example" },
+    "",
+    "Summarize",
+    {},
+    fetchImpl
+  );
+
+  assert.equal(result.text, "Recovered final answer");
+  assert.equal(detailReads >= 2, true);
+});
+
 test("postBrowserContextStreaming returns interrupted run status details when final assistant text is missing", async () => {
   const encoder = new TextEncoder();
   const fetchImpl = async (url) => {

@@ -195,6 +195,25 @@ CREATE TABLE IF NOT EXISTS workflow_pending_actions (
 CREATE INDEX IF NOT EXISTS idx_workflow_pending_actions_project ON workflow_pending_actions(project_id, resolved_at, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_workflow_pending_actions_run ON workflow_pending_actions(workflow_run_id);
 
+CREATE TABLE IF NOT EXISTS automation_runs (
+    id TEXT PRIMARY KEY,
+    automation_id TEXT NOT NULL,
+    project_id TEXT NOT NULL,
+    workflow_id TEXT NOT NULL,
+    workflow_run_id TEXT,
+    repository_full_name TEXT NOT NULL,
+    trigger_type TEXT NOT NULL,
+    trigger_event_id TEXT,
+    status TEXT NOT NULL,
+    task_id TEXT,
+    summary TEXT,
+    started_at TEXT NOT NULL,
+    finished_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_automation_runs_project ON automation_runs(project_id, started_at DESC);
+CREATE INDEX IF NOT EXISTS idx_automation_runs_automation ON automation_runs(automation_id, started_at DESC);
+
 CREATE TABLE IF NOT EXISTS self_improvement_proposal_review_queue (
     id TEXT PRIMARY KEY,
     agent_id TEXT NOT NULL,

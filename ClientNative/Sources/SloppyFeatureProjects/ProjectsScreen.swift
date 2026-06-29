@@ -23,7 +23,7 @@ public struct ProjectsScreen: View {
                 onRefresh: { loadProjects(force: true) }
             )
             .onAppear { loadProjects() }
-            .navigate(for: String.self) { projectId in
+            .navigationDestination(for: String.self) { projectId in
                 if let project = projects.first(where: { $0.id == projectId }) {
                     ProjectDetailView(project: project)
                 }

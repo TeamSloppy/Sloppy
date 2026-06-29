@@ -4,8 +4,7 @@ import SloppyClientCore
 import SloppyClientUI
 
 public struct ChatBubbleView: View {
-    private static let userBubbleWidth: Float = 560
-    private static let userBubbleRadius: Float = 14
+    private static let userBubbleRadius: CGFloat = 14
 
     public let message: ChatMessage
 
@@ -20,15 +19,16 @@ public struct ChatBubbleView: View {
     private var isStreamingAssistant: Bool { message.id.hasPrefix("streaming-assistant-") }
 
     public var body: some View {
-        if isUser {
+        switch message.role {
+        case .user:
             userMessage
-                .multilineTextAligment(.leading)
-        } else if isAssistant {
-            assistantMessage
-                .multilineTextAligment(.leading)
-        } else {
+                .multilineTextAlignment(.leading)
+        case .system:
             systemMessage
-                .multilineTextAligment(.center)
+                .multilineTextAlignment(.center)
+        case .assistant:
+            assistantMessage
+                .multilineTextAlignment(.leading)
         }
     }
 
@@ -52,13 +52,12 @@ public struct ChatBubbleView: View {
             Text(messageText)
                 .font(.system(size: ty.body))
                 .foregroundColor(c.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-                .frame(width: Self.userBubbleWidth, alignment: .leading)
+                .frame(alignment: .leading)
                 .padding(.horizontal, sp.m)
                 .padding(.vertical, sp.s)
                 .background {
                     RoundedRectangle(cornerRadius: Self.userBubbleRadius)
-                        .fill(c.accent.opacity(0.20 as Float))
+                        .fill(c.surfaceRaised)
                 }
         }
     }
@@ -103,7 +102,7 @@ public struct ChatBubbleView: View {
                     .padding(.horizontal, sp.s)
                     .padding(.vertical, sp.xs)
                     .background(c.accentCyan.opacity(0.08 as Float))
-                    .glassEffect(.regular.tint(c.accentCyan.opacity(0.06 as Float)), in: .rect(cornerRadius: 999))
+                    .glassEffect(.regular.tint(c.accentCyan.opacity(0.06 as Float)), in: GlassShape.rect(cornerRadius: 999))
                 Icons.symbol(.arrowForward, size: ty.micro)
                     .foregroundColor(c.textMuted)
             }
@@ -141,16 +140,19 @@ public struct ChatBubbleView: View {
         let ty = theme.typography
 
         return HStack(spacing: 0) {
-            Spacer(minLength: sp.xl)
+            Color.clear
+                .frame(height: theme.borders.thin)
+                .background(c.border.opacity(0.88 as Float))
+
             Text(messageText)
                 .font(.system(size: ty.caption))
-                .foregroundColor(c.textMuted)
+                .foregroundColor(c.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, sp.m)
                 .padding(.vertical, sp.s)
-                .background(c.surface.opacity(0.68 as Float))
-                .glassEffect(.regular, in: .rect(cornerRadius: 12))
-            Spacer(minLength: sp.xl)
+            Color.clear
+                .frame(height: theme.borders.thin)
+                .background(c.border.opacity(0.88 as Float))
         }
     }
 
@@ -158,12 +160,34 @@ public struct ChatBubbleView: View {
     private var assistantText: some View {
         if isStreamingAssistant {
             Text(messageText)
+        } else if let attributed = try? AttributedString(markdown: messageText) {
+            Text(attributed)
         } else {
-            Text(markdown: messageText)
+            Text(messageText)
         }
     }
 
     private var messageText: String {
         message.textContent.isEmpty ? "…" : message.textContent
     }
+}
+
+#Preview {
+    VStack {
+        ChatBubbleView(message: .init(role: .user, segments: [
+            .init(kind: .text, text: "oeqinf[owinef[oqwne[f qwe fqwef")
+        ]))
+
+        ChatBubbleView(message: .init(role: .system, segments: [
+            .init(kind: .text, text: "oeqinf[owinef[qwefqwefqefq[f qwe fqwef")
+        ]))
+
+        ChatBubbleView(message: .init(role: .assistant, segments: [
+            .init(kind: .text, text: "oeqinf[owinef[oweiufbiqw fuwe fqpweiuf qwefuqwe fqwiuefqpwie fqpwevfu qwefqwuie fqpiweu fqwqwne[f qwe fqwef")
+        ]))
+
+        Spacer()
+    }
+    .padding(.all, 16)
+
 }

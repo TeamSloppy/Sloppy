@@ -23,7 +23,7 @@ public struct AgentsScreen: View {
                 onRefresh: { loadAgents(force: true) }
             )
             .onAppear { loadAgents() }
-            .navigate(for: String.self) { agentId in
+            .navigationDestination(for: String.self) { agentId in
                 if let agent = agents.first(where: { $0.id == agentId }) {
                     AgentDetailView(agent: agent, apiClient: apiClient)
                 }

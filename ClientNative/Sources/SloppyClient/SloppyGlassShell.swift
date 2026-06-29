@@ -1,10 +1,9 @@
-import Foundation
 import SwiftUI
 import SloppyClientUI
 
 @MainActor
 struct SloppyGlassShell<Content: View>: View {
-    private static var cornerRadius: Float { 28 }
+    private static var cornerRadius: CGFloat { 28 }
 
     let content: Content
 
@@ -19,13 +18,13 @@ struct SloppyGlassShell<Content: View>: View {
             .background {
                 shape.fill(Theme.sloppyDark.colors.background)
             }
-            .glassEffect(.regular.tint(Color.white.opacity(0.035 as Float)), in: shape)
+            .background(.ultraThinMaterial, in: shape)
             .overlay {
                 LinearGradient(
                     colors: [
-                        Color.white.opacity(0.18 as Float),
-                        Color.white.opacity(0.04 as Float),
-                        Color.black.opacity(0.20 as Float),
+                        Color.white.opacity(0.18),
+                        Color.white.opacity(0.04),
+                        Color.black.opacity(0.20),
                     ],
                     startPoint: .topLeading,
                     endPoint: .bottomTrailing
@@ -35,7 +34,7 @@ struct SloppyGlassShell<Content: View>: View {
             .mask(shape)
             .overlay {
                 shape
-                    .stroke(Theme.sloppyDark.colors.border.opacity(0.72 as Float), lineWidth: 1)
+                    .stroke(Theme.sloppyDark.colors.border.opacity(0.72), lineWidth: 1)
                     .allowsHitTesting(false)
             }
     }

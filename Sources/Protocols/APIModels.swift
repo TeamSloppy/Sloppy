@@ -6563,3 +6563,239 @@ public struct WorkflowValidationIssue: Codable, Sendable, Equatable {
         self.nodeId = nodeId
     }
 }
+
+// MARK: - Project Automations
+
+public enum AutomationTriggerKind: String, Codable, Sendable, CaseIterable {
+    case manual
+    case cron
+    case webhook
+    case githubPullRequest = "github_pull_request"
+    case githubPullRequestReview = "github_pull_request_review"
+}
+
+public enum AutomationTaskMode: String, Codable, Sendable, CaseIterable {
+    case none
+    case createTask = "create_task"
+    case attachToExistingIfMatch = "attach_to_existing_if_match"
+    case createOrAttach = "create_or_attach"
+}
+
+public enum AutomationRunStatus: String, Codable, Sendable, CaseIterable {
+    case queued
+    case running
+    case waitingForWorkflow = "waiting_for_workflow"
+    case completed
+    case failed
+    case cancelled
+    case ignored
+}
+
+public enum AutomationPermissionsScope: String, Codable, Sendable, CaseIterable {
+    case `private`
+    case projectVisible = "project_visible"
+    case projectManaged = "project_managed"
+}
+
+public struct AutomationTrigger: Codable, Sendable, Equatable {
+    public var type: AutomationTriggerKind
+    public var config: [String: JSONValue]
+
+    public init(type: AutomationTriggerKind, config: [String: JSONValue] = [:]) {
+        self.type = type
+        self.config = config
+    }
+}
+
+public struct AutomationDefinition: Codable, Sendable, Equatable {
+    public var id: String
+    public var projectId: String
+    public var name: String
+    public var description: String?
+    public var version: Int
+    public var enabled: Bool
+    public var workflowId: String
+    public var repositoryFullName: String
+    public var trigger: AutomationTrigger
+    public var taskMode: AutomationTaskMode
+    public var model: String?
+    public var permissionsScope: AutomationPermissionsScope
+    public var createdAt: Date
+    public var updatedAt: Date
+
+    public init(
+        id: String,
+        projectId: String,
+        name: String,
+        description: String? = nil,
+        version: Int = 1,
+        enabled: Bool = true,
+        workflowId: String,
+        repositoryFullName: String,
+        trigger: AutomationTrigger,
+        taskMode: AutomationTaskMode = .none,
+        model: String? = nil,
+        permissionsScope: AutomationPermissionsScope = .private,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date()
+    ) {
+        self.id = id
+        self.projectId = projectId
+        self.name = name
+        self.description = description
+        self.version = version
+        self.enabled = enabled
+        self.workflowId = workflowId
+        self.repositoryFullName = repositoryFullName
+        self.trigger = trigger
+        self.taskMode = taskMode
+        self.model = model
+        self.permissionsScope = permissionsScope
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct AutomationDefinitionUpsertRequest: Codable, Sendable, Equatable {
+    public var name: String
+    public var description: String?
+    public var enabled: Bool
+    public var workflowId: String
+    public var repositoryFullName: String
+    public var trigger: AutomationTrigger
+    public var taskMode: AutomationTaskMode
+    public var model: String?
+    public var permissionsScope: AutomationPermissionsScope
+
+    public init(
+        name: String,
+        description: String? = nil,
+        enabled: Bool = true,
+        workflowId: String,
+        repositoryFullName: String,
+        trigger: AutomationTrigger,
+        taskMode: AutomationTaskMode = .none,
+        model: String? = nil,
+        permissionsScope: AutomationPermissionsScope = .private
+    ) {
+        self.name = name
+        self.description = description
+        self.enabled = enabled
+        self.workflowId = workflowId
+        self.repositoryFullName = repositoryFullName
+        self.trigger = trigger
+        self.taskMode = taskMode
+        self.model = model
+        self.permissionsScope = permissionsScope
+    }
+}
+
+public struct AutomationRun: Codable, Sendable, Equatable {
+    public var id: String
+    public var automationId: String
+    public var projectId: String
+    public var workflowId: String
+    public var workflowRunId: String?
+    public var repositoryFullName: String
+    public var triggerType: AutomationTriggerKind
+    public var triggerEventId: String?
+    public var status: AutomationRunStatus
+    public var taskId: String?
+    public var summary: String?
+    public var startedAt: Date
+    public var finishedAt: Date?
+
+    public init(
+        id: String,
+        automationId: String,
+        projectId: String,
+        workflowId: String,
+        workflowRunId: String? = nil,
+        repositoryFullName: String,
+        triggerType: AutomationTriggerKind,
+        triggerEventId: String? = nil,
+        status: AutomationRunStatus,
+        taskId: String? = nil,
+        summary: String? = nil,
+        startedAt: Date = Date(),
+        finishedAt: Date? = nil
+    ) {
+        self.id = id
+        self.automationId = automationId
+        self.projectId = projectId
+        self.workflowId = workflowId
+        self.workflowRunId = workflowRunId
+        self.repositoryFullName = repositoryFullName
+        self.triggerType = triggerType
+        self.triggerEventId = triggerEventId
+        self.status = status
+        self.taskId = taskId
+        self.summary = summary
+        self.startedAt = startedAt
+        self.finishedAt = finishedAt
+    }
+}
+
+public struct AutomationRunDetail: Codable, Sendable, Equatable {
+    public var run: AutomationRun
+    public var workflowRun: WorkflowRunDetail?
+
+    public init(run: AutomationRun, workflowRun: WorkflowRunDetail? = nil) {
+        self.run = run
+        self.workflowRun = workflowRun
+    }
+}
+
+public struct AutomationManualRunRequest: Codable, Sendable, Equatable {
+    public var actorId: String
+    public var input: [String: JSONValue]
+
+    public init(actorId: String, input: [String: JSONValue] = [:]) {
+        self.actorId = actorId
+        self.input = input
+    }
+}
+
+public struct AutomationTriggerPayload: Codable, Sendable, Equatable {
+    public var source: AutomationTriggerKind
+    public var startedBy: String
+    public var triggerEventId: String?
+    public var data: [String: JSONValue]
+    public var workflowInput: [String: JSONValue]
+
+    public init(
+        source: AutomationTriggerKind,
+        startedBy: String,
+        triggerEventId: String? = nil,
+        data: [String: JSONValue] = [:],
+        workflowInput: [String: JSONValue] = [:]
+    ) {
+        self.source = source
+        self.startedBy = startedBy
+        self.triggerEventId = triggerEventId
+        self.data = data
+        self.workflowInput = workflowInput
+    }
+}
+
+public struct GitHubAutomationEventRequest: Codable, Sendable, Equatable {
+    public var deliveryId: String
+    public var event: String
+    public var action: String
+    public var repositoryFullName: String
+    public var payload: [String: JSONValue]
+
+    public init(
+        deliveryId: String,
+        event: String,
+        action: String,
+        repositoryFullName: String,
+        payload: [String: JSONValue] = [:]
+    ) {
+        self.deliveryId = deliveryId
+        self.event = event
+        self.action = action
+        self.repositoryFullName = repositoryFullName
+        self.payload = payload
+    }
+}

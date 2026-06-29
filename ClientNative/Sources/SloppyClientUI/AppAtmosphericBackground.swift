@@ -1,5 +1,5 @@
-import Foundation
 import SwiftUI
+import Foundation
 
 public struct AppAtmosphericBackground: View {
     @Environment(\.theme) private var theme

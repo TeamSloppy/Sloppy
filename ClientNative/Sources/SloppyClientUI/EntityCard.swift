@@ -64,12 +64,12 @@ public struct EntityCard: View {
                         .padding(.horizontal, sp.s)
                         .padding(.vertical, sp.xs)
                         .background(accent.opacity(0.10 as Float))
-                        .glassEffect(.regular.tint(accent.opacity(0.08 as Float)), in: .rect(cornerRadius: 10))
+                        .glassEffect(.regular.tint(accent.opacity(0.08 as Float)), in: GlassShape.rect(cornerRadius: 10))
                 }
             }
             .padding(sp.m)
         }
-        .glassEffect(.regular.tint(c.surfaceGlow.opacity(0.16 as Float)), in: .rect(cornerRadius: 20))
+        .glassEffect(.regular.tint(c.surfaceGlow.opacity(0.16 as Float)), in: GlassShape.rect(cornerRadius: 20))
         .border(c.border.opacity(0.72 as Float), lineWidth: bo.thin)
     }
 }

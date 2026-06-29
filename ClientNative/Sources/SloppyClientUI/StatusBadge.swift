@@ -20,7 +20,7 @@ public struct StatusBadge: View {
             Color.clear
                 .frame(width: 6, height: 6)
                 .background(color)
-                .glassEffect(.regular.tint(color.opacity(0.32 as Float)), in: .rect(cornerRadius: 3))
+                .glassEffect(.regular.tint(color.opacity(0.32 as Float)), in: GlassShape.rect(cornerRadius: 3))
 
             Text(label.uppercased())
                 .font(.system(size: ty.micro))
@@ -29,7 +29,7 @@ public struct StatusBadge: View {
         .padding(.horizontal, sp.s)
         .padding(.vertical, sp.xs)
         .background(color.opacity(0.10 as Float))
-        .glassEffect(.regular.tint(color.opacity(0.08 as Float)), in: .rect(cornerRadius: 999))
+        .glassEffect(.regular.tint(color.opacity(0.08 as Float)), in: GlassShape.rect(cornerRadius: 999))
     }
 
     public static func forTaskStatus(_ status: String) -> StatusBadge {

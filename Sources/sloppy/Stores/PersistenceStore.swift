@@ -446,6 +446,18 @@ public protocol PersistenceStore: Sendable {
     /// Deletes one cron task record.
     func deleteCronTask(id: String) async
 
+    /// Lists automation runs for a project ordered by newest first.
+    func listAutomationRuns(projectId: String) async -> [AutomationRun]
+
+    /// Lists automation runs for one automation ordered by newest first.
+    func listAutomationRuns(automationId: String) async -> [AutomationRun]
+
+    /// Returns one automation run by identifier.
+    func getAutomationRun(id: String) async -> AutomationRun?
+
+    /// Creates or replaces one automation run record.
+    func saveAutomationRun(_ run: AutomationRun) async
+
     /// Lists all channel access user records, optionally filtered by platform.
     func listChannelAccessUsers(platform: String?) async -> [ChannelAccessUser]
 

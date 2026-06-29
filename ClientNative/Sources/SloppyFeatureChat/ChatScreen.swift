@@ -3,8 +3,8 @@ import SwiftUI
 import SloppyClientCore
 import SloppyClientUI
 
-fileprivate let chatHeroWidth: Float = 720
-fileprivate let chatContentWidth: Float = 840
+fileprivate let chatHeroWidth: CGFloat = 720
+fileprivate let chatContentWidth: CGFloat = 840
 
 @MainActor
 public struct ChatScreen: View {
@@ -111,11 +111,11 @@ private struct ChatChrome: View {
         )
     }
 
-    private func chromeLayout(contentWidth: Float) -> some View {
+    private func chromeLayout(contentWidth: CGFloat) -> some View {
         let heroWidth = heroWidth(for: contentWidth)
         let showsComposer = true
 
-        return ZStack(anchor: .bottom) {
+        return ZStack(alignment: .bottom) {
             if viewModel.transcript.isEmpty {
                 ChatEmptyChatRegion(
                     viewModel: viewModel,
@@ -145,28 +145,28 @@ private struct ChatChrome: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
-    private func contentWidth(for availableWidth: Float) -> Float {
+    private func contentWidth(for availableWidth: CGFloat) -> CGFloat {
         let horizontalInset = idiom == .phone ? theme.spacing.s * 2 : theme.spacing.l * 2
         return max(0, min(chatContentWidth, availableWidth - horizontalInset))
     }
 
-    private func heroWidth(for contentWidth: Float) -> Float {
+    private func heroWidth(for contentWidth: CGFloat) -> CGFloat {
         min(contentWidth, chatHeroWidth)
     }
 
-    private var pickerWidth: Float {
+    private var pickerWidth: CGFloat {
         if idiom == .phone {
             return max(280, min(320, screenPointWidth - theme.spacing.m * 2))
         }
         return 320
     }
 
-    private var phoneContentWidth: Float {
+    private var phoneContentWidth: CGFloat {
         let available = max(0, screenPointWidth - rootSafeAreaInsets.leading - rootSafeAreaInsets.trailing)
         return max(0, available - theme.spacing.s * 2)
     }
 
-    private var overlayTopInset: Float {
+    private var overlayTopInset: CGFloat {
         ChatOverlayLayout.pickerTopInset(
             isPhone: idiom == .phone,
             rootSafeAreaTop: rootSafeAreaInsets.top,
@@ -174,11 +174,11 @@ private struct ChatChrome: View {
         )
     }
 
-    private var composerScrollInset: Float {
+    private var composerScrollInset: CGFloat {
         ChatComposerView.panelHeight(for: idiom) + composerScrollGap
     }
 
-    private var composerBottomInset: Float {
+    private var composerBottomInset: CGFloat {
         guard idiom == .phone else {
             return theme.spacing.m
         }
@@ -191,15 +191,15 @@ private struct ChatChrome: View {
         )
     }
 
-    private var messagesTopInset: Float {
+    private var messagesTopInset: CGFloat {
         idiom == .phone ? theme.spacing.s : theme.spacing.xxl
     }
 
-    private var composerScrollGap: Float {
+    private var composerScrollGap: CGFloat {
         idiom == .phone ? theme.spacing.l : theme.spacing.xxl
     }
 
-    private var screenPointWidth: Float {
+    private var screenPointWidth: CGFloat {
         guard let screen = Screen.main else {
             return 390
         }
@@ -208,14 +208,14 @@ private struct ChatChrome: View {
 }
 
 struct ChatComposerKeyboardLayout {
-    private static let keyboardSafeAreaEpsilon: Float = 1
+    private static let keyboardSafeAreaEpsilon: CGFloat = 1
 
     static func phoneBottomInset(
-        rootSafeAreaBottom: Float,
-        effectiveSafeAreaBottom: Float,
-        normalMinimumSpacing: Float,
-        keyboardSpacing: Float
-    ) -> Float {
+        rootSafeAreaBottom: CGFloat,
+        effectiveSafeAreaBottom: CGFloat,
+        normalMinimumSpacing: CGFloat,
+        keyboardSpacing: CGFloat
+    ) -> CGFloat {
         let keyboardSafeAreaIsActive = effectiveSafeAreaBottom > rootSafeAreaBottom + keyboardSafeAreaEpsilon
         if keyboardSafeAreaIsActive {
             return keyboardSpacing
@@ -228,9 +228,9 @@ struct ChatComposerKeyboardLayout {
 struct ChatOverlayLayout {
     static func pickerTopInset(
         isPhone: Bool,
-        rootSafeAreaTop: Float,
-        effectiveSafeAreaTop: Float
-    ) -> Float {
+        rootSafeAreaTop: CGFloat,
+        effectiveSafeAreaTop: CGFloat
+    ) -> CGFloat {
         if isPhone {
             return rootSafeAreaTop + 52
         }
@@ -274,7 +274,7 @@ private struct ChatNavigationLeadingItems: View {
             if let onOpenSidebar {
                 Button(action: onOpenSidebar) {
                     Icons.symbol(.menu, size: 15)
-                        .foregroundColor(.white.opacity(0.72 as Float))
+                        .foregroundColor(.white.opacity(0.72 as CGFloat))
                         .frame(width: 30, height: 30)
                 }
             }
@@ -292,7 +292,7 @@ private struct ChatNavigationLeadingItems: View {
                     .foregroundColor(.white)
                     .lineLimit(1)
                 Icons.symbol(.expandMore, size: 12)
-                    .foregroundColor(.white.opacity(0.55 as Float))
+                    .foregroundColor(.white.opacity(0.55 as CGFloat))
             }
         }
     }
@@ -358,15 +358,15 @@ private struct MobileChatNavigationCenterCapsule: View {
         viewModel.selectedSessionId == nil ? "New chat" : "Recent session"
     }
 
-    private var mobileNavigationCapsuleWidth: Float {
+    private var mobileNavigationCapsuleWidth: CGFloat {
         let horizontalMargins = theme.spacing.l * 2
-        let leftClusterWidth: Float = 44 + theme.spacing.s
-        let rightClusterWidth: Float = 44 * 2 + theme.spacing.xs + theme.spacing.s
-        let available: Float = screenPointWidth - horizontalMargins - leftClusterWidth - rightClusterWidth
+        let leftClusterWidth: CGFloat = 44 + theme.spacing.s
+        let rightClusterWidth: CGFloat = 44 * 2 + theme.spacing.xs + theme.spacing.s
+        let available: CGFloat = screenPointWidth - horizontalMargins - leftClusterWidth - rightClusterWidth
         return max(150, min(236, available))
     }
 
-    private var screenPointWidth: Float {
+    private var screenPointWidth: CGFloat {
         guard let screen = Screen.main else {
             return 390
         }
@@ -446,8 +446,8 @@ private struct ChatConnectionBar: View {
 @MainActor
 private struct ChatOverlayLayer: View {
     let viewModel: ChatScreenViewModel
-    let pickerWidth: Float
-    let overlayTopInset: Float
+    let pickerWidth: CGFloat
+    let overlayTopInset: CGFloat
 
     @ViewBuilder
     var body: some View {
@@ -505,7 +505,7 @@ private struct ChatOverlayLayer: View {
     }
 
     private var overlayDim: some View {
-        Color.black.opacity(0.4 as Float)
+        Color.black.opacity(0.4 as CGFloat)
             .ignoresSafeArea()
             .onTap {
                 viewModel.dismissOverlays()
@@ -516,10 +516,10 @@ private struct ChatOverlayLayer: View {
 @MainActor
 private struct ChatTranscriptRegion: View {
     let viewModel: ChatScreenViewModel
-    let contentWidth: Float
-    let heroWidth: Float
-    let messagesTopInset: Float
-    let composerScrollInset: Float
+    let contentWidth: CGFloat
+    let heroWidth: CGFloat
+    let messagesTopInset: CGFloat
+    let composerScrollInset: CGFloat
 
     var body: some View {
         ChatTranscriptPane(
@@ -536,9 +536,9 @@ private struct ChatTranscriptRegion: View {
 @MainActor
 private struct ChatEmptyChatRegion: View {
     let viewModel: ChatScreenViewModel
-    let contentWidth: Float
-    let heroWidth: Float
-    let bottomClearance: Float
+    let contentWidth: CGFloat
+    let heroWidth: CGFloat
+    let bottomClearance: CGFloat
 
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
@@ -558,8 +558,8 @@ private struct ChatEmptyChatRegion: View {
 @MainActor
 private struct ChatComposerOverlay: View {
     let viewModel: ChatScreenViewModel
-    let contentWidth: Float
-    let composerBottomInset: Float
+    let contentWidth: CGFloat
+    let composerBottomInset: CGFloat
 
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
@@ -592,10 +592,10 @@ private struct ChatComposerOverlay: View {
 private struct ChatTranscriptPane: View {
     let transcript: ChatTranscriptState
     let agentName: String
-    let contentWidth: Float
-    let heroWidth: Float
-    let messagesTopInset: Float
-    let composerScrollInset: Float
+    let contentWidth: CGFloat
+    let heroWidth: CGFloat
+    let messagesTopInset: CGFloat
+    let composerScrollInset: CGFloat
 
     @Environment(\.theme) private var theme
 
@@ -619,16 +619,12 @@ private struct ChatTranscriptPane: View {
                                 .padding(.bottom, theme.spacing.m)
                         }
 
-                        LazyVStack(
-                            transcript.messages,
-                            alignment: .leading,
-                            spacing: theme.spacing.xl,
-                            estimatedRowHeight: 168,
-                            overscan: 8
-                        ) { msg in
-                            ChatBubbleView(message: msg)
-                                .frame(minWidth: 0, maxWidth: .infinity)
-                                .allowsHitTesting(false)
+                        LazyVStack(alignment: .leading, spacing: theme.spacing.xl) {
+                            ForEach(transcript.messages) { msg in
+                                ChatBubbleView(message: msg)
+                                    .frame(minWidth: 0, maxWidth: .infinity)
+                                    .allowsHitTesting(false)
+                            }
                         }
                         .padding(.top, transcript.hasEarlierMessages ? 0 : messagesTopInset)
                         .padding(.bottom, composerScrollInset)
@@ -686,9 +682,17 @@ private struct ChatTranscriptPane: View {
             .foregroundColor(c.textSecondary)
             .padding(.horizontal, sp.m)
             .padding(.vertical, sp.s)
-            .background(c.surface.opacity(0.74 as Float))
-            .glassEffect(.regular, in: .rect(cornerRadius: 14))
+            .background(c.surface.opacity(0.74 as CGFloat))
+            .glassEffect(.regular, in: GlassShape.rect(cornerRadius: 14))
             Spacer(minLength: 0)
         }
     }
 }
+
+
+#Preview {
+    ChatComposerView(draft: .init()) { _ in
+        
+    }
+}
+

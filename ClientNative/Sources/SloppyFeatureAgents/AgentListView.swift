@@ -20,13 +20,8 @@ struct AgentListView: View {
                 if agents.isEmpty {
                     EmptyStateView(isLoading ? "Loading..." : "No agents registered")
                 } else {
-                    LazyVStack(
-                        agents,
-                        alignment: .leading,
-                        spacing: sp.s,
-                        estimatedRowHeight: 68,
-                        overscan: 12
-                    ) { agent in
+                    LazyVStack(alignment: .leading, spacing: sp.s) {
+                        ForEach(agents) { agent in
                             NavigationLink(value: agent.id) {
                                 EntityCard(
                                     title: agent.displayName,
@@ -35,6 +30,7 @@ struct AgentListView: View {
                                     accentColor: c.accentCyan
                                 )
                             }
+                        }
                     }
                 }
             }

@@ -1,4 +1,3 @@
-import Foundation
 import SwiftUI
 
 // MARK: - AppColors
@@ -73,10 +72,6 @@ public struct AppColors: Sendable, Hashable {
     )
 }
 
-public struct AppColorsKey: ThemeKey {
-    public static let defaultValue = AppColors.dark
-}
-
 // MARK: - AppTypography
 
 public struct AppTypography: Sendable, Hashable {
@@ -97,19 +92,15 @@ public struct AppTypography: Sendable, Hashable {
     )
 }
 
-public struct AppTypographyKey: ThemeKey {
-    public static let defaultValue = AppTypography.default
-}
-
 // MARK: - AppSpacing
 
 public struct AppSpacing: Sendable, Hashable {
-    public var xs: Float
-    public var s: Float
-    public var m: Float
-    public var l: Float
-    public var xl: Float
-    public var xxl: Float
+    public var xs: CGFloat
+    public var s: CGFloat
+    public var m: CGFloat
+    public var l: CGFloat
+    public var xl: CGFloat
+    public var xxl: CGFloat
 
     public static let `default` = AppSpacing(
         xs:  4,
@@ -121,66 +112,54 @@ public struct AppSpacing: Sendable, Hashable {
     )
 }
 
-public struct AppSpacingKey: ThemeKey {
-    public static let defaultValue = AppSpacing.default
-}
-
 // MARK: - AppBorders
 
 public struct AppBorders: Sendable, Hashable {
-    public var thin: Float
-    public var medium: Float
-    public var thick: Float
+    public var thin: CGFloat
+    public var medium: CGFloat
+    public var thick: CGFloat
 
     public static let `default` = AppBorders(thin: 1, medium: 2, thick: 3)
 }
 
-public struct AppBordersKey: ThemeKey {
-    public static let defaultValue = AppBorders.default
+// MARK: - Theme
+
+public struct AppTheme: Sendable, Hashable {
+    public var colors: AppColors
+    public var typography: AppTypography
+    public var spacing: AppSpacing
+    public var borders: AppBorders
+
+    public static let sloppyDark = AppTheme(
+        colors: .dark,
+        typography: .default,
+        spacing: .default,
+        borders: .default
+    )
+
+    public static let sloppyLight = AppTheme(
+        colors: .light,
+        typography: .default,
+        spacing: .default,
+        borders: .default
+    )
 }
 
-// MARK: - Theme convenience accessors
+public typealias Theme = AppTheme
 
-public extension Theme {
-    var colors: AppColors {
-        get { self[AppColorsKey.self] }
-        set { self[AppColorsKey.self] = newValue }
-    }
+private struct AppThemeKey: EnvironmentKey {
+    static let defaultValue = AppTheme.sloppyDark
+}
 
-    var typography: AppTypography {
-        get { self[AppTypographyKey.self] }
-        set { self[AppTypographyKey.self] = newValue }
-    }
-
-    var spacing: AppSpacing {
-        get { self[AppSpacingKey.self] }
-        set { self[AppSpacingKey.self] = newValue }
-    }
-
-    var borders: AppBorders {
-        get { self[AppBordersKey.self] }
-        set { self[AppBordersKey.self] = newValue }
+public extension EnvironmentValues {
+    var theme: AppTheme {
+        get { self[AppThemeKey.self] }
+        set { self[AppThemeKey.self] = newValue }
     }
 }
 
-// MARK: - Presets
-
-public extension Theme {
-    static let sloppyDark: Theme = {
-        var t = Theme()
-        t[AppColorsKey.self] = .dark
-        t[AppTypographyKey.self] = .default
-        t[AppSpacingKey.self] = .default
-        t[AppBordersKey.self] = .default
-        return t
-    }()
-
-    static let sloppyLight: Theme = {
-        var t = Theme()
-        t[AppColorsKey.self] = .light
-        t[AppTypographyKey.self] = .default
-        t[AppSpacingKey.self] = .default
-        t[AppBordersKey.self] = .default
-        return t
-    }()
+public extension View {
+    func theme(_ theme: AppTheme) -> some View {
+        environment(\.theme, theme)
+    }
 }

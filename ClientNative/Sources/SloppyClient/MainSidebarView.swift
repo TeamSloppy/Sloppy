@@ -11,13 +11,13 @@ enum MainSidebarSelection: Hashable {
 
 @MainActor
 struct MainSidebarView: View {
-    static let expandedWidth: Float = 348
-    static let collapsedWidth: Float = 64
-    static let minimumWidth: Float = 240
-    static let maximumWidth: Float = 520
+    static let expandedWidth: CGFloat = 348
+    static let collapsedWidth: CGFloat = 64
+    static let minimumWidth: CGFloat = 240
+    static let maximumWidth: CGFloat = 520
 
-    private static let rowRadius: Float = 18
-    private static let rowMinimumHeight: Float = 48
+    private static let rowRadius: CGFloat = 18
+    private static let rowMinimumHeight: CGFloat = 48
 
     let viewModel: MainViewModel
     let isOverlay: Bool
@@ -27,16 +27,16 @@ struct MainSidebarView: View {
     @Environment(\.userInterfaceIdiom) private var userInterfaceIdiom
 
     private var usesLiquidGlass: Bool {
-        #if os(iOS)
+#if os(iOS)
         false
-        #else
+#else
         true
-        #endif
+#endif
     }
-    
+
     var body: some View {
         let c = theme.colors
-        
+
         expandedSidebar(c: c)
     }
 
@@ -53,22 +53,22 @@ struct MainSidebarView: View {
             }
             .frame(minHeight: 0, maxHeight: .infinity)
         }
-        .padding(.horizontal, sp.xs)
-        .padding(.vertical, sp.s)
-        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
-        .overlay(anchor: .bottomTrailing) {
-            if userInterfaceIdiom == .phone {
-                newChatFloatingButton(c: c, sp: sp)
-                    .padding(
-                        EdgeInsets(
-                            top: 0,
-                            leading: 0,
-                            bottom: isOverlay ? sp.xl + sp.s : sp.m,
-                            trailing: sp.s
+            .padding(.horizontal, sp.xs)
+            .padding(.vertical, sp.s)
+            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
+            .overlay(anchor: .bottomTrailing) {
+                if userInterfaceIdiom == .phone {
+                    newChatFloatingButton(c: c, sp: sp)
+                        .padding(
+                            EdgeInsets(
+                                top: 0,
+                                leading: 0,
+                                bottom: isOverlay ? sp.xl + sp.s : sp.m,
+                                trailing: sp.s
+                            )
                         )
-                    )
+                }
             }
-        }
 
         return sidebarSurface(content, c: c)
     }
@@ -105,8 +105,7 @@ struct MainSidebarView: View {
                 .foregroundColor(c.textPrimary)
         }
         .frame(width: 48, height: 48)
-        .background(c.surfaceRaised.opacity(0.92 as Float))
-        .glassEffect(.regular.tint(c.surfaceRaised.opacity(0.34 as Float)), in: Circle())
+        .glassEffect(.regular.tint(c.surfaceRaised.opacity(0.34 as CGFloat)), in: Circle())
     }
 
     private func recentsSection(c: AppColors, sp: AppSpacing) -> some View {
@@ -179,7 +178,7 @@ struct MainSidebarView: View {
     ) -> some View {
         let isPinned = viewModel.chatViewModel.pinnedSessionIds.contains(session.id)
         let isSelected = viewModel.selectedSidebarItem == .chats
-            && viewModel.chatViewModel.selectedSessionId == session.id
+        && viewModel.chatViewModel.selectedSessionId == session.id
         let isContextMenuTarget = contextMenuSessionId == session.id
         let title = session.title.isEmpty ? "Chat" : session.title
         return sidebarPlainRow(
@@ -194,16 +193,7 @@ struct MainSidebarView: View {
         ) {
             viewModel.selectChatSession(session)
         }
-        .contextMenu(
-            onPresent: {
-                contextMenuSessionId = session.id
-            },
-            onDismiss: {
-                if contextMenuSessionId == session.id {
-                    contextMenuSessionId = nil
-                }
-            }
-        ) {
+        .contextMenu {
             Button(isPinned ? "Unpin Chat" : "Pin Chat") {
                 viewModel.togglePinChatSession(session)
             }
@@ -356,7 +346,7 @@ struct MainSidebarView: View {
         c: AppColors,
         sp: AppSpacing,
         titleColor: Color? = nil,
-        leadingInset: Float = 0,
+        leadingInset: CGFloat = 0,
         action: @escaping @MainActor () -> Void
     ) -> some View {
         HoverableSidebarRow(
@@ -381,7 +371,6 @@ struct MainSidebarView: View {
         if usesLiquidGlass {
             content
                 .padding(4)
-                .glassEffect(.regular.tint(Color.black.opacity(0.14 as Float)), in: RoundedRectangle(cornerRadius: 28))
         } else {
             content
                 .background(c.background)
@@ -410,7 +399,7 @@ private struct MobileSidebarOverlayIconButtonStyle: ButtonStyle {
         configuration.label
             .frame(width: 48, height: 48)
             .glassEffect(.regular, in: Circle())
-            .opacity(configuration.isPressed ? 0.78 as Float : 1)
+            .opacity(configuration.isPressed ? 0.78 as CGFloat : 1)
     }
 }
 
@@ -424,9 +413,9 @@ private struct HoverableSidebarRow: View {
     let spacing: AppSpacing
     let typography: AppTypography
     let titleColor: Color?
-    let leadingInset: Float
-    let rowRadius: Float
-    let rowMinimumHeight: Float
+    let leadingInset: CGFloat
+    let rowRadius: CGFloat
+    let rowMinimumHeight: CGFloat
     let usesLiquidGlass: Bool
     let action: @MainActor () -> Void
 
@@ -468,12 +457,6 @@ private struct HoverableSidebarRow: View {
                         .multilineTextAlignment(.trailing)
                 }
             }
-            .frame(minWidth: 0, maxWidth: .infinity, minHeight: rowMinimumHeight, alignment: .leading)
-            .padding(EdgeInsets(top: 0, leading: leadingInset + spacing.s, bottom: 0, trailing: spacing.m + spacing.s))
-            .glassEffect(
-                isActive ? .regular.tint(Color.white.opacity(isSelected ? 0.07 as Float : 0.035 as Float)) : .identity,
-                in: Capsule()
-            )
         }
         .onHover {
             isHovered = $0
@@ -493,13 +476,38 @@ private extension View {
     @ViewBuilder
     func applySidebarGlass(
         _ isEnabled: Bool,
-        style: Glass = .regular,
-        cornerRadius: Float
+        style: GlassEffect = .regular,
+        cornerRadius: CGFloat
     ) -> some View {
         if isEnabled {
-            glassEffect(style, in: .rect(cornerRadius: cornerRadius))
+            glassEffect(style, in: GlassShape.rect(cornerRadius: cornerRadius))
         } else {
             self
         }
     }
 }
+
+#Preview {
+    @Previewable @State var rootViewModel = RootShellViewModel()
+    let viewModel = MainViewModel(
+        baseURL: URL.debugURL,
+        settings: rootViewModel.settings,
+        connectionMonitor: rootViewModel.connectionMonitor,
+        onOpenSettings: {},
+        onOpenWorkspace: {}
+    )
+
+    MainSidebarView(viewModel: viewModel, isOverlay: false)
+}
+
+struct SideBarButtonStyle: ButtonStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        con
+    }
+}
+
+
+extension URL {
+    static let debugURL = URL(string: "http://localhost:25101")!
+}
+

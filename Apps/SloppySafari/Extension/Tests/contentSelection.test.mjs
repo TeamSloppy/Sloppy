@@ -6,6 +6,7 @@ import vm from "node:vm";
 function loadContentScriptSandbox() {
   const i18nSource = readFileSync(new URL("../Resources/i18n.js", import.meta.url), "utf8");
   const startPageCustomizeSource = readFileSync(new URL("../Resources/startPageCustomize.js", import.meta.url), "utf8");
+  const settingsPanelSource = readFileSync(new URL("../Resources/settingsPanel.js", import.meta.url), "utf8");
   const source = readFileSync(new URL("../Resources/contentScript.js", import.meta.url), "utf8");
   assert.equal(/\bexport\s+function\b/.test(source), false);
   assert.equal(/\bexport\s+function\b/.test(startPageCustomizeSource), false);
@@ -24,6 +25,7 @@ function loadContentScriptSandbox() {
   sandbox.globalThis = sandbox;
   vm.runInNewContext(i18nSource, sandbox);
   vm.runInNewContext(startPageCustomizeSource, sandbox);
+  vm.runInNewContext(settingsPanelSource, sandbox);
   vm.runInNewContext(source, sandbox);
   return sandbox;
 }
@@ -2491,6 +2493,43 @@ test("settings dialog includes mesh invite and target node controls", () => {
   assert.ok(frame.querySelector("[data-sloppy-mesh-target-node]"));
   assert.ok(frame.querySelector("[data-sloppy-mesh-join]"));
   assert.ok(frame.querySelector("[data-sloppy-mesh-status]"));
+});
+
+test("settings dialog renders segmented navigation layout", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.window = {
+    innerWidth: 1280,
+    innerHeight: 900,
+    navigator: { maxTouchPoints: 0 },
+    matchMedia: () => ({ matches: false })
+  };
+  sandbox.chrome = {
+    runtime: {
+      getURL: (path) => `safari-extension://sloppy/${path}`
+    }
+  };
+  sandbox.wirePanel = () => {};
+  sandbox.updateViewportCSSVars = () => {};
+
+  const frame = sandbox.ensurePanel();
+
+  assert.match(frame.innerHTML, /data-sloppy-settings-nav/);
+  assert.match(frame.innerHTML, /data-sloppy-settings-nav-item="connection"/);
+  assert.match(frame.innerHTML, /data-sloppy-settings-nav-item="mesh"/);
+  assert.match(frame.innerHTML, /data-sloppy-settings-nav-item="interface"/);
+  assert.match(frame.innerHTML, /data-sloppy-settings-section="connection"/);
+  assert.match(frame.innerHTML, /data-sloppy-settings-section="mesh"/);
+  assert.match(frame.innerHTML, /data-sloppy-settings-section="interface"/);
+});
+
+test("extension manifest includes extracted settings panel script", () => {
+  const manifest = JSON.parse(readFileSync(new URL("../Resources/manifest.json", import.meta.url), "utf8"));
+  const scriptList = manifest.content_scripts?.[0]?.js || [];
+
+  assert.ok(scriptList.includes("settingsPanel.js"));
+  assert.ok(scriptList.indexOf("settingsPanel.js") < scriptList.indexOf("contentScript.js"));
 });
 
 test("openSettings loads mesh settings values into the dialog", () => {

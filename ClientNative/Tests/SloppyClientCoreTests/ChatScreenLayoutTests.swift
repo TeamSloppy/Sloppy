@@ -18,7 +18,7 @@ struct ChatScreenLayoutTests {
 
         #expect(source.contains("if idiom == .phone"))
         #expect(source.contains("chromeLayout(contentWidth: phoneContentWidth)"))
-        #expect(source.contains("private var phoneContentWidth: Float"))
+        #expect(source.contains("private var phoneContentWidth: CGFloat"))
         #expect(source.contains("screenPointWidth - rootSafeAreaInsets.leading - rootSafeAreaInsets.trailing"))
     }
 
@@ -30,7 +30,7 @@ struct ChatScreenLayoutTests {
         #expect(source.contains(".frame(maxWidth: .infinity, alignment: .leading)"))
         #expect(source.contains(".frame(width: ChatComposerView.phoneCircleSize, height: ChatComposerView.phoneCircleSize)"))
         #expect(source.contains(".buttonStyle(DefaultButtonStyle())"))
-        #expect(source.contains(".glassEffect(.regular, in: Circle())"))
+        #expect(source.contains(".glassEffect(.regular, in: GlassShape.capsule)"))
         #expect(!source.contains(".debugOverlay(.layoutBounds)"))
     }
 

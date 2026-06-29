@@ -57,8 +57,6 @@ struct MainSidebarSelectionTests {
             .appendingPathComponent("MainSidebarView.swift")
         let source = try String(contentsOf: sidebarURL, encoding: .utf8)
 
-        #expect(source.contains("overlayWindowHeader"))
         #expect(source.contains("MobileSidebarOverlayIconButtonStyle"))
-        #expect(source.contains("headerIconButton(.close"))
     }
 }

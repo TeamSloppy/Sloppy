@@ -1,4 +1,3 @@
-import Foundation
 import SwiftUI
 import SloppyClientCore
 import SloppyClientUI
@@ -7,41 +6,16 @@ import SloppyFeatureSettings
 
 @MainActor
 struct RootShellView: View {
-
-    @State private var debugOverlayMode: UIDebugOverlayMode?
     @State private var viewModel = RootShellViewModel()
 
     var body: some View {
         RootShellContent(viewModel: viewModel)
             .environment(viewModel)
             .theme(viewModel.settings.colorScheme.appTheme)
-            .debugOverlay(debugOverlayMode ?? .off)
-            .keyboardShortcuts([
-                KeyboardShortcutAction(
-                    .r, modifiers: [.command, .shift],
-                    action: {
-                        setDebugOverlayMode(.redraw)
-                    }),
-                KeyboardShortcutAction(
-                    .h, modifiers: [.command, .shift],
-                    action: {
-                        setDebugOverlayMode(.hitTestTarget)
-                    }),
-                KeyboardShortcutAction(
-                    .d, modifiers: [.command, .shift],
-                    action: {
-                        setDebugOverlayMode(.layoutBounds)
-                    }),
-                KeyboardShortcutAction(
-                    .f, modifiers: [.command, .shift],
-                    action: {
-                        setDebugOverlayMode(.focusedNode)
-                    }),
-            ])
-    }
-
-    private func setDebugOverlayMode(_ mode: UIDebugOverlayMode) {
-        debugOverlayMode = debugOverlayMode == mode ? .off : mode
+            .injectSafeAreaInsets()
+            .onOpenURL { url in
+                viewModel.handleDeepLink(url)
+            }
     }
 }
 
@@ -58,10 +32,10 @@ private struct RootShellContent: View {
     var body: some View {
         let rootViewModel = viewModel
 
-        return ZStack(anchor: .topLeading) {
+        return ZStack(alignment: .topLeading) {
             AppAtmosphericBackground()
                 .ignoresSafeArea()
-            
+
             switch rootViewModel.appState {
             case .splash:
                 SplashScreen(settings: rootViewModel.settings) { result in
@@ -103,16 +77,12 @@ private struct RootShellContent: View {
 
             if let banner = rootViewModel.activeBanner {
                 NotificationBanner(item: banner)
-                    .frame(width: Float(320))
+                    .frame(width: 320)
                     .padding(theme.spacing.m)
             }
         }
-        .frame(
-            minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity,
-            alignment: .topLeading
-        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
-            rootViewModel.startDeepLinkListener()
             rootViewModel.startDesktopWindowIntegration()
         }
         .onChange(of: rootViewModel.settings.windowCloseBehavior) { _, _ in
@@ -122,12 +92,16 @@ private struct RootShellContent: View {
 }
 
 extension ClientColorScheme {
-    fileprivate var appTheme: Theme {
+    fileprivate var appTheme: AppTheme {
         switch self {
         case .light:
-            return .sloppyDark
+            return .sloppyLight
         case .dark:
             return .sloppyDark
         }
     }
+}
+
+#Preview {
+    RootShellView()
 }

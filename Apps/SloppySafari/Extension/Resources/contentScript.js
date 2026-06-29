@@ -110,11 +110,11 @@ function renderMarkdown(markdown = "") {
     .join("");
 }
 
-function iconAsset(path) {
-  const assetPath = String(path || "").trim();
+function iconAsset(rawPath) {
+  const path = String(rawPath || "").trim();
   return typeof chrome !== "undefined" && typeof chrome.runtime?.getURL === "function"
-    ? chrome.runtime.getURL(assetPath)
-    : assetPath;
+    ? chrome.runtime.getURL(path)
+    : path;
 }
 
 const iconSymbols = {
@@ -151,7 +151,8 @@ function iconSymbol(name) {
 
 function icon(name, hoverIcon = "") {
   const symbol = iconSymbol(name);
-  const iconURL = iconAsset(`${symbol}.svg`);
+  const path = `${symbol}.svg`;
+  const iconURL = iconAsset(path);
   const safeIconURL = escapeHTML(iconURL);
   const hoverVariable = String(hoverIcon || "").trim()
     ? `; --sloppy-symbol-hover-url: url('${escapeHTML(iconAsset(hoverIcon))}')`
@@ -195,7 +196,6 @@ function setSidebarChevronIcon(button, baseIconName) {
   symbolContainer.setAttribute("data-sf-symbol", symbol);
   symbolContainer.style.setProperty("--sloppy-symbol-base-url", baseURL);
   symbolContainer.style.setProperty("--sloppy-symbol-url", baseURL);
-  symbolContainer.style.setProperty("--sloppy-symbol-active-url", baseURL);
   symbolContainer.style.setProperty("--sloppy-symbol-hover-url", hoverURL);
 }
 
@@ -251,7 +251,7 @@ function wireSidebarChevronHover(button) {
     if (!state) {
       return;
     }
-    state.symbol.style.setProperty("--sloppy-symbol-active-url", isHover ? state.hover : state.base);
+    state.symbol.style.setProperty("--sloppy-symbol-url", isHover ? state.hover : state.base);
   };
 
   const onEnter = () => setActive(true);
@@ -266,7 +266,7 @@ function wireSidebarChevronHover(button) {
 
   const initialState = getSymbolState();
   if (initialState) {
-    initialState.symbol.style.setProperty("--sloppy-symbol-active-url", initialState.base);
+    initialState.symbol.style.setProperty("--sloppy-symbol-url", initialState.base);
   }
 }
 
@@ -468,6 +468,8 @@ function meshStatusText(mesh = {}) {
   }
   return `Mesh: ${mesh.networkName || mesh.networkId || mesh.relayURL} as ${mesh.identity?.nodeId || "unknown node"}`;
 }
+
+const settingsPanel = globalThis.SloppySettingsPanel;
 
 function updateViewportCSSVars() {
   if (typeof document === "undefined") {
@@ -743,38 +745,7 @@ function ensurePanel() {
       </div>
     </section>
 
-    <dialog class="sloppy-settings-dialog" data-sloppy-settings-dialog>
-      <form method="dialog" class="sloppy-settings-card">
-        <header>
-          <strong>Connection</strong>
-          <button class="sloppy-icon-button" value="cancel" aria-label="${escapeHTML(t("closeSettings"))}">${icon("close")}</button>
-        </header>
-        <label>Core URL<input data-sloppy-core-url placeholder="http://127.0.0.1:25101"></label>
-        <label>Auth token<input data-sloppy-auth-token type="password" autocomplete="off"></label>
-        <label>Default agent<input data-sloppy-default-agent placeholder="sloppy"></label>
-        <div class="sloppy-settings-section">
-          <strong>Mesh</strong>
-          <label class="sloppy-settings-toggle">
-            <input data-sloppy-mesh-enabled type="checkbox">
-            <span>Use mesh relay</span>
-          </label>
-          <label>Invite token<textarea data-sloppy-mesh-invite rows="3"></textarea></label>
-          <label>Target node<input data-sloppy-mesh-target-node></label>
-          <button class="sloppy-settings-save" type="button" data-sloppy-mesh-join>Join mesh</button>
-          <p class="sloppy-settings-note" data-sloppy-mesh-status>Mesh is not configured.</p>
-        </div>
-        <label class="sloppy-settings-toggle">
-          <input data-sloppy-floating-button type="checkbox">
-          <span>Show floating button</span>
-        </label>
-        <label class="sloppy-settings-toggle">
-          <input data-sloppy-selection-bubble-enabled type="checkbox">
-          <span>Show selection bubble</span>
-        </label>
-        <a class="sloppy-settings-link" href="https://sloppy.team" target="_blank" rel="noreferrer">${escapeHTML(t("downloadSloppy"))}</a>
-        <button class="sloppy-settings-save" type="button" data-sloppy-save-settings>Save settings</button>
-      </form>
-    </dialog>
+    ${settingsPanel?.renderSettingsDialog({ t, escapeHTML, icon }) || ""}
 
     <dialog class="sloppy-sessions-dialog" data-sloppy-sessions-dialog>
       <form method="dialog" class="sloppy-sessions-card">
@@ -1481,27 +1452,10 @@ function wirePanel(frame) {
       }
     };
   });
-  frame.querySelector("[data-sloppy-mesh-join]").addEventListener("click", async () => {
-    const token = frame.querySelector("[data-sloppy-mesh-invite]").value;
-    const status = frame.querySelector("[data-sloppy-mesh-status]");
-    status.textContent = "Joining mesh...";
-    try {
-      const response = await chrome.runtime.sendMessage({ type: "sloppy.mesh.join", token });
-      if (response?.error) {
-        status.textContent = response.error;
-        return;
-      }
-      const mesh = response?.mesh || {};
-      state.settings = {
-        ...(state.settings || {}),
-        mesh
-      };
-      frame.querySelector("[data-sloppy-mesh-enabled]").checked = Boolean(mesh.enabled);
-      frame.querySelector("[data-sloppy-mesh-target-node]").value = mesh.targetNodeId || "";
-      status.textContent = meshStatusText(mesh);
-    } catch (error) {
-      status.textContent = error?.message || "Unable to join mesh.";
-    }
+  settingsPanel?.wire(frame, {
+    getState: () => state,
+    sendMessage: (message) => chrome.runtime.sendMessage(message),
+    meshStatusText
   });
   frame.querySelector("[data-sloppy-start-page-clear-background]")?.addEventListener("click", () => {
     state.settings = {
@@ -2273,52 +2227,29 @@ function openPanelDialog(dialog) {
 }
 
 function openSettings(frame) {
-  const mesh = state.settings?.mesh || { enabled: false };
-  frame.querySelector("[data-sloppy-core-url]").value = state.settings?.coreURLString || "";
-  frame.querySelector("[data-sloppy-auth-token]").value = state.settings?.authToken || "";
-  frame.querySelector("[data-sloppy-default-agent]").value = state.settings?.defaultAgentID || "sloppy";
-  frame.querySelector("[data-sloppy-mesh-enabled]").checked = Boolean(mesh.enabled);
-  frame.querySelector("[data-sloppy-mesh-invite]").value = "";
-  frame.querySelector("[data-sloppy-mesh-target-node]").value = mesh.targetNodeId || "";
-  frame.querySelector("[data-sloppy-mesh-status]").textContent = meshStatusText(mesh);
-  frame.querySelector("[data-sloppy-floating-button]").checked = Boolean(state.settings?.floatingButtonEnabled);
-  frame.querySelector("[data-sloppy-selection-bubble-enabled]").checked = selectionBubbleEnabled();
-  openPanelDialog(frame.querySelector("[data-sloppy-settings-dialog]"));
+  settingsPanel?.openSettings(frame, {
+    getState: () => state,
+    meshStatusText,
+    selectionBubbleEnabled,
+    openPanelDialog
+  });
 }
 
 async function saveSettings(frame) {
-  const settings = {
-    coreURLString: frame.querySelector("[data-sloppy-core-url]").value,
-    authToken: frame.querySelector("[data-sloppy-auth-token]").value,
-    defaultAgentID: frame.querySelector("[data-sloppy-default-agent]").value,
-    selectedModel: state.settings?.selectedModel || "",
-    voiceLanguage: normalizeVoiceLanguage(state.settings?.voiceLanguage),
-    voiceInputDeviceId: normalizeVoiceInputDeviceId(state.settings?.voiceInputDeviceId),
-    sessionId: state.settings?.sessionId || null,
-    mesh: {
-      ...(state.settings?.mesh || {}),
-      enabled: frame.querySelector("[data-sloppy-mesh-enabled]").checked,
-      targetNodeId: frame.querySelector("[data-sloppy-mesh-target-node]").value
-    },
-    floatingButtonEnabled: frame.querySelector("[data-sloppy-floating-button]").checked,
-    selectionBubbleEnabled: frame.querySelector("[data-sloppy-selection-bubble-enabled]").checked,
-    startPageEnabled: state.settings?.startPageEnabled !== false,
-    startPageTheme: state.settings?.startPageTheme || "dark",
-    startPageBackgroundImage: state.settings?.startPageBackgroundImage || "",
-    startPageShortcuts: startPageShortcutItems(state.settings),
-    startPageItems: state.settings?.startPageItems || []
-  };
-  state.settings = await chrome.runtime.sendMessage({ type: "sloppy.settings.save", settings });
-  frame.querySelector("[data-sloppy-settings-dialog]").close();
-  await loadAgents(frame);
-  await loadModels(frame);
-  render(frame);
-  renderFloatingButton();
-  if (!selectionBubbleEnabled()) {
-    hideSelectionMenu();
-  } else {
-    scheduleSelectionMenuUpdate();
-  }
+  await settingsPanel?.saveSettings(frame, {
+    getState: () => state,
+    sendMessage: (message) => chrome.runtime.sendMessage(message),
+    normalizeVoiceLanguage,
+    normalizeVoiceInputDeviceId,
+    startPageShortcutItems,
+    loadAgents,
+    loadModels,
+    render,
+    renderFloatingButton,
+    selectionBubbleEnabled,
+    hideSelectionMenu,
+    scheduleSelectionMenuUpdate
+  });
 }
 
 async function openSessions(frame, options = {}) {

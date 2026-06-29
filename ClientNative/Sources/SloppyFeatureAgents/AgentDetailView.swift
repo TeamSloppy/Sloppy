@@ -27,14 +27,18 @@ struct AgentDetailView: View {
     @State private var tasksLoaded = false
 
     var body: some View {
-        let c = theme.colors
+        VStack(alignment: .leading, spacing: 0) {
+            Picker("", selection: $selectedTab) {
+                ForEach(AgentDetailTab.allCases, id: \.self) { tab in
+                    Text(tab.title).tag(tab)
+                }
+            }
+            .pickerStyle(.segmented)
+            .padding()
 
-        return TabView(selection: $selectedTab) {
-            Tab(AgentDetailTab.info.title, value: AgentDetailTab.info) { tabContent(.info) }
-            Tab(AgentDetailTab.tasks.title, value: AgentDetailTab.tasks) { tabContent(.tasks) }
-            Tab(AgentDetailTab.chat.title, value: AgentDetailTab.chat) { tabContent(.chat) }
+            tabContent(selectedTab)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .tabViewStyle(ScrollableTabViewStyle(accentColor: c.accentCyan))
         .navigationTitle(agent.displayName.uppercased())
         .navigationTitlePosition(.leading)
     }
