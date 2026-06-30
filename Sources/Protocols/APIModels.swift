@@ -1472,6 +1472,116 @@ public struct ProjectUpdateRequest: Codable, Sendable {
     }
 }
 
+public struct CreateInitiativeRequest: Codable, Sendable, Equatable {
+    public var title: String
+    public var goal: String
+    public var successMetrics: [String]
+    public var constraints: [String]
+    public var metadata: [String: String]
+
+    public init(
+        title: String,
+        goal: String,
+        successMetrics: [String] = [],
+        constraints: [String] = [],
+        metadata: [String: String] = [:]
+    ) {
+        self.title = title
+        self.goal = goal
+        self.successMetrics = successMetrics
+        self.constraints = constraints
+        self.metadata = metadata
+    }
+}
+
+public struct UpdateInitiativeRequest: Codable, Sendable, Equatable {
+    public var title: String?
+    public var goal: String?
+    public var phase: InitiativePhase?
+    public var executionMode: InitiativeExecutionMode?
+    public var successMetrics: [String]?
+    public var constraints: [String]?
+    public var resumePoint: String?
+    public var blocker: String?
+    public var metadata: [String: String]?
+
+    public init(
+        title: String? = nil,
+        goal: String? = nil,
+        phase: InitiativePhase? = nil,
+        executionMode: InitiativeExecutionMode? = nil,
+        successMetrics: [String]? = nil,
+        constraints: [String]? = nil,
+        resumePoint: String? = nil,
+        blocker: String? = nil,
+        metadata: [String: String]? = nil
+    ) {
+        self.title = title
+        self.goal = goal
+        self.phase = phase
+        self.executionMode = executionMode
+        self.successMetrics = successMetrics
+        self.constraints = constraints
+        self.resumePoint = resumePoint
+        self.blocker = blocker
+        self.metadata = metadata
+    }
+}
+
+public struct CreateDecisionPacketRequest: Codable, Sendable, Equatable {
+    public var summary: String
+    public var rationale: String
+    public var tradeoffs: [String]
+    public var requestedAction: String
+    public var resumePoint: String?
+
+    public init(
+        summary: String,
+        rationale: String,
+        tradeoffs: [String] = [],
+        requestedAction: String,
+        resumePoint: String? = nil
+    ) {
+        self.summary = summary
+        self.rationale = rationale
+        self.tradeoffs = tradeoffs
+        self.requestedAction = requestedAction
+        self.resumePoint = resumePoint
+    }
+}
+
+public struct InitiativeListResponse: Codable, Sendable, Equatable {
+    public var initiatives: [InitiativeRecord]
+
+    public init(initiatives: [InitiativeRecord]) {
+        self.initiatives = initiatives
+    }
+}
+
+public struct InitiativeDetailResponse: Codable, Sendable, Equatable {
+    public var initiative: InitiativeRecord
+
+    public init(initiative: InitiativeRecord) {
+        self.initiative = initiative
+    }
+}
+
+public struct DecisionPacketListResponse: Codable, Sendable, Equatable {
+    public var decisionPackets: [DecisionPacketRecord]
+
+    public init(decisionPackets: [DecisionPacketRecord]) {
+        self.decisionPackets = decisionPackets
+    }
+}
+
+public struct DecisionPacketDetailResponse: Codable, Sendable, Equatable {
+    public var decisionPacket: DecisionPacketRecord
+
+    public init(decisionPacket: DecisionPacketRecord) {
+        self.decisionPacket = decisionPacket
+    }
+}
+
 public struct ProjectContextRefreshResponse: Codable, Sendable {
     public var projectId: String
     public var repoPath: String?
