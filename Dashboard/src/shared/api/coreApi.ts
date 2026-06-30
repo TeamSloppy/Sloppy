@@ -109,6 +109,10 @@ export interface CoreApi {
   fetchWidgetArtifact: (id: string) => Promise<AnyRecord | null>;
   planArtifactWebUrl: (projectId: string, planName: string) => string;
   fetchPlanArtifact: (projectId: string, planName: string) => Promise<AnyRecord | null>;
+  fetchProjectInitiatives: (projectId: string) => Promise<AnyRecord[]>;
+  createProjectInitiative: (projectId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
+  updateProjectInitiative: (projectId: string, initiativeId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
+  fetchInitiativeDecisionPackets: (projectId: string, initiativeId: string) => Promise<AnyRecord[]>;
   fetchRuntimeConfig: () => Promise<AnyRecord | null>;
   fetchVoiceConfig: () => Promise<AnyRecord | null>;
   fetchVoiceCapabilities: () => Promise<AnyRecord | null>;
@@ -780,6 +784,56 @@ export function createCoreApi(): CoreApi {
         return null;
       }
       return response.data;
+    },
+
+    fetchProjectInitiatives: async (projectId) => {
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/initiatives`
+      });
+      if (!response.ok) {
+        throw new Error(formatHttpError(response.status, response.data));
+      }
+      if (!Array.isArray((response.data as AnyRecord)?.initiatives)) {
+        return [];
+      }
+      return (response.data as AnyRecord).initiatives as AnyRecord[];
+    },
+
+    createProjectInitiative: async (projectId, payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/initiatives`,
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return ((response.data as AnyRecord)?.initiative as AnyRecord | null) ?? null;
+    },
+
+    updateProjectInitiative: async (projectId, initiativeId, payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/initiatives/${encodeURIComponent(initiativeId)}`,
+        method: "PATCH",
+        body: payload
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return ((response.data as AnyRecord)?.initiative as AnyRecord | null) ?? null;
+    },
+
+    fetchInitiativeDecisionPackets: async (projectId, initiativeId) => {
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/initiatives/${encodeURIComponent(initiativeId)}/decision-packets`
+      });
+      if (!response.ok) {
+        throw new Error(formatHttpError(response.status, response.data));
+      }
+      if (!Array.isArray((response.data as AnyRecord)?.decisionPackets)) {
+        return [];
+      }
+      return (response.data as AnyRecord).decisionPackets as AnyRecord[];
     },
 
     fetchRuntimeConfig: async () => {

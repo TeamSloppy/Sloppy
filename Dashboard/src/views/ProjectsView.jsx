@@ -67,6 +67,7 @@ import { ProjectFilesTab } from "./Projects/ProjectFilesTab";
 import { ProjectMemoryTab } from "./Projects/ProjectMemoryTab";
 import { ProjectAnalyticsTab } from "./Projects/ProjectAnalyticsTab";
 import { ProjectWorkflowsTab } from "./Projects/ProjectWorkflowsTab";
+import { ProjectInitiativesTab } from "./Projects/ProjectInitiativesTab";
 
 import { ProjectList } from "./Projects/ProjectList";
 import { TaskReviewView } from "./Projects/TaskReviewView";
@@ -2301,6 +2302,10 @@ export function ProjectsView({
 
     if (selectedTab === "files") {
       return <ProjectFilesTab project={project} />;
+    }
+
+    if (selectedTab === "initiatives") {
+      return <ProjectInitiativesTab project={project} />;
     }
 
     if (selectedTab === "tasks") {
