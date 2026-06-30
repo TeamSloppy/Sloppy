@@ -299,6 +299,13 @@ public enum InitiativeExecutionMode: String, Codable, Sendable, Equatable, CaseI
     case councilReview = "council_review"
 }
 
+public enum InitiativeExecutionSignal: String, Codable, Sendable, Equatable, CaseIterable {
+    case needsIndependentVerification = "needs_independent_verification"
+    case needsSpecialist = "needs_specialist"
+    case parallelizableStreamsDetected = "parallelizable_streams_detected"
+    case tradeoffDecisionRequired = "tradeoff_decision_required"
+}
+
 public struct InitiativeRecord: Codable, Sendable, Equatable {
     public var id: String
     public var projectID: String
@@ -718,6 +725,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
     public var description: String
     public var priority: String
     public var status: String
+    public var initiativeID: String?
     public var kind: ProjectTaskKind?
     public var loopModeOverride: ProjectLoopMode?
     public var originType: TaskOriginType?
@@ -753,6 +761,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         case description
         case priority
         case status
+        case initiativeID
         case kind
         case loopModeOverride
         case originType
@@ -788,6 +797,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         description: String,
         priority: String,
         status: String,
+        initiativeID: String? = nil,
         kind: ProjectTaskKind? = nil,
         loopModeOverride: ProjectLoopMode? = nil,
         originType: TaskOriginType? = nil,
@@ -821,6 +831,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         self.description = description
         self.priority = priority
         self.status = status
+        self.initiativeID = initiativeID
         self.kind = kind
         self.loopModeOverride = loopModeOverride
         self.originType = originType
@@ -857,6 +868,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         description = try container.decode(String.self, forKey: .description)
         priority = try container.decode(String.self, forKey: .priority)
         status = try container.decode(String.self, forKey: .status)
+        initiativeID = try container.decodeIfPresent(String.self, forKey: .initiativeID)
         kind = try container.decodeIfPresent(ProjectTaskKind.self, forKey: .kind)
         loopModeOverride = try container.decodeIfPresent(ProjectLoopMode.self, forKey: .loopModeOverride)
         originType = try container.decodeIfPresent(TaskOriginType.self, forKey: .originType)
@@ -1668,6 +1680,7 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
     public var description: String?
     public var priority: String
     public var status: String?
+    public var initiativeID: String?
     public var kind: ProjectTaskKind?
     public var loopModeOverride: ProjectLoopMode?
     public var originType: TaskOriginType?
@@ -1686,6 +1699,7 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
         description: String? = nil,
         priority: String = "medium",
         status: String? = nil,
+        initiativeID: String? = nil,
         kind: ProjectTaskKind? = nil,
         loopModeOverride: ProjectLoopMode? = nil,
         originType: TaskOriginType? = nil,
@@ -1703,6 +1717,7 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
         self.description = description
         self.priority = priority
         self.status = status
+        self.initiativeID = initiativeID
         self.kind = kind
         self.loopModeOverride = loopModeOverride
         self.originType = originType
@@ -1723,6 +1738,7 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
     public var description: String?
     public var priority: String?
     public var status: String?
+    public var initiativeID: String?
     public var completionConfidence: ProjectTaskCompletionConfidence?
     public var completionNote: String?
     public var kind: ProjectTaskKind?
@@ -1742,6 +1758,7 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
         description: String? = nil,
         priority: String? = nil,
         status: String? = nil,
+        initiativeID: String? = nil,
         completionConfidence: ProjectTaskCompletionConfidence? = nil,
         completionNote: String? = nil,
         kind: ProjectTaskKind? = nil,
@@ -1760,6 +1777,7 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
         self.description = description
         self.priority = priority
         self.status = status
+        self.initiativeID = initiativeID
         self.completionConfidence = completionConfidence
         self.completionNote = completionNote
         self.kind = kind

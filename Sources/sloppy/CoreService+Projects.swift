@@ -1016,6 +1016,7 @@ extension CoreService {
             description: normalizeTaskDescription(request.description),
             priority: try normalizeTaskPriority(request.priority),
             status: normalizedStatus,
+            initiativeID: request.initiativeID.flatMap(normalizedEntityID),
             kind: request.kind,
             loopModeOverride: request.loopModeOverride,
             originType: request.originType,
@@ -1123,6 +1124,9 @@ extension CoreService {
         }
         if request.parentTaskId != nil {
             task.parentTaskId = normalizeOptionalTaskID(request.parentTaskId)
+        }
+        if request.initiativeID != nil {
+            task.initiativeID = request.initiativeID.flatMap(normalizedEntityID)
         }
         if let dependsOnTaskIds = request.dependsOnTaskIds {
             task.dependsOnTaskIds = normalizeTaskDependencyIds(dependsOnTaskIds)

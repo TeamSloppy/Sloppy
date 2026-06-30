@@ -2,6 +2,20 @@ import Foundation
 import Protocols
 
 extension CoreService {
+    func nextInitiativeExecutionMode(
+        current: InitiativeExecutionMode,
+        signal: InitiativeExecutionSignal
+    ) -> InitiativeExecutionMode {
+        switch signal {
+        case .needsIndependentVerification, .needsSpecialist:
+            return .delegation
+        case .parallelizableStreamsDetected:
+            return .swarm
+        case .tradeoffDecisionRequired:
+            return .councilReview
+        }
+    }
+
     public func listInitiatives(projectID: String) async throws -> InitiativeListResponse {
         let normalizedID = try await requireExistingProjectID(projectID)
         let initiatives = await store.listInitiatives(projectID: normalizedID)
@@ -42,6 +56,22 @@ extension CoreService {
         )
         await store.saveInitiative(initiative)
         return InitiativeDetailResponse(initiative: initiative)
+    }
+
+    public func updateInitiativeExecutionMode(
+        projectID: String,
+        initiativeID: String,
+        signal: InitiativeExecutionSignal
+    ) async throws -> InitiativeRecord {
+        let normalizedID = try await requireExistingProjectID(projectID)
+        guard var initiative = await store.getInitiative(projectID: normalizedID, initiativeID: initiativeID) else {
+            throw ProjectError.notFound
+        }
+        let nextMode = nextInitiativeExecutionMode(current: initiative.executionMode, signal: signal)
+        initiative.executionMode = nextMode
+        initiative.updatedAt = Date()
+        await store.saveInitiative(initiative)
+        return initiative
     }
 
     public func updateInitiative(projectID: String, initiativeID: String, request: UpdateInitiativeRequest) async throws -> InitiativeDetailResponse {

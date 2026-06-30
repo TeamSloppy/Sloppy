@@ -2242,6 +2242,7 @@ public actor SQLiteStore: PersistenceStore {
                 description,
                 priority,
                 status,
+                initiative_id,
                 actor_id,
                 team_id,
                 claimed_actor_id,
@@ -2268,7 +2269,7 @@ public actor SQLiteStore: PersistenceStore {
                 attachments_json,
                 external_metadata_json,
                 tags_json
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
 
         for task in project.tasks {
@@ -2289,36 +2290,37 @@ public actor SQLiteStore: PersistenceStore {
             bindText(task.description, at: 4, statement: taskStatement)
             bindText(task.priority, at: 5, statement: taskStatement)
             bindText(task.status, at: 6, statement: taskStatement)
-            bindOptionalText(task.actorId, at: 7, statement: taskStatement)
-            bindOptionalText(task.teamId, at: 8, statement: taskStatement)
-            bindOptionalText(task.claimedActorId, at: 9, statement: taskStatement)
-            bindOptionalText(task.claimedAgentId, at: 10, statement: taskStatement)
-            bindOptionalText(task.parentTaskId, at: 11, statement: taskStatement)
-            bindOptionalText(task.createdBy, at: 12, statement: taskStatement)
-            bindText(dependsOnTaskIdsJSON, at: 13, statement: taskStatement)
-            bindOptionalText(task.swarmId, at: 14, statement: taskStatement)
-            bindOptionalText(task.swarmTaskId, at: 15, statement: taskStatement)
-            bindOptionalText(task.swarmParentTaskId, at: 16, statement: taskStatement)
-            bindText(dependencyIdsJSON, at: 17, statement: taskStatement)
+            bindOptionalText(task.initiativeID, at: 7, statement: taskStatement)
+            bindOptionalText(task.actorId, at: 8, statement: taskStatement)
+            bindOptionalText(task.teamId, at: 9, statement: taskStatement)
+            bindOptionalText(task.claimedActorId, at: 10, statement: taskStatement)
+            bindOptionalText(task.claimedAgentId, at: 11, statement: taskStatement)
+            bindOptionalText(task.parentTaskId, at: 12, statement: taskStatement)
+            bindOptionalText(task.createdBy, at: 13, statement: taskStatement)
+            bindText(dependsOnTaskIdsJSON, at: 14, statement: taskStatement)
+            bindOptionalText(task.swarmId, at: 15, statement: taskStatement)
+            bindOptionalText(task.swarmTaskId, at: 16, statement: taskStatement)
+            bindOptionalText(task.swarmParentTaskId, at: 17, statement: taskStatement)
+            bindText(dependencyIdsJSON, at: 18, statement: taskStatement)
             if let swarmDepth = task.swarmDepth {
-                sqlite3_bind_int(taskStatement, 18, Int32(swarmDepth))
+                sqlite3_bind_int(taskStatement, 19, Int32(swarmDepth))
             } else {
-                sqlite3_bind_null(taskStatement, 18)
+                sqlite3_bind_null(taskStatement, 19)
             }
-            bindText(actorPathJSON, at: 19, statement: taskStatement)
-            bindText(isoFormatter.string(from: task.createdAt), at: 20, statement: taskStatement)
-            bindText(isoFormatter.string(from: task.updatedAt), at: 21, statement: taskStatement)
-            bindOptionalText(task.worktreeBranch, at: 22, statement: taskStatement)
-            bindOptionalText(task.sourceControlProviderId, at: 23, statement: taskStatement)
-            bindOptionalText(task.kind?.rawValue, at: 24, statement: taskStatement)
-            bindOptionalText(task.loopModeOverride?.rawValue, at: 25, statement: taskStatement)
-            bindOptionalText(task.originType?.rawValue, at: 26, statement: taskStatement)
-            bindOptionalText(task.originChannelId, at: 27, statement: taskStatement)
-            sqlite3_bind_int(taskStatement, 28, task.isArchived ? 1 : 0)
-            bindOptionalText(task.selectedModel, at: 29, statement: taskStatement)
-            bindText(attachmentsJSON, at: 30, statement: taskStatement)
-            bindOptionalText(externalJSON, at: 31, statement: taskStatement)
-            bindText(tagsJSON, at: 32, statement: taskStatement)
+            bindText(actorPathJSON, at: 20, statement: taskStatement)
+            bindText(isoFormatter.string(from: task.createdAt), at: 21, statement: taskStatement)
+            bindText(isoFormatter.string(from: task.updatedAt), at: 22, statement: taskStatement)
+            bindOptionalText(task.worktreeBranch, at: 23, statement: taskStatement)
+            bindOptionalText(task.sourceControlProviderId, at: 24, statement: taskStatement)
+            bindOptionalText(task.kind?.rawValue, at: 25, statement: taskStatement)
+            bindOptionalText(task.loopModeOverride?.rawValue, at: 26, statement: taskStatement)
+            bindOptionalText(task.originType?.rawValue, at: 27, statement: taskStatement)
+            bindOptionalText(task.originChannelId, at: 28, statement: taskStatement)
+            sqlite3_bind_int(taskStatement, 29, task.isArchived ? 1 : 0)
+            bindOptionalText(task.selectedModel, at: 30, statement: taskStatement)
+            bindText(attachmentsJSON, at: 31, statement: taskStatement)
+            bindOptionalText(externalJSON, at: 32, statement: taskStatement)
+            bindText(tagsJSON, at: 33, statement: taskStatement)
             _ = sqlite3_step(taskStatement)
         }
 #endif
@@ -2733,6 +2735,7 @@ public actor SQLiteStore: PersistenceStore {
                 description,
                 priority,
                 status,
+                initiative_id,
                 actor_id,
                 team_id,
                 claimed_actor_id,
@@ -2777,24 +2780,24 @@ public actor SQLiteStore: PersistenceStore {
                 let descriptionPtr = sqlite3_column_text(statement, 2),
                 let priorityPtr = sqlite3_column_text(statement, 3),
                 let statusPtr = sqlite3_column_text(statement, 4),
-                let createdAtPtr = sqlite3_column_text(statement, 18),
-                let updatedAtPtr = sqlite3_column_text(statement, 19)
+                let createdAtPtr = sqlite3_column_text(statement, 19),
+                let updatedAtPtr = sqlite3_column_text(statement, 20)
             else {
                 continue
             }
             let createdAt = isoFormatter.date(from: String(cString: createdAtPtr)) ?? Date()
             let updatedAt = isoFormatter.date(from: String(cString: updatedAtPtr)) ?? createdAt
-            let dependsOnTaskIds = decodeOptionalStringArray(optionalText(statement: statement, index: 11)) ?? []
-            let dependencyIds = decodeOptionalStringArray(optionalText(statement: statement, index: 15))
-            let actorPath = decodeOptionalStringArray(optionalText(statement: statement, index: 17))
-            let kindRaw = optionalText(statement: statement, index: 22)
-            let loopOverrideRaw = optionalText(statement: statement, index: 23)
-            let originTypeRaw = optionalText(statement: statement, index: 24)
-            let attachmentsJSON = optionalText(statement: statement, index: 28)
+            let dependsOnTaskIds = decodeOptionalStringArray(optionalText(statement: statement, index: 12)) ?? []
+            let dependencyIds = decodeOptionalStringArray(optionalText(statement: statement, index: 16))
+            let actorPath = decodeOptionalStringArray(optionalText(statement: statement, index: 18))
+            let kindRaw = optionalText(statement: statement, index: 23)
+            let loopOverrideRaw = optionalText(statement: statement, index: 24)
+            let originTypeRaw = optionalText(statement: statement, index: 25)
+            let attachmentsJSON = optionalText(statement: statement, index: 29)
             let attachments = attachmentsJSON.flatMap { try? JSONDecoder().decode([AgentAttachmentUpload].self, from: Data($0.utf8)) } ?? []
-            let externalJSON = optionalText(statement: statement, index: 29)
+            let externalJSON = optionalText(statement: statement, index: 30)
             let externalMetadata = externalJSON.flatMap { try? JSONDecoder().decode(TaskExternalMetadata.self, from: Data($0.utf8)) }
-            let tags = decodeOptionalStringArray(optionalText(statement: statement, index: 30)) ?? []
+            let tags = decodeOptionalStringArray(optionalText(statement: statement, index: 31)) ?? []
             result.append(
                 ProjectTask(
                     id: String(cString: idPtr),
@@ -2802,30 +2805,31 @@ public actor SQLiteStore: PersistenceStore {
                     description: String(cString: descriptionPtr),
                     priority: String(cString: priorityPtr),
                     status: String(cString: statusPtr),
+                    initiativeID: optionalText(statement: statement, index: 5),
                     kind: kindRaw.flatMap { ProjectTaskKind(rawValue: $0) },
                     loopModeOverride: loopOverrideRaw.flatMap { ProjectLoopMode(rawValue: $0) },
                     originType: originTypeRaw.flatMap { TaskOriginType(rawValue: $0) },
-                    originChannelId: optionalText(statement: statement, index: 25),
-                    actorId: optionalText(statement: statement, index: 5),
-                    teamId: optionalText(statement: statement, index: 6),
-                    claimedActorId: optionalText(statement: statement, index: 7),
-                    claimedAgentId: optionalText(statement: statement, index: 8),
-                    parentTaskId: optionalText(statement: statement, index: 9),
-                    createdBy: optionalText(statement: statement, index: 10),
+                    originChannelId: optionalText(statement: statement, index: 26),
+                    actorId: optionalText(statement: statement, index: 6),
+                    teamId: optionalText(statement: statement, index: 7),
+                    claimedActorId: optionalText(statement: statement, index: 8),
+                    claimedAgentId: optionalText(statement: statement, index: 9),
+                    parentTaskId: optionalText(statement: statement, index: 10),
+                    createdBy: optionalText(statement: statement, index: 11),
                     dependsOnTaskIds: dependsOnTaskIds,
-                    swarmId: optionalText(statement: statement, index: 12),
-                    swarmTaskId: optionalText(statement: statement, index: 13),
-                    swarmParentTaskId: optionalText(statement: statement, index: 14),
+                    swarmId: optionalText(statement: statement, index: 13),
+                    swarmTaskId: optionalText(statement: statement, index: 14),
+                    swarmParentTaskId: optionalText(statement: statement, index: 15),
                     swarmDependencyIds: dependencyIds,
-                    swarmDepth: optionalInt(statement: statement, index: 16),
+                    swarmDepth: optionalInt(statement: statement, index: 17),
                     swarmActorPath: actorPath,
-                    worktreeBranch: optionalText(statement: statement, index: 20),
-                    sourceControlProviderId: optionalText(statement: statement, index: 21),
+                    worktreeBranch: optionalText(statement: statement, index: 21),
+                    sourceControlProviderId: optionalText(statement: statement, index: 22),
                     selectedModel: optionalText(statement: statement, index: 27),
                     externalMetadata: externalMetadata,
                     attachments: attachments,
                     tags: tags,
-                    isArchived: sqlite3_column_int(statement, 26) != 0,
+                    isArchived: sqlite3_column_int(statement, 27) != 0,
                     createdAt: createdAt,
                     updatedAt: updatedAt
                 )
@@ -3596,6 +3600,7 @@ public actor SQLiteStore: PersistenceStore {
 
         let statements = [
             "ALTER TABLE dashboard_project_tasks ADD COLUMN actor_id TEXT;",
+            "ALTER TABLE dashboard_project_tasks ADD COLUMN initiative_id TEXT;",
             "ALTER TABLE dashboard_project_tasks ADD COLUMN team_id TEXT;",
             "ALTER TABLE dashboard_project_tasks ADD COLUMN claimed_actor_id TEXT;",
             "ALTER TABLE dashboard_project_tasks ADD COLUMN claimed_agent_id TEXT;",
