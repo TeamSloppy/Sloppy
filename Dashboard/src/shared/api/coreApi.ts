@@ -113,6 +113,12 @@ export interface CoreApi {
   createProjectInitiative: (projectId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   updateProjectInitiative: (projectId: string, initiativeId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchInitiativeDecisionPackets: (projectId: string, initiativeId: string) => Promise<AnyRecord[]>;
+  updateInitiativeDecisionPacket: (
+    projectId: string,
+    initiativeId: string,
+    packetId: string,
+    payload: AnyRecord
+  ) => Promise<AnyRecord | null>;
   fetchRuntimeConfig: () => Promise<AnyRecord | null>;
   fetchVoiceConfig: () => Promise<AnyRecord | null>;
   fetchVoiceCapabilities: () => Promise<AnyRecord | null>;
@@ -834,6 +840,18 @@ export function createCoreApi(): CoreApi {
         return [];
       }
       return (response.data as AnyRecord).decisionPackets as AnyRecord[];
+    },
+
+    updateInitiativeDecisionPacket: async (projectId, initiativeId, packetId, payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/initiatives/${encodeURIComponent(initiativeId)}/decision-packets/${encodeURIComponent(packetId)}`,
+        method: "PATCH",
+        body: payload
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return ((response.data as AnyRecord)?.decisionPacket as AnyRecord | null) ?? null;
     },
 
     fetchRuntimeConfig: async () => {

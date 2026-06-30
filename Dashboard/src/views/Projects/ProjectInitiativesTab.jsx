@@ -3,6 +3,7 @@ import {
   createProjectInitiative,
   fetchInitiativeDecisionPackets,
   fetchProjectInitiatives,
+  updateInitiativeDecisionPacket,
   updateProjectInitiative
 } from "../../api";
 import { LoadingSkeleton } from "../../components/LoadingSkeleton";
@@ -163,6 +164,7 @@ export function ProjectInitiativesTab({ project }) {
   const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [savingInitiativeId, setSavingInitiativeId] = useState("");
+  const [resolvingPacketId, setResolvingPacketId] = useState("");
 
   useEffect(() => {
     if (!projectId) {
@@ -208,6 +210,19 @@ export function ProjectInitiativesTab({ project }) {
     () => initiatives.find((initiative) => initiative.id === selectedInitiativeId) || initiatives[0] || null,
     [initiatives, selectedInitiativeId]
   );
+
+  const packetCounts = useMemo(() => {
+    let open = 0;
+    let resolved = 0;
+    for (const packet of decisionPackets) {
+      if (packet.status === "resolved") {
+        resolved += 1;
+      } else {
+        open += 1;
+      }
+    }
+    return { open, resolved };
+  }, [decisionPackets]);
 
   useEffect(() => {
     if (!projectId || !selectedInitiative?.id) {
@@ -308,6 +323,32 @@ export function ProjectInitiativesTab({ project }) {
     }
   }
 
+  async function handleResolvePacket(packet) {
+    if (!projectId || !selectedInitiative?.id || !packet?.id || resolvingPacketId) {
+      return;
+    }
+    setResolvingPacketId(packet.id);
+    try {
+      const resolved = await updateInitiativeDecisionPacket(projectId, selectedInitiative.id, packet.id, {
+        status: "resolved",
+        resumePoint: packet.resumePoint || `Resume ${selectedInitiative.title}`
+      });
+      if (!resolved) {
+        setStatusText(`Failed to resolve ${packet.summary}.`);
+        return;
+      }
+      setDecisionPackets((current) =>
+        current.map((item) => (item.id === packet.id ? normalizeDecisionPacket(resolved) : item))
+      );
+      const refreshedInitiatives = await fetchProjectInitiatives(projectId);
+      const normalized = refreshedInitiatives.map(normalizeInitiative);
+      setInitiatives(normalized);
+      setStatusText(`Resolved ${packet.summary}`);
+    } finally {
+      setResolvingPacketId("");
+    }
+  }
+
   return (
     <section className="project-tab-layout">
       <section className="project-pane">
@@ -380,6 +421,11 @@ export function ProjectInitiativesTab({ project }) {
                       </ul>
                     )}
                   </article>
+                  <article className="project-overview-card">
+                    <strong>Decision packets</strong>
+                    <p className="placeholder-text">Open: {packetCounts.open}</p>
+                    <p className="placeholder-text">Resolved: {packetCounts.resolved}</p>
+                  </article>
                 </div>
 
                 <article className="project-pane">
@@ -401,6 +447,18 @@ export function ProjectInitiativesTab({ project }) {
                             <div className="project-overview-task-meta">
                               <span>{packet.requestedAction}</span>
                               {packet.resumePoint ? <span>Resume: {packet.resumePoint}</span> : null}
+                            </div>
+                          ) : null}
+                          {packet.status !== "resolved" ? (
+                            <div className="project-worker-modal-actions">
+                              <button
+                                type="button"
+                                className="secondary-action"
+                                disabled={resolvingPacketId === packet.id}
+                                onClick={() => handleResolvePacket(packet)}
+                              >
+                                {resolvingPacketId === packet.id ? "Resolving..." : "Resolve"}
+                              </button>
                             </div>
                           ) : null}
                         </article>
