@@ -1562,6 +1562,16 @@ public struct CreateDecisionPacketRequest: Codable, Sendable, Equatable {
     }
 }
 
+public struct UpdateDecisionPacketRequest: Codable, Sendable, Equatable {
+    public var status: String
+    public var resumePoint: String?
+
+    public init(status: String, resumePoint: String? = nil) {
+        self.status = status
+        self.resumePoint = resumePoint
+    }
+}
+
 public struct InitiativeListResponse: Codable, Sendable, Equatable {
     public var initiatives: [InitiativeRecord]
 

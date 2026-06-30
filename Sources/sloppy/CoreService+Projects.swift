@@ -1249,6 +1249,17 @@ extension CoreService {
             default:
                 break
             }
+
+            if (previousStatus == ProjectTaskStatus.waitingInput.rawValue || previousStatus == ProjectTaskStatus.blocked.rawValue)
+                && task.status != ProjectTaskStatus.waitingInput.rawValue
+                && task.status != ProjectTaskStatus.blocked.rawValue
+            {
+                _ = await resolveOpenDecisionPacketsForTask(
+                    projectID: normalizedProject,
+                    task: task,
+                    resumePoint: "Resume task \(task.id) after status changed to \(task.status)"
+                )
+            }
         }
 
         if previousStatus != ProjectTaskStatus.done.rawValue,

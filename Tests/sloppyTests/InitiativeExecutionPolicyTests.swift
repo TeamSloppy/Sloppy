@@ -171,3 +171,42 @@ func blockedTaskCreatesDecisionPacketForInitiativeTask() async throws {
     #expect(packets.decisionPackets.first?.summary == "Task \(task.id) is blocked")
     #expect(packets.decisionPackets.first?.rationale == "Need access to CI billing data.")
 }
+
+@Test
+func resolvingClarificationResolvesOpenDecisionPacket() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let projectID = "initiative-resolve-\(UUID().uuidString)"
+    _ = try await service.createProject(
+        ProjectCreateRequest(id: projectID, name: "Initiative Resolve", description: "Test", channels: [])
+    )
+    let initiative = try await service.createInitiative(
+        projectID: projectID,
+        request: .init(title: "Optimize CI", goal: "Reduce CI duration")
+    )
+    let project = try await service.createProjectTask(
+        projectID: projectID,
+        request: .init(title: "Need answer", initiativeID: initiative.initiative.id)
+    )
+    let task = try #require(project.tasks.first)
+    let clarification = try await service.createTaskClarification(
+        projectID: projectID,
+        taskID: task.id,
+        request: .init(
+            questionText: "Should macOS stay mandatory?",
+            options: [],
+            allowNote: true,
+            createdByAgentId: "agent:test"
+        )
+    )
+
+    _ = try await service.answerTaskClarification(
+        projectID: projectID,
+        taskID: task.id,
+        clarificationID: clarification.id,
+        request: .init(selectedOptionIds: [], note: "Yes")
+    )
+
+    let packets = try await service.listInitiativeDecisionPackets(projectID: projectID, initiativeID: initiative.initiative.id)
+    #expect(packets.decisionPackets.count == 1)
+    #expect(packets.decisionPackets.first?.status == "resolved")
+}

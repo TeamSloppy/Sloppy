@@ -103,5 +103,29 @@ struct InitiativesAPIRouter: APIRouter {
                 return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectUpdateFailed])
             }
         }
+
+        router.patch("/v1/projects/:projectId/initiatives/:initiativeId/decision-packets/:packetId", metadata: RouteMetadata(summary: "Update initiative decision packet", description: "Updates the status of an initiative decision packet and may resume the initiative", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let initiativeId = request.pathParam("initiativeId") ?? ""
+            let packetId = request.pathParam("packetId") ?? ""
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: UpdateDecisionPacketRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            do {
+                let response = try await service.updateInitiativeDecisionPacket(
+                    projectID: projectId,
+                    initiativeID: initiativeId,
+                    packetID: packetId,
+                    request: payload
+                )
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectUpdateFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectUpdateFailed])
+            }
+        }
     }
 }

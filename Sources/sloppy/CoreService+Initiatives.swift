@@ -243,6 +243,52 @@ extension CoreService {
         return packet
     }
 
+    @discardableResult
+    func resolveOpenDecisionPacketsForTask(
+        projectID: String,
+        task: ProjectTask,
+        resumePoint: String? = nil
+    ) async -> [DecisionPacketRecord] {
+        guard let initiativeID = task.initiativeID else {
+            return []
+        }
+        let packets = await store.listDecisionPackets(projectID: projectID, initiativeID: initiativeID)
+        let openMatches = packets.filter {
+            $0.status == "open"
+                && ($0.summary.contains(task.id)
+                    || $0.requestedAction.contains(task.id)
+                    || ($0.resumePoint?.contains(task.id) ?? false))
+        }
+        guard !openMatches.isEmpty else {
+            return []
+        }
+
+        var resolved: [DecisionPacketRecord] = []
+        for packet in openMatches {
+            var updated = packet
+            updated.status = "resolved"
+            updated.updatedAt = Date()
+            if let resumePoint, !resumePoint.isEmpty {
+                updated.resumePoint = resumePoint
+            }
+            await store.saveDecisionPacket(updated)
+            resolved.append(updated)
+        }
+
+        if var initiative = await store.getInitiative(projectID: projectID, initiativeID: initiativeID),
+           initiative.phase == .needsUserDecision || initiative.phase == .blocked {
+            initiative.phase = .planning
+            initiative.blocker = nil
+            if let resumePoint, !resumePoint.isEmpty {
+                initiative.resumePoint = resumePoint
+            }
+            initiative.updatedAt = Date()
+            await store.saveInitiative(initiative)
+        }
+
+        return resolved
+    }
+
     public func updateInitiative(projectID: String, initiativeID: String, request: UpdateInitiativeRequest) async throws -> InitiativeDetailResponse {
         let normalizedID = try await requireExistingProjectID(projectID)
         guard var initiative = await store.getInitiative(projectID: normalizedID, initiativeID: initiativeID) else {
@@ -323,6 +369,49 @@ extension CoreService {
             updatedAt: now
         )
         await store.saveDecisionPacket(packet)
+        return DecisionPacketDetailResponse(decisionPacket: packet)
+    }
+
+    public func updateInitiativeDecisionPacket(
+        projectID: String,
+        initiativeID: String,
+        packetID: String,
+        request: UpdateDecisionPacketRequest
+    ) async throws -> DecisionPacketDetailResponse {
+        let normalizedID = try await requireExistingProjectID(projectID)
+        guard await store.getInitiative(projectID: normalizedID, initiativeID: initiativeID) != nil else {
+            throw ProjectError.notFound
+        }
+
+        guard var packet = await store.listDecisionPackets(projectID: normalizedID, initiativeID: initiativeID)
+            .first(where: { $0.id == packetID }) else {
+            throw ProjectError.notFound
+        }
+
+        let normalizedStatus = request.status.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !normalizedStatus.isEmpty else {
+            throw ProjectError.invalidPayload
+        }
+
+        packet.status = normalizedStatus
+        packet.updatedAt = Date()
+        if let resumePoint = request.resumePoint, !resumePoint.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            packet.resumePoint = resumePoint
+        }
+        await store.saveDecisionPacket(packet)
+
+        if normalizedStatus == "resolved",
+           var initiative = await store.getInitiative(projectID: normalizedID, initiativeID: initiativeID),
+           initiative.phase == .needsUserDecision || initiative.phase == .blocked {
+            initiative.phase = .planning
+            initiative.blocker = nil
+            if let resumePoint = packet.resumePoint, !resumePoint.isEmpty {
+                initiative.resumePoint = resumePoint
+            }
+            initiative.updatedAt = Date()
+            await store.saveInitiative(initiative)
+        }
+
         return DecisionPacketDetailResponse(decisionPacket: packet)
     }
 

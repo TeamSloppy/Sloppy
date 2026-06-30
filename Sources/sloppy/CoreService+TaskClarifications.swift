@@ -144,6 +144,11 @@ extension CoreService {
                     previousTask: previousTask,
                     currentTask: project.tasks[taskIndex]
                 )
+                _ = await resolveOpenDecisionPacketsForTask(
+                    projectID: normalizedProject,
+                    task: project.tasks[taskIndex],
+                    resumePoint: "Resume task \(project.tasks[taskIndex].id) after clarification answer"
+                )
             }
         }
 

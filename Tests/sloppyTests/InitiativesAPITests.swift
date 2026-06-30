@@ -84,4 +84,19 @@ func createInitiativeEndpointPersistsRecord() async throws {
     #expect(packetListResponse.status == 200)
     let packetList = try decoder.decode(DecisionPacketListResponse.self, from: packetListResponse.body)
     #expect(packetList.decisionPackets.map(\.id) == [createdPacket.decisionPacket.id])
+
+    let resolveBody = try encoder.encode(
+        UpdateDecisionPacketRequest(
+            status: "resolved",
+            resumePoint: "Resume CI optimization after budget confirmation"
+        )
+    )
+    let resolveResponse = await router.handle(
+        method: "PATCH",
+        path: "/v1/projects/\(projectId)/initiatives/\(created.initiative.id)/decision-packets/\(createdPacket.decisionPacket.id)",
+        body: resolveBody
+    )
+    #expect(resolveResponse.status == 200)
+    let resolvedPacket = try decoder.decode(DecisionPacketDetailResponse.self, from: resolveResponse.body)
+    #expect(resolvedPacket.decisionPacket.status == "resolved")
 }
