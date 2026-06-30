@@ -943,6 +943,15 @@ extension CoreService {
             artifactPath: artifactPath
         )
         await appendSystemTaskComment(projectID: project.id, taskID: task.id, content: "Task blocked by system flow: \(message)")
+        _ = await ensureInitiativeDecisionPacket(
+            projectID: project.id,
+            task: task,
+            kind: .blocked,
+            summary: "Task \(task.id) is blocked by autonomous routing",
+            rationale: message,
+            requestedAction: "Review the routing blocker for task \(task.id)",
+            resumePoint: "Resume task \(task.id) after routing blocker is resolved"
+        )
         if let channelID {
             let statusMessage = "Task \(task.id) blocked: \(message)"
             await runtime.appendSystemMessage(channelId: channelID, content: statusMessage)
@@ -1002,6 +1011,15 @@ extension CoreService {
             agentID: agentID
         )
         await appendSystemTaskComment(projectID: project.id, taskID: task.id, content: note)
+        _ = await ensureInitiativeDecisionPacket(
+            projectID: project.id,
+            task: task,
+            kind: .blocked,
+            summary: "Task \(task.id) is blocked by system flow",
+            rationale: message,
+            requestedAction: "Resolve the system flow blocker for task \(task.id)",
+            resumePoint: "Resume task \(task.id) after the flow blocker is resolved"
+        )
         if let channelID {
             let statusMessage = "Task \(task.id) blocked by system flow: \(message)"
             await runtime.appendSystemMessage(channelId: channelID, content: statusMessage)

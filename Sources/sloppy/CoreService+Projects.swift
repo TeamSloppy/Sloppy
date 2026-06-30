@@ -1224,6 +1224,33 @@ extension CoreService {
             )
         }
 
+        if previousStatus != task.status {
+            switch task.status {
+            case ProjectTaskStatus.waitingInput.rawValue:
+                _ = await ensureInitiativeDecisionPacket(
+                    projectID: normalizedProject,
+                    task: task,
+                    kind: .waitingInput,
+                    summary: "Task \(task.id) needs user input",
+                    rationale: requestedCompletionNote ?? "Task \(task.id) was moved to waiting_input.",
+                    requestedAction: "Provide the missing input for task \(task.id)",
+                    resumePoint: "Resume task \(task.id) after user input"
+                )
+            case ProjectTaskStatus.blocked.rawValue:
+                _ = await ensureInitiativeDecisionPacket(
+                    projectID: normalizedProject,
+                    task: task,
+                    kind: .blocked,
+                    summary: "Task \(task.id) is blocked",
+                    rationale: requestedCompletionNote ?? "Task \(task.id) was marked blocked.",
+                    requestedAction: "Unblock task \(task.id) or decide how to proceed",
+                    resumePoint: "Resume task \(task.id) after blocker resolution"
+                )
+            default:
+                break
+            }
+        }
+
         if previousStatus != ProjectTaskStatus.done.rawValue,
            task.status == ProjectTaskStatus.done.rawValue,
            let promotedProject = await promoteTasksUnblockedByCompletedDependency(

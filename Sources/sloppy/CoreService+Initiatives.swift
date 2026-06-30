@@ -2,6 +2,11 @@ import Foundation
 import Protocols
 
 extension CoreService {
+    enum InitiativeDecisionPacketKind: String, Sendable {
+        case waitingInput = "waiting_input"
+        case blocked
+    }
+
     func nextInitiativeExecutionMode(
         current: InitiativeExecutionMode,
         signal: InitiativeExecutionSignal
@@ -172,6 +177,70 @@ extension CoreService {
         case .researching:
             return "Continue research for task \(task.id)"
         }
+    }
+
+    @discardableResult
+    func ensureInitiativeDecisionPacket(
+        projectID: String,
+        task: ProjectTask,
+        kind: InitiativeDecisionPacketKind,
+        summary: String,
+        rationale: String,
+        requestedAction: String,
+        resumePoint: String?,
+        tradeoffs: [String] = []
+    ) async -> DecisionPacketRecord? {
+        guard let initiativeID = task.initiativeID,
+              let initiative = await store.getInitiative(projectID: projectID, initiativeID: initiativeID)
+        else {
+            return nil
+        }
+
+        let normalizedSummary = summary.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedRationale = rationale.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedAction = requestedAction.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalizedSummary.isEmpty, !normalizedRationale.isEmpty, !normalizedAction.isEmpty else {
+            return nil
+        }
+
+        let existing = await store.listDecisionPackets(projectID: projectID, initiativeID: initiativeID)
+        if let match = existing.last(where: {
+            $0.status == "open"
+                && $0.summary == normalizedSummary
+                && $0.requestedAction == normalizedAction
+        }) {
+            return match
+        }
+
+        let now = Date()
+        let packet = DecisionPacketRecord(
+            id: UUID().uuidString.lowercased(),
+            projectID: projectID,
+            initiativeID: initiativeID,
+            summary: normalizedSummary,
+            rationale: normalizedRationale,
+            tradeoffs: tradeoffs,
+            requestedAction: normalizedAction,
+            resumePoint: resumePoint,
+            status: "open",
+            createdAt: now,
+            updatedAt: now
+        )
+        await store.saveDecisionPacket(packet)
+
+        if kind == .blocked {
+            var updatedInitiative = initiative
+            if updatedInitiative.blocker?.isEmpty != false {
+                updatedInitiative.blocker = normalizedRationale
+            }
+            if updatedInitiative.resumePoint?.isEmpty != false, let resumePoint {
+                updatedInitiative.resumePoint = resumePoint
+            }
+            updatedInitiative.updatedAt = now
+            await store.saveInitiative(updatedInitiative)
+        }
+
+        return packet
     }
 
     public func updateInitiative(projectID: String, initiativeID: String, request: UpdateInitiativeRequest) async throws -> InitiativeDetailResponse {

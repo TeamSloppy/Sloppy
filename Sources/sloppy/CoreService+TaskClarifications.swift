@@ -76,6 +76,20 @@ extension CoreService {
         project.tasks[taskIndex].updatedAt = now
         project.updatedAt = now
         await store.saveProject(project)
+        await syncInitiativePhaseForTaskStatusChange(
+            projectID: normalizedProject,
+            previousTask: task,
+            currentTask: project.tasks[taskIndex]
+        )
+        _ = await ensureInitiativeDecisionPacket(
+            projectID: normalizedProject,
+            task: project.tasks[taskIndex],
+            kind: .waitingInput,
+            summary: "Task \(project.tasks[taskIndex].id) needs user input",
+            rationale: record.questionText,
+            requestedAction: "Answer clarification for task \(project.tasks[taskIndex].id)",
+            resumePoint: "Resume task \(project.tasks[taskIndex].id) after clarification answer"
+        )
 
         return record
     }
@@ -117,6 +131,7 @@ extension CoreService {
             return record
         }
         if let taskIndex = project.tasks.firstIndex(where: { $0.id.lowercased() == normalizedTaskLowercased }) {
+            let previousTask = project.tasks[taskIndex]
             let hasPending = await store.listClarifications(projectId: normalizedProject, taskId: project.tasks[taskIndex].id)
                 .contains(where: { $0.status == .pending })
             if !hasPending {
@@ -124,6 +139,11 @@ extension CoreService {
                 project.tasks[taskIndex].updatedAt = now
                 project.updatedAt = now
                 await store.saveProject(project)
+                await syncInitiativePhaseForTaskStatusChange(
+                    projectID: normalizedProject,
+                    previousTask: previousTask,
+                    currentTask: project.tasks[taskIndex]
+                )
             }
         }
 
