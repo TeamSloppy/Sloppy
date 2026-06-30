@@ -22,6 +22,7 @@ struct BrowserContextModelsTests {
         #expect(decoded.page.url == "https://example.com/article")
         #expect(decoded.page.title == "Example Article")
         #expect(decoded.selection.text == "Selected text")
+        #expect(decoded.context == nil)
         #expect(decoded.prompt == "Explain this")
         #expect(decoded.target.agentId == "sloppy")
         #expect(decoded.target.sessionId == nil)
@@ -71,6 +72,25 @@ struct BrowserContextModelsTests {
         let decoded = try JSONDecoder().decode(BrowserContextMessageRequest.self, from: data)
 
         #expect(decoded.browser?.pageSnapshot == request.browser?.pageSnapshot)
+    }
+
+    @Test("browser context message request round-trips project and task references")
+    func browserContextMessageRequestRoundTripsContextReferences() throws {
+        let request = BrowserContextMessageRequest(
+            page: BrowserContextPage(url: "https://example.com/article"),
+            selection: BrowserContextSelection(text: "Selected text"),
+            prompt: "Explain this",
+            context: BrowserContextMessageContext(
+                projectReference: "PROMOZAVR",
+                taskReference: "123"
+            )
+        )
+
+        let data = try JSONEncoder().encode(request)
+        let decoded = try JSONDecoder().decode(BrowserContextMessageRequest.self, from: data)
+
+        #expect(decoded.context?.projectReference == "PROMOZAVR")
+        #expect(decoded.context?.taskReference == "123")
     }
 
     @Test("browser context message response round-trips")

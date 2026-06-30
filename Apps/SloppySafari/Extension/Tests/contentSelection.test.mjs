@@ -3,10 +3,10 @@ import { readFileSync } from "node:fs";
 import { test } from "node:test";
 import vm from "node:vm";
 
-function loadContentScriptSandbox() {
+function loadContentScriptSandbox(options = {}) {
+  const { includeSettingsPanel = true } = options;
   const i18nSource = readFileSync(new URL("../Resources/i18n.js", import.meta.url), "utf8");
   const startPageCustomizeSource = readFileSync(new URL("../Resources/startPageCustomize.js", import.meta.url), "utf8");
-  const settingsPanelSource = readFileSync(new URL("../Resources/settingsPanel.js", import.meta.url), "utf8");
   const source = readFileSync(new URL("../Resources/contentScript.js", import.meta.url), "utf8");
   assert.equal(/\bexport\s+function\b/.test(source), false);
   assert.equal(/\bexport\s+function\b/.test(startPageCustomizeSource), false);
@@ -25,7 +25,10 @@ function loadContentScriptSandbox() {
   sandbox.globalThis = sandbox;
   vm.runInNewContext(i18nSource, sandbox);
   vm.runInNewContext(startPageCustomizeSource, sandbox);
-  vm.runInNewContext(settingsPanelSource, sandbox);
+  if (includeSettingsPanel) {
+    const settingsPanelSource = readFileSync(new URL("../Resources/settingsPanel.js", import.meta.url), "utf8");
+    vm.runInNewContext(settingsPanelSource, sandbox);
+  }
   vm.runInNewContext(source, sandbox);
   return sandbox;
 }
@@ -610,6 +613,109 @@ test("start page shortcuts always render as one grid cell", () => {
 
   assert.match(shortcuts.innerHTML, /class="sloppy-start-shortcut-card"[^>]*style="--sloppy-col-span:1;--sloppy-row-span:1;"/);
   assert.match(shortcuts.innerHTML, /class="sloppy-start-widget"[^>]*style="--sloppy-col-span:2;--sloppy-row-span:2;"/);
+});
+
+test("start page widgets prefer blob iframe sources when object URLs are available", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      }
+    }
+  };
+  sandbox.Blob = class Blob {
+    constructor(parts, options = {}) {
+      this.parts = parts;
+      this.type = options.type || "";
+    }
+  };
+  sandbox.URL.createObjectURL = (blob) => {
+    sandbox.__lastWidgetBlob = blob;
+    return "blob:widget-1";
+  };
+  vm.runInNewContext(`
+    globalThis.SloppyStartPageMode = true;
+    state.settings = {
+      startPageEnabled: true,
+      startPageItems: [
+        {
+          id: "widget-1",
+          kind: "widget",
+          artifactId: "widget-1",
+          title: "Clock",
+          colSpan: 2,
+          rowSpan: 1
+        }
+      ]
+    };
+    state.widgetHTMLByArtifactId = {
+      "widget-1": "<!doctype html><html><body><script>window.__clock = true;<\\/script></body></html>"
+    };
+  `, sandbox);
+
+  const panel = sandbox.ensurePanel();
+  sandbox.render(panel);
+  const shortcuts = panel.querySelector("[data-sloppy-start-shortcuts]");
+
+  assert.match(shortcuts.innerHTML, /src="blob:widget-1"/);
+  assert.doesNotMatch(shortcuts.innerHTML, /srcdoc=/);
+  assert.equal(String(sandbox.__lastWidgetBlob?.type || ""), "text/html");
+});
+
+test("start page widget blobs externalize inline scripts for Safari CSP", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  const createdBlobs = [];
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      }
+    }
+  };
+  sandbox.Blob = class Blob {
+    constructor(parts, options = {}) {
+      this.parts = parts;
+      this.type = options.type || "";
+    }
+  };
+  sandbox.URL.createObjectURL = (blob) => {
+    createdBlobs.push(blob);
+    return `blob:widget-${createdBlobs.length}`;
+  };
+  vm.runInNewContext(`
+    globalThis.SloppyStartPageMode = true;
+    state.settings = {
+      startPageEnabled: true,
+      startPageItems: [
+        {
+          id: "widget-1",
+          kind: "widget",
+          artifactId: "widget-1",
+          title: "Clock",
+          colSpan: 2,
+          rowSpan: 1
+        }
+      ]
+    };
+    state.widgetHTMLByArtifactId = {
+      "widget-1": "<!doctype html><html><body><script>window.__clock = true;<\\/script><main>Clock</main></body></html>"
+    };
+  `, sandbox);
+
+  const panel = sandbox.ensurePanel();
+  sandbox.render(panel);
+
+  assert.equal(createdBlobs.length, 2);
+  assert.equal(String(createdBlobs[0].type || ""), "text/javascript");
+  assert.equal(String(createdBlobs[1].type || ""), "text/html");
+  const rewrittenHTML = String(createdBlobs[1].parts.join(""));
+  assert.match(rewrittenHTML, /<script src="blob:widget-1"><\/script>/);
+  assert.doesNotMatch(rewrittenHTML, /<script>window\.__clock = true;<\/script>/);
 });
 
 test("open customize enables editing controls on start shortcuts", () => {
@@ -2649,6 +2755,49 @@ test("saveSettings persists mesh enabled and target node settings", async () => 
   assert.equal(saveRequest.settings.mesh.targetNodeId, "node-99");
   assert.equal(saveRequest.settings.mesh.relayURL, "https://relay.example.com");
   assert.equal(panel.querySelector("[data-sloppy-settings-dialog]").closeCalled, true);
+});
+
+test("openPanelWithSelection does not throw when settings panel script is unavailable", async () => {
+  const sandbox = loadContentScriptSandbox({ includeSettingsPanel: false });
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.window = {
+    innerWidth: 1280,
+    innerHeight: 900,
+    navigator: { maxTouchPoints: 0 },
+    matchMedia: () => ({ matches: false })
+  };
+  sandbox.chrome = {
+    runtime: {
+      getURL: (path) => `safari-extension://sloppy/${path}`,
+      sendMessage: async (request) => {
+        if (request.type === "sloppy.settings.get") {
+          return {
+            coreURLString: "http://127.0.0.1:25101",
+            authToken: "token",
+            defaultAgentID: "sloppy",
+            sessionId: "session-1"
+          };
+        }
+        return request.settings;
+      }
+    }
+  };
+  sandbox.wirePanel = () => {};
+  sandbox.updateViewportCSSVars = () => {};
+  sandbox.loadAgents = async () => {};
+  sandbox.refreshTabs = async () => {};
+  sandbox.loadSlashCommands = async () => {};
+  sandbox.render = () => {};
+  sandbox.renderFloatingButton = () => {};
+  sandbox.hideSelectionMenu = () => {};
+  sandbox.scheduleSelectionMenuUpdate = () => {};
+  sandbox.renderSearchButton = () => {};
+
+  const panel = await sandbox.openPanelWithSelection("Selected text");
+
+  assert.ok(panel);
+  assert.equal(panel.querySelector("[data-sloppy-save-settings]"), null);
 });
 
 test("voice language picker persists language setting", async () => {

@@ -25,6 +25,7 @@ let package = Package(
         .target(
             name: "SloppyClientCore",
             dependencies: [
+                "CSQLite3",
                 .product(name: "Logging", package: "swift-log")
             ],
             path: "Sources/SloppyClientCore"
@@ -96,13 +97,17 @@ let package = Package(
         ),
         .testTarget(
             name: "SloppyClientCoreTests",
-            dependencies: ["SloppyClientCore"],
+            dependencies: ["SloppyClientCore", "CSQLite3"],
             path: "Tests/SloppyClientCoreTests"
         ),
         .testTarget(
             name: "SloppyFeatureChatTests",
             dependencies: ["SloppyClientCore", "SloppyFeatureChat"],
             path: "Tests/SloppyFeatureChatTests"
+        ),
+        .systemLibrary(
+            name: "CSQLite3",
+            path: "Sources/CSQLite3"
         )
     ]
 )

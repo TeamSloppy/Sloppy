@@ -645,6 +645,53 @@ function widgetHTMLForItem(item = {}) {
   return artifactId ? String(state.widgetHTMLByArtifactId?.[artifactId] || "").trim() : "";
 }
 
+function widgetFrameMarkupForItem(item = {}, html = "") {
+  const title = escapeHTML(item.title || "Widget");
+  const trimmedHTML = String(html || "").trim();
+  if (!trimmedHTML) {
+    return `<div class="sloppy-start-widget-placeholder">${escapeHTML(t("loadingArtifacts"))}</div>`;
+  }
+  const artifactId = String(item?.artifactId || item?.id || "").trim();
+  const cachedRecord = artifactId ? state.widgetFrameURLByArtifactId?.[artifactId] : null;
+  if (
+    artifactId
+    && typeof Blob === "function"
+    && typeof URL?.createObjectURL === "function"
+  ) {
+    if (cachedRecord?.html === trimmedHTML && cachedRecord?.url) {
+      return `<iframe title="${title}" sandbox="allow-scripts" src="${escapeHTML(cachedRecord.url)}"></iframe>`;
+    }
+    const scriptURLs = [];
+    const rewrittenHTML = trimmedHTML.replace(/<script\b([^>]*)>([\s\S]*?)<\/script>/gi, (match, attributes = "", source = "") => {
+      if (/\bsrc\s*=/.test(attributes)) {
+        return match;
+      }
+      const scriptSource = String(source || "").trim();
+      if (!scriptSource) {
+        return "";
+      }
+      const scriptURL = URL.createObjectURL(new Blob([scriptSource], { type: "text/javascript" }));
+      scriptURLs.push(scriptURL);
+      return `<script${attributes} src="${scriptURL}"></script>`;
+    });
+    const blobURL = URL.createObjectURL(new Blob([rewrittenHTML], { type: "text/html" }));
+    if (typeof URL?.revokeObjectURL === "function") {
+      if (cachedRecord?.url) {
+        URL.revokeObjectURL(cachedRecord.url);
+      }
+      (cachedRecord?.scriptURLs || []).forEach((scriptURL) => {
+        URL.revokeObjectURL(scriptURL);
+      });
+    }
+    state.widgetFrameURLByArtifactId = {
+      ...(state.widgetFrameURLByArtifactId || {}),
+      [artifactId]: { html: trimmedHTML, url: blobURL, scriptURLs }
+    };
+    return `<iframe title="${title}" sandbox="allow-scripts" src="${escapeHTML(blobURL)}"></iframe>`;
+  }
+  return `<iframe title="${title}" sandbox="allow-scripts" srcdoc="${escapeHTML(trimmedHTML)}"></iframe>`;
+}
+
 async function hydrateStartPageWidgets(frame, items = []) {
   if (typeof chrome === "undefined" || typeof chrome.runtime?.sendMessage !== "function") {
     return;
@@ -725,9 +772,7 @@ function renderStartPageShortcuts(frame, items) {
       return `
         <article class="sloppy-start-widget${draggingClass}" data-sloppy-start-widget="${escapeHTML(item.artifactId || "")}" ${dragAttrs} style="--sloppy-col-span:${colSpan};--sloppy-row-span:${rowSpan};">
           ${editControls}
-          ${html
-            ? `<iframe title="${escapeHTML(item.title || "Widget")}" sandbox="allow-scripts" srcdoc="${escapeHTML(html)}"></iframe>`
-            : `<div class="sloppy-start-widget-placeholder">${escapeHTML(t("loadingArtifacts"))}</div>`}
+          ${widgetFrameMarkupForItem(item, html)}
         </article>
       `;
     }

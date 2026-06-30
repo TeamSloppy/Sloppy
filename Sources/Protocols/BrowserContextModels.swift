@@ -88,12 +88,23 @@ public struct BrowserWidgetSession: Codable, Sendable, Equatable {
     }
 }
 
+public struct BrowserContextMessageContext: Codable, Sendable, Equatable {
+    public var projectReference: String?
+    public var taskReference: String?
+
+    public init(projectReference: String? = nil, taskReference: String? = nil) {
+        self.projectReference = projectReference
+        self.taskReference = taskReference
+    }
+}
+
 public struct BrowserContextMessageRequest: Codable, Sendable, Equatable {
     public var source: String
     public var page: BrowserContextPage
     public var selection: BrowserContextSelection
     public var browser: BrowserContextBrowser?
     public var widgetSession: BrowserWidgetSession?
+    public var context: BrowserContextMessageContext?
     public var prompt: String
     public var target: BrowserContextTarget
     public var attachments: [AgentAttachmentUpload]
@@ -105,6 +116,7 @@ public struct BrowserContextMessageRequest: Codable, Sendable, Equatable {
         case selection
         case browser
         case widgetSession
+        case context
         case prompt
         case target
         case attachments
@@ -118,6 +130,7 @@ public struct BrowserContextMessageRequest: Codable, Sendable, Equatable {
         prompt: String,
         browser: BrowserContextBrowser? = nil,
         widgetSession: BrowserWidgetSession? = nil,
+        context: BrowserContextMessageContext? = nil,
         target: BrowserContextTarget = BrowserContextTarget(),
         attachments: [AgentAttachmentUpload] = [],
         userId: String = "safari_extension"
@@ -127,6 +140,7 @@ public struct BrowserContextMessageRequest: Codable, Sendable, Equatable {
         self.selection = selection
         self.browser = browser
         self.widgetSession = widgetSession
+        self.context = context
         self.prompt = prompt
         self.target = target
         self.attachments = attachments
@@ -140,6 +154,7 @@ public struct BrowserContextMessageRequest: Codable, Sendable, Equatable {
         self.selection = try container.decode(BrowserContextSelection.self, forKey: .selection)
         self.browser = try container.decodeIfPresent(BrowserContextBrowser.self, forKey: .browser)
         self.widgetSession = try container.decodeIfPresent(BrowserWidgetSession.self, forKey: .widgetSession)
+        self.context = try container.decodeIfPresent(BrowserContextMessageContext.self, forKey: .context)
         self.prompt = try container.decode(String.self, forKey: .prompt)
         self.target = try container.decodeIfPresent(BrowserContextTarget.self, forKey: .target) ?? BrowserContextTarget()
         self.attachments = try container.decodeIfPresent([AgentAttachmentUpload].self, forKey: .attachments) ?? []

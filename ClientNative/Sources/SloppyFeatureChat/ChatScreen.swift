@@ -280,21 +280,42 @@ private struct ChatNavigationLeadingItems: View {
             }
 
             agentNavigationButton
+
+            if let activeContextTitle = viewModel.activeContextTitle {
+                Text(activeContextTitle)
+                    .font(.system(size: 15))
+                    .foregroundColor(.white.opacity(0.7 as CGFloat))
+                    .lineLimit(1)
+            }
         }
     }
 
     @ViewBuilder
     private var agentNavigationButton: some View {
-        Button(action: { viewModel.showAgentPicker = true }) {
-            HStack(spacing: 8) {
-                Text(viewModel.selectedAgent?.displayName ?? "Select Agent")
-                    .font(.system(size: 15))
-                    .foregroundColor(.white)
-                    .lineLimit(1)
-                Icons.symbol(.expandMore, size: 12)
-                    .foregroundColor(.white.opacity(0.55 as CGFloat))
+        Picker("", selection: selectedAgentId) {
+            if viewModel.agents.isEmpty {
+                Text("Select Agent").tag("")
+            } else {
+                ForEach(viewModel.agents) { agent in
+                    Text(agent.displayName).tag(agent.id)
+                }
             }
         }
+        .pickerStyle(.menu)
+        .labelsHidden()
+        .tint(.white)
+    }
+
+    private var selectedAgentId: Binding<String> {
+        Binding(
+            get: { viewModel.selectedAgent?.id ?? viewModel.agents.first?.id ?? "" },
+            set: { nextId in
+                guard let agent = viewModel.agents.first(where: { $0.id == nextId }) else {
+                    return
+                }
+                viewModel.pickAgent(agent)
+            }
+        )
     }
 }
 
@@ -323,39 +344,43 @@ private struct MobileChatNavigationCenterCapsule: View {
     @Environment(\.theme) private var theme
     
     var body: some View {
-        HStack(spacing: theme.spacing.s) {
-            VStack(alignment: .leading, spacing: 1) {
-                Text(compactAgentName)
-                    .font(.system(size: theme.typography.caption))
-                    .foregroundColor(theme.colors.textPrimary)
-                    .lineLimit(1)
-                
-                Text(sessionLabel)
-                    .font(.system(size: theme.typography.micro))
-                    .foregroundColor(theme.colors.textMuted)
-                    .lineLimit(1)
+        VStack(alignment: .leading, spacing: 1) {
+            Picker("", selection: selectedAgentId) {
+                if viewModel.agents.isEmpty {
+                    Text("Agent").tag("")
+                } else {
+                    ForEach(viewModel.agents) { agent in
+                        Text(agent.displayName).tag(agent.id)
+                    }
+                }
             }
-            
-            Icons.symbol(.expandMore, size: theme.typography.caption)
+            .pickerStyle(.menu)
+            .labelsHidden()
+            .tint(theme.colors.textPrimary)
+
+            Text(sessionLabel)
+                .font(.system(size: theme.typography.micro))
                 .foregroundColor(theme.colors.textMuted)
+                .lineLimit(1)
         }
         .padding(.horizontal, theme.spacing.s)
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 46, maxHeight: 46, alignment: .leading)
-        .onTap {
-            viewModel.showAgentPicker = true
-        }
-    }
-
-    private var compactAgentName: String {
-        let name = viewModel.selectedAgent?.displayName ?? "Agent"
-        guard name.count > 18 else {
-            return name
-        }
-        return String(name.prefix(17)) + "..."
     }
 
     private var sessionLabel: String {
-        viewModel.selectedSessionId == nil ? "New chat" : "Recent session"
+        viewModel.selectedSessionId == nil ? (viewModel.activeContextTitle ?? "New chat") : "Recent session"
+    }
+
+    private var selectedAgentId: Binding<String> {
+        Binding(
+            get: { viewModel.selectedAgent?.id ?? viewModel.agents.first?.id ?? "" },
+            set: { nextId in
+                guard let agent = viewModel.agents.first(where: { $0.id == nextId }) else {
+                    return
+                }
+                viewModel.pickAgent(agent)
+            }
+        )
     }
 
     private var mobileNavigationCapsuleWidth: CGFloat {
@@ -451,22 +476,6 @@ private struct ChatOverlayLayer: View {
 
     @ViewBuilder
     var body: some View {
-        if viewModel.showAgentPicker {
-            overlayDim
-                .overlay(anchor: .topLeading) {
-                    AgentPickerView(
-                        agents: viewModel.agents,
-                        selectedAgent: viewModel.selectedAgent,
-                        onSelect: { agent in
-                            viewModel.pickAgent(agent)
-                        },
-                        onDismiss: { viewModel.showAgentPicker = false }
-                    )
-                    .frame(width: pickerWidth)
-                    .padding(.top, overlayTopInset)
-                }
-        }
-
         if viewModel.showSessionPicker {
             overlayDim
                 .overlay(anchor: .topLeading) {
@@ -546,6 +555,14 @@ private struct ChatEmptyChatRegion: View {
     var body: some View {
         VStack(spacing: theme.spacing.xl) {
             Spacer(minLength: idiom == .phone ? theme.spacing.xxl : theme.spacing.l)
+            if let activeContextTitle = viewModel.activeContextTitle {
+                Text(activeContextTitle)
+                    .font(.system(size: idiom == .phone ? theme.typography.caption : theme.typography.body))
+                    .foregroundColor(theme.colors.textMuted)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .frame(width: heroWidth)
+            }
             ChatGreetingView(agentName: viewModel.selectedAgent?.displayName ?? "Agent")
                 .frame(width: heroWidth)
             Spacer(minLength: bottomClearance)
@@ -695,4 +712,3 @@ private struct ChatTranscriptPane: View {
         
     }
 }
-

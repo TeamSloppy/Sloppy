@@ -231,6 +231,30 @@ export function fallbackSelectionText(selection) {
   return String(selection || "").trim() || t("noSelectedText");
 }
 
+export function extractPromptReferences(rawPrompt = "") {
+  let projectReference = null;
+  let taskReference = null;
+  const prompt = String(rawPrompt || "")
+    .replace(/(^|\s)([@#])([A-Za-z0-9][A-Za-z0-9._-]*)\b/g, (match, prefix, marker, reference) => {
+      if (marker === "@" && !projectReference) {
+        projectReference = reference;
+        return prefix;
+      }
+      if (marker === "#" && !taskReference) {
+        taskReference = reference;
+        return prefix;
+      }
+      return match;
+    })
+    .replace(/\s+/g, " ")
+    .trim();
+  return {
+    prompt,
+    projectReference,
+    taskReference
+  };
+}
+
 export function normalizeAgentSessions(records = []) {
   return records
     .map((session) => {
@@ -330,6 +354,8 @@ export function buildBrowserContextPayload(settings, page, selection, prompt, op
   const widgetSession = options.widgetSession && typeof options.widgetSession === "object"
     ? options.widgetSession
     : null;
+  const projectReference = String(options.projectReference || "").trim();
+  const taskReference = String(options.taskReference || "").trim();
   return {
     source: "safari_extension",
     ...(widgetSession ? { mode: "widget_editor", widgetSession } : {}),
@@ -344,6 +370,12 @@ export function buildBrowserContextPayload(settings, page, selection, prompt, op
       tabs: sanitizeTabs(options.tabs)
     },
     attachments: sanitizeAttachments(options.attachments),
+    context: projectReference || taskReference
+      ? {
+        ...(projectReference ? { projectReference } : {}),
+        ...(taskReference ? { taskReference } : {})
+      }
+      : null,
     prompt: String(prompt || "").trim(),
     target: {
       agentId: String(settings.defaultAgentID || "sloppy").trim() || "sloppy",

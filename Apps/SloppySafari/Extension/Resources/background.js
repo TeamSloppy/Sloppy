@@ -868,7 +868,9 @@ if (typeof chrome !== "undefined") {
           tabs: message.tabs || [],
           pageSnapshot: message.pageSnapshot || null,
           attachments: message.attachments || [],
-          widgetSession: message.widgetSession || null
+          widgetSession: message.widgetSession || null,
+          projectReference: message.projectReference || "",
+          taskReference: message.taskReference || ""
         };
         if (message.type === "sloppy.browserContext.stream") {
           const tabId = _sender.tab?.id;

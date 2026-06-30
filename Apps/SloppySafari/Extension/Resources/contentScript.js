@@ -66,6 +66,30 @@ function selectedText() {
   return String(globalThis.getSelection?.() || "").trim();
 }
 
+function extractPromptReferences(rawPrompt = "") {
+  let projectReference = null;
+  let taskReference = null;
+  const prompt = String(rawPrompt || "")
+    .replace(/(^|\s)([@#])([A-Za-z0-9][A-Za-z0-9._-]*)\b/g, (match, prefix, marker, reference) => {
+      if (marker === "@" && !projectReference) {
+        projectReference = reference;
+        return prefix;
+      }
+      if (marker === "#" && !taskReference) {
+        taskReference = reference;
+        return prefix;
+      }
+      return match;
+    })
+    .replace(/\s+/g, " ")
+    .trim();
+  return {
+    prompt,
+    projectReference,
+    taskReference
+  };
+}
+
 function escapeHTML(value) {
   return String(value || "")
     .replaceAll("&", "&amp;")
@@ -532,6 +556,7 @@ const state = {
   sidebar: normalizeSidebarState(),
   artifacts: [],
   widgetHTMLByArtifactId: {},
+  widgetFrameURLByArtifactId: {},
   widgetPickerSheet: { open: false },
   gridDrag: {
     activeId: null,
@@ -1244,7 +1269,7 @@ function wirePanel(frame) {
   frame.querySelector("[data-sloppy-settings]").addEventListener("click", () => openSettings(frame));
   frame.querySelector("[data-sloppy-sessions]")?.addEventListener("click", () => openSessions(frame, { presentation: "dialog" }));
   frame.querySelector("[data-sloppy-new-session]").addEventListener("click", () => selectSession(frame, null));
-  frame.querySelector("[data-sloppy-save-settings]").addEventListener("click", () => saveSettings(frame));
+  frame.querySelector("[data-sloppy-save-settings]")?.addEventListener("click", () => saveSettings(frame));
   frame.querySelector("[data-sloppy-customize]")?.addEventListener("click", () => openCustomize(frame));
   const customizeDialog = frame.querySelector("[data-sloppy-customize-dialog]");
   customizeDialog?.addEventListener("close", () => {
@@ -3159,14 +3184,14 @@ async function sendPrompt(frame) {
     return;
   }
   const textarea = frame.querySelector("[data-sloppy-prompt]");
-  const prompt = textarea.value.trim();
-  if (!prompt && !state.attachments.length) {
+  const rawPrompt = textarea.value.trim();
+  if (!rawPrompt && !state.attachments.length) {
     return;
   }
   if (widgetEditorIsActive(frame)) {
     hideCommandMenu(frame);
     const userAttachments = [...state.attachments];
-    appendMessage({ role: "user", label: t("you"), text: prompt, attachments: userAttachments });
+    appendMessage({ role: "user", label: t("you"), text: rawPrompt, attachments: userAttachments });
     textarea.value = "";
     textarea.style.height = "auto";
     state.attachments = [];
@@ -3176,7 +3201,7 @@ async function sendPrompt(frame) {
     startStreamingStatusTimer(frame);
 
     const result = typeof updateWidgetDraftFromPrompt === "function"
-      ? await updateWidgetDraftFromPrompt(frame, prompt)
+      ? await updateWidgetDraftFromPrompt(frame, rawPrompt)
       : { error: "Widget editor is unavailable." };
     const message = state.messages.find((candidate) => candidate.id === assistantId);
     if (message) {
@@ -3186,10 +3211,15 @@ async function sendPrompt(frame) {
     render(frame);
     return;
   }
+  const promptContext = extractPromptReferences(rawPrompt);
+  const prompt = promptContext.prompt;
+  if (!prompt && !state.attachments.length) {
+    return;
+  }
   transitionStartPageToChat(frame);
   hideCommandMenu(frame);
   if (prompt.toLowerCase() === "/help") {
-    appendMessage({ role: "user", label: t("you"), text: prompt });
+    appendMessage({ role: "user", label: t("you"), text: rawPrompt });
     appendMessage({ role: "assistant", label: t("assistant"), text: slashHelpText() });
     textarea.value = "";
     textarea.style.height = "auto";
@@ -3197,7 +3227,7 @@ async function sendPrompt(frame) {
     return;
   }
   if (prompt.toLowerCase() === "/status") {
-    appendMessage({ role: "user", label: t("you"), text: prompt });
+    appendMessage({ role: "user", label: t("you"), text: rawPrompt });
     appendMessage({
       role: "assistant",
       label: t("assistant"),
@@ -3209,7 +3239,7 @@ async function sendPrompt(frame) {
     return;
   }
   const userAttachments = [...state.attachments];
-  appendMessage({ role: "user", label: t("you"), text: prompt, attachments: userAttachments });
+  appendMessage({ role: "user", label: t("you"), text: rawPrompt, attachments: userAttachments });
   textarea.value = "";
   textarea.style.height = "auto";
   state.attachments = [];
@@ -3234,7 +3264,9 @@ async function sendPrompt(frame) {
     prompt,
     tabs: state.tabs,
     attachments: userAttachments,
-    model: state.settings?.selectedModel || "default"
+    model: state.settings?.selectedModel || "default",
+    projectReference: promptContext.projectReference || "",
+    taskReference: promptContext.taskReference || ""
   });
   const message = state.messages.find((candidate) => candidate.id === assistantId);
   if (response?.error) {

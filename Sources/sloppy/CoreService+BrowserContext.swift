@@ -54,6 +54,7 @@ extension CoreService {
             page: request.page,
             selection: selectionText,
             browser: request.browser,
+            context: request.context,
             prompt: prompt
         )
         let response = try await postAgentSessionMessage(
@@ -90,7 +91,13 @@ extension CoreService {
         sessionSubagentToolAllowList[sessionID] = Self.widgetEditorAllowedTools
     }
 
-    static func browserContextPrompt(page: BrowserContextPage, selection: String, browser: BrowserContextBrowser? = nil, prompt: String) -> String {
+    static func browserContextPrompt(
+        page: BrowserContextPage,
+        selection: String,
+        browser: BrowserContextBrowser? = nil,
+        context: BrowserContextMessageContext? = nil,
+        prompt: String
+    ) -> String {
         var lines: [String] = [
             "Source: Safari Extension",
             "URL: \(page.url)"
@@ -98,12 +105,24 @@ extension CoreService {
         if let title = page.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
             lines.append("Title: \(title)")
         }
+        if let projectReference = context?.projectReference?.trimmingCharacters(in: .whitespacesAndNewlines), !projectReference.isEmpty {
+            lines.append("Requested project reference: @\(projectReference)")
+        }
+        if let taskReference = context?.taskReference?.trimmingCharacters(in: .whitespacesAndNewlines), !taskReference.isEmpty {
+            lines.append("Requested task reference: #\(taskReference)")
+        }
         lines.append("")
         lines.append("Selected text:")
         lines.append(selection)
         lines.append("")
         lines.append("Safari tools:")
         lines.append("Use `safari.dom_snapshot` only when live page details are needed. Use `safari.click`, `safari.type`, and other `safari.*` tools for the user's current Safari tab; do not use `browser.*` for this Safari page.")
+        if let projectReference = context?.projectReference?.trimmingCharacters(in: .whitespacesAndNewlines), !projectReference.isEmpty {
+            lines.append("Use `project.list` to resolve the project named `\(projectReference)` before answering, and use that project context in your work.")
+        }
+        if let taskReference = context?.taskReference?.trimmingCharacters(in: .whitespacesAndNewlines), !taskReference.isEmpty {
+            lines.append("Use `project.task_get` to resolve the task reference `\(taskReference)` before answering. If needed, try it as both `reference` and `taskId`.")
+        }
         lines.append("")
         lines.append("User prompt:")
         lines.append(prompt)

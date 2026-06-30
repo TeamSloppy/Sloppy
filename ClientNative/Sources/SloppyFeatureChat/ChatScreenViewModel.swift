@@ -7,51 +7,76 @@ import SloppyClientUI
 @Observable
 @MainActor
 public final class ChatTranscriptState {
+    private static let initialVisibleWindowSize = 64
+    private static let revealStep = 64
+
+    private var allMessages: [ChatMessage] = []
+    private var visibleStartIndex = 0
+
     public private(set) var messages: [ChatMessage] = []
 
     var isEmpty: Bool {
-        messages.isEmpty
+        allMessages.isEmpty
     }
 
     var lastMessage: ChatMessage? {
-        messages.last
+        allMessages.last
     }
 
     var hasEarlierMessages: Bool {
-        false
+        visibleStartIndex > 0
     }
 
     var hiddenMessageCount: Int {
-        0
+        visibleStartIndex
     }
 
     func replaceAll(_ newMessages: [ChatMessage]) {
-        messages = newMessages
+        allMessages = newMessages
+        visibleStartIndex = max(0, newMessages.count - Self.initialVisibleWindowSize)
+        refreshVisibleMessages()
     }
 
     func clear() {
+        allMessages = []
+        visibleStartIndex = 0
         messages = []
     }
 
     func append(_ message: ChatMessage) {
-        messages.append(message)
+        allMessages.append(message)
+        refreshVisibleMessages()
     }
 
     func removeAll(where shouldBeRemoved: (ChatMessage) -> Bool) {
-        messages.removeAll(where: shouldBeRemoved)
+        allMessages.removeAll(where: shouldBeRemoved)
+        visibleStartIndex = min(visibleStartIndex, allMessages.count)
+        refreshVisibleMessages()
     }
 
     func upsert(_ message: ChatMessage) {
-        if let idx = messages.firstIndex(where: { $0.id == message.id }) {
-            messages[idx] = message
+        if let idx = allMessages.firstIndex(where: { $0.id == message.id }) {
+            allMessages[idx] = message
         } else {
-            messages.append(message)
+            allMessages.append(message)
         }
+        refreshVisibleMessages()
     }
 
     func revealEarlierMessages() {
-        // Kept as a no-op for compatibility with older views/tests: all
-        // loaded session messages are now visible and scrollable at once.
+        visibleStartIndex = max(0, visibleStartIndex - Self.revealStep)
+        refreshVisibleMessages()
+    }
+
+    private func refreshVisibleMessages() {
+        guard !allMessages.isEmpty else {
+            messages = []
+            visibleStartIndex = 0
+            return
+        }
+
+        visibleStartIndex = max(0, min(visibleStartIndex, allMessages.count - 1))
+        messages = Array(allMessages[visibleStartIndex...])
     }
 }
 
@@ -77,6 +102,7 @@ public final class ChatScreenViewModel {
     }
 
     @ObservationIgnored private let apiClient: SloppyAPIClient
+    @ObservationIgnored private let cacheStore: ClientCacheStore
     @ObservationIgnored private let settings: ClientSettings
     public let connectionMonitor: ConnectionMonitor
     @ObservationIgnored private let onOpenSettings: @MainActor () -> Void
@@ -90,17 +116,20 @@ public final class ChatScreenViewModel {
     @ObservationIgnored private var pendingNavigationRequest: ChatNavigationRequest?
     @ObservationIgnored private var lastAppliedNavigationRequestId: Int?
     @ObservationIgnored private var activeProjectId: String?
+    @ObservationIgnored private var activeTaskId: String?
     @ObservationIgnored private var didLoadInitialData = false
     @ObservationIgnored private var isLoadingInitialData = false
     @ObservationIgnored private var sessionLoadGeneration = 0
 
     public init(
         apiClient: SloppyAPIClient,
+        cacheStore: ClientCacheStore = ClientCacheStore(),
         settings: ClientSettings,
         connectionMonitor: ConnectionMonitor,
         onOpenSettings: @escaping @MainActor () -> Void
     ) {
         self.apiClient = apiClient
+        self.cacheStore = cacheStore
         self.settings = settings
         self.connectionMonitor = connectionMonitor
         self.onOpenSettings = onOpenSettings
@@ -126,10 +155,16 @@ public final class ChatScreenViewModel {
             }
 
             let fetched = (try? await apiClient.fetchAgents()) ?? []
-            agents = fetched
+            if fetched.isEmpty {
+                agents = await cacheStore.loadAgents()
+            } else {
+                agents = fetched
+                await cacheStore.cacheAgents(fetched)
+            }
 
+            let availableAgents = agents
             let lastId = settings.lastAgentId
-            let agent = fetched.first(where: { $0.id == lastId }) ?? fetched.first
+            let agent = availableAgents.first(where: { $0.id == lastId }) ?? availableAgents.first
             if let agent {
                 selectedAgent = agent
                 await loadSessions(for: agent)
@@ -142,6 +177,7 @@ public final class ChatScreenViewModel {
                     transcript.clear()
                     activeContextTitle = nil
                     activeProjectId = nil
+                    activeTaskId = nil
                     settings.lastSessionId = nil
                 }
             }
@@ -158,8 +194,31 @@ public final class ChatScreenViewModel {
         isLoadingSessions = true
         let fetched = (try? await apiClient.fetchAgentSessions(agentId: agent.id, projectId: projectId)) ?? []
         guard generation == sessionLoadGeneration else { return }
-        sessions = sortSessions(fetched.filter { $0.kind != "heartbeat" })
+        if fetched.isEmpty {
+            sessions = sortSessions((await cacheStore.loadSessions(agentId: agent.id, projectId: projectId)).filter { $0.kind != "heartbeat" })
+        } else {
+            let filtered = fetched.filter { $0.kind != "heartbeat" }
+            sessions = sortSessions(filtered)
+            await cacheStore.cacheSessions(agentId: agent.id, projectId: projectId, sessions: filtered)
+        }
         isLoadingSessions = false
+    }
+
+    public func refreshCurrentContext() async {
+        guard let agent = selectedAgent else {
+            return
+        }
+
+        await loadSessions(for: agent, projectId: activeTaskId == nil ? activeProjectId : nil)
+
+        if let selectedSessionId,
+           let detail = try? await apiClient.fetchAgentSession(agentId: agent.id, sessionId: selectedSessionId) {
+            transcript.replaceAll(detail.messages)
+            await cacheStore.cacheSessionDetail(agentId: agent.id, detail: detail)
+        } else if let selectedSessionId,
+                  let cached = await cacheStore.loadSessionDetail(agentId: agent.id, sessionId: selectedSessionId) {
+            transcript.replaceAll(cached.messages)
+        }
     }
 
     public func pickAgent(_ agent: APIAgentRecord) {
@@ -192,6 +251,7 @@ public final class ChatScreenViewModel {
                     transcript.clear()
                     activeContextTitle = nil
                     activeProjectId = nil
+                    activeTaskId = nil
                 }
 
                 showSessionStatus("Deleted \(displayTitle(for: session))")
@@ -270,6 +330,7 @@ public final class ChatScreenViewModel {
         transcript.clear()
         activeContextTitle = nil
         activeProjectId = nil
+        activeTaskId = nil
         settings.lastAgentId = agent.id
         settings.lastSessionId = nil
         Task { @MainActor in
@@ -282,14 +343,17 @@ public final class ChatScreenViewModel {
         disconnectCurrentSession()
         let contextTitle = activeContextTitle
         let projectId = activeProjectId
+        let taskId = activeTaskId
         transcript.clear()
         selectedSessionId = nil
         activeContextTitle = contextTitle
         activeProjectId = projectId
+        activeTaskId = taskId
         Task { @MainActor in
+            let sessionTitle = taskId.map(taskSessionTitle(for:)) ?? contextTitle ?? "Chat with \(agent.displayName)"
             guard let summary = try? await apiClient.createAgentSession(
                 agentId: agent.id,
-                title: contextTitle ?? "Chat with \(agent.displayName)",
+                title: sessionTitle,
                 projectId: projectId
             ) else { return }
             sessions.insert(summary, at: 0)
@@ -309,13 +373,14 @@ public final class ChatScreenViewModel {
             settings.lastAgentId = nextAgent.id
         }
 
-        selectSession(session.id, contextTitle: displayTitle(for: session), projectId: session.projectId)
+        selectSession(session.id, contextTitle: displayTitle(for: session), projectId: session.projectId, taskId: nil)
     }
 
     private func selectSession(
         _ sessionId: String,
         contextTitle: String? = nil,
-        projectId: String? = nil
+        projectId: String? = nil,
+        taskId: String? = nil
     ) {
         guard let agent = selectedAgent else { return }
         let retainedContextTitle = contextTitle ?? activeContextTitle
@@ -325,6 +390,7 @@ public final class ChatScreenViewModel {
         selectedSessionId = sessionId
         activeContextTitle = retainedContextTitle
         activeProjectId = retainedProjectId
+        activeTaskId = taskId
         settings.lastSessionId = sessionId
         connectToSession(agentId: agent.id, sessionId: sessionId)
     }
@@ -337,6 +403,7 @@ public final class ChatScreenViewModel {
             transcript.clear()
             activeContextTitle = nil
             activeProjectId = nil
+            activeTaskId = nil
             return
         }
 
@@ -357,6 +424,7 @@ public final class ChatScreenViewModel {
             transcript.clear()
             activeContextTitle = title
             activeProjectId = projectId
+            activeTaskId = preferredTaskId
             return
         }
 
@@ -383,6 +451,7 @@ public final class ChatScreenViewModel {
         transcript.clear()
         activeContextTitle = contextTitle
         activeProjectId = nil
+        activeTaskId = nil
         settings.lastAgentId = agent.id
         settings.lastSessionId = nil
 
@@ -404,6 +473,7 @@ public final class ChatScreenViewModel {
         transcript.clear()
         activeContextTitle = contextTitle
         activeProjectId = projectId
+        activeTaskId = preferredTaskId
         settings.lastAgentId = agent.id
         settings.lastSessionId = nil
 
@@ -422,30 +492,10 @@ public final class ChatScreenViewModel {
                 projectId: projectId,
                 allowsFallback: preferredTaskId == nil
             ) else {
-                guard let taskId = preferredTaskId else {
-                    return
-                }
-
-                guard let summary = try? await apiClient.createAgentSession(
-                    agentId: agent.id,
-                    title: taskSessionTitle(for: taskId),
-                    projectId: projectId
-                ) else {
-                    return
-                }
-
-                guard selectedAgent?.id == agent.id,
-                      activeProjectId == projectId,
-                      selectedSessionId == nil else {
-                    return
-                }
-
-                sessions.insert(summary, at: 0)
-                selectSession(summary.id, contextTitle: contextTitle, projectId: projectId)
                 return
             }
 
-            selectSession(session.id, contextTitle: contextTitle, projectId: projectId)
+            selectSession(session.id, contextTitle: contextTitle, projectId: projectId, taskId: preferredTaskId)
         }
     }
 
@@ -472,6 +522,10 @@ public final class ChatScreenViewModel {
             if let detail = try? await apiClient.fetchAgentSession(agentId: agentId, sessionId: sessionId) {
                 guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
                 transcript.replaceAll(detail.messages)
+                await cacheStore.cacheSessionDetail(agentId: agentId, detail: detail)
+            } else if let cached = await cacheStore.loadSessionDetail(agentId: agentId, sessionId: sessionId) {
+                guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
+                transcript.replaceAll(cached.messages)
             }
 
             let stream = await manager.connect()
@@ -493,6 +547,9 @@ public final class ChatScreenViewModel {
             guard transcript.isEmpty else { break }
             if let detail = try? await apiClient.fetchAgentSession(agentId: agentId, sessionId: sessionId) {
                 transcript.replaceAll(detail.messages)
+                await cacheStore.cacheSessionDetail(agentId: agentId, detail: detail)
+            } else if let cached = await cacheStore.loadSessionDetail(agentId: agentId, sessionId: sessionId) {
+                transcript.replaceAll(cached.messages)
             }
         case .sessionEvent, .sessionDelta:
             if update.kind == .sessionDelta, let text = update.messageText {
@@ -706,7 +763,7 @@ public final class ChatScreenViewModel {
             Task { @MainActor in
                 guard let summary = try? await apiClient.createAgentSession(
                     agentId: agent.id,
-                    title: activeContextTitle ?? "Chat with \(agent.displayName)",
+                    title: activeTaskId.map(taskSessionTitle(for:)) ?? activeContextTitle ?? "Chat with \(agent.displayName)",
                     projectId: activeProjectId
                 ) else { return }
                 sessions.insert(summary, at: 0)

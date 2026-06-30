@@ -57,6 +57,46 @@ struct ChatModelsTests {
         #expect(msg.textContent == "visible")
     }
 
+    @Test("ChatMessage decodes tool and status segment metadata from JSON")
+    func chatMessageDecodesRichSegments() throws {
+        let json = """
+        {
+            "id": "msg-rich-1",
+            "role": "assistant",
+            "segments": [
+                {
+                    "kind": "tool_call",
+                    "title": "Read file",
+                    "text": "Sources/App.swift",
+                    "status": "running",
+                    "startedAt": "2026-01-01T00:00:00Z"
+                },
+                {
+                    "kind": "tool_result",
+                    "title": "Read file result",
+                    "text": "200 lines",
+                    "finishedAt": "2026-01-01T00:00:12Z",
+                    "metadata": {
+                        "exitCode": "0"
+                    }
+                }
+            ],
+            "createdAt": "2026-01-01T00:00:00Z"
+        }
+        """.data(using: .utf8)!
+
+        let msg = try isoDecoder.decode(ChatMessage.self, from: json)
+
+        #expect(msg.segments.count == 2)
+        #expect(msg.segments[0].kind == .toolCall)
+        #expect(msg.segments[0].title == "Read file")
+        #expect(msg.segments[0].status == "running")
+        #expect(msg.segments[0].startedAt == ISO8601DateFormatter().date(from: "2026-01-01T00:00:00Z"))
+        #expect(msg.segments[1].kind == .toolResult)
+        #expect(msg.segments[1].finishedAt == ISO8601DateFormatter().date(from: "2026-01-01T00:00:12Z"))
+        #expect(msg.segments[1].metadata?["exitCode"] == "0")
+    }
+
     @Test("ChatSessionSummary decodes from JSON")
     func chatSessionSummaryDecoding() throws {
         let json = """

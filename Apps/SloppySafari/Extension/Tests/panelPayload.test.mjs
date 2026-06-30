@@ -216,6 +216,7 @@ test("buildBrowserContextPayload creates typed Safari context payload", () => {
       tabs: [{ id: 7, url: "https://example.com/other", title: "Other" }]
     },
     attachments: [{ name: "note.md", mimeType: "text/markdown", sizeBytes: 8, contentBase64: "IyBOb3Rl" }],
+    context: null,
     prompt: "Explain this",
     target: {
       agentId: "sloppy",

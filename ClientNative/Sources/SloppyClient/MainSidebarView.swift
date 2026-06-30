@@ -51,6 +51,9 @@ struct MainSidebarView: View {
                     recentsSection(c: c, sp: sp)
                 }
             }
+            .refreshable {
+                await viewModel.refreshContent()
+            }
             .frame(minHeight: 0, maxHeight: .infinity)
         }
             .padding(.horizontal, sp.xs)
@@ -148,16 +151,7 @@ struct MainSidebarView: View {
         let ty = theme.typography
 
         return VStack(alignment: .leading, spacing: sp.s) {
-            sectionLabel("Notebooks", c: c, ty: ty)
-
-            sidebarPlainRow(
-                icon: .add,
-                title: "New notebook",
-                trailing: nil,
-                isSelected: false,
-                c: c,
-                sp: sp
-            ) {}
+            sectionLabel("Projects", c: c, ty: ty)
 
             projectsSection(c: c, sp: sp)
         }
@@ -233,29 +227,26 @@ struct MainSidebarView: View {
         c: AppColors,
         sp: AppSpacing
     ) -> some View {
-        let tasks = project.tasks ?? []
+        let projectSessions = viewModel.chatViewModel.sessions.filter {
+            $0.projectId == project.id && $0.messageCount > 0
+        }
+        let isCollapsed = viewModel.collapsedProjectIds.contains(project.id)
+        let isExpanded = viewModel.expandedTaskLists.contains(project.id)
 
         return VStack(alignment: .leading, spacing: sp.xs) {
             projectHeader(project: project, c: c, sp: sp)
 
-            let expanded = viewModel.expandedTaskLists.contains(project.id)
-            let visibleLimit = expanded ? tasks.count : min(tasks.count, 5)
-            let visible = Array(tasks.prefix(visibleLimit))
+            if !isCollapsed {
+                let visibleLimit = isExpanded ? projectSessions.count : min(projectSessions.count, 5)
+                let visible = Array(projectSessions.prefix(visibleLimit))
 
-            ForEach(visible) { task in
-                taskRow(
-                    projectId: project.id,
-                    projectName: project.name,
-                    task: task,
-                    fallbackAgentId: project.actors?.first,
-                    trailing: nil,
-                    c: c,
-                    sp: sp
-                )
-            }
+                ForEach(visible) { session in
+                    projectSessionRow(session: session, c: c, sp: sp)
+                }
 
-            if tasks.count > 5 {
-                showMoreButton(projectId: project.id, isExpanded: expanded, c: c, sp: sp)
+                if projectSessions.count > 5 {
+                    showMoreButton(projectId: project.id, isExpanded: isExpanded, c: c, sp: sp)
+                }
             }
         }
     }
@@ -275,10 +266,47 @@ struct MainSidebarView: View {
             c: c,
             sp: sp
         ) {
-            viewModel.expandedTaskLists.remove(project.id)
-            viewModel.selectProject(project)
+            viewModel.toggleProjectCollapse(projectId: project.id)
         }
         .font(.system(size: ty.body))
+    }
+
+    private func projectSessionRow(
+        session: ChatSessionSummary,
+        c: AppColors,
+        sp: AppSpacing
+    ) -> some View {
+        let isPinned = viewModel.chatViewModel.pinnedSessionIds.contains(session.id)
+        let isSelected = viewModel.selectedSidebarItem == .chats
+        && viewModel.chatViewModel.selectedSessionId == session.id
+        let isContextMenuTarget = contextMenuSessionId == session.id
+        let title = session.title.isEmpty ? "Chat" : session.title
+
+        return sidebarPlainRow(
+            icon: nil,
+            title: title,
+            trailing: isPinned ? "PIN" : nil,
+            isSelected: isSelected || isContextMenuTarget,
+            c: c,
+            sp: sp,
+            titleColor: (isSelected || isContextMenuTarget) ? c.textPrimary : c.textSecondary,
+            leadingInset: 12
+        ) {
+            viewModel.selectChatSession(session)
+        }
+        .contextMenu {
+            Button(isPinned ? "Unpin Chat" : "Pin Chat") {
+                viewModel.togglePinChatSession(session)
+            }
+
+            Button("Copy Session File Debug Link") {
+                viewModel.copyDebugSessionFileLink(session)
+            }
+
+            Button("Delete Chat", role: .destructive) {
+                viewModel.deleteChatSession(session)
+            }
+        }
     }
 
     private func taskRow(
@@ -320,21 +348,18 @@ struct MainSidebarView: View {
         let ty = theme.typography
 
         return Button {
-            if isExpanded {
-                viewModel.expandedTaskLists.remove(projectId)
-            } else {
-                viewModel.expandedTaskLists.insert(projectId)
-            }
+            viewModel.toggleTaskListExpansion(projectId: projectId)
         } label: {
             Text(isExpanded ? "Show less" : "Show more")
                 .font(.system(size: ty.body))
                 .foregroundColor(c.textMuted)
                 .multilineTextAlignment(.leading)
         }
-        .padding(.leading, 42)
+        .padding(.leading, 32)
         .padding(.trailing, sp.m)
         .padding(.vertical, sp.s)
         .frame(minHeight: Self.rowMinimumHeight, alignment: .leading)
+        .buttonStyle(PlainHightlightButtonStyle())
     }
 
     @ViewBuilder
@@ -422,7 +447,6 @@ private struct HoverableSidebarRow: View {
     @State private var isHovered = false
 
     var body: some View {
-        let isActive = isSelected || isHovered
         let displayTitle = shortened(
             title,
             maxCharacters: leadingInset > 0 ? 36 : 30
@@ -461,6 +485,7 @@ private struct HoverableSidebarRow: View {
         .onHover {
             isHovered = $0
         }
+        .buttonStyle(SideBarButtonStyle(isHover: isHovered))
     }
 
     private func shortened(_ value: String, maxCharacters: Int) -> String {
@@ -487,7 +512,7 @@ private extension View {
     }
 }
 
-#Preview {
+#Preview(traits: .sizeThatFitsLayout) {
     @Previewable @State var rootViewModel = RootShellViewModel()
     let viewModel = MainViewModel(
         baseURL: URL.debugURL,
@@ -498,16 +523,44 @@ private extension View {
     )
 
     MainSidebarView(viewModel: viewModel, isOverlay: false)
+        .task {
+            await viewModel.loadProjects()
+        }
 }
 
 struct SideBarButtonStyle: ButtonStyle {
+
+    let isHover: Bool
+    @Environment(\.theme) private var theme
+
     func makeBody(configuration: Configuration) -> some View {
-        con
+        let isActive = configuration.isPressed || isHover
+
+        configuration.label
+            .background(
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(isActive ? theme.colors.surfaceRaised : .clear)
+            )
+            .padding(.all, 4)
     }
 }
 
+struct PlainHightlightButtonStyle: ButtonStyle {
+
+    @State private var isHovered: Bool = false
+    @Environment(\.theme) private var theme
+
+
+    func makeBody(configuration: Configuration) -> some View {
+        let isActive = isHovered || configuration.isPressed
+        configuration.label
+            .onHover {
+                self.isHovered = $0
+            }
+            .foregroundStyle(isActive ? theme.colors.textSecondary : theme.colors.textMuted)
+    }
+}
 
 extension URL {
     static let debugURL = URL(string: "http://localhost:25101")!
 }
-

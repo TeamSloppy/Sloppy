@@ -19,15 +19,36 @@ public enum ChatMessageSegmentKind: String, Codable, Sendable {
     case text
     case thinking
     case attachment
+    case toolCall = "tool_call"
+    case toolResult = "tool_result"
+    case status
 }
 
 public struct ChatMessageSegment: Codable, Sendable, Equatable {
     public var kind: ChatMessageSegmentKind
     public var text: String?
+    public var title: String?
+    public var status: String?
+    public var startedAt: Date?
+    public var finishedAt: Date?
+    public var metadata: [String: String]?
 
-    public init(kind: ChatMessageSegmentKind, text: String? = nil) {
+    public init(
+        kind: ChatMessageSegmentKind,
+        text: String? = nil,
+        title: String? = nil,
+        status: String? = nil,
+        startedAt: Date? = nil,
+        finishedAt: Date? = nil,
+        metadata: [String: String]? = nil
+    ) {
         self.kind = kind
         self.text = text
+        self.title = title
+        self.status = status
+        self.startedAt = startedAt
+        self.finishedAt = finishedAt
+        self.metadata = metadata
     }
 }
 

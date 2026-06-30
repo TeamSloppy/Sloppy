@@ -47,4 +47,36 @@ struct ChatScreenRenderingTests {
         #expect(source.contains("bottomClearance: composerScrollInset"))
         #expect(source.contains("Spacer(minLength: bottomClearance)"))
     }
+
+    @Test("empty task draft surfaces the active context to the user")
+    func emptyTaskDraftSurfacesTheActiveContextToTheUser() throws {
+        let source = try chatScreenSource
+
+        #expect(source.contains("if let activeContextTitle = viewModel.activeContextTitle"))
+        #expect(source.contains("Text(activeContextTitle)"))
+    }
+
+    @Test("mobile navigation label shows the active context for drafts")
+    func mobileNavigationLabelShowsTheActiveContextForDrafts() throws {
+        let source = try chatScreenSource
+
+        #expect(source.contains("viewModel.activeContextTitle ?? \"New chat\""))
+    }
+
+    @Test("agent selection in header uses picker view")
+    func agentSelectionInHeaderUsesPickerView() throws {
+        let source = try chatScreenSource
+
+        #expect(source.contains("Picker(\"\", selection: selectedAgentId"))
+        #expect(source.contains(".pickerStyle(.menu)"))
+    }
+
+    @Test("agent picker binding falls back to the first loaded agent id")
+    func agentPickerBindingFallsBackToFirstLoadedAgentId() throws {
+        let source = try chatScreenSource
+
+        #expect(source.contains("viewModel.selectedAgent?.id"))
+        #expect(source.contains("viewModel.agents.first?.id"))
+        #expect(source.contains("?? \"\""))
+    }
 }

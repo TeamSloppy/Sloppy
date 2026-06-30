@@ -13,10 +13,12 @@ final class MainViewModel {
     let connectionMonitor: ConnectionMonitor
     let onOpenSettings: @MainActor () -> Void
     let onOpenWorkspace: @MainActor () -> Void
+    let cacheStore: ClientCacheStore
     
     var projects: [APIProjectRecord] = []
     var isLoadingProjects = false
     var didLoadProjects = false
+    var collapsedProjectIds: Set<String> = []
     var expandedTaskLists: Set<String> = []
     var selectedSidebarItem: MainSidebarSelection? = nil
     var isSidebarCollapsed = false
@@ -40,16 +42,19 @@ final class MainViewModel {
         baseURL: URL,
         settings: ClientSettings,
         connectionMonitor: ConnectionMonitor,
+        cacheStore: ClientCacheStore = ClientCacheStore(),
         onOpenSettings: @Sendable @escaping @MainActor () -> Void,
         onOpenWorkspace: @escaping @MainActor () -> Void
     ) {
         self.baseURL = baseURL
         self.settings = settings
         self.connectionMonitor = connectionMonitor
+        self.cacheStore = cacheStore
         self.onOpenSettings = onOpenSettings
         self.onOpenWorkspace = onOpenWorkspace
         self.chatViewModel = ChatScreenViewModel(
             apiClient: SloppyAPIClient(baseURL: baseURL),
+            cacheStore: cacheStore,
             settings: settings,
             connectionMonitor: connectionMonitor,
             onOpenSettings: onOpenSettings
@@ -123,12 +128,25 @@ final class MainViewModel {
         )
     }
     
-    func toggleTaskList(projectId: String) {
+    func toggleProjectCollapse(projectId: String) {
+        if collapsedProjectIds.contains(projectId) {
+            collapsedProjectIds.remove(projectId)
+        } else {
+            collapsedProjectIds.insert(projectId)
+        }
+    }
+
+    func toggleTaskListExpansion(projectId: String) {
         if expandedTaskLists.contains(projectId) {
             expandedTaskLists.remove(projectId)
         } else {
             expandedTaskLists.insert(projectId)
         }
+    }
+
+    func refreshContent() async {
+        await loadProjects(force: true)
+        await chatViewModel.refreshCurrentContext()
     }
     
     func loadProjects(force: Bool = false) async {
@@ -143,7 +161,12 @@ final class MainViewModel {
         
         let client = SloppyAPIClient(baseURL: baseURL)
         let list = (try? await client.fetchProjects()) ?? []
-        projects = list
+        if list.isEmpty {
+            projects = await cacheStore.loadProjects()
+        } else {
+            projects = list
+            await cacheStore.cacheProjects(list)
+        }
         
         if selectedSidebarItem == nil {
             selectedSidebarItem = .chats
@@ -205,6 +228,14 @@ struct MainView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .onAppear {
                 Task { await viewModel.loadProjects() }
+            }
+            .background {
+                Button("") {
+                    Task { await viewModel.refreshContent() }
+                }
+                .keyboardShortcut("r", modifiers: [.command])
+                .opacity(0.001)
+                .allowsHitTesting(false)
             }
             .background(theme.colors.background)
     }

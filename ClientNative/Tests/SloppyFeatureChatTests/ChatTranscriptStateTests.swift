@@ -6,46 +6,45 @@ import SloppyClientCore
 @Suite("ChatTranscriptState")
 @MainActor
 struct ChatTranscriptStateTests {
-    @Test("replaceAll exposes the entire loaded session history")
-    func replaceAllShowsFullHistory() {
+    @Test("replaceAll keeps only a recent window visible for large histories")
+    func replaceAllShowsRecentWindowForLargeHistory() {
         let transcript = ChatTranscriptState()
         let messages = makeMessages(count: 150)
 
         transcript.replaceAll(messages)
 
-        #expect(transcript.messages.count == 150)
-        #expect(transcript.messages.first?.id == "msg-0")
+        #expect(transcript.messages.count == 64)
+        #expect(transcript.messages.first?.id == "msg-86")
         #expect(transcript.messages.last?.id == "msg-149")
-        #expect(transcript.hasEarlierMessages == false)
-        #expect(transcript.hiddenMessageCount == 0)
+        #expect(transcript.hasEarlierMessages == true)
+        #expect(transcript.hiddenMessageCount == 86)
     }
 
-    @Test("append keeps all messages visible for mouse scrolling")
-    func appendKeepsFullHistoryVisible() {
+    @Test("append keeps the recent window and newer messages visible")
+    func appendKeepsRecentWindowVisible() {
         let transcript = ChatTranscriptState()
         transcript.replaceAll(makeMessages(count: 70))
 
         transcript.append(message(id: "msg-70", index: 70))
 
-        #expect(transcript.messages.count == 71)
-        #expect(transcript.messages.first?.id == "msg-0")
+        #expect(transcript.messages.count == 65)
+        #expect(transcript.messages.first?.id == "msg-6")
         #expect(transcript.messages.last?.id == "msg-70")
-        #expect(transcript.hasEarlierMessages == false)
+        #expect(transcript.hasEarlierMessages == true)
     }
 
-    @Test("upsert preserves full visible history")
-    func upsertPreservesFullVisibleHistory() {
+    @Test("revealEarlierMessages restores earlier transcript pages")
+    func revealEarlierMessagesRestoresEarlierPages() {
         let transcript = ChatTranscriptState()
-        transcript.replaceAll(makeMessages(count: 80))
+        transcript.replaceAll(makeMessages(count: 150))
 
-        transcript.upsert(message(id: "msg-10", index: 10, text: "updated"))
-        transcript.upsert(message(id: "msg-80", index: 80))
+        transcript.revealEarlierMessages()
 
-        #expect(transcript.messages.count == 81)
-        #expect(transcript.messages.first?.id == "msg-0")
-        #expect(transcript.messages[10].textContent == "updated")
-        #expect(transcript.messages.last?.id == "msg-80")
-        #expect(transcript.hasEarlierMessages == false)
+        #expect(transcript.messages.count == 128)
+        #expect(transcript.messages.first?.id == "msg-22")
+        #expect(transcript.messages.last?.id == "msg-149")
+        #expect(transcript.hasEarlierMessages == true)
+        #expect(transcript.hiddenMessageCount == 22)
     }
 
     private func makeMessages(count: Int) -> [ChatMessage] {
