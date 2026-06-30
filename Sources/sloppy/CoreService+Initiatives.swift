@@ -118,6 +118,7 @@ extension CoreService {
             updated.blocker = "Task \(currentTask.id) entered blocked state."
         }
         await store.saveInitiative(updated)
+        await reconcileInitiativeCompletion(projectID: projectID, initiativeID: initiativeID)
     }
 
     private func inferredInitiativePhase(
@@ -289,6 +290,51 @@ extension CoreService {
         return resolved
     }
 
+    func listInitiativeArtifacts(projectID: String, initiativeID: String) async throws -> InitiativeArtifactListResponse {
+        let normalizedID = try await requireExistingProjectID(projectID)
+        guard await store.getInitiative(projectID: normalizedID, initiativeID: initiativeID) != nil else {
+            throw ProjectError.notFound
+        }
+        let paths = projectMetaStore()
+            .listInitiativeArtifacts(projectID: normalizedID, initiativeID: initiativeID)
+            .map(InitiativeArtifactRecord.init(path:))
+        return InitiativeArtifactListResponse(artifacts: paths)
+    }
+
+    func reconcileInitiativeCompletion(projectID: String, initiativeID: String) async {
+        guard let project = await store.project(id: projectID),
+              var initiative = await store.getInitiative(projectID: projectID, initiativeID: initiativeID)
+        else {
+            return
+        }
+
+        let linkedTasks = project.tasks.filter { $0.initiativeID == initiativeID }
+        guard !linkedTasks.isEmpty else {
+            return
+        }
+
+        let allDone = linkedTasks.allSatisfy { $0.status == ProjectTaskStatus.done.rawValue }
+        let allCancelled = linkedTasks.allSatisfy { $0.status == ProjectTaskStatus.cancelled.rawValue }
+
+        if allDone {
+            initiative.phase = .done
+            initiative.blocker = nil
+            initiative.resumePoint = "Initiative complete"
+            initiative.updatedAt = Date()
+            await store.saveInitiative(initiative)
+            return
+        }
+
+        if allCancelled {
+            initiative.phase = .abandoned
+            initiative.blocker = nil
+            initiative.resumePoint = "Initiative abandoned"
+            initiative.updatedAt = Date()
+            await store.saveInitiative(initiative)
+            return
+        }
+    }
+
     public func updateInitiative(projectID: String, initiativeID: String, request: UpdateInitiativeRequest) async throws -> InitiativeDetailResponse {
         let normalizedID = try await requireExistingProjectID(projectID)
         guard var initiative = await store.getInitiative(projectID: normalizedID, initiativeID: initiativeID) else {
@@ -411,6 +457,8 @@ extension CoreService {
             initiative.updatedAt = Date()
             await store.saveInitiative(initiative)
         }
+
+        await reconcileInitiativeCompletion(projectID: normalizedID, initiativeID: initiativeID)
 
         return DecisionPacketDetailResponse(decisionPacket: packet)
     }

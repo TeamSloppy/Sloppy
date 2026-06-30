@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   createProjectInitiative,
+  fetchInitiativeArtifacts,
   fetchInitiativeDecisionPackets,
   fetchProjectInitiatives,
   updateInitiativeDecisionPacket,
@@ -160,6 +161,7 @@ export function ProjectInitiativesTab({ project }) {
   const [initiatives, setInitiatives] = useState([]);
   const [selectedInitiativeId, setSelectedInitiativeId] = useState("");
   const [decisionPackets, setDecisionPackets] = useState([]);
+  const [artifacts, setArtifacts] = useState([]);
   const [statusText, setStatusText] = useState("Loading initiatives...");
   const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
@@ -224,27 +226,66 @@ export function ProjectInitiativesTab({ project }) {
     return { open, resolved };
   }, [decisionPackets]);
 
+  const linkedTasks = useMemo(() => {
+    if (!selectedInitiative?.id) {
+      return [];
+    }
+    const tasks = Array.isArray(project?.tasks) ? project.tasks : [];
+    return tasks.filter((task) => String(task?.initiativeID || task?.initiativeId || "").trim() === selectedInitiative.id);
+  }, [project?.tasks, selectedInitiative?.id]);
+
+  const linkedTaskCounts = useMemo(() => {
+    const counts = {
+      total: linkedTasks.length,
+      done: 0,
+      blocked: 0,
+      active: 0
+    };
+    for (const task of linkedTasks) {
+      const status = asString(task?.status).toLowerCase();
+      if (status === "done") {
+        counts.done += 1;
+      } else if (status === "blocked") {
+        counts.blocked += 1;
+      } else {
+        counts.active += 1;
+      }
+    }
+    return counts;
+  }, [linkedTasks]);
+
   useEffect(() => {
     if (!projectId || !selectedInitiative?.id) {
       setDecisionPackets([]);
+      setArtifacts([]);
       return undefined;
     }
     let cancelled = false;
 
-    async function loadPackets() {
+    async function loadRelated() {
       try {
-        const items = await fetchInitiativeDecisionPackets(projectId, selectedInitiative.id);
+        const [packetItems, artifactItems] = await Promise.all([
+          fetchInitiativeDecisionPackets(projectId, selectedInitiative.id),
+          fetchInitiativeArtifacts(projectId, selectedInitiative.id)
+        ]);
         if (!cancelled) {
-          setDecisionPackets(items.map(normalizeDecisionPacket));
+          setDecisionPackets(packetItems.map(normalizeDecisionPacket));
+          setArtifacts(
+            artifactItems.map((item, index) => ({
+              id: asString(item?.path, `artifact-${index + 1}`),
+              path: asString(item?.path, `artifact-${index + 1}`)
+            }))
+          );
         }
       } catch {
         if (!cancelled) {
           setDecisionPackets([]);
+          setArtifacts([]);
         }
       }
     }
 
-    loadPackets();
+    loadRelated();
     return () => {
       cancelled = true;
     };
@@ -426,6 +467,17 @@ export function ProjectInitiativesTab({ project }) {
                     <p className="placeholder-text">Open: {packetCounts.open}</p>
                     <p className="placeholder-text">Resolved: {packetCounts.resolved}</p>
                   </article>
+                  <article className="project-overview-card">
+                    <strong>Linked tasks</strong>
+                    <p className="placeholder-text">Total: {linkedTaskCounts.total}</p>
+                    <p className="placeholder-text">Done: {linkedTaskCounts.done}</p>
+                    <p className="placeholder-text">Blocked: {linkedTaskCounts.blocked}</p>
+                    <p className="placeholder-text">Active: {linkedTaskCounts.active}</p>
+                  </article>
+                  <article className="project-overview-card">
+                    <strong>Artifacts</strong>
+                    <p className="placeholder-text">{artifacts.length} linked artifact file{artifacts.length === 1 ? "" : "s"}</p>
+                  </article>
                 </div>
 
                 <article className="project-pane">
@@ -461,6 +513,47 @@ export function ProjectInitiativesTab({ project }) {
                               </button>
                             </div>
                           ) : null}
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </article>
+
+                <article className="project-pane">
+                  <div className="project-pane-head">
+                    <h4>Linked Tasks</h4>
+                  </div>
+                  {linkedTasks.length === 0 ? (
+                    <p className="placeholder-text">No linked tasks for this initiative yet.</p>
+                  ) : (
+                    <div className="project-overview-task-list">
+                      {linkedTasks.map((task) => (
+                        <article key={asString(task?.id)} className="project-overview-task">
+                          <div className="project-overview-task-head">
+                            <strong>{asString(task?.title, asString(task?.id, "Task"))}</strong>
+                            <span className="project-overview-task-status">{asString(task?.status, "unknown")}</span>
+                          </div>
+                          <p className="placeholder-text">{previewText(task?.description, 180) || "No description provided."}</p>
+                        </article>
+                      ))}
+                    </div>
+                  )}
+                </article>
+
+                <article className="project-pane">
+                  <div className="project-pane-head">
+                    <h4>Artifacts</h4>
+                  </div>
+                  {artifacts.length === 0 ? (
+                    <p className="placeholder-text">No initiative-local artifacts yet.</p>
+                  ) : (
+                    <div className="project-created-list">
+                      {artifacts.map((artifact) => (
+                        <article key={artifact.id} className="project-created-item">
+                          <div className="project-overview-output-head">
+                            <strong>Artifact</strong>
+                          </div>
+                          <p>{artifact.path}</p>
                         </article>
                       ))}
                     </div>

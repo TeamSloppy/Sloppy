@@ -5,7 +5,8 @@ import Protocols
 
 @Test
 func createInitiativeEndpointPersistsRecord() async throws {
-    let service = CoreService(config: CoreConfig.test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let router = CoreRouter(service: service)
     let encoder = JSONEncoder()
     encoder.dateEncodingStrategy = .iso8601
@@ -99,4 +100,21 @@ func createInitiativeEndpointPersistsRecord() async throws {
     #expect(resolveResponse.status == 200)
     let resolvedPacket = try decoder.decode(DecisionPacketDetailResponse.self, from: resolveResponse.body)
     #expect(resolvedPacket.decisionPacket.status == "resolved")
+
+    try ProjectMetaStore(
+        workspaceRootURL: config.resolvedWorkspaceRootURL(currentDirectory: FileManager.default.currentDirectoryPath)
+    ).writeInitiativeArtifact(
+        projectID: projectId,
+        initiativeID: created.initiative.id,
+        relativePath: "baseline/report.md",
+        content: Data("hello".utf8)
+    )
+    let artifactResponse = await router.handle(
+        method: "GET",
+        path: "/v1/projects/\(projectId)/initiatives/\(created.initiative.id)/artifacts",
+        body: nil
+    )
+    #expect(artifactResponse.status == 200)
+    let artifacts = try decoder.decode(InitiativeArtifactListResponse.self, from: artifactResponse.body)
+    #expect(artifacts.artifacts.map(\.path) == ["baseline/report.md"])
 }

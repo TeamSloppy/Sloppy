@@ -84,4 +84,32 @@ struct ProjectMetaStore {
         try Data(markdown.utf8).write(to: fileURL, options: .atomic)
         return fileURL
     }
+
+    func listInitiativeArtifacts(projectID: String, initiativeID: String) -> [String] {
+        let baseURL = initiativeDirectoryURL(projectID: projectID, initiativeID: initiativeID).standardizedFileURL
+        var isDirectory: ObjCBool = false
+        guard fileManager.fileExists(atPath: baseURL.path, isDirectory: &isDirectory), isDirectory.boolValue else {
+            return []
+        }
+
+        guard let enumerator = fileManager.enumerator(
+            at: baseURL,
+            includingPropertiesForKeys: [.isRegularFileKey],
+            options: [.skipsHiddenFiles]
+        ) else {
+            return []
+        }
+
+        var result: [String] = []
+        for case let url as URL in enumerator {
+            let values = try? url.resourceValues(forKeys: [.isRegularFileKey])
+            guard values?.isRegularFile == true else {
+                continue
+            }
+            let relative = url.standardizedFileURL.path
+                .replacingOccurrences(of: baseURL.path + "/", with: "")
+            result.append(relative)
+        }
+        return result.sorted()
+    }
 }

@@ -1036,6 +1036,9 @@ extension CoreService {
         try validateProjectTaskDependencies(project: project)
         project.updatedAt = now
         await store.saveProject(project)
+        if let initiativeID = task.initiativeID {
+            await reconcileInitiativeCompletion(projectID: normalizedID, initiativeID: initiativeID)
+        }
         if let changedBy = request.changedBy?.trimmingCharacters(in: .whitespacesAndNewlines),
            !changedBy.isEmpty,
            changedBy != "user" {
@@ -1269,6 +1272,9 @@ extension CoreService {
                 completedTaskID: task.id
            ) {
             project = promotedProject
+        }
+        if let initiativeID = task.initiativeID {
+            await reconcileInitiativeCompletion(projectID: normalizedProject, initiativeID: initiativeID)
         }
 
         let assigneeChangedWhileReady = (actorChanged || teamChanged)

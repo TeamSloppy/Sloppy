@@ -119,6 +119,7 @@ export interface CoreApi {
     packetId: string,
     payload: AnyRecord
   ) => Promise<AnyRecord | null>;
+  fetchInitiativeArtifacts: (projectId: string, initiativeId: string) => Promise<AnyRecord[]>;
   fetchRuntimeConfig: () => Promise<AnyRecord | null>;
   fetchVoiceConfig: () => Promise<AnyRecord | null>;
   fetchVoiceCapabilities: () => Promise<AnyRecord | null>;
@@ -852,6 +853,19 @@ export function createCoreApi(): CoreApi {
         return null;
       }
       return ((response.data as AnyRecord)?.decisionPacket as AnyRecord | null) ?? null;
+    },
+
+    fetchInitiativeArtifacts: async (projectId, initiativeId) => {
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/initiatives/${encodeURIComponent(initiativeId)}/artifacts`
+      });
+      if (!response.ok) {
+        throw new Error(formatHttpError(response.status, response.data));
+      }
+      if (!Array.isArray((response.data as AnyRecord)?.artifacts)) {
+        return [];
+      }
+      return (response.data as AnyRecord).artifacts as AnyRecord[];
     },
 
     fetchRuntimeConfig: async () => {

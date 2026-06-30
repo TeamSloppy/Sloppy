@@ -52,3 +52,27 @@ func writesDecisionPacketMarkdownInsideProjectMeta() throws {
     #expect(markdown.contains("Approve larger runner pool"))
     #expect(markdown.contains("rerun benchmark suite"))
 }
+
+@Test
+func listsInitiativeArtifactsRelativeToInitiativeDirectory() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let store = ProjectMetaStore(workspaceRootURL: root)
+    _ = try store.writeInitiativeArtifact(
+        projectID: "demo",
+        initiativeID: "init-ci",
+        relativePath: "baseline/report.md",
+        content: Data("hello".utf8)
+    )
+    _ = try store.writeInitiativeArtifact(
+        projectID: "demo",
+        initiativeID: "init-ci",
+        relativePath: "verification/result.json",
+        content: Data("{}".utf8)
+    )
+
+    let listed = store.listInitiativeArtifacts(projectID: "demo", initiativeID: "init-ci")
+    #expect(listed == ["baseline/report.md", "verification/result.json"])
+}

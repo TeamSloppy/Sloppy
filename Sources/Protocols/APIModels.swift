@@ -1604,6 +1604,22 @@ public struct DecisionPacketDetailResponse: Codable, Sendable, Equatable {
     }
 }
 
+public struct InitiativeArtifactRecord: Codable, Sendable, Equatable {
+    public var path: String
+
+    public init(path: String) {
+        self.path = path
+    }
+}
+
+public struct InitiativeArtifactListResponse: Codable, Sendable, Equatable {
+    public var artifacts: [InitiativeArtifactRecord]
+
+    public init(artifacts: [InitiativeArtifactRecord]) {
+        self.artifacts = artifacts
+    }
+}
+
 public struct ProjectContextRefreshResponse: Codable, Sendable {
     public var projectId: String
     public var repoPath: String?

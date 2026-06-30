@@ -106,7 +106,7 @@ func taskStatusTransitionsAdvanceInitiativePhase() async throws {
         )
     )
     let verifying = try await service.getInitiative(projectID: projectID, initiativeID: created.initiative.id)
-    #expect(verifying.initiative.phase == .verifying)
+    #expect(verifying.initiative.phase == .done)
 }
 
 @Test
@@ -209,4 +209,36 @@ func resolvingClarificationResolvesOpenDecisionPacket() async throws {
     let packets = try await service.listInitiativeDecisionPackets(projectID: projectID, initiativeID: initiative.initiative.id)
     #expect(packets.decisionPackets.count == 1)
     #expect(packets.decisionPackets.first?.status == "resolved")
+}
+
+@Test
+func initiativeCompletesWhenAllLinkedTasksAreDone() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let projectID = "initiative-complete-\(UUID().uuidString)"
+    _ = try await service.createProject(
+        ProjectCreateRequest(id: projectID, name: "Initiative Complete", description: "Test", channels: [])
+    )
+    let initiative = try await service.createInitiative(
+        projectID: projectID,
+        request: .init(title: "Optimize CI", goal: "Reduce CI duration")
+    )
+    let project = try await service.createProjectTask(
+        projectID: projectID,
+        request: .init(title: "Final verification", initiativeID: initiative.initiative.id)
+    )
+    let task = try #require(project.tasks.first)
+
+    _ = try await service.updateProjectTask(
+        projectID: projectID,
+        taskID: task.id,
+        request: .init(
+            status: ProjectTaskStatus.done.rawValue,
+            completionConfidence: .done,
+            completionNote: "All CI checks verified."
+        )
+    )
+
+    let updated = try await service.getInitiative(projectID: projectID, initiativeID: initiative.initiative.id)
+    #expect(updated.initiative.phase == .done)
+    #expect(updated.initiative.resumePoint == "Initiative complete")
 }
