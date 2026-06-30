@@ -1620,6 +1620,39 @@ public struct InitiativeArtifactListResponse: Codable, Sendable, Equatable {
     }
 }
 
+public struct InitiativeActivityRecord: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var initiativeID: String
+    public var kind: String
+    public var title: String
+    public var message: String?
+    public var createdAt: Date
+
+    public init(
+        id: String,
+        initiativeID: String,
+        kind: String,
+        title: String,
+        message: String? = nil,
+        createdAt: Date = Date()
+    ) {
+        self.id = id
+        self.initiativeID = initiativeID
+        self.kind = kind
+        self.title = title
+        self.message = message
+        self.createdAt = createdAt
+    }
+}
+
+public struct InitiativeActivityListResponse: Codable, Sendable, Equatable {
+    public var activities: [InitiativeActivityRecord]
+
+    public init(activities: [InitiativeActivityRecord]) {
+        self.activities = activities
+    }
+}
+
 public struct ProjectContextRefreshResponse: Codable, Sendable {
     public var projectId: String
     public var repoPath: String?

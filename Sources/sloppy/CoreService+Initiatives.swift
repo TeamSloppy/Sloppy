@@ -60,6 +60,13 @@ extension CoreService {
             updatedAt: now
         )
         await store.saveInitiative(initiative)
+        appendInitiativeActivity(
+            projectID: normalizedID,
+            initiativeID: initiative.id,
+            kind: "created",
+            title: "Initiative created",
+            message: initiative.goal
+        )
         return InitiativeDetailResponse(initiative: initiative)
     }
 
@@ -76,6 +83,13 @@ extension CoreService {
         initiative.executionMode = nextMode
         initiative.updatedAt = Date()
         await store.saveInitiative(initiative)
+        appendInitiativeActivity(
+            projectID: normalizedID,
+            initiativeID: initiative.id,
+            kind: "mode_changed",
+            title: "Execution mode changed",
+            message: "Mode changed to \(nextMode.rawValue) because of \(signal.rawValue)."
+        )
         return initiative
     }
 
@@ -107,6 +121,7 @@ extension CoreService {
         }
 
         var updated = initiative
+        let previousPhase = initiative.phase
         updated.phase = targetPhase
         updated.updatedAt = Date()
         if updated.resumePoint == nil || updated.resumePoint?.isEmpty == true {
@@ -118,6 +133,13 @@ extension CoreService {
             updated.blocker = "Task \(currentTask.id) entered blocked state."
         }
         await store.saveInitiative(updated)
+        appendInitiativeActivity(
+            projectID: projectID,
+            initiativeID: initiativeID,
+            kind: "phase_changed",
+            title: "Initiative phase changed",
+            message: "Phase changed from \(previousPhase.rawValue) to \(targetPhase.rawValue) via task \(currentTask.id)."
+        )
         await reconcileInitiativeCompletion(projectID: projectID, initiativeID: initiativeID)
     }
 
@@ -228,6 +250,13 @@ extension CoreService {
             updatedAt: now
         )
         await store.saveDecisionPacket(packet)
+        appendInitiativeActivity(
+            projectID: projectID,
+            initiativeID: initiativeID,
+            kind: "decision_packet_created",
+            title: "Decision packet created",
+            message: normalizedSummary
+        )
 
         if kind == .blocked {
             var updatedInitiative = initiative
@@ -273,6 +302,13 @@ extension CoreService {
                 updated.resumePoint = resumePoint
             }
             await store.saveDecisionPacket(updated)
+            appendInitiativeActivity(
+                projectID: projectID,
+                initiativeID: initiativeID,
+                kind: "decision_packet_resolved",
+                title: "Decision packet resolved",
+                message: updated.summary
+            )
             resolved.append(updated)
         }
 
@@ -301,6 +337,16 @@ extension CoreService {
         return InitiativeArtifactListResponse(artifacts: paths)
     }
 
+    func listInitiativeActivities(projectID: String, initiativeID: String) async throws -> InitiativeActivityListResponse {
+        let normalizedID = try await requireExistingProjectID(projectID)
+        guard await store.getInitiative(projectID: normalizedID, initiativeID: initiativeID) != nil else {
+            throw ProjectError.notFound
+        }
+        return InitiativeActivityListResponse(
+            activities: projectMetaStore().listInitiativeActivities(projectID: normalizedID, initiativeID: initiativeID)
+        )
+    }
+
     func reconcileInitiativeCompletion(projectID: String, initiativeID: String) async {
         guard let project = await store.project(id: projectID),
               var initiative = await store.getInitiative(projectID: projectID, initiativeID: initiativeID)
@@ -322,6 +368,13 @@ extension CoreService {
             initiative.resumePoint = "Initiative complete"
             initiative.updatedAt = Date()
             await store.saveInitiative(initiative)
+            appendInitiativeActivity(
+                projectID: projectID,
+                initiativeID: initiativeID,
+                kind: "completed",
+                title: "Initiative completed",
+                message: "All linked tasks are done."
+            )
             return
         }
 
@@ -331,6 +384,13 @@ extension CoreService {
             initiative.resumePoint = "Initiative abandoned"
             initiative.updatedAt = Date()
             await store.saveInitiative(initiative)
+            appendInitiativeActivity(
+                projectID: projectID,
+                initiativeID: initiativeID,
+                kind: "abandoned",
+                title: "Initiative abandoned",
+                message: "All linked tasks were cancelled."
+            )
             return
         }
     }
@@ -445,6 +505,13 @@ extension CoreService {
             packet.resumePoint = resumePoint
         }
         await store.saveDecisionPacket(packet)
+        appendInitiativeActivity(
+            projectID: normalizedID,
+            initiativeID: initiativeID,
+            kind: "decision_packet_updated",
+            title: "Decision packet updated",
+            message: "\(packet.summary) -> \(normalizedStatus)"
+        )
 
         if normalizedStatus == "resolved",
            var initiative = await store.getInitiative(projectID: normalizedID, initiativeID: initiativeID),
@@ -461,6 +528,26 @@ extension CoreService {
         await reconcileInitiativeCompletion(projectID: normalizedID, initiativeID: initiativeID)
 
         return DecisionPacketDetailResponse(decisionPacket: packet)
+    }
+
+    func appendInitiativeActivity(
+        projectID: String,
+        initiativeID: String,
+        kind: String,
+        title: String,
+        message: String? = nil
+    ) {
+        let store = projectMetaStore()
+        let existing = store.listInitiativeActivities(projectID: projectID, initiativeID: initiativeID)
+        let activity = InitiativeActivityRecord(
+            id: UUID().uuidString.lowercased(),
+            initiativeID: initiativeID,
+            kind: kind,
+            title: title,
+            message: message,
+            createdAt: Date()
+        )
+        try? store.saveInitiativeActivities(existing + [activity], projectID: projectID, initiativeID: initiativeID)
     }
 
     private func requireExistingProjectID(_ projectID: String) async throws -> String {

@@ -85,6 +85,12 @@ struct ProjectMetaStore {
         return fileURL
     }
 
+    func initiativeActivitiesFileURL(projectID: String, initiativeID: String) -> URL {
+        projectMetaURL(projectID: projectID)
+            .appendingPathComponent("initiatives", isDirectory: true)
+            .appendingPathComponent("\(initiativeID)-activity.json", isDirectory: false)
+    }
+
     func listInitiativeArtifacts(projectID: String, initiativeID: String) -> [String] {
         let baseURL = initiativeDirectoryURL(projectID: projectID, initiativeID: initiativeID).standardizedFileURL
         var isDirectory: ObjCBool = false
@@ -111,5 +117,33 @@ struct ProjectMetaStore {
             result.append(relative)
         }
         return result.sorted()
+    }
+
+    func listInitiativeActivities(projectID: String, initiativeID: String) -> [InitiativeActivityRecord] {
+        let url = initiativeActivitiesFileURL(projectID: projectID, initiativeID: initiativeID)
+        guard let data = try? Data(contentsOf: url) else {
+            return []
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return ((try? decoder.decode([InitiativeActivityRecord].self, from: data)) ?? [])
+            .sorted { lhs, rhs in
+                if lhs.createdAt == rhs.createdAt {
+                    return lhs.id < rhs.id
+                }
+                return lhs.createdAt < rhs.createdAt
+            }
+    }
+
+    func saveInitiativeActivities(
+        _ activities: [InitiativeActivityRecord],
+        projectID: String,
+        initiativeID: String
+    ) throws {
+        try ensureProjectMetaLayout(projectID: projectID)
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(activities)
+        try data.write(to: initiativeActivitiesFileURL(projectID: projectID, initiativeID: initiativeID), options: .atomic)
     }
 }

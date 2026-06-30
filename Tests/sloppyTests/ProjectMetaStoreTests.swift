@@ -76,3 +76,24 @@ func listsInitiativeArtifactsRelativeToInitiativeDirectory() throws {
     let listed = store.listInitiativeArtifacts(projectID: "demo", initiativeID: "init-ci")
     #expect(listed == ["baseline/report.md", "verification/result.json"])
 }
+
+@Test
+func savesAndListsInitiativeActivities() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+
+    let store = ProjectMetaStore(workspaceRootURL: root)
+    let activity = InitiativeActivityRecord(
+        id: "activity-1",
+        initiativeID: "init-ci",
+        kind: "created",
+        title: "Initiative created",
+        message: "Reduce CI duration"
+    )
+    try store.saveInitiativeActivities([activity], projectID: "demo", initiativeID: "init-ci")
+
+    let listed = store.listInitiativeActivities(projectID: "demo", initiativeID: "init-ci")
+    #expect(listed.count == 1)
+    #expect(listed.first?.title == "Initiative created")
+}

@@ -140,5 +140,18 @@ struct InitiativesAPIRouter: APIRouter {
                 return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectReadFailed])
             }
         }
+
+        router.get("/v1/projects/:projectId/initiatives/:initiativeId/activities", metadata: RouteMetadata(summary: "List initiative activities", description: "Returns initiative activity history from project-local metadata", tags: ["Projects"])) { request in
+            let projectId = request.pathParam("projectId") ?? ""
+            let initiativeId = request.pathParam("initiativeId") ?? ""
+            do {
+                let response = try await service.listInitiativeActivities(projectID: projectId, initiativeID: initiativeId)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectReadFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectReadFailed])
+            }
+        }
     }
 }

@@ -117,4 +117,14 @@ func createInitiativeEndpointPersistsRecord() async throws {
     #expect(artifactResponse.status == 200)
     let artifacts = try decoder.decode(InitiativeArtifactListResponse.self, from: artifactResponse.body)
     #expect(artifacts.artifacts.map(\.path) == ["baseline/report.md"])
+
+    let activityResponse = await router.handle(
+        method: "GET",
+        path: "/v1/projects/\(projectId)/initiatives/\(created.initiative.id)/activities",
+        body: nil
+    )
+    #expect(activityResponse.status == 200)
+    let activities = try decoder.decode(InitiativeActivityListResponse.self, from: activityResponse.body)
+    #expect(!activities.activities.isEmpty)
+    #expect(activities.activities.contains { $0.kind == "created" })
 }

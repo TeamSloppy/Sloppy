@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
+  fetchInitiativeActivities,
   createProjectInitiative,
   fetchInitiativeArtifacts,
   fetchInitiativeDecisionPackets,
@@ -162,6 +163,7 @@ export function ProjectInitiativesTab({ project }) {
   const [selectedInitiativeId, setSelectedInitiativeId] = useState("");
   const [decisionPackets, setDecisionPackets] = useState([]);
   const [artifacts, setArtifacts] = useState([]);
+  const [activities, setActivities] = useState([]);
   const [statusText, setStatusText] = useState("Loading initiatives...");
   const [isLoading, setIsLoading] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
@@ -258,15 +260,17 @@ export function ProjectInitiativesTab({ project }) {
     if (!projectId || !selectedInitiative?.id) {
       setDecisionPackets([]);
       setArtifacts([]);
+      setActivities([]);
       return undefined;
     }
     let cancelled = false;
 
     async function loadRelated() {
       try {
-        const [packetItems, artifactItems] = await Promise.all([
+        const [packetItems, artifactItems, activityItems] = await Promise.all([
           fetchInitiativeDecisionPackets(projectId, selectedInitiative.id),
-          fetchInitiativeArtifacts(projectId, selectedInitiative.id)
+          fetchInitiativeArtifacts(projectId, selectedInitiative.id),
+          fetchInitiativeActivities(projectId, selectedInitiative.id)
         ]);
         if (!cancelled) {
           setDecisionPackets(packetItems.map(normalizeDecisionPacket));
@@ -276,11 +280,21 @@ export function ProjectInitiativesTab({ project }) {
               path: asString(item?.path, `artifact-${index + 1}`)
             }))
           );
+          setActivities(
+            activityItems.map((item, index) => ({
+              id: asString(item?.id, `activity-${index + 1}`),
+              kind: asString(item?.kind, "activity"),
+              title: asString(item?.title, `Activity ${index + 1}`),
+              message: asString(item?.message),
+              createdAt: asString(item?.createdAt ?? item?.created_at)
+            }))
+          );
         }
       } catch {
         if (!cancelled) {
           setDecisionPackets([]);
           setArtifacts([]);
+          setActivities([]);
         }
       }
     }
@@ -384,6 +398,16 @@ export function ProjectInitiativesTab({ project }) {
       const refreshedInitiatives = await fetchProjectInitiatives(projectId);
       const normalized = refreshedInitiatives.map(normalizeInitiative);
       setInitiatives(normalized);
+      const refreshedActivities = await fetchInitiativeActivities(projectId, selectedInitiative.id);
+      setActivities(
+        refreshedActivities.map((item, index) => ({
+          id: asString(item?.id, `activity-${index + 1}`),
+          kind: asString(item?.kind, "activity"),
+          title: asString(item?.title, `Activity ${index + 1}`),
+          message: asString(item?.message),
+          createdAt: asString(item?.createdAt ?? item?.created_at)
+        }))
+      );
       setStatusText(`Resolved ${packet.summary}`);
     } finally {
       setResolvingPacketId("");
@@ -479,6 +503,35 @@ export function ProjectInitiativesTab({ project }) {
                     <p className="placeholder-text">{artifacts.length} linked artifact file{artifacts.length === 1 ? "" : "s"}</p>
                   </article>
                 </div>
+
+                <article className="project-pane">
+                  <div className="project-pane-head">
+                    <h4>Activity</h4>
+                  </div>
+                  {activities.length === 0 ? (
+                    <p className="placeholder-text">No initiative activity yet.</p>
+                  ) : (
+                    <div className="project-overview-task-list">
+                      {activities
+                        .slice()
+                        .reverse()
+                        .map((activity) => (
+                          <article key={activity.id} className="project-overview-task">
+                            <div className="project-overview-task-head">
+                              <strong>{activity.title}</strong>
+                              <span className="project-overview-task-status">{activity.kind}</span>
+                            </div>
+                            {activity.message ? <p className="placeholder-text">{activity.message}</p> : null}
+                            {activity.createdAt ? (
+                              <div className="project-overview-task-meta">
+                                <span>{formatDateTime(activity.createdAt)}</span>
+                              </div>
+                            ) : null}
+                          </article>
+                        ))}
+                    </div>
+                  )}
+                </article>
 
                 <article className="project-pane">
                   <div className="project-pane-head">

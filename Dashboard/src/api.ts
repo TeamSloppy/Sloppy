@@ -40,6 +40,7 @@ export const updateProjectInitiative = coreApi.updateProjectInitiative;
 export const fetchInitiativeDecisionPackets = coreApi.fetchInitiativeDecisionPackets;
 export const updateInitiativeDecisionPacket = coreApi.updateInitiativeDecisionPacket;
 export const fetchInitiativeArtifacts = coreApi.fetchInitiativeArtifacts;
+export const fetchInitiativeActivities = coreApi.fetchInitiativeActivities;
 export const fetchRuntimeConfig = coreApi.fetchRuntimeConfig;
 export const fetchVoiceCapabilities = coreApi.fetchVoiceCapabilities;
 export const updateRuntimeConfig = coreApi.updateRuntimeConfig;
