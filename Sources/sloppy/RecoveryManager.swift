@@ -29,6 +29,7 @@ actor RecoveryManager {
         let tasks = await store.listPersistedTasks()
         let events = await store.listPersistedEvents()
         let artifacts = await store.listPersistedArtifacts()
+        let projects = await store.listProjects()
 
         let runtimeChannels = channels.map {
             RecoveryChannelState(
@@ -62,6 +63,21 @@ actor RecoveryManager {
             events: events,
             artifacts: runtimeArtifacts
         )
+
+        for project in projects {
+            let activeInitiatives = await store.listInitiatives(projectID: project.id).filter {
+                $0.phase != .done && $0.phase != .abandoned
+            }
+            if !activeInitiatives.isEmpty {
+                logger.info(
+                    "runtime.recovery.initiatives",
+                    metadata: [
+                        "project_id": .string(project.id),
+                        "active_initiatives": .stringConvertible(activeInitiatives.count)
+                    ]
+                )
+            }
+        }
 
         logger.info(
             "runtime.recovery.completed",

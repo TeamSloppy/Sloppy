@@ -1163,6 +1163,11 @@ extension CoreService {
         try validateProjectTaskDependencies(project: project)
         project.updatedAt = Date()
         await store.saveProject(project)
+        await syncInitiativePhaseForTaskStatusChange(
+            projectID: normalizedProject,
+            previousTask: oldTask,
+            currentTask: task
+        )
         await kanbanEventService.push(KanbanEvent(type: .taskUpdated, projectId: normalizedProject, task: task))
         if changedBy != "github" {
             await syncOutboundTaskIfNeeded(projectID: normalizedProject, taskID: task.id)

@@ -74,6 +74,106 @@ extension CoreService {
         return initiative
     }
 
+    func listActiveInitiatives(projectID: String) async throws -> [InitiativeRecord] {
+        let normalizedID = try await requireExistingProjectID(projectID)
+        return await store.listInitiatives(projectID: normalizedID).filter {
+            $0.phase != .done && $0.phase != .abandoned
+        }
+    }
+
+    func syncInitiativePhaseForTaskStatusChange(
+        projectID: String,
+        previousTask: ProjectTask,
+        currentTask: ProjectTask
+    ) async {
+        guard let initiativeID = currentTask.initiativeID ?? previousTask.initiativeID,
+              let initiative = await store.getInitiative(projectID: projectID, initiativeID: initiativeID)
+        else {
+            return
+        }
+
+        let targetPhase = inferredInitiativePhase(
+            currentTaskStatus: currentTask.statusValue,
+            previousTaskStatus: previousTask.statusValue,
+            currentInitiativePhase: initiative.phase
+        )
+        guard let targetPhase, targetPhase != initiative.phase else {
+            return
+        }
+
+        var updated = initiative
+        updated.phase = targetPhase
+        updated.updatedAt = Date()
+        if updated.resumePoint == nil || updated.resumePoint?.isEmpty == true {
+            updated.resumePoint = defaultResumePoint(for: targetPhase, task: currentTask)
+        }
+        if targetPhase != .blocked, targetPhase != .needsUserDecision {
+            updated.blocker = nil
+        } else if targetPhase == .blocked, updated.blocker?.isEmpty != false {
+            updated.blocker = "Task \(currentTask.id) entered blocked state."
+        }
+        await store.saveInitiative(updated)
+    }
+
+    private func inferredInitiativePhase(
+        currentTaskStatus: ProjectTaskStatus?,
+        previousTaskStatus: ProjectTaskStatus?,
+        currentInitiativePhase: InitiativePhase
+    ) -> InitiativePhase? {
+        guard let currentTaskStatus else {
+            return nil
+        }
+
+        switch currentTaskStatus {
+        case .backlog, .pendingApproval:
+            return currentInitiativePhase == .intake ? .framing : nil
+        case .ready:
+            if previousTaskStatus == .done {
+                return .planning
+            }
+            return currentInitiativePhase == .intake || currentInitiativePhase == .framing ? .planning : nil
+        case .inProgress:
+            return .executing
+        case .needsReview:
+            return .reviewing
+        case .waitingInput:
+            return .needsUserDecision
+        case .blocked:
+            return .blocked
+        case .done:
+            return .verifying
+        case .cancelled:
+            return currentInitiativePhase == .done ? nil : .abandoned
+        }
+    }
+
+    private func defaultResumePoint(for phase: InitiativePhase, task: ProjectTask) -> String {
+        switch phase {
+        case .framing:
+            return "Refine initiative scope from task \(task.id)"
+        case .planning:
+            return "Select next task after \(task.id)"
+        case .executing:
+            return "Continue execution through task \(task.id)"
+        case .verifying:
+            return "Verify completion evidence from task \(task.id)"
+        case .reviewing:
+            return "Review work product from task \(task.id)"
+        case .needsUserDecision:
+            return "Resume after answering task \(task.id)"
+        case .blocked:
+            return "Unblock task \(task.id)"
+        case .done:
+            return "Initiative complete"
+        case .abandoned:
+            return "Initiative abandoned"
+        case .intake:
+            return "Start initiative intake"
+        case .researching:
+            return "Continue research for task \(task.id)"
+        }
+    }
+
     public func updateInitiative(projectID: String, initiativeID: String, request: UpdateInitiativeRequest) async throws -> InitiativeDetailResponse {
         let normalizedID = try await requireExistingProjectID(projectID)
         guard var initiative = await store.getInitiative(projectID: normalizedID, initiativeID: initiativeID) else {
