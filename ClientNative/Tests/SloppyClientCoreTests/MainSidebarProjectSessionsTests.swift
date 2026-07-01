@@ -27,4 +27,12 @@ struct MainSidebarProjectSessionsTests {
         #expect(source.contains("ForEach(visible) { session in"))
         #expect(source.contains("projectSessionRow(session: session, c: c, sp: sp)"))
     }
+
+    @Test("project and recents session rows open session-backed tabs")
+    func projectAndRecentsSessionRowsOpenSessionBackedTabs() throws {
+        let source = try source
+
+        #expect(source.contains("viewModel.openSessionChatTab(session)"))
+        #expect(!source.contains("viewModel.selectChatSession(session)"))
+    }
 }

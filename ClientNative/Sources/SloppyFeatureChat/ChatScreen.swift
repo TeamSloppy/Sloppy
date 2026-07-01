@@ -66,17 +66,16 @@ private struct ChatScreenContent: View {
             connectionMonitor: connectionMonitor,
             rootSafeAreaInsets: rootSafeAreaInsets
         )
-        .navigationBarLeadingItems {
-            ChatNavigationLeadingItems(
-                viewModel: viewModel,
-                onOpenSidebar: onOpenSidebar
-            )
+        .toolbar {
+            ToolbarItem(placement: .navigation) {
+                ChatNavigationLeadingItems(
+                    viewModel: viewModel,
+                    onOpenSidebar: onOpenSidebar
+                )
+            }
         }
-        .navigationBarTrailingItems {
-            ChatNavigationActions(viewModel: viewModel)
-        }
-        .overlay {
-            ChatInitialLoadTrigger(viewModel: viewModel)
+        .onAppear {
+            viewModel.loadInitialData()
         }
     }
 }
@@ -103,12 +102,6 @@ private struct ChatChrome: View {
         }
 
         ChatConnectionBar(connectionMonitor: connectionMonitor)
-
-        ChatOverlayLayer(
-            viewModel: viewModel,
-            pickerWidth: pickerWidth,
-            overlayTopInset: overlayTopInset
-        )
     }
 
     private func chromeLayout(contentWidth: CGFloat) -> some View {
@@ -240,18 +233,6 @@ struct ChatOverlayLayout {
 }
 
 @MainActor
-private struct ChatInitialLoadTrigger: View {
-    let viewModel: ChatScreenViewModel
-
-    var body: some View {
-        EmptyView()
-            .onAppear {
-                viewModel.loadInitialData()
-            }
-    }
-}
-
-@MainActor
 private struct ChatNavigationLeadingItems: View {
     let viewModel: ChatScreenViewModel
     let onOpenSidebar: (@MainActor () -> Void)?
@@ -279,8 +260,6 @@ private struct ChatNavigationLeadingItems: View {
                 }
             }
 
-            agentNavigationButton
-
             if let activeContextTitle = viewModel.activeContextTitle {
                 Text(activeContextTitle)
                     .font(.system(size: 15))
@@ -290,33 +269,6 @@ private struct ChatNavigationLeadingItems: View {
         }
     }
 
-    @ViewBuilder
-    private var agentNavigationButton: some View {
-        Picker("", selection: selectedAgentId) {
-            if viewModel.agents.isEmpty {
-                Text("Select Agent").tag("")
-            } else {
-                ForEach(viewModel.agents) { agent in
-                    Text(agent.displayName).tag(agent.id)
-                }
-            }
-        }
-        .pickerStyle(.menu)
-        .labelsHidden()
-        .tint(.white)
-    }
-
-    private var selectedAgentId: Binding<String> {
-        Binding(
-            get: { viewModel.selectedAgent?.id ?? viewModel.agents.first?.id ?? "" },
-            set: { nextId in
-                guard let agent = viewModel.agents.first(where: { $0.id == nextId }) else {
-                    return
-                }
-                viewModel.pickAgent(agent)
-            }
-        )
-    }
 }
 
 @MainActor
@@ -416,39 +368,6 @@ private struct MobileChatNavigationIconButton: View {
 }
 
 @MainActor
-private struct ChatNavigationActions: View {
-    let viewModel: ChatScreenViewModel
-
-    @Environment(\.userInterfaceIdiom) private var idiom
-    @Environment(\.theme) private var theme
-
-    var body: some View {
-        let c = theme.colors
-        let sp = theme.spacing
-        let ty = theme.typography
-        let isPhone = idiom == .phone
-
-        return HStack(spacing: isPhone ? sp.xs : sp.s) {
-            if isPhone {
-                MobileChatNavigationIconButton(symbol: .chatAddOn) {
-                    viewModel.showSessionPicker = true
-                }
-            } else {
-                Button(action: { viewModel.showSessionPicker = true }) {
-                    HStack(spacing: sp.s) {
-                        Text("Sessions")
-                            .font(.system(size: ty.caption))
-                            .foregroundColor(c.textSecondary)
-                        Icons.symbol(.expandMore, size: ty.micro)
-                            .foregroundColor(c.textMuted)
-                    }
-                }
-            }
-        }
-    }
-}
-
-@MainActor
 private struct ChatConnectionBar: View {
     let connectionMonitor: ConnectionMonitor
 
@@ -465,60 +384,6 @@ private struct ChatConnectionBar: View {
                 Spacer()
             }
         }
-    }
-}
-
-@MainActor
-private struct ChatOverlayLayer: View {
-    let viewModel: ChatScreenViewModel
-    let pickerWidth: CGFloat
-    let overlayTopInset: CGFloat
-
-    @ViewBuilder
-    var body: some View {
-        if viewModel.showSessionPicker {
-            overlayDim
-                .overlay(anchor: .topLeading) {
-                    SessionPickerView(
-                        sessions: viewModel.sessions,
-                        selectedSessionId: viewModel.selectedSessionId,
-                        isLoading: viewModel.isLoadingSessions,
-                        actionStatus: viewModel.sessionActionStatus,
-                        pinnedSessionIds: viewModel.pinnedSessionIds,
-                        onSelect: { session in
-                            viewModel.pickSession(session)
-                        },
-                        onNewSession: {
-                            viewModel.pickNewSession()
-                        },
-                        onDelete: { session in
-                            viewModel.deleteSession(session)
-                        },
-                        onTogglePin: { session in
-                            viewModel.toggleSessionPinned(session)
-                        },
-                        onCopyDebugLink: { session in
-                            viewModel.copyDebugSessionLink(session)
-                        },
-                        onDownloadDebug: { session in
-                            #if DEBUG
-                            viewModel.downloadSession(session)
-                            #endif
-                        },
-                        onDismiss: { viewModel.showSessionPicker = false }
-                    )
-                    .frame(width: pickerWidth)
-                    .padding(.top, overlayTopInset)
-                }
-        }
-    }
-
-    private var overlayDim: some View {
-        Color.black.opacity(0.4 as CGFloat)
-            .ignoresSafeArea()
-            .onTap {
-                viewModel.dismissOverlays()
-            }
     }
 }
 
@@ -590,18 +455,26 @@ private struct ChatComposerOverlay: View {
         }
         .padding(.horizontal, idiom == .phone ? theme.spacing.xs : 0)
         .padding(.bottom, composerBottomInset)
+        .dropDestination(for: String.self) { items, _ in
+            guard let encoded = items.first,
+                  let payload = WorkspacePanelDragPayload.decode(from: encoded) else {
+                return false
+            }
+            viewModel.attachProjectFileReference(
+                projectId: payload.projectId,
+                path: payload.path,
+                type: payload.type
+            )
+            return true
+        }
     }
 
     @ViewBuilder
     private var composerBar: some View {
-        if let agent = viewModel.selectedAgent {
-            ChatComposerView(draft: viewModel.composerDraft, agentName: agent.displayName) { content in
-                viewModel.sendMessage(content: content)
-            }
-        } else {
-            ChatComposerView(draft: viewModel.composerDraft, agentName: "Agent") { _ in }
-                .disabled(true)
-        }
+        ChatComposerView(
+            draft: viewModel.composerDraft,
+            viewModel: viewModel
+        )
     }
 }
 
@@ -706,9 +579,24 @@ private struct ChatTranscriptPane: View {
     }
 }
 
+#Preview {
+    let viewModel = ChatScreenViewModel(
+        apiClient: .init(),
+        settings: .init(),
+        connectionMonitor: .init(baseURL: URL.debugURL),
+        onOpenSettings: {}
+    )
+    ChatScreen(viewModel: viewModel)
+}
+
 
 #Preview {
-    ChatComposerView(draft: .init()) { _ in
-        
-    }
+    let viewModel = ChatScreenViewModel(
+        apiClient: .init(),
+        settings: .init(),
+        connectionMonitor: .init(baseURL: URL.debugURL),
+        onOpenSettings: {}
+    )
+    
+    ChatComposerView(draft: .init(), viewModel: viewModel)
 }

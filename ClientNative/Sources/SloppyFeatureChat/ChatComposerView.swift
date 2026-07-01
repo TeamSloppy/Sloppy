@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import SloppyClientUI
+import SloppyClientCore
 
 @MainActor
 public final class ChatComposerDraft {
@@ -19,22 +20,20 @@ public struct ChatComposerView: View {
     private static let fieldHeight: CGFloat = 48
     private static let phoneFieldHeight: CGFloat = 48
     fileprivate static let phoneCircleSize: CGFloat = 48
-    
+
+    @State private var viewModel: ChatScreenViewModel
+
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
     
     public let draft: ChatComposerDraft
-    public let agentName: String
-    public let onSend: (String) -> Void
     
     public init(
         draft: ChatComposerDraft,
-        agentName: String = "Agent",
-        onSend: @escaping (String) -> Void
+        viewModel: ChatScreenViewModel,
     ) {
         self.draft = draft
-        self.agentName = agentName
-        self.onSend = onSend
+        self._viewModel = State(initialValue: viewModel)
     }
     
     @ViewBuilder
@@ -106,7 +105,7 @@ public struct ChatComposerView: View {
             Button {
 
             } label: {
-                Icons.symbol(.add, size: 28)
+                Icons.symbol(.add, size: 24)
             }
             .buttonStyle(.plain)
 
@@ -124,6 +123,12 @@ public struct ChatComposerView: View {
             .frame(
                 minWidth: 0, maxWidth: .infinity, minHeight: Self.fieldHeight,
                 maxHeight: Self.fieldHeight, alignment: .leading
+            )
+
+            AgentPickerView(
+                selectedAgent: viewModel.selectedAgent,
+                agents: viewModel.agents,
+                onSelectAgent: viewModel.pickAgent
             )
 
             Button(action: submit) {
@@ -150,7 +155,7 @@ public struct ChatComposerView: View {
     }
     
     private var agentDisplayName: String {
-        agentName.isEmpty ? "Sloppy" : agentName
+        return viewModel.selectedAgent?.displayName ?? "Sloppy"
     }
     
     public static func panelHeight(for idiom: UserInterfaceIdiom) -> CGFloat {
@@ -160,8 +165,45 @@ public struct ChatComposerView: View {
     private func submit() {
         let trimmed = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
-        onSend(trimmed)
+        viewModel.sendMessage(content: trimmed)
         draft.text = ""
+    }
+}
+
+struct AgentPickerView: View {
+
+    let selectedAgent: APIAgentRecord?
+    let agents: [APIAgentRecord]
+    let onSelectAgent: (APIAgentRecord) -> Void
+
+    @Environment(\.userInterfaceIdiom) private var idiom
+
+    var body: some View {
+        Picker("", selection: selectedAgentId) {
+            if agents.isEmpty {
+                Text("Select Agent").tag("")
+            } else {
+                ForEach(agents) { agent in
+                    Text(agent.displayName).tag(agent.id)
+                }
+            }
+        }
+        .labelsHidden()
+        .tint(.white)
+        .pickerStyle(.menu)
+
+    }
+
+    private var selectedAgentId: Binding<String> {
+        Binding(
+            get: { selectedAgent?.id ?? agents.first?.id ?? "" },
+            set: { nextId in
+                guard let agent = agents.first(where: { $0.id == nextId }) else {
+                    return
+                }
+                onSelectAgent(agent)
+            }
+        )
     }
 }
 
@@ -204,24 +246,29 @@ struct SubmitButton: ButtonStyle {
     @Environment(\.theme) private var theme
     @Environment(\.isEnabled) private var isEnabled
 
-    private static let sendSize: CGFloat = 38
+    private static let sendSize: CGFloat = 24
 
     func makeBody(configuration: Configuration) -> some View {
-        let actionInk = theme.colors.textPrimary
-        let actionFill = Color.fromHex(0xA7DFFF)
+        let actionFill = Color.accentColor
 
         configuration.label
-            .foregroundColor(actionInk)
+            .foregroundColor(theme.colors.textPrimary)
             .frame(width: Self.sendSize, height: Self.sendSize)
+            .padding(4)
             .glassEffect(
-                .regular.tint(actionFill), in: GlassShape.rect(cornerRadius: Self.sendSize / 2)
+                .regular.tint(actionFill.opacity(isEnabled ? 1 : 0.4)),
+                in: Circle()
             )
     }
 }
 
 #Preview {
-    ChatComposerView(draft: .init()) { _ in
-
-    }
+    let viewModel = ChatScreenViewModel(
+        apiClient: .init(),
+        settings: .init(),
+        connectionMonitor: .init(baseURL: URL.debugURL),
+        onOpenSettings: {}
+    )
+    ChatComposerView(draft: .init(), viewModel: viewModel)
 }
 

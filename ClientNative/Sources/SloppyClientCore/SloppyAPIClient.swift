@@ -37,6 +37,14 @@ public actor SloppyAPIClient {
         try await projects.fetchProject(id: id)
     }
 
+    public func fetchProjectFiles(projectId: String, path: String = "") async throws -> [ProjectFileEntry] {
+        try await projects.fetchProjectFiles(projectId: projectId, path: path)
+    }
+
+    public func fetchProjectFileContent(projectId: String, path: String) async throws -> ProjectFileContentResponse {
+        try await projects.fetchProjectFileContent(projectId: projectId, path: path)
+    }
+
     public func fetchAgents() async throws -> [APIAgentRecord] {
         try await agents.fetchAgents()
     }
@@ -138,5 +146,13 @@ public actor SloppyAPIClient {
 
     public func updateConfig(_ config: SloppyConfig) async throws -> SloppyConfig {
         try await self.config.updateConfig(config)
+    }
+
+    public func fetchAccessUsers(platform: String? = nil) async throws -> [AccessUser] {
+        try await config.fetchAccessUsers(platform: platform)
+    }
+
+    public func deleteAccessUser(_ userId: String) async throws {
+        try await config.deleteAccessUser(userId)
     }
 }

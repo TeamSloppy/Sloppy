@@ -29,4 +29,22 @@ struct MainSidebarProjectDisclosureTests {
         #expect(sidebarSource.contains("if !isCollapsed {"))
         #expect(sidebarSource.contains("showMoreButton(projectId: project.id, isExpanded: isExpanded, c: c, sp: sp)"))
     }
+
+    @Test("project rows open kanban tabs and task rows open task chats")
+    func projectRowsOpenKanbanTabsAndTaskRowsOpenTaskChats() throws {
+        let sidebarSource = try source(named: "MainSidebarView.swift")
+
+        #expect(sidebarSource.contains("viewModel.openProjectKanbanTab(project: project)"))
+        #expect(sidebarSource.contains("viewModel.openTaskChatTab("))
+        #expect(!sidebarSource.contains("viewModel.selectProject(project)"))
+    }
+
+    @Test("main view renders a native project kanban tab")
+    func mainViewRendersNativeProjectKanbanTab() throws {
+        let mainViewSource = try source(named: "MainView.swift")
+
+        #expect(mainViewSource.contains("ProjectKanbanView("))
+        #expect(mainViewSource.contains("case .projectKanban"))
+        #expect(mainViewSource.contains("ProjectKanbanTabState"))
+    }
 }

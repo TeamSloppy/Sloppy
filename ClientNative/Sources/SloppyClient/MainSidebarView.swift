@@ -18,6 +18,12 @@ struct MainSidebarView: View {
 
     private static let rowRadius: CGFloat = 18
     private static let rowMinimumHeight: CGFloat = 48
+    private static let desktopNavigatorSections: [MainAppSection] = [
+        .projects,
+        .agents,
+        .chats,
+        .settings
+    ]
 
     let viewModel: MainViewModel
     let isOverlay: Bool
@@ -43,20 +49,19 @@ struct MainSidebarView: View {
     private func expandedSidebar(c: AppColors) -> some View {
         let sp = theme.spacing
 
-        let content = VStack(alignment: .leading, spacing: 0) {
+        let content = HStack(alignment: .top, spacing: 0) {
+            navigatorTabBar(c: c, sp: sp)
+
             ScrollView {
-                VStack(alignment: .leading, spacing: sp.l) {
-                    chatActions(c: c, sp: sp)
-                    notebooksSection(c: c, sp: sp)
-                    recentsSection(c: c, sp: sp)
-                }
+                activeSectionContent(c: c, sp: sp)
             }
             .refreshable {
                 await viewModel.refreshContent()
             }
             .frame(minHeight: 0, maxHeight: .infinity)
         }
-            .padding(.horizontal, sp.xs)
+            .padding(.leading, sp.xs)
+            .padding(.trailing, sp.xs)
             .padding(.vertical, sp.s)
             .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
             .overlay(anchor: .bottomTrailing) {
@@ -74,6 +79,97 @@ struct MainSidebarView: View {
             }
 
         return sidebarSurface(content, c: c)
+    }
+
+    @ViewBuilder
+    private func activeSectionContent(c: AppColors, sp: AppSpacing) -> some View {
+        switch viewModel.selectedAppSection {
+        case .projects:
+            VStack(alignment: .leading, spacing: sp.l) {
+                notebooksSection(c: c, sp: sp)
+            }
+        case .agents:
+            VStack(alignment: .leading, spacing: sp.l) {
+                sectionIntro(
+                    title: "Agents",
+                    body: "Agent catalog and details live in the main pane."
+                )
+            }
+        case .chats:
+            VStack(alignment: .leading, spacing: sp.l) {
+                chatActions(c: c, sp: sp)
+                recentsSection(c: c, sp: sp)
+            }
+        case .workspace:
+            VStack(alignment: .leading, spacing: sp.l) {
+                sectionIntro(
+                    title: "Workspace",
+                    body: "Use the toolbar button to open files, reviews, and the web browser for the active project."
+                )
+            }
+        case .settings:
+            VStack(alignment: .leading, spacing: sp.l) {
+                sectionIntro(
+                    title: "Settings",
+                    body: "Connection, mesh, providers, and runtime settings open in the main pane."
+                )
+            }
+        }
+    }
+
+    private func navigatorTabBar(c: AppColors, sp: AppSpacing) -> some View {
+        VStack(alignment: .center, spacing: sp.s) {
+            ForEach(Self.desktopNavigatorSections, id: \.self) { section in
+                navigatorTabRow(
+                    section: section,
+                    isSelected: viewModel.selectedAppSection == section,
+                    c: c,
+                    sp: sp
+                )
+            }
+
+            Spacer(minLength: 0)
+        }
+        .frame(width: 52)
+        .padding(.top, sp.xs)
+        .padding(.trailing, sp.xs)
+    }
+
+    private func navigatorTabRow(
+        section: MainAppSection,
+        isSelected: Bool,
+        c: AppColors,
+        sp: AppSpacing
+    ) -> some View {
+        Button {
+            viewModel.selectAppSection(section)
+        } label: {
+            Icons.symbol(icon(for: section), size: theme.typography.body)
+                .foregroundColor(isSelected ? c.textPrimary : c.textMuted)
+                .frame(width: 40, height: 40)
+                .background(
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(isSelected ? c.surfaceRaised : .clear)
+                )
+        }
+        .buttonStyle(.plain)
+        .help(title(for: section))
+    }
+
+    private func sectionIntro(title: String, body: String) -> some View {
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+
+        return VStack(alignment: .leading, spacing: sp.s) {
+            Text(title)
+                .font(.system(size: ty.body))
+                .foregroundColor(c.textMuted)
+            Text(body)
+                .font(.system(size: ty.caption))
+                .foregroundColor(c.textSecondary)
+        }
+        .padding(.horizontal, sp.s)
     }
 
     private func chatActions(c: AppColors, sp: AppSpacing) -> some View {
@@ -185,7 +281,7 @@ struct MainSidebarView: View {
             titleColor: (isSelected || isContextMenuTarget) ? c.textPrimary : c.textSecondary,
             leadingInset: 12
         ) {
-            viewModel.selectChatSession(session)
+            viewModel.openSessionChatTab(session)
         }
         .contextMenu {
             Button(isPinned ? "Unpin Chat" : "Pin Chat") {
@@ -256,19 +352,30 @@ struct MainSidebarView: View {
         c: AppColors,
         sp: AppSpacing
     ) -> some View {
-        let ty = theme.typography
+        HStack(spacing: sp.xs) {
+            sidebarPlainRow(
+                icon: .folder,
+                title: project.name,
+                trailing: nil,
+                isSelected: viewModel.selectedSidebarItem == .project(project.id),
+                c: c,
+                sp: sp
+            ) {
+                viewModel.openProjectKanbanTab(project: project)
+            }
 
-        return sidebarPlainRow(
-            icon: .folder,
-            title: project.name,
-            trailing: nil,
-            isSelected: viewModel.selectedSidebarItem == .project(project.id),
-            c: c,
-            sp: sp
-        ) {
-            viewModel.toggleProjectCollapse(projectId: project.id)
+            Button {
+                viewModel.toggleProjectCollapse(projectId: project.id)
+            } label: {
+                Icons.symbol(
+                    viewModel.collapsedProjectIds.contains(project.id) ? .arrowForward : .expandMore,
+                    size: theme.typography.caption
+                )
+                .foregroundColor(c.textMuted)
+                .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
         }
-        .font(.system(size: ty.body))
     }
 
     private func projectSessionRow(
@@ -292,7 +399,7 @@ struct MainSidebarView: View {
             titleColor: (isSelected || isContextMenuTarget) ? c.textPrimary : c.textSecondary,
             leadingInset: 12
         ) {
-            viewModel.selectChatSession(session)
+            viewModel.openSessionChatTab(session)
         }
         .contextMenu {
             Button(isPinned ? "Unpin Chat" : "Pin Chat") {
@@ -330,9 +437,13 @@ struct MainSidebarView: View {
             titleColor: isSelected ? c.textPrimary : c.textSecondary,
             leadingInset: 12
         ) {
-            viewModel.selectTask(
-                projectId: projectId,
-                projectName: projectName,
+            let project = APIProjectRecord(
+                id: projectId,
+                name: projectName,
+                tasks: [task]
+            )
+            viewModel.openTaskChatTab(
+                project: project,
                 task: task,
                 fallbackAgentId: fallbackAgentId
             )
@@ -414,6 +525,36 @@ struct MainSidebarView: View {
             return .warning
         default:
             return nil
+        }
+    }
+
+    private func icon(for section: MainAppSection) -> MaterialSymbol {
+        switch section {
+        case .projects:
+            return .folder
+        case .agents:
+            return .autoAwesome
+        case .chats:
+            return .chatAddOn
+        case .workspace:
+            return .description
+        case .settings:
+            return .settings
+        }
+    }
+
+    private func title(for section: MainAppSection) -> String {
+        switch section {
+        case .projects:
+            return "Projects"
+        case .agents:
+            return "Agents"
+        case .chats:
+            return "Chats"
+        case .workspace:
+            return "Workspace"
+        case .settings:
+            return "Settings"
         }
     }
 
@@ -559,8 +700,4 @@ struct PlainHightlightButtonStyle: ButtonStyle {
             }
             .foregroundStyle(isActive ? theme.colors.textSecondary : theme.colors.textMuted)
     }
-}
-
-extension URL {
-    static let debugURL = URL(string: "http://localhost:25101")!
 }

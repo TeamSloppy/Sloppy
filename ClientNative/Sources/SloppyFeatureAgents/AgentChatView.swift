@@ -336,7 +336,7 @@ struct AgentChatView: View {
 
     private func debugSessionFilePathURL(for session: ChatSessionSummary) -> URL {
         var components = URLComponents(url: apiClient.baseURL, resolvingAgainstBaseURL: false)
-            ?? URLComponents()
+        ?? URLComponents()
         components.path = "/v1/debug/session-file-path/\(Self.urlPathEscape(agent.id))/\(Self.urlPathEscape(session.id))"
         components.queryItems = nil
         return components.url ?? apiClient.baseURL
@@ -456,16 +456,6 @@ struct ChatTranscriptView: View {
                             }
                         }
                     }
-
-                    HStack {
-                        Spacer(minLength: 0)
-                        ChatComposerView(draft: composerDraft, agentName: agentId) { content in
-                            onSend(content)
-                        }
-                        .frame(width: contentWidth)
-                        Spacer(minLength: 0)
-                    }
-                    .padding(.bottom, sp.m)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }

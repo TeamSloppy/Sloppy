@@ -34,12 +34,12 @@ struct ChatScreenLayoutTests {
         #expect(!source.contains(".debugOverlay(.layoutBounds)"))
     }
 
-    @Test("agent picker uses liquid glass styling")
-    func agentPickerUsesLiquidGlassStyling() throws {
-        let source = try source("Sources", "SloppyFeatureChat", "AgentPickerView.swift")
+    @Test("agent picker is embedded in composer as a compact menu picker")
+    func agentPickerUsesCompactMenuStyling() throws {
+        let source = try source("Sources", "SloppyFeatureChat", "ChatComposerView.swift")
 
-        #expect(source.contains("glassEffect(.regular.tint("))
-        #expect(source.contains("RoundedRectangle(cornerRadius: 28)"))
-        #expect(source.contains("private struct AgentPickerRow"))
+        #expect(source.contains("struct AgentPickerView: View"))
+        #expect(source.contains(".labelsHidden()"))
+        #expect(source.contains(".pickerStyle(.menu)"))
     }
 }

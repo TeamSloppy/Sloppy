@@ -20,14 +20,9 @@ struct ClientSettingsSection: View {
     ]
 
     var body: some View {
-        let c = theme.colors
         let sp = theme.spacing
-        let ty = theme.typography
 
         return VStack(alignment: .leading, spacing: sp.m) {
-            SectionHeader("Client", accentColor: c.accent)
-                .padding(.horizontal, sp.m)
-
             SettingsSectionCard("Connection") {
                 SettingsFieldRow("Host", hint: "Sloppy server hostname or IP", text: Binding(
                     get: { hostDraft },
@@ -41,9 +36,7 @@ struct ClientSettingsSection: View {
                 SettingsDivider()
                 HStack(spacing: sp.m) {
                     Spacer()
-                    Button("APPLY") { applyConnection() }
-                        .font(.system(size: ty.caption))
-                        .foregroundColor(c.accent)
+                    Button("Apply") { applyConnection() }
                 }
                 .padding(.horizontal, sp.m)
                 .padding(.vertical, sp.s)
@@ -71,20 +64,12 @@ struct ClientSettingsSection: View {
     }
 
     private var colorSchemePicker: some View {
-        let c = theme.colors
         let sp = theme.spacing
-        let ty = theme.typography
 
         return VStack(alignment: .leading, spacing: 0) {
-            Text("COLOR SCHEME")
-                .font(.system(size: ty.micro))
-                .foregroundColor(c.textSecondary)
-                .padding(.horizontal, sp.m)
-                .padding(.top, sp.s)
-
             HStack(spacing: sp.s) {
-                colorSchemeButton("LIGHT", scheme: .light)
-                colorSchemeButton("DARK", scheme: .dark)
+                colorSchemeButton("Light", scheme: .light)
+                colorSchemeButton("Dark", scheme: .dark)
             }
             .padding(.horizontal, sp.m)
             .padding(.vertical, sp.s)
@@ -105,8 +90,12 @@ struct ClientSettingsSection: View {
         .foregroundColor(selected ? c.textPrimary : c.textMuted)
         .padding(.vertical, sp.xs)
         .padding(.horizontal, sp.s)
-        .background(selected ? c.surfaceRaised : Color.clear)
-        .border(selected ? c.borderBold : c.border, lineWidth: bo.thin)
+        .background(selected ? c.surfaceRaised.opacity(0.5 as CGFloat) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(selected ? c.borderBold.opacity(0.5 as CGFloat) : c.border.opacity(0.35 as CGFloat), lineWidth: bo.thin)
+        )
     }
 
     private var accentColorPicker: some View {
@@ -125,8 +114,12 @@ struct ClientSettingsSection: View {
                     .foregroundColor(settings.accentColorHex == preset.hex ? c.textPrimary : c.textMuted)
                     .padding(.vertical, sp.xs)
                     .padding(.horizontal, sp.s)
-                    .background(settings.accentColorHex == preset.hex ? c.surfaceRaised : Color.clear)
-                    .border(settings.accentColorHex == preset.hex ? c.borderBold : c.border, lineWidth: bo.thin)
+                    .background(settings.accentColorHex == preset.hex ? c.surfaceRaised.opacity(0.45 as CGFloat) : Color.clear)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 8)
+                            .stroke(settings.accentColorHex == preset.hex ? c.borderBold.opacity(0.45 as CGFloat) : c.border.opacity(0.3 as CGFloat), lineWidth: bo.thin)
+                    )
                 }
             }
             .padding(.horizontal, sp.m)
@@ -163,8 +156,8 @@ struct ClientSettingsSection: View {
                     .padding(.top, sp.s)
 
                 HStack(spacing: sp.s) {
-                    desktopCloseButton("KEEP PROCESS", behavior: .keepProcess)
-                    desktopCloseButton("QUIT WHEN LAST WINDOW CLOSES", behavior: .quitOnLastWindow)
+                    desktopCloseButton("Keep Process", behavior: .keepProcess)
+                    desktopCloseButton("Quit On Last Window", behavior: .quitOnLastWindow)
                 }
                 .padding(.horizontal, sp.m)
                 .padding(.vertical, sp.s)
@@ -187,8 +180,12 @@ struct ClientSettingsSection: View {
         .foregroundColor(selected ? c.textPrimary : c.textMuted)
         .padding(.vertical, sp.xs)
         .padding(.horizontal, sp.s)
-        .background(selected ? c.surfaceRaised : Color.clear)
-        .border(selected ? c.borderBold : c.border, lineWidth: bo.thin)
+        .background(selected ? c.surfaceRaised.opacity(0.5 as CGFloat) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: 8))
+        .overlay(
+            RoundedRectangle(cornerRadius: 8)
+                .stroke(selected ? c.borderBold.opacity(0.45 as CGFloat) : c.border.opacity(0.3 as CGFloat), lineWidth: bo.thin)
+        )
     }
     #endif
 }

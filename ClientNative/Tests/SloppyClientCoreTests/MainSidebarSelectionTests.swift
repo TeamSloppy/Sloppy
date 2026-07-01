@@ -35,14 +35,14 @@ struct MainSidebarSelectionTests {
         #expect(rowSource.contains("viewModel.selectedSidebarItem == .chats"))
     }
 
-    @Test("main view switches to compact layout on phones")
-    func mainViewSwitchesToCompactLayoutOnPhones() throws {
+    @Test("main view uses tab layout on phones")
+    func mainViewUsesTabLayoutOnPhones() throws {
         let source = try mainSidebarSource
 
         #expect(source.contains("if idiom == .phone"))
-        #expect(source.contains("fullScreenCompactLayout()"))
-        #expect(source.contains("chatScreen(showsSidebarControl: true)"))
-        #expect(!source.contains("compactLayout(availableWidth: proxy.size.width)"))
+        #expect(source.contains("phoneTabLayout()"))
+        #expect(source.contains("TabView(selection: $viewModel.selectedAppSection)"))
+        #expect(source.contains("chatScreen(showsSidebarControl: false)"))
     }
 
     @Test("overlay sidebar uses dedicated close button styling")

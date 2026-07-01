@@ -86,4 +86,19 @@ struct OverviewModelsTests {
         #expect(a == b)
         #expect(a != c)
     }
+
+    @Test("project task statuses normalize into stable kanban columns")
+    func projectTaskStatusesNormalizeIntoStableKanbanColumns() {
+        let todo = APIProjectTask(id: "t1", title: "Todo", status: "todo")
+        let progress = APIProjectTask(id: "t2", title: "Build", status: "in_progress")
+        let review = APIProjectTask(id: "t3", title: "Review", status: "needs_review")
+        let done = APIProjectTask(id: "t4", title: "Done", status: "done")
+        let unknown = APIProjectTask(id: "t5", title: "Unknown", status: "blocked")
+
+        #expect(todo.normalizedKanbanColumnID == .todo)
+        #expect(progress.normalizedKanbanColumnID == .inProgress)
+        #expect(review.normalizedKanbanColumnID == .needsReview)
+        #expect(done.normalizedKanbanColumnID == .done)
+        #expect(unknown.normalizedKanbanColumnID == .other)
+    }
 }

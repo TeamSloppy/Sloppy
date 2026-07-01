@@ -151,7 +151,6 @@ struct ConnectionSetupView: View {
             .frame(minWidth: 0, maxWidth: .infinity, alignment: .topLeading)
         }
         .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
-        .background(theme.colors.background)
         .onAppear {
             hostDraft = settings.serverHost == "localhost" ? "" : settings.serverHost
             portDraft = String(settings.serverPort)

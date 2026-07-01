@@ -18,21 +18,16 @@ struct SettingsSectionCard<Content: View>: View {
     var body: some View {
         let c = theme.colors
         let sp = theme.spacing
-        let bo = theme.borders
         let ty = theme.typography
 
-        return VStack(alignment: .leading, spacing: 0) {
-            Text(title.uppercased())
-                .font(.system(size: ty.micro))
+        return VStack(alignment: .leading, spacing: sp.s) {
+            Text(title)
+                .font(.system(size: ty.caption, weight: .semibold))
                 .foregroundColor(c.textMuted)
-                .padding(.horizontal, sp.m)
-                .padding(.top, sp.m)
-                .padding(.bottom, sp.s)
+                .padding(.horizontal, sp.xs)
 
             content()
         }
-        .background(c.surface)
-        .border(c.border, lineWidth: bo.thin)
     }
 }
 
@@ -56,20 +51,16 @@ struct SettingsFieldRow: View {
     var body: some View {
         let c = theme.colors
         let sp = theme.spacing
-        let bo = theme.borders
         let ty = theme.typography
 
         return VStack(alignment: .leading, spacing: sp.xs) {
-            Text(label.uppercased())
-                .font(.system(size: ty.micro))
+            Text(label)
+                .font(.system(size: ty.caption, weight: .medium))
                 .foregroundColor(c.textSecondary)
 
             TextField(isSecure ? "••••••••" : label, text: binding)
                 .font(.system(size: ty.body))
-                .foregroundColor(c.textPrimary)
-                .padding(sp.s)
-                .background(c.background)
-                .border(c.border, lineWidth: bo.thin)
+                .textFieldStyle(.roundedBorder)
 
             if let hint {
                 Text(hint)
@@ -91,27 +82,30 @@ struct SettingsToggleRow: View {
 
     @Environment(\.theme) private var theme
 
+    private var toggleBinding: Binding<Bool> {
+        Binding(
+            get: { value },
+            set: { _ in onToggle() }
+        )
+    }
+
     var body: some View {
         let c = theme.colors
         let sp = theme.spacing
-        let bo = theme.borders
         let ty = theme.typography
 
-        return HStack {
-            Text(label.uppercased())
-                .font(.system(size: ty.caption))
+        return HStack(spacing: sp.m) {
+            Text(label)
+                .font(.system(size: ty.body))
                 .foregroundColor(c.textPrimary)
-            Spacer()
-            Button(value ? "ON" : "OFF") {
-                onToggle()
+            Spacer(minLength: 0)
+            Toggle(isOn: toggleBinding) {
+                EmptyView()
             }
-            .foregroundColor(value ? c.statusDone : c.textMuted)
-            .font(.system(size: ty.caption))
+            .labelsHidden()
         }
         .padding(.horizontal, sp.m)
-        .padding(.vertical, sp.s)
-        .background(c.surface)
-        .border(c.border, lineWidth: bo.thin)
+        .padding(.vertical, sp.xs)
     }
 }
 
@@ -122,11 +116,9 @@ struct SettingsDivider: View {
 
     var body: some View {
         let c = theme.colors
-        let bo = theme.borders
 
-        return Color.clear
-            .frame(height: bo.thin)
-            .background(c.border)
+        return Divider()
+            .overlay(c.border.opacity(0.55 as CGFloat))
     }
 }
 
@@ -143,7 +135,6 @@ struct SettingsSaveBar: View {
     var body: some View {
         let c = theme.colors
         let sp = theme.spacing
-        let bo = theme.borders
         let ty = theme.typography
 
         return HStack(spacing: sp.m) {
@@ -162,7 +153,21 @@ struct SettingsSaveBar: View {
         }
         .padding(.horizontal, sp.m)
         .padding(.vertical, sp.s)
-        .background(c.surfaceRaised)
-        .border(c.border, lineWidth: bo.thin)
+    }
+}
+
+struct SettingsSectionSurface<Content: View>: View {
+    let content: Content
+
+    @Environment(\.theme) private var theme
+
+    init(@ViewBuilder content: () -> Content) {
+        self.content = content()
+    }
+
+    var body: some View {
+        content
+            .padding(.vertical, theme.spacing.s)
+            .frame(maxWidth: .infinity, alignment: .leading)
     }
 }

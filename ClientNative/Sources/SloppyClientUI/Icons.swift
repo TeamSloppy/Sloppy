@@ -9,9 +9,11 @@ public enum MaterialSymbol: String, CaseIterable, Sendable {
     case check
     case close
     case collapseContent
+    case description
     case expandMore
     case fiberManualRecord
     case folder
+    case folderOpen
     case keyboardCommandKey
     case keyboardReturn
     case menu
@@ -20,6 +22,7 @@ public enum MaterialSymbol: String, CaseIterable, Sendable {
     case radioButtonChecked
     case radioButtonPartial
     case pushPin
+    case refresh
     case settings
     case warning
 
@@ -33,9 +36,11 @@ public enum MaterialSymbol: String, CaseIterable, Sendable {
         case .check: "checkmark"
         case .close: "xmark"
         case .collapseContent: "rectangle.compress.vertical"
+        case .description: "doc.text"
         case .expandMore: "chevron.down"
         case .fiberManualRecord: "circle.fill"
         case .folder: "folder"
+        case .folderOpen: "folder.fill"
         case .keyboardCommandKey: "command"
         case .keyboardReturn: "return"
         case .menu: "line.3.horizontal"
@@ -44,6 +49,7 @@ public enum MaterialSymbol: String, CaseIterable, Sendable {
         case .radioButtonChecked: "circle.inset.filled"
         case .radioButtonPartial: "circle.lefthalf.filled"
         case .pushPin: "pin.fill"
+        case .refresh: "arrow.clockwise"
         case .settings: "gearshape"
         case .warning: "exclamationmark.triangle"
         }

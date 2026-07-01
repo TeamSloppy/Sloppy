@@ -32,3 +32,4 @@ public enum AppRoute: String, CaseIterable, Hashable, Identifiable, Sendable {
         }
     }
 }
+

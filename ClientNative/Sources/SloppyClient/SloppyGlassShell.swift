@@ -39,3 +39,11 @@ struct SloppyGlassShell<Content: View>: View {
             }
     }
 }
+
+#Preview {
+    SloppyGlassShell {
+        Text("Some loooong text")
+            .padding(.all, 32)
+    }
+    .padding(.all, 32)
+}

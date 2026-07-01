@@ -6,13 +6,28 @@ import SloppyFeatureSettings
 
 @MainActor
 struct RootShellView: View {
-    @State private var viewModel = RootShellViewModel()
+    let viewModel: RootShellViewModel
+
+    init() {
+        self.viewModel = RootShellViewModel()
+    }
+
+    init(viewModel: RootShellViewModel) {
+        self.viewModel = viewModel
+    }
 
     var body: some View {
         RootShellContent(viewModel: viewModel)
             .environment(viewModel)
             .theme(viewModel.settings.colorScheme.appTheme)
             .injectSafeAreaInsets()
+            .background {
+                #if os(macOS)
+                TransparentWindowConfigurationView { window in
+                    viewModel.configureDesktopWindow(window)
+                }
+                #endif
+            }
             .onOpenURL { url in
                 viewModel.handleDeepLink(url)
             }
@@ -21,13 +36,9 @@ struct RootShellView: View {
 
 @MainActor
 private struct RootShellContent: View {
-    @State var viewModel: RootShellViewModel
+    let viewModel: RootShellViewModel
     @Environment(\.safeAreaInsets) private var safeAreaInsets
     @Environment(\.theme) private var theme
-
-    init(viewModel: RootShellViewModel) {
-        self._viewModel = State(initialValue: viewModel)
-    }
 
     var body: some View {
         let rootViewModel = viewModel

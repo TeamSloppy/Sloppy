@@ -17,14 +17,16 @@ struct ChatScreenRenderingTests {
         }
     }
 
-    @Test("root chat content does not subscribe to chat view model fields")
-    func rootChatContentDoesNotSubscribeToViewModelFields() throws {
+    @Test("root chat content delegates rendering to chat chrome and loads initial data on appear")
+    func rootChatContentDelegatesRenderingToChatChrome() throws {
         let source = try chatScreenSource
         let contentStart = try #require(source.range(of: "private struct ChatScreenContent: View"))
         let chromeStart = try #require(source.range(of: "private struct ChatChrome: View"))
         let contentSource = source[contentStart.lowerBound..<chromeStart.lowerBound]
 
-        #expect(!contentSource.contains("viewModel."))
+        #expect(contentSource.contains("ChatChrome("))
+        #expect(contentSource.contains("ChatNavigationLeadingItems("))
+        #expect(contentSource.contains("viewModel.loadInitialData()"))
     }
 
     @Test("phone navigation uses a dedicated mobile header capsule")

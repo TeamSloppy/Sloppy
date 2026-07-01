@@ -112,6 +112,24 @@ public struct APIProjectTask: Codable, Sendable, Identifiable {
     }
 }
 
+public enum ProjectKanbanColumnID: String, CaseIterable, Hashable, Sendable {
+    case todo
+    case inProgress
+    case needsReview
+    case done
+    case other
+
+    public var title: String {
+        switch self {
+        case .todo: "To Do"
+        case .inProgress: "In Progress"
+        case .needsReview: "Needs Review"
+        case .done: "Done"
+        case .other: "Other"
+        }
+    }
+}
+
 public struct APIAgentRecord: Codable, Sendable, Identifiable {
     public var id: String
     public var displayName: String
@@ -154,6 +172,23 @@ public extension APIProjectRecord {
             taskCount: allTasks.count,
             activeTaskCount: active.count
         )
+    }
+}
+
+public extension APIProjectTask {
+    var normalizedKanbanColumnID: ProjectKanbanColumnID {
+        switch status {
+        case "todo", "backlog", "ready":
+            return .todo
+        case "in_progress":
+            return .inProgress
+        case "needs_review":
+            return .needsReview
+        case "done":
+            return .done
+        default:
+            return .other
+        }
     }
 }
 

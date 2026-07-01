@@ -49,7 +49,6 @@ struct SplashScreen: View {
 
             Spacer()
         }
-        .background(c.background)
         .onAppear { attemptConnection() }
     }
 

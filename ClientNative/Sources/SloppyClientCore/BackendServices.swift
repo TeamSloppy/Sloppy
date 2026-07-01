@@ -10,6 +10,31 @@ public struct HealthCheckResult: Sendable {
     }
 }
 
+public struct AccessUser: Codable, Sendable, Identifiable {
+    public var id: String
+    public var platform: String
+    public var platformUserId: String
+    public var displayName: String
+    public var status: String
+    public var createdAt: Date
+
+    public init(
+        id: String,
+        platform: String,
+        platformUserId: String,
+        displayName: String,
+        status: String,
+        createdAt: Date
+    ) {
+        self.id = id
+        self.platform = platform
+        self.platformUserId = platformUserId
+        self.displayName = displayName
+        self.status = status
+        self.createdAt = createdAt
+    }
+}
+
 public actor HealthService {
     private let http: BackendHTTPClient
 
@@ -63,6 +88,21 @@ public actor ProjectService {
 
     public func fetchProject(id: String) async throws -> APIProjectRecord {
         try await http.get("/v1/projects/\(BackendHTTPClient.encodePathSegment(id))")
+    }
+
+    public func fetchProjectFiles(projectId: String, path: String = "") async throws -> [ProjectFileEntry] {
+        let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = trimmedPath.isEmpty ? "" : "?path=\(BackendHTTPClient.encodeQueryValue(trimmedPath))"
+        return try await http.get(
+            "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/files\(query)"
+        )
+    }
+
+    public func fetchProjectFileContent(projectId: String, path: String) async throws -> ProjectFileContentResponse {
+        let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        return try await http.get(
+            "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/files/content?path=\(BackendHTTPClient.encodeQueryValue(trimmedPath))"
+        )
     }
 }
 
@@ -209,5 +249,15 @@ public actor ConfigService {
 
     public func updateConfig(_ config: SloppyConfig) async throws -> SloppyConfig {
         try await http.put("/v1/config", body: config)
+    }
+
+    public func fetchAccessUsers(platform: String? = nil) async throws -> [AccessUser] {
+        let trimmed = platform?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = (trimmed?.isEmpty == false) ? "?platform=\(BackendHTTPClient.encodeQueryValue(trimmed!))" : ""
+        return try await http.get("/v1/channel-approvals/users\(query)")
+    }
+
+    public func deleteAccessUser(_ userId: String) async throws {
+        try await http.delete("/v1/channel-approvals/users/\(BackendHTTPClient.encodePathSegment(userId))")
     }
 }

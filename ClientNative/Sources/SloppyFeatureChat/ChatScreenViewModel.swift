@@ -92,13 +92,29 @@ public final class ChatScreenViewModel {
     public private(set) var sessionActionStatus: String?
     public private(set) var isLoadingSessions = false
     public private(set) var isSending = false
-    public var showAgentPicker = false
-    public var showSessionPicker = false
     public let transcript = ChatTranscriptState()
     public let composerDraft = ChatComposerDraft()
 
     public var messages: [ChatMessage] {
         transcript.messages
+    }
+
+    public var activeProjectIdForWorkspacePanel: String? {
+        activeProjectId
+    }
+
+    public var activeProjectNameForWorkspacePanel: String? {
+        guard let title = activeContextTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !title.isEmpty else {
+            return nil
+        }
+        if title.hasPrefix("Project: ") {
+            return String(title.dropFirst("Project: ".count))
+        }
+        if let slashRange = title.range(of: " / ") {
+            return String(title[..<slashRange.lowerBound])
+        }
+        return title
     }
 
     @ObservationIgnored private let apiClient: SloppyAPIClient
@@ -114,6 +130,7 @@ public final class ChatScreenViewModel {
     @ObservationIgnored private var pendingStreamingSessionId: String?
     @ObservationIgnored private var pendingStreamingAssistantText: String?
     @ObservationIgnored private var pendingNavigationRequest: ChatNavigationRequest?
+    @ObservationIgnored private var pendingSessionSummary: ChatSessionSummary?
     @ObservationIgnored private var lastAppliedNavigationRequestId: Int?
     @ObservationIgnored private var activeProjectId: String?
     @ObservationIgnored private var activeTaskId: String?
@@ -137,11 +154,6 @@ public final class ChatScreenViewModel {
 
     public func openSettings() {
         onOpenSettings()
-    }
-
-    public func dismissOverlays() {
-        showAgentPicker = false
-        showSessionPicker = false
     }
 
     public func loadInitialData() {
@@ -169,7 +181,9 @@ public final class ChatScreenViewModel {
                 selectedAgent = agent
                 await loadSessions(for: agent)
 
-                if let lastSessionId = settings.lastSessionId,
+                if let pendingSessionSummary {
+                    openSessionFromSummary(pendingSessionSummary)
+                } else if let lastSessionId = settings.lastSessionId,
                    sessions.contains(where: { $0.id == lastSessionId }) {
                     selectSession(lastSessionId)
                 } else {
@@ -222,17 +236,14 @@ public final class ChatScreenViewModel {
     }
 
     public func pickAgent(_ agent: APIAgentRecord) {
-        showAgentPicker = false
         switchAgent(agent)
     }
 
     public func pickSession(_ session: ChatSessionSummary) {
-        showSessionPicker = false
         openSession(session)
     }
 
     public func pickNewSession() {
-        showSessionPicker = false
         startNewSession()
     }
 
@@ -279,6 +290,29 @@ public final class ChatScreenViewModel {
         showSessionStatus("Copied session file debug link")
     }
 
+    public func openSessionFromSummary(_ session: ChatSessionSummary) {
+        if agents.isEmpty {
+            pendingSessionSummary = session
+            loadInitialData()
+            return
+        }
+
+        pendingSessionSummary = nil
+        openSession(session)
+    }
+
+    public func attachProjectFileReference(projectId: String, path: String, type: String) {
+        let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedPath.isEmpty else { return }
+
+        let reference = type == "directory"
+            ? "@project[\(projectId)]:dir:\(trimmedPath)"
+            : "@project[\(projectId)]:file:\(trimmedPath)"
+        composerDraft.text = composerDraft.text.isEmpty
+            ? reference
+            : "\(composerDraft.text)\n\(reference)"
+    }
+
     #if DEBUG
     public func downloadSession(_ session: ChatSessionSummary) {
         guard let agent = selectedAgent else { return }
@@ -305,7 +339,6 @@ public final class ChatScreenViewModel {
 
         pendingNavigationRequest = nil
         lastAppliedNavigationRequestId = request.id
-        dismissOverlays()
 
         switch request.context {
         case .blank:

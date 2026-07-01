@@ -4,6 +4,10 @@ import SwiftUI
 import SloppyClientCore
 import SloppyClientUI
 
+#if os(macOS)
+import AppKit
+#endif
+
 enum AppState: Equatable {
     case splash
     case connectionSetup
@@ -43,6 +47,12 @@ final class RootShellViewModel {
         desktopOverlay.start(settings: settings)
         #endif
     }
+
+    #if os(macOS)
+    func configureDesktopWindow(_ window: NSWindow) {
+        desktopOverlay.attach(window: window)
+    }
+    #endif
 
     func applyDesktopWindowCloseBehavior() {
         #if os(macOS)

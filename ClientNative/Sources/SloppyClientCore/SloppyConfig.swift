@@ -210,6 +210,91 @@ public struct SloppyConfig: Codable, Sendable {
         }
     }
 
+    public struct Browser: Codable, Sendable {
+        public var enabled: Bool
+        public var executablePath: String
+        public var cdpEndpoint: String
+        public var profileName: String
+        public var profilePath: String
+        public var headless: Bool
+        public var startupTimeoutMs: Int
+        public var additionalArguments: [String]
+
+        public init(
+            enabled: Bool = false,
+            executablePath: String = "",
+            cdpEndpoint: String = "",
+            profileName: String = "default",
+            profilePath: String = "",
+            headless: Bool = false,
+            startupTimeoutMs: Int = 10_000,
+            additionalArguments: [String] = []
+        ) {
+            self.enabled = enabled
+            self.executablePath = executablePath
+            self.cdpEndpoint = cdpEndpoint
+            self.profileName = profileName
+            self.profilePath = profilePath
+            self.headless = headless
+            self.startupTimeoutMs = startupTimeoutMs
+            self.additionalArguments = additionalArguments
+        }
+    }
+
+    public struct MCP: Codable, Sendable {
+        public var servers: [MCPServer]
+
+        public init(servers: [MCPServer] = []) {
+            self.servers = servers
+        }
+    }
+
+    public struct MCPServer: Codable, Sendable, Identifiable {
+        public var id: String
+        public var transport: String
+        public var command: String
+        public var arguments: [String]
+        public var cwd: String
+        public var endpoint: String
+        public var headers: [String: String]
+        public var timeoutMs: Int
+        public var enabled: Bool
+        public var exposeTools: Bool
+        public var exposeResources: Bool
+        public var exposePrompts: Bool
+        public var toolPrefix: String
+
+        public init(
+            id: String = "new-mcp-server",
+            transport: String = "stdio",
+            command: String = "npx",
+            arguments: [String] = [],
+            cwd: String = "",
+            endpoint: String = "",
+            headers: [String: String] = [:],
+            timeoutMs: Int = 15_000,
+            enabled: Bool = true,
+            exposeTools: Bool = true,
+            exposeResources: Bool = true,
+            exposePrompts: Bool = true,
+            toolPrefix: String = ""
+        ) {
+            self.id = id
+            self.transport = transport
+            self.command = command
+            self.arguments = arguments
+            self.cwd = cwd
+            self.endpoint = endpoint
+            self.headers = headers
+            self.timeoutMs = timeoutMs
+            self.enabled = enabled
+            self.exposeTools = exposeTools
+            self.exposeResources = exposeResources
+            self.exposePrompts = exposePrompts
+            self.toolPrefix = toolPrefix
+        }
+    }
+
     public struct Proxy: Codable, Sendable {
         public var enabled: Bool
         public var type: String
@@ -239,6 +324,145 @@ public struct SloppyConfig: Codable, Sendable {
             port = try container.decodeIfPresent(Int.self, forKey: .port) ?? 1080
             username = try container.decodeIfPresent(String.self, forKey: .username) ?? ""
             password = try container.decodeIfPresent(String.self, forKey: .password) ?? ""
+        }
+    }
+
+    public struct UI: Codable, Sendable {
+        public struct DashboardAuth: Codable, Sendable {
+            public var enabled: Bool
+            public var token: String
+
+            public init(enabled: Bool = false, token: String = "") {
+                self.enabled = enabled
+                self.token = token
+            }
+        }
+
+        public struct DashboardTerminal: Codable, Sendable {
+            public var enabled: Bool
+            public var localOnly: Bool
+
+            public init(enabled: Bool = false, localOnly: Bool = true) {
+                self.enabled = enabled
+                self.localOnly = localOnly
+            }
+        }
+
+        public var dashboardAuth: DashboardAuth
+        public var dashboardTerminal: DashboardTerminal
+
+        public init(
+            dashboardAuth: DashboardAuth = DashboardAuth(),
+            dashboardTerminal: DashboardTerminal = DashboardTerminal()
+        ) {
+            self.dashboardAuth = dashboardAuth
+            self.dashboardTerminal = dashboardTerminal
+        }
+    }
+
+    public struct TUI: Codable, Sendable {
+        public var defaultEditor: String
+
+        public init(defaultEditor: String = "") {
+            self.defaultEditor = defaultEditor
+        }
+    }
+
+    public struct ToolHooks: Codable, Sendable {
+        public struct PreTools: Codable, Sendable {
+            public var enabled: Bool
+            public var command: String
+            public var arguments: [String]
+            public var timeoutMs: Int
+            public var maxOutputBytes: Int
+            public var failurePolicy: String
+
+            public init(
+                enabled: Bool = false,
+                command: String = "",
+                arguments: [String] = [],
+                timeoutMs: Int = 2_000,
+                maxOutputBytes: Int = 65_536,
+                failurePolicy: String = "block"
+            ) {
+                self.enabled = enabled
+                self.command = command
+                self.arguments = arguments
+                self.timeoutMs = timeoutMs
+                self.maxOutputBytes = maxOutputBytes
+                self.failurePolicy = failurePolicy
+            }
+        }
+
+        public var preTools: PreTools
+
+        public init(preTools: PreTools = PreTools()) {
+            self.preTools = preTools
+        }
+    }
+
+    public struct Compactor: Codable, Sendable {
+        public struct Level: Codable, Sendable, Identifiable {
+            public var id: String { level }
+            public var level: String
+            public var utilizationThreshold: Double
+            public var targetReductionPercent: Int
+            public var preserveRecentMessages: Int
+            public var preserveRecentTokens: Int
+
+            public init(
+                level: String,
+                utilizationThreshold: Double,
+                targetReductionPercent: Int,
+                preserveRecentMessages: Int = 8,
+                preserveRecentTokens: Int = 2_000
+            ) {
+                self.level = level
+                self.utilizationThreshold = utilizationThreshold
+                self.targetReductionPercent = targetReductionPercent
+                self.preserveRecentMessages = preserveRecentMessages
+                self.preserveRecentTokens = preserveRecentTokens
+            }
+        }
+
+        public struct Retry: Codable, Sendable {
+            public var maxAttempts: Int
+            public var initialBackoffMs: Int
+            public var multiplier: Double
+            public var maxBackoffMs: Int
+
+            public init(
+                maxAttempts: Int = 3,
+                initialBackoffMs: Int = 250,
+                multiplier: Double = 2.0,
+                maxBackoffMs: Int = 2_000
+            ) {
+                self.maxAttempts = maxAttempts
+                self.initialBackoffMs = initialBackoffMs
+                self.multiplier = multiplier
+                self.maxBackoffMs = maxBackoffMs
+            }
+        }
+
+        public var enabled: Bool
+        public var contextWindowTokens: Int
+        public var levels: [Level]
+        public var retry: Retry
+
+        public init(
+            enabled: Bool = true,
+            contextWindowTokens: Int = 32_000,
+            levels: [Level] = [
+                Level(level: "soft", utilizationThreshold: 0.8, targetReductionPercent: 30),
+                Level(level: "aggressive", utilizationThreshold: 0.85, targetReductionPercent: 50),
+                Level(level: "emergency", utilizationThreshold: 0.95, targetReductionPercent: 70),
+            ],
+            retry: Retry = Retry()
+        ) {
+            self.enabled = enabled
+            self.contextWindowTokens = contextWindowTokens
+            self.levels = levels
+            self.retry = retry
         }
     }
 
@@ -391,10 +615,18 @@ public struct SloppyConfig: Codable, Sendable {
     public var plugins: [PluginConfig]
     public var channels: ChannelConfig
     public var searchTools: SearchTools
+    public var browser: Browser
     public var proxy: Proxy
+    public var mcp: MCP
     public var visor: Visor
     public var gitSync: GitSync
     public var acp: ACP
+    public var ui: UI
+    public var tui: TUI
+    public var toolHooks: ToolHooks
+    public var toolBudgetExhausted: Int
+    public var modelRouting: [String: String]
+    public var compactor: Compactor
     public var sqlitePath: String
 
     public init(
@@ -408,10 +640,18 @@ public struct SloppyConfig: Codable, Sendable {
         plugins: [PluginConfig] = [],
         channels: ChannelConfig = ChannelConfig(),
         searchTools: SearchTools = SearchTools(),
+        browser: Browser = Browser(),
         proxy: Proxy = Proxy(),
+        mcp: MCP = MCP(),
         visor: Visor = Visor(),
         gitSync: GitSync = GitSync(),
         acp: ACP = ACP(),
+        ui: UI = UI(),
+        tui: TUI = TUI(),
+        toolHooks: ToolHooks = ToolHooks(),
+        toolBudgetExhausted: Int = 60,
+        modelRouting: [String: String] = [:],
+        compactor: Compactor = Compactor(),
         sqlitePath: String = "memory/core.sqlite"
     ) {
         self.listen = listen
@@ -424,15 +664,23 @@ public struct SloppyConfig: Codable, Sendable {
         self.plugins = plugins
         self.channels = channels
         self.searchTools = searchTools
+        self.browser = browser
         self.proxy = proxy
+        self.mcp = mcp
         self.visor = visor
         self.gitSync = gitSync
         self.acp = acp
+        self.ui = ui
+        self.tui = tui
+        self.toolHooks = toolHooks
+        self.toolBudgetExhausted = toolBudgetExhausted
+        self.modelRouting = modelRouting
+        self.compactor = compactor
         self.sqlitePath = sqlitePath
     }
 
     private enum CodingKeys: String, CodingKey {
-        case listen, workspace, auth, onboarding, models, memory, nodes, plugins, channels, searchTools, proxy, visor, gitSync, acp, sqlitePath
+        case listen, workspace, auth, onboarding, models, memory, nodes, plugins, channels, searchTools, browser, proxy, mcp, visor, gitSync, acp, ui, tui, toolHooks, toolBudgetExhausted, modelRouting, compactor, sqlitePath
     }
 
     public init(from decoder: Decoder) throws {
@@ -447,10 +695,22 @@ public struct SloppyConfig: Codable, Sendable {
         plugins = try container.decodeIfPresent([PluginConfig].self, forKey: .plugins) ?? []
         channels = try container.decodeIfPresent(ChannelConfig.self, forKey: .channels) ?? ChannelConfig()
         searchTools = try container.decodeIfPresent(SearchTools.self, forKey: .searchTools) ?? SearchTools()
+        browser = try container.decodeIfPresent(Browser.self, forKey: .browser) ?? Browser()
         proxy = try container.decodeIfPresent(Proxy.self, forKey: .proxy) ?? Proxy()
+        mcp = try container.decodeIfPresent(MCP.self, forKey: .mcp) ?? MCP()
         visor = try container.decodeIfPresent(Visor.self, forKey: .visor) ?? Visor()
         gitSync = try container.decodeIfPresent(GitSync.self, forKey: .gitSync) ?? GitSync()
         acp = try container.decodeIfPresent(ACP.self, forKey: .acp) ?? ACP()
+        ui = try container.decodeIfPresent(UI.self, forKey: .ui) ?? UI()
+        tui = try container.decodeIfPresent(TUI.self, forKey: .tui) ?? TUI()
+        toolHooks = try container.decodeIfPresent(ToolHooks.self, forKey: .toolHooks) ?? ToolHooks()
+        toolBudgetExhausted = try container.decodeIfPresent(Int.self, forKey: .toolBudgetExhausted) ?? 60
+        modelRouting = try container.decodeIfPresent([String: String].self, forKey: .modelRouting) ?? [:]
+        compactor = try container.decodeIfPresent(Compactor.self, forKey: .compactor) ?? Compactor()
         sqlitePath = try container.decodeIfPresent(String.self, forKey: .sqlitePath) ?? "memory/core.sqlite"
     }
+}
+
+public extension URL {
+    static let debugURL = URL(string: "http://localhost:25101")!
 }
