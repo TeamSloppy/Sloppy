@@ -50,4 +50,15 @@ struct MainTabsSourceTests {
         #expect(mainView.contains("func presentMobileTabsOverview()"))
         #expect(mainView.contains("func dismissMobileTabsOverview()"))
     }
+
+    @Test("main view uses extracted desktop workspace tab strip")
+    func mainViewUsesExtractedDesktopWorkspaceTabStrip() throws {
+        let mainView = try source("Sources/SloppyClient/MainView.swift")
+        let strip = try source("Sources/SloppyClient/DesktopWorkspaceTabStrip.swift")
+
+        #expect(mainView.contains("DesktopWorkspaceTabStrip(viewModel: viewModel)"))
+        #expect(strip.contains("struct DesktopWorkspaceTabStrip: View"))
+        #expect(strip.contains("viewModel.createBlankChatTab()"))
+        #expect(strip.contains("viewModel.closeTab(tab.id)"))
+    }
 }

@@ -555,7 +555,7 @@ struct MainView: View {
     @ViewBuilder
     private func desktopContentArea() -> some View {
         VStack(spacing: 0) {
-            DesktopTabStripView(viewModel: viewModel)
+            DesktopWorkspaceTabStrip(viewModel: viewModel)
             Divider()
 
             if let activeDesktopTab {
@@ -640,48 +640,6 @@ struct MainView: View {
 
 #Preview {
     RootShellView()
-}
-
-@MainActor
-private struct DesktopTabStripView: View {
-    let viewModel: MainViewModel
-
-    @Environment(\.theme) private var theme
-
-    var body: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: theme.spacing.s) {
-                ForEach(viewModel.tabs) { tab in
-                    Button {
-                        viewModel.selectTab(tab.id)
-                    } label: {
-                        Text(tab.title)
-                            .font(.system(size: theme.typography.caption))
-                            .foregroundColor(
-                                viewModel.selectedTabID == tab.id
-                                    ? theme.colors.textPrimary
-                                    : theme.colors.textSecondary
-                            )
-                            .lineLimit(1)
-                            .padding(.horizontal, theme.spacing.m)
-                            .padding(.vertical, theme.spacing.s)
-                            .background(
-                                RoundedRectangle(cornerRadius: 12)
-                                    .fill(
-                                        viewModel.selectedTabID == tab.id
-                                            ? theme.colors.surfaceRaised
-                                            : theme.colors.surface
-                                    )
-                            )
-                    }
-                    .buttonStyle(.plain)
-                }
-            }
-            .padding(.horizontal, theme.spacing.m)
-            .padding(.vertical, theme.spacing.s)
-        }
-        .background(theme.colors.surface.opacity(0.78 as CGFloat))
-    }
 }
 
 @MainActor
