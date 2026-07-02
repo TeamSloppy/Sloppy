@@ -38,4 +38,16 @@ struct MainTabsSourceTests {
         #expect(mainView.contains("func closeTab(_ tabID: WorkspaceTab.ID)"))
         #expect(mainView.contains("func selectTab(_ tabID: WorkspaceTab.ID)"))
     }
+
+    @Test("main view model exposes blank tab and adjacent navigation helpers")
+    func mainViewModelExposesBlankTabAndAdjacentNavigationHelpers() throws {
+        let mainView = try source("Sources/SloppyClient/MainView.swift")
+
+        #expect(mainView.contains("var isMobileTabsOverviewPresented = false"))
+        #expect(mainView.contains("func createBlankChatTab(select: Bool = true)"))
+        #expect(mainView.contains("func selectAdjacentTab(offset: Int)"))
+        #expect(mainView.contains("func nextTabID(from tabID: WorkspaceTab.ID, offset: Int) -> WorkspaceTab.ID?"))
+        #expect(mainView.contains("func presentMobileTabsOverview()"))
+        #expect(mainView.contains("func dismissMobileTabsOverview()"))
+    }
 }

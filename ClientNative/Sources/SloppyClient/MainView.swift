@@ -31,10 +31,11 @@ final class MainViewModel {
     var didLoadProjects = false
     var collapsedProjectIds: Set<String> = []
     var expandedTaskLists: Set<String> = []
-    var selectedAppSection: MainAppSection = .projects
+    var selectedAppSection: MainAppSection = .chats
     var selectedSidebarItem: MainSidebarSelection? = nil
     var isSidebarCollapsed = false
     var isMobileSidebarPresented = false
+    var isMobileTabsOverviewPresented = false
     var tabs: [WorkspaceTab] = []
     var selectedTabID: WorkspaceTab.ID?
     var chatTabStates: [WorkspaceTab.ID: ChatTabState] = [:]
@@ -43,6 +44,7 @@ final class MainViewModel {
     var chatViewModel: ChatScreenViewModel
     var workspacePanelViewModel: WorkspacePanelViewModel
     var chatNavigationSerial = 0
+    let apiClient: SloppyAPIClient
 
     var sidebarWidth: CGFloat {
         isSidebarCollapsed ? MainSidebarView.collapsedWidth : MainSidebarView.expandedWidth
@@ -87,6 +89,7 @@ final class MainViewModel {
             onOpenSettings: onOpenSettings
         )
         self.workspacePanelViewModel = WorkspacePanelViewModel(apiClient: apiClient)
+        self.apiClient = apiClient
     }
 
     func openMobileSidebar() {
@@ -308,6 +311,49 @@ final class MainViewModel {
         selectedTabID = tabID
     }
 
+    func createBlankChatTab(select: Bool = true) {
+        let chatState = makeChatTabState()
+        let draftID = "draft-\(UUID().uuidString)"
+        let tab = WorkspaceTab(
+            key: .chatSession(draftID),
+            kind: .chat,
+            title: "New Chat",
+            payload: .chatSession(sessionID: draftID, title: "New Chat")
+        )
+        tabs.append(tab)
+        chatTabStates[tab.id] = chatState
+        if select {
+            selectedTabID = tab.id
+        }
+    }
+
+    func nextTabID(from tabID: WorkspaceTab.ID, offset: Int) -> WorkspaceTab.ID? {
+        guard let index = tabs.firstIndex(where: { $0.id == tabID }) else {
+            return nil
+        }
+        let nextIndex = index + offset
+        guard tabs.indices.contains(nextIndex) else {
+            return nil
+        }
+        return tabs[nextIndex].id
+    }
+
+    func selectAdjacentTab(offset: Int) {
+        guard let selectedTabID,
+              let nextID = nextTabID(from: selectedTabID, offset: offset) else {
+            return
+        }
+        self.selectedTabID = nextID
+    }
+
+    func presentMobileTabsOverview() {
+        isMobileTabsOverviewPresented = true
+    }
+
+    func dismissMobileTabsOverview() {
+        isMobileTabsOverviewPresented = false
+    }
+
     func closeTab(_ tabID: WorkspaceTab.ID) {
         guard let index = tabs.firstIndex(where: { $0.id == tabID }) else {
             return
@@ -319,12 +365,13 @@ final class MainViewModel {
         projectKanbanTabStates.removeValue(forKey: tabID)
         workspaceTabStates.removeValue(forKey: tabID)
 
-        guard wasSelected else {
+        if tabs.isEmpty {
+            selectedTabID = nil
+            createBlankChatTab(select: true)
             return
         }
 
-        if tabs.isEmpty {
-            selectedTabID = nil
+        guard wasSelected else {
             return
         }
 
@@ -464,14 +511,23 @@ struct MainView: View {
 
     var body: some View {
         Group {
-            if idiom == .phone {
-                phoneTabLayout()
-            } else {
-                regularSplitLayout()
+            NavigationSplitView {
+                sidebarView(isOverlay: false)
+                    .navigationSplitViewColumnWidth(
+                        min: viewModel.sidebarMinimumWidth,
+                        ideal: viewModel.sidebarWidth,
+                        max: viewModel.sidebarMaximumWidth
+                    )
+            } detail: {
+                desktopContentArea()
             }
+            .navigationSplitViewStyle(.balanced)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
+            if viewModel.tabs.isEmpty {
+                viewModel.createBlankChatTab(select: true)
+            }
             Task { await viewModel.loadProjects() }
         }
         .background {
@@ -494,27 +550,6 @@ struct MainView: View {
                 )
             }
         }
-    }
-
-    private func regularSplitLayout() -> some View {
-        return NavigationSplitView {
-            sidebarView(isOverlay: false)
-                .navigationSplitViewColumnWidth(
-                    min: viewModel.sidebarMinimumWidth,
-                    ideal: viewModel.sidebarWidth,
-                    max: viewModel.sidebarMaximumWidth
-                )
-        } detail: {
-            switch viewModel.selectedAppSection {
-            case .projects, .chats, .workspace:
-                desktopContentArea()
-            case .agents:
-                AgentsScreen(apiClient: SloppyAPIClient(baseURL: viewModel.baseURL))
-            case .settings:
-                SettingsScreen(settings: viewModel.settings)
-            }
-        }
-        .navigationSplitViewStyle(.balanced)
     }
 
     @ViewBuilder
@@ -571,38 +606,6 @@ struct MainView: View {
                     detail: "Workspace tab state is unavailable."
                 )
             }
-        }
-    }
-
-    private func phoneTabLayout() -> some View {
-        TabView(selection: $viewModel.selectedAppSection) {
-            ProjectsScreen(apiClient: SloppyAPIClient(baseURL: viewModel.baseURL))
-                .tabItem {
-                    Image(systemName: "folder")
-                    Text("Projects")
-                }
-                .tag(MainAppSection.projects)
-
-            AgentsScreen(apiClient: SloppyAPIClient(baseURL: viewModel.baseURL))
-                .tabItem {
-                    Image(systemName: "sparkles")
-                    Text("Agents")
-                }
-                .tag(MainAppSection.agents)
-
-            chatScreen(showsSidebarControl: false)
-                .tabItem {
-                    Image(systemName: "message")
-                    Text("Chats")
-                }
-                .tag(MainAppSection.chats)
-
-            SettingsScreen(settings: viewModel.settings)
-                .tabItem {
-                    Image(systemName: "gearshape")
-                    Text("Settings")
-                }
-                .tag(MainAppSection.settings)
         }
     }
 
