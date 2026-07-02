@@ -61,4 +61,13 @@ struct MainTabsSourceTests {
         #expect(strip.contains("viewModel.createBlankChatTab()"))
         #expect(strip.contains("viewModel.closeTab(tab.id)"))
     }
+
+    @Test("main view wires cmd t and shared detail host for workspace tabs")
+    func mainViewWiresCommandTAndSharedDetailHost() throws {
+        let mainView = try source("Sources/SloppyClient/MainView.swift")
+
+        #expect(mainView.contains("keyboardShortcut(\"t\", modifiers: [.command])"))
+        #expect(mainView.contains("viewModel.createBlankChatTab()"))
+        #expect(mainView.contains("private func workspaceContentHost() -> some View"))
+    }
 }

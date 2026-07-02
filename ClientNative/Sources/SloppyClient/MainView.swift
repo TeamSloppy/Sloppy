@@ -368,6 +368,9 @@ final class MainViewModel {
         if tabs.isEmpty {
             selectedTabID = nil
             createBlankChatTab(select: true)
+            if isMobileTabsOverviewPresented {
+                dismissMobileTabsOverview()
+            }
             return
         }
 
@@ -531,12 +534,21 @@ struct MainView: View {
             Task { await viewModel.loadProjects() }
         }
         .background {
-            Button("") {
-                Task { await viewModel.refreshContent() }
+            Group {
+                Button("") {
+                    viewModel.createBlankChatTab()
+                }
+                .keyboardShortcut("t", modifiers: [.command])
+                .opacity(0.001)
+                .allowsHitTesting(false)
+
+                Button("") {
+                    Task { await viewModel.refreshContent() }
+                }
+                .keyboardShortcut("r", modifiers: [.command])
+                .opacity(0.001)
+                .allowsHitTesting(false)
             }
-            .keyboardShortcut("r", modifiers: [.command])
-            .opacity(0.001)
-            .allowsHitTesting(false)
         }
         .toolbar {
             ToolbarItem(placement: .primaryAction) {
@@ -555,18 +567,7 @@ struct MainView: View {
     @ViewBuilder
     private func desktopContentArea() -> some View {
         ZStack {
-            VStack(spacing: 0) {
-                if idiom != .phone {
-                    DesktopWorkspaceTabStrip(viewModel: viewModel)
-                    Divider()
-                }
-
-                if let activeDesktopTab {
-                    desktopTabContent(for: activeDesktopTab)
-                } else {
-                    DesktopTabsEmptyState()
-                }
-            }
+            workspaceContentHost()
 
             if idiom == .phone, viewModel.isMobileTabsOverviewPresented {
                 MobileWorkspaceTabsOverview(
@@ -590,6 +591,22 @@ struct MainView: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    @ViewBuilder
+    private func workspaceContentHost() -> some View {
+        VStack(spacing: 0) {
+            if idiom != .phone {
+                DesktopWorkspaceTabStrip(viewModel: viewModel)
+                Divider()
+            }
+
+            if let activeDesktopTab {
+                desktopTabContent(for: activeDesktopTab)
+            } else {
+                DesktopTabsEmptyState()
+            }
+        }
     }
 
     @ViewBuilder
