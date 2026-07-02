@@ -27,12 +27,15 @@ public struct ChatComposerView: View {
     @Environment(\.theme) private var theme
     
     public let draft: ChatComposerDraft
+    public var tabActions: ChatComposerTabActions?
     
     public init(
         draft: ChatComposerDraft,
         viewModel: ChatScreenViewModel,
+        tabActions: ChatComposerTabActions? = nil
     ) {
         self.draft = draft
+        self.tabActions = tabActions
         self._viewModel = State(initialValue: viewModel)
     }
     
@@ -52,7 +55,9 @@ public struct ChatComposerView: View {
         let fieldInk = c.textPrimary
         
         return HStack(spacing: sp.s) {
-            MobileComposerCircleButton(symbol: .add, action: {})
+            MobileComposerCircleButton(symbol: .add, action: {
+                tabActions?.createTab()
+            })
             
             TextField(
                 "Ask \(agentDisplayName)",
@@ -92,6 +97,8 @@ public struct ChatComposerView: View {
             maxHeight: Self.phonePanelHeight,
             alignment: .leading
         )
+        .contentShape(Rectangle())
+        .simultaneousGesture(phoneTabGesture)
     }
     
     private var regularBody: some View {
@@ -99,7 +106,6 @@ public struct ChatComposerView: View {
         let sp = theme.spacing
         let ty = theme.typography
         let fieldInk = c.textPrimary
-        let actionInk = c.textPrimary
         
         return HStack(spacing: sp.m) {
             Button {
@@ -161,12 +167,52 @@ public struct ChatComposerView: View {
     public static func panelHeight(for idiom: UserInterfaceIdiom) -> CGFloat {
         idiom == .phone ? phonePanelHeight : panelHeight
     }
+
+    private var phoneTabGesture: some Gesture {
+        DragGesture(minimumDistance: 16)
+            .onEnded { value in
+                let horizontal = value.translation.width
+                let vertical = value.translation.height
+
+                if abs(horizontal) > abs(vertical), abs(horizontal) > 44 {
+                    if horizontal < 0 {
+                        tabActions?.nextTab()
+                    } else {
+                        tabActions?.previousTab()
+                    }
+                    return
+                }
+
+                if vertical < -56, abs(vertical) > abs(horizontal) {
+                    tabActions?.showOverview()
+                }
+            }
+    }
     
     private func submit() {
         let trimmed = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         viewModel.sendMessage(content: trimmed)
         draft.text = ""
+    }
+}
+
+public struct ChatComposerTabActions {
+    public let previousTab: @MainActor () -> Void
+    public let nextTab: @MainActor () -> Void
+    public let showOverview: @MainActor () -> Void
+    public let createTab: @MainActor () -> Void
+
+    public init(
+        previousTab: @escaping @MainActor () -> Void,
+        nextTab: @escaping @MainActor () -> Void,
+        showOverview: @escaping @MainActor () -> Void,
+        createTab: @escaping @MainActor () -> Void
+    ) {
+        self.previousTab = previousTab
+        self.nextTab = nextTab
+        self.showOverview = showOverview
+        self.createTab = createTab
     }
 }
 
@@ -271,4 +317,3 @@ struct SubmitButton: ButtonStyle {
     )
     ChatComposerView(draft: .init(), viewModel: viewModel)
 }
-

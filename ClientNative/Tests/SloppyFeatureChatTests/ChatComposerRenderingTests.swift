@@ -35,4 +35,14 @@ struct ChatComposerRenderingTests {
         #expect(source.contains(".buttonStyle(DefaultButtonStyle())"))
         #expect(!source.contains(".buttonStyle(.glass)"))
     }
+
+    @Test("chat composer phone layout exposes tab action hooks")
+    func chatComposerPhoneLayoutExposesTabActionHooks() throws {
+        let source = try chatComposerSource
+
+        #expect(source.contains("public struct ChatComposerTabActions"))
+        #expect(source.contains("var tabActions: ChatComposerTabActions?"))
+        #expect(source.contains("tabActions?.createTab()"))
+        #expect(source.contains("tabActions?.showOverview()"))
+    }
 }

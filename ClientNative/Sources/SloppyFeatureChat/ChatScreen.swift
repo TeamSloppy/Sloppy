@@ -11,6 +11,7 @@ public struct ChatScreen: View {
     @State private var viewModel: ChatScreenViewModel
     private let rootSafeAreaInsets: EdgeInsets
     private let onOpenSidebar: (@MainActor () -> Void)?
+    private let composerTabActions: ChatComposerTabActions?
 
     public init(
         apiClient: SloppyAPIClient,
@@ -18,10 +19,12 @@ public struct ChatScreen: View {
         connectionMonitor: ConnectionMonitor,
         onOpenSettings: @escaping @MainActor () -> Void,
         rootSafeAreaInsets: EdgeInsets = EdgeInsets(),
-        onOpenSidebar: (@MainActor () -> Void)? = nil
+        onOpenSidebar: (@MainActor () -> Void)? = nil,
+        composerTabActions: ChatComposerTabActions? = nil
     ) {
         self.rootSafeAreaInsets = rootSafeAreaInsets
         self.onOpenSidebar = onOpenSidebar
+        self.composerTabActions = composerTabActions
         _viewModel = State(
             initialValue: ChatScreenViewModel(
                 apiClient: apiClient,
@@ -35,17 +38,20 @@ public struct ChatScreen: View {
     public init(
         viewModel: ChatScreenViewModel,
         rootSafeAreaInsets: EdgeInsets = EdgeInsets(),
-        onOpenSidebar: (@MainActor () -> Void)? = nil
+        onOpenSidebar: (@MainActor () -> Void)? = nil,
+        composerTabActions: ChatComposerTabActions? = nil
     ) {
         self.rootSafeAreaInsets = rootSafeAreaInsets
         self.onOpenSidebar = onOpenSidebar
+        self.composerTabActions = composerTabActions
         _viewModel = State(initialValue: viewModel)
     }
     
     public var body: some View {
         ChatScreenContent(
             rootSafeAreaInsets: rootSafeAreaInsets,
-            onOpenSidebar: onOpenSidebar
+            onOpenSidebar: onOpenSidebar,
+            composerTabActions: composerTabActions
         )
         .environment(viewModel)
         .environment(viewModel.connectionMonitor)
@@ -56,6 +62,7 @@ public struct ChatScreen: View {
 private struct ChatScreenContent: View {
     let rootSafeAreaInsets: EdgeInsets
     let onOpenSidebar: (@MainActor () -> Void)?
+    let composerTabActions: ChatComposerTabActions?
     
     @Environment(ChatScreenViewModel.self) private var viewModel
     @Environment(ConnectionMonitor.self) private var connectionMonitor
@@ -64,7 +71,8 @@ private struct ChatScreenContent: View {
         ChatChrome(
             viewModel: viewModel,
             connectionMonitor: connectionMonitor,
-            rootSafeAreaInsets: rootSafeAreaInsets
+            rootSafeAreaInsets: rootSafeAreaInsets,
+            composerTabActions: composerTabActions
         )
         .toolbar {
             ToolbarItem(placement: .navigation) {
@@ -85,6 +93,7 @@ private struct ChatChrome: View {
     let viewModel: ChatScreenViewModel
     let connectionMonitor: ConnectionMonitor
     let rootSafeAreaInsets: EdgeInsets
+    let composerTabActions: ChatComposerTabActions?
 
     @Environment(\.safeAreaInsets) private var safeAreaInsets
     @Environment(\.userInterfaceIdiom) private var idiom
@@ -131,7 +140,8 @@ private struct ChatChrome: View {
                 ChatComposerOverlay(
                     viewModel: viewModel,
                     contentWidth: contentWidth,
-                    composerBottomInset: composerBottomInset
+                    composerBottomInset: composerBottomInset,
+                    tabActions: composerTabActions
                 )
             }
         }
@@ -442,6 +452,7 @@ private struct ChatComposerOverlay: View {
     let viewModel: ChatScreenViewModel
     let contentWidth: CGFloat
     let composerBottomInset: CGFloat
+    let tabActions: ChatComposerTabActions?
 
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
@@ -473,7 +484,8 @@ private struct ChatComposerOverlay: View {
     private var composerBar: some View {
         ChatComposerView(
             draft: viewModel.composerDraft,
-            viewModel: viewModel
+            viewModel: viewModel,
+            tabActions: tabActions
         )
     }
 }

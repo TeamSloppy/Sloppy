@@ -554,14 +554,39 @@ struct MainView: View {
 
     @ViewBuilder
     private func desktopContentArea() -> some View {
-        VStack(spacing: 0) {
-            DesktopWorkspaceTabStrip(viewModel: viewModel)
-            Divider()
+        ZStack {
+            VStack(spacing: 0) {
+                if idiom != .phone {
+                    DesktopWorkspaceTabStrip(viewModel: viewModel)
+                    Divider()
+                }
 
-            if let activeDesktopTab {
-                desktopTabContent(for: activeDesktopTab)
-            } else {
-                DesktopTabsEmptyState()
+                if let activeDesktopTab {
+                    desktopTabContent(for: activeDesktopTab)
+                } else {
+                    DesktopTabsEmptyState()
+                }
+            }
+
+            if idiom == .phone, viewModel.isMobileTabsOverviewPresented {
+                MobileWorkspaceTabsOverview(
+                    tabs: viewModel.tabs,
+                    selectedTabID: viewModel.selectedTabID,
+                    onSelect: { tabID in
+                        viewModel.selectTab(tabID)
+                        viewModel.dismissMobileTabsOverview()
+                    },
+                    onClose: { tabID in
+                        viewModel.closeTab(tabID)
+                    },
+                    onCreate: {
+                        viewModel.createBlankChatTab()
+                        viewModel.dismissMobileTabsOverview()
+                    },
+                    onDismiss: {
+                        viewModel.dismissMobileTabsOverview()
+                    }
+                )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -572,7 +597,19 @@ struct MainView: View {
         switch tab.kind {
         case .chat:
             if let chatState = viewModel.chatTabStates[tab.id] {
-                ChatScreen(viewModel: chatState.viewModel, rootSafeAreaInsets: rootSafeAreaInsets, onOpenSidebar: nil)
+                ChatScreen(
+                    viewModel: chatState.viewModel,
+                    rootSafeAreaInsets: rootSafeAreaInsets,
+                    onOpenSidebar: nil,
+                    composerTabActions: idiom == .phone
+                        ? ChatComposerTabActions(
+                            previousTab: { viewModel.selectAdjacentTab(offset: -1) },
+                            nextTab: { viewModel.selectAdjacentTab(offset: 1) },
+                            showOverview: { viewModel.presentMobileTabsOverview() },
+                            createTab: { viewModel.createBlankChatTab() }
+                        )
+                        : nil
+                )
             } else {
                 DesktopTabPlaceholderView(
                     title: tab.title,
