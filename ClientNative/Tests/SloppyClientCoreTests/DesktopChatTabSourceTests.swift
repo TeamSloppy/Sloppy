@@ -19,7 +19,8 @@ struct DesktopChatTabSourceTests {
         #expect(tabs.contains("final class ChatTabState"))
         #expect(tabs.contains("let viewModel: ChatScreenViewModel"))
         #expect(mainView.contains("makeChatTabState() -> ChatTabState"))
-        #expect(mainView.contains("ChatScreen(viewModel: chatState.viewModel"))
+        #expect(mainView.contains("ChatScreen("))
+        #expect(mainView.contains("viewModel: chatState.viewModel"))
     }
 
     @Test("desktop task and recent session actions open tab-local chats instead of the global chat view model")

@@ -35,14 +35,13 @@ struct MainSidebarSelectionTests {
         #expect(rowSource.contains("viewModel.selectedSidebarItem == .chats"))
     }
 
-    @Test("main view uses tab layout on phones")
-    func mainViewUsesTabLayoutOnPhones() throws {
+    @Test("main view uses split detail tabs on phones")
+    func mainViewUsesSplitDetailTabsOnPhones() throws {
         let source = try mainSidebarSource
 
-        #expect(source.contains("if idiom == .phone"))
-        #expect(source.contains("phoneTabLayout()"))
-        #expect(source.contains("TabView(selection: $viewModel.selectedAppSection)"))
-        #expect(source.contains("chatScreen(showsSidebarControl: false)"))
+        #expect(source.contains("if idiom == .phone, viewModel.isMobileTabsOverviewPresented"))
+        #expect(source.contains("workspaceContentHost()"))
+        #expect(source.contains("MobileWorkspaceTabsOverview("))
     }
 
     @Test("overlay sidebar uses dedicated close button styling")

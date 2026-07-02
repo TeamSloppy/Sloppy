@@ -20,42 +20,39 @@ struct MainNavigationShellTests {
         let source = try source(named: "MainView.swift")
 
         #expect(source.contains("enum MainAppSection: String, CaseIterable, Hashable"))
-        #expect(source.contains("var selectedAppSection: MainAppSection = .projects"))
+        #expect(source.contains("var selectedAppSection: MainAppSection = .chats"))
         #expect(source.contains("func selectAppSection(_ section: MainAppSection)"))
     }
 
-    @Test("phone layout uses system tab view")
-    func phoneLayoutUsesSystemTabView() throws {
+    @Test("main view uses split detail workspace container on phones")
+    func mainViewUsesSplitDetailWorkspaceContainerOnPhones() throws {
         let source = try source(named: "MainView.swift")
 
-        #expect(source.contains("private func phoneTabLayout() -> some View"))
-        #expect(source.contains("TabView(selection: $viewModel.selectedAppSection)"))
-        #expect(source.contains(".tag(MainAppSection.projects)"))
-        #expect(source.contains(".tag(MainAppSection.agents)"))
-        #expect(source.contains(".tag(MainAppSection.chats)"))
-        #expect(source.contains(".tag(MainAppSection.settings)"))
+        #expect(source.contains("NavigationSplitView"))
+        #expect(source.contains("desktopContentArea()"))
+        #expect(source.contains("if idiom == .phone, viewModel.isMobileTabsOverviewPresented"))
+        #expect(source.contains("MobileWorkspaceTabsOverview("))
     }
 
-    @Test("regular layout switches detail content by selected section")
-    func regularLayoutSwitchesDetailContentBySelectedSection() throws {
+    @Test("regular layout uses extracted workspace host and desktop strip")
+    func regularLayoutUsesExtractedWorkspaceHostAndDesktopStrip() throws {
         let source = try source(named: "MainView.swift")
 
         #expect(source.contains("private var activeDesktopTab: WorkspaceTab?"))
-        #expect(source.contains("DesktopTabStripView("))
-        #expect(source.contains("desktopContentArea()"))
+        #expect(source.contains("DesktopWorkspaceTabStrip(viewModel: viewModel)"))
+        #expect(source.contains("private func workspaceContentHost() -> some View"))
         #expect(source.contains("desktopTabContent(for tab: WorkspaceTab)"))
-        #expect(!source.contains("case .projects:\n                chatScreen(showsSidebarControl: false)"))
-        #expect(!source.contains("case .workspace:\n                workspaceScreen()"))
+        #expect(!source.contains("private func phoneTabLayout() -> some View"))
     }
 
-    @Test("sidebar defines navigator tabs for desktop sections")
-    func sidebarDefinesNavigatorTabsForDesktopSections() throws {
+    @Test("sidebar defines section picker tabs for chats agents and projects")
+    func sidebarDefinesSectionPickerTabsForChatsAgentsAndProjects() throws {
         let source = try source(named: "MainSidebarView.swift")
 
-        #expect(source.contains("navigatorTabBar(c: c, sp: sp)"))
-        #expect(source.contains("navigatorTabRow("))
-        #expect(source.contains("viewModel.selectAppSection(section)"))
-        #expect(source.contains("switch viewModel.selectedAppSection"))
+        #expect(source.contains("TabView(selection: $viewModel.selectedAppSection)"))
+        #expect(source.contains("Tab(\"Chats\""))
+        #expect(source.contains("Tab(\"Agents\""))
+        #expect(source.contains("Tab(\"Projects\""))
     }
 
     @Test("workspace toolbar button remains present in main view shell")
