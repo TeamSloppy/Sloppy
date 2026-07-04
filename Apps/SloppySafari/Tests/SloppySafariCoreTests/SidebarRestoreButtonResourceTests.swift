@@ -54,6 +54,24 @@ func sidebarRestoreButtonUsesLeadingTransparentStyle() throws {
     #expect(panelCSS.contains("background: transparent;"))
 }
 
+@Test("sidebar includes automations navigation item")
+func sidebarIncludesAutomationsNavigationItem() throws {
+    let packageRoot = URL(fileURLWithPath: #filePath)
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+        .deletingLastPathComponent()
+    let contentScriptURL = packageRoot.appendingPathComponent("Extension/Resources/contentScript.js")
+    let i18nURL = packageRoot.appendingPathComponent("Extension/Resources/i18n.js")
+
+    let contentScript = try String(contentsOf: contentScriptURL, encoding: .utf8)
+    let i18n = try String(contentsOf: i18nURL, encoding: .utf8)
+
+    #expect(contentScript.contains("data-sloppy-sidebar-automations"))
+    #expect(contentScript.contains("t(\"automations\")"))
+    #expect(contentScript.contains("t(\"automationsUnavailable\")"))
+    #expect(i18n.contains("automations: \"Automations\""))
+}
+
 @Test("customize button is rendered inside sloppy shell flow")
 func customizeButtonLivesInsideShell() throws {
     let packageRoot = URL(fileURLWithPath: #filePath)
@@ -119,12 +137,16 @@ func widgetEditorCentersComposerWhenThreadIsEmpty() throws {
 
     let panelCSS = try String(contentsOf: panelCSSURL, encoding: .utf8)
 
-    #expect(panelCSS.contains(""":has(> .sloppy-thread:empty) {
+    #expect(panelCSS.contains("""
+:has(> .sloppy-thread:empty) {
   justify-content: center;
-}"""))
-    #expect(panelCSS.contains("""> .sloppy-shell > .sloppy-thread:empty {
+}
+"""))
+    #expect(panelCSS.contains("""
+> .sloppy-shell > .sloppy-thread:empty {
   display: none;
-}"""))
+}
+"""))
     #expect(panelCSS.contains("margin: auto 18px;"))
 }
 

@@ -3,9 +3,9 @@ name: SloppyClient
 options:
   bundleIdPrefix: team.sloppy
   deploymentTarget:
-    macOS: "15.0"
-    iOS: "18.6"
-    visionOS: "2.0"
+    macOS: "26.0"
+    iOS: "26.0"
+    visionOS: "26.0"
   createIntermediateGroups: true
 
 packages:
@@ -19,7 +19,7 @@ targets:
     type: application
     productName: SloppyClient
     platform: macOS
-    deploymentTarget: "15.0"
+    deploymentTarget: "26.0"
     sources: Sources/SloppyClient
     dependencies:
       - package: SloppyClient
@@ -71,7 +71,7 @@ targets:
   SloppyClient-iOS:
     type: application
     platform: iOS
-    deploymentTarget: "18.6"
+    deploymentTarget: "26.0"
     sources: Sources/SloppyClient
     dependencies:
       - package: SloppyClient
@@ -123,7 +123,7 @@ targets:
   SloppyClient-iPadOS:
     type: application
     platform: iOS
-    deploymentTarget: "18.6"
+    deploymentTarget: "26.0"
     sources: Sources/SloppyClient
     dependencies:
       - package: SloppyClient
@@ -180,7 +180,7 @@ targets:
   SloppyClient-visionOS:
     type: application
     platform: visionOS
-    deploymentTarget: "2.0"
+    deploymentTarget: "26.0"
     sources: Sources/SloppyClient
     dependencies:
       - package: SloppyClient

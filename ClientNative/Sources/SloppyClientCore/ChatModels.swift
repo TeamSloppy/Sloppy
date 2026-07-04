@@ -130,6 +130,79 @@ public struct ChatSessionDetail: Decodable, Sendable {
     }
 }
 
+public struct ChatModelOption: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var title: String
+    public var capabilities: [String]
+    public var contextWindow: String?
+
+    public init(
+        id: String,
+        title: String? = nil,
+        capabilities: [String] = [],
+        contextWindow: String? = nil
+    ) {
+        self.id = id
+        if let title, !title.isEmpty {
+            self.title = title
+        } else {
+            self.title = id
+        }
+        self.capabilities = capabilities
+        self.contextWindow = contextWindow
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, title, capabilities, contextWindow
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        let decodedTitle = try container.decodeIfPresent(String.self, forKey: .title)
+        if let decodedTitle, !decodedTitle.isEmpty {
+            title = decodedTitle
+        } else {
+            title = id
+        }
+        capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities) ?? []
+
+        if let context = try? container.decodeIfPresent(String.self, forKey: .contextWindow) {
+            contextWindow = context
+        } else if let context = try? container.decodeIfPresent(Int.self, forKey: .contextWindow) {
+            contextWindow = String(context)
+        } else {
+            contextWindow = nil
+        }
+    }
+
+    public var supportsReasoningEffort: Bool {
+        capabilities.contains { $0.caseInsensitiveCompare("reasoning") == .orderedSame }
+    }
+}
+
+public enum ChatReasoningEffort: String, CaseIterable, Codable, Sendable, Equatable, Identifiable {
+    case `default`
+    case low
+    case medium
+    case high
+
+    public var id: String { rawValue }
+
+    public var title: String {
+        switch self {
+        case .default: "Default"
+        case .low: "Light"
+        case .medium: "Medium"
+        case .high: "High"
+        }
+    }
+
+    public var payloadValue: String? {
+        self == .default ? nil : rawValue
+    }
+}
+
 public struct ChatEventEnvelope: Decodable, Sendable {
     public var id: String
     public var type: String

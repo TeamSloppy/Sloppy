@@ -67,6 +67,47 @@ extension CoreService {
         return WidgetArtifactGenerateResponse(artifact: Self.artifactRecord(from: record))
     }
 
+    public func getBoardArtifact(id: String) async throws -> BoardArtifactResponse? {
+        await waitForStartup()
+        let rootURL = URL(fileURLWithPath: workspaceCurrentDirectory, isDirectory: true)
+        guard let board = try BoardArtifactService.loadBoard(id: id, currentRootURL: rootURL) else {
+            return nil
+        }
+        return BoardArtifactResponse(board: board)
+    }
+
+    public func saveBoardArtifact(id: String, board: BoardArtifactRecord) async throws -> BoardArtifactResponse {
+        await waitForStartup()
+        let rootURL = URL(fileURLWithPath: workspaceCurrentDirectory, isDirectory: true)
+        let saved = try BoardArtifactService.saveBoard(
+            BoardArtifactRecord(
+                id: id,
+                version: board.version,
+                viewport: board.viewport,
+                items: board.items,
+                groups: board.groups
+            ),
+            currentRootURL: rootURL
+        )
+        await store.persistArtifact(record: PersistedArtifactRecord(
+            id: id,
+            title: id,
+            kind: "board",
+            mediaType: "application/json",
+            content: "",
+            previewText: "Start page canvas board",
+            bundlePath: BoardArtifactService.bundlePath(id: id),
+            createdAt: Date()
+        ))
+        return BoardArtifactResponse(board: saved)
+    }
+
+    public func uploadBoardAsset(boardId: String, request: BoardAssetUploadRequest) async throws -> BoardAssetUploadResponse {
+        await waitForStartup()
+        let rootURL = URL(fileURLWithPath: workspaceCurrentDirectory, isDirectory: true)
+        return try BoardArtifactService.writeAsset(boardId: boardId, request: request, currentRootURL: rootURL)
+    }
+
     public func getBulletins() async -> [MemoryBulletin] {
         await waitForStartup()
         let runtimeBulletins = await runtime.bulletins()

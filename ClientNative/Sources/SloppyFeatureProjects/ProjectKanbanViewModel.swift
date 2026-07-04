@@ -5,12 +5,14 @@ import SloppyClientCore
 public struct ProjectKanbanCard: Identifiable, Equatable, Sendable {
     public let id: String
     public let title: String
+    public let status: String
     public let priority: String?
     public let actorID: String?
 
-    public init(id: String, title: String, priority: String?, actorID: String?) {
+    public init(id: String, title: String, status: String, priority: String?, actorID: String?) {
         self.id = id
         self.title = title
+        self.status = status
         self.priority = priority
         self.actorID = actorID
     }
@@ -65,6 +67,7 @@ public final class ProjectKanbanViewModel {
                 ProjectKanbanCard(
                     id: $0.id,
                     title: $0.title,
+                    status: $0.status,
                     priority: $0.priority,
                     actorID: $0.actorId
                 )

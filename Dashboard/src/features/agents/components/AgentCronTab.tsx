@@ -430,7 +430,7 @@ function CronFormModal({
         <div className="project-modal-overlay" onClick={onClose}>
             <section className="project-modal" onClick={(e) => e.stopPropagation()}>
                 <div className="project-modal-head">
-                    <h3>{editingId ? "Edit Cron Job" : "New Cron Job"}</h3>
+                    <h3>{editingId ? "Edit Automation" : "New Automation"}</h3>
                     <button type="button" className="project-modal-close" aria-label="Close" onClick={onClose}>
                         ×
                     </button>
@@ -802,10 +802,10 @@ export function AgentCronTab({ agentId }) {
 
             <div className="agent-content-card entry-editor-card">
                 <div className="agent-content-header">
-                    <h3>Cron Jobs</h3>
+                    <h3>Automations</h3>
                     {tasks.length > 0 && (
                         <button type="button" className="text-button" onClick={handleOpenCreate}>
-                            + New Job
+                            + New Automation
                         </button>
                     )}
                 </div>
@@ -825,7 +825,7 @@ export function AgentCronTab({ agentId }) {
                             deliver results to messaging channels
                         </p>
                         <button type="button" className="agent-empty-create hover-levitate" onClick={handleOpenCreate}>
-                            + New Job
+                            + New Automation
                         </button>
                     </div>
                 ) : (

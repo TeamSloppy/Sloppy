@@ -102,13 +102,71 @@ public struct APIProjectTask: Codable, Sendable, Identifiable {
     public var status: String
     public var priority: String?
     public var actorId: String?
+    public var description: String?
+    public var claimedActorId: String?
+    public var claimedAgentId: String?
+    public var createdBy: String?
+    public var tags: [String]?
+    public var createdAt: Date?
+    public var updatedAt: Date?
 
-    public init(id: String, title: String, status: String, priority: String? = nil, actorId: String? = nil) {
+    public init(
+        id: String,
+        title: String,
+        status: String,
+        priority: String? = nil,
+        actorId: String? = nil,
+        description: String? = nil,
+        claimedActorId: String? = nil,
+        claimedAgentId: String? = nil,
+        createdBy: String? = nil,
+        tags: [String]? = nil,
+        createdAt: Date? = nil,
+        updatedAt: Date? = nil
+    ) {
         self.id = id
         self.title = title
         self.status = status
         self.priority = priority
         self.actorId = actorId
+        self.description = description
+        self.claimedActorId = claimedActorId
+        self.claimedAgentId = claimedAgentId
+        self.createdBy = createdBy
+        self.tags = tags
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct TaskComment: Codable, Sendable, Identifiable, Equatable {
+    public var id: String
+    public var taskId: String
+    public var content: String
+    public var authorActorId: String
+    public var mentionedActorId: String?
+    public var isAgentReply: Bool
+    public var sourceAuthor: String?
+    public var createdAt: Date
+
+    public init(
+        id: String,
+        taskId: String,
+        content: String,
+        authorActorId: String,
+        mentionedActorId: String? = nil,
+        isAgentReply: Bool = false,
+        sourceAuthor: String? = nil,
+        createdAt: Date
+    ) {
+        self.id = id
+        self.taskId = taskId
+        self.content = content
+        self.authorActorId = authorActorId
+        self.mentionedActorId = mentionedActorId
+        self.isAgentReply = isAgentReply
+        self.sourceAuthor = sourceAuthor
+        self.createdAt = createdAt
     }
 }
 

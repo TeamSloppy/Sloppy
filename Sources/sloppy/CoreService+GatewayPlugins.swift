@@ -145,7 +145,12 @@ extension CoreService {
         if cronRunner == nil {
             cronRunner = CronRunner(
                 store: self.store,
-                runtime: self.runtime,
+                messagePoster: { [weak self] channelId, request in
+                    guard let self else {
+                        return
+                    }
+                    _ = await self.postChannelMessage(channelId: channelId, request: request)
+                },
                 notificationService: self.notificationService,
                 logger: self.logger
             )

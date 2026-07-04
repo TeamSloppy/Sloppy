@@ -278,6 +278,152 @@ public struct WidgetArtifactContentResponse: Codable, Sendable, Equatable {
     }
 }
 
+public struct BoardCanvasViewport: Codable, Sendable, Equatable {
+    public var x: Double
+    public var y: Double
+    public var scale: Double
+
+    public init(x: Double, y: Double, scale: Double) {
+        self.x = x
+        self.y = y
+        self.scale = scale
+    }
+}
+
+public struct BoardCanvasItem: Codable, Sendable, Equatable {
+    public var id: String
+    public var type: String
+    public var x: Double
+    public var y: Double
+    public var width: Double
+    public var height: Double
+    public var title: String
+    public var zIndex: Int
+    public var groupId: String?
+    public var artifactId: String?
+    public var url: String?
+    public var text: String?
+    public var assetPath: String?
+    public var mediaType: String?
+
+    public init(
+        id: String,
+        type: String,
+        x: Double,
+        y: Double,
+        width: Double,
+        height: Double,
+        title: String,
+        zIndex: Int,
+        groupId: String? = nil,
+        artifactId: String? = nil,
+        url: String? = nil,
+        text: String? = nil,
+        assetPath: String? = nil,
+        mediaType: String? = nil
+    ) {
+        self.id = id
+        self.type = type
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.title = title
+        self.zIndex = zIndex
+        self.groupId = groupId
+        self.artifactId = artifactId
+        self.url = url
+        self.text = text
+        self.assetPath = assetPath
+        self.mediaType = mediaType
+    }
+}
+
+public struct BoardCanvasGroup: Codable, Sendable, Equatable {
+    public var id: String
+    public var title: String
+    public var x: Double
+    public var y: Double
+    public var width: Double
+    public var height: Double
+    public var collapsed: Bool
+    public var color: String?
+
+    public init(
+        id: String,
+        title: String,
+        x: Double,
+        y: Double,
+        width: Double,
+        height: Double,
+        collapsed: Bool,
+        color: String? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.x = x
+        self.y = y
+        self.width = width
+        self.height = height
+        self.collapsed = collapsed
+        self.color = color
+    }
+}
+
+public struct BoardArtifactRecord: Codable, Sendable, Equatable {
+    public var id: String
+    public var version: Int
+    public var viewport: BoardCanvasViewport
+    public var items: [BoardCanvasItem]
+    public var groups: [BoardCanvasGroup]
+
+    public init(
+        id: String,
+        version: Int,
+        viewport: BoardCanvasViewport,
+        items: [BoardCanvasItem],
+        groups: [BoardCanvasGroup]
+    ) {
+        self.id = id
+        self.version = version
+        self.viewport = viewport
+        self.items = items
+        self.groups = groups
+    }
+}
+
+public struct BoardArtifactResponse: Codable, Sendable, Equatable {
+    public var board: BoardArtifactRecord
+
+    public init(board: BoardArtifactRecord) {
+        self.board = board
+    }
+}
+
+public struct BoardAssetUploadRequest: Codable, Sendable, Equatable {
+    public var filename: String
+    public var mediaType: String
+    public var dataBase64: String
+
+    public init(filename: String, mediaType: String, dataBase64: String) {
+        self.filename = filename
+        self.mediaType = mediaType
+        self.dataBase64 = dataBase64
+    }
+}
+
+public struct BoardAssetUploadResponse: Codable, Sendable, Equatable {
+    public var path: String
+    public var mediaType: String
+    public var sizeBytes: Int
+
+    public init(path: String, mediaType: String, sizeBytes: Int) {
+        self.path = path
+        self.mediaType = mediaType
+        self.sizeBytes = sizeBytes
+    }
+}
+
 public enum InitiativePhase: String, Codable, Sendable, Equatable, CaseIterable {
     case intake
     case framing

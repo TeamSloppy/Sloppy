@@ -39,7 +39,7 @@ const AGENT_TABS = [
   { id: "skills", title: "Skills" },
   { id: "tools", title: "Tools" },
   { id: "channels", title: "Channels" },
-  { id: "cron", title: "Cron" },
+  { id: "cron", title: "Automations" },
   { id: "config", title: "Config" }
 ];
 

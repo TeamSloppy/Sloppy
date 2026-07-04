@@ -1993,6 +1993,160 @@ func artifactContentNotFound() async {
 }
 
 @Test
+func boardArtifactPutCreatesBoardBundle() async throws {
+    let boardId = "board-put-canvas"
+    let service = CoreService(config: .test)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let board = BoardArtifactRecord(
+        id: boardId,
+        version: 1,
+        viewport: BoardCanvasViewport(x: 120, y: -80, scale: 1.25),
+        items: [
+            BoardCanvasItem(
+                id: "text-1",
+                type: "text",
+                x: 24,
+                y: 32,
+                width: 220,
+                height: 140,
+                title: "Launch notes",
+                zIndex: 1,
+                groupId: "group-1",
+                text: "Ship canvas"
+            ),
+        ],
+        groups: [
+            BoardCanvasGroup(
+                id: "group-1",
+                title: "Planning",
+                x: 0,
+                y: 0,
+                width: 420,
+                height: 260,
+                collapsed: false
+            ),
+        ]
+    )
+
+    let response = await router.handle(
+        method: "PUT",
+        path: "/v1/artifacts/boards/\(boardId)",
+        body: try encoder.encode(board)
+    )
+    #expect(response.status == 200)
+
+    let payload = try decoder.decode(BoardArtifactResponse.self, from: response.body)
+    #expect(payload.board.id == boardId)
+    #expect(payload.board.items.first?.text == "Ship canvas")
+
+    let boardURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true)
+        .appendingPathComponent(".sloppy", isDirectory: true)
+        .appendingPathComponent("artifacts", isDirectory: true)
+        .appendingPathComponent("boards", isDirectory: true)
+        .appendingPathComponent(boardId, isDirectory: true)
+    #expect(FileManager.default.fileExists(atPath: boardURL.appendingPathComponent("board.json").path))
+    #expect(FileManager.default.fileExists(atPath: boardURL.appendingPathComponent("manifest.json").path))
+
+    let manifestData = try Data(contentsOf: boardURL.appendingPathComponent("manifest.json"))
+    let manifest = try JSONSerialization.jsonObject(with: manifestData) as? [String: Any]
+    #expect(manifest?["kind"] as? String == "board")
+    #expect(manifest?["bundlePath"] as? String == ".sloppy/artifacts/boards/\(boardId)/")
+}
+
+@Test
+func boardArtifactGetReturnsSavedBoard() async throws {
+    let boardId = "board-get-canvas"
+    let service = CoreService(config: .test)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let board = BoardArtifactRecord(
+        id: boardId,
+        version: 1,
+        viewport: BoardCanvasViewport(x: 0, y: 0, scale: 1),
+        items: [
+            BoardCanvasItem(
+                id: "shortcut-1",
+                type: "shortcut",
+                x: 40,
+                y: 64,
+                width: 220,
+                height: 96,
+                title: "GitHub",
+                zIndex: 2,
+                url: "https://github.com/"
+            ),
+        ],
+        groups: []
+    )
+    _ = await router.handle(method: "PUT", path: "/v1/artifacts/boards/\(boardId)", body: try encoder.encode(board))
+
+    let response = await router.handle(method: "GET", path: "/v1/artifacts/boards/\(boardId)", body: nil)
+    #expect(response.status == 200)
+
+    let payload = try decoder.decode(BoardArtifactResponse.self, from: response.body)
+    #expect(payload.board.id == boardId)
+    #expect(payload.board.items.first?.url == "https://github.com/")
+}
+
+@Test
+func boardAssetUploadWritesImageAsset() async throws {
+    let boardId = "board-asset-canvas"
+    let service = CoreService(config: .test)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+    let upload = BoardAssetUploadRequest(
+        filename: "Screenshot.PNG",
+        mediaType: "image/png",
+        dataBase64: Data("fake image".utf8).base64EncodedString()
+    )
+
+    let response = await router.handle(
+        method: "POST",
+        path: "/v1/artifacts/boards/\(boardId)/assets",
+        body: try encoder.encode(upload)
+    )
+    #expect(response.status == 201)
+
+    let payload = try decoder.decode(BoardAssetUploadResponse.self, from: response.body)
+    #expect(payload.path.hasPrefix(".sloppy/artifacts/boards/\(boardId)/assets/"))
+    #expect(payload.path.hasSuffix(".png"))
+    #expect(payload.mediaType == "image/png")
+    #expect(FileManager.default.fileExists(atPath: URL(fileURLWithPath: FileManager.default.currentDirectoryPath, isDirectory: true).appendingPathComponent(payload.path).path))
+}
+
+@Test
+func boardAssetUploadRejectsEmptyPayload() async throws {
+    let boardId = "board-empty-asset-canvas"
+    let service = CoreService(config: .test)
+    let router = CoreRouter(service: service)
+    let upload = BoardAssetUploadRequest(filename: "empty.png", mediaType: "image/png", dataBase64: "")
+
+    let response = await router.handle(
+        method: "POST",
+        path: "/v1/artifacts/boards/\(boardId)/assets",
+        body: try JSONEncoder().encode(upload)
+    )
+    #expect(response.status == 400)
+}
+
+@Test
+func boardArtifactGetMissingBoardReturns404() async {
+    let service = CoreService(config: .test)
+    let router = CoreRouter(service: service)
+
+    let response = await router.handle(method: "GET", path: "/v1/artifacts/boards/missing-board", body: nil)
+    #expect(response.status == 404)
+}
+
+@Test
 func artifactListIncludesPersistedMetadata() async throws {
     let service = CoreService(config: .test)
     await service.store.persistArtifact(

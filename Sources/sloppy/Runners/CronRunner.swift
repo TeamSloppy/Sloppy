@@ -5,7 +5,7 @@ import Logging
 
 public actor CronRunner {
     private let store: any PersistenceStore
-    private let runtime: RuntimeSystem
+    private let messagePoster: @Sendable (String, ChannelMessageRequest) async -> Void
     private let notificationService: NotificationService?
     private let logger: Logger
     private var task: Task<Void, Never>?
@@ -15,12 +15,12 @@ public actor CronRunner {
 
     public init(
         store: any PersistenceStore,
-        runtime: RuntimeSystem,
+        messagePoster: @escaping @Sendable (String, ChannelMessageRequest) async -> Void,
         notificationService: NotificationService? = nil,
         logger: Logger = Logger.sloppy(label: "sloppy.core.cron")
     ) {
         self.store = store
-        self.runtime = runtime
+        self.messagePoster = messagePoster
         self.notificationService = notificationService
         self.logger = logger
     }
@@ -59,6 +59,10 @@ public actor CronRunner {
         task = nil
         isRunning = false
     }
+
+    func triggerImmediately(date: Date = Date()) async {
+        await tick(date: date)
+    }
     
     private func tick(date: Date) async {
         let formatter = DateFormatter()
@@ -96,6 +100,6 @@ public actor CronRunner {
             topicId: nil
         )
         
-        _ = await runtime.postMessage(channelId: cronTask.channelId, request: request)
+        await messagePoster(cronTask.channelId, request)
     }
 }

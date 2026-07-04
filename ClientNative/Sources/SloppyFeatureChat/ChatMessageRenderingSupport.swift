@@ -79,6 +79,59 @@ enum ChatMarkdownBlockParser {
     }
 }
 
+@MainActor
+enum ChatMarkdownRenderer {
+    private final class BlocksBox: NSObject {
+        let value: [ChatMarkdownBlock]
+
+        init(_ value: [ChatMarkdownBlock]) {
+            self.value = value
+        }
+    }
+
+    private final class AttributedStringBox: NSObject {
+        let value: AttributedString?
+
+        init(_ value: AttributedString?) {
+            self.value = value
+        }
+    }
+
+    private static let blockCache: NSCache<NSString, BlocksBox> = {
+        let cache = NSCache<NSString, BlocksBox>()
+        cache.countLimit = 512
+        return cache
+    }()
+
+    private static let attributedStringCache: NSCache<NSString, AttributedStringBox> = {
+        let cache = NSCache<NSString, AttributedStringBox>()
+        cache.countLimit = 1024
+        return cache
+    }()
+
+    static func blocks(for text: String) -> [ChatMarkdownBlock] {
+        let key = text as NSString
+        if let cached = blockCache.object(forKey: key) {
+            return cached.value
+        }
+
+        let parsed = ChatMarkdownBlockParser.parse(text)
+        blockCache.setObject(BlocksBox(parsed), forKey: key)
+        return parsed
+    }
+
+    static func attributedString(for text: String) -> AttributedString? {
+        let key = text as NSString
+        if let cached = attributedStringCache.object(forKey: key) {
+            return cached.value
+        }
+
+        let rendered = try? AttributedString(markdown: text)
+        attributedStringCache.setObject(AttributedStringBox(rendered), forKey: key)
+        return rendered
+    }
+}
+
 enum ChatCompactDurationFormatter {
     static func string(for seconds: TimeInterval) -> String {
         let totalSeconds = max(0, Int(seconds.rounded(.down)))

@@ -37,16 +37,10 @@ public struct EntityCard: View {
     private var cardContent: some View {
         let c = theme.colors
         let sp = theme.spacing
-        let bo = theme.borders
         let ty = theme.typography
         let accent = accentColor ?? c.accent
 
         return HStack(spacing: 0) {
-            Color.clear
-                .frame(width: bo.thick)
-                .background(accent)
-                .opacity(0.92 as Float)
-
             HStack(spacing: sp.m) {
                 VStack(alignment: .leading, spacing: sp.xs) {
                     Text(title.uppercased())
@@ -64,12 +58,14 @@ public struct EntityCard: View {
                         .padding(.horizontal, sp.s)
                         .padding(.vertical, sp.xs)
                         .background(accent.opacity(0.10 as Float))
-                        .glassEffect(.regular.tint(accent.opacity(0.08 as Float)), in: GlassShape.rect(cornerRadius: 10))
                 }
             }
             .padding(sp.m)
         }
-        .glassEffect(.regular.tint(c.surfaceGlow.opacity(0.16 as Float)), in: GlassShape.rect(cornerRadius: 20))
-        .border(c.border.opacity(0.72 as Float), lineWidth: bo.thin)
+        .frame(idealHeight: 56, maxHeight: 75)
     }
+}
+
+#Preview {
+    EntityCard(title: "Agent", subtitle: "Sloppy", trailing: "AAA?", accentColor: .red, onTap: nil)
 }

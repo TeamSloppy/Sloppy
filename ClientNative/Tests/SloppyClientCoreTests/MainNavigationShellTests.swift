@@ -62,4 +62,13 @@ struct MainNavigationShellTests {
         #expect(source.contains("case workspace"))
         #expect(source.contains("ToolbarItem(placement: .primaryAction)"))
     }
+
+    @Test("main view loads sidebar chat data on appear")
+    func mainViewLoadsSidebarChatDataOnAppear() throws {
+        let source = try source(named: "MainView.swift")
+
+        #expect(source.contains(".onAppear"))
+        #expect(source.contains("viewModel.chatViewModel.loadInitialData()"))
+        #expect(source.contains("Task { await viewModel.loadProjects() }"))
+    }
 }

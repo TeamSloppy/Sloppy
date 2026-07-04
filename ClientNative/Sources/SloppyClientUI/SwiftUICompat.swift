@@ -49,93 +49,6 @@ public extension View {
     }
 }
 
-// MARK: - Glass effect
-
-public enum GlassPreset: Sendable {
-    case material
-    case none
-
-    public func tint(_ color: Color) -> GlassEffect {
-        GlassEffect(style: self, tint: color)
-    }
-}
-
-public struct GlassEffect: Sendable {
-    let style: GlassPreset
-    let tint: Color?
-
-    public static var regular: GlassEffect { GlassEffect(style: .material, tint: nil) }
-    public static var identity: GlassEffect { GlassEffect(style: .none, tint: nil) }
-
-    public func tint(_ color: Color) -> GlassEffect {
-        GlassEffect(style: style, tint: color)
-    }
-}
-
-public enum GlassShape {
-    case rect(cornerRadius: CGFloat)
-    case capsule
-
-    @ViewBuilder
-    func backgroundMaterial<Content: View>(_ content: Content, tint: Color?) -> some View {
-        switch self {
-        case .rect(let radius):
-            if let tint {
-                content.background {
-                    RoundedRectangle(cornerRadius: radius)
-                        .fill(tint)
-                        .background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: radius))
-                }
-            } else {
-                content.background(.ultraThinMaterial, in: RoundedRectangle(cornerRadius: radius))
-            }
-        case .capsule:
-            if let tint {
-                content.background {
-                    Capsule()
-                        .fill(tint)
-                        .background(.ultraThinMaterial, in: Capsule())
-                }
-            } else {
-                content.background(.ultraThinMaterial, in: Capsule())
-            }
-        }
-    }
-}
-
-public extension View {
-    @ViewBuilder
-    func glassEffect(_ effect: GlassEffect, in shape: GlassShape) -> some View {
-        switch effect.style {
-        case .none:
-            self
-        case .material:
-            shape.backgroundMaterial(self, tint: effect.tint)
-        }
-    }
-
-    @ViewBuilder
-    func glassEffect<S: InsettableShape>(_ effect: GlassEffect, in shape: S) -> some View {
-        switch effect.style {
-        case .none:
-            self
-        case .material:
-            if let tint = effect.tint {
-                background {
-                    shape.fill(tint)
-                        .background(.ultraThinMaterial, in: shape)
-                }
-            } else {
-                background(.ultraThinMaterial, in: shape)
-            }
-        }
-    }
-
-    func glassEffect(_ effect: GlassPreset, in shape: GlassShape) -> some View {
-        glassEffect(GlassEffect(style: effect, tint: nil), in: shape)
-    }
-}
-
 public enum UIClipboard {
     public static func setString(_ value: String) {
         #if os(macOS)
@@ -216,7 +129,9 @@ public enum UserInterfaceIdiom: Sendable {
 private struct UserInterfaceIdiomKey: EnvironmentKey {
     static let defaultValue: UserInterfaceIdiom = {
         #if os(iOS)
-        return UIDevice.current.userInterfaceIdiom == .phone ? .phone : .pad
+        MainActor.assumeIsolated {
+            return UIDevice.current.userInterfaceIdiom == .phone ? .phone : .pad
+        }
         #else
         return .desktop
         #endif

@@ -22,6 +22,8 @@ site/
 .superpowers/
 
 artifacts/
+!Sources/sloppy/Artifacts/
+!Sources/sloppy/Artifacts/*.swift
 logs/
 
 # Sloppy

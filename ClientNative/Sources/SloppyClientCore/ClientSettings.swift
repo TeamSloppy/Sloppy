@@ -9,6 +9,7 @@ public final class ClientSettings {
         static let serverPort = "client_server_port"
         static let accentColorHex = "client_accent_color_hex"
         static let colorScheme = "client_color_scheme"
+        static let chatSidebarMode = "client_chat_sidebar_mode"
         static let windowCloseBehavior = "client_window_close_behavior"
         static let lastAgentId = "client_last_agent_id"
         static let lastSessionId = "client_last_session_id"
@@ -31,6 +32,10 @@ public final class ClientSettings {
 
     public var colorScheme: ClientColorScheme {
         didSet { UserDefaults.standard.set(colorScheme.rawValue, forKey: Keys.colorScheme) }
+    }
+
+    public var chatSidebarMode: ChatSidebarListMode {
+        didSet { UserDefaults.standard.set(chatSidebarMode.rawValue, forKey: Keys.chatSidebarMode) }
     }
 
     public var windowCloseBehavior: ClientWindowCloseBehavior {
@@ -82,6 +87,9 @@ public final class ClientSettings {
         colorScheme = defaults
             .string(forKey: Keys.colorScheme)
             .flatMap(ClientColorScheme.init(rawValue:)) ?? .light
+        chatSidebarMode = defaults
+            .string(forKey: Keys.chatSidebarMode)
+            .flatMap(ChatSidebarListMode.init(rawValue:)) ?? .allChats
         windowCloseBehavior = defaults
             .string(forKey: Keys.windowCloseBehavior)
             .flatMap(ClientWindowCloseBehavior.init(rawValue:)) ?? .keepProcess

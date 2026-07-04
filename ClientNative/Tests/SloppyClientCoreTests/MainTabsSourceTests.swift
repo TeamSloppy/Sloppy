@@ -18,11 +18,13 @@ struct MainTabsSourceTests {
         #expect(tabs.contains("enum WorkspaceTabKind: String, Hashable"))
         #expect(tabs.contains("case chat"))
         #expect(tabs.contains("case projectKanban"))
+        #expect(tabs.contains("case taskDetail"))
         #expect(tabs.contains("case workspaceFiles"))
         #expect(tabs.contains("enum WorkspaceTabKey: Hashable"))
         #expect(tabs.contains("case chatSession(String)"))
         #expect(tabs.contains("case chatTask(projectId: String, taskId: String)"))
         #expect(tabs.contains("case projectKanban(String)"))
+        #expect(tabs.contains("case taskDetail(projectId: String, taskId: String)"))
         #expect(tabs.contains("case workspaceFiles(String)"))
     }
 
@@ -34,6 +36,7 @@ struct MainTabsSourceTests {
         #expect(mainView.contains("var selectedTabID: WorkspaceTab.ID?"))
         #expect(mainView.contains("func openProjectKanbanTab(project: APIProjectRecord)"))
         #expect(mainView.contains("func openTaskChatTab("))
+        #expect(mainView.contains("func openTaskDetailTab(project: APIProjectRecord, task: APIProjectTask, fallbackAgentId: String?)"))
         #expect(mainView.contains("func openSessionChatTab(_ session: ChatSessionSummary)"))
         #expect(mainView.contains("func closeTab(_ tabID: WorkspaceTab.ID)"))
         #expect(mainView.contains("func selectTab(_ tabID: WorkspaceTab.ID)"))
@@ -62,12 +65,81 @@ struct MainTabsSourceTests {
         #expect(strip.contains("viewModel.closeTab(tab.id)"))
     }
 
+    @Test("desktop workspace strip uses safari glass gradients instead of flat fill")
+    func desktopWorkspaceStripUsesSafariGlassGradientsInsteadOfFlatFill() throws {
+        let strip = try source("Sources/SloppyClient/DesktopWorkspaceTabStrip.swift")
+
+        #expect(strip.contains("safariGlassBarBackground"))
+        #expect(strip.contains("safariSelectedTabFill"))
+        #expect(strip.contains("LinearGradient("))
+        #expect(!strip.contains(".background(theme.colors.surface.opacity(0.82 as CGFloat))"))
+    }
+
+    @Test("desktop workspace strip animates and scrolls to newly created tabs")
+    func desktopWorkspaceStripAnimatesAndScrollsToNewlyCreatedTabs() throws {
+        let strip = try source("Sources/SloppyClient/DesktopWorkspaceTabStrip.swift")
+
+        #expect(strip.contains("ScrollViewReader { proxy in"))
+        #expect(strip.contains("@State private var previousTabIDs: [WorkspaceTab.ID] = []"))
+        #expect(strip.contains(".scrollTo(tabID, anchor: .trailing)"))
+        #expect(strip.contains(".onChange(of: viewModel.tabs.map(\\.id))"))
+        #expect(strip.contains(".transition("))
+        #expect(strip.contains(".asymmetric("))
+    }
+
+    @Test("desktop workspace strip sizes tabs to fill available width down to a minimum")
+    func desktopWorkspaceStripSizesTabsToFillAvailableWidthDownToAMinimum() throws {
+        let strip = try source("Sources/SloppyClient/DesktopWorkspaceTabStrip.swift")
+
+        #expect(strip.contains("GeometryReader { geometry in"))
+        #expect(strip.contains("private let minimumTabWidth: CGFloat = 120"))
+        #expect(strip.contains("private func tabWidth(for availableWidth: CGFloat) -> CGFloat"))
+        #expect(strip.contains("max(minimumTabWidth"))
+        #expect(strip.contains(".frame(width: tabWidth"))
+    }
+
+    @Test("desktop workspace strip keeps a compact fixed-height chrome")
+    func desktopWorkspaceStripKeepsACompactFixedHeightChrome() throws {
+        let strip = try source("Sources/SloppyClient/DesktopWorkspaceTabStrip.swift")
+
+        #expect(strip.contains("private let stripHeight: CGFloat"))
+        #expect(strip.contains(".frame(height: stripHeight)"))
+        #expect(strip.contains(".frame(maxWidth: .infinity, alignment: .leading)"))
+        #expect(strip.contains("ZStack"))
+        #expect(strip.contains(".multilineTextAlignment(.center)"))
+        #expect(strip.contains("Color.clear"))
+        #expect(strip.contains(".frame(width: 18, height: 18)"))
+        #expect(strip.contains(".frame(width: 36, alignment: .leading)"))
+    }
+
+    @Test("desktop workspace tabs close on middle mouse click")
+    func desktopWorkspaceTabsCloseOnMiddleMouseClick() throws {
+        let strip = try source("Sources/SloppyClient/DesktopWorkspaceTabStrip.swift")
+
+        #expect(strip.contains("MiddleClickCloseArea"))
+        #expect(strip.contains(".overlay {\n#if os(macOS)"))
+        #expect(strip.contains("onMiddleClick: onClose"))
+        #expect(strip.contains("override func otherMouseUp(with event: NSEvent)"))
+        #expect(strip.contains("event.buttonNumber == 2"))
+    }
+
     @Test("main view wires cmd t and shared detail host for workspace tabs")
     func mainViewWiresCommandTAndSharedDetailHost() throws {
         let mainView = try source("Sources/SloppyClient/MainView.swift")
 
         #expect(mainView.contains("keyboardShortcut(\"t\", modifiers: [.command])"))
+        #expect(mainView.contains("keyboardShortcut(\"w\", modifiers: [.command])"))
         #expect(mainView.contains("viewModel.createBlankChatTab()"))
+        #expect(mainView.contains("viewModel.closeActiveTab()"))
         #expect(mainView.contains("private func workspaceContentHost() -> some View"))
+    }
+
+    @Test("main view model exposes active-tab close helper")
+    func mainViewModelExposesActiveTabCloseHelper() throws {
+        let mainView = try source("Sources/SloppyClient/MainView.swift")
+
+        #expect(mainView.contains("func closeActiveTab()"))
+        #expect(mainView.contains("guard let selectedTabID else"))
+        #expect(mainView.contains("closeTab(selectedTabID)"))
     }
 }

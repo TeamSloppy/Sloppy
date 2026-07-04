@@ -34,12 +34,40 @@ struct ChatScreenLayoutTests {
         #expect(!source.contains(".debugOverlay(.layoutBounds)"))
     }
 
-    @Test("agent picker is embedded in composer as a compact menu picker")
-    func agentPickerUsesCompactMenuStyling() throws {
+    @Test("composer uses one compact menu for model effort and agent")
+    func composerUsesOneCompactMenuForModelEffortAndAgent() throws {
         let source = try source("Sources", "SloppyFeatureChat", "ChatComposerView.swift")
 
-        #expect(source.contains("struct AgentPickerView: View"))
-        #expect(source.contains(".labelsHidden()"))
-        #expect(source.contains(".pickerStyle(.menu)"))
+        #expect(source.contains("private struct ComposerOptionsMenuView"))
+        #expect(source.contains("Menu {"))
+        #expect(source.contains(".menuStyle(.button)"))
+        #expect(source.contains("ComposerMenuChip(title:"))
+    }
+
+    @Test("desktop transcript keeps full width scroll host with centered content column")
+    func desktopTranscriptKeepsFullWidthScrollHostWithCenteredContentColumn() throws {
+        let source = try source("Sources", "SloppyFeatureChat", "ChatScreen.swift")
+
+        #expect(source.contains("ScrollView {\n                        VStack(spacing: 0) {"))
+        #expect(source.contains(".frame(width: contentWidth)"))
+        #expect(source.contains(".frame(maxWidth: .infinity)"))
+        #expect(!source.contains(".frame(width: contentWidth)\n                .frame(maxHeight: .infinity)"))
+    }
+
+    @Test("bounded transcript uses VStack instead of LazyVStack to avoid lazy scroll layout churn")
+    func boundedTranscriptUsesVStackInsteadOfLazyVStack() throws {
+        let source = try source("Sources", "SloppyFeatureChat", "ChatScreen.swift")
+
+        #expect(source.contains("VStack(alignment: .leading, spacing: theme.spacing.xl)"))
+        #expect(!source.contains("LazyVStack(alignment: .leading, spacing: theme.spacing.xl)"))
+    }
+
+    @Test("tapping chat content dismisses composer focus")
+    func tappingChatContentDismissesComposerFocus() throws {
+        let source = try source("Sources", "SloppyFeatureChat", "ChatScreen.swift")
+
+        #expect(source.contains(".contentShape(Rectangle())"))
+        #expect(source.contains(".onTapGesture {"))
+        #expect(source.contains("viewModel.dismissComposerFocus()"))
     }
 }

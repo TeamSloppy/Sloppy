@@ -94,7 +94,7 @@ public struct ChatBubbleView: View {
                     .padding(.horizontal, sp.s)
                     .padding(.vertical, sp.xs)
                     .background(c.accentCyan.opacity(0.08 as Float))
-                    .glassEffect(.regular.tint(c.accentCyan.opacity(0.06 as Float)), in: GlassShape.rect(cornerRadius: 999))
+                    .glassEffect(.regular.tint(c.accentCyan.opacity(0.06 as Float)), in: .rect(cornerRadius: 999))
                 Icons.symbol(.arrowForward, size: ty.micro)
                     .foregroundColor(c.textMuted)
             }
@@ -173,7 +173,7 @@ private struct ChatMarkdownTextStack: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: theme.spacing.m) {
-            ForEach(Array(ChatMarkdownBlockParser.parse(text).enumerated()), id: \.offset) { _, block in
+            ForEach(Array(ChatMarkdownRenderer.blocks(for: text).enumerated()), id: \.offset) { _, block in
                 switch block {
                 case .heading(let level, let headingText):
                     headingView(level: level, text: headingText)
@@ -197,7 +197,7 @@ private struct ChatMarkdownTextStack: View {
             ty.body
         }
 
-        if let attributed = try? AttributedString(markdown: text) {
+        if let attributed = ChatMarkdownRenderer.attributedString(for: text) {
             Text(attributed)
                 .font(.system(size: fontSize))
                 .foregroundColor(theme.colors.textPrimary)
@@ -219,7 +219,7 @@ private struct ChatMarkdownTextStack: View {
                 .font(.system(size: ty.body))
                 .foregroundColor(theme.colors.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
-        } else if let attributed = try? AttributedString(markdown: text) {
+        } else if let attributed = ChatMarkdownRenderer.attributedString(for: text) {
             Text(attributed)
                 .font(.system(size: ty.body))
                 .foregroundColor(theme.colors.textPrimary)
@@ -263,7 +263,7 @@ private struct ChatCodeBlockView: View {
         .padding(.horizontal, sp.m)
         .padding(.vertical, sp.s)
         .background(c.surfaceRaised.opacity(0.72 as Float))
-        .glassEffect(.regular.tint(c.surfaceRaised.opacity(0.22 as Float)), in: GlassShape.rect(cornerRadius: 16))
+        .glassEffect(.regular.tint(c.surfaceRaised.opacity(0.22 as Float)), in: .rect(cornerRadius: 16))
     }
 }
 
@@ -285,31 +285,12 @@ private struct ChatSegmentCollapsibleCard: View {
             Button {
                 isExpanded.toggle()
             } label: {
-                TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                    HStack(spacing: sp.s) {
-                        Icons.symbol(isExpanded ? .collapseContent : .expandMore, size: theme.typography.caption)
-                            .foregroundColor(c.textMuted)
-
-                        Text(segmentTitle)
-                            .font(.system(size: theme.typography.caption))
-                            .foregroundColor(c.textPrimary)
-                            .lineLimit(1)
-
-                        if let duration = durationLabel(at: timeline.date) {
-                            Text(duration)
-                                .font(.system(size: theme.typography.micro))
-                                .foregroundColor(c.textMuted)
-                                .lineLimit(1)
-                        }
-
-                        Spacer(minLength: 0)
-
-                        if isRunning {
-                            ChatShimmerView()
-                                .frame(width: 54, height: 10)
-                                .clipShape(Capsule())
-                        }
+                if showsLiveDuration {
+                    TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                        timelineRow(durationText: durationLabel(at: timeline.date))
                     }
+                } else {
+                    timelineRow(durationText: staticDurationLabel)
                 }
             }
 
@@ -341,7 +322,38 @@ private struct ChatSegmentCollapsibleCard: View {
         .padding(.horizontal, sp.m)
         .padding(.vertical, sp.s)
         .background(c.surfaceRaised.opacity(forceCollapsible ? 0.28 as Float : 0.2 as Float))
-        .glassEffect(.regular.tint(c.surfaceRaised.opacity(0.12 as Float)), in: GlassShape.rect(cornerRadius: 16))
+        .glassEffect(.regular.tint(c.surfaceRaised.opacity(0.12 as Float)), in: .rect(cornerRadius: 16))
+    }
+
+    @ViewBuilder
+    private func timelineRow(durationText: String?) -> some View {
+        let c = theme.colors
+        let sp = theme.spacing
+
+        HStack(spacing: sp.s) {
+            Icons.symbol(isExpanded ? .collapseContent : .expandMore, size: theme.typography.caption)
+                .foregroundColor(c.textMuted)
+
+            Text(segmentTitle)
+                .font(.system(size: theme.typography.caption))
+                .foregroundColor(c.textPrimary)
+                .lineLimit(1)
+
+            if let durationText {
+                Text(durationText)
+                    .font(.system(size: theme.typography.micro))
+                    .foregroundColor(c.textMuted)
+                    .lineLimit(1)
+            }
+
+            Spacer(minLength: 0)
+
+            if isRunning {
+                ChatShimmerView()
+                    .frame(width: 54, height: 10)
+                    .clipShape(Capsule())
+            }
+        }
     }
 
     private var segmentTitle: String {
@@ -363,6 +375,14 @@ private struct ChatSegmentCollapsibleCard: View {
         case .status:
             return "Status"
         }
+    }
+
+    private var showsLiveDuration: Bool {
+        isRunning && segment.startedAt != nil && segment.finishedAt == nil
+    }
+
+    private var staticDurationLabel: String? {
+        durationLabel(at: segment.finishedAt ?? Date())
     }
 
     private func durationLabel(at now: Date) -> String? {

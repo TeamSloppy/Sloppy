@@ -90,6 +90,12 @@ public actor ProjectService {
         try await http.get("/v1/projects/\(BackendHTTPClient.encodePathSegment(id))")
     }
 
+    public func fetchTaskComments(projectId: String, taskId: String) async throws -> [TaskComment] {
+        try await http.get(
+            "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/tasks/\(BackendHTTPClient.encodePathSegment(taskId))/comments"
+        )
+    }
+
     public func fetchProjectFiles(projectId: String, path: String = "") async throws -> [ProjectFileEntry] {
         let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
         let query = trimmedPath.isEmpty ? "" : "?path=\(BackendHTTPClient.encodeQueryValue(trimmedPath))"
@@ -166,20 +172,31 @@ public actor SessionService {
         agentId: String,
         sessionId: String,
         content: String,
-        userId: String = "user"
+        userId: String = "user",
+        selectedModel: String? = nil,
+        reasoningEffort: String? = nil
     ) async throws -> ChatSessionSummary {
         struct Payload: Encodable {
             var userId: String
             var content: String
             var attachments: [String] = []
             var spawnSubSession: Bool = false
+            var selectedModel: String?
+            var reasoningEffort: String?
         }
         struct Response: Decodable {
             var summary: ChatSessionSummary
         }
+        let normalizedSelectedModel = selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedReasoningEffort = reasoningEffort?.trimmingCharacters(in: .whitespacesAndNewlines)
         let response: Response = try await http.post(
             "/v1/agents/\(BackendHTTPClient.encodePathSegment(agentId))/sessions/\(BackendHTTPClient.encodePathSegment(sessionId))/messages",
-            body: Payload(userId: userId, content: content)
+            body: Payload(
+                userId: userId,
+                content: content,
+                selectedModel: normalizedSelectedModel?.isEmpty == false ? normalizedSelectedModel : nil,
+                reasoningEffort: normalizedReasoningEffort?.isEmpty == false ? normalizedReasoningEffort : nil
+            )
         )
         return response.summary
     }
@@ -245,6 +262,10 @@ public actor ConfigService {
 
     public func fetchConfig() async throws -> SloppyConfig {
         try await http.get("/v1/config")
+    }
+
+    public func fetchAvailableModels() async throws -> [ChatModelOption] {
+        try await http.get("/v1/providers/models")
     }
 
     public func updateConfig(_ config: SloppyConfig) async throws -> SloppyConfig {

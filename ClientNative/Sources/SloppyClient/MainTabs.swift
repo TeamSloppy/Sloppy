@@ -6,6 +6,7 @@ import SloppyFeatureProjects
 enum WorkspaceTabKind: String, Hashable {
     case chat
     case projectKanban
+    case taskDetail
     case workspaceFiles
 }
 
@@ -13,6 +14,7 @@ enum WorkspaceTabKey: Hashable {
     case chatSession(String)
     case chatTask(projectId: String, taskId: String)
     case projectKanban(String)
+    case taskDetail(projectId: String, taskId: String)
     case workspaceFiles(String)
 }
 
@@ -26,10 +28,19 @@ struct WorkspaceFilesTabContext: Hashable, Sendable {
     var projectName: String
 }
 
+struct TaskDetailTabContext: Hashable, Sendable {
+    var projectId: String
+    var projectName: String
+    var taskId: String
+    var taskTitle: String
+    var fallbackAgentId: String?
+}
+
 enum WorkspaceTabPayload: Hashable {
     case chatSession(sessionID: String, title: String)
     case chatTask(projectId: String, projectName: String, taskId: String, taskTitle: String, fallbackAgentId: String?)
     case projectKanban(ProjectKanbanTabContext)
+    case taskDetail(TaskDetailTabContext)
     case workspaceFiles(WorkspaceFilesTabContext)
 }
 
@@ -78,6 +89,15 @@ final class WorkspaceFilesTabState {
     let viewModel: WorkspacePanelViewModel
 
     init(viewModel: WorkspacePanelViewModel) {
+        self.viewModel = viewModel
+    }
+}
+
+@MainActor
+final class TaskDetailTabState {
+    let viewModel: TaskDetailViewModel
+
+    init(viewModel: TaskDetailViewModel) {
         self.viewModel = viewModel
     }
 }

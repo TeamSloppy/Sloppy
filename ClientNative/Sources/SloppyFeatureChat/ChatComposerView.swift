@@ -20,8 +20,10 @@ public struct ChatComposerView: View {
     private static let fieldHeight: CGFloat = 48
     private static let phoneFieldHeight: CGFloat = 48
     fileprivate static let phoneCircleSize: CGFloat = 48
+    fileprivate static let buttonSize: CGFloat = 36
 
-    @State private var viewModel: ChatScreenViewModel
+    private let viewModel: ChatScreenViewModel
+    @FocusState private var isTextFieldFocused: Bool
 
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
@@ -36,7 +38,7 @@ public struct ChatComposerView: View {
     ) {
         self.draft = draft
         self.tabActions = tabActions
-        self._viewModel = State(initialValue: viewModel)
+        self.viewModel = viewModel
     }
     
     @ViewBuilder
@@ -69,13 +71,16 @@ public struct ChatComposerView: View {
             .font(.system(size: ty.body))
             .foregroundColor(fieldInk)
             .accentColor(.white)
+            .focused($isTextFieldFocused)
+            .submitLabel(.send)
+            .onSubmit(submit)
             .textFieldStyle(PlainTextFieldStyle())
             .frame(
                 minWidth: 0, maxWidth: .infinity, minHeight: Self.phoneFieldHeight,
                 maxHeight: Self.phoneFieldHeight, alignment: .leading
             )
             .padding(.horizontal, sp.m)
-            .glassEffect(.regular, in: GlassShape.capsule)
+            .glassEffect(.regular, in: .capsule)
             .frame(maxWidth: .infinity, alignment: .leading)
             
             MobileComposerCircleButton(
@@ -107,13 +112,10 @@ public struct ChatComposerView: View {
         let ty = theme.typography
         let fieldInk = c.textPrimary
         
-        return HStack(spacing: sp.m) {
-            Button {
-
-            } label: {
-                Icons.symbol(.add, size: 24)
-            }
-            .buttonStyle(.plain)
+        return HStack(spacing: sp.s) {
+            MobileComposerCircleButton(symbol: .add, action: {
+                tabActions?.createTab()
+            })
 
             TextField(
                 "Ask \(agentDisplayName)",
@@ -125,24 +127,27 @@ public struct ChatComposerView: View {
             .font(.system(size: ty.body))
             .foregroundColor(fieldInk)
             .accentColor(.white)
+            .focused($isTextFieldFocused)
+            .submitLabel(.send)
+            .onSubmit(submit)
             .textFieldStyle(.plain)
             .frame(
                 minWidth: 0, maxWidth: .infinity, minHeight: Self.fieldHeight,
                 maxHeight: Self.fieldHeight, alignment: .leading
             )
+            .padding(.horizontal, sp.m)
+            .glassEffect(.regular, in: .capsule)
 
-            AgentPickerView(
-                selectedAgent: viewModel.selectedAgent,
-                agents: viewModel.agents,
-                onSelectAgent: viewModel.pickAgent
+            MobileComposerCircleButton(
+                symbol: .arrowUpward,
+                foregroundColor: draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                ? c.textMuted
+                : c.textPrimary,
+                fillColor: c.surfaceRaised,
+                action: submit
             )
-
-            Button(action: submit) {
-                Icons.symbol(.arrowUpward, size: ty.heading)
-            }
-            .buttonStyle(SubmitButton())
         }
-        .padding(EdgeInsets(top: 0, leading: sp.l, bottom: 0, trailing: sp.l))
+        .padding(.horizontal, sp.l)
         .frame(
             minWidth: 0,
             maxWidth: .infinity,
@@ -150,18 +155,21 @@ public struct ChatComposerView: View {
             maxHeight: Self.panelHeight,
             alignment: .leading
         )
-        .background {
-            ChatComposerCapsuleChrome(
-                height: Self.panelHeight,
-                aspectRatio: Self.panelWidth / Self.panelHeight,
-                accentColor: c.accentCyan
-            )
-        }
         .frame(maxWidth: Self.panelWidth)
+        .onChange(of: viewModel.composerFocusResetToken) { _, _ in
+            isTextFieldFocused = false
+        }
     }
     
     private var agentDisplayName: String {
         return viewModel.selectedAgent?.displayName ?? "Sloppy"
+    }
+
+    private var selectedModelSupportsReasoningEffort: Bool {
+        guard let selectedModel = viewModel.availableModels.first(where: { $0.id == viewModel.selectedModelId }) else {
+            return false
+        }
+        return selectedModel.supportsReasoningEffort
     }
     
     public static func panelHeight(for idiom: UserInterfaceIdiom) -> CGFloat {
@@ -193,7 +201,7 @@ public struct ChatComposerView: View {
         let trimmed = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         viewModel.sendMessage(content: trimmed)
-        draft.text = ""
+        isTextFieldFocused = false
     }
 }
 
@@ -216,40 +224,144 @@ public struct ChatComposerTabActions {
     }
 }
 
-struct AgentPickerView: View {
-
+private struct ComposerOptionsMenuView: View {
+    let selectedModelId: String
+    let models: [ChatModelOption]
+    let selectedEffort: ChatReasoningEffort
+    let supportsReasoningEffort: Bool
     let selectedAgent: APIAgentRecord?
     let agents: [APIAgentRecord]
+    let onSelectModel: (ChatModelOption) -> Void
+    let onSelectEffort: (ChatReasoningEffort) -> Void
     let onSelectAgent: (APIAgentRecord) -> Void
 
-    @Environment(\.userInterfaceIdiom) private var idiom
+    @Environment(\.theme) private var theme
 
     var body: some View {
-        Picker("", selection: selectedAgentId) {
-            if agents.isEmpty {
-                Text("Select Agent").tag("")
-            } else {
-                ForEach(agents) { agent in
-                    Text(agent.displayName).tag(agent.id)
+        Menu {
+            Section("Model") {
+                if models.isEmpty {
+                    ComposerMenuItem(title: "No models", isSelected: false)
+                } else {
+                    ForEach(models) { model in
+                        Button {
+                            onSelectModel(model)
+                        } label: {
+                            ComposerMenuItem(
+                                title: model.title,
+                                subtitle: model.id == model.title ? nil : model.id,
+                                isSelected: selectedModelId == model.id
+                            )
+                        }
+                    }
                 }
             }
-        }
-        .labelsHidden()
-        .tint(.white)
-        .pickerStyle(.menu)
 
+            Section("Reasoning") {
+                ForEach(ChatReasoningEffort.allCases) { effort in
+                    Button {
+                        onSelectEffort(effort)
+                    } label: {
+                        ComposerMenuItem(
+                            title: effort.title,
+                            isSelected: selectedEffort == effort
+                        )
+                    }
+                    .disabled(!supportsReasoningEffort)
+                }
+            }
+
+            Section("Agent") {
+                if agents.isEmpty {
+                    ComposerMenuItem(title: "No agents", isSelected: false)
+                } else {
+                    ForEach(agents) { agent in
+                        Button {
+                            onSelectAgent(agent)
+                        } label: {
+                            ComposerMenuItem(
+                                title: agent.displayName,
+                                isSelected: selectedAgent?.id == agent.id
+                            )
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(alignment: .bottom, spacing: theme.spacing.xs) {
+                Text(selectedAgent?.displayName ?? "Sloppy")
+                    .font(.system(size: theme.typography.caption, weight: .semibold))
+                    .foregroundColor(theme.colors.textPrimary)
+                    .lineLimit(1)
+
+                Text(selectedEffort.title)
+                    .font(.system(size: theme.typography.caption))
+                    .foregroundColor(theme.colors.textMuted)
+                    .lineLimit(1)
+
+                Icons.symbol(.expandMore, size: 14)
+                    .foregroundColor(theme.colors.textSecondary)
+            }
+            .padding(.horizontal, theme.spacing.m)
+            .frame(height: 36)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
     }
 
-    private var selectedAgentId: Binding<String> {
-        Binding(
-            get: { selectedAgent?.id ?? agents.first?.id ?? "" },
-            set: { nextId in
-                guard let agent = agents.first(where: { $0.id == nextId }) else {
-                    return
+    private var selectedModelTitle: String {
+        guard let selected = models.first(where: { $0.id == selectedModelId }) else {
+            return selectedModelId.isEmpty ? "Model" : selectedModelId
+        }
+        return selected.title
+    }
+}
+
+private struct ComposerMenuChip: View {
+    let title: String
+    var isEnabled: Bool = true
+
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        HStack(spacing: theme.spacing.xs) {
+            Text(title)
+                .font(.system(size: theme.typography.body, weight: .semibold))
+                .foregroundColor(theme.colors.textPrimary.opacity(isEnabled ? 1 : 0.48))
+                .lineLimit(1)
+
+            Icons.symbol(.expandMore, size: 14)
+                .foregroundColor(theme.colors.textSecondary.opacity(isEnabled ? 1 : 0.48))
+        }
+        .padding(.horizontal, theme.spacing.m)
+        .frame(height: 36)
+        .frame(minWidth: 136, maxWidth: 184)
+        .background {
+            Capsule()
+                .fill(Color.fromHex(0x1C1C1E).opacity(isEnabled ? 0.96 : 0.48))
+        }
+    }
+}
+
+private struct ComposerMenuItem: View {
+    let title: String
+    var subtitle: String?
+    let isSelected: Bool
+
+    var body: some View {
+        HStack(spacing: 8) {
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                if let subtitle, !subtitle.isEmpty {
+                    Text(subtitle)
+                        .font(.caption)
                 }
-                onSelectAgent(agent)
             }
-        )
+            Spacer()
+            if isSelected {
+                Image(systemName: "checkmark")
+            }
+        }
     }
 }
 
@@ -260,19 +372,18 @@ private struct MobileComposerCircleButton: View {
     let action: @MainActor () -> Void
     
     @Environment(\.theme) private var theme
-    
+    @Environment(\.userInterfaceIdiom) private var userInterfaceIdiom
+
     var body: some View {
+        let circleSize = userInterfaceIdiom == .phone ? ChatComposerView.phoneCircleSize : ChatComposerView.buttonSize
+
         Button(action: action) {
-            Icons.symbol(symbol, size: theme.typography.heading)
+            Icons.symbol(symbol, size: userInterfaceIdiom == .phone ? theme.typography.heading : 24)
                 .foregroundColor(foregroundColor)
-                .frame(width: ChatComposerView.phoneCircleSize, height: ChatComposerView.phoneCircleSize)
-                .background {
-                    Circle()
-                        .fill(fillColor)
-                }
+                .frame(width: circleSize, height: circleSize)
         }
-        .glassEffect(.regular, in: Circle())
-        .buttonStyle(DefaultButtonStyle())
+        .buttonBorderShape(.circle)
+        .buttonStyle(.glass)
     }
 }
 
@@ -315,5 +426,14 @@ struct SubmitButton: ButtonStyle {
         connectionMonitor: .init(baseURL: URL.debugURL),
         onOpenSettings: {}
     )
-    ChatComposerView(draft: .init(), viewModel: viewModel)
+    VStack {
+        Section("Phone") {
+            ChatComposerView(draft: .init(), viewModel: viewModel)
+                .environment(\.userInterfaceIdiom, .phone)
+        }
+        Section("desktop") {
+            ChatComposerView(draft: .init(), viewModel: viewModel)
+                .environment(\.userInterfaceIdiom, .desktop)
+        }
+    }
 }

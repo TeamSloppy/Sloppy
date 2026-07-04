@@ -7,13 +7,20 @@ public struct ProjectKanbanView: View {
     let viewModel: ProjectKanbanViewModel
     let projectId: String
     let projectName: String
+    let onOpenTask: @MainActor (ProjectKanbanCard) -> Void
 
     @Environment(\.theme) private var theme
 
-    public init(viewModel: ProjectKanbanViewModel, projectId: String, projectName: String) {
+    public init(
+        viewModel: ProjectKanbanViewModel,
+        projectId: String,
+        projectName: String,
+        onOpenTask: @escaping @MainActor (ProjectKanbanCard) -> Void = { _ in }
+    ) {
         self.viewModel = viewModel
         self.projectId = projectId
         self.projectName = projectName
+        self.onOpenTask = onOpenTask
     }
 
     public var body: some View {
@@ -39,7 +46,7 @@ public struct ProjectKanbanView: View {
                         .foregroundColor(theme.colors.textSecondary)
                 }
             } else {
-                ScrollView(.horizontal, showsIndicators: false) {
+                ScrollView([.horizontal, .vertical], showsIndicators: false) {
                     HStack(alignment: .top, spacing: theme.spacing.m) {
                         ForEach(viewModel.columns) { column in
                             kanbanColumn(column)
@@ -68,27 +75,32 @@ public struct ProjectKanbanView: View {
             }
 
             ForEach(column.items) { card in
-                VStack(alignment: .leading, spacing: theme.spacing.xs) {
-                    Text(card.title)
-                        .font(.system(size: theme.typography.body))
-                        .foregroundColor(theme.colors.textPrimary)
+                Button {
+                    onOpenTask(card)
+                } label: {
+                    VStack(alignment: .leading, spacing: theme.spacing.xs) {
+                        Text(card.title)
+                            .font(.system(size: theme.typography.body))
+                            .foregroundColor(theme.colors.textPrimary)
 
-                    if let priority = card.priority, !priority.isEmpty {
-                        Text(priority.uppercased())
-                            .font(.system(size: theme.typography.micro))
-                            .foregroundColor(theme.colors.textMuted)
-                    }
+                        if let priority = card.priority, !priority.isEmpty {
+                            Text(priority.uppercased())
+                                .font(.system(size: theme.typography.micro))
+                                .foregroundColor(theme.colors.textMuted)
+                        }
 
-                    if let actorID = card.actorID, !actorID.isEmpty {
-                        Text(actorID)
-                            .font(.system(size: theme.typography.caption))
-                            .foregroundColor(theme.colors.textSecondary)
+                        if let actorID = card.actorID, !actorID.isEmpty {
+                            Text(actorID)
+                                .font(.system(size: theme.typography.caption))
+                                .foregroundColor(theme.colors.textSecondary)
+                        }
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(theme.spacing.m)
+                    .background(theme.colors.surface)
+                    .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(theme.spacing.m)
-                .background(theme.colors.surface)
-                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .buttonStyle(.plain)
             }
 
             Spacer(minLength: 0)

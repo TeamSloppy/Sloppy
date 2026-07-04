@@ -8,7 +8,7 @@ fileprivate let chatContentWidth: CGFloat = 840
 
 @MainActor
 public struct ChatScreen: View {
-    @State private var viewModel: ChatScreenViewModel
+    private let viewModel: ChatScreenViewModel
     private let rootSafeAreaInsets: EdgeInsets
     private let onOpenSidebar: (@MainActor () -> Void)?
     private let composerTabActions: ChatComposerTabActions?
@@ -25,13 +25,11 @@ public struct ChatScreen: View {
         self.rootSafeAreaInsets = rootSafeAreaInsets
         self.onOpenSidebar = onOpenSidebar
         self.composerTabActions = composerTabActions
-        _viewModel = State(
-            initialValue: ChatScreenViewModel(
-                apiClient: apiClient,
-                settings: settings,
-                connectionMonitor: connectionMonitor,
-                onOpenSettings: onOpenSettings
-            )
+        self.viewModel = ChatScreenViewModel(
+            apiClient: apiClient,
+            settings: settings,
+            connectionMonitor: connectionMonitor,
+            onOpenSettings: onOpenSettings
         )
     }
     
@@ -44,7 +42,7 @@ public struct ChatScreen: View {
         self.rootSafeAreaInsets = rootSafeAreaInsets
         self.onOpenSidebar = onOpenSidebar
         self.composerTabActions = composerTabActions
-        _viewModel = State(initialValue: viewModel)
+        self.viewModel = viewModel
     }
     
     public var body: some View {
@@ -142,6 +140,13 @@ private struct ChatChrome: View {
                     contentWidth: contentWidth,
                     composerBottomInset: composerBottomInset,
                     tabActions: composerTabActions
+                )
+                .background(
+                    LinearGradient(colors: [
+                        Color.black.opacity(0.01),
+                        Color.black.opacity(0.4),
+                        Color.black
+                    ], startPoint: .top, endPoint: .bottom)
                 )
             }
         }
@@ -414,6 +419,10 @@ private struct ChatTranscriptRegion: View {
             messagesTopInset: messagesTopInset,
             composerScrollInset: composerScrollInset
         )
+        .contentShape(Rectangle())
+        .onTapGesture {
+            viewModel.dismissComposerFocus()
+        }
     }
 }
 
@@ -444,6 +453,10 @@ private struct ChatEmptyChatRegion: View {
         }
         .padding(.horizontal, idiom == .phone ? theme.spacing.s : 0)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            viewModel.dismissComposerFocus()
+        }
     }
 }
 
@@ -515,21 +528,24 @@ private struct ChatTranscriptPane: View {
             VStack(spacing: 0) {
                 ScrollViewReader { proxy in
                     ScrollView {
-                        if transcript.hasEarlierMessages {
-                            revealEarlierButton
-                                .padding(.top, messagesTopInset)
-                                .padding(.bottom, theme.spacing.m)
-                        }
-
-                        LazyVStack(alignment: .leading, spacing: theme.spacing.xl) {
-                            ForEach(transcript.messages) { msg in
-                                ChatBubbleView(message: msg)
-                                    .frame(minWidth: 0, maxWidth: .infinity)
-                                    .allowsHitTesting(false)
+                        VStack(spacing: 0) {
+                            if transcript.hasEarlierMessages {
+                                revealEarlierButton
+                                    .padding(.top, messagesTopInset)
+                                    .padding(.bottom, theme.spacing.m)
                             }
+
+                            VStack(alignment: .leading, spacing: theme.spacing.xl) {
+                                ForEach(transcript.messages) { msg in
+                                    ChatBubbleView(message: msg)
+                                        .frame(minWidth: 0, maxWidth: .infinity)
+                                        .allowsHitTesting(false)
+                                }
+                            }
+                            .padding(.top, transcript.hasEarlierMessages ? 0 : messagesTopInset)
+                            .padding(.bottom, composerScrollInset)
                         }
-                        .padding(.top, transcript.hasEarlierMessages ? 0 : messagesTopInset)
-                        .padding(.bottom, composerScrollInset)
+                        .frame(width: contentWidth)
                     }
                     .onChange(of: transcript.messages.count) { oldCount, newCount in
                         guard newCount > oldCount,
@@ -554,7 +570,7 @@ private struct ChatTranscriptPane: View {
                         }
                     }
                 }
-                .frame(width: contentWidth)
+                .frame(maxWidth: .infinity)
                 .frame(maxHeight: .infinity)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -585,7 +601,7 @@ private struct ChatTranscriptPane: View {
             .padding(.horizontal, sp.m)
             .padding(.vertical, sp.s)
             .background(c.surface.opacity(0.74 as CGFloat))
-            .glassEffect(.regular, in: GlassShape.rect(cornerRadius: 14))
+            .glassEffect(.regular, in: .rect(cornerRadius: 14))
             Spacer(minLength: 0)
         }
     }
@@ -593,22 +609,10 @@ private struct ChatTranscriptPane: View {
 
 #Preview {
     let viewModel = ChatScreenViewModel(
-        apiClient: .init(),
+        apiClient: .init(baseURL: .debugURL),
         settings: .init(),
         connectionMonitor: .init(baseURL: URL.debugURL),
         onOpenSettings: {}
     )
     ChatScreen(viewModel: viewModel)
-}
-
-
-#Preview {
-    let viewModel = ChatScreenViewModel(
-        apiClient: .init(),
-        settings: .init(),
-        connectionMonitor: .init(baseURL: URL.debugURL),
-        onOpenSettings: {}
-    )
-    
-    ChatComposerView(draft: .init(), viewModel: viewModel)
 }

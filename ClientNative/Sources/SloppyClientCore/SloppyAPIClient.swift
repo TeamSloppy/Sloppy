@@ -37,6 +37,10 @@ public actor SloppyAPIClient {
         try await projects.fetchProject(id: id)
     }
 
+    public func fetchTaskComments(projectId: String, taskId: String) async throws -> [TaskComment] {
+        try await projects.fetchTaskComments(projectId: projectId, taskId: taskId)
+    }
+
     public func fetchProjectFiles(projectId: String, path: String = "") async throws -> [ProjectFileEntry] {
         try await projects.fetchProjectFiles(projectId: projectId, path: path)
     }
@@ -129,9 +133,18 @@ public actor SloppyAPIClient {
         agentId: String,
         sessionId: String,
         content: String,
-        userId: String = "user"
+        userId: String = "user",
+        selectedModel: String? = nil,
+        reasoningEffort: String? = nil
     ) async throws -> ChatSessionSummary {
-        try await sessions.postSessionMessage(agentId: agentId, sessionId: sessionId, content: content, userId: userId)
+        try await sessions.postSessionMessage(
+            agentId: agentId,
+            sessionId: sessionId,
+            content: content,
+            userId: userId,
+            selectedModel: selectedModel,
+            reasoningEffort: reasoningEffort
+        )
     }
 
     public func deleteAgentSession(agentId: String, sessionId: String) async throws {
@@ -142,6 +155,10 @@ public actor SloppyAPIClient {
 
     public func fetchConfig() async throws -> SloppyConfig {
         try await config.fetchConfig()
+    }
+
+    public func fetchAvailableModels() async throws -> [ChatModelOption] {
+        try await config.fetchAvailableModels()
     }
 
     public func updateConfig(_ config: SloppyConfig) async throws -> SloppyConfig {

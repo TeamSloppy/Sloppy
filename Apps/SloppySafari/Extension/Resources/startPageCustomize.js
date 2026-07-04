@@ -3,13 +3,24 @@ function renderStartPageSurface(frame) {
   const thread = frame.querySelector("[data-sloppy-thread]");
   const settings = state.settings || {};
   const theme = settings.startPageTheme === "light" ? "light" : "dark";
+  const layoutMode = startPageLayoutMode(settings);
   frame.classList.toggle("sloppy-theme-light", theme === "light");
+  frame.classList.toggle("is-start-canvas", layoutMode === "canvas");
   frame.style.setProperty("--sloppy-start-background-image", settings.startPageBackgroundImage ? `url("${settings.startPageBackgroundImage}")` : "none");
   thread.innerHTML = `
     <section class="sloppy-start-surface" data-sloppy-start-surface data-sloppy-start-theme="${escapeHTML(theme)}">
     </section>
   `;
-  renderStartPageItems(frame);
+  if (layoutMode === "canvas") {
+    renderStartPageCanvas(frame);
+    void loadStartPageBoard(frame);
+  } else {
+    renderStartPageItems(frame);
+  }
+}
+
+function startPageLayoutMode(settings = state.settings || {}) {
+  return String(settings?.startPageLayoutMode || "grid").trim() === "canvas" ? "canvas" : "grid";
 }
 
 function startPageShortcutItems(settings = state.settings || {}) {
@@ -68,6 +79,811 @@ function normalizedStartPageItems(settings = state.settings || {}) {
     ? sourceSettings.startPageItems
     : (sourceSettings.startPageShortcuts || []).map((shortcut) => ({ kind: "shortcut", ...shortcut }));
   return records.map((record, index) => normalizeStartPageItem(record, index));
+}
+
+function defaultStartPageBoard() {
+  const items = normalizedStartPageItems(state.settings).map((item, index) => {
+    const x = 40 + (index % 3) * 260;
+    const y = 40 + Math.floor(index / 3) * 180;
+    if (item.kind === "widget") {
+      return {
+        id: item.id || item.artifactId || `widget-${index}`,
+        type: "widget",
+        x,
+        y,
+        width: Math.max(220, (Number(item.colSpan) || 2) * 160),
+        height: Math.max(120, (Number(item.rowSpan) || 1) * 120),
+        title: item.title || item.artifactId || "Widget",
+        zIndex: index + 1,
+        artifactId: item.artifactId || item.id
+      };
+    }
+    return {
+      id: item.id || item.url || `shortcut-${index}`,
+      type: "shortcut",
+      x,
+      y,
+      width: 220,
+      height: 96,
+      title: item.title || item.url || "Shortcut",
+      zIndex: index + 1,
+      url: item.url
+    };
+  });
+  return {
+    id: "start-page-canvas",
+    version: 1,
+    viewport: { x: 0, y: 0, scale: 1 },
+    items,
+    groups: []
+  };
+}
+
+function normalizeStartPageBoard(board = null) {
+  const source = board && typeof board === "object" ? board : defaultStartPageBoard();
+  const viewport = source.viewport && typeof source.viewport === "object" ? source.viewport : {};
+  const finiteNumber = (value, fallback) => Number.isFinite(Number(value)) ? Number(value) : fallback;
+  return {
+    id: String(source.id || "start-page-canvas").trim() || "start-page-canvas",
+    version: 1,
+    viewport: {
+      x: finiteNumber(viewport.x, 0),
+      y: finiteNumber(viewport.y, 0),
+      scale: Math.min(3, Math.max(0.2, finiteNumber(viewport.scale, 1)))
+    },
+    items: (Array.isArray(source.items) ? source.items : [])
+      .map((item, index) => {
+        const type = String(item?.type || "").trim();
+        if (!["widget", "shortcut", "text", "image"].includes(type)) {
+          return null;
+        }
+        const id = String(item?.id || `${type}-${index}-${Date.now()}`).trim();
+        return {
+          id,
+          type,
+          x: finiteNumber(item?.x, 40 + index * 24),
+          y: finiteNumber(item?.y, 40 + index * 24),
+          width: Math.max(40, finiteNumber(item?.width, type === "shortcut" ? 220 : 240)),
+          height: Math.max(40, finiteNumber(item?.height, type === "shortcut" ? 96 : 140)),
+          title: String(item?.title || type).trim(),
+          zIndex: Number.isFinite(Number(item?.zIndex)) ? Number(item.zIndex) : index + 1,
+          groupId: String(item?.groupId || "").trim() || undefined,
+          artifactId: String(item?.artifactId || "").trim() || undefined,
+          url: String(item?.url || "").trim() || undefined,
+          text: item?.text == null ? undefined : String(item.text),
+          assetPath: String(item?.assetPath || "").trim() || undefined,
+          mediaType: String(item?.mediaType || "").trim() || undefined
+        };
+      })
+      .filter(Boolean),
+    groups: (Array.isArray(source.groups) ? source.groups : [])
+      .map((group, index) => {
+        const id = String(group?.id || `group-${index}-${Date.now()}`).trim();
+        const color = normalizeCanvasGroupColor(group?.color);
+        return {
+          id,
+          title: String(group?.title || "Group").trim(),
+          x: finiteNumber(group?.x, 0),
+          y: finiteNumber(group?.y, 0),
+          width: Math.max(80, finiteNumber(group?.width, 360)),
+          height: Math.max(80, finiteNumber(group?.height, 220)),
+          collapsed: Boolean(group?.collapsed),
+          color
+        };
+      })
+      .filter((group) => group.id)
+  };
+}
+
+function normalizeCanvasGroupColor(value) {
+  const color = String(value || "").trim();
+  return /^#[0-9a-f]{6}$/i.test(color) ? color.toLowerCase() : "#b7ff00";
+}
+
+function currentStartPageBoard() {
+  state.startPageBoard = normalizeStartPageBoard(state.startPageBoard);
+  return state.startPageBoard;
+}
+
+function filterCanvasItems(board, query) {
+  const normalized = normalizeStartPageBoard(board);
+  const needle = String(query || "").trim().toLowerCase();
+  if (!needle) {
+    return normalized.items;
+  }
+  return normalized.items.filter((item) => [
+    item.title,
+    item.text,
+    item.url,
+    item.artifactId,
+    item.assetPath
+  ].some((value) => String(value || "").toLowerCase().includes(needle)));
+}
+
+function canvasItemSearchMatches(item, query) {
+  return filterCanvasItems({ ...currentStartPageBoard(), items: [item] }, query).length > 0;
+}
+
+function canvasAssetURL(path) {
+  const value = String(path || "").trim();
+  if (!value) {
+    return "";
+  }
+  if (/^https?:|^data:|^blob:/.test(value)) {
+    return value;
+  }
+  return value.startsWith(".sloppy/")
+    ? `/${value}`
+    : value;
+}
+
+function canvasItemStyle(item) {
+  return `left:${Number(item.x) || 0}px;top:${Number(item.y) || 0}px;width:${Number(item.width) || 220}px;height:${Number(item.height) || 140}px;z-index:${Number(item.zIndex) || 1};`;
+}
+
+function canvasGroupStyle(group) {
+  return `${canvasItemStyle({ ...group, zIndex: 0 })}--sloppy-canvas-group-color:${escapeHTML(normalizeCanvasGroupColor(group.color))};`;
+}
+
+function canvasEditingEnabled() {
+  return Boolean(state.customizeNavigation?.editing);
+}
+
+function renderCanvasItem(item, searchQuery = "") {
+  const hiddenClass = searchQuery && !canvasItemSearchMatches(item, searchQuery) ? " is-search-hidden" : "";
+  const matchClass = searchQuery && !hiddenClass ? " is-search-match" : "";
+  const isSelected = state.selectedCanvasEntity?.type === "item" && state.selectedCanvasEntity?.id === item.id;
+  const selectedClass = isSelected ? " is-selected" : "";
+  const deleteButton = isSelected && canvasEditingEnabled()
+    ? `<button class="sloppy-canvas-delete-entity" type="button" data-sloppy-canvas-delete-entity aria-label="${escapeHTML(t("deleteItem"))}">${icon("close")}</button>`
+    : "";
+  const attrs = `class="sloppy-canvas-item sloppy-canvas-${escapeHTML(item.type)}${hiddenClass}${matchClass}${selectedClass}" data-sloppy-canvas-item="${escapeHTML(item.id)}" style="${escapeHTML(canvasItemStyle(item))}"`;
+  if (item.type === "widget") {
+    const html = widgetHTMLForItem({ artifactId: item.artifactId, id: item.id, title: item.title });
+    return `<article ${attrs} data-sloppy-canvas-widget="${escapeHTML(item.artifactId || "")}">${deleteButton}${widgetFrameMarkupForItem({ ...item, artifactId: item.artifactId }, html)}</article>`;
+  }
+  if (item.type === "shortcut") {
+    return `
+      <article ${attrs}>
+        ${deleteButton}
+        <a href="${escapeHTML(item.url || "#")}" draggable="false">
+          <img class="sloppy-canvas-shortcut-icon" src="${escapeHTML(shortcutIconURL(item.url))}" alt="" aria-hidden="true">
+          <span class="sloppy-canvas-shortcut-copy">
+            <strong>${escapeHTML(item.title || item.url || "Shortcut")}</strong>
+            <span>${escapeHTML(item.url || "")}</span>
+          </span>
+        </a>
+      </article>
+    `;
+  }
+  if (item.type === "image") {
+    return `
+      <figure ${attrs}>
+        ${deleteButton}
+        <img src="${escapeHTML(canvasAssetURL(item.assetPath))}" alt="${escapeHTML(item.title || "")}">
+        <figcaption>${escapeHTML(item.title || "Image")}</figcaption>
+      </figure>
+    `;
+  }
+  return `
+    <article ${attrs} contenteditable="true" spellcheck="true">
+      ${deleteButton}
+      <strong>${escapeHTML(item.title || "Note")}</strong>
+      <p>${escapeHTML(item.text || "")}</p>
+    </article>
+  `;
+}
+
+function renderCanvasGroup(group) {
+  const isSelected = state.selectedCanvasEntity?.type === "group" && state.selectedCanvasEntity?.id === group.id;
+  const resizeHandle = canvasEditingEnabled() && isSelected
+    ? `<button class="sloppy-canvas-group-resize" type="button" data-sloppy-canvas-group-resize="${escapeHTML(group.id)}" aria-label="${escapeHTML(t("resizeItem"))}"></button>`
+    : "";
+  const deleteButton = canvasEditingEnabled() && isSelected
+    ? `<button class="sloppy-canvas-delete-entity" type="button" data-sloppy-canvas-delete-entity aria-label="${escapeHTML(t("deleteItem"))}">${icon("close")}</button>`
+    : "";
+  return `
+    <section class="sloppy-canvas-group${isSelected ? " is-selected" : ""}" data-sloppy-canvas-group="${escapeHTML(group.id)}" style="${canvasGroupStyle(group)}">
+      ${deleteButton}
+      <strong>${escapeHTML(group.title || "Group")}</strong>
+      ${resizeHandle}
+    </section>
+  `;
+}
+
+function renderStartPageCanvas(frame, options = {}) {
+  const surface = frame.querySelector("[data-sloppy-start-surface]") || frame.querySelector("[data-sloppy-thread]")?.querySelector?.("[data-sloppy-start-surface]");
+  if (!surface) {
+    return;
+  }
+  const board = currentStartPageBoard();
+  normalizeCanvasSelection(board);
+  const query = String(state.canvasSearchQuery || "").trim();
+  const viewport = board.viewport || { x: 0, y: 0, scale: 1 };
+  const isEditing = canvasEditingEnabled();
+  const hasSelection = Boolean(state.selectedCanvasEntity) && isEditing;
+  const selectedGroup = isEditing && state.selectedCanvasEntity?.type === "group"
+    ? board.groups.find((group) => group.id === state.selectedCanvasEntity.id)
+    : null;
+  surface.innerHTML = `
+    <section class="sloppy-start-canvas" data-sloppy-start-canvas tabindex="0">
+      <div class="sloppy-canvas-toolbar${selectedGroup ? " has-group-controls" : ""}">
+        <input data-sloppy-canvas-search placeholder="${escapeHTML(t("search") || "Search")}" value="${escapeHTML(query)}">
+        ${selectedGroup ? `
+          <input class="sloppy-canvas-group-title-input" data-sloppy-canvas-group-title value="${escapeHTML(selectedGroup.title || "Group")}">
+          <input class="sloppy-canvas-group-color-input" data-sloppy-canvas-group-color type="color" value="${escapeHTML(normalizeCanvasGroupColor(selectedGroup.color))}">
+        ` : ""}
+        ${isEditing ? `<button type="button" data-sloppy-canvas-add-text>${icon("plus")}</button>` : ""}
+        ${isEditing ? `<button type="button" data-sloppy-canvas-group-selected>${icon("group")}</button>` : ""}
+        ${isEditing ? `<button type="button" data-sloppy-canvas-delete ${hasSelection ? "" : "disabled"}>${icon("trash")}</button>` : ""}
+        <button type="button" data-sloppy-canvas-zoom-out>-</button>
+        <button type="button" data-sloppy-canvas-zoom-in>+</button>
+      </div>
+      <div class="sloppy-canvas-viewport" data-sloppy-canvas-viewport>
+        <div class="sloppy-canvas-world" data-sloppy-canvas-world style="transform:translate(${Number(viewport.x) || 0}px, ${Number(viewport.y) || 0}px) scale(${Number(viewport.scale) || 1});">
+          ${(board.groups || []).map((group) => renderCanvasGroup(group)).join("")}
+          ${(board.items || []).sort((lhs, rhs) => (Number(lhs.zIndex) || 0) - (Number(rhs.zIndex) || 0)).map((item) => renderCanvasItem(item, query)).join("")}
+        </div>
+      </div>
+    </section>
+  `;
+  renderCanvasHandlers(frame, surface);
+  if (options.restoreSearchFocus) {
+    const search = surface.querySelector("[data-sloppy-canvas-search]");
+    search?.focus?.();
+    const length = String(search?.value || "").length;
+    search?.setSelectionRange?.(length, length);
+  }
+  void hydrateCanvasWidgets(frame);
+}
+
+async function loadStartPageBoard(frame) {
+  if (state.startPageBoardLoaded || state.startPageBoardLoading || typeof chrome === "undefined" || typeof chrome.runtime?.sendMessage !== "function") {
+    return;
+  }
+  state.startPageBoardLoading = true;
+  const response = await chrome.runtime.sendMessage({ type: "sloppy.board.get", boardId: "start-page-canvas" }).catch(() => null);
+  state.startPageBoardLoading = false;
+  if (response?.board) {
+    state.startPageBoard = normalizeStartPageBoard(response.board);
+    state.startPageBoardLoaded = true;
+    renderStartPageCanvas(frame);
+  } else if (!state.startPageBoard) {
+    state.startPageBoard = defaultStartPageBoard();
+    renderStartPageCanvas(frame);
+  }
+}
+
+async function hydrateCanvasWidgets(frame) {
+  const board = currentStartPageBoard();
+  const widgetIds = board.items
+    .filter((item) => item.type === "widget" && item.artifactId)
+    .map((item) => item.artifactId)
+    .filter((artifactId) => !state.widgetHTMLByArtifactId?.[artifactId]);
+  const uniqueIds = [...new Set(widgetIds)];
+  if (!uniqueIds.length || typeof chrome === "undefined" || typeof chrome.runtime?.sendMessage !== "function") {
+    return;
+  }
+  let loaded = false;
+  await Promise.all(uniqueIds.map(async (artifactId) => {
+    const response = await chrome.runtime.sendMessage({
+      type: "sloppy.artifacts.widget",
+      artifactId
+    }).catch(() => null);
+    if (response?.html) {
+      state.widgetHTMLByArtifactId = {
+        ...(state.widgetHTMLByArtifactId || {}),
+        [artifactId]: String(response.html || "")
+      };
+      loaded = true;
+    }
+  }));
+  if (loaded) {
+    renderStartPageCanvas(frame);
+  }
+}
+
+function renderCanvasHandlers(frame, surface) {
+  let dragState = null;
+  const eventPoint = (event) => ({
+    x: Number(event.clientX) || 0,
+    y: Number(event.clientY) || 0
+  });
+  const endDrag = () => {
+    if (dragState?.changed) {
+      void persistStartPageCanvas();
+    }
+    dragState = null;
+    document.removeEventListener?.("pointermove", onPointerMove);
+    document.removeEventListener?.("pointerup", endDrag);
+    document.removeEventListener?.("pointercancel", endDrag);
+  };
+  const onPointerMove = (event) => {
+    if (!dragState) {
+      return;
+    }
+    const point = eventPoint(event);
+    const scale = Number(currentStartPageBoard().viewport.scale) || 1;
+    const dx = (point.x - dragState.x) / scale;
+    const dy = (point.y - dragState.y) / scale;
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
+      return;
+    }
+    dragState.x = point.x;
+    dragState.y = point.y;
+    dragState.changed = true;
+    if (dragState.type === "item") {
+      moveCanvasItem(dragState.id, dx, dy);
+    } else if (dragState.type === "group") {
+      moveCanvasGroup(dragState.id, dx, dy);
+    } else if (dragState.type === "group-resize") {
+      resizeCanvasGroup(dragState.id, dx, dy);
+    } else if (dragState.type === "pan") {
+      const board = currentStartPageBoard();
+      board.viewport.x = (Number(board.viewport.x) || 0) + point.x - dragState.previousScreenX;
+      board.viewport.y = (Number(board.viewport.y) || 0) + point.y - dragState.previousScreenY;
+      dragState.previousScreenX = point.x;
+      dragState.previousScreenY = point.y;
+    }
+    renderStartPageCanvas(frame);
+  };
+  surface.querySelector("[data-sloppy-canvas-search]")?.addEventListener("input", (event) => {
+    state.canvasSearchQuery = event.target?.value || "";
+    renderStartPageCanvas(frame, { restoreSearchFocus: true });
+  });
+  surface.querySelector("[data-sloppy-canvas-group-title]")?.addEventListener("input", (event) => {
+    updateSelectedCanvasGroup({
+      title: event.target?.value || "Group"
+    });
+    const groupNode = surface.querySelector?.(`[data-sloppy-canvas-group="${state.selectedCanvasEntity?.id || ""}"] strong`);
+    if (groupNode) {
+      groupNode.textContent = event.target?.value || "Group";
+    }
+  });
+  surface.querySelector("[data-sloppy-canvas-group-title]")?.addEventListener("change", () => {
+    void persistStartPageCanvas();
+  });
+  surface.querySelector("[data-sloppy-canvas-group-color]")?.addEventListener("input", (event) => {
+    const color = normalizeCanvasGroupColor(event.target?.value);
+    updateSelectedCanvasGroup({ color });
+    const groupNode = surface.querySelector?.(`[data-sloppy-canvas-group="${state.selectedCanvasEntity?.id || ""}"]`);
+    groupNode?.style?.setProperty?.("--sloppy-canvas-group-color", color);
+  });
+  surface.querySelector("[data-sloppy-canvas-group-color]")?.addEventListener("change", () => {
+    void persistStartPageCanvas();
+  });
+  surface.querySelector("[data-sloppy-canvas-add-text]")?.addEventListener("click", () => {
+    if (!canvasEditingEnabled()) {
+      return;
+    }
+    addCanvasTextItem();
+    void persistStartPageCanvas();
+    renderStartPageCanvas(frame);
+  });
+  surface.querySelector("[data-sloppy-canvas-zoom-in]")?.addEventListener("click", () => {
+    zoomStartPageCanvas(1.1);
+    void persistStartPageCanvas();
+    renderStartPageCanvas(frame);
+  });
+  surface.querySelector("[data-sloppy-canvas-zoom-out]")?.addEventListener("click", () => {
+    zoomStartPageCanvas(0.9);
+    void persistStartPageCanvas();
+    renderStartPageCanvas(frame);
+  });
+  surface.querySelector("[data-sloppy-canvas-group-selected]")?.addEventListener("click", () => {
+    if (!canvasEditingEnabled()) {
+      return;
+    }
+    createCanvasFrameForVisibleItems();
+    void persistStartPageCanvas();
+    renderStartPageCanvas(frame);
+  });
+  surface.querySelector("[data-sloppy-canvas-delete]")?.addEventListener("click", () => {
+    if (!canvasEditingEnabled()) {
+      return;
+    }
+    if (deleteSelectedCanvasEntity()) {
+      void persistStartPageCanvas();
+      renderStartPageCanvas(frame);
+    }
+  });
+  surface.querySelectorAll?.("[data-sloppy-canvas-delete-entity]")?.forEach((button) => {
+    button.addEventListener("click", (event) => {
+      event.preventDefault?.();
+      event.stopPropagation?.();
+      if (deleteSelectedCanvasEntity()) {
+        void persistStartPageCanvas();
+        renderStartPageCanvas(frame);
+      }
+    });
+  });
+  surface.querySelector("[data-sloppy-start-canvas]")?.addEventListener("keydown", (event) => {
+    if (!canvasEditingEnabled()) {
+      return;
+    }
+    if (event.key !== "Delete" && event.key !== "Backspace") {
+      return;
+    }
+    if (event.target?.closest?.("input, textarea, [contenteditable='true']")) {
+      return;
+    }
+    if (deleteSelectedCanvasEntity()) {
+      event.preventDefault?.();
+      void persistStartPageCanvas();
+      renderStartPageCanvas(frame);
+    }
+  });
+  surface.querySelector("[data-sloppy-canvas-viewport]")?.addEventListener("wheel", (event) => {
+    event.preventDefault?.();
+    zoomStartPageCanvas((Number(event.deltaY) || 0) > 0 ? 0.92 : 1.08);
+    void persistStartPageCanvas();
+    renderStartPageCanvas(frame);
+  });
+  surface.querySelector("[data-sloppy-canvas-viewport]")?.addEventListener("pointerdown", (event) => {
+    if (event.target?.closest?.("[data-sloppy-canvas-item]") || event.target?.closest?.("[data-sloppy-canvas-group]")) {
+      return;
+    }
+    const point = eventPoint(event);
+    state.selectedCanvasEntity = null;
+    dragState = { type: "pan", x: point.x, y: point.y, previousScreenX: point.x, previousScreenY: point.y, changed: false };
+    renderStartPageCanvas(frame);
+    document.addEventListener?.("pointermove", onPointerMove);
+    document.addEventListener?.("pointerup", endDrag);
+    document.addEventListener?.("pointercancel", endDrag);
+  });
+  surface.querySelectorAll?.("[data-sloppy-canvas-item]")?.forEach((node) => {
+    node.addEventListener("pointerdown", (event) => {
+      if (!canvasEditingEnabled()) {
+        return;
+      }
+      if (event.button != null && event.button !== 0) {
+        return;
+      }
+      if (event.target?.closest?.("[data-sloppy-canvas-delete-entity]")) {
+        return;
+      }
+      event.preventDefault?.();
+      const point = eventPoint(event);
+      selectCanvasEntity("item", node.dataset.sloppyCanvasItem);
+      dragState = { type: "item", id: node.dataset.sloppyCanvasItem, x: point.x, y: point.y, changed: false };
+      renderStartPageCanvas(frame);
+      document.addEventListener?.("pointermove", onPointerMove);
+      document.addEventListener?.("pointerup", endDrag);
+      document.addEventListener?.("pointercancel", endDrag);
+    });
+  });
+  surface.querySelectorAll?.("[data-sloppy-canvas-group]")?.forEach((node) => {
+    node.addEventListener("pointerdown", (event) => {
+      if (!canvasEditingEnabled()) {
+        return;
+      }
+      if (event.button != null && event.button !== 0) {
+        return;
+      }
+      if (event.target?.closest?.("[data-sloppy-canvas-delete-entity]")) {
+        return;
+      }
+      const resizeHandle = event.target?.closest?.("[data-sloppy-canvas-group-resize]");
+      if (resizeHandle) {
+        event.preventDefault?.();
+        event.stopPropagation?.();
+        const point = eventPoint(event);
+        selectCanvasEntity("group", resizeHandle.dataset.sloppyCanvasGroupResize || node.dataset.sloppyCanvasGroup);
+        dragState = { type: "group-resize", id: resizeHandle.dataset.sloppyCanvasGroupResize || node.dataset.sloppyCanvasGroup, x: point.x, y: point.y, changed: false };
+        document.addEventListener?.("pointermove", onPointerMove);
+        document.addEventListener?.("pointerup", endDrag);
+        document.addEventListener?.("pointercancel", endDrag);
+        return;
+      }
+      event.preventDefault?.();
+      const point = eventPoint(event);
+      selectCanvasEntity("group", node.dataset.sloppyCanvasGroup);
+      dragState = { type: "group", id: node.dataset.sloppyCanvasGroup, x: point.x, y: point.y, changed: false };
+      renderStartPageCanvas(frame);
+      document.addEventListener?.("pointermove", onPointerMove);
+      document.addEventListener?.("pointerup", endDrag);
+      document.addEventListener?.("pointercancel", endDrag);
+    });
+  });
+}
+
+function addCanvasTextItem(position = {}) {
+  const board = currentStartPageBoard();
+  const item = {
+    id: `text-${Date.now()}`,
+    type: "text",
+    x: Number(position.x) || 80,
+    y: Number(position.y) || 80,
+    width: 240,
+    height: 140,
+    title: "Note",
+    zIndex: nextCanvasZIndex(board),
+    text: ""
+  };
+  board.items.push(item);
+  selectCanvasEntity("item", item.id);
+  return item;
+}
+
+function selectCanvasEntity(type, id) {
+  const normalizedType = type === "group" ? "group" : "item";
+  const entityId = String(id || "").trim();
+  state.selectedCanvasEntity = entityId ? { type: normalizedType, id: entityId } : null;
+  return state.selectedCanvasEntity;
+}
+
+function normalizeCanvasSelection(board = currentStartPageBoard()) {
+  const selection = state.selectedCanvasEntity;
+  if (!selection) {
+    return null;
+  }
+  const exists = selection.type === "group"
+    ? board.groups.some((group) => group.id === selection.id)
+    : board.items.some((item) => item.id === selection.id);
+  if (!exists) {
+    state.selectedCanvasEntity = null;
+  }
+  return state.selectedCanvasEntity;
+}
+
+function deleteSelectedCanvasEntity() {
+  if (!canvasEditingEnabled()) {
+    return false;
+  }
+  const board = currentStartPageBoard();
+  const selection = normalizeCanvasSelection(board);
+  if (!selection) {
+    return false;
+  }
+  if (selection.type === "group") {
+    const before = board.groups.length;
+    board.groups = board.groups.filter((group) => group.id !== selection.id);
+    board.items = board.items.map((item) => item.groupId === selection.id ? { ...item, groupId: undefined } : item);
+    state.selectedCanvasEntity = null;
+    return board.groups.length !== before;
+  }
+  const before = board.items.length;
+  board.items = board.items.filter((item) => item.id !== selection.id);
+  state.selectedCanvasEntity = null;
+  return board.items.length !== before;
+}
+
+function updateSelectedCanvasGroup(patch = {}) {
+  if (!canvasEditingEnabled() || state.selectedCanvasEntity?.type !== "group") {
+    return null;
+  }
+  const board = currentStartPageBoard();
+  const group = board.groups.find((candidate) => candidate.id === state.selectedCanvasEntity.id);
+  if (!group) {
+    return null;
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "title")) {
+    group.title = String(patch.title || "Group").trim() || "Group";
+  }
+  if (Object.prototype.hasOwnProperty.call(patch, "color")) {
+    group.color = normalizeCanvasGroupColor(patch.color);
+  }
+  return group;
+}
+
+function nextCanvasZIndex(board = currentStartPageBoard()) {
+  return Math.max(0, ...board.items.map((item) => Number(item.zIndex) || 0)) + 1;
+}
+
+function nextCanvasPosition(board = currentStartPageBoard()) {
+  const index = board.items.length;
+  return {
+    x: 80 + (index % 4) * 36,
+    y: 80 + Math.floor(index / 4) * 36
+  };
+}
+
+function addShortcutToCanvas(shortcut = {}) {
+  const board = currentStartPageBoard();
+  const position = nextCanvasPosition(board);
+  const url = String(shortcut.url || "").trim();
+  const title = String(shortcut.title || url || "Shortcut").trim();
+  const item = {
+    id: String(shortcut.id || `shortcut-${Date.now()}`),
+    type: "shortcut",
+    x: position.x,
+    y: position.y,
+    width: 220,
+    height: 96,
+    title,
+    zIndex: nextCanvasZIndex(board),
+    url
+  };
+  board.items.push(item);
+  return item;
+}
+
+function addWidgetArtifactToCanvas(widget = {}) {
+  const board = currentStartPageBoard();
+  const position = nextCanvasPosition(board);
+  const artifactId = String(widget.artifactId || widget.id || "").trim();
+  const item = {
+    id: String(widget.id || artifactId || `widget-${Date.now()}`),
+    type: "widget",
+    x: position.x,
+    y: position.y,
+    width: Math.max(180, Number(widget.width) || 320),
+    height: Math.max(120, Number(widget.height) || 180),
+    title: String(widget.title || artifactId || "Widget").trim(),
+    zIndex: nextCanvasZIndex(board),
+    artifactId
+  };
+  board.items = board.items.filter((candidate) => candidate.type !== "widget" || candidate.artifactId !== artifactId);
+  board.items.push(item);
+  return item;
+}
+
+function moveCanvasItem(itemId, deltaX, deltaY) {
+  if (!canvasEditingEnabled()) {
+    return;
+  }
+  const board = currentStartPageBoard();
+  const item = board.items.find((candidate) => candidate.id === itemId);
+  if (!item) {
+    return;
+  }
+  item.x = (Number(item.x) || 0) + (Number(deltaX) || 0);
+  item.y = (Number(item.y) || 0) + (Number(deltaY) || 0);
+}
+
+function canvasItemCenter(item = {}) {
+  return {
+    x: (Number(item.x) || 0) + (Number(item.width) || 0) / 2,
+    y: (Number(item.y) || 0) + (Number(item.height) || 0) / 2
+  };
+}
+
+function canvasItemIsInsideGroup(item = {}, group = {}) {
+  const center = canvasItemCenter(item);
+  const left = Number(group.x) || 0;
+  const top = Number(group.y) || 0;
+  const right = left + (Number(group.width) || 0);
+  const bottom = top + (Number(group.height) || 0);
+  return center.x >= left && center.x <= right && center.y >= top && center.y <= bottom;
+}
+
+function syncCanvasGroupMembership(groupId, board = currentStartPageBoard()) {
+  const group = board.groups.find((candidate) => candidate.id === groupId);
+  if (!group) {
+    return [];
+  }
+  board.items.forEach((item) => {
+    if (canvasItemIsInsideGroup(item, group)) {
+      item.groupId = groupId;
+    }
+  });
+  return board.items.filter((item) => item.groupId === groupId);
+}
+
+function moveCanvasGroup(groupId, deltaX, deltaY) {
+  if (!canvasEditingEnabled()) {
+    return;
+  }
+  const board = currentStartPageBoard();
+  const group = board.groups.find((candidate) => candidate.id === groupId);
+  if (!group) {
+    return;
+  }
+  const dx = Number(deltaX) || 0;
+  const dy = Number(deltaY) || 0;
+  const containedItems = syncCanvasGroupMembership(groupId, board);
+  group.x = (Number(group.x) || 0) + dx;
+  group.y = (Number(group.y) || 0) + dy;
+  containedItems.forEach((item) => {
+    item.x = (Number(item.x) || 0) + dx;
+    item.y = (Number(item.y) || 0) + dy;
+  });
+}
+
+function resizeCanvasGroup(groupId, deltaX, deltaY) {
+  if (!canvasEditingEnabled()) {
+    return;
+  }
+  const board = currentStartPageBoard();
+  const group = board.groups.find((candidate) => candidate.id === groupId);
+  if (!group) {
+    return;
+  }
+  group.width = Math.max(120, (Number(group.width) || 0) + (Number(deltaX) || 0));
+  group.height = Math.max(120, (Number(group.height) || 0) + (Number(deltaY) || 0));
+  syncCanvasGroupMembership(groupId, board);
+}
+
+function zoomStartPageCanvas(multiplier) {
+  const board = currentStartPageBoard();
+  board.viewport.scale = Math.min(3, Math.max(0.2, (Number(board.viewport.scale) || 1) * (Number(multiplier) || 1)));
+}
+
+function createCanvasFrameForVisibleItems() {
+  const board = currentStartPageBoard();
+  const items = filterCanvasItems(board, state.canvasSearchQuery);
+  if (!items.length) {
+    return null;
+  }
+  const minX = Math.min(...items.map((item) => Number(item.x) || 0));
+  const minY = Math.min(...items.map((item) => Number(item.y) || 0));
+  const maxX = Math.max(...items.map((item) => (Number(item.x) || 0) + (Number(item.width) || 0)));
+  const maxY = Math.max(...items.map((item) => (Number(item.y) || 0) + (Number(item.height) || 0)));
+  const id = `group-${Date.now()}`;
+  const group = {
+    id,
+    title: "Group",
+    x: minX - 24,
+    y: minY - 44,
+    width: Math.max(120, maxX - minX + 48),
+    height: Math.max(120, maxY - minY + 68),
+    collapsed: false,
+    color: "#b7ff00"
+  };
+  board.groups.push(group);
+  items.forEach((item) => {
+    item.groupId = id;
+  });
+  return group;
+}
+
+async function persistStartPageCanvas() {
+  if (typeof chrome === "undefined" || typeof chrome.runtime?.sendMessage !== "function") {
+    return null;
+  }
+  const board = currentStartPageBoard();
+  const response = await chrome.runtime.sendMessage({
+    type: "sloppy.board.save",
+    boardId: board.id,
+    board
+  }).catch(() => null);
+  if (response?.board) {
+    state.startPageBoard = normalizeStartPageBoard(response.board);
+    state.startPageBoardLoaded = true;
+  }
+  return response;
+}
+
+function readCanvasImageFile(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("image_read_failed"));
+    reader.readAsDataURL(file);
+  });
+}
+
+async function addCanvasImageItem(file, position = {}) {
+  const dataURL = await readCanvasImageFile(file);
+  const dataBase64 = String(dataURL).split(",")[1] || "";
+  const mediaType = String(file?.type || dataURL.match(/^data:([^;]+);/)?.[1] || "image/png");
+  const response = await chrome.runtime.sendMessage({
+    type: "sloppy.board.asset.upload",
+    boardId: currentStartPageBoard().id,
+    filename: String(file?.name || "image.png"),
+    mediaType,
+    dataBase64
+  });
+  if (!response?.path) {
+    return null;
+  }
+  const board = currentStartPageBoard();
+  const maxZ = Math.max(0, ...board.items.map((item) => Number(item.zIndex) || 0));
+  const item = {
+    id: `image-${Date.now()}`,
+    type: "image",
+    x: Number(position.x) || 80,
+    y: Number(position.y) || 80,
+    width: 320,
+    height: 220,
+    title: String(file?.name || "Image"),
+    zIndex: maxZ + 1,
+    assetPath: response.path,
+    mediaType: response.mediaType || mediaType
+  };
+  board.items.push(item);
+  await persistStartPageCanvas();
+  return item;
 }
 
 function updateStartPageItems(mutator) {
@@ -615,6 +1431,10 @@ function renderStartPageItems(frame) {
 }
 
 function syncStartPagePreview(frame, options = {}) {
+  if (startPageLayoutMode(state.settings) === "canvas") {
+    renderStartPageCanvas(frame);
+    return;
+  }
   if (options.animate === false) {
     renderStartPageItems(frame);
     return;
@@ -856,6 +1676,12 @@ function renderCustomizeGeneralScreen(frame) {
             <option value="light">${escapeHTML(t("lightTheme"))}</option>
           </select>
         </label>
+        <label>Layout
+          <select data-sloppy-start-page-layout-mode>
+            <option value="grid">Grid</option>
+            <option value="canvas">Canvas</option>
+          </select>
+        </label>
         <label>${escapeHTML(t("backgroundImage"))}<input data-sloppy-start-page-background type="file" accept="image/png,image/jpeg,image/gif,image/webp"></label>
         <button class="sloppy-settings-save" type="button" data-sloppy-start-page-clear-background>${escapeHTML(t("clearBackground"))}</button>
         <p class="sloppy-settings-note" data-sloppy-start-page-error></p>
@@ -864,6 +1690,7 @@ function renderCustomizeGeneralScreen(frame) {
   `;
   root.querySelector("[data-sloppy-start-page-enabled]").checked = state.settings?.startPageEnabled !== false;
   root.querySelector("[data-sloppy-start-page-theme]").value = state.settings?.startPageTheme || "dark";
+  root.querySelector("[data-sloppy-start-page-layout-mode]").value = startPageLayoutMode(state.settings);
 }
 
 function renderCustomizeWidgetsScreen(frame) {
@@ -1002,6 +1829,19 @@ function commitShortcutDraft(frame) {
   const draft = state.customizeNavigation?.widgetDraft;
   if (!draft?.url) {
     navigateCustomize(frame, "widgets");
+    return;
+  }
+  if (startPageLayoutMode(state.settings) === "canvas") {
+    addShortcutToCanvas(draft);
+    void persistStartPageCanvas();
+    state.customizeNavigation = {
+      ...state.customizeNavigation,
+      screen: "widgets",
+      widgetDraft: null,
+      widgetDraftSourceId: null
+    };
+    syncStartPagePreview(frame);
+    renderCustomizeDialog(frame);
     return;
   }
   updateStartPageItems((items) => {
@@ -1218,12 +2058,15 @@ function exitCustomizeMode(frame) {
     customizeButton.hidden = false;
   }
   frame.classList.remove("is-start-customizing");
+  frame.classList.remove("is-widget-editing");
+  frame.classList.remove("is-widget-chat-expanded");
   state.customizeNavigation = {
     ...(state.customizeNavigation || {}),
     screen: "widgets",
     editing: false,
     widgetDraft: null,
-    widgetDraftSourceId: null
+    widgetDraftSourceId: null,
+    widgetChatExpanded: false
   };
   state.gridDrag = {
     activeId: null,
@@ -1233,6 +2076,8 @@ function exitCustomizeMode(frame) {
   };
   const customizeDialog = frame.querySelector("[data-sloppy-customize-dialog]");
   customizeDialog?.classList.remove("sloppy-customize-dialog-open");
+  customizeDialog?.classList.remove("is-widget-editor");
+  frame.querySelector("[data-sloppy-widget-chat-sheet-toggle]")?.setAttribute?.("aria-expanded", "false");
   requestAnimationFrame?.(() => animateCustomizeMotion(frame, motionRects));
 }
 
@@ -1244,21 +2089,71 @@ function closeCustomize(frame) {
   }
 }
 
+function updateStartPageLayoutToggle(frame) {
+  const button = frame.querySelector("[data-sloppy-start-layout-toggle]");
+  if (!button) {
+    return;
+  }
+  const isCanvas = startPageLayoutMode(state.settings) === "canvas";
+  button.classList.toggle("is-active", isCanvas);
+  button.setAttribute("aria-pressed", isCanvas ? "true" : "false");
+  button.setAttribute("aria-label", isCanvas ? t("gridMode") : t("canvasMode"));
+  const iconSlot = button.querySelector("[data-sloppy-start-layout-icon]");
+  if (iconSlot && typeof startPageLayoutToggleIconName === "function" && typeof icon === "function") {
+    iconSlot.innerHTML = icon(startPageLayoutToggleIconName(state.settings));
+  }
+  const label = button.querySelector("[data-sloppy-start-layout-label]");
+  if (label) {
+    label.textContent = isCanvas ? t("gridMode") : t("canvasMode");
+  }
+}
+
+async function toggleStartPageLayoutMode(frame) {
+  const nextMode = startPageLayoutMode(state.settings) === "canvas" ? "grid" : "canvas";
+  const settings = {
+    ...(state.settings || {}),
+    startPageLayoutMode: nextMode,
+    startPageShortcuts: startPageShortcutItems(state.settings),
+    startPageItems: state.settings?.startPageItems || []
+  };
+  const savedSettings = await chrome.runtime.sendMessage({ type: "sloppy.settings.save", settings });
+  const responseSettings = savedSettings
+      && typeof savedSettings === "object"
+      && !savedSettings.error
+      && !Array.isArray(savedSettings)
+      && Object.prototype.hasOwnProperty.call(savedSettings, "startPageLayoutMode")
+    ? savedSettings
+    : settings;
+  state.settings = {
+    ...responseSettings,
+    startPageLayoutMode: nextMode
+  };
+  syncStartPagePreview(frame, { animate: false });
+  renderStartPageSurface(frame);
+  updateStartPageLayoutToggle(frame);
+}
+
 async function saveCustomize(frame) {
   const startPageEnabled = frame.querySelector("[data-sloppy-start-page-enabled]")?.checked;
   const startPageTheme = frame.querySelector("[data-sloppy-start-page-theme]")?.value;
+  const startPageLayout = frame.querySelector("[data-sloppy-start-page-layout-mode]")?.value;
   const settings = {
     ...(state.settings || {}),
     startPageEnabled: startPageEnabled ?? state.settings?.startPageEnabled !== false,
     startPageTheme: startPageTheme || state.settings?.startPageTheme || "dark",
     startPageBackgroundImage: state.settings?.startPageBackgroundImage || "",
+    startPageLayoutMode: startPageLayoutMode({ startPageLayoutMode: startPageLayout || state.settings?.startPageLayoutMode }),
     startPageShortcuts: startPageShortcutItems(state.settings),
     startPageItems: state.settings?.startPageItems || []
   };
+  if (startPageLayoutMode(settings) === "canvas") {
+    await persistStartPageCanvas();
+  }
   state.settings = await chrome.runtime.sendMessage({ type: "sloppy.settings.save", settings });
   closeCustomize(frame);
   syncStartPagePreview(frame, { animate: false });
   render(frame);
+  updateStartPageLayoutToggle(frame);
 }
 
 function parseGridSpan(value) {
@@ -1450,6 +2345,30 @@ function commitWidgetDraft(frame) {
     navigateCustomize(frame, "widgets");
     return;
   }
+  if (startPageLayoutMode(state.settings) === "canvas") {
+    addWidgetArtifactToCanvas({
+      artifactId: draft.artifactId,
+      title: draft.title || draft.artifactId,
+      width: widgetEditorPreviewDimensions(draft.colSpan || 2, draft.rowSpan || 1).width,
+      height: widgetEditorPreviewDimensions(draft.colSpan || 2, draft.rowSpan || 1).height
+    });
+    if (draft.html && draft.artifactId) {
+      state.widgetHTMLByArtifactId = {
+        ...(state.widgetHTMLByArtifactId || {}),
+        [draft.artifactId]: draft.html
+      };
+    }
+    void persistStartPageCanvas();
+    state.customizeNavigation = {
+      ...state.customizeNavigation,
+      screen: "widgets",
+      widgetDraft: null,
+      widgetDraftSourceId: null
+    };
+    syncStartPagePreview(frame);
+    renderCustomizeDialog(frame);
+    return;
+  }
   updateStartPageItems((items) => {
     const nextItem = {
       id: draft.id || draft.artifactId,
@@ -1547,6 +2466,18 @@ async function addWidgetToStartPage(frame, artifactId, options = {}) {
     width: dimensions.width,
     height: dimensions.height
   };
+  if (startPageLayoutMode(state.settings) === "canvas") {
+    addWidgetArtifactToCanvas({
+      artifactId: id,
+      title: widget.title,
+      width: dimensions.width,
+      height: dimensions.height
+    });
+    void persistStartPageCanvas();
+    renderStartPageCanvas(frame);
+    renderWidgetPicker(frame);
+    return;
+  }
   renderStartPageItemsAnimated(frame, () => {
     const baseItems = startPageItemsForMutation(state.settings);
     state.settings = {

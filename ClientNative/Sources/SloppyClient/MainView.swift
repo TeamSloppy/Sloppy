@@ -40,6 +40,7 @@ final class MainViewModel {
     var selectedTabID: WorkspaceTab.ID?
     var chatTabStates: [WorkspaceTab.ID: ChatTabState] = [:]
     var projectKanbanTabStates: [WorkspaceTab.ID: ProjectKanbanTabState] = [:]
+    var taskDetailTabStates: [WorkspaceTab.ID: TaskDetailTabState] = [:]
     var workspaceTabStates: [WorkspaceTab.ID: WorkspaceFilesTabState] = [:]
     var chatViewModel: ChatScreenViewModel
     var workspacePanelViewModel: WorkspacePanelViewModel
@@ -64,6 +65,11 @@ final class MainViewModel {
             return nil
         }
         return WorkspacePanelContext(projectId: projectId, projectName: projectName)
+    }
+
+    var chatSidebarMode: ChatSidebarListMode {
+        get { settings.chatSidebarMode }
+        set { settings.chatSidebarMode = newValue }
     }
 
     init(
@@ -133,6 +139,10 @@ final class MainViewModel {
     func openSessionChatTab(_ session: ChatSessionSummary) {
         selectAppSection(.chats)
         updateSelectedSidebarItem(.chats)
+        if retargetSelectedChatTab(to: session) {
+            return
+        }
+
         let key = WorkspaceTabKey.chatSession(session.id)
         if let existing = tabs.first(where: { $0.key == key }) {
             selectedTabID = existing.id
@@ -251,6 +261,35 @@ final class MainViewModel {
         selectedTabID = tab.id
     }
 
+    func openTaskDetailTab(project: APIProjectRecord, task: APIProjectTask, fallbackAgentId: String?) {
+        selectAppSection(.projects)
+        updateSelectedSidebarItem(.task(projectId: project.id, taskId: task.id))
+        let key = WorkspaceTabKey.taskDetail(projectId: project.id, taskId: task.id)
+        if let existing = tabs.first(where: { $0.key == key }) {
+            selectedTabID = existing.id
+            return
+        }
+
+        let detailState = makeTaskDetailTabState()
+        let tab = WorkspaceTab(
+            key: key,
+            kind: .taskDetail,
+            title: task.title,
+            payload: .taskDetail(
+                TaskDetailTabContext(
+                    projectId: project.id,
+                    projectName: project.name,
+                    taskId: task.id,
+                    taskTitle: task.title,
+                    fallbackAgentId: task.actorId ?? fallbackAgentId
+                )
+            )
+        )
+        tabs.append(tab)
+        taskDetailTabStates[tab.id] = detailState
+        selectedTabID = tab.id
+    }
+
     func toggleProjectCollapse(projectId: String) {
         if collapsedProjectIds.contains(projectId) {
             collapsedProjectIds.remove(projectId)
@@ -269,7 +308,11 @@ final class MainViewModel {
 
     func refreshContent() async {
         await loadProjects(force: true)
-        await chatViewModel.refreshCurrentContext()
+        if chatViewModel.selectedAgent == nil {
+            chatViewModel.loadInitialData()
+        } else {
+            await chatViewModel.refreshCurrentContext()
+        }
     }
 
     func loadProjects(force: Bool = false) async {
@@ -354,6 +397,13 @@ final class MainViewModel {
         isMobileTabsOverviewPresented = false
     }
 
+    func closeActiveTab() {
+        guard let selectedTabID else {
+            return
+        }
+        closeTab(selectedTabID)
+    }
+
     func closeTab(_ tabID: WorkspaceTab.ID) {
         guard let index = tabs.firstIndex(where: { $0.id == tabID }) else {
             return
@@ -363,6 +413,7 @@ final class MainViewModel {
         tabs.remove(at: index)
         chatTabStates.removeValue(forKey: tabID)
         projectKanbanTabStates.removeValue(forKey: tabID)
+        taskDetailTabStates.removeValue(forKey: tabID)
         workspaceTabStates.removeValue(forKey: tabID)
 
         if tabs.isEmpty {
@@ -403,6 +454,11 @@ final class MainViewModel {
     func makeWorkspaceFilesTabState() -> WorkspaceFilesTabState {
         let apiClient = SloppyAPIClient(baseURL: baseURL)
         return WorkspaceFilesTabState(viewModel: WorkspacePanelViewModel(apiClient: apiClient))
+    }
+
+    func makeTaskDetailTabState() -> TaskDetailTabState {
+        let apiClient = SloppyAPIClient(baseURL: baseURL)
+        return TaskDetailTabState(viewModel: TaskDetailViewModel(apiClient: apiClient))
     }
 
     func openWorkspaceTabForSelectedContext() {
@@ -453,6 +509,26 @@ final class MainViewModel {
         selectedTabID = tab.id
     }
 
+    @discardableResult
+    private func retargetSelectedChatTab(to session: ChatSessionSummary) -> Bool {
+        guard let selectedTabID,
+              let index = tabs.firstIndex(where: { $0.id == selectedTabID }),
+              tabs[index].kind == .chat,
+              let chatState = chatTabStates[selectedTabID] else {
+            return false
+        }
+
+        chatState.viewModel.openSessionFromSummary(session)
+        tabs[index] = WorkspaceTab(
+            id: tabs[index].id,
+            key: .chatSession(session.id),
+            kind: .chat,
+            title: session.title,
+            payload: .chatSession(sessionID: session.id, title: session.title)
+        )
+        return true
+    }
+
     private func activeWorkspaceFilesContext() -> WorkspaceFilesTabContext? {
         guard let selectedTabID,
               let tab = tabs.first(where: { $0.id == selectedTabID }) else {
@@ -466,6 +542,8 @@ final class MainViewModel {
             return context
         case .chatTask(let projectId, let projectName, _, _, _):
             return WorkspaceFilesTabContext(projectId: projectId, projectName: projectName)
+        case .taskDetail(let context):
+            return WorkspaceFilesTabContext(projectId: context.projectId, projectName: context.projectName)
         case .chatSession:
             guard let chatState = chatTabStates[tab.id],
                   let projectId = chatState.viewModel.activeProjectIdForWorkspacePanel,
@@ -531,6 +609,7 @@ struct MainView: View {
             if viewModel.tabs.isEmpty {
                 viewModel.createBlankChatTab(select: true)
             }
+            viewModel.chatViewModel.loadInitialData()
             Task { await viewModel.loadProjects() }
         }
         .background {
@@ -539,6 +618,13 @@ struct MainView: View {
                     viewModel.createBlankChatTab()
                 }
                 .keyboardShortcut("t", modifiers: [.command])
+                .opacity(0.001)
+                .allowsHitTesting(false)
+
+                Button("") {
+                    viewModel.closeActiveTab()
+                }
+                .keyboardShortcut("w", modifiers: [.command])
                 .opacity(0.001)
                 .allowsHitTesting(false)
 
@@ -639,12 +725,65 @@ struct MainView: View {
                 ProjectKanbanView(
                     viewModel: kanbanState.viewModel,
                     projectId: context.projectId,
-                    projectName: context.projectName
+                    projectName: context.projectName,
+                    onOpenTask: { card in
+                        let project = APIProjectRecord(
+                            id: context.projectId,
+                            name: context.projectName,
+                            tasks: [
+                                APIProjectTask(
+                                    id: card.id,
+                                    title: card.title,
+                                    status: card.status,
+                                    priority: card.priority,
+                                    actorId: card.actorID
+                                )
+                            ]
+                        )
+                        let task = APIProjectTask(
+                            id: card.id,
+                            title: card.title,
+                            status: card.status,
+                            priority: card.priority,
+                            actorId: card.actorID
+                        )
+                        viewModel.openTaskDetailTab(
+                            project: project,
+                            task: task,
+                            fallbackAgentId: card.actorID
+                        )
+                    }
                 )
             } else {
                 DesktopTabPlaceholderView(
                     title: tab.title,
                     detail: "Kanban tab state is unavailable."
+                )
+            }
+        case .taskDetail:
+            if let detailState = viewModel.taskDetailTabStates[tab.id],
+               case .taskDetail(let context) = tab.payload {
+                TaskDetailView(
+                    viewModel: detailState.viewModel,
+                    projectId: context.projectId,
+                    taskId: context.taskId,
+                    onOpenChat: { task in
+                        let project = APIProjectRecord(
+                            id: context.projectId,
+                            name: context.projectName,
+                            tasks: [task]
+                        )
+                        viewModel.openTaskChatTab(
+                            project: project,
+                            task: task,
+                            fallbackAgentId: context.fallbackAgentId
+                        )
+                    }
+                )
+            } else {
+                DesktopTabPlaceholderView(
+                    title: tab.title,
+                    detail: "Task detail state is unavailable."
                 )
             }
         case .workspaceFiles:
@@ -693,7 +832,13 @@ struct MainView: View {
 }
 
 #Preview {
-    RootShellView()
+    MainView(
+        baseURL: .debugURL,
+        settings: ClientSettings(),
+        connectionMonitor: ConnectionMonitor(baseURL: .debugURL),
+        onOpenSettings: {},
+        onOpenWorkspace: {}
+    )
 }
 
 @MainActor

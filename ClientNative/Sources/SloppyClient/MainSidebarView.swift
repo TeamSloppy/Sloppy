@@ -1,4 +1,5 @@
 import Foundation
+import SloppyFeatureAgents
 import SwiftUI
 import SloppyClientCore
 import SloppyClientUI
@@ -25,7 +26,7 @@ struct MainSidebarView: View {
         .settings
     ]
 
-    let viewModel: MainViewModel
+    @State private var viewModel: MainViewModel
     let isOverlay: Bool
 
     @Environment(\.theme) private var theme
@@ -40,6 +41,11 @@ struct MainSidebarView: View {
 #endif
     }
 
+    init(viewModel: MainViewModel, isOverlay: Bool) {
+        self._viewModel = State(initialValue: viewModel)
+        self.isOverlay = isOverlay
+    }
+
     var body: some View {
         let c = theme.colors
 
@@ -49,111 +55,54 @@ struct MainSidebarView: View {
     private func expandedSidebar(c: AppColors) -> some View {
         let sp = theme.spacing
 
-        let content = HStack(alignment: .top, spacing: 0) {
-            navigatorTabBar(c: c, sp: sp)
-
-            ScrollView {
-                activeSectionContent(c: c, sp: sp)
-            }
-            .refreshable {
-                await viewModel.refreshContent()
-            }
-            .frame(minHeight: 0, maxHeight: .infinity)
-        }
-            .padding(.leading, sp.xs)
-            .padding(.trailing, sp.xs)
-            .padding(.vertical, sp.s)
-            .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
-            .overlay(anchor: .bottomTrailing) {
-                if userInterfaceIdiom == .phone {
-                    newChatFloatingButton(c: c, sp: sp)
-                        .padding(
-                            EdgeInsets(
-                                top: 0,
-                                leading: 0,
-                                bottom: isOverlay ? sp.xl + sp.s : sp.m,
-                                trailing: sp.s
-                            )
-                        )
+        return TabView(selection: $viewModel.selectedAppSection) {
+            Tab("Chats", systemImage: "", value: MainAppSection.chats) {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: sp.l) {
+                        chatActions(c: c, sp: sp)
+                        recentsSection(c: c, sp: sp)
+                    }
                 }
             }
 
-        return sidebarSurface(content, c: c)
-    }
+            Tab("Agents", systemImage: "", value: MainAppSection.agents) {
+                AgentsScreen(apiClient: viewModel.apiClient)
+            }
 
-    @ViewBuilder
-    private func activeSectionContent(c: AppColors, sp: AppSpacing) -> some View {
-        switch viewModel.selectedAppSection {
-        case .projects:
-            VStack(alignment: .leading, spacing: sp.l) {
-                notebooksSection(c: c, sp: sp)
+            Tab("Projects", systemImage: "", value: MainAppSection.projects) {
+                ScrollView {
+                    notebooksSection(c: c, sp: sp)
+                }
             }
-        case .agents:
-            VStack(alignment: .leading, spacing: sp.l) {
-                sectionIntro(
-                    title: "Agents",
-                    body: "Agent catalog and details live in the main pane."
-                )
+
+            #if !os(macOS)
+            Tab.init(value: MainAppSection.settings, role: .search) {
+                EmptyView()
             }
-        case .chats:
-            VStack(alignment: .leading, spacing: sp.l) {
-                chatActions(c: c, sp: sp)
-                recentsSection(c: c, sp: sp)
-            }
-        case .workspace:
-            VStack(alignment: .leading, spacing: sp.l) {
-                sectionIntro(
-                    title: "Workspace",
-                    body: "Use the toolbar button to open files, reviews, and the web browser for the active project."
-                )
-            }
-        case .settings:
-            VStack(alignment: .leading, spacing: sp.l) {
-                sectionIntro(
-                    title: "Settings",
-                    body: "Connection, mesh, providers, and runtime settings open in the main pane."
-                )
-            }
+            #endif
         }
-    }
-
-    private func navigatorTabBar(c: AppColors, sp: AppSpacing) -> some View {
-        VStack(alignment: .center, spacing: sp.s) {
-            ForEach(Self.desktopNavigatorSections, id: \.self) { section in
-                navigatorTabRow(
-                    section: section,
-                    isSelected: viewModel.selectedAppSection == section,
-                    c: c,
-                    sp: sp
-                )
-            }
-
-            Spacer(minLength: 0)
+        .pickerStyle(.segmented)
+        .refreshable {
+            await viewModel.refreshContent()
         }
-        .frame(width: 52)
-        .padding(.top, sp.xs)
+        .frame(minHeight: 0, maxHeight: .infinity)
+        .padding(.leading, sp.xs)
         .padding(.trailing, sp.xs)
-    }
-
-    private func navigatorTabRow(
-        section: MainAppSection,
-        isSelected: Bool,
-        c: AppColors,
-        sp: AppSpacing
-    ) -> some View {
-        Button {
-            viewModel.selectAppSection(section)
-        } label: {
-            Icons.symbol(icon(for: section), size: theme.typography.body)
-                .foregroundColor(isSelected ? c.textPrimary : c.textMuted)
-                .frame(width: 40, height: 40)
-                .background(
-                    RoundedRectangle(cornerRadius: 12)
-                        .fill(isSelected ? c.surfaceRaised : .clear)
-                )
+        .padding(.vertical, sp.s)
+        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
+        .overlay(anchor: .bottomTrailing) {
+            if userInterfaceIdiom == .phone {
+                newChatFloatingButton(c: c, sp: sp)
+                    .padding(
+                        EdgeInsets(
+                            top: 0,
+                            leading: 0,
+                            bottom: isOverlay ? sp.xl + sp.s : sp.m,
+                            trailing: sp.s
+                        )
+                    )
+            }
         }
-        .buttonStyle(.plain)
-        .help(title(for: section))
     }
 
     private func sectionIntro(title: String, body: String) -> some View {
@@ -182,15 +131,6 @@ struct MainSidebarView: View {
                 c: c,
                 sp: sp
             ) {}
-
-            sidebarPlainRow(
-                icon: .folder,
-                title: "Library",
-                trailing: nil,
-                isSelected: false,
-                c: c,
-                sp: sp
-            ) {}
         }
     }
 
@@ -209,9 +149,30 @@ struct MainSidebarView: View {
 
     private func recentsSection(c: AppColors, sp: AppSpacing) -> some View {
         let ty = theme.typography
+        let sections = ChatSidebarSections.build(
+            sessions: viewModel.chatViewModel.sessions,
+            projects: viewModel.projects,
+            pinnedSessionIds: viewModel.chatViewModel.pinnedSessionIds,
+            mode: viewModel.chatSidebarMode,
+            projectPreviewLimit: 5
+        )
 
         return VStack(alignment: .leading, spacing: sp.s) {
-            sectionLabel("Recents", c: c, ty: ty)
+            if !sections.pinned.isEmpty {
+                sectionLabel("Pinned", c: c, ty: ty)
+
+                ForEach(sections.pinned) { session in
+                    chatSessionRow(session: session, c: c, sp: sp)
+                }
+            }
+
+            HStack(alignment: .center, spacing: sp.s) {
+                sectionLabel(viewModel.chatSidebarMode == .projects ? "Projects" : "Recents", c: c, ty: ty)
+                Spacer(minLength: 0)
+                if !viewModel.chatViewModel.sessions.isEmpty {
+                    chatListModeMenu(c: c, sp: sp, compact: true)
+                }
+            }
 
             if viewModel.chatViewModel.isLoadingSessions && viewModel.chatViewModel.sessions.isEmpty {
                 Text("Loading chats…")
@@ -219,15 +180,25 @@ struct MainSidebarView: View {
                     .foregroundColor(c.textMuted)
                     .padding(.horizontal, sp.m)
                     .padding(.vertical, sp.s)
-            } else if viewModel.chatViewModel.sessions.isEmpty {
+            } else if sections.pinned.isEmpty && sections.sessions.isEmpty && sections.projectGroups.isEmpty {
                 Text("No chats yet")
                     .font(.system(size: ty.caption))
                     .foregroundColor(c.textMuted)
                     .padding(.horizontal, sp.m)
                     .padding(.vertical, sp.s)
             } else {
-                ForEach(viewModel.chatViewModel.sessions.prefix(12)) { session in
-                    chatSessionRow(session: session, c: c, sp: sp)
+                if viewModel.chatSidebarMode == .allChats {
+                    ForEach(sections.sessions.prefix(12)) { session in
+                        chatSessionRow(session: session, c: c, sp: sp)
+                    }
+                } else {
+                    ForEach(sections.projectGroups) { group in
+                        projectChatGroup(
+                            group: group,
+                            c: c,
+                            sp: sp
+                        )
+                    }
                 }
             }
 
@@ -241,6 +212,39 @@ struct MainSidebarView: View {
             }
         }
         .padding(.horizontal, sp.xs)
+    }
+
+    private func chatListModeMenu(
+        c: AppColors,
+        sp: AppSpacing,
+        compact: Bool = false
+    ) -> some View {
+        let ty = theme.typography
+
+        return Menu {
+            ForEach(ChatSidebarListMode.allCases, id: \.self) { mode in
+                Button {
+                    viewModel.chatSidebarMode = mode
+                } label: {
+                    HStack(spacing: sp.s) {
+                        Text(mode.title)
+                        if viewModel.chatSidebarMode == mode {
+                            Icons.symbol(.check, size: ty.caption)
+                        }
+                    }
+                }
+            }
+        } label: {
+            HStack(spacing: sp.xs) {
+                Text(viewModel.chatSidebarMode.title)
+                    .font(.system(size: compact ? ty.caption : ty.body))
+                    .foregroundColor(c.textMuted)
+                Icons.symbol(.expandMore, size: compact ? ty.caption : ty.body)
+                    .foregroundColor(c.textMuted)
+            }
+            .padding(.horizontal, compact ? 0 : sp.s)
+            .padding(.vertical, compact ? 0 : sp.xs)
+        }
     }
 
     private func notebooksSection(c: AppColors, sp: AppSpacing) -> some View {
@@ -315,6 +319,57 @@ struct MainSidebarView: View {
                     }
                 }
             }
+        }
+    }
+
+    private func projectChatGroup(
+        group: ChatSidebarProjectGroup,
+        c: AppColors,
+        sp: AppSpacing
+    ) -> some View {
+        let isCollapsed = viewModel.collapsedProjectIds.contains(group.project.id)
+        let isExpanded = viewModel.expandedTaskLists.contains(group.project.id)
+        let visibleSessions = isExpanded ? group.totalSessions : group.visibleSessions
+
+        return VStack(alignment: .leading, spacing: sp.xs) {
+            projectChatHeader(group: group, c: c, sp: sp)
+
+            if !isCollapsed {
+                ForEach(visibleSessions) { session in
+                    chatSessionRow(session: session, c: c, sp: sp)
+                }
+
+                if group.hiddenCount > 0 {
+                    showMoreButton(projectId: group.project.id, isExpanded: isExpanded, c: c, sp: sp)
+                }
+            }
+        }
+    }
+
+    private func projectChatHeader(
+        group: ChatSidebarProjectGroup,
+        c: AppColors,
+        sp: AppSpacing
+    ) -> some View {
+        HStack(spacing: sp.xs) {
+            Text(group.project.name)
+                .font(.system(size: theme.typography.body))
+                .foregroundColor(c.textMuted)
+                .padding(.horizontal, theme.spacing.s)
+
+            Spacer(minLength: 0)
+
+            Button {
+                viewModel.toggleProjectCollapse(projectId: group.project.id)
+            } label: {
+                Icons.symbol(
+                    viewModel.collapsedProjectIds.contains(group.project.id) ? .arrowForward : .expandMore,
+                    size: theme.typography.caption
+                )
+                .foregroundColor(c.textMuted)
+                .frame(width: 28, height: 28)
+            }
+            .buttonStyle(.plain)
         }
     }
 
@@ -502,17 +557,6 @@ struct MainSidebarView: View {
         )
     }
 
-    @ViewBuilder
-    private func sidebarSurface<Content: View>(_ content: Content, c: AppColors) -> some View {
-        if usesLiquidGlass {
-            content
-                .padding(4)
-        } else {
-            content
-                .background(c.background)
-        }
-    }
-
     private func statusGlyph(_ status: String) -> MaterialSymbol? {
         switch status {
         case "in_progress":
@@ -564,7 +608,9 @@ private struct MobileSidebarOverlayIconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .frame(width: 48, height: 48)
-            .glassEffect(.regular, in: Circle())
+        #if !os(visionOS)
+            .glassEffect(Glass.regular, in: .circle)
+        #endif
             .opacity(configuration.isPressed ? 0.78 as CGFloat : 1)
     }
 }
@@ -622,6 +668,8 @@ private struct HoverableSidebarRow: View {
                         .multilineTextAlignment(.trailing)
                 }
             }
+            .padding(.vertical, 6)
+            .padding(.horizontal, 4)
         }
         .onHover {
             isHovered = $0
@@ -642,11 +690,11 @@ private extension View {
     @ViewBuilder
     func applySidebarGlass(
         _ isEnabled: Bool,
-        style: GlassEffect = .regular,
+        style: Glass = .regular,
         cornerRadius: CGFloat
     ) -> some View {
         if isEnabled {
-            glassEffect(style, in: GlassShape.rect(cornerRadius: cornerRadius))
+            glassEffect(style, in: .rect(cornerRadius: cornerRadius))
         } else {
             self
         }

@@ -525,6 +525,54 @@ test("start page mode renders centered composer and shortcuts", () => {
   assert.match(panel.innerHTML, /data-sloppy-customize/);
 });
 
+test("start page canvas toggle sits near customize and switches layout", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  const savedRequests = [];
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage(message) {
+        if (message?.type === "sloppy.settings.save") {
+          savedRequests.push(message);
+          return Promise.resolve(message.settings);
+        }
+        if (message?.type === "sloppy.board.get") {
+          return Promise.resolve({ error: "offline" });
+        }
+        return Promise.resolve({ artifacts: [] });
+      }
+    }
+  };
+  vm.runInNewContext(`
+    globalThis.SloppyStartPageMode = true;
+    state.settings = {
+      startPageEnabled: true,
+      startPageLayoutMode: "grid",
+      startPageShortcuts: [{ title: "GitHub", url: "https://github.com/" }]
+    };
+  `, sandbox);
+
+  const panel = sandbox.ensurePanel();
+  sandbox.render(panel);
+  const toggle = panel.querySelector("[data-sloppy-start-layout-toggle]");
+  const customize = panel.querySelector("[data-sloppy-customize]");
+
+  assert.ok(toggle);
+  assert.ok(customize);
+  assert.match(panel.innerHTML, /data-sloppy-start-layout-toggle/);
+  assert.match(panel.innerHTML, /scribble\.variable\.svg/);
+  await toggle.listeners.get("click")?.();
+
+  assert.equal(savedRequests.at(-1)?.settings?.startPageLayoutMode, "canvas");
+  assert.equal(vm.runInNewContext("state.settings.startPageLayoutMode", sandbox), "canvas");
+  assert.match(toggle.querySelector("[data-sloppy-start-layout-icon]").innerHTML, /square\.grid\.3x2\.svg/);
+  assert.match(panel.querySelector("[data-sloppy-thread]").querySelector("[data-sloppy-start-surface]").innerHTML, /data-sloppy-start-canvas/);
+});
+
 test("start page grid renders shortcuts and widget artifacts", () => {
   const sandbox = loadContentScriptSandbox();
   const documentLike = createPanelDocument();
@@ -568,6 +616,540 @@ test("start page grid renders shortcuts and widget artifacts", () => {
   assert.match(shortcuts.innerHTML, /style="--sloppy-col-span:1;--sloppy-row-span:1;"/);
   assert.doesNotMatch(shortcuts.innerHTML, /width:160px;height:120px/);
   assert.match(shortcuts.innerHTML, /sandbox="allow-scripts"/);
+});
+
+test("start page canvas mode renders freeform board items", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage() {
+        return Promise.resolve({ error: "offline" });
+      }
+    }
+  };
+  vm.runInNewContext(`
+    globalThis.SloppyStartPageMode = true;
+    state.settings = { startPageEnabled: true, startPageLayoutMode: "canvas" };
+    state.startPageBoard = {
+      id: "start-page-canvas",
+      version: 1,
+      viewport: { x: 10, y: -20, scale: 1.25 },
+      items: [
+        { id: "text-1", type: "text", x: 24, y: 32, width: 220, height: 140, title: "Note", zIndex: 1, text: "Ship canvas" },
+        { id: "shortcut-1", type: "shortcut", x: 280, y: 48, width: 220, height: 96, title: "GitHub", zIndex: 2, url: "https://github.com/" },
+        { id: "widget-1", type: "widget", x: 520, y: 64, width: 320, height: 180, title: "Clock", zIndex: 3, artifactId: "widget-1" }
+      ],
+      groups: [
+        { id: "group-1", title: "Planning", x: 0, y: 0, width: 480, height: 280, collapsed: false }
+      ]
+    };
+    state.widgetHTMLByArtifactId = { "widget-1": "<!doctype html><html><body>Clock</body></html>" };
+  `, sandbox);
+
+  const panel = sandbox.ensurePanel();
+  sandbox.render(panel);
+  const surface = panel.querySelector("[data-sloppy-thread]").querySelector("[data-sloppy-start-surface]");
+
+  assert.match(surface.innerHTML, /data-sloppy-start-canvas/);
+  assert.match(surface.innerHTML, /data-sloppy-canvas-item="text-1"/);
+  assert.match(surface.innerHTML, /Ship canvas/);
+  assert.match(surface.innerHTML, /data-sloppy-canvas-item="shortcut-1"/);
+  assert.match(surface.innerHTML, /class="sloppy-canvas-shortcut-icon"[^>]*src="https:\/\/github\.com\/favicon\.ico"/);
+  assert.match(surface.innerHTML, /https:\/\/github\.com\//);
+  assert.match(surface.innerHTML, /data-sloppy-canvas-widget="widget-1"/);
+  assert.match(surface.innerHTML, /data-sloppy-canvas-group="group-1"/);
+  assert.doesNotMatch(surface.innerHTML, /data-sloppy-start-shortcuts/);
+});
+
+test("start page canvas loads saved groups from the board artifact", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage(message) {
+        if (message?.type === "sloppy.board.get") {
+          return Promise.resolve({
+            board: {
+              id: "start-page-canvas",
+              version: 1,
+              viewport: { x: 0, y: 0, scale: 1 },
+              items: [],
+              groups: [
+                { id: "group-1", title: "Saved Group", x: 20, y: 30, width: 240, height: 180, collapsed: false, color: "#2299ee" }
+              ]
+            }
+          });
+        }
+        return Promise.resolve({ artifacts: [] });
+      }
+    }
+  };
+  vm.runInNewContext(`
+    globalThis.SloppyStartPageMode = true;
+    state.settings = { startPageEnabled: true, startPageLayoutMode: "canvas" };
+  `, sandbox);
+
+  const panel = sandbox.ensurePanel();
+  sandbox.render(panel);
+  vm.runInNewContext("state.startPageBoardLoaded = false; state.startPageBoardLoading = false;", sandbox);
+  await sandbox.loadStartPageBoard(panel);
+
+  const surface = panel.querySelector("[data-sloppy-thread]").querySelector("[data-sloppy-start-surface]");
+  assert.match(surface.innerHTML, /data-sloppy-canvas-group="group-1"/);
+  assert.match(surface.innerHTML, /Saved Group/);
+  assert.match(surface.innerHTML, /--sloppy-canvas-group-color:#2299ee;/);
+});
+
+test("start page canvas hides edit-only toolbar buttons outside customize", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage() {
+        return Promise.resolve({ error: "offline" });
+      }
+    }
+  };
+  vm.runInNewContext(`
+    globalThis.SloppyStartPageMode = true;
+    state.settings = { startPageEnabled: true, startPageLayoutMode: "canvas" };
+    state.startPageBoard = {
+      id: "start-page-canvas",
+      version: 1,
+      viewport: { x: 0, y: 0, scale: 1 },
+      items: [],
+      groups: []
+    };
+  `, sandbox);
+
+  const panel = sandbox.ensurePanel();
+  sandbox.render(panel);
+  const surface = panel.querySelector("[data-sloppy-thread]").querySelector("[data-sloppy-start-surface]");
+
+  assert.doesNotMatch(surface.innerHTML, /data-sloppy-canvas-add-text/);
+  assert.doesNotMatch(surface.innerHTML, /data-sloppy-canvas-group-selected/);
+  assert.doesNotMatch(surface.innerHTML, /data-sloppy-canvas-delete/);
+  assert.match(surface.innerHTML, /data-sloppy-canvas-search/);
+  assert.match(surface.innerHTML, /data-sloppy-canvas-zoom-in/);
+});
+
+test("start page canvas shows add and group controls while customizing", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage() {
+        return Promise.resolve({ error: "offline" });
+      }
+    }
+  };
+  vm.runInNewContext(`
+    globalThis.SloppyStartPageMode = true;
+    state.customizeNavigation = { editing: true };
+    state.settings = { startPageEnabled: true, startPageLayoutMode: "canvas" };
+    state.startPageBoard = {
+      id: "start-page-canvas",
+      version: 1,
+      viewport: { x: 0, y: 0, scale: 1 },
+      items: [],
+      groups: []
+    };
+  `, sandbox);
+
+  const panel = sandbox.ensurePanel();
+  sandbox.render(panel);
+  const surface = panel.querySelector("[data-sloppy-thread]").querySelector("[data-sloppy-start-surface]");
+
+  assert.match(surface.innerHTML, /data-sloppy-canvas-add-text/);
+  assert.match(surface.innerHTML, /data-sloppy-canvas-group-selected/);
+  assert.match(surface.innerHTML, /icons\/rectangle\.3\.group\.svg/);
+});
+
+test("start page canvas CSS makes the hidden thread visible full-screen", () => {
+  const panelCSS = readFileSync(new URL("../Resources/panel.css", import.meta.url), "utf8");
+
+  assert.match(panelCSS, /\.sloppy-start-page #sloppy-safari-extension-panel\.is-start-canvas \.sloppy-thread\s*\{[\s\S]*display:\s*block;/);
+  assert.match(panelCSS, /\.sloppy-start-page #sloppy-safari-extension-panel\.is-start-canvas \.sloppy-start-surface\s*\{[\s\S]*position:\s*absolute;[\s\S]*inset:\s*0;/);
+});
+
+test("start page canvas CSS keeps chat composer above canvas controls", () => {
+  const panelCSS = readFileSync(new URL("../Resources/panel.css", import.meta.url), "utf8");
+  const composerBlock = panelCSS.match(/#sloppy-safari-extension-panel\.is-start-canvas \.sloppy-composer\s*\{[\s\S]*?\n\}/)?.[0] || "";
+
+  assert.match(composerBlock, /display:\s*grid;/);
+  assert.match(composerBlock, /bottom:\s*calc\(72px/);
+  assert.match(composerBlock, /z-index:\s*3;/);
+});
+
+test("start page canvas customize keeps mode buttons visible", () => {
+  const panelCSS = readFileSync(new URL("../Resources/panel.css", import.meta.url), "utf8");
+  const canvasCustomizeBlock = panelCSS.match(/#sloppy-safari-extension-panel\.is-start-canvas\.is-start-customizing \.sloppy-start-config-panel\s*\{[\s\S]*?\n\}/)?.[0] || "";
+
+  assert.match(canvasCustomizeBlock, /position:\s*absolute;/);
+  assert.match(canvasCustomizeBlock, /bottom:\s*0;/);
+  assert.match(canvasCustomizeBlock, /z-index:\s*4;/);
+  assert.match(canvasCustomizeBlock, /transform:\s*translateX\(-50%\);/);
+});
+
+test("start page canvas customize lets widget iframes be dragged", () => {
+  const panelCSS = readFileSync(new URL("../Resources/panel.css", import.meta.url), "utf8");
+  const canvasWidgetIframeBlock = panelCSS.match(/#sloppy-safari-extension-panel\.is-start-canvas\.is-start-customizing \.sloppy-canvas-widget iframe\s*\{[\s\S]*?\n\}/)?.[0] || "";
+
+  assert.match(canvasWidgetIframeBlock, /pointer-events:\s*none;/);
+});
+
+test("selected canvas items do not clip inline delete controls", () => {
+  const panelCSS = readFileSync(new URL("../Resources/panel.css", import.meta.url), "utf8");
+
+  assert.match(panelCSS, /\.sloppy-canvas-item\.is-selected\s*\{[\s\S]*overflow:\s*visible;[\s\S]*\}/);
+});
+
+test("canvas search matches text shortcuts and widgets", () => {
+  const sandbox = loadContentScriptSandbox();
+  const board = {
+    id: "start-page-canvas",
+    version: 1,
+    viewport: { x: 0, y: 0, scale: 1 },
+    items: [
+      { id: "text-1", type: "text", x: 0, y: 0, width: 200, height: 120, title: "Launch", zIndex: 1, text: "Release notes" },
+      { id: "shortcut-1", type: "shortcut", x: 0, y: 0, width: 200, height: 120, title: "Docs", zIndex: 2, url: "https://docs.example/" },
+      { id: "widget-1", type: "widget", x: 0, y: 0, width: 200, height: 120, title: "Weather", zIndex: 3, artifactId: "weather-widget" }
+    ],
+    groups: []
+  };
+
+  assert.deepEqual(sandbox.filterCanvasItems(board, "release").map((item) => item.id), ["text-1"]);
+  assert.deepEqual(sandbox.filterCanvasItems(board, "docs.example").map((item) => item.id), ["shortcut-1"]);
+  assert.deepEqual(sandbox.filterCanvasItems(board, "weather").map((item) => item.id), ["widget-1"]);
+});
+
+test("canvas search keeps focus after filtering", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage() {
+        return Promise.resolve({ error: "offline" });
+      }
+    }
+  };
+  vm.runInNewContext(`
+    globalThis.SloppyStartPageMode = true;
+    state.settings = { startPageEnabled: true, startPageLayoutMode: "canvas" };
+    state.startPageBoard = {
+      id: "start-page-canvas",
+      version: 1,
+      viewport: { x: 0, y: 0, scale: 1 },
+      items: [
+        { id: "text-1", type: "text", x: 0, y: 0, width: 200, height: 120, title: "Launch", zIndex: 1, text: "Release notes" }
+      ],
+      groups: []
+    };
+  `, sandbox);
+
+  const panel = sandbox.ensurePanel();
+  sandbox.render(panel);
+  const surface = panel.querySelector("[data-sloppy-thread]").querySelector("[data-sloppy-start-surface]");
+  const search = surface.querySelector("[data-sloppy-canvas-search]");
+  search.value = "r";
+  await search.listeners.get("input")({ target: search });
+
+  assert.equal(vm.runInNewContext("state.canvasSearchQuery", sandbox), "r");
+  assert.ok(surface.querySelector("[data-sloppy-canvas-search]").focusCount > 0);
+});
+
+test("selected canvas groups can be renamed and recolored", () => {
+  const sandbox = loadContentScriptSandbox();
+  vm.runInNewContext(`
+    state.customizeNavigation = { editing: true };
+    state.startPageBoard = {
+      id: "start-page-canvas",
+      version: 1,
+      viewport: { x: 0, y: 0, scale: 1 },
+      items: [],
+      groups: [
+        { id: "group-1", title: "Planning", x: 0, y: 0, width: 260, height: 180, collapsed: false, color: "#b7ff00" }
+      ]
+    };
+  `, sandbox);
+
+  sandbox.selectCanvasEntity("group", "group-1");
+  sandbox.updateSelectedCanvasGroup({ title: "Ideas", color: "#2299ee" });
+  const board = JSON.parse(vm.runInNewContext("JSON.stringify(state.startPageBoard)", sandbox));
+  const groupStyle = sandbox.canvasGroupStyle(board.groups[0]);
+
+  assert.equal(board.groups[0].title, "Ideas");
+  assert.equal(board.groups[0].color, "#2299ee");
+  assert.match(groupStyle, /--sloppy-canvas-group-color:#2299ee;/);
+});
+
+test("selected canvas groups render a resize handle", () => {
+  const sandbox = loadContentScriptSandbox();
+  vm.runInNewContext(`
+    state.customizeNavigation = { editing: true };
+    state.startPageBoard = {
+      id: "start-page-canvas",
+      version: 1,
+      viewport: { x: 0, y: 0, scale: 1 },
+      items: [],
+      groups: [
+        { id: "group-1", title: "Planning", x: 0, y: 0, width: 260, height: 180, collapsed: false, color: "#b7ff00" }
+      ]
+    };
+  `, sandbox);
+
+  sandbox.selectCanvasEntity("group", "group-1");
+  const html = sandbox.renderCanvasGroup(JSON.parse(vm.runInNewContext("JSON.stringify(state.startPageBoard.groups[0])", sandbox)));
+
+  assert.match(html, /data-sloppy-canvas-group-resize="group-1"/);
+});
+
+test("canvas movement persists item and frame group positions", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const savedMessages = [];
+  sandbox.chrome = {
+    runtime: {
+      sendMessage(message) {
+        savedMessages.push(message);
+        return Promise.resolve({ board: message.board });
+      }
+    }
+  };
+  vm.runInNewContext(`
+    state.customizeNavigation = { editing: true };
+    state.startPageBoard = {
+      id: "start-page-canvas",
+      version: 1,
+      viewport: { x: 0, y: 0, scale: 1 },
+      items: [
+        { id: "text-1", type: "text", x: 10, y: 20, width: 220, height: 120, title: "Note", zIndex: 1, text: "Hello", groupId: "group-1" },
+        { id: "text-2", type: "text", x: 300, y: 20, width: 220, height: 120, title: "Loose", zIndex: 2, text: "Solo" }
+      ],
+      groups: [
+        { id: "group-1", title: "Planning", x: 0, y: 0, width: 260, height: 180, collapsed: false }
+      ]
+    };
+  `, sandbox);
+
+  sandbox.moveCanvasItem("text-2", 30, -5);
+  sandbox.moveCanvasGroup("group-1", 12, 8);
+  await sandbox.persistStartPageCanvas();
+
+  const board = JSON.parse(vm.runInNewContext("JSON.stringify(state.startPageBoard)", sandbox));
+  assert.equal(board.items.find((item) => item.id === "text-2").x, 330);
+  assert.equal(board.groups[0].x, 12);
+  assert.equal(board.items.find((item) => item.id === "text-1").x, 22);
+  assert.equal(savedMessages.at(-1).type, "sloppy.board.save");
+  assert.equal(savedMessages.at(-1).board.items.find((item) => item.id === "text-1").y, 28);
+});
+
+test("canvas group movement adopts contained items without a saved group id", () => {
+  const sandbox = loadContentScriptSandbox();
+  vm.runInNewContext(`
+    state.customizeNavigation = { editing: true };
+    state.startPageBoard = {
+      id: "start-page-canvas",
+      version: 1,
+      viewport: { x: 0, y: 0, scale: 1 },
+      items: [
+        { id: "inside", type: "shortcut", x: 40, y: 40, width: 120, height: 80, title: "Inside", zIndex: 1, url: "https://inside.example/" },
+        { id: "outside", type: "shortcut", x: 420, y: 40, width: 120, height: 80, title: "Outside", zIndex: 2, url: "https://outside.example/" }
+      ],
+      groups: [
+        { id: "group-1", title: "Planning", x: 0, y: 0, width: 260, height: 180, collapsed: false }
+      ]
+    };
+  `, sandbox);
+
+  sandbox.moveCanvasGroup("group-1", 10, 15);
+  const board = JSON.parse(vm.runInNewContext("JSON.stringify(state.startPageBoard)", sandbox));
+
+  assert.equal(board.items.find((item) => item.id === "inside").groupId, "group-1");
+  assert.equal(board.items.find((item) => item.id === "inside").x, 50);
+  assert.equal(board.items.find((item) => item.id === "inside").y, 55);
+  assert.equal(board.items.find((item) => item.id === "outside").groupId, undefined);
+  assert.equal(board.items.find((item) => item.id === "outside").x, 420);
+});
+
+test("canvas group resize updates frame dimensions", () => {
+  const sandbox = loadContentScriptSandbox();
+  vm.runInNewContext(`
+    state.customizeNavigation = { editing: true };
+    state.startPageBoard = {
+      id: "start-page-canvas",
+      version: 1,
+      viewport: { x: 0, y: 0, scale: 1 },
+      items: [],
+      groups: [
+        { id: "group-1", title: "Planning", x: 0, y: 0, width: 260, height: 180, collapsed: false }
+      ]
+    };
+  `, sandbox);
+
+  sandbox.resizeCanvasGroup("group-1", 40, 30);
+  const board = JSON.parse(vm.runInNewContext("JSON.stringify(state.startPageBoard)", sandbox));
+
+  assert.equal(board.groups[0].width, 300);
+  assert.equal(board.groups[0].height, 210);
+});
+
+test("canvas delete removes selected items and frame groups", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const savedMessages = [];
+  sandbox.chrome = {
+    runtime: {
+      sendMessage(message) {
+        savedMessages.push(message);
+        return Promise.resolve({ board: message.board });
+      }
+    }
+  };
+  vm.runInNewContext(`
+    state.customizeNavigation = { editing: true };
+    state.startPageBoard = {
+      id: "start-page-canvas",
+      version: 1,
+      viewport: { x: 0, y: 0, scale: 1 },
+      items: [
+        { id: "text-1", type: "text", x: 10, y: 20, width: 220, height: 120, title: "Note", zIndex: 1, text: "Hello", groupId: "group-1" },
+        { id: "text-2", type: "text", x: 300, y: 20, width: 220, height: 120, title: "Loose", zIndex: 2, text: "Solo" }
+      ],
+      groups: [
+        { id: "group-1", title: "Planning", x: 0, y: 0, width: 260, height: 180, collapsed: false }
+      ]
+    };
+  `, sandbox);
+
+  sandbox.selectCanvasEntity("item", "text-2");
+  sandbox.deleteSelectedCanvasEntity();
+  sandbox.selectCanvasEntity("group", "group-1");
+  sandbox.deleteSelectedCanvasEntity();
+  await sandbox.persistStartPageCanvas();
+
+  const board = JSON.parse(vm.runInNewContext("JSON.stringify(state.startPageBoard)", sandbox));
+  assert.deepEqual(board.items.map((item) => item.id), ["text-1"]);
+  assert.equal(board.items[0].groupId, undefined);
+  assert.equal(board.groups.length, 0);
+  assert.equal(savedMessages.at(-1).type, "sloppy.board.save");
+});
+
+test("canvas move and delete are disabled outside customize mode", () => {
+  const sandbox = loadContentScriptSandbox();
+  vm.runInNewContext(`
+    state.customizeNavigation = { editing: false };
+    state.startPageBoard = {
+      id: "start-page-canvas",
+      version: 1,
+      viewport: { x: 0, y: 0, scale: 1 },
+      items: [
+        { id: "text-1", type: "text", x: 10, y: 20, width: 220, height: 120, title: "Note", zIndex: 1, text: "Hello", groupId: "group-1" }
+      ],
+      groups: [
+        { id: "group-1", title: "Planning", x: 0, y: 0, width: 260, height: 180, collapsed: false }
+      ]
+    };
+  `, sandbox);
+
+  sandbox.selectCanvasEntity("item", "text-1");
+  sandbox.moveCanvasItem("text-1", 40, 40);
+  sandbox.moveCanvasGroup("group-1", 12, 8);
+  const deleted = sandbox.deleteSelectedCanvasEntity();
+
+  const board = JSON.parse(vm.runInNewContext("JSON.stringify(state.startPageBoard)", sandbox));
+  assert.equal(deleted, false);
+  assert.equal(board.items.length, 1);
+  assert.equal(board.items[0].x, 10);
+  assert.equal(board.groups[0].x, 0);
+});
+
+test("selected canvas items render an inline delete control", () => {
+  const sandbox = loadContentScriptSandbox();
+  vm.runInNewContext(`
+    state.customizeNavigation = { editing: true };
+    state.startPageBoard = {
+      id: "start-page-canvas",
+      version: 1,
+      viewport: { x: 0, y: 0, scale: 1 },
+      items: [
+        { id: "text-1", type: "text", x: 10, y: 20, width: 220, height: 120, title: "Note", zIndex: 1, text: "Hello" }
+      ],
+      groups: []
+    };
+  `, sandbox);
+
+  sandbox.selectCanvasEntity("item", "text-1");
+  const html = sandbox.renderCanvasItem(JSON.parse(vm.runInNewContext("JSON.stringify(state.startPageBoard.items[0])", sandbox)));
+
+  assert.match(html, /data-sloppy-canvas-delete-entity/);
+  assert.match(html, /is-selected/);
+});
+
+test("canvas image upload creates an image item from board asset", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const sentMessages = [];
+  sandbox.FileReader = class FileReader {
+    readAsDataURL() {
+      this.result = "data:image/png;base64,abcd";
+      this.onload?.();
+    }
+  };
+  sandbox.chrome = {
+    runtime: {
+      sendMessage(message) {
+        sentMessages.push(message);
+        if (message.type === "sloppy.board.asset.upload") {
+          return Promise.resolve({
+            path: ".sloppy/artifacts/boards/start-page-canvas/assets/asset.png",
+            mediaType: "image/png",
+            sizeBytes: 3
+          });
+        }
+        if (message.type === "sloppy.board.save") {
+          return Promise.resolve({ board: message.board });
+        }
+        return Promise.resolve({});
+      }
+    }
+  };
+  vm.runInNewContext(`
+    state.startPageBoard = {
+      id: "start-page-canvas",
+      version: 1,
+      viewport: { x: 0, y: 0, scale: 1 },
+      items: [],
+      groups: []
+    };
+  `, sandbox);
+
+  await sandbox.addCanvasImageItem({ name: "shot.png", type: "image/png" }, { x: 40, y: 50 });
+
+  const board = JSON.parse(vm.runInNewContext("JSON.stringify(state.startPageBoard)", sandbox));
+  assert.equal(board.items[0].type, "image");
+  assert.equal(board.items[0].assetPath, ".sloppy/artifacts/boards/start-page-canvas/assets/asset.png");
+  assert.equal(board.items[0].x, 40);
+  assert.equal(sentMessages[0].type, "sloppy.board.asset.upload");
+  assert.equal(sentMessages.at(-1).type, "sloppy.board.save");
 });
 
 test("start page shortcuts always render as one grid cell", () => {
@@ -875,6 +1457,55 @@ test("saving customize exits start page editing mode", async () => {
   assert.doesNotMatch(shortcuts.innerHTML, /data-sloppy-grid-draggable="shortcut-1"/);
   assert.doesNotMatch(shortcuts.innerHTML, /data-sloppy-start-item-menu="shortcut-1"/);
   assert.match(shortcuts.innerHTML, /draggable="false"/);
+});
+
+test("saving customize persists the canvas board before closing", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  const savedMessages = [];
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage(message) {
+        savedMessages.push(message);
+        if (message?.type === "sloppy.settings.save") {
+          return Promise.resolve(message.settings);
+        }
+        if (message?.type === "sloppy.board.save") {
+          return Promise.resolve({ board: message.board });
+        }
+        return Promise.resolve({ artifacts: [] });
+      }
+    }
+  };
+  vm.runInNewContext(`
+    globalThis.SloppyStartPageMode = true;
+    state.settings = { startPageEnabled: true, startPageLayoutMode: "canvas" };
+    state.startPageBoard = {
+      id: "start-page-canvas",
+      version: 1,
+      viewport: { x: -120, y: 80, scale: 0.7 },
+      items: [
+        { id: "text-1", type: "text", x: 10, y: 20, width: 220, height: 120, title: "Saved Note", zIndex: 1, text: "Persist me" }
+      ],
+      groups: []
+    };
+  `, sandbox);
+
+  const panel = sandbox.ensurePanel();
+  sandbox.render(panel);
+  sandbox.openCustomize(panel);
+  await sandbox.saveCustomize(panel);
+
+  const saveTypes = savedMessages.map((message) => message.type).filter((type) => type === "sloppy.board.save" || type === "sloppy.settings.save");
+  const boardSave = savedMessages.find((message) => message.type === "sloppy.board.save");
+
+  assert.deepEqual(saveTypes, ["sloppy.board.save", "sloppy.settings.save"]);
+  assert.equal(boardSave.board.items[0].text, "Persist me");
+  assert.equal(panel.classList.toggled.get("is-start-customizing"), false);
 });
 
 test("widgets customize grid lists create shortcut and available widgets independent of start layout", () => {
@@ -1240,6 +1871,32 @@ test("customize includes describe widget controls", () => {
   assert.match(panelCSS, /@media\s*\(max-width:\s*900px\)\s*\{[\s\S]*\.sloppy-widget-editor-layout\s*\{[\s\S]*grid-template-columns:\s*1fr;/);
 });
 
+test("closing customize after widget editor restores the normal start composer", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      }
+    }
+  };
+
+  const panel = sandbox.ensurePanel();
+  sandbox.openWidgetEditor(panel);
+
+  assert.equal(panel.classList.toggled.get("is-widget-editing"), true);
+
+  sandbox.closeCustomize(panel);
+
+  assert.equal(panel.classList.toggled.get("is-start-customizing"), false);
+  assert.equal(panel.classList.toggled.get("is-widget-editing"), false);
+  assert.equal(panel.classList.toggled.get("is-widget-chat-expanded"), false);
+  assert.equal(vm.runInNewContext("state.customizeNavigation.screen", sandbox), "widgets");
+  assert.equal(vm.runInNewContext("state.customizeNavigation.editing", sandbox), false);
+});
+
 test("widget editor mobile chat sheet toggle expands the real side chat shell", () => {
   const sandbox = loadContentScriptSandbox();
   const documentLike = createPanelDocument();
@@ -1568,6 +2225,60 @@ test("addWidgetToStartPage adds widget to start page items", async () => {
   );
 });
 
+test("addWidgetToStartPage adds widgets to canvas board in canvas mode", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  const savedMessages = [];
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage(message) {
+        if (message?.type === "sloppy.artifacts.widget") {
+          return Promise.resolve({
+            artifactId: "widget-1",
+            title: "Clock",
+            size: "medium",
+            html: "<html><body>Clock</body></html>"
+          });
+        }
+        if (message?.type === "sloppy.board.save") {
+          savedMessages.push(message);
+          return Promise.resolve({ board: message.board });
+        }
+        return Promise.resolve({});
+      }
+    }
+  };
+  const panel = sandbox.ensurePanel();
+  vm.runInNewContext(`
+    globalThis.SloppyStartPageMode = true;
+    state.settings = { startPageLayoutMode: "canvas" };
+    state.startPageBoard = {
+      id: "start-page-canvas",
+      version: 1,
+      viewport: { x: 0, y: 0, scale: 1 },
+      items: [],
+      groups: []
+    };
+    state.artifacts = [{ id: "widget-1", title: "Clock", kind: "widget" }];
+  `, sandbox);
+
+  assert.equal(vm.runInNewContext("startPageLayoutMode(state.settings)", sandbox), "canvas");
+  await sandbox.addWidgetToStartPage(panel, "widget-1", { persist: true });
+
+  const board = JSON.parse(vm.runInNewContext("JSON.stringify(state.startPageBoard)", sandbox));
+  assert.equal(savedMessages.at(-1)?.board?.items?.length, 1);
+  assert.equal(board.items.length, 1);
+  assert.equal(board.items[0].type, "widget");
+  assert.equal(board.items[0].artifactId, "widget-1");
+  assert.equal(board.items[0].title, "Clock");
+  assert.equal(savedMessages.at(-1).type, "sloppy.board.save");
+  assert.equal(savedMessages.at(-1).board.items[0].type, "widget");
+});
+
 test("fullscreen chat shell includes the shared app sidebar", () => {
   const sandbox = loadContentScriptSandbox();
   const documentLike = createPanelDocument();
@@ -1789,6 +2500,65 @@ test("shortcut editor done and cancel actions work after dynamic render", async 
   assert.equal(savedItems[0].url, "https://mobile-libs.s3-website.mds.yandex.net/");
 });
 
+test("shortcut editor done adds shortcuts to canvas board in canvas mode", async () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  const savedMessages = [];
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage(message) {
+        if (message?.type === "sloppy.bookmarks.list") {
+          return Promise.resolve({ error: "bookmarks_unavailable" });
+        }
+        if (message?.type === "sloppy.board.save") {
+          savedMessages.push(message);
+          return Promise.resolve({ board: message.board });
+        }
+        return Promise.resolve({});
+      }
+    }
+  };
+  const panel = sandbox.ensurePanel();
+  vm.runInNewContext(`
+    globalThis.SloppyStartPageMode = true;
+    state.settings = { startPageLayoutMode: "canvas" };
+    state.startPageBoard = {
+      id: "start-page-canvas",
+      version: 1,
+      viewport: { x: 0, y: 0, scale: 1 },
+      items: [],
+      groups: []
+    };
+  `, sandbox);
+  const customizeBody = panel.querySelector("[data-sloppy-customize-body]");
+
+  assert.equal(vm.runInNewContext("startPageLayoutMode(state.settings)", sandbox), "canvas");
+  await sandbox.openShortcutEditor(panel, null, {
+    title: "Library Dashboard",
+    url: "https://mobile-libs.s3-website.mds.yandex.net/"
+  });
+  await customizeBody.listeners.get("click")({
+    target: {
+      closest(selector) {
+        return selector === "[data-sloppy-shortcut-editor-done]" ? {} : null;
+      }
+    }
+  });
+
+  const board = JSON.parse(vm.runInNewContext("JSON.stringify(state.startPageBoard)", sandbox));
+  assert.equal(vm.runInNewContext("state.customizeNavigation.screen", sandbox), "widgets");
+  assert.equal(savedMessages.at(-1)?.board?.items?.length, 1);
+  assert.equal(board.items.length, 1);
+  assert.equal(board.items[0].type, "shortcut");
+  assert.equal(board.items[0].title, "Library Dashboard");
+  assert.equal(board.items[0].url, "https://mobile-libs.s3-website.mds.yandex.net/");
+  assert.equal(savedMessages.at(-1).type, "sloppy.board.save");
+});
+
 test("shortcut editor hides bookmark list when bookmarks are unavailable", async () => {
   const sandbox = loadContentScriptSandbox();
   const documentLike = createPanelDocument();
@@ -1843,6 +2613,42 @@ test("transitionStartPageToChat exits start mode before sending", () => {
   assert.equal(panel.classList.toggled.get("is-start-customizing"), false);
   assert.equal(vm.runInNewContext("state.customizeNavigation.editing", sandbox), false);
   assert.equal(customizeDialog.closeCalled, true);
+});
+
+test("transitionStartPageToChat clears canvas layout classes before chat render", () => {
+  const sandbox = loadContentScriptSandbox();
+  const documentLike = createPanelDocument();
+  sandbox.document = documentLike;
+  sandbox.chrome = {
+    runtime: {
+      getURL(path) {
+        return `safari-extension://sloppy/${path}`;
+      },
+      sendMessage() {
+        return Promise.resolve({ error: "offline" });
+      }
+    }
+  };
+  vm.runInNewContext(`
+    globalThis.SloppyStartPageMode = true;
+    state.settings = { startPageEnabled: true, startPageLayoutMode: "canvas" };
+    state.startPageBoard = {
+      id: "start-page-canvas",
+      version: 1,
+      viewport: { x: 0, y: 0, scale: 1 },
+      items: [],
+      groups: []
+    };
+  `, sandbox);
+  const panel = sandbox.ensurePanel();
+  sandbox.render(panel);
+
+  assert.equal(panel.classList.toggled.get("is-start-canvas"), true);
+
+  sandbox.transitionStartPageToChat(panel);
+
+  assert.equal(sandbox.SloppyStartPageMode, false);
+  assert.equal(panel.classList.toggled.get("is-start-canvas"), false);
 });
 
 test("transitionStartPageToChat closes customize even after start mode already ended", () => {

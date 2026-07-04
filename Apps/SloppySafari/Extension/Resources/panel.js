@@ -48,6 +48,10 @@ export function sanitizeStartPageTheme(value) {
   return String(value || "dark").trim() === "light" ? "light" : "dark";
 }
 
+export function sanitizeStartPageLayoutMode(value) {
+  return String(value || "grid").trim() === "canvas" ? "canvas" : "grid";
+}
+
 export function sanitizeStartPageBackgroundImage(value) {
   const image = String(value || "").trim();
   if (!image) {
@@ -127,6 +131,7 @@ export function sanitizeSettings(settings = {}) {
     startPageEnabled: settings.startPageEnabled !== false,
     startPageTheme: sanitizeStartPageTheme(settings.startPageTheme),
     startPageBackgroundImage: sanitizeStartPageBackgroundImage(settings.startPageBackgroundImage),
+    startPageLayoutMode: sanitizeStartPageLayoutMode(settings.startPageLayoutMode),
     startPageShortcuts,
     startPageItems: sanitizeStartPageItems(settings.startPageItems, startPageShortcuts),
     voiceLanguage: normalizeVoiceLanguage(settings.voiceLanguage),

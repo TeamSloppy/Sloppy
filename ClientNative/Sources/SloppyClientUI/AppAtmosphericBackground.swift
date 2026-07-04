@@ -23,37 +23,6 @@ public struct AppAtmosphericBackground: View {
     }
 }
 
-struct BlurEffectView: View {
-
-}
-
-#if os(macOS)
-extension BlurEffectView: NSViewRepresentable {
-    func makeNSView(context: Context) -> NSVisualEffectView {
-        let view = NSVisualEffectView()
-        view.material = .sidebar
-        view.state = .active
-        return view
-    }
-    
-    func updateNSView(_ nsView: NSVisualEffectView, context: Context) {
-
-    }
-}
-#else
-extension BlurEffectView: UIViewRepresentable {
-    func makeUIView(context: Context) -> UIVisualEffectView {
-        let view = UIVisualEffectView()
-        view.material = .material
-        return view
-    }
-
-    func updateUIView(_ nsView: UIVisualEffectView, context: Context) {
-
-    }
-}
-#endif
-
 #Preview {
     AppAtmosphericBackground()
         .background(

@@ -85,6 +85,9 @@ public final class ChatTranscriptState {
 public final class ChatScreenViewModel {
     public private(set) var agents: [APIAgentRecord] = []
     public private(set) var selectedAgent: APIAgentRecord?
+    public private(set) var availableModels: [ChatModelOption] = []
+    public private(set) var selectedModelId: String = ""
+    public private(set) var selectedReasoningEffort: ChatReasoningEffort = .default
     public private(set) var sessions: [ChatSessionSummary] = []
     public var selectedSessionId: String?
     public var pinnedSessionIds: Set<String> { settings.pinnedSessionIds }
@@ -92,6 +95,7 @@ public final class ChatScreenViewModel {
     public private(set) var sessionActionStatus: String?
     public private(set) var isLoadingSessions = false
     public private(set) var isSending = false
+    public private(set) var composerFocusResetToken = 0
     public let transcript = ChatTranscriptState()
     public let composerDraft = ChatComposerDraft()
 
@@ -137,6 +141,8 @@ public final class ChatScreenViewModel {
     @ObservationIgnored private var didLoadInitialData = false
     @ObservationIgnored private var isLoadingInitialData = false
     @ObservationIgnored private var sessionLoadGeneration = 0
+    @ObservationIgnored private var composerDraftsByKey: [String: String] = [:]
+    @ObservationIgnored private var activeComposerDraftKey: String?
 
     public init(
         apiClient: SloppyAPIClient,
@@ -156,6 +162,10 @@ public final class ChatScreenViewModel {
         onOpenSettings()
     }
 
+    public func dismissComposerFocus() {
+        composerFocusResetToken += 1
+    }
+
     public func loadInitialData() {
         guard !didLoadInitialData, !isLoadingInitialData else { return }
 
@@ -167,12 +177,14 @@ public final class ChatScreenViewModel {
             }
 
             let fetched = (try? await apiClient.fetchAgents()) ?? []
+            let fetchedModels = (try? await apiClient.fetchAvailableModels()) ?? []
             if fetched.isEmpty {
                 agents = await cacheStore.loadAgents()
             } else {
                 agents = fetched
                 await cacheStore.cacheAgents(fetched)
             }
+            applyAvailableModels(fetchedModels)
 
             let availableAgents = agents
             let lastId = settings.lastAgentId
@@ -193,6 +205,7 @@ public final class ChatScreenViewModel {
                     activeProjectId = nil
                     activeTaskId = nil
                     settings.lastSessionId = nil
+                    syncComposerDraft(toSessionId: nil, projectId: nil, taskId: nil, agentId: agent.id)
                 }
             }
 
@@ -237,6 +250,15 @@ public final class ChatScreenViewModel {
 
     public func pickAgent(_ agent: APIAgentRecord) {
         switchAgent(agent)
+    }
+
+    public func pickModel(_ model: ChatModelOption) {
+        selectedModelId = model.id
+        selectedReasoningEffort = .default
+    }
+
+    public func pickReasoningEffort(_ effort: ChatReasoningEffort) {
+        selectedReasoningEffort = effort
     }
 
     public func pickSession(_ session: ChatSessionSummary) {
@@ -311,6 +333,7 @@ public final class ChatScreenViewModel {
         composerDraft.text = composerDraft.text.isEmpty
             ? reference
             : "\(composerDraft.text)\n\(reference)"
+        saveActiveComposerDraft()
     }
 
     #if DEBUG
@@ -358,6 +381,7 @@ public final class ChatScreenViewModel {
 
     private func switchAgent(_ agent: APIAgentRecord) {
         disconnectCurrentSession()
+        saveActiveComposerDraft()
         selectedAgent = agent
         selectedSessionId = nil
         transcript.clear()
@@ -366,6 +390,7 @@ public final class ChatScreenViewModel {
         activeTaskId = nil
         settings.lastAgentId = agent.id
         settings.lastSessionId = nil
+        syncComposerDraft(toSessionId: nil, projectId: nil, taskId: nil, agentId: agent.id)
         Task { @MainActor in
             await loadSessions(for: agent)
         }
@@ -377,11 +402,13 @@ public final class ChatScreenViewModel {
         let contextTitle = activeContextTitle
         let projectId = activeProjectId
         let taskId = activeTaskId
+        saveActiveComposerDraft()
         transcript.clear()
         selectedSessionId = nil
         activeContextTitle = contextTitle
         activeProjectId = projectId
         activeTaskId = taskId
+        syncComposerDraft(toSessionId: nil, projectId: projectId, taskId: taskId, agentId: agent.id)
         Task { @MainActor in
             let sessionTitle = taskId.map(taskSessionTitle(for:)) ?? contextTitle ?? "Chat with \(agent.displayName)"
             guard let summary = try? await apiClient.createAgentSession(
@@ -418,6 +445,7 @@ public final class ChatScreenViewModel {
         guard let agent = selectedAgent else { return }
         let retainedContextTitle = contextTitle ?? activeContextTitle
         let retainedProjectId = projectId ?? activeProjectId
+        saveActiveComposerDraft()
         disconnectCurrentSession()
         transcript.clear()
         selectedSessionId = sessionId
@@ -425,6 +453,7 @@ public final class ChatScreenViewModel {
         activeProjectId = retainedProjectId
         activeTaskId = taskId
         settings.lastSessionId = sessionId
+        syncComposerDraft(toSessionId: sessionId, projectId: retainedProjectId, taskId: taskId, agentId: agent.id)
         connectToSession(agentId: agent.id, sessionId: sessionId)
     }
 
@@ -479,6 +508,7 @@ public final class ChatScreenViewModel {
 
     private func activateDraft(agent: APIAgentRecord, contextTitle: String?) {
         disconnectCurrentSession()
+        saveActiveComposerDraft()
         selectedAgent = agent
         selectedSessionId = nil
         transcript.clear()
@@ -487,6 +517,7 @@ public final class ChatScreenViewModel {
         activeTaskId = nil
         settings.lastAgentId = agent.id
         settings.lastSessionId = nil
+        syncComposerDraft(toSessionId: nil, projectId: nil, taskId: nil, agentId: agent.id)
 
         Task { @MainActor in
             await loadSessions(for: agent)
@@ -501,6 +532,7 @@ public final class ChatScreenViewModel {
         preferredTaskId: String?
     ) {
         disconnectCurrentSession()
+        saveActiveComposerDraft()
         selectedAgent = agent
         selectedSessionId = nil
         transcript.clear()
@@ -509,6 +541,12 @@ public final class ChatScreenViewModel {
         activeTaskId = preferredTaskId
         settings.lastAgentId = agent.id
         settings.lastSessionId = nil
+        syncComposerDraft(
+            toSessionId: nil,
+            projectId: projectId,
+            taskId: preferredTaskId,
+            agentId: agent.id
+        )
 
         Task { @MainActor in
             await loadSessions(for: agent, projectId: preferredTaskId == nil ? projectId : nil)
@@ -791,6 +829,8 @@ public final class ChatScreenViewModel {
 
     public func sendMessage(content: String) {
         guard let agent = selectedAgent, !isSending else { return }
+        clearActiveComposerDraft()
+        dismissComposerFocus()
 
         if selectedSessionId == nil {
             Task { @MainActor in
@@ -802,6 +842,12 @@ public final class ChatScreenViewModel {
                 sessions.insert(summary, at: 0)
                 selectedSessionId = summary.id
                 settings.lastSessionId = summary.id
+                syncComposerDraft(
+                    toSessionId: summary.id,
+                    projectId: activeProjectId,
+                    taskId: activeTaskId,
+                    agentId: agent.id
+                )
                 connectToSession(agentId: agent.id, sessionId: summary.id)
                 await postMessage(content: content, agentId: agent.id, sessionId: summary.id)
             }
@@ -822,7 +868,82 @@ public final class ChatScreenViewModel {
             segments: [ChatMessageSegment(kind: .text, text: content)]
         )
         transcript.append(optimistic)
-        _ = try? await apiClient.postSessionMessage(agentId: agentId, sessionId: sessionId, content: content)
+        _ = try? await apiClient.postSessionMessage(
+            agentId: agentId,
+            sessionId: sessionId,
+            content: content,
+            selectedModel: selectedModelId,
+            reasoningEffort: selectedModelSupportsReasoningEffort ? selectedReasoningEffort.payloadValue : nil
+        )
         isSending = false
+    }
+
+    private var selectedModelSupportsReasoningEffort: Bool {
+        guard let selectedModel = availableModels.first(where: { $0.id == selectedModelId }) else {
+            return false
+        }
+        return selectedModel.supportsReasoningEffort
+    }
+
+    private func applyAvailableModels(_ models: [ChatModelOption]) {
+        availableModels = models
+        guard !models.isEmpty else {
+            selectedModelId = ""
+            selectedReasoningEffort = .default
+            return
+        }
+
+        if !models.contains(where: { $0.id == selectedModelId }) {
+            selectedModelId = models[0].id
+            selectedReasoningEffort = .default
+        }
+    }
+
+    private func syncComposerDraft(
+        toSessionId sessionId: String?,
+        projectId: String?,
+        taskId: String?,
+        agentId: String?
+    ) {
+        let nextKey = composerDraftKey(
+            sessionId: sessionId,
+            projectId: projectId,
+            taskId: taskId,
+            agentId: agentId
+        )
+        activeComposerDraftKey = nextKey
+        composerDraft.text = composerDraftsByKey[nextKey] ?? ""
+    }
+
+    private func saveActiveComposerDraft() {
+        guard let activeComposerDraftKey else { return }
+        if composerDraft.text.isEmpty {
+            composerDraftsByKey.removeValue(forKey: activeComposerDraftKey)
+        } else {
+            composerDraftsByKey[activeComposerDraftKey] = composerDraft.text
+        }
+    }
+
+    private func clearActiveComposerDraft() {
+        guard let activeComposerDraftKey else {
+            composerDraft.text = ""
+            return
+        }
+        composerDraft.text = ""
+        composerDraftsByKey.removeValue(forKey: activeComposerDraftKey)
+    }
+
+    private func composerDraftKey(
+        sessionId: String?,
+        projectId: String?,
+        taskId: String?,
+        agentId: String?
+    ) -> String {
+        if let sessionId, !sessionId.isEmpty {
+            return "session:\(sessionId)"
+        }
+
+        let resolvedAgentId = agentId ?? selectedAgent?.id ?? "none"
+        return "draft:\(resolvedAgentId):\(projectId ?? "-"):\(taskId ?? "-")"
     }
 }

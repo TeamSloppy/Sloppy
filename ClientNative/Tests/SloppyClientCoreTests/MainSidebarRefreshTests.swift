@@ -21,6 +21,8 @@ struct MainSidebarRefreshTests {
 
         #expect(source.contains("func refreshContent() async"))
         #expect(source.contains("await loadProjects(force: true)"))
+        #expect(source.contains("if chatViewModel.selectedAgent == nil"))
+        #expect(source.contains("chatViewModel.loadInitialData()"))
         #expect(source.contains("await chatViewModel.refreshCurrentContext()"))
     }
 

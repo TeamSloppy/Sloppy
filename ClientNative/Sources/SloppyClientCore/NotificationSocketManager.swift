@@ -48,7 +48,7 @@ public actor NotificationSocketManager {
                 Task { await self?.disconnect() }
             }
         }
-        Task { await openSocket() }
+        openSocket()
         return stream
     }
 

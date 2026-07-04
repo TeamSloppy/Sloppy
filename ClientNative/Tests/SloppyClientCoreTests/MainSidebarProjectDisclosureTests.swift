@@ -28,6 +28,9 @@ struct MainSidebarProjectDisclosureTests {
         #expect(sidebarSource.contains("let isCollapsed = viewModel.collapsedProjectIds.contains(project.id)"))
         #expect(sidebarSource.contains("if !isCollapsed {"))
         #expect(sidebarSource.contains("showMoreButton(projectId: project.id, isExpanded: isExpanded, c: c, sp: sp)"))
+        #expect(sidebarSource.contains("let isCollapsed = viewModel.collapsedProjectIds.contains(group.project.id)"))
+        #expect(sidebarSource.contains("projectChatHeader(group: group, c: c, sp: sp)"))
+        #expect(sidebarSource.contains("if !isCollapsed {"))
     }
 
     @Test("project rows open kanban tabs and task rows open task chats")
@@ -46,5 +49,28 @@ struct MainSidebarProjectDisclosureTests {
         #expect(mainViewSource.contains("ProjectKanbanView("))
         #expect(mainViewSource.contains("case .projectKanban"))
         #expect(mainViewSource.contains("ProjectKanbanTabState"))
+    }
+
+    @Test("kanban cards open task detail from the content area")
+    func kanbanCardsOpenTaskDetailFromTheContentArea() throws {
+        let mainViewSource = try source(named: "MainView.swift")
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let kanbanSource = try String(
+            contentsOf: packageRoot
+                .appendingPathComponent("Sources")
+                .appendingPathComponent("SloppyFeatureProjects")
+                .appendingPathComponent("ProjectKanbanView.swift"),
+            encoding: .utf8
+        )
+
+        #expect(kanbanSource.contains("let onOpenTask: @MainActor (ProjectKanbanCard) -> Void"))
+        #expect(kanbanSource.contains("Button {"))
+        #expect(kanbanSource.contains("onOpenTask(card)"))
+        #expect(kanbanSource.contains("ScrollView([.horizontal, .vertical], showsIndicators: false)"))
+        #expect(mainViewSource.contains("onOpenTask: { card in"))
+        #expect(mainViewSource.contains("viewModel.openTaskDetailTab("))
     }
 }

@@ -160,6 +160,7 @@
       startPageEnabled: state.settings?.startPageEnabled !== false,
       startPageTheme: state.settings?.startPageTheme || "dark",
       startPageBackgroundImage: state.settings?.startPageBackgroundImage || "",
+      startPageLayoutMode: state.settings?.startPageLayoutMode || "grid",
       startPageShortcuts: dependencies.startPageShortcutItems(state.settings),
       startPageItems: state.settings?.startPageItems || []
     };

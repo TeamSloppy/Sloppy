@@ -59,10 +59,59 @@ extension CoreService {
         }
 
         let enrichedContent = await enrichMessageWithTaskReferences(request.content)
+        let bindingChannelId = ChannelGatewayScope.parse(sessionChannelId).baseChannelId
+        let board = try? getActorBoard()
+        let linkedAgentID = linkedAgentID(forChannelID: bindingChannelId, board: board)
+        let storedModelOverride = await channelModelStore.get(channelId: bindingChannelId)
+        let modelOverride = request.model ?? storedModelOverride
+
+        if let linkedAgentID {
+            await ensureInboundChannelContextBootstrap(
+                channelId: sessionChannelId,
+                linkedAgentID: linkedAgentID,
+                topicId: request.topicId
+            )
+
+            let nextRequest = ChannelMessageRequest(
+                userId: request.userId,
+                content: linkedAgentContentForRuntime(enrichedContent, agentID: linkedAgentID),
+                topicId: request.topicId,
+                model: modelOverride,
+                reasoningEffort: request.reasoningEffort,
+                attachments: request.attachments
+            )
+            return await runtime.postMessage(
+                channelId: sessionChannelId,
+                request: nextRequest,
+                toolInvoker: { [weak self] toolRequest in
+                    guard let self else {
+                        return ToolInvocationResult(
+                            tool: toolRequest.tool,
+                            ok: false,
+                            error: ToolErrorPayload(
+                                code: "tool_invoker_unavailable",
+                                message: "Tool invoker is unavailable.",
+                                retryable: true
+                            )
+                        )
+                    }
+                    return await self.invokeToolFromChannelRuntime(
+                        agentID: linkedAgentID,
+                        channelID: sessionChannelId,
+                        request: toolRequest,
+                        topicID: request.topicId
+                    )
+                }
+            )
+        }
+
         let nextRequest = ChannelMessageRequest(
             userId: request.userId,
             content: enrichedContent,
-            topicId: request.topicId
+            topicId: request.topicId,
+            model: modelOverride,
+            reasoningEffort: request.reasoningEffort,
+            attachments: request.attachments
         )
         return await runtime.postMessage(channelId: sessionChannelId, request: nextRequest)
     }
@@ -349,6 +398,13 @@ extension CoreService {
             sessionChannelId: normalizedChannelID,
             bindingChannelId: normalizedBinding
         )
+    }
+
+    private func linkedAgentContentForRuntime(_ content: String, agentID: String) -> String {
+        guard let config = try? getAgentConfig(agentID: agentID) else {
+            return content
+        }
+        return AgentSessionOrchestrator.contentWithFriendReminder(content, documents: config.documents)
     }
 
 }

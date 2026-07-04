@@ -42,6 +42,8 @@ final class SloppyDesktopOverlay {
         window.hasShadow = true
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
+        window.titlebarSeparatorStyle = .none
+        window.toolbarStyle = .unified
         window.isMovableByWindowBackground = true
         window.styleMask.insert(.fullSizeContentView)
         window.contentView?.wantsLayer = true

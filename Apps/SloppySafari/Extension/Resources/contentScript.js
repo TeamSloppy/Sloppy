@@ -164,7 +164,15 @@ const iconSymbols = {
   sidebar: "sidebar.leading",
   model: "brain",
   project: "folder",
+  automation: "gear",
   customize: "gear",
+  canvas: "square.grid.2x2",
+  group: "icons/rectangle.3.group",
+  "layout-canvas": "icons/scribble.variable",
+  "layout-grid": "icons/square.grid.3x2",
+  "icons/rectangle.3.group": "icons/rectangle.3.group",
+  "icons/scribble.variable": "icons/scribble.variable",
+  "icons/square.grid.3x2": "icons/square.grid.3x2",
   artifacts: "xmark.triangle.circle.square",
   trash: "trash"
 };
@@ -182,6 +190,10 @@ function icon(name, hoverIcon = "") {
     ? `; --sloppy-symbol-hover-url: url('${escapeHTML(iconAsset(hoverIcon))}')`
     : "";
   return `<span class="sloppy-symbol" aria-hidden="true" data-sf-symbol="${escapeHTML(symbol)}" style="--sloppy-symbol-base-url: url('${safeIconURL}'); --sloppy-symbol-url: url('${safeIconURL}')${hoverVariable}"></span>`;
+}
+
+function startPageLayoutToggleIconName(settings = state.settings) {
+  return startPageLayoutMode(settings) === "canvas" ? "layout-grid" : "layout-canvas";
 }
 
 function applySymbolFallbackVariables(frame) {
@@ -558,6 +570,11 @@ const state = {
   widgetHTMLByArtifactId: {},
   widgetFrameURLByArtifactId: {},
   widgetPickerSheet: { open: false },
+  startPageBoard: null,
+  startPageBoardLoaded: false,
+  startPageBoardLoading: false,
+  canvasSearchQuery: "",
+  selectedCanvasEntity: null,
   gridDrag: {
     activeId: null,
     overId: null,
@@ -686,6 +703,7 @@ function ensurePanel() {
         <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-new>${icon("plus")}<span>${escapeHTML(t("newSession"))}</span></button>
         <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-artifacts>${icon("artifacts", "icons/chevron.down.svg")}<span>${escapeHTML(t("artifacts"))}</span></button>
         <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-projects>${icon("project", "icons/chevron.down.svg")}<span>${escapeHTML(t("projects"))}</span></button>
+        <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-automations>${icon("automation", "icons/chevron.down.svg")}<span>${escapeHTML(t("automations"))}</span></button>
         <button class="sloppy-sidebar-item" type="button" data-sloppy-sidebar-sessions>${icon("sessions", "icons/chevron.down.svg")}<span>${escapeHTML(t("sessions"))}</span></button>
         <div class="sloppy-sidebar-session-list" data-sloppy-sidebar-session-list></div>
       </nav>
@@ -741,7 +759,12 @@ function ensurePanel() {
             <div class="sloppy-customize-body" data-sloppy-customize-body></div>
           </form>
         </dialog>
-        <button class="sloppy-start-config-button" type="button" data-sloppy-customize>${icon("customize")}<span>${escapeHTML(t("customize"))}</span></button>
+        <div class="sloppy-start-config-actions">
+          <button class="sloppy-start-config-button sloppy-start-layout-button" type="button" data-sloppy-start-layout-toggle aria-label="${escapeHTML(t("canvasMode"))}">
+            <span data-sloppy-start-layout-icon>${icon(startPageLayoutToggleIconName(state.settings))}</span><span data-sloppy-start-layout-label>${escapeHTML(startPageLayoutMode(state.settings) === "canvas" ? t("gridMode") : t("canvasMode"))}</span>
+          </button>
+          <button class="sloppy-start-config-button" type="button" data-sloppy-customize>${icon("customize")}<span>${escapeHTML(t("customize"))}</span></button>
+        </div>
       </div>
       </div>
     </div>
@@ -1271,6 +1294,7 @@ function wirePanel(frame) {
   frame.querySelector("[data-sloppy-new-session]").addEventListener("click", () => selectSession(frame, null));
   frame.querySelector("[data-sloppy-save-settings]")?.addEventListener("click", () => saveSettings(frame));
   frame.querySelector("[data-sloppy-customize]")?.addEventListener("click", () => openCustomize(frame));
+  frame.querySelector("[data-sloppy-start-layout-toggle]")?.addEventListener("click", () => toggleStartPageLayoutMode(frame));
   const customizeDialog = frame.querySelector("[data-sloppy-customize-dialog]");
   customizeDialog?.addEventListener("close", () => {
     if (state.ignoreCustomizeCloseReset) {
@@ -1543,6 +1567,11 @@ function wirePanel(frame) {
     transitionStartPageToChat(frame);
     render(frame);
   });
+  frame.querySelector("[data-sloppy-sidebar-automations]")?.addEventListener("click", () => {
+    appendMessage({ role: "assistant", label: t("assistant"), text: t("automationsUnavailable") });
+    transitionStartPageToChat(frame);
+    render(frame);
+  });
   frame.querySelector("[data-sloppy-sidebar-sessions]")?.addEventListener("click", () => {
     const sessionList = frame.querySelector("[data-sloppy-sidebar-session-list]");
     if (sessionList && !sessionList.hidden) {
@@ -1552,6 +1581,7 @@ function wirePanel(frame) {
     void openSessions(frame, { presentation: "sidebar" });
   });
   wireSidebarChevronHover(frame.querySelector("[data-sloppy-sidebar-projects]"));
+  wireSidebarChevronHover(frame.querySelector("[data-sloppy-sidebar-automations]"));
   wireSidebarChevronHover(frame.querySelector("[data-sloppy-sidebar-sessions]"));
   wireSidebarChevronHover(frame.querySelector("[data-sloppy-sidebar-artifacts]"));
   frame.querySelector("[data-sloppy-widget-picker]")?.addEventListener("click", (event) => {
@@ -1927,11 +1957,13 @@ function transitionStartPageToChat(frame) {
   if (isCustomizing) {
     closeCustomize(frame);
   }
+  frame?.classList?.remove?.("is-start-canvas");
+  frame?.classList?.remove?.("sloppy-theme-light");
+  frame?.style?.setProperty?.("--sloppy-start-background-image", "none");
   if (!isStartPageMode()) {
     return;
   }
   setStartPageMode(false);
-  frame.classList.remove("sloppy-theme-light");
 }
 
 function widgetEditorIsActive(frame) {

@@ -34,4 +34,12 @@ struct TransparentWindowSourceTests {
         #expect(overlay.contains("window.titlebarAppearsTransparent = true"))
         #expect(overlay.contains("window.isMovableByWindowBackground = true"))
     }
+
+    @Test("desktop overlay opts into unified toolbar chrome")
+    func desktopOverlayOptsIntoUnifiedToolbarChrome() throws {
+        let overlay = try source("Sources/SloppyClient/SloppyDesktopOverlay.swift")
+
+        #expect(overlay.contains("window.titlebarSeparatorStyle = .none"))
+        #expect(overlay.contains("window.toolbarStyle = .unified"))
+    }
 }

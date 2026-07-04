@@ -19,6 +19,7 @@ struct AgentListView: View {
             VStack(alignment: .leading, spacing: sp.l) {
                 if agents.isEmpty {
                     EmptyStateView(isLoading ? "Loading..." : "No agents registered")
+                        .padding(sp.l)
                 } else {
                     LazyVStack(alignment: .leading, spacing: sp.s) {
                         ForEach(agents) { agent in
@@ -31,10 +32,10 @@ struct AgentListView: View {
                                 )
                             }
                         }
+                        .buttonStyle(.plain)
                     }
                 }
             }
-            .padding(sp.l)
         }
         .navigationTitle("Agents")
         .navigationTitlePosition(.leading)
@@ -43,5 +44,39 @@ struct AgentListView: View {
                 .foregroundColor(c.accentCyan)
                 .font(.system(size: ty.caption))
         }
+    }
+}
+
+
+#Preview {
+    AgentListView(
+        agents: [
+            APIAgentRecord.random(),
+            APIAgentRecord.random(),
+            APIAgentRecord.random(),
+            APIAgentRecord.random()
+        ],
+        isLoading: false,
+        onRefresh: {
+
+        }
+    )
+}
+
+#Preview {
+    AgentListView(
+        agents: [
+            APIAgentRecord.random()
+        ],
+        isLoading: true,
+        onRefresh: {
+
+        }
+    )
+}
+
+extension APIAgentRecord {
+    static func random() -> APIAgentRecord {
+        .init(id: UUID().uuidString, displayName: String(UUID().uuidString.prefix(5)))
     }
 }

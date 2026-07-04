@@ -26,6 +26,10 @@ function loadChatHTML() {
   return readFileSync(new URL("../Resources/chat.html", import.meta.url), "utf8");
 }
 
+function loadStartHTML() {
+  return readFileSync(new URL("../Resources/start.html", import.meta.url), "utf8");
+}
+
 function loadXcodeProject() {
   return readFileSync(new URL("../../SloppySafari.xcodeproj/project.pbxproj", import.meta.url), "utf8");
 }
@@ -92,13 +96,16 @@ test("fullscreen chat page loads localization before content script", () => {
   const html = loadChatHTML();
   const i18nIndex = html.indexOf('src="i18n.js"');
   const customizeIndex = html.indexOf('src="startPageCustomize.js"');
+  const settingsPanelIndex = html.indexOf('src="settingsPanel.js"');
   const contentScriptIndex = html.indexOf('src="contentScript.js"');
 
   assert.notEqual(i18nIndex, -1);
   assert.notEqual(customizeIndex, -1);
+  assert.notEqual(settingsPanelIndex, -1);
   assert.notEqual(contentScriptIndex, -1);
   assert.ok(i18nIndex < customizeIndex);
-  assert.ok(customizeIndex < contentScriptIndex);
+  assert.ok(customizeIndex < settingsPanelIndex);
+  assert.ok(settingsPanelIndex < contentScriptIndex);
 });
 
 test("fullscreen chat files are copied into every Safari web extension bundle", () => {
@@ -127,19 +134,22 @@ test("start page is packaged as an extension resource", () => {
 });
 
 test("start page loads mode marker before localization and content script", () => {
-  const html = readFileSync(new URL("../Resources/start.html", import.meta.url), "utf8");
+  const html = loadStartHTML();
   const startPageIndex = html.indexOf('src="startPage.js"');
   const i18nIndex = html.indexOf('src="i18n.js"');
   const customizeIndex = html.indexOf('src="startPageCustomize.js"');
+  const settingsPanelIndex = html.indexOf('src="settingsPanel.js"');
   const contentScriptIndex = html.indexOf('src="contentScript.js"');
 
   assert.notEqual(startPageIndex, -1);
   assert.notEqual(i18nIndex, -1);
   assert.notEqual(customizeIndex, -1);
+  assert.notEqual(settingsPanelIndex, -1);
   assert.notEqual(contentScriptIndex, -1);
   assert.ok(startPageIndex < i18nIndex);
   assert.ok(i18nIndex < customizeIndex);
-  assert.ok(customizeIndex < contentScriptIndex);
+  assert.ok(customizeIndex < settingsPanelIndex);
+  assert.ok(settingsPanelIndex < contentScriptIndex);
 });
 
 test("start page files are copied into every Safari web extension bundle", () => {

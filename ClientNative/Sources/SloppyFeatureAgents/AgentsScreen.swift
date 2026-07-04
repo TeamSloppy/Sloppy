@@ -46,3 +46,7 @@ public struct AgentsScreen: View {
         }
     }
 }
+
+#Preview {
+    AgentsScreen(apiClient: SloppyAPIClient(baseURL: .debugURL))
+}

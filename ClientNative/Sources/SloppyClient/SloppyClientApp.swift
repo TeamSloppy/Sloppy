@@ -14,7 +14,9 @@ struct SloppyClientApp: App {
     var body: some Scene {
         WindowGroup {
             RootShellView(viewModel: viewModel)
+            #if os(macOS)
                 .containerBackground(.clear, for: .window)
+            #endif
         }
 
         #if os(macOS)

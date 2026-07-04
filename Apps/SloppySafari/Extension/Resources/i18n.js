@@ -2,6 +2,8 @@
   const dictionaries = {
     en: {
       agent: "Agent",
+      automations: "Automations",
+      automationsUnavailable: "Automations are not available in SloppySafari yet.",
       artifacts: "Artifacts",
       askAboutPage: "Ask about this page",
       askFollowUp: "Ask a follow-up",
@@ -46,6 +48,8 @@
       projects: "Projects",
       projectsUnavailable: "Projects are not available in SloppySafari yet.",
       customize: "Customize",
+      canvasMode: "Canvas",
+      gridMode: "Grid",
       generalSection: "General",
       generalSectionHint: "Theme, background, and start page appearance.",
       readFile: "Read file",
@@ -120,6 +124,8 @@
     },
     ru: {
       agent: "Агент",
+      automations: "Automations",
+      automationsUnavailable: "Automations пока недоступны в SloppySafari.",
       artifacts: "Артефакты",
       askAboutPage: "Спросить об этой странице",
       askFollowUp: "Задать уточнение",
@@ -164,6 +170,8 @@
       projects: "Проекты",
       projectsUnavailable: "Проекты пока недоступны в SloppySafari.",
       customize: "Настроить",
+      canvasMode: "Канвас",
+      gridMode: "Сетка",
       generalSection: "Общие",
       generalSectionHint: "Тема, фон и внешний вид стартовой страницы.",
       readFile: "Чтение файла",
@@ -238,6 +246,8 @@
     },
     zh: {
       agent: "智能体",
+      automations: "Automations",
+      automationsUnavailable: "SloppySafari 暂不支持 Automations。",
       artifacts: "工件",
       askAboutPage: "询问此页面",
       askFollowUp: "继续追问",
@@ -282,6 +292,8 @@
       projects: "项目",
       projectsUnavailable: "SloppySafari 暂不支持项目。",
       customize: "自定义",
+      canvasMode: "画布",
+      gridMode: "网格",
       generalSection: "常规",
       generalSectionHint: "主题、背景和起始页外观。",
       readFile: "读取文件",

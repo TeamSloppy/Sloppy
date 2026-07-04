@@ -311,6 +311,7 @@ test("sanitizeSettings keeps a user-configured LAN Core URL for extension storag
     startPageEnabled: true,
     startPageTheme: "dark",
     startPageBackgroundImage: "",
+    startPageLayoutMode: "grid",
     startPageShortcuts: [],
     startPageItems: [],
     voiceLanguage: "auto",
@@ -331,8 +332,15 @@ test("sanitizeSettings defaults start page customization", () => {
   assert.equal(settings.startPageEnabled, true);
   assert.equal(settings.startPageTheme, "dark");
   assert.equal(settings.startPageBackgroundImage, "");
+  assert.equal(settings.startPageLayoutMode, "grid");
   assert.deepEqual(settings.startPageShortcuts, []);
   assert.deepEqual(settings.startPageItems, []);
+});
+
+test("sanitizeSettings preserves supported start page layout mode", () => {
+  assert.equal(sanitizeSettings({ startPageLayoutMode: "canvas" }).startPageLayoutMode, "canvas");
+  assert.equal(sanitizeSettings({ startPageLayoutMode: "grid" }).startPageLayoutMode, "grid");
+  assert.equal(sanitizeSettings({ startPageLayoutMode: "miro" }).startPageLayoutMode, "grid");
 });
 
 test("sanitizeStartPageTheme accepts only light and dark", () => {
@@ -553,6 +561,91 @@ test("background sloppy.artifacts.widget.generate posts prompt and size", async 
     assert.deepEqual(response, {
       artifact: { id: "widget-1", title: "Clock", kind: "widget" }
     });
+  } finally {
+    runtime.cleanup();
+  }
+});
+
+test("background sloppy.board.get fetches board artifact", async () => {
+  const runtime = await loadBackgroundRuntime(
+    {},
+    async (url, options = {}) => {
+      assert.equal(url, "http://127.0.0.1:25101/v1/artifacts/boards/start-page-canvas");
+      assert.equal(options.method || "GET", "GET");
+      return Response.json({
+        board: {
+          id: "start-page-canvas",
+          version: 1,
+          viewport: { x: 0, y: 0, scale: 1 },
+          items: [],
+          groups: []
+        }
+      });
+    }
+  );
+
+  try {
+    const response = await runtime.sendMessage({ type: "sloppy.board.get", boardId: "start-page-canvas" });
+    assert.equal(response.board.id, "start-page-canvas");
+  } finally {
+    runtime.cleanup();
+  }
+});
+
+test("background sloppy.board.save updates board artifact", async () => {
+  const board = {
+    id: "start-page-canvas",
+    version: 1,
+    viewport: { x: 12, y: -4, scale: 1.1 },
+    items: [{ id: "text-1", type: "text", x: 1, y: 2, width: 220, height: 120, title: "Note", zIndex: 1, text: "Hello" }],
+    groups: []
+  };
+  const runtime = await loadBackgroundRuntime(
+    {},
+    async (url, options = {}) => {
+      assert.equal(url, "http://127.0.0.1:25101/v1/artifacts/boards/start-page-canvas");
+      assert.equal(options.method, "PUT");
+      assert.deepEqual(JSON.parse(options.body), board);
+      return Response.json({ board });
+    }
+  );
+
+  try {
+    const response = await runtime.sendMessage({ type: "sloppy.board.save", boardId: "start-page-canvas", board });
+    assert.deepEqual(response.board, board);
+  } finally {
+    runtime.cleanup();
+  }
+});
+
+test("background sloppy.board.asset.upload posts image asset", async () => {
+  const runtime = await loadBackgroundRuntime(
+    {},
+    async (url, options = {}) => {
+      assert.equal(url, "http://127.0.0.1:25101/v1/artifacts/boards/start-page-canvas/assets");
+      assert.equal(options.method, "POST");
+      assert.deepEqual(JSON.parse(options.body), {
+        filename: "shot.png",
+        mediaType: "image/png",
+        dataBase64: "abcd"
+      });
+      return Response.json({
+        path: ".sloppy/artifacts/boards/start-page-canvas/assets/asset.png",
+        mediaType: "image/png",
+        sizeBytes: 3
+      }, { status: 201 });
+    }
+  );
+
+  try {
+    const response = await runtime.sendMessage({
+      type: "sloppy.board.asset.upload",
+      boardId: "start-page-canvas",
+      filename: "shot.png",
+      mediaType: "image/png",
+      dataBase64: "abcd"
+    });
+    assert.equal(response.path, ".sloppy/artifacts/boards/start-page-canvas/assets/asset.png");
   } finally {
     runtime.cleanup();
   }

@@ -33,6 +33,7 @@ const defaultSettings = {
   startPageEnabled: true,
   startPageTheme: "dark",
   startPageBackgroundImage: "",
+  startPageLayoutMode: "grid",
   startPageShortcuts: [],
   startPageItems: [],
   voiceLanguage: "auto"
@@ -266,6 +267,50 @@ async function generateArtifactWidget(settings, prompt, size) {
   const body = await response.json().catch(() => ({}));
   if (!response.ok) {
     throw new Error(body.error || `artifact_generate_failed_${response.status}`);
+  }
+  return body;
+}
+
+async function getBoardArtifact(settings, boardId) {
+  const id = String(boardId || "start-page-canvas").trim() || "start-page-canvas";
+  const response = await coreFetch(settings, `/v1/artifacts/boards/${encodeURIComponent(id)}`, {
+    headers: bridgeHeaders(settings)
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(body.error || `board_failed_${response.status}`);
+  }
+  return body;
+}
+
+async function saveBoardArtifact(settings, boardId, board) {
+  const id = String(boardId || board?.id || "start-page-canvas").trim() || "start-page-canvas";
+  const response = await coreFetch(settings, `/v1/artifacts/boards/${encodeURIComponent(id)}`, {
+    method: "PUT",
+    headers: bridgeHeaders(settings),
+    body: JSON.stringify(board || {})
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(body.error || `board_save_failed_${response.status}`);
+  }
+  return body;
+}
+
+async function uploadBoardAsset(settings, boardId, payload = {}) {
+  const id = String(boardId || "start-page-canvas").trim() || "start-page-canvas";
+  const response = await coreFetch(settings, `/v1/artifacts/boards/${encodeURIComponent(id)}/assets`, {
+    method: "POST",
+    headers: bridgeHeaders(settings),
+    body: JSON.stringify({
+      filename: String(payload.filename || "image.png"),
+      mediaType: String(payload.mediaType || "image/png"),
+      dataBase64: String(payload.dataBase64 || "")
+    })
+  });
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(body.error || `board_asset_failed_${response.status}`);
   }
   return body;
 }
@@ -694,6 +739,27 @@ if (typeof chrome !== "undefined") {
         .then((settings) => generateArtifactWidget(settings, message.prompt, message.size))
         .then(sendResponse)
         .catch((error) => sendResponse({ error: error.message || "Widget generation failed." }));
+      return true;
+    }
+    if (message?.type === "sloppy.board.get") {
+      void loadSettings()
+        .then((settings) => getBoardArtifact(settings, message.boardId))
+        .then(sendResponse)
+        .catch((error) => sendResponse({ error: error.message || "Board unavailable." }));
+      return true;
+    }
+    if (message?.type === "sloppy.board.save") {
+      void loadSettings()
+        .then((settings) => saveBoardArtifact(settings, message.boardId, message.board))
+        .then(sendResponse)
+        .catch((error) => sendResponse({ error: error.message || "Board save failed." }));
+      return true;
+    }
+    if (message?.type === "sloppy.board.asset.upload") {
+      void loadSettings()
+        .then((settings) => uploadBoardAsset(settings, message.boardId, message))
+        .then(sendResponse)
+        .catch((error) => sendResponse({ error: error.message || "Board asset upload failed." }));
       return true;
     }
     if (message?.type === "sloppy.commands.list") {
