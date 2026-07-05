@@ -9,7 +9,11 @@ import SloppyFeatureSettings
 
 @main
 struct SloppyClientApp: App {
-    @State private var viewModel = RootShellViewModel()
+    @State private var viewModel: RootShellViewModel
+
+    init() {
+        _viewModel = State(initialValue: RootShellViewModel())
+    }
 
     var body: some Scene {
         WindowGroup {

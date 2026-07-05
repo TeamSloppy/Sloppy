@@ -47,7 +47,33 @@ public extension View {
     func opacity(_ value: Float) -> some View {
         opacity(Double(value))
     }
+#if os(visionOS)
+    func backportGlassEffect<S: InsettableShape>(_ style: Glass, in shape: S) -> some View {
+        self.glassBackgroundEffect(.plate, in: shape)
+    }
+#else
+    func backportGlassEffect<S: Shape>(_ style: Glass, in shape: S) -> some View {
+        self.glassEffect(style, in: shape)
+    }
+#endif
 }
+
+#if os(visionOS)
+public struct Glass: @unchecked Sendable {
+    public static let regular = Glass(material: .plate)
+    public static let clear = Glass(material: .feathered)
+
+    let material: any GlassBackgroundEffect
+
+    public func tint(_ tint: Color) -> Glass {
+        self
+    }
+
+    public func interactive() -> Glass {
+        self
+    }
+}
+#endif
 
 public enum UIClipboard {
     public static func setString(_ value: String) {

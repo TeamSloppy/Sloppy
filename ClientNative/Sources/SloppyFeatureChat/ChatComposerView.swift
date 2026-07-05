@@ -1,8 +1,10 @@
 import Foundation
+import Observation
 import SwiftUI
 import SloppyClientUI
 import SloppyClientCore
 
+@Observable
 @MainActor
 public final class ChatComposerDraft {
     public var text: String
@@ -28,7 +30,7 @@ public struct ChatComposerView: View {
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
     
-    public let draft: ChatComposerDraft
+    @Bindable public var draft: ChatComposerDraft
     public var tabActions: ChatComposerTabActions?
     
     public init(
@@ -63,10 +65,7 @@ public struct ChatComposerView: View {
             
             TextField(
                 "Ask \(agentDisplayName)",
-                text: Binding(
-                    get: { draft.text },
-                    set: { draft.text = $0 }
-                )
+                text: $draft.text
             )
             .font(.system(size: ty.body))
             .foregroundColor(fieldInk)
@@ -80,16 +79,14 @@ public struct ChatComposerView: View {
                 maxHeight: Self.phoneFieldHeight, alignment: .leading
             )
             .padding(.horizontal, sp.m)
-            .glassEffect(.regular, in: .capsule)
+            .backportGlassEffect(.regular, in: .capsule)
             .frame(maxWidth: .infinity, alignment: .leading)
             
             MobileComposerCircleButton(
-                symbol: .arrowUpward,
-                foregroundColor: draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? c.textMuted
-                : c.textPrimary,
+                symbol: trailingActionSymbol,
+                foregroundColor: trailingActionForegroundColor,
                 fillColor: c.surfaceRaised,
-                action: submit
+                action: handleTrailingAction
             )
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -119,10 +116,7 @@ public struct ChatComposerView: View {
 
             TextField(
                 "Ask \(agentDisplayName)",
-                text: Binding(
-                    get: { draft.text },
-                    set: { draft.text = $0 }
-                )
+                text: $draft.text
             )
             .font(.system(size: ty.body))
             .foregroundColor(fieldInk)
@@ -136,15 +130,18 @@ public struct ChatComposerView: View {
                 maxHeight: Self.fieldHeight, alignment: .leading
             )
             .padding(.horizontal, sp.m)
-            .glassEffect(.regular, in: .capsule)
+            #if os(visionOS)
+            .glassBackgroundEffect()
+            #else
+            .backportGlassEffect(.regular, in: .capsule)
+            #endif
+
 
             MobileComposerCircleButton(
-                symbol: .arrowUpward,
-                foregroundColor: draft.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                ? c.textMuted
-                : c.textPrimary,
+                symbol: trailingActionSymbol,
+                foregroundColor: trailingActionForegroundColor,
                 fillColor: c.surfaceRaised,
-                action: submit
+                action: handleTrailingAction
             )
         }
         .padding(.horizontal, sp.l)
@@ -163,6 +160,24 @@ public struct ChatComposerView: View {
     
     private var agentDisplayName: String {
         return viewModel.selectedAgent?.displayName ?? "Sloppy"
+    }
+
+    private var trimmedDraftText: String {
+        draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trailingActionSymbol: MaterialSymbol {
+        viewModel.shouldShowStopButton ? .stop : .arrowUpward
+    }
+
+    private var trailingActionForegroundColor: Color {
+        if viewModel.shouldShowStopButton {
+            return theme.colors.textPrimary
+        }
+
+        return trimmedDraftText.isEmpty || !viewModel.canSubmitMessage
+            ? theme.colors.textMuted
+            : theme.colors.textPrimary
     }
 
     private var selectedModelSupportsReasoningEffort: Bool {
@@ -198,10 +213,19 @@ public struct ChatComposerView: View {
     }
     
     private func submit() {
-        let trimmed = draft.text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else { return }
+        let trimmed = trimmedDraftText
+        guard !trimmed.isEmpty, viewModel.canSubmitMessage else { return }
         viewModel.sendMessage(content: trimmed)
         isTextFieldFocused = false
+    }
+
+    private func handleTrailingAction() {
+        if viewModel.shouldShowStopButton {
+            viewModel.stopActiveRun()
+            return
+        }
+
+        submit()
     }
 }
 
@@ -383,7 +407,11 @@ private struct MobileComposerCircleButton: View {
                 .frame(width: circleSize, height: circleSize)
         }
         .buttonBorderShape(.circle)
+#if os(visionOS)
+        .glassBackgroundEffect()
+#else
         .buttonStyle(.glass)
+#endif
     }
 }
 
@@ -412,7 +440,7 @@ struct SubmitButton: ButtonStyle {
             .foregroundColor(theme.colors.textPrimary)
             .frame(width: Self.sendSize, height: Self.sendSize)
             .padding(4)
-            .glassEffect(
+            .backportGlassEffect(
                 .regular.tint(actionFill.opacity(isEnabled ? 1 : 0.4)),
                 in: Circle()
             )

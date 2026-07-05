@@ -66,6 +66,10 @@ public actor BackendHTTPClient {
         return try decode(T.self, from: data)
     }
 
+    public func post<Body: Encodable>(_ path: String, body: Body) async throws {
+        _ = try await data(method: "POST", path: path, body: body)
+    }
+
     public func put<Body: Encodable, T: Decodable>(_ path: String, body: Body) async throws -> T {
         let data = try await data(method: "PUT", path: path, body: body)
         return try decode(T.self, from: data)

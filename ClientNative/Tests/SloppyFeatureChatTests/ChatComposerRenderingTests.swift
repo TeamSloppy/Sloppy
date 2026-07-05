@@ -29,11 +29,10 @@ struct ChatComposerRenderingTests {
         let source = try chatComposerSource
 
         #expect(source.contains("private struct MobileComposerCircleButton"))
-        #expect(source.contains(".frame(width: ChatComposerView.phoneCircleSize, height: ChatComposerView.phoneCircleSize)"))
-        #expect(source.contains("Circle()"))
-        #expect(source.contains(".glassEffect(.regular, in: Circle())"))
-        #expect(source.contains(".buttonStyle(DefaultButtonStyle())"))
-        #expect(!source.contains(".buttonStyle(.glass)"))
+        #expect(source.contains("let circleSize = userInterfaceIdiom == .phone ? ChatComposerView.phoneCircleSize : ChatComposerView.buttonSize"))
+        #expect(source.contains(".frame(width: circleSize, height: circleSize)"))
+        #expect(source.contains(".buttonBorderShape(.circle)"))
+        #expect(source.contains(".buttonStyle(.glass)"))
     }
 
     @Test("chat composer phone layout exposes tab action hooks")
@@ -72,17 +71,34 @@ struct ChatComposerRenderingTests {
         #expect(source.contains(".onSubmit(submit)"))
     }
 
+    @Test("composer draft is observable so trailing action reacts while typing")
+    func composerDraftIsObservable() throws {
+        let source = try chatComposerSource
+
+        #expect(source.contains("@Observable"))
+        #expect(source.contains("@Bindable public var draft: ChatComposerDraft"))
+        #expect(source.contains("text: $draft.text"))
+    }
+
+    @Test("composer trailing action swaps between send and stop")
+    func composerTrailingActionSupportsStoppingRuns() throws {
+        let source = try chatComposerSource
+
+        #expect(source.contains("viewModel.shouldShowStopButton ? .stop : .arrowUpward"))
+        #expect(source.contains("viewModel.stopActiveRun()"))
+        #expect(source.contains("guard !trimmed.isEmpty, viewModel.canSubmitMessage else { return }"))
+    }
+
     @Test("desktop composer exposes one combined model effort and agent menu")
     func desktopComposerExposesOneCombinedModelEffortAndAgentMenu() throws {
         let source = try chatComposerSource
 
-        #expect(source.contains("ComposerOptionsMenuView("))
         #expect(source.contains("private struct ComposerOptionsMenuView"))
         #expect(source.contains("Section(\"Model\")"))
         #expect(source.contains("Section(\"Reasoning\")"))
         #expect(source.contains("Section(\"Agent\")"))
-        #expect(source.contains("private struct ComposerMenuChip"))
         #expect(source.contains("private struct ComposerMenuItem"))
+        #expect(source.contains("private var selectedModelTitle: String"))
         #expect(!source.contains("ModelPickerView("))
         #expect(!source.contains("ReasoningEffortPickerView("))
         #expect(!source.contains("AgentPickerView("))

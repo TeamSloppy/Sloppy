@@ -56,7 +56,7 @@ struct MainSidebarView: View {
         let sp = theme.spacing
 
         return TabView(selection: $viewModel.selectedAppSection) {
-            Tab("Chats", systemImage: "", value: MainAppSection.chats) {
+            Tab("Chats", systemImage: "message", value: MainAppSection.chats) {
                 ScrollView {
                     VStack(alignment: .leading, spacing: sp.l) {
                         chatActions(c: c, sp: sp)
@@ -65,21 +65,15 @@ struct MainSidebarView: View {
                 }
             }
 
-            Tab("Agents", systemImage: "", value: MainAppSection.agents) {
+            Tab("Agents", systemImage: "person.3.fill", value: MainAppSection.agents) {
                 AgentsScreen(apiClient: viewModel.apiClient)
             }
 
-            Tab("Projects", systemImage: "", value: MainAppSection.projects) {
+            Tab("Projects", systemImage: "folder", value: MainAppSection.projects) {
                 ScrollView {
                     notebooksSection(c: c, sp: sp)
                 }
             }
-
-            #if !os(macOS)
-            Tab.init(value: MainAppSection.settings, role: .search) {
-                EmptyView()
-            }
-            #endif
         }
         .pickerStyle(.segmented)
         .refreshable {
@@ -144,7 +138,7 @@ struct MainSidebarView: View {
                 .foregroundColor(c.textPrimary)
         }
         .frame(width: 48, height: 48)
-        .glassEffect(.regular.tint(c.surfaceRaised.opacity(0.34 as CGFloat)), in: Circle())
+        .backportGlassEffect(.regular.tint(c.surfaceRaised.opacity(0.34 as CGFloat)), in: Circle())
     }
 
     private func recentsSection(c: AppColors, sp: AppSpacing) -> some View {
@@ -608,9 +602,7 @@ private struct MobileSidebarOverlayIconButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .frame(width: 48, height: 48)
-        #if !os(visionOS)
-            .glassEffect(Glass.regular, in: .circle)
-        #endif
+        .backportGlassEffect(Glass.regular, in: .circle)
             .opacity(configuration.isPressed ? 0.78 as CGFloat : 1)
     }
 }
@@ -694,7 +686,7 @@ private extension View {
         cornerRadius: CGFloat
     ) -> some View {
         if isEnabled {
-            glassEffect(style, in: .rect(cornerRadius: cornerRadius))
+            backportGlassEffect(style, in: .rect(cornerRadius: cornerRadius))
         } else {
             self
         }
@@ -715,6 +707,9 @@ private extension View {
         .task {
             await viewModel.loadProjects()
         }
+    #if os(visionOS)
+        .glassBackgroundEffect()
+    #endif
 }
 
 struct SideBarButtonStyle: ButtonStyle {

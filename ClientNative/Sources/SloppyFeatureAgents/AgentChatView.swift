@@ -423,7 +423,6 @@ struct ChatTranscriptView: View {
                                         ForEach(messages) { msg in
                                             ChatBubbleView(message: msg)
                                                 .frame(minWidth: 0, maxWidth: .infinity)
-                                                .allowsHitTesting(false)
                                         }
                                     }
                                     .padding(sp.m)

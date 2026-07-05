@@ -26,4 +26,15 @@ struct ChatRefreshSourceTests {
         #expect(source.contains("fetchAgentSession(agentId: agent.id, sessionId: selectedSessionId)"))
         #expect(source.contains("transcript.replaceAll(detail.messages)"))
     }
+
+    @Test("chat stream appends delta chunks and exposes an interrupt path")
+    func chatViewModelAppendsChunksAndCanInterrupt() throws {
+        let source = try source
+
+        #expect(source.contains("scheduleStreamingAssistantText(text, sessionId: sessionId, mode: .append)"))
+        #expect(source.contains("pendingStreamingAssistantText = (pendingStreamingAssistantText ?? \"\") + text"))
+        #expect(source.contains("public func stopActiveRun()"))
+        #expect(source.contains("try await apiClient.interruptAgentSession("))
+        #expect(source.contains("defer { isSending = false }"))
+    }
 }

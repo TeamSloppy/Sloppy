@@ -95,6 +95,8 @@ public final class ChatScreenViewModel {
     public private(set) var sessionActionStatus: String?
     public private(set) var isLoadingSessions = false
     public private(set) var isSending = false
+    public private(set) var isAwaitingAgentResponse = false
+    public private(set) var isStopping = false
     public private(set) var composerFocusResetToken = 0
     public let transcript = ChatTranscriptState()
     public let composerDraft = ChatComposerDraft()
@@ -105,6 +107,14 @@ public final class ChatScreenViewModel {
 
     public var activeProjectIdForWorkspacePanel: String? {
         activeProjectId
+    }
+
+    public var shouldShowStopButton: Bool {
+        isAwaitingAgentResponse || isStopping
+    }
+
+    public var canSubmitMessage: Bool {
+        selectedAgent != nil && !isSending && !isStopping
     }
 
     public var activeProjectNameForWorkspacePanel: String? {
@@ -624,11 +634,16 @@ public final class ChatScreenViewModel {
             }
         case .sessionEvent, .sessionDelta:
             if update.kind == .sessionDelta, let text = update.messageText {
-                scheduleStreamingAssistantText(text, sessionId: sessionId)
+                scheduleStreamingAssistantText(text, sessionId: sessionId, mode: .append)
             } else if let msg = update.message {
                 upsertMessage(msg, sessionId: sessionId)
             }
+            if let runStatus = update.streamEvent?.runStatus {
+                handleRunStatus(runStatus, sessionId: sessionId)
+            }
         case .sessionClosed, .sessionError:
+            isAwaitingAgentResponse = false
+            isStopping = false
             flushPendingStreamingAssistantText()
         case .heartbeat:
             break
@@ -643,6 +658,8 @@ public final class ChatScreenViewModel {
         if message.role == .assistant {
             cancelPendingStreamingAssistantText(for: sessionId)
             transcript.removeAll { $0.id == streamingAssistantMessageId(for: sessionId) }
+            isAwaitingAgentResponse = false
+            isStopping = false
         } else if message.role == .user {
             transcript.removeAll { $0.id.hasPrefix("optimistic-user-") }
         }
@@ -650,10 +667,26 @@ public final class ChatScreenViewModel {
         transcript.upsert(message)
     }
 
-    private func scheduleStreamingAssistantText(_ text: String, sessionId: String) {
+    private enum StreamingTextUpdateMode {
+        case append
+        case replace
+    }
+
+    private func scheduleStreamingAssistantText(
+        _ text: String,
+        sessionId: String,
+        mode: StreamingTextUpdateMode
+    ) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         pendingStreamingSessionId = sessionId
-        pendingStreamingAssistantText = text
+        isAwaitingAgentResponse = true
+        isStopping = false
+        switch mode {
+        case .append:
+            pendingStreamingAssistantText = (pendingStreamingAssistantText ?? "") + text
+        case .replace:
+            pendingStreamingAssistantText = text
+        }
 
         guard streamingFlushTask == nil else {
             return
@@ -699,6 +732,22 @@ public final class ChatScreenViewModel {
         )
 
         transcript.upsert(message)
+    }
+
+    private func handleRunStatus(_ status: ChatRunStatusEvent, sessionId: String) {
+        if status.stage == .responding,
+           let expandedText = status.expandedText,
+           !expandedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            scheduleStreamingAssistantText(expandedText, sessionId: sessionId, mode: .replace)
+        }
+
+        switch status.stage {
+        case .thinking, .searching, .responding, .paused:
+            isAwaitingAgentResponse = true
+        case .done, .interrupted:
+            isAwaitingAgentResponse = false
+            isStopping = false
+        }
     }
 
     private func streamingAssistantMessageId(for sessionId: String) -> String {
@@ -828,9 +877,10 @@ public final class ChatScreenViewModel {
     #endif
 
     public func sendMessage(content: String) {
-        guard let agent = selectedAgent, !isSending else { return }
+        guard let agent = selectedAgent, !isSending, !isStopping else { return }
         clearActiveComposerDraft()
         dismissComposerFocus()
+        isAwaitingAgentResponse = true
 
         if selectedSessionId == nil {
             Task { @MainActor in
@@ -862,20 +912,48 @@ public final class ChatScreenViewModel {
 
     private func postMessage(content: String, agentId: String, sessionId: String) async {
         isSending = true
+        defer { isSending = false }
         let optimistic = ChatMessage(
             id: "optimistic-user-\(UUID().uuidString)",
             role: .user,
             segments: [ChatMessageSegment(kind: .text, text: content)]
         )
         transcript.append(optimistic)
-        _ = try? await apiClient.postSessionMessage(
-            agentId: agentId,
-            sessionId: sessionId,
-            content: content,
-            selectedModel: selectedModelId,
-            reasoningEffort: selectedModelSupportsReasoningEffort ? selectedReasoningEffort.payloadValue : nil
-        )
-        isSending = false
+        do {
+            _ = try await apiClient.postSessionMessage(
+                agentId: agentId,
+                sessionId: sessionId,
+                content: content,
+                selectedModel: selectedModelId,
+                reasoningEffort: selectedModelSupportsReasoningEffort ? selectedReasoningEffort.payloadValue : nil
+            )
+        } catch {
+            transcript.removeAll { $0.id == optimistic.id }
+            isAwaitingAgentResponse = false
+        }
+    }
+
+    public func stopActiveRun() {
+        guard let agentId = selectedAgent?.id,
+              let sessionId = selectedSessionId,
+              shouldShowStopButton,
+              !isStopping else {
+            return
+        }
+
+        isStopping = true
+        Task { @MainActor in
+            do {
+                try await apiClient.interruptAgentSession(
+                    agentId: agentId,
+                    sessionId: sessionId,
+                    includeSubsessions: true,
+                    reason: "Interrupted from Apple client"
+                )
+            } catch {
+                isStopping = false
+            }
+        }
     }
 
     private var selectedModelSupportsReasoningEffort: Bool {

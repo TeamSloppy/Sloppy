@@ -2,6 +2,7 @@ import Foundation
 import SwiftUI
 import SloppyClientCore
 import SloppyClientUI
+import Textual
 
 public struct ChatBubbleView: View {
     private static let userBubbleRadius: CGFloat = 14
@@ -23,22 +24,21 @@ public struct ChatBubbleView: View {
         case .user:
             userMessage
                 .multilineTextAlignment(.leading)
+                .textSelection(.enabled)
         case .system:
             systemMessage
                 .multilineTextAlignment(.leading)
+                .textSelection(.enabled)
         case .assistant:
             assistantMessage
                 .multilineTextAlignment(.leading)
+                .textSelection(.enabled)
         }
     }
 
     @ViewBuilder
     private var userMessage: some View {
-        if isPhone {
-            phoneUserMessage
-        } else {
-            desktopUserMessage
-        }
+        desktopUserMessage
     }
 
     private var desktopUserMessage: some View {
@@ -58,20 +58,6 @@ public struct ChatBubbleView: View {
         }
     }
 
-    private var phoneUserMessage: some View {
-        let c = theme.colors
-        let sp = theme.spacing
-
-        return renderedSegmentStack(forceCollapsible: false)
-            .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-            .padding(.horizontal, sp.s)
-            .padding(.vertical, sp.s)
-            .background {
-                RoundedRectangle(cornerRadius: Self.userBubbleRadius)
-                    .fill(c.accent.opacity(0.20 as Float))
-            }
-    }
-
     @ViewBuilder
     private var assistantMessage: some View {
         if isPhone {
@@ -82,27 +68,9 @@ public struct ChatBubbleView: View {
     }
 
     private var desktopAssistantMessage: some View {
-        let c = theme.colors
         let sp = theme.spacing
-        let ty = theme.typography
 
         return VStack(alignment: .leading, spacing: sp.m) {
-            HStack(spacing: sp.s) {
-                Text("SLOPPY")
-                    .font(.system(size: ty.caption))
-                    .foregroundColor(c.accentCyan)
-                    .padding(.horizontal, sp.s)
-                    .padding(.vertical, sp.xs)
-                    .background(c.accentCyan.opacity(0.08 as Float))
-                    .glassEffect(.regular.tint(c.accentCyan.opacity(0.06 as Float)), in: .rect(cornerRadius: 999))
-                Icons.symbol(.arrowForward, size: ty.micro)
-                    .foregroundColor(c.textMuted)
-            }
-
-            Color.clear
-                .frame(height: theme.borders.thin)
-                .background(c.border.opacity(0.48 as Float))
-
             renderedSegmentStack(forceCollapsible: false)
                 .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
         }
@@ -136,8 +104,7 @@ public struct ChatBubbleView: View {
                     )
                 } else {
                     ChatMarkdownTextStack(
-                        text: segment.text ?? "…",
-                        isStreamingAssistant: isStreamingAssistant && index == message.segments.count - 1
+                        text: segment.text ?? "…"
                     )
                 }
             }
@@ -167,103 +134,18 @@ public struct ChatBubbleView: View {
 
 private struct ChatMarkdownTextStack: View {
     let text: String
-    let isStreamingAssistant: Bool
 
     @Environment(\.theme) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: theme.spacing.m) {
-            ForEach(Array(ChatMarkdownRenderer.blocks(for: text).enumerated()), id: \.offset) { _, block in
-                switch block {
-                case .heading(let level, let headingText):
-                    headingView(level: level, text: headingText)
-                case .paragraph(let paragraphText):
-                    paragraphView(paragraphText)
-                case .code(let language, let code):
-                    ChatCodeBlockView(language: language, code: code)
-                }
-            }
-        }
-    }
-
-    @ViewBuilder
-    private func headingView(level: Int, text: String) -> some View {
-        let ty = theme.typography
-        let fontSize: CGFloat = if level == 1 {
-            ty.title
-        } else if level == 2 {
-            ty.heading
-        } else {
-            ty.body
-        }
-
-        if let attributed = ChatMarkdownRenderer.attributedString(for: text) {
-            Text(attributed)
-                .font(.system(size: fontSize))
-                .foregroundColor(theme.colors.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-        } else {
-            Text(text)
-                .font(.system(size: fontSize))
-                .foregroundColor(theme.colors.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    @ViewBuilder
-    private func paragraphView(_ text: String) -> some View {
         let ty = theme.typography
 
-        if isStreamingAssistant {
-            Text(text)
-                .font(.system(size: ty.body))
-                .foregroundColor(theme.colors.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-        } else if let attributed = ChatMarkdownRenderer.attributedString(for: text) {
-            Text(attributed)
-                .font(.system(size: ty.body))
-                .foregroundColor(theme.colors.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-                .tint(theme.colors.accentCyan)
-        } else {
-            Text(text)
-                .font(.system(size: ty.body))
-                .foregroundColor(theme.colors.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-}
-
-private struct ChatCodeBlockView: View {
-    let language: String?
-    let code: String
-
-    @Environment(\.theme) private var theme
-
-    var body: some View {
-        let c = theme.colors
-        let sp = theme.spacing
-        let ty = theme.typography
-
-        return VStack(alignment: .leading, spacing: sp.s) {
-            if let language, !language.isEmpty {
-                Text(language.uppercased())
-                    .font(.system(size: ty.micro))
-                    .foregroundColor(c.textMuted)
-            }
-
-            ScrollView(.horizontal, showsIndicators: false) {
-                Text(code)
-                    .font(.system(size: ty.caption, design: .monospaced))
-                    .foregroundColor(c.textPrimary)
-                    .textSelection(.enabled)
-                    .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
-            }
-        }
-        .padding(.horizontal, sp.m)
-        .padding(.vertical, sp.s)
-        .background(c.surfaceRaised.opacity(0.72 as Float))
-        .glassEffect(.regular.tint(c.surfaceRaised.opacity(0.22 as Float)), in: .rect(cornerRadius: 16))
+        StructuredText(markdown: text)
+            .textual.structuredTextStyle(.gitHub)
+            .font(.system(size: ty.body))
+            .foregroundColor(theme.colors.textPrimary)
+            .tint(theme.colors.accentCyan)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -282,22 +164,18 @@ private struct ChatSegmentCollapsibleCard: View {
         let sp = theme.spacing
 
         VStack(alignment: .leading, spacing: sp.s) {
-            Button {
-                isExpanded.toggle()
-            } label: {
-                if showsLiveDuration {
-                    TimelineView(.periodic(from: .now, by: 1)) { timeline in
-                        timelineRow(durationText: durationLabel(at: timeline.date))
-                    }
-                } else {
-                    timelineRow(durationText: staticDurationLabel)
+            if showsLiveDuration {
+                TimelineView(.periodic(from: .now, by: 1)) { timeline in
+                    timelineRow(durationText: durationLabel(at: timeline.date))
                 }
+            } else {
+                timelineRow(durationText: staticDurationLabel)
             }
 
             if isExpanded {
                 VStack(alignment: .leading, spacing: sp.s) {
                     if let text = segment.text, !text.isEmpty {
-                        ChatMarkdownTextStack(text: text, isStreamingAssistant: isStreamingAssistant && isRunning)
+                        ChatMarkdownTextStack(text: text)
                     }
 
                     if let metadata = segment.metadata, !metadata.isEmpty {
@@ -321,8 +199,13 @@ private struct ChatSegmentCollapsibleCard: View {
         }
         .padding(.horizontal, sp.m)
         .padding(.vertical, sp.s)
-        .background(c.surfaceRaised.opacity(forceCollapsible ? 0.28 as Float : 0.2 as Float))
-        .glassEffect(.regular.tint(c.surfaceRaised.opacity(0.12 as Float)), in: .rect(cornerRadius: 16))
+        .backportGlassEffect(.clear, in: .rect(cornerRadius: 16))
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.1)) {
+                isExpanded.toggle()
+            }
+        }
     }
 
     @ViewBuilder
@@ -353,6 +236,9 @@ private struct ChatSegmentCollapsibleCard: View {
                     .frame(width: 54, height: 10)
                     .clipShape(Capsule())
             }
+        }
+        .onTapGesture {
+            isExpanded.toggle()
         }
     }
 
@@ -433,4 +319,28 @@ private struct ChatShimmerView: View {
         Spacer()
     }
     .padding(.all, 16)
+    .environment(\.userInterfaceIdiom, .desktop)
+}
+
+
+#Preview {
+    VStack(spacing: 16) {
+        ChatBubbleView(message: .init(role: .user, segments: [
+            .init(kind: .text, text: "# Note\n\nPlease read `main.swift`.")
+        ]))
+
+        ChatBubbleView(message: .init(role: .system, segments: [
+            .init(kind: .status, text: "Waiting for approval", title: "System", status: "running", startedAt: Date().addingTimeInterval(-12))
+        ]))
+
+        ChatBubbleView(message: .init(role: .assistant, segments: [
+            .init(kind: .thinking, text: "Comparing two implementations", status: "running", startedAt: Date().addingTimeInterval(-8)),
+            .init(kind: .toolCall, text: "Sources/App.swift", title: "Read file", status: "running", startedAt: Date().addingTimeInterval(-4)),
+            .init(kind: .text, text: "## Result\n\n```swift\nlet value = 42\n```\n\nSee [docs](https://example.com).")
+        ]))
+
+        Spacer()
+    }
+    .padding(.all, 16)
+    .environment(\.userInterfaceIdiom, .phone)
 }

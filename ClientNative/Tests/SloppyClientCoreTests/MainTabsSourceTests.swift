@@ -34,6 +34,7 @@ struct MainTabsSourceTests {
 
         #expect(mainView.contains("var tabs: [WorkspaceTab] = []"))
         #expect(mainView.contains("var selectedTabID: WorkspaceTab.ID?"))
+        #expect(mainView.contains("var desktopSplitState: DesktopTabSplitState?"))
         #expect(mainView.contains("func openProjectKanbanTab(project: APIProjectRecord)"))
         #expect(mainView.contains("func openTaskChatTab("))
         #expect(mainView.contains("func openTaskDetailTab(project: APIProjectRecord, task: APIProjectTask, fallbackAgentId: String?)"))
@@ -47,11 +48,14 @@ struct MainTabsSourceTests {
         let mainView = try source("Sources/SloppyClient/MainView.swift")
 
         #expect(mainView.contains("var isMobileTabsOverviewPresented = false"))
+        #expect(mainView.contains("var isVisionTabsOverviewPresented = false"))
         #expect(mainView.contains("func createBlankChatTab(select: Bool = true)"))
         #expect(mainView.contains("func selectAdjacentTab(offset: Int)"))
         #expect(mainView.contains("func nextTabID(from tabID: WorkspaceTab.ID, offset: Int) -> WorkspaceTab.ID?"))
         #expect(mainView.contains("func presentMobileTabsOverview()"))
         #expect(mainView.contains("func dismissMobileTabsOverview()"))
+        #expect(mainView.contains("func presentVisionTabsOverview()"))
+        #expect(mainView.contains("func dismissVisionTabsOverview()"))
     }
 
     @Test("main view uses extracted desktop workspace tab strip")
@@ -59,10 +63,37 @@ struct MainTabsSourceTests {
         let mainView = try source("Sources/SloppyClient/MainView.swift")
         let strip = try source("Sources/SloppyClient/DesktopWorkspaceTabStrip.swift")
 
+        #expect(mainView.contains("private func tabChromeHost() -> some View"))
         #expect(mainView.contains("DesktopWorkspaceTabStrip(viewModel: viewModel)"))
+        #expect(mainView.contains("DesktopSplitHandle("))
         #expect(strip.contains("struct DesktopWorkspaceTabStrip: View"))
         #expect(strip.contains("viewModel.createBlankChatTab()"))
         #expect(strip.contains("viewModel.closeTab(tab.id)"))
+    }
+
+    @Test("vision tab chrome is extracted into a dedicated floating view")
+    func visionTabChromeIsExtractedIntoADedicatedFloatingView() throws {
+        let mainView = try source("Sources/SloppyClient/MainView.swift")
+        let floatingView = try source("Sources/SloppyClient/VisionFloatingTabBarView.swift")
+
+        #expect(mainView.contains("VisionFloatingTabBarView(viewModel: viewModel)"))
+        #expect(floatingView.contains("struct VisionFloatingTabBarView: View"))
+        #expect(floatingView.contains("viewModel.createBlankChatTab()"))
+        #expect(floatingView.contains("viewModel.closeTab(tab.id)"))
+        #expect(floatingView.contains(".backportGlassEffect("))
+        #expect(floatingView.contains("let onOpenOverview: @MainActor () -> Void"))
+        #expect(floatingView.contains("onOpenOverview()"))
+    }
+
+    @Test("vision floating tab bar compresses and blurs tabs near the edges")
+    func visionFloatingTabBarCompressesAndBlursEdgeTabs() throws {
+        let floatingView = try source("Sources/SloppyClient/VisionFloatingTabBarView.swift")
+
+        #expect(floatingView.contains(".visualEffect { effect, proxy in"))
+        #expect(floatingView.contains(".blur(radius:"))
+        #expect(floatingView.contains(".scaleEffect(x:"))
+        #expect(floatingView.contains("edgeBlurRadius("))
+        #expect(floatingView.contains("edgeCompression("))
     }
 
     @Test("desktop workspace strip uses safari glass gradients instead of flat fill")
@@ -119,6 +150,9 @@ struct MainTabsSourceTests {
         #expect(strip.contains("MiddleClickCloseArea"))
         #expect(strip.contains(".overlay {\n#if os(macOS)"))
         #expect(strip.contains("onMiddleClick: onClose"))
+        #expect(strip.contains("override func hitTest(_ point: NSPoint) -> NSView?"))
+        #expect(strip.contains("return super.hitTest(point)"))
+        #expect(!strip.contains("override func hitTest(_ point: NSPoint) -> NSView? {\n        self\n    }"))
         #expect(strip.contains("override func otherMouseUp(with event: NSEvent)"))
         #expect(strip.contains("event.buttonNumber == 2"))
     }
@@ -131,7 +165,7 @@ struct MainTabsSourceTests {
         #expect(mainView.contains("keyboardShortcut(\"w\", modifiers: [.command])"))
         #expect(mainView.contains("viewModel.createBlankChatTab()"))
         #expect(mainView.contains("viewModel.closeActiveTab()"))
-        #expect(mainView.contains("private func workspaceContentHost() -> some View"))
+        #expect(mainView.contains("private func workspaceContentHost(showsFloatingTabChrome: Bool) -> some View"))
     }
 
     @Test("main view model exposes active-tab close helper")

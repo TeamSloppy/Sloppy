@@ -236,12 +236,69 @@ public struct ChatEventEnvelope: Decodable, Sendable {
     }
 }
 
+public enum ChatStreamEventType: String, Codable, Sendable {
+    case message
+    case runStatus = "run_status"
+    case inputRequest = "input_request"
+}
+
+public enum ChatRunStage: String, Codable, Sendable {
+    case thinking
+    case searching
+    case responding
+    case paused
+    case done
+    case interrupted
+}
+
+public struct ChatRunStatusEvent: Codable, Sendable, Equatable {
+    public var stage: ChatRunStage
+    public var label: String
+    public var details: String?
+    public var expandedText: String?
+    public var createdAt: Date?
+
+    public init(
+        stage: ChatRunStage,
+        label: String,
+        details: String? = nil,
+        expandedText: String? = nil,
+        createdAt: Date? = nil
+    ) {
+        self.stage = stage
+        self.label = label
+        self.details = details
+        self.expandedText = expandedText
+        self.createdAt = createdAt
+    }
+}
+
+public struct ChatStreamEvent: Decodable, Sendable, Equatable {
+    public var id: String
+    public var type: ChatStreamEventType
+    public var message: ChatMessage?
+    public var runStatus: ChatRunStatusEvent?
+
+    public init(
+        id: String,
+        type: ChatStreamEventType,
+        message: ChatMessage? = nil,
+        runStatus: ChatRunStatusEvent? = nil
+    ) {
+        self.id = id
+        self.type = type
+        self.message = message
+        self.runStatus = runStatus
+    }
+}
+
 // Mirrors the server's AgentSessionStreamUpdate wire format.
 // The server puts the full event object under "event", which itself may contain a "message".
 public struct ChatStreamUpdate: Sendable {
     public var kind: ChatStreamUpdateKind
     public var cursor: Int
     public var summary: ChatSessionSummary?
+    public var streamEvent: ChatStreamEvent?
     public var message: ChatMessage?
     public var messageText: String?
     public var errorText: String?
@@ -251,6 +308,7 @@ public struct ChatStreamUpdate: Sendable {
         kind: ChatStreamUpdateKind,
         cursor: Int,
         summary: ChatSessionSummary? = nil,
+        streamEvent: ChatStreamEvent? = nil,
         message: ChatMessage? = nil,
         messageText: String? = nil,
         errorText: String? = nil,
@@ -259,6 +317,7 @@ public struct ChatStreamUpdate: Sendable {
         self.kind = kind
         self.cursor = cursor
         self.summary = summary
+        self.streamEvent = streamEvent
         self.message = message
         self.messageText = messageText
         self.errorText = errorText
@@ -268,11 +327,7 @@ public struct ChatStreamUpdate: Sendable {
 
 extension ChatStreamUpdate: Decodable {
     private enum CodingKeys: String, CodingKey {
-        case kind, cursor, summary, event, message, createdAt
-    }
-
-    private struct EmbeddedEvent: Decodable {
-        var message: ChatMessage?
+        case kind, cursor, summary, event, message, delta, createdAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -282,9 +337,10 @@ extension ChatStreamUpdate: Decodable {
         summary = try container.decodeIfPresent(ChatSessionSummary.self, forKey: .summary)
         createdAt = (try? container.decodeIfPresent(Date.self, forKey: .createdAt)) ?? Date()
         let text = try container.decodeIfPresent(String.self, forKey: .message)
+            ?? container.decodeIfPresent(String.self, forKey: .delta)
         messageText = kind == .sessionDelta ? text : nil
         errorText = kind == .sessionError || kind == .sessionClosed ? text : nil
-        let embedded = try container.decodeIfPresent(EmbeddedEvent.self, forKey: .event)
-        message = embedded?.message
+        streamEvent = try container.decodeIfPresent(ChatStreamEvent.self, forKey: .event)
+        message = streamEvent?.message
     }
 }

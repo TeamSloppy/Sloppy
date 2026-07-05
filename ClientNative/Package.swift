@@ -20,6 +20,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-log.git", from: "1.6.0"),
+        .package(url: "https://github.com/gonzalezreal/textual", from: "0.5.0"),
     ],
     targets: [
         .target(
@@ -77,7 +78,8 @@ let package = Package(
             name: "SloppyFeatureChat",
             dependencies: [
                 "SloppyClientCore",
-                "SloppyClientUI"
+                "SloppyClientUI",
+                .product(name: "Textual", package: "textual")
             ],
             path: "Sources/SloppyFeatureChat"
         ),

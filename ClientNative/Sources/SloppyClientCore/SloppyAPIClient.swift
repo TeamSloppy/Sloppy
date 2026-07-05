@@ -151,6 +151,22 @@ public actor SloppyAPIClient {
         try await sessions.deleteAgentSession(agentId: agentId, sessionId: sessionId)
     }
 
+    public func interruptAgentSession(
+        agentId: String,
+        sessionId: String,
+        includeSubsessions: Bool = true,
+        requestedBy: String = "apple-client",
+        reason: String? = nil
+    ) async throws {
+        try await sessions.controlAgentSession(
+            agentId: agentId,
+            sessionId: sessionId,
+            action: includeSubsessions ? .interruptTree : .interrupt,
+            requestedBy: requestedBy,
+            reason: reason
+        )
+    }
+
     // MARK: - Config API
 
     public func fetchConfig() async throws -> SloppyConfig {

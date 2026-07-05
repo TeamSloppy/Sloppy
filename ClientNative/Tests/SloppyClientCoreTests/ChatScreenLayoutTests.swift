@@ -30,7 +30,7 @@ struct ChatScreenLayoutTests {
         #expect(source.contains(".frame(maxWidth: .infinity, alignment: .leading)"))
         #expect(source.contains(".frame(width: ChatComposerView.phoneCircleSize, height: ChatComposerView.phoneCircleSize)"))
         #expect(source.contains(".buttonStyle(DefaultButtonStyle())"))
-        #expect(source.contains(".glassEffect(.regular, in: GlassShape.capsule)"))
+        #expect(source.contains(".backportGlassEffect(.regular, in: .capsule)"))
         #expect(!source.contains(".debugOverlay(.layoutBounds)"))
     }
 

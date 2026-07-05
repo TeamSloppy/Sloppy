@@ -44,7 +44,7 @@ final class SloppyDesktopOverlay {
         window.titlebarAppearsTransparent = true
         window.titlebarSeparatorStyle = .none
         window.toolbarStyle = .unified
-        window.isMovableByWindowBackground = true
+        window.isMovableByWindowBackground = false
         window.styleMask.insert(.fullSizeContentView)
         window.contentView?.wantsLayer = true
         window.contentView?.layer?.backgroundColor = NSColor.clear.cgColor
@@ -70,6 +70,40 @@ struct TransparentWindowConfigurationView: NSViewRepresentable {
             guard let window = view?.window else { return }
             onWindowAvailable(window)
         }
+    }
+}
+
+@MainActor
+struct WindowDragHandleStrip: NSViewRepresentable {
+    let height: CGFloat
+
+    func makeNSView(context: Context) -> WindowDragHandleNSView {
+        WindowDragHandleNSView()
+    }
+
+    func updateNSView(_ nsView: WindowDragHandleNSView, context: Context) {
+        _ = height
+    }
+}
+
+final class WindowDragHandleNSView: NSView {
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.clear.cgColor
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        self
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.performDrag(with: event)
     }
 }
 

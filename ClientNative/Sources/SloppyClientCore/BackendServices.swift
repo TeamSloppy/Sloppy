@@ -135,6 +135,11 @@ public actor AgentService {
 public actor SessionService {
     private let http: BackendHTTPClient
 
+    public enum SessionControlAction: String, Encodable, Sendable {
+        case interrupt
+        case interruptTree = "interruptTree"
+    }
+
     public init(http: BackendHTTPClient) {
         self.http = http
     }
@@ -203,6 +208,25 @@ public actor SessionService {
 
     public func deleteAgentSession(agentId: String, sessionId: String) async throws {
         try await http.delete("/v1/agents/\(BackendHTTPClient.encodePathSegment(agentId))/sessions/\(BackendHTTPClient.encodePathSegment(sessionId))")
+    }
+
+    public func controlAgentSession(
+        agentId: String,
+        sessionId: String,
+        action: SessionControlAction,
+        requestedBy: String = "apple-client",
+        reason: String? = nil
+    ) async throws {
+        struct Payload: Encodable {
+            var action: SessionControlAction
+            var requestedBy: String
+            var reason: String?
+        }
+
+        try await http.post(
+            "/v1/agents/\(BackendHTTPClient.encodePathSegment(agentId))/sessions/\(BackendHTTPClient.encodePathSegment(sessionId))/control",
+            body: Payload(action: action, requestedBy: requestedBy, reason: reason)
+        )
     }
 }
 

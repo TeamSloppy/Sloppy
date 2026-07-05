@@ -28,19 +28,19 @@ public struct AppColors: Sendable, Hashable {
     public var statusNeutral: Color
 
     public static let dark = AppColors(
-        background:     .fromHex(0x000000),
-        surface:        .fromHex(0x0B1020),
-        surfaceRaised:  .fromHex(0x141B33),
-        surfaceGlass:   .fromHex(0x111A2E),
-        surfaceGlow:    .fromHex(0x24315A),
+        background:     .fromHex(0x171717),
+        surface:        .fromHex(0x181818),
+        surfaceRaised:  .fromHex(0x2C2C2C),
+        surfaceGlass:   .fromHex(0x121212),
+        surfaceGlow:    .fromHex(0x242424),
         accent:         .fromHex(0x8B5CFF),
         accentCyan:     .fromHex(0x25D7FF),
         accentAcid:     .fromHex(0xFFB86B),
-        textPrimary:    .fromHex(0xF7F4FF),
-        textSecondary:  .fromHex(0xB8C3DD),
-        textMuted:      .fromHex(0x66718E),
-        border:         .fromHex(0x22304D),
-        borderBold:     .fromHex(0x5B6FA5),
+        textPrimary:    .fromHex(0xE8E8E8),
+        textSecondary:  .fromHex(0xB5B5B5),
+        textMuted:      .fromHex(0x828282),
+        border:         .fromHex(0x2E2E2E),
+        borderBold:     .fromHex(0x414141),
         statusActive:   .fromHex(0x25D7FF),
         statusReady:    .fromHex(0xB48CFF),
         statusDone:     .fromHex(0x5CF0A8),
@@ -162,4 +162,89 @@ public extension View {
     func theme(_ theme: AppTheme) -> some View {
         environment(\.theme, theme)
     }
+}
+
+private struct ColorPreviewItem: Identifiable {
+    let id: String
+    let name: String
+    let color: Color
+}
+
+private struct AppColorsPreviewSection: View {
+    let title: String
+    let colors: AppColors
+
+    private var items: [ColorPreviewItem] {
+        [
+            ColorPreviewItem(id: "background", name: "Background", color: colors.background),
+            ColorPreviewItem(id: "surface", name: "Surface", color: colors.surface),
+            ColorPreviewItem(id: "surfaceRaised", name: "Surface Raised", color: colors.surfaceRaised),
+            ColorPreviewItem(id: "surfaceGlass", name: "Surface Glass", color: colors.surfaceGlass),
+            ColorPreviewItem(id: "surfaceGlow", name: "Surface Glow", color: colors.surfaceGlow),
+            ColorPreviewItem(id: "accent", name: "Accent", color: colors.accent),
+            ColorPreviewItem(id: "accentCyan", name: "Accent Cyan", color: colors.accentCyan),
+            ColorPreviewItem(id: "accentAcid", name: "Accent Acid", color: colors.accentAcid),
+            ColorPreviewItem(id: "textPrimary", name: "Text Primary", color: colors.textPrimary),
+            ColorPreviewItem(id: "textSecondary", name: "Text Secondary", color: colors.textSecondary),
+            ColorPreviewItem(id: "textMuted", name: "Text Muted", color: colors.textMuted),
+            ColorPreviewItem(id: "border", name: "Border", color: colors.border),
+            ColorPreviewItem(id: "borderBold", name: "Border Bold", color: colors.borderBold),
+            ColorPreviewItem(id: "statusActive", name: "Status Active", color: colors.statusActive),
+            ColorPreviewItem(id: "statusReady", name: "Status Ready", color: colors.statusReady),
+            ColorPreviewItem(id: "statusDone", name: "Status Done", color: colors.statusDone),
+            ColorPreviewItem(id: "statusBlocked", name: "Status Blocked", color: colors.statusBlocked),
+            ColorPreviewItem(id: "statusWarning", name: "Status Warning", color: colors.statusWarning),
+            ColorPreviewItem(id: "statusNeutral", name: "Status Neutral", color: colors.statusNeutral),
+        ]
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            Text(title)
+                .font(.title3.weight(.semibold))
+
+            LazyVGrid(
+                columns: [
+                    GridItem(.adaptive(minimum: 140), spacing: 12),
+                ],
+                spacing: 12
+            ) {
+                ForEach(items) { item in
+                    VStack(alignment: .leading, spacing: 8) {
+                        RoundedRectangle(cornerRadius: 14)
+                            .fill(item.color)
+                            .frame(height: 72)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: 14)
+                                    .stroke(Color.primary.opacity(0.12 as Float), lineWidth: 1)
+                            }
+
+                        Text(item.name)
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.primary)
+                    }
+                }
+            }
+        }
+    }
+}
+
+private struct AppColorsPreview: View {
+    var body: some View {
+        ScrollView {
+            LazyVGrid(columns: [
+                .init(),
+                .init()
+            ]) {
+                AppColorsPreviewSection(title: "Dark", colors: .dark)
+                AppColorsPreviewSection(title: "Light", colors: .light)
+            }
+            .padding(24)
+        }
+        .frame(width: 250)
+    }
+}
+
+#Preview("App Colors") {
+    AppColorsPreview()
 }

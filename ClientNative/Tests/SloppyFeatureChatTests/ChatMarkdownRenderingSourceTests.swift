@@ -17,11 +17,21 @@ struct ChatMarkdownRenderingSourceTests {
         let bubbleSource = try source("Sources", "SloppyFeatureChat", "ChatBubbleView.swift")
         let supportSource = try source("Sources", "SloppyFeatureChat", "ChatMessageRenderingSupport.swift")
 
-        #expect(bubbleSource.contains("ChatMarkdownRenderer.blocks(for: text)"))
-        #expect(bubbleSource.contains("ChatMarkdownRenderer.attributedString(for: text)"))
-        #expect(!bubbleSource.contains("ChatMarkdownBlockParser.parse(text)"))
+        #expect(bubbleSource.contains("import Textual"))
+        #expect(bubbleSource.contains("StructuredText(markdown: text)"))
+        #expect(!bubbleSource.contains("ChatMarkdownRenderer.blocks(for: text)"))
+        #expect(!bubbleSource.contains("ChatMarkdownRenderer.attributedString(for: text)"))
         #expect(!bubbleSource.contains("AttributedString(markdown: text)"))
-        #expect(supportSource.contains("enum ChatMarkdownRenderer"))
-        #expect(supportSource.contains("NSCache"))
+        #expect(!supportSource.contains("ChatMarkdownBlockParser"))
+        #expect(!supportSource.contains("enum ChatMarkdownRenderer"))
+        #expect(!supportSource.contains("NSCache"))
+    }
+
+    @Test("package wires Textual into chat feature target")
+    func packageWiresTextualIntoChatFeatureTarget() throws {
+        let packageSource = try source("Package.swift")
+
+        #expect(packageSource.contains(#".package(url: "https://github.com/gonzalezreal/textual", from: "0.5.0")"#))
+        #expect(packageSource.contains(#".product(name: "Textual", package: "textual")"#))
     }
 }

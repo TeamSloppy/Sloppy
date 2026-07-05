@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 import SloppyClientCore
 import SloppyFeatureChat
 import SloppyFeatureProjects
@@ -64,6 +65,12 @@ struct WorkspaceTab: Identifiable, Hashable {
         self.title = title
         self.payload = payload
     }
+}
+
+struct DesktopTabSplitState: Equatable {
+    var primaryTabID: WorkspaceTab.ID
+    var secondaryTabID: WorkspaceTab.ID
+    var fraction: CGFloat
 }
 
 @MainActor

@@ -6,20 +6,24 @@ import SloppyFeatureSettings
 
 @MainActor
 struct RootShellView: View {
-    let viewModel: RootShellViewModel
+    @State var viewModel: RootShellViewModel
 
     init() {
-        self.viewModel = RootShellViewModel()
+        self._viewModel = State(initialValue: RootShellViewModel())
     }
 
     init(viewModel: RootShellViewModel) {
-        self.viewModel = viewModel
+        self._viewModel = State(initialValue: viewModel)
     }
 
     var body: some View {
         RootShellContent(viewModel: viewModel)
             .environment(viewModel)
+        #if os(visionOS)
+            .theme(.sloppyDark)
+        #else
             .theme(viewModel.settings.colorScheme.appTheme)
+        #endif
             .injectSafeAreaInsets()
             .background {
                 #if os(macOS)
@@ -44,8 +48,10 @@ private struct RootShellContent: View {
         let rootViewModel = viewModel
 
         return ZStack(alignment: .topLeading) {
+            #if os(macOS)
             AppAtmosphericBackground()
                 .ignoresSafeArea()
+            #endif
 
             switch rootViewModel.appState {
             case .splash:
@@ -91,6 +97,12 @@ private struct RootShellContent: View {
                     .frame(width: 320)
                     .padding(theme.spacing.m)
             }
+
+            #if os(macOS)
+            WindowDragHandleStrip(height: max(0, safeAreaInsets.top))
+                .frame(height: max(0, safeAreaInsets.top))
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+            #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .onAppear {
@@ -114,5 +126,6 @@ extension ClientColorScheme {
 }
 
 #Preview {
-    RootShellView()
+    @Previewable @State var viewModel = RootShellViewModel()
+    return RootShellView(viewModel: viewModel)
 }

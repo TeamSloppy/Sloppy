@@ -274,6 +274,50 @@ struct ChatModelsTests {
         #expect(update.message == nil)
     }
 
+    @Test("ChatStreamUpdate sessionDelta supports delta field alias")
+    func chatStreamUpdateSessionDeltaAlias() throws {
+        let json = """
+        {
+            "kind": "session_delta",
+            "cursor": 12,
+            "delta": "Delta field answer"
+        }
+        """.data(using: .utf8)!
+
+        let update = try isoDecoder.decode(ChatStreamUpdate.self, from: json)
+
+        #expect(update.kind == .sessionDelta)
+        #expect(update.cursor == 12)
+        #expect(update.messageText == "Delta field answer")
+    }
+
+    @Test("ChatStreamUpdate sessionEvent decodes run status payloads")
+    func chatStreamUpdateSessionEventRunStatus() throws {
+        let json = """
+        {
+            "kind": "session_event",
+            "cursor": 4,
+            "event": {
+                "id": "evt-run-1",
+                "type": "run_status",
+                "runStatus": {
+                    "stage": "responding",
+                    "label": "Responding",
+                    "details": "Drafting reply",
+                    "expandedText": "Hello from stream"
+                }
+            }
+        }
+        """.data(using: .utf8)!
+
+        let update = try isoDecoder.decode(ChatStreamUpdate.self, from: json)
+
+        #expect(update.kind == .sessionEvent)
+        #expect(update.streamEvent?.type == .runStatus)
+        #expect(update.streamEvent?.runStatus?.stage == .responding)
+        #expect(update.streamEvent?.runStatus?.expandedText == "Hello from stream")
+    }
+
     @Test("AppNotification decodes type and fields")
     func appNotificationDecoding() throws {
         let json = """

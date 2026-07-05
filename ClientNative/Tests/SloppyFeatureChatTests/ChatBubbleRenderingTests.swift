@@ -30,7 +30,7 @@ struct ChatBubbleRenderingTests {
     func richTranscriptIncludesCodeBlockAndRunningStateAffordances() throws {
         let source = try source
 
-        #expect(source.contains("ChatCodeBlockView"))
+        #expect(source.contains("StructuredText(markdown: text)"))
         #expect(source.contains("ChatCompactDurationFormatter.string"))
         #expect(source.contains("ChatShimmerView"))
     }

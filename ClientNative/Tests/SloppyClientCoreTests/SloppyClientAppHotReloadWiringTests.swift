@@ -23,7 +23,9 @@ struct SloppyClientAppWiringTests {
 
         #expect(source.contains("@main"))
         #expect(source.contains("struct SloppyClientApp: App"))
-        #expect(source.contains("@State private var viewModel = RootShellViewModel()"))
+        #expect(source.contains("@State private var viewModel: RootShellViewModel"))
+        #expect(source.contains("init() {"))
+        #expect(source.contains("_viewModel = State(initialValue: RootShellViewModel())"))
         #expect(source.contains("WindowGroup"))
         #expect(source.contains("RootShellView(viewModel: viewModel)"))
     }

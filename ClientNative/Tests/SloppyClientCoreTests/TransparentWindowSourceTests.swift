@@ -23,6 +23,9 @@ struct TransparentWindowSourceTests {
         let rootShell = try source("Sources/SloppyClient/RootShellView.swift")
 
         #expect(rootShell.contains("TransparentWindowConfigurationView { window in"))
+        #expect(rootShell.contains("WindowDragHandleStrip(height:"))
+        #expect(rootShell.contains("max(0, safeAreaInsets.top)"))
+        #expect(!rootShell.contains("WindowDragHandleStrip(height: 36)"))
     }
 
     @Test("desktop overlay configures a non-opaque titlebar-transparent window")
@@ -32,7 +35,7 @@ struct TransparentWindowSourceTests {
         #expect(overlay.contains("window.isOpaque = false"))
         #expect(overlay.contains("window.backgroundColor = .clear"))
         #expect(overlay.contains("window.titlebarAppearsTransparent = true"))
-        #expect(overlay.contains("window.isMovableByWindowBackground = true"))
+        #expect(overlay.contains("window.isMovableByWindowBackground = false"))
     }
 
     @Test("desktop overlay opts into unified toolbar chrome")

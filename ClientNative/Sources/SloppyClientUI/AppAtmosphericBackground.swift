@@ -19,7 +19,6 @@ public struct AppAtmosphericBackground: View {
             endPoint: .bottom
         )
         .background(.thinMaterial)
-        .allowsHitTesting(false)
     }
 }
 

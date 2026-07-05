@@ -34,15 +34,47 @@ struct MainNavigationShellTests {
         #expect(source.contains("MobileWorkspaceTabsOverview("))
     }
 
+    @Test("vision overview is presented above workspace content and uses live tab previews")
+    func visionOverviewIsPresentedAboveWorkspaceContent() throws {
+        let source = try source(named: "MainView.swift")
+
+        #expect(source.contains("if viewModel.isVisionTabsOverviewPresented"))
+        #expect(source.contains("VisionWorkspaceTabsOverview("))
+        #expect(source.contains("previewContent: { tab in"))
+        #expect(source.contains("desktopTabPreviewContent(for: tab)"))
+    }
+
     @Test("regular layout uses extracted workspace host and desktop strip")
     func regularLayoutUsesExtractedWorkspaceHostAndDesktopStrip() throws {
         let source = try source(named: "MainView.swift")
 
         #expect(source.contains("private var activeDesktopTab: WorkspaceTab?"))
-        #expect(source.contains("DesktopWorkspaceTabStrip(viewModel: viewModel)"))
-        #expect(source.contains("private func workspaceContentHost() -> some View"))
+        #expect(source.contains("private func workspaceContentHost(showsFloatingTabChrome: Bool) -> some View"))
+        #expect(source.contains("private func tabChromeHost() -> some View"))
         #expect(source.contains("desktopTabContent(for tab: WorkspaceTab)"))
         #expect(!source.contains("private func phoneTabLayout() -> some View"))
+    }
+
+    @Test("main view hosts vision floating tab chrome separately from desktop strip")
+    func mainViewHostsVisionFloatingTabChromeSeparatelyFromDesktopStrip() throws {
+        let source = try source(named: "MainView.swift")
+
+        #expect(source.contains("#if os(visionOS)"))
+        #expect(source.contains("VisionFloatingTabBarView(viewModel: viewModel)"))
+        #expect(source.contains("DesktopWorkspaceTabStrip(viewModel: viewModel)"))
+        #expect(source.contains("workspaceContentHost(showsFloatingTabChrome: true)"))
+        #expect(source.contains("workspaceContentHost(showsFloatingTabChrome: false)"))
+    }
+
+    @Test("vision floating tab chrome is attached as a scene-level ornament")
+    func visionFloatingTabChromeUsesSceneLevelOrnament() throws {
+        let source = try source(named: "MainView.swift")
+
+        #expect(source.contains(".ornament("))
+        #expect(source.contains("attachmentAnchor: .scene(.top)"))
+        #expect(source.contains("contentAlignment: .bottom"))
+        #expect(!source.contains("attachmentAnchor: .parent(.top)"))
+        #expect(!source.contains(".background(.red)"))
     }
 
     @Test("sidebar defines section picker tabs for chats agents and projects")

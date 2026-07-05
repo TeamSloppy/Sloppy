@@ -22,32 +22,80 @@ struct ConnectionSetupView: View {
         let ty = theme.typography
         let bo = theme.borders
 
+        return VStack {
+
+            // Header
+            VStack(alignment: .leading, spacing: sp.s) {
+                Icons.symbol(.autoAwesome, size: 32)
+                    .foregroundColor(c.accent)
+                Text("Connect to Sloppy")
+                    .font(.system(size: ty.title))
+                    .foregroundColor(c.accent)
+                Text("No server found automatically. Set up your connection below.")
+                    .font(.system(size: ty.caption))
+                    .foregroundColor(c.textMuted)
+            }
+
+            contentView
+                .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
+                .onAppear {
+                    hostDraft = settings.serverHost == "localhost" ? "" : settings.serverHost
+                    portDraft = String(settings.serverPort)
+                    startScan()
+                }
+                .safeAreaInset(edge: .bottom) {
+                    Button {
+                        connectManual()
+                    } label: {
+                        Text(isConnecting ? "CONNECTING..." : "CONNECT")
+                            .font(.system(size: ty.body, weight: .semibold))
+                            .foregroundColor(c.background)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, theme.spacing.m)
+                    }
+                    .glassEffect(.regular.interactive().tint(c.accentCyan))
+                    .padding(.horizontal, theme.spacing.l)
+                    .disabled(isConnecting || hostDraft.isEmpty)
+                    .frame(maxWidth: .infinity)
+                    .background {
+                        LinearGradient(
+                            colors: [
+                                Color.white.opacity(0.05),
+                                Color.white.opacity(0.5),
+                                Color.white
+                            ],
+                            startPoint: .top,
+                            endPoint: .bottom
+                        )
+                        .ignoresSafeArea(.all)
+                    }
+                }
+        }
+    }
+
+    private var contentView: some View {
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+
         return ScrollView {
             VStack(alignment: .leading, spacing: sp.xxl) {
-
-                // Header
-                VStack(alignment: .leading, spacing: sp.s) {
-                    Icons.symbol(.autoAwesome, size: 32)
-                        .foregroundColor(c.accent)
-                    Text("Connect to Sloppy")
-                        .font(.system(size: ty.title))
-                        .foregroundColor(c.accent)
-                    Text("No server found automatically. Set up your connection below.")
-                        .font(.system(size: ty.caption))
-                        .foregroundColor(c.textMuted)
-                }
-
                 // Warning banner
                 HStack(spacing: sp.s) {
                     Icons.symbol(.warning, size: ty.caption)
-                        .foregroundColor(c.statusWarning)
                     Text("Local network scan only works on your current Wi-Fi.\nFor remote access, enter the address manually.")
                         .font(.system(size: ty.caption))
-                        .foregroundColor(c.statusWarning)
                 }
+
+                .foregroundColor(c.statusWarning)
                 .padding(sp.m)
-                .background(c.statusWarning.opacity(0.08))
-                .border(c.statusWarning.opacity(0.3), lineWidth: bo.thin)
+                .backportGlassEffect(
+                    .regular.tint(c.statusWarning.opacity(0.15)),
+                    in: RoundedRectangle(
+                        cornerRadius: 16,
+                        style: .continuous
+                    )
+                )
 
                 // Scan section
                 VStack(alignment: .leading, spacing: sp.m) {
@@ -56,11 +104,16 @@ struct ConnectionSetupView: View {
                             .font(.system(size: ty.caption))
                             .foregroundColor(c.textMuted)
                         Spacer()
-                        Button(isScanning ? "SCANNING..." : "SCAN") {
+                        Button {
                             startScan()
+                        } label: {
+                            Text(isScanning ? "SCANNING..." : "SCAN")
+                                .font(.system(size: ty.caption))
+                                .foregroundColor(c.accentCyan)
+                                .padding(.vertical, theme.spacing.s)
+                                .padding(.horizontal, theme.spacing.s)
                         }
-                        .font(.system(size: ty.caption))
-                        .foregroundColor(c.accentCyan)
+                        .backportGlassEffect(.regular.interactive(), in: .capsule)
                         .disabled(isScanning)
                     }
 
@@ -90,9 +143,14 @@ struct ConnectionSetupView: View {
                                 .foregroundColor(c.accentCyan)
                             }
                             .padding(sp.m)
-                            .background(c.surface)
-                            .border(c.accentCyan.opacity(0.3), lineWidth: bo.thin)
                         }
+                        .backportGlassEffect(
+                            .regular.interactive(),
+                            in: RoundedRectangle(
+                                cornerRadius: 16,
+                                style: .continuous
+                            )
+                        )
                     }
                 }
 
@@ -106,31 +164,16 @@ struct ConnectionSetupView: View {
                         .font(.system(size: ty.caption))
                         .foregroundColor(c.textMuted)
 
-                    VStack(alignment: .leading, spacing: 0) {
+                    VStack(alignment: .leading, spacing: 12) {
                         manualField("Host", hint: "192.168.1.50 or hostname", text: $hostDraft)
-                        Color.clear.frame(height: bo.thin).background(c.border)
+
                         manualField("Port", hint: "25101", text: $portDraft)
                     }
-                    .background(c.surface)
-                    .border(c.border, lineWidth: bo.thin)
 
                     if let err = errorMessage {
                         Text(err)
                             .font(.system(size: ty.caption))
                             .foregroundColor(c.statusBlocked)
-                    }
-
-                    HStack {
-                        Spacer()
-                        Button(isConnecting ? "CONNECTING..." : "CONNECT") {
-                            connectManual()
-                        }
-                        .font(.system(size: ty.body))
-                        .foregroundColor(c.background)
-                        .padding(.horizontal, sp.l)
-                        .padding(.vertical, sp.s)
-                        .background(c.accentCyan)
-//                        .disabled(isConnecting || hostDraft.isEmpty)
                     }
                 }
 
@@ -144,17 +187,9 @@ struct ConnectionSetupView: View {
                         .foregroundColor(c.textSecondary)
                 }
                 .padding(sp.m)
-                .background(c.surface)
-                .border(c.border, lineWidth: bo.thin)
             }
             .padding(theme.spacing.l)
             .frame(minWidth: 0, maxWidth: .infinity, alignment: .topLeading)
-        }
-        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)
-        .onAppear {
-            hostDraft = settings.serverHost == "localhost" ? "" : settings.serverHost
-            portDraft = String(settings.serverPort)
-            startScan()
         }
     }
 
@@ -171,10 +206,11 @@ struct ConnectionSetupView: View {
             TextField(hint, text: text)
                 .font(.system(size: ty.body))
                 .foregroundColor(.white)
-                .textFieldStyle(PlainTextFieldStyle())
+                .textFieldStyle(.plain)
         }
         .padding(.horizontal, sp.m)
-        .padding(.vertical, sp.s)
+        .padding(.vertical, sp.m)
+        .backportGlassEffect(.regular, in: .capsule)
     }
 
     private func startScan() {
@@ -224,4 +260,11 @@ struct ConnectionSetupView: View {
             }
         }
     }
+}
+
+#Preview {
+    ConnectionSetupView(
+        settings: ClientSettings(),
+        onConnected: { _ in }
+    )
 }

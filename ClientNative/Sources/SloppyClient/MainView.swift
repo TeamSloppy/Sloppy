@@ -8,553 +8,6 @@ import SloppyFeatureChat
 import SloppyFeatureProjects
 import SloppyFeatureSettings
 
-enum MainAppSection: String, CaseIterable, Hashable {
-    case projects
-    case agents
-    case chats
-    case workspace
-    case settings
-}
-
-@Observable
-@MainActor
-final class MainViewModel {
-    let baseURL: URL
-    let settings: ClientSettings
-    let connectionMonitor: ConnectionMonitor
-    let onOpenSettings: @MainActor () -> Void
-    let onOpenWorkspace: @MainActor () -> Void
-    let cacheStore: ClientCacheStore
-
-    var projects: [APIProjectRecord] = []
-    var isLoadingProjects = false
-    var didLoadProjects = false
-    var collapsedProjectIds: Set<String> = []
-    var expandedTaskLists: Set<String> = []
-    var selectedAppSection: MainAppSection = .chats
-    var selectedSidebarItem: MainSidebarSelection? = nil
-    var isSidebarCollapsed = false
-    var isMobileSidebarPresented = false
-    var isMobileTabsOverviewPresented = false
-    var tabs: [WorkspaceTab] = []
-    var selectedTabID: WorkspaceTab.ID?
-    var chatTabStates: [WorkspaceTab.ID: ChatTabState] = [:]
-    var projectKanbanTabStates: [WorkspaceTab.ID: ProjectKanbanTabState] = [:]
-    var taskDetailTabStates: [WorkspaceTab.ID: TaskDetailTabState] = [:]
-    var workspaceTabStates: [WorkspaceTab.ID: WorkspaceFilesTabState] = [:]
-    var chatViewModel: ChatScreenViewModel
-    var workspacePanelViewModel: WorkspacePanelViewModel
-    var chatNavigationSerial = 0
-    let apiClient: SloppyAPIClient
-
-    var sidebarWidth: CGFloat {
-        isSidebarCollapsed ? MainSidebarView.collapsedWidth : MainSidebarView.expandedWidth
-    }
-
-    var sidebarMinimumWidth: CGFloat {
-        isSidebarCollapsed ? MainSidebarView.collapsedWidth : MainSidebarView.minimumWidth
-    }
-
-    var sidebarMaximumWidth: CGFloat {
-        isSidebarCollapsed ? MainSidebarView.collapsedWidth : MainSidebarView.maximumWidth
-    }
-
-    var workspaceContext: WorkspacePanelContext? {
-        guard let projectId = chatViewModel.activeProjectIdForWorkspacePanel,
-              let projectName = chatViewModel.activeProjectNameForWorkspacePanel else {
-            return nil
-        }
-        return WorkspacePanelContext(projectId: projectId, projectName: projectName)
-    }
-
-    var chatSidebarMode: ChatSidebarListMode {
-        get { settings.chatSidebarMode }
-        set { settings.chatSidebarMode = newValue }
-    }
-
-    init(
-        baseURL: URL,
-        settings: ClientSettings,
-        connectionMonitor: ConnectionMonitor,
-        cacheStore: ClientCacheStore = ClientCacheStore(),
-        onOpenSettings: @Sendable @escaping @MainActor () -> Void,
-        onOpenWorkspace: @escaping @MainActor () -> Void
-    ) {
-        let apiClient = SloppyAPIClient(baseURL: baseURL)
-        self.baseURL = baseURL
-        self.settings = settings
-        self.connectionMonitor = connectionMonitor
-        self.cacheStore = cacheStore
-        self.onOpenSettings = onOpenSettings
-        self.onOpenWorkspace = onOpenWorkspace
-        self.chatViewModel = ChatScreenViewModel(
-            apiClient: apiClient,
-            cacheStore: cacheStore,
-            settings: settings,
-            connectionMonitor: connectionMonitor,
-            onOpenSettings: onOpenSettings
-        )
-        self.workspacePanelViewModel = WorkspacePanelViewModel(apiClient: apiClient)
-        self.apiClient = apiClient
-    }
-
-    func openMobileSidebar() {
-        isSidebarCollapsed = false
-        isMobileSidebarPresented = true
-    }
-
-    func dismissMobileSidebar() {
-        guard isMobileSidebarPresented else {
-            return
-        }
-        isMobileSidebarPresented = false
-    }
-
-    func selectNewChat() {
-        selectAppSection(.chats)
-        updateSelectedSidebarItem(.chats)
-        dismissMobileSidebar()
-        routePrimaryChat(.blank)
-    }
-
-    func selectChatSession(_ session: ChatSessionSummary) {
-        selectAppSection(.chats)
-        updateSelectedSidebarItem(.chats)
-        dismissMobileSidebar()
-        openSessionChatTab(session)
-    }
-
-    func deleteChatSession(_ session: ChatSessionSummary) {
-        chatViewModel.deleteSession(session)
-    }
-
-    func togglePinChatSession(_ session: ChatSessionSummary) {
-        chatViewModel.toggleSessionPinned(session)
-    }
-
-    func copyDebugSessionFileLink(_ session: ChatSessionSummary) {
-        chatViewModel.copyDebugSessionFileLink(session)
-    }
-
-    func openSessionChatTab(_ session: ChatSessionSummary) {
-        selectAppSection(.chats)
-        updateSelectedSidebarItem(.chats)
-        if retargetSelectedChatTab(to: session) {
-            return
-        }
-
-        let key = WorkspaceTabKey.chatSession(session.id)
-        if let existing = tabs.first(where: { $0.key == key }) {
-            selectedTabID = existing.id
-            return
-        }
-
-        let chatState = makeChatTabState()
-        chatState.viewModel.openSessionFromSummary(session)
-        let tab = WorkspaceTab(
-            key: key,
-            kind: .chat,
-            title: session.title,
-            payload: .chatSession(sessionID: session.id, title: session.title)
-        )
-        tabs.append(tab)
-        chatTabStates[tab.id] = chatState
-        selectedTabID = tab.id
-    }
-
-    func selectProject(_ project: APIProjectRecord) {
-        selectAppSection(.projects)
-        updateSelectedSidebarItem(.project(project.id))
-        dismissMobileSidebar()
-        routePrimaryChat(
-            .project(
-                projectId: project.id,
-                projectName: project.name,
-                agentId: project.actors?.first
-            )
-        )
-    }
-
-    func openProjectKanbanTab(project: APIProjectRecord) {
-        selectAppSection(.projects)
-        updateSelectedSidebarItem(.project(project.id))
-        let key = WorkspaceTabKey.projectKanban(project.id)
-        if let existing = tabs.first(where: { $0.key == key }) {
-            selectedTabID = existing.id
-            return
-        }
-
-        let kanbanState = makeProjectKanbanTabState()
-        Task { @MainActor in
-            await kanbanState.viewModel.load(projectId: project.id)
-        }
-        let tab = WorkspaceTab(
-            key: key,
-            kind: .projectKanban,
-            title: project.name,
-            payload: .projectKanban(
-                ProjectKanbanTabContext(projectId: project.id, projectName: project.name)
-            )
-        )
-        tabs.append(tab)
-        projectKanbanTabStates[tab.id] = kanbanState
-        selectedTabID = tab.id
-    }
-
-    func selectTask(
-        projectId: String,
-        projectName: String,
-        task: APIProjectTask,
-        fallbackAgentId: String?
-    ) {
-        selectAppSection(.projects)
-        updateSelectedSidebarItem(.task(projectId: projectId, taskId: task.id))
-        dismissMobileSidebar()
-        routePrimaryChat(
-            .task(
-                projectId: projectId,
-                projectName: projectName,
-                taskId: task.id,
-                taskTitle: task.title,
-                agentId: task.actorId ?? fallbackAgentId
-            )
-        )
-    }
-
-    func openTaskChatTab(project: APIProjectRecord, task: APIProjectTask, fallbackAgentId: String?) {
-        selectAppSection(.projects)
-        updateSelectedSidebarItem(.task(projectId: project.id, taskId: task.id))
-        let key = WorkspaceTabKey.chatTask(projectId: project.id, taskId: task.id)
-        if let existing = tabs.first(where: { $0.key == key }) {
-            selectedTabID = existing.id
-            return
-        }
-
-        let chatState = makeChatTabState()
-        chatState.viewModel.applyNavigationRequest(
-            ChatNavigationRequest(
-                id: Int.random(in: Int.min ... Int.max),
-                context: .task(
-                    projectId: project.id,
-                    projectName: project.name,
-                    taskId: task.id,
-                    taskTitle: task.title,
-                    agentId: task.actorId ?? fallbackAgentId
-                )
-            )
-        )
-        chatState.viewModel.loadInitialData()
-        let tab = WorkspaceTab(
-            key: key,
-            kind: .chat,
-            title: task.title,
-            payload: .chatTask(
-                projectId: project.id,
-                projectName: project.name,
-                taskId: task.id,
-                taskTitle: task.title,
-                fallbackAgentId: task.actorId ?? fallbackAgentId
-            )
-        )
-        tabs.append(tab)
-        chatTabStates[tab.id] = chatState
-        selectedTabID = tab.id
-    }
-
-    func openTaskDetailTab(project: APIProjectRecord, task: APIProjectTask, fallbackAgentId: String?) {
-        selectAppSection(.projects)
-        updateSelectedSidebarItem(.task(projectId: project.id, taskId: task.id))
-        let key = WorkspaceTabKey.taskDetail(projectId: project.id, taskId: task.id)
-        if let existing = tabs.first(where: { $0.key == key }) {
-            selectedTabID = existing.id
-            return
-        }
-
-        let detailState = makeTaskDetailTabState()
-        let tab = WorkspaceTab(
-            key: key,
-            kind: .taskDetail,
-            title: task.title,
-            payload: .taskDetail(
-                TaskDetailTabContext(
-                    projectId: project.id,
-                    projectName: project.name,
-                    taskId: task.id,
-                    taskTitle: task.title,
-                    fallbackAgentId: task.actorId ?? fallbackAgentId
-                )
-            )
-        )
-        tabs.append(tab)
-        taskDetailTabStates[tab.id] = detailState
-        selectedTabID = tab.id
-    }
-
-    func toggleProjectCollapse(projectId: String) {
-        if collapsedProjectIds.contains(projectId) {
-            collapsedProjectIds.remove(projectId)
-        } else {
-            collapsedProjectIds.insert(projectId)
-        }
-    }
-
-    func toggleTaskListExpansion(projectId: String) {
-        if expandedTaskLists.contains(projectId) {
-            expandedTaskLists.remove(projectId)
-        } else {
-            expandedTaskLists.insert(projectId)
-        }
-    }
-
-    func refreshContent() async {
-        await loadProjects(force: true)
-        if chatViewModel.selectedAgent == nil {
-            chatViewModel.loadInitialData()
-        } else {
-            await chatViewModel.refreshCurrentContext()
-        }
-    }
-
-    func loadProjects(force: Bool = false) async {
-        guard force || !didLoadProjects else { return }
-        guard !isLoadingProjects else { return }
-
-        isLoadingProjects = true
-        defer {
-            didLoadProjects = true
-            isLoadingProjects = false
-        }
-
-        let client = SloppyAPIClient(baseURL: baseURL)
-        let list = (try? await client.fetchProjects()) ?? []
-        if list.isEmpty {
-            projects = await cacheStore.loadProjects()
-        } else {
-            projects = list
-            await cacheStore.cacheProjects(list)
-        }
-
-        if selectedSidebarItem == nil, let firstProject = list.first {
-            selectedSidebarItem = .project(firstProject.id)
-        }
-    }
-
-    func selectAppSection(_ section: MainAppSection) {
-        guard selectedAppSection != section else {
-            return
-        }
-        selectedAppSection = section
-        dismissMobileSidebar()
-    }
-
-    func selectTab(_ tabID: WorkspaceTab.ID) {
-        guard tabs.contains(where: { $0.id == tabID }) else {
-            return
-        }
-        selectedTabID = tabID
-    }
-
-    func createBlankChatTab(select: Bool = true) {
-        let chatState = makeChatTabState()
-        let draftID = "draft-\(UUID().uuidString)"
-        let tab = WorkspaceTab(
-            key: .chatSession(draftID),
-            kind: .chat,
-            title: "New Chat",
-            payload: .chatSession(sessionID: draftID, title: "New Chat")
-        )
-        tabs.append(tab)
-        chatTabStates[tab.id] = chatState
-        if select {
-            selectedTabID = tab.id
-        }
-    }
-
-    func nextTabID(from tabID: WorkspaceTab.ID, offset: Int) -> WorkspaceTab.ID? {
-        guard let index = tabs.firstIndex(where: { $0.id == tabID }) else {
-            return nil
-        }
-        let nextIndex = index + offset
-        guard tabs.indices.contains(nextIndex) else {
-            return nil
-        }
-        return tabs[nextIndex].id
-    }
-
-    func selectAdjacentTab(offset: Int) {
-        guard let selectedTabID,
-              let nextID = nextTabID(from: selectedTabID, offset: offset) else {
-            return
-        }
-        self.selectedTabID = nextID
-    }
-
-    func presentMobileTabsOverview() {
-        isMobileTabsOverviewPresented = true
-    }
-
-    func dismissMobileTabsOverview() {
-        isMobileTabsOverviewPresented = false
-    }
-
-    func closeActiveTab() {
-        guard let selectedTabID else {
-            return
-        }
-        closeTab(selectedTabID)
-    }
-
-    func closeTab(_ tabID: WorkspaceTab.ID) {
-        guard let index = tabs.firstIndex(where: { $0.id == tabID }) else {
-            return
-        }
-
-        let wasSelected = selectedTabID == tabID
-        tabs.remove(at: index)
-        chatTabStates.removeValue(forKey: tabID)
-        projectKanbanTabStates.removeValue(forKey: tabID)
-        taskDetailTabStates.removeValue(forKey: tabID)
-        workspaceTabStates.removeValue(forKey: tabID)
-
-        if tabs.isEmpty {
-            selectedTabID = nil
-            createBlankChatTab(select: true)
-            if isMobileTabsOverviewPresented {
-                dismissMobileTabsOverview()
-            }
-            return
-        }
-
-        guard wasSelected else {
-            return
-        }
-
-        let nextIndex = min(index, tabs.count - 1)
-        selectedTabID = tabs[nextIndex].id
-    }
-
-    func makeChatTabState() -> ChatTabState {
-        let apiClient = SloppyAPIClient(baseURL: baseURL)
-        return ChatTabState(
-            viewModel: ChatScreenViewModel(
-                apiClient: apiClient,
-                cacheStore: cacheStore,
-                settings: settings,
-                connectionMonitor: connectionMonitor,
-                onOpenSettings: onOpenSettings
-            )
-        )
-    }
-
-    func makeProjectKanbanTabState() -> ProjectKanbanTabState {
-        let apiClient = SloppyAPIClient(baseURL: baseURL)
-        return ProjectKanbanTabState(viewModel: ProjectKanbanViewModel(apiClient: apiClient))
-    }
-
-    func makeWorkspaceFilesTabState() -> WorkspaceFilesTabState {
-        let apiClient = SloppyAPIClient(baseURL: baseURL)
-        return WorkspaceFilesTabState(viewModel: WorkspacePanelViewModel(apiClient: apiClient))
-    }
-
-    func makeTaskDetailTabState() -> TaskDetailTabState {
-        let apiClient = SloppyAPIClient(baseURL: baseURL)
-        return TaskDetailTabState(viewModel: TaskDetailViewModel(apiClient: apiClient))
-    }
-
-    func openWorkspaceTabForSelectedContext() {
-        guard let context = activeWorkspaceFilesContext() else {
-            return
-        }
-
-        let key = WorkspaceTabKey.workspaceFiles(context.projectId)
-        if let existing = tabs.first(where: { $0.key == key }) {
-            selectedTabID = existing.id
-            return
-        }
-
-        let workspaceState = makeWorkspaceFilesTabState()
-        let tab = WorkspaceTab(
-            key: key,
-            kind: .workspaceFiles,
-            title: "\(context.projectName) Files",
-            payload: .workspaceFiles(context)
-        )
-        tabs.append(tab)
-        workspaceTabStates[tab.id] = workspaceState
-        selectedTabID = tab.id
-    }
-
-    private func updateSelectedSidebarItem(_ selection: MainSidebarSelection) {
-        guard selectedSidebarItem != selection else {
-            return
-        }
-        selectedSidebarItem = selection
-    }
-
-    private func routePrimaryChat(_ context: ChatNavigationRequest.Context) {
-        chatNavigationSerial += 1
-        chatViewModel.applyNavigationRequest(
-            ChatNavigationRequest(id: chatNavigationSerial, context: context)
-        )
-    }
-
-    private func openOrSelectTab(key: WorkspaceTabKey, makeTab: @autoclosure () -> WorkspaceTab) {
-        if let existing = tabs.first(where: { $0.key == key }) {
-            selectedTabID = existing.id
-            return
-        }
-
-        let tab = makeTab()
-        tabs.append(tab)
-        selectedTabID = tab.id
-    }
-
-    @discardableResult
-    private func retargetSelectedChatTab(to session: ChatSessionSummary) -> Bool {
-        guard let selectedTabID,
-              let index = tabs.firstIndex(where: { $0.id == selectedTabID }),
-              tabs[index].kind == .chat,
-              let chatState = chatTabStates[selectedTabID] else {
-            return false
-        }
-
-        chatState.viewModel.openSessionFromSummary(session)
-        tabs[index] = WorkspaceTab(
-            id: tabs[index].id,
-            key: .chatSession(session.id),
-            kind: .chat,
-            title: session.title,
-            payload: .chatSession(sessionID: session.id, title: session.title)
-        )
-        return true
-    }
-
-    private func activeWorkspaceFilesContext() -> WorkspaceFilesTabContext? {
-        guard let selectedTabID,
-              let tab = tabs.first(where: { $0.id == selectedTabID }) else {
-            return nil
-        }
-
-        switch tab.payload {
-        case .projectKanban(let context):
-            return WorkspaceFilesTabContext(projectId: context.projectId, projectName: context.projectName)
-        case .workspaceFiles(let context):
-            return context
-        case .chatTask(let projectId, let projectName, _, _, _):
-            return WorkspaceFilesTabContext(projectId: projectId, projectName: projectName)
-        case .taskDetail(let context):
-            return WorkspaceFilesTabContext(projectId: context.projectId, projectName: context.projectName)
-        case .chatSession:
-            guard let chatState = chatTabStates[tab.id],
-                  let projectId = chatState.viewModel.activeProjectIdForWorkspacePanel,
-                  let projectName = chatState.viewModel.activeProjectNameForWorkspacePanel else {
-                return nil
-            }
-            return WorkspaceFilesTabContext(projectId: projectId, projectName: projectName)
-        }
-    }
-}
-
 @MainActor
 struct MainView: View {
     let rootSafeAreaInsets: EdgeInsets
@@ -591,69 +44,121 @@ struct MainView: View {
     }
 
     var body: some View {
-        Group {
-            NavigationSplitView {
-                sidebarView(isOverlay: false)
-                    .navigationSplitViewColumnWidth(
-                        min: viewModel.sidebarMinimumWidth,
-                        ideal: viewModel.sidebarWidth,
-                        max: viewModel.sidebarMaximumWidth
-                    )
-            } detail: {
-                desktopContentArea()
-            }
-            .navigationSplitViewStyle(.balanced)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .onAppear {
-            if viewModel.tabs.isEmpty {
-                viewModel.createBlankChatTab(select: true)
-            }
-            viewModel.chatViewModel.loadInitialData()
-            Task { await viewModel.loadProjects() }
-        }
-        .background {
-            Group {
-                Button("") {
-                    viewModel.createBlankChatTab()
+        contentView
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .onAppear {
+                if viewModel.tabs.isEmpty {
+                    viewModel.createBlankChatTab(select: true)
                 }
-                .keyboardShortcut("t", modifiers: [.command])
-                .opacity(0.001)
-                .allowsHitTesting(false)
-
-                Button("") {
-                    viewModel.closeActiveTab()
-                }
-                .keyboardShortcut("w", modifiers: [.command])
-                .opacity(0.001)
-                .allowsHitTesting(false)
-
-                Button("") {
-                    Task { await viewModel.refreshContent() }
-                }
-                .keyboardShortcut("r", modifiers: [.command])
-                .opacity(0.001)
-                .allowsHitTesting(false)
+                viewModel.chatViewModel.loadInitialData()
+                Task { await viewModel.loadProjects() }
             }
-        }
-        .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button(
-                    action: {
-                        viewModel.openWorkspaceTabForSelectedContext()
-                    },
-                    label: {
-                        Image(systemName: "sidebar.right")
+            .background {
+                Group {
+                    Button("") {
+                        viewModel.createBlankChatTab()
                     }
-                )
+                    .keyboardShortcut("t", modifiers: [.command])
+                    .opacity(0.001)
+                    .allowsHitTesting(false)
+
+                    Button("") {
+                        viewModel.closeActiveTab()
+                    }
+                    .keyboardShortcut("w", modifiers: [.command])
+                    .opacity(0.001)
+                    .allowsHitTesting(false)
+
+                    Button("") {
+                        Task { await viewModel.refreshContent() }
+                    }
+                    .keyboardShortcut("r", modifiers: [.command])
+                    .opacity(0.001)
+                    .allowsHitTesting(false)
+                }
             }
+            .toolbar {
+                ToolbarItem(placement: .primaryAction) {
+                    Button(
+                        action: {
+                            viewModel.openWorkspaceTabForSelectedContext()
+                        },
+                        label: {
+                            Image(systemName: "sidebar.right")
+                        }
+                    )
+                }
+            }
+    }
+
+    @ViewBuilder
+    private var contentView: some View {
+#if os(visionOS)
+        if viewModel.isVisionTabsOverviewPresented {
+            VisionWorkspaceTabsOverview(
+                tabs: viewModel.tabs,
+                selectedTabID: viewModel.selectedTabID,
+                onSelect: { tabID in
+                    viewModel.selectTab(tabID)
+                    viewModel.dismissVisionTabsOverview()
+                },
+                onClose: { tabID in
+                    viewModel.closeTab(tabID)
+                },
+                onCreate: {
+                    viewModel.createBlankChatTab()
+                },
+                onDismiss: {
+                    viewModel.dismissVisionTabsOverview()
+                },
+                previewContent: { tab in
+                    desktopTabPreviewContent(for: tab)
+                }
+            )
+            .transition(.opacity.combined(with: .scale(scale: 0.98)))
+        } else {
+            navigationView
         }
+#else
+        navigationView
+#endif
+    }
+
+    private var navigationView: some View {
+        NavigationSplitView {
+            sidebarView(isOverlay: true)
+                .navigationSplitViewColumnWidth(
+                    min: viewModel.sidebarMinimumWidth,
+                    ideal: viewModel.sidebarWidth,
+                    max: viewModel.sidebarMaximumWidth
+                )
+        } detail: {
+            desktopContentArea()
+        }
+        .navigationSplitViewStyle(.balanced)
+#if os(visionOS)
+        .ornament(
+            attachmentAnchor: .scene(.top),
+            contentAlignment: .bottom,
+            ornament: {
+                VisionFloatingTabBarView(
+                    viewModel: viewModel,
+                    onOpenOverview: { viewModel.presentVisionTabsOverview() }
+                )
+                    .padding(.bottom, 12)
+            }
+        )
+#endif
     }
 
     @ViewBuilder
     private func desktopContentArea() -> some View {
-        ZStack {
-            workspaceContentHost()
+        ZStack(alignment: .top) {
+            #if os(visionOS)
+            workspaceContentHost(showsFloatingTabChrome: true)
+            #else
+            workspaceContentHost(showsFloatingTabChrome: false)
+            #endif
 
             if idiom == .phone, viewModel.isMobileTabsOverviewPresented {
                 MobileWorkspaceTabsOverview(
@@ -680,14 +185,26 @@ struct MainView: View {
     }
 
     @ViewBuilder
-    private func workspaceContentHost() -> some View {
+    private func workspaceContentHost(showsFloatingTabChrome: Bool) -> some View {
         VStack(spacing: 0) {
-            if idiom != .phone {
+            #if !os(visionOS)
+            if idiom != .phone && !showsFloatingTabChrome {
                 DesktopWorkspaceTabStrip(viewModel: viewModel)
                 Divider()
             }
+            #endif
 
-            if let activeDesktopTab {
+            if let desktopSplitState = viewModel.desktopSplitState,
+               let primaryTab = viewModel.tabs.first(where: { $0.id == desktopSplitState.primaryTabID }),
+               let secondaryTab = viewModel.tabs.first(where: { $0.id == desktopSplitState.secondaryTabID }) {
+                DesktopSplitContentView(
+                    fraction: desktopSplitState.fraction,
+                    onFractionChange: viewModel.updateDesktopSplitFraction(_:),
+                    onClearSplit: viewModel.clearDesktopSplit,
+                    primary: { desktopTabContent(for: primaryTab) },
+                    secondary: { desktopTabContent(for: secondaryTab) }
+                )
+            } else if let activeDesktopTab {
                 desktopTabContent(for: activeDesktopTab)
             } else {
                 DesktopTabsEmptyState()
@@ -829,6 +346,15 @@ struct MainView: View {
             WorkspaceUnavailableView()
         }
     }
+
+#if os(visionOS)
+    @ViewBuilder
+    private func desktopTabPreviewContent(for tab: WorkspaceTab) -> some View {
+        desktopTabContent(for: tab)
+            .allowsHitTesting(false)
+            .clipped()
+    }
+#endif
 }
 
 #Preview {
@@ -893,5 +419,76 @@ private struct WorkspaceUnavailableView: View {
                 .foregroundColor(theme.colors.textSecondary)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+}
+
+@MainActor
+private struct DesktopSplitContentView<Primary: View, Secondary: View>: View {
+    let fraction: CGFloat
+    let onFractionChange: @MainActor (CGFloat) -> Void
+    let onClearSplit: @MainActor () -> Void
+    @ViewBuilder let primary: () -> Primary
+    @ViewBuilder let secondary: () -> Secondary
+
+    var body: some View {
+        GeometryReader { proxy in
+            let width = max(1, proxy.size.width)
+            let clampedFraction = min(0.72, max(0.28, fraction))
+            let handleWidth: CGFloat = 24
+            let primaryWidth = max(0, width * clampedFraction - handleWidth / 2)
+            let secondaryWidth = max(0, width - primaryWidth - handleWidth)
+
+            HStack(spacing: 0) {
+                primary()
+                    .frame(width: primaryWidth)
+
+                DesktopSplitHandle(
+                    onClearSplit: onClearSplit,
+                    onDrag: { translationWidth in
+                        onFractionChange(clampedFraction + translationWidth / width)
+                    }
+                )
+                .frame(width: handleWidth)
+
+                secondary()
+                    .frame(width: secondaryWidth)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+}
+
+@MainActor
+private struct DesktopSplitHandle: View {
+    let onClearSplit: @MainActor () -> Void
+    let onDrag: @MainActor (CGFloat) -> Void
+
+    @Environment(\.theme) private var theme
+    @State private var isHovered = false
+
+    var body: some View {
+        VStack(spacing: theme.spacing.s) {
+            Capsule()
+                .fill(theme.colors.border)
+                .frame(width: 4, height: 48)
+
+            Button(action: onClearSplit) {
+                Image(systemName: "rectangle.compress.horizontal")
+                    .font(.system(size: theme.typography.micro, weight: .semibold))
+                    .foregroundColor(theme.colors.textSecondary)
+                    .frame(width: 18, height: 18)
+            }
+            .buttonStyle(.plain)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(isHovered ? theme.colors.surfaceRaised.opacity(0.32 as CGFloat) : Color.clear)
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+        .gesture(
+            DragGesture(minimumDistance: 0)
+                .onChanged { value in
+                    onDrag(value.translation.width)
+                }
+        )
     }
 }

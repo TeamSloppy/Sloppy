@@ -24,6 +24,7 @@ public enum MaterialSymbol: String, CaseIterable, Sendable {
     case pushPin
     case refresh
     case settings
+    case stop
     case warning
 
     var systemName: String {
@@ -51,6 +52,7 @@ public enum MaterialSymbol: String, CaseIterable, Sendable {
         case .pushPin: "pin.fill"
         case .refresh: "arrow.clockwise"
         case .settings: "gearshape"
+        case .stop: "stop.fill"
         case .warning: "exclamationmark.triangle"
         }
     }

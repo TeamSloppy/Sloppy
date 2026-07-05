@@ -141,13 +141,6 @@ private struct ChatChrome: View {
                     composerBottomInset: composerBottomInset,
                     tabActions: composerTabActions
                 )
-                .background(
-                    LinearGradient(colors: [
-                        Color.black.opacity(0.01),
-                        Color.black.opacity(0.4),
-                        Color.black
-                    ], startPoint: .top, endPoint: .bottom)
-                )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -475,6 +468,9 @@ private struct ChatComposerOverlay: View {
             Spacer(minLength: 0)
             composerBar
                 .frame(width: contentWidth)
+#if os(visionOS)
+                .frame(alignment: .front)
+#endif
             Spacer(minLength: 0)
         }
         .padding(.horizontal, idiom == .phone ? theme.spacing.xs : 0)
@@ -491,6 +487,15 @@ private struct ChatComposerOverlay: View {
             )
             return true
         }
+        #if !os(visionOS)
+        .background(
+            LinearGradient(colors: [
+                Color.black.opacity(0.01),
+                Color.black.opacity(0.4),
+                Color.black
+            ], startPoint: .top, endPoint: .bottom)
+        )
+        #endif
     }
 
     @ViewBuilder
@@ -539,7 +544,6 @@ private struct ChatTranscriptPane: View {
                                 ForEach(transcript.messages) { msg in
                                     ChatBubbleView(message: msg)
                                         .frame(minWidth: 0, maxWidth: .infinity)
-                                        .allowsHitTesting(false)
                                 }
                             }
                             .padding(.top, transcript.hasEarlierMessages ? 0 : messagesTopInset)
@@ -601,7 +605,8 @@ private struct ChatTranscriptPane: View {
             .padding(.horizontal, sp.m)
             .padding(.vertical, sp.s)
             .background(c.surface.opacity(0.74 as CGFloat))
-            .glassEffect(.regular, in: .rect(cornerRadius: 14))
+            .backportGlassEffect(.regular, in: .rect(cornerRadius: 14))
+
             Spacer(minLength: 0)
         }
     }
@@ -615,4 +620,5 @@ private struct ChatTranscriptPane: View {
         onOpenSettings: {}
     )
     ChatScreen(viewModel: viewModel)
+        .backportGlassEffect(.regular, in: .rect(cornerRadius: 24))
 }
