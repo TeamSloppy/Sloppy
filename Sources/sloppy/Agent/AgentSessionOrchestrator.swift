@@ -235,7 +235,7 @@ actor AgentSessionOrchestrator {
     ) async throws -> AgentSessionMessageResponse {
         let effectiveRequest = Self.requestByApplyingOneShotModeCommand(request)
         do {
-            try await ensureSessionContextLoaded(agentID: agentID, sessionID: sessionID)
+            try await ensureSessionContextLoaded(agentID: agentID, sessionID: sessionID, userID: effectiveRequest.userId)
         } catch {
             throw OrchestratorError.storageFailure
         }
@@ -247,6 +247,12 @@ actor AgentSessionOrchestrator {
                 availableModels: availableModels,
                 persistedModelAllowed: persistedModelAllowed()
             )
+        } catch {
+            throw OrchestratorError.storageFailure
+        }
+        let runtimeDocuments: AgentDocumentBundle
+        do {
+            runtimeDocuments = try agentCatalogStore.readAgentDocuments(agentID: agentID, userID: effectiveRequest.userId)
         } catch {
             throw OrchestratorError.storageFailure
         }
@@ -383,7 +389,7 @@ actor AgentSessionOrchestrator {
             : nil
         let runtimeContent = Self.contentWithFriendReminder(
             Self.runtimeContent(content, mode: effectiveRequest.mode, autoRouteCatalog: autoRouteCatalog),
-            documents: agentConfig.documents
+            documents: runtimeDocuments
         )
 
         let runtimeContentWithAttachments = runtimeContentWithAttachmentContext(
@@ -1821,6 +1827,24 @@ actor AgentSessionOrchestrator {
         return normalized == "tui" || normalized == "onboarding"
     }
 
+    private static func scopedMemoryUserID(_ raw: String?) -> String? {
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+        let lower = trimmed.lowercased()
+        guard lower != "system",
+              lower != "assistant",
+              lower != "agent",
+              lower != "goal",
+              lower != "goal_loop",
+              lower != "onboarding"
+        else {
+            return nil
+        }
+        return trimmed
+    }
+
     private func invokeTool(
         agentID: String,
         sessionID: String,
@@ -1844,10 +1868,12 @@ actor AgentSessionOrchestrator {
     private func ensureSessionContextLoaded(
         agentID: String,
         sessionID: String,
-        recoverySourceSessionID explicitRecoverySourceSessionID: String? = nil
+        recoverySourceSessionID explicitRecoverySourceSessionID: String? = nil,
+        userID: String? = nil
     ) async throws {
         let channelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
         let shouldRefreshBootstrap = channelsRequiringBootstrapRefresh.contains(channelID)
+        let hasScopedUserContext = Self.scopedMemoryUserID(userID) != nil
         let sessionDetail = try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID)
         let recoverySourceSessionID = explicitRecoverySourceSessionID
             ?? sessionDetail?.summary.parentSessionId?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1866,6 +1892,7 @@ actor AgentSessionOrchestrator {
             })?.content
         if let existingBootstrapContent,
            !shouldRefreshBootstrap,
+           !hasScopedUserContext,
            await runtime.hasCachedChannelSession(channelId: channelID),
            let currentFingerprint = sessionDetail.map(sessionStoreFingerprint),
            syncedSessionStoreFingerprintsByChannel[channelID] == currentFingerprint {
@@ -1887,6 +1914,7 @@ actor AgentSessionOrchestrator {
         }
         if let existingBootstrapContent,
            !shouldRefreshBootstrap,
+           !hasScopedUserContext,
            !bootstrapNeedsConversationHistoryRefresh(
                 existingBootstrapContent,
                 agentID: agentID,
@@ -1922,7 +1950,7 @@ actor AgentSessionOrchestrator {
 
         let documents: AgentDocumentBundle
         do {
-            documents = try agentCatalogStore.readAgentDocuments(agentID: agentID)
+            documents = try agentCatalogStore.readAgentDocuments(agentID: agentID, userID: userID)
         } catch {
             throw OrchestratorError.storageFailure
         }

@@ -46,6 +46,7 @@ import { BrowserEditor } from "./components/BrowserEditor";
 import { VoiceModeEditor } from "./components/VoiceModeEditor";
 import { ACPEditor } from "./components/ACPEditor";
 import { UIEditor } from "./components/UIEditor";
+import { AuthUsersEditor } from "./components/AuthUsersEditor";
 import { VisorEditor } from "./components/VisorEditor";
 import { CompactorEditor } from "./components/CompactorEditor";
 import { ClientConnectView } from "./components/ClientConnectView";
@@ -1729,6 +1730,10 @@ export function ConfigView({
 
     if (selectedSettings === "approvals") {
       return <ApprovalsView />;
+    }
+
+    if (selectedSettings === "users") {
+      return <AuthUsersEditor />;
     }
 
     if (selectedSettings === "updates") {

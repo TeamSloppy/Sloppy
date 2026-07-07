@@ -86,6 +86,53 @@ struct NodeMeshAPIRouter: APIRouter {
             }
         }
 
+        router.get("/v1/node/mesh/users/snapshot", metadata: RouteMetadata(summary: "Export mesh user directory snapshot", description: "Returns registered user directory state to sync with remote nodes", tags: ["Node Mesh"])) { _ in
+            do {
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: try await service.exportMeshDirectorySnapshot())
+            } catch {
+                return meshErrorResponse(error)
+            }
+        }
+
+        router.post("/v1/node/mesh/users/snapshot", metadata: RouteMetadata(summary: "Apply mesh user directory snapshot", description: "Replaces local mesh user directory with an authoritative snapshot", tags: ["Node Mesh"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: MeshDirectorySnapshotPayload.self) else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            do {
+                try await service.applyMeshDirectorySnapshot(payload)
+                return CoreRouter.json(status: HTTPStatus.ok, payload: ["status": "ok"])
+            } catch {
+                return meshErrorResponse(error)
+            }
+        }
+
+        router.post("/v1/node/mesh/users/delta", metadata: RouteMetadata(summary: "Apply mesh user directory delta", description: "Upserts and revokes mesh user directory entries", tags: ["Node Mesh"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: MeshDirectoryDeltaPayload.self) else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            do {
+                try await service.applyMeshDirectoryDelta(payload)
+                return CoreRouter.json(status: HTTPStatus.ok, payload: ["status": "ok"])
+            } catch {
+                return meshErrorResponse(error)
+            }
+        }
+
+        router.post("/v1/node/mesh/users/revocations", metadata: RouteMetadata(summary: "Apply mesh user directory revocations", description: "Removes user directory entries by identifier", tags: ["Node Mesh"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: MeshDirectoryRevocationPayload.self) else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            do {
+                try await service.applyMeshDirectoryRevocation(payload)
+                return CoreRouter.json(status: HTTPStatus.ok, payload: ["status": "ok"])
+            } catch {
+                return meshErrorResponse(error)
+            }
+        }
+
         router.get("/v1/node/mesh/nodes", metadata: RouteMetadata(summary: "List mesh nodes", description: "Returns known SloppyNode mesh nodes and statuses", tags: ["Node Mesh"])) { _ in
             do {
                 return CoreRouter.encodable(status: HTTPStatus.ok, payload: try await service.listMeshNodes())
@@ -291,6 +338,17 @@ private func meshErrorResponse(_ error: Error) -> CoreRouterResponse {
             "error": "mesh_invalid_request",
             "message": remoteJoinError.localizedDescription,
         ])
+    }
+    if let meshProxyError = error as? CoreService.MeshCoreProxyError {
+        switch meshProxyError {
+        case .missingMeshUserContext:
+            return CoreRouter.json(status: HTTPStatus.unauthorized, payload: [
+                "error": "mesh_missing_user_context",
+                "message": meshProxyError.localizedDescription,
+            ])
+        default:
+            return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": "mesh_proxy_error", "message": message])
+        }
     }
     if let meshError = error as? NodeMeshStoreError {
         switch meshError {

@@ -9,7 +9,9 @@ import {
   decodeSSEBlock,
   describeCoreError,
   fallbackSelectionText,
+  fetchAuthChallenge,
   fetchVoiceConfig,
+  loginIdentityUser,
   localSpeechAvailable,
   normalizeCoreURL,
   normalizeAgentSessions,
@@ -166,6 +168,44 @@ function assertPublicMeshIdentity(mesh, expected = {}) {
 
 test("normalizeCoreURL adds http scheme and removes trailing slashes", () => {
   assert.equal(normalizeCoreURL("192.168.1.50:25101/"), "http://192.168.1.50:25101");
+});
+
+test("fetchAuthChallenge requests the core auth challenge", async () => {
+  const requests = [];
+  const challenge = await fetchAuthChallenge(
+    { coreURLString: "http://127.0.0.1:25101" },
+    async (url, options = {}) => {
+      requests.push({ url: String(url), method: options.method || "GET" });
+      return Response.json({ mode: "login_password", bootstrapRequired: false });
+    }
+  );
+
+  assert.deepEqual(requests, [{ url: "http://127.0.0.1:25101/v1/auth/challenge", method: "GET" }]);
+  assert.equal(challenge.mode, "login_password");
+});
+
+test("loginIdentityUser posts credentials and returns auth session", async () => {
+  const requests = [];
+  const session = await loginIdentityUser(
+    { coreURLString: "http://127.0.0.1:25101" },
+    "alice",
+    "secret",
+    async (url, options = {}) => {
+      requests.push({
+        url: String(url),
+        method: options.method || "GET",
+        body: JSON.parse(String(options.body || "{}"))
+      });
+      return Response.json({ accessToken: "access-token", refreshToken: "refresh-token" });
+    }
+  );
+
+  assert.deepEqual(requests, [{
+    url: "http://127.0.0.1:25101/v1/auth/login",
+    method: "POST",
+    body: { login: "alice", password: "secret" }
+  }]);
+  assert.equal(session.accessToken, "access-token");
 });
 
 test("normalizeSidebarState clamps width and coerces collapsed flag", () => {

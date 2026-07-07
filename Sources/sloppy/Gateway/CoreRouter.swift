@@ -437,11 +437,22 @@ public actor CoreRouter {
                 body: body,
                 remoteAddress: remoteAddress
             )
-            let requiresDashboardAuthorization = await shouldRequireDashboardAuthorization(for: request)
-            let hasValidDashboardAuthorization = await service
-                .validateDashboardAuthorizationHeader(request.header("authorization"))
-            if requiresDashboardAuthorization && !hasValidDashboardAuthorization {
-                return Self.json(status: HTTPStatus.unauthorized, payload: ["error": ErrorCode.unauthorized])
+            if await service.identityAuthEnabled() {
+                if !Self.isPublicIdentityRoute(request) {
+                    guard let actor = await Self.identityActor(for: request, service: service) else {
+                        return Self.json(status: HTTPStatus.unauthorized, payload: ["error": ErrorCode.unauthorized])
+                    }
+                    if Self.requiresAdminIdentity(request), actor.user.role != .admin {
+                        return Self.json(status: HTTPStatus.forbidden, payload: ["error": "forbidden"])
+                    }
+                }
+            } else {
+                let requiresDashboardAuthorization = await shouldRequireDashboardAuthorization(for: request)
+                let hasValidDashboardAuthorization = await service
+                    .validateDashboardAuthorizationHeader(request.header("authorization"))
+                if requiresDashboardAuthorization && !hasValidDashboardAuthorization {
+                    return Self.json(status: HTTPStatus.unauthorized, payload: ["error": ErrorCode.unauthorized])
+                }
             }
             let isOnboardingFlow = Self.shouldLogOnboardingFlow(httpMethod: httpMethod, pathSegments: pathSegments, body: body)
             if isOnboardingFlow {
@@ -547,6 +558,79 @@ public actor CoreRouter {
             return String(text.prefix(maxLength)) + "..."
         }
         return text
+    }
+
+    static func identityActor(for request: HTTPRequest, service: CoreService) async -> AuthenticatedUserContext? {
+        await service.authenticateIdentityAccessToken(Self.bearerToken(from: request.header("authorization")))
+    }
+
+    private static func bearerToken(from headerValue: String?) -> String? {
+        let trimmed = headerValue?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+        let parts = trimmed
+            .split(maxSplits: 1, omittingEmptySubsequences: true, whereSeparator: \.isWhitespace)
+            .map(String.init)
+        guard parts.count == 2, parts[0].caseInsensitiveCompare("Bearer") == .orderedSame else {
+            return nil
+        }
+        return parts[1]
+    }
+
+    private static func isPublicIdentityRoute(_ request: HTTPRequest) -> Bool {
+        guard request.segments.first == "v1" else {
+            return true
+        }
+        if request.method == .get,
+           request.segments == ["v1", "auth", "challenge"] {
+            return true
+        }
+        if request.method == .post,
+           request.segments == ["v1", "auth", "bootstrap"] {
+            return true
+        }
+        if request.method == .post,
+           request.segments == ["v1", "auth", "login"] {
+            return true
+        }
+        if request.method == .post,
+           request.segments == ["v1", "auth", "refresh"] {
+            return true
+        }
+        if request.method == .post,
+           request.segments == ["v1", "auth", "register"] {
+            return true
+        }
+        if request.method == .post,
+           request.segments == ["v1", "auth", "password-reset"] {
+            return true
+        }
+        if request.method == .post,
+           request.segments == ["v1", "node", "mesh", "invites", "accept"] {
+            return true
+        }
+        return false
+    }
+
+    private static func requiresAdminIdentity(_ request: HTTPRequest) -> Bool {
+        guard request.segments.first == "v1" else {
+            return false
+        }
+        if request.segments.dropFirst().first == "config" {
+            return true
+        }
+        if request.segments.starts(with: ["v1", "auth", "invites"]) {
+            return true
+        }
+        if request.segments == ["v1", "auth", "mode"] {
+            return true
+        }
+        if request.segments.starts(with: ["v1", "node", "mesh"]),
+           request.method != .get {
+            return request.segments != ["v1", "node", "mesh", "invites", "accept"]
+        }
+        return false
     }
 
     private static func defaultWebSocketRoutes(service: CoreService) -> [WebSocketRouteDefinition] {

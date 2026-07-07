@@ -280,6 +280,7 @@ public actor CoreService {
     public let pendingApprovalService: PendingApprovalService
     let toolApprovalService: ToolApprovalService
     let dashboardTerminalService: DashboardTerminalService
+    let identityAuthService: CoreIdentityAuthService
     let channelStreamCancelRegistry: ChannelStreamCancelRegistry
     nonisolated let nodeMeshStore: NodeMeshStore
     nonisolated let nodeConfigStore: NodeConfigStore
@@ -293,7 +294,8 @@ public actor CoreService {
         persistenceBuilder: any CorePersistenceBuilding = DefaultCorePersistenceBuilder(),
         searchProviderService: SearchProviderService? = nil,
         nodeConfigStore: NodeConfigStore = NodeConfigStore(),
-        sharedSkillsRootURLs: [URL]? = nil
+        sharedSkillsRootURLs: [URL]? = nil,
+        identityPasswordHashIterations: Int = 120_000
     ) {
         self.init(
             config: config,
@@ -304,7 +306,8 @@ public actor CoreService {
             nodeConfigStore: nodeConfigStore,
             sharedSkillsRootURLs: sharedSkillsRootURLs,
             builtInGatewayPluginFactory: .live,
-            issueReportLogUploader: PasteRSIssueReportLogUploader()
+            issueReportLogUploader: PasteRSIssueReportLogUploader(),
+            identityPasswordHashIterations: identityPasswordHashIterations
         )
     }
 
@@ -319,7 +322,8 @@ public actor CoreService {
         sharedSkillsRootURLs: [URL]? = nil,
         builtInGatewayPluginFactory: BuiltInGatewayPluginFactory,
         updateChecker: UpdateCheckerService? = nil,
-        issueReportLogUploader: (any IssueReportLogUploading)? = PasteRSIssueReportLogUploader()
+        issueReportLogUploader: (any IssueReportLogUploading)? = PasteRSIssueReportLogUploader(),
+        identityPasswordHashIterations: Int = 120_000
     ) {
         self.workspaceCurrentDirectory = currentDirectory
         let workspaceRootURL = config.resolvedWorkspaceRootURL(currentDirectory: currentDirectory)
@@ -521,17 +525,23 @@ public actor CoreService {
                 .resolvedWorkspaceRootURL(currentDirectory: currentDirectory).path
         )
         self.dashboardTerminalService = DashboardTerminalService()
+        self.identityAuthService = CoreIdentityAuthService(
+            passwordHashIterations: identityPasswordHashIterations,
+            stateURL: self.workspaceRootURL
+                .appendingPathComponent(".sloppy", isDirectory: true)
+                .appendingPathComponent("auth-state.json")
+        )
         self.channelStreamCancelRegistry = ChannelStreamCancelRegistry()
         self.currentConfig = config
         let toolExecution = self.toolExecution
         toolExecution.projectService = self
         toolExecution.configService = self
         toolExecution.skillsService = self
-        toolExecution.applyAgentMarkdown = { [weak self] agentID, field, markdown in
+        toolExecution.applyAgentMarkdown = { [weak self] agentID, userID, field, markdown in
             guard let self else {
                 throw AgentConfigError.storageFailure
             }
-            try await self.applyAgentMarkdownFromTool(agentID: agentID, field: field, markdown: markdown)
+            try await self.applyAgentMarkdownFromTool(agentID: agentID, userID: userID, field: field, markdown: markdown)
         }
         toolExecution.delegateSubagent = { [weak self] agentID, taskID, objective, workingDirectory, toolsetNames, selectedModel, parentSessionID in
             guard let self else { return nil }

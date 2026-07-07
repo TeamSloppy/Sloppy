@@ -1078,11 +1078,11 @@ extension CoreService {
         toolExecution.projectService = self
         toolExecution.configService = self
         toolExecution.skillsService = self
-        toolExecution.applyAgentMarkdown = { [weak self] agentID, field, markdown in
+        toolExecution.applyAgentMarkdown = { [weak self] agentID, userID, field, markdown in
             guard let self else {
                 throw AgentConfigError.storageFailure
             }
-            try await self.applyAgentMarkdownFromTool(agentID: agentID, field: field, markdown: markdown)
+            try await self.applyAgentMarkdownFromTool(agentID: agentID, userID: userID, field: field, markdown: markdown)
         }
         toolExecution.delegateSubagent = { [weak self] agentID, taskID, objective, workingDirectory, toolsetNames, selectedModel, parentSessionID in
             guard let self else { return nil }

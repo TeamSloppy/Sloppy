@@ -22,15 +22,18 @@ public actor BackendHTTPClient {
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
     private let logger: Logger
+    private var authToken: String
 
     public init(
         baseURL: URL = URL(string: "http://localhost:25101")!,
+        authToken: String = "",
         session: URLSession = .shared,
         logger: Logger = Logger(label: "sloppy.backend-http")
     ) {
         self.baseURL = baseURL
         self.session = session
         self.logger = logger
+        self.authToken = authToken.trimmingCharacters(in: .whitespacesAndNewlines)
 
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .custom { decoder in
@@ -75,6 +78,10 @@ public actor BackendHTTPClient {
         _ = try await data(method: "DELETE", path: path)
     }
 
+    public func setAuthToken(_ token: String) {
+        authToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
     public nonisolated func url(for path: String) -> URL {
         URL(string: path, relativeTo: baseURL)?.absoluteURL ?? baseURL.appendingPathComponent(path)
     }
@@ -101,6 +108,9 @@ public actor BackendHTTPClient {
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if !authToken.isEmpty {
+            request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
+        }
         if let timeout {
             request.timeoutInterval = timeout
         }

@@ -617,10 +617,40 @@ extension CoreService {
     }
 
     /// Tool entry point for `agent.documents.set_*` (same validation as HTTP config updates).
-    func applyAgentMarkdownFromTool(agentID: String, field: AgentMarkdownDocumentField, markdown: String) async throws {
+    func applyAgentMarkdownFromTool(
+        agentID: String,
+        userID: String? = nil,
+        field: AgentMarkdownDocumentField,
+        markdown: String
+    ) async throws {
         guard let normalizedID = normalizedAgentID(agentID) else {
             throw AgentConfigError.invalidAgentID
         }
+        if isUserScopedAgentDocumentUserID(userID) {
+            var documents = try agentCatalogStore.readAgentDocuments(agentID: normalizedID, userID: userID)
+            switch field {
+            case .user:
+                documents.userMarkdown = markdown
+            case .memory:
+                documents.memoryMarkdown = markdown
+            }
+            do {
+                try AgentMarkdownLimits.validateAgentDocumentBundle(documents)
+                try agentCatalogStore.writeAgentScopedMarkdown(
+                    agentID: normalizedID,
+                    userID: userID,
+                    field: field,
+                    markdown: markdown
+                )
+                await sessionOrchestrator.notifyAgentDocumentsChanged(agentID: normalizedID)
+                return
+            } catch let error as AgentDocumentLengthError {
+                throw error
+            } catch {
+                throw AgentConfigError.storageFailure
+            }
+        }
+
         let models = availableAgentModels()
         let config = try agentCatalogStore.getAgentConfig(
             agentID: normalizedID,
@@ -660,6 +690,17 @@ extension CoreService {
         } catch {
             throw mapAgentConfigError(error)
         }
+    }
+
+    private func isUserScopedAgentDocumentUserID(_ raw: String?) -> Bool {
+        let normalized = raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
+        guard !normalized.isEmpty else { return false }
+        return normalized != "system"
+            && normalized != "assistant"
+            && normalized != "agent"
+            && normalized != "goal"
+            && normalized != "goal_loop"
+            && normalized != "onboarding"
     }
 
     /// Fetches token usage and estimated cost for the agent's selected model provider.

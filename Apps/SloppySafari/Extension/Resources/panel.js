@@ -183,6 +183,31 @@ export async function coreFetch(settings, path, options = {}, fetchImpl = fetch,
   return fetchImpl(`${normalizeCoreURL(settings.coreURLString)}${path}`, options);
 }
 
+export async function fetchAuthChallenge(settings, fetchImpl = fetch) {
+  const response = await coreFetch(settings, "/v1/auth/challenge", {}, fetchImpl);
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(body.error || `auth_challenge_failed_${response.status}`);
+  }
+  return body;
+}
+
+export async function loginIdentityUser(settings, login, password, fetchImpl = fetch) {
+  const response = await coreFetch(settings, "/v1/auth/login", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      login: String(login || "").trim(),
+      password: String(password || "")
+    })
+  }, fetchImpl);
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    throw new Error(body.error || `auth_login_failed_${response.status}`);
+  }
+  return body;
+}
+
 export function normalizeVoiceConfig(config = {}) {
   const provider = String(config.configuredProvider || config.provider || "auto").toLowerCase();
   const effectiveProvider = String(config.effectiveProvider || (provider === "openai" ? "unavailable" : "local")).toLowerCase();

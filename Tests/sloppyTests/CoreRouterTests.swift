@@ -441,6 +441,42 @@ func meshCoreHTTPRPCDelegatesToLocalCoreRouter() async throws {
 }
 
 @Test
+func meshCoreHTTPRPCRequiresUserContextInLoginPasswordMode() async throws {
+    var config = CoreConfig.test
+    config.ui.dashboardAuth.enabled = true
+    config.ui.dashboardAuth.token = "dashboard-secret"
+    config.auth.token = ""
+
+    let service = CoreService(config: config)
+    _ = try await service.createProject(ProjectCreateRequest(id: "mesh-login", name: "Mesh Login"))
+
+    let withoutContext = await service.handleMeshCoreHTTPRPC(
+        envelope: MeshEnvelope(id: "rpc_http_context", type: .rpcRequest, from: "node_controller", to: "node_worker"),
+        method: "core.http",
+        params: .object([
+            "method": .string("GET"),
+            "path": .string("/v1/projects"),
+            "headers": .object([:]),
+        ])
+    )
+    let missingObject = try #require(withoutContext.asObject)
+    let missingError = try #require(missingObject["error"]?.asObject)
+    #expect(missingError["code"] == .string("mesh_missing_user_context"))
+
+    let withContext = await service.handleMeshCoreHTTPRPC(
+        envelope: MeshEnvelope(id: "rpc_http_context", type: .rpcRequest, from: "node_controller", to: "node_worker"),
+        method: "core.http",
+        params: .object([
+            "method": .string("GET"),
+            "path": .string("/v1/projects"),
+            "headers": .object(["x-sloppy-user-context": .string("user-admin")]),
+        ])
+    )
+    let withContextObject = try #require(withContext.asObject)
+    #expect(withContextObject["ok"] == .bool(true))
+}
+
+@Test
 func meshAPIProxiesCoreRequestToSelectedNode() async throws {
     let configURL = FileManager.default.temporaryDirectory
         .appendingPathComponent("sloppy-tests-\(UUID().uuidString)")
@@ -470,6 +506,48 @@ func meshAPIProxiesCoreRequestToSelectedNode() async throws {
     let proxiedBody = try #require(Data(base64Encoded: bodyBase64))
     let projects = try #require(JSONSerialization.jsonObject(with: proxiedBody) as? [[String: Any]])
     #expect(projects.contains { $0["id"] as? String == "mesh-proxy" })
+}
+
+@Test
+func meshAPIProxiesCoreRequestRequiresUserContextInLoginPasswordMode() async throws {
+    var config = CoreConfig.test
+    config.ui.dashboardAuth.enabled = true
+    config.ui.dashboardAuth.token = "dashboard-secret"
+    config.auth.token = ""
+
+    let configURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-tests-\(UUID().uuidString)")
+        .appendingPathComponent("node.json")
+    let identity = NodeIdentityGenerator.makeIdentity(
+        name: "Local Mesh",
+        roles: ["controller"],
+        capabilities: ["run_agent", "git"]
+    )
+    let configStore = NodeConfigStore(configURL: configURL)
+    try configStore.save(NodeConfig(identity: identity, relayURL: "http://mesh.example.test"))
+
+    let service = CoreService(config: config, nodeConfigStore: configStore)
+    _ = try await service.createProject(ProjectCreateRequest(id: "mesh-proxy", name: "Mesh Proxy"))
+    let router = CoreRouter(service: service)
+    let body = Data(#"{"method":"GET","path":"/v1/projects"}"#.utf8)
+
+    let missingContext = await router.handle(
+        method: "POST",
+        path: "/v1/node/mesh/nodes/\(identity.nodeId)/core",
+        body: body,
+        headers: ["Authorization": "Bearer dashboard-secret"]
+    )
+    #expect(missingContext.status == 401)
+
+    let authorized = await router.handle(
+        method: "POST",
+        path: "/v1/node/mesh/nodes/\(identity.nodeId)/core",
+        body: body,
+        headers: ["Authorization": "Bearer dashboard-secret", "x-sloppy-user-context": "user-admin"]
+    )
+    #expect(authorized.status == 200)
+    let bodyObject = try #require(JSONSerialization.jsonObject(with: authorized.body) as? [String: Any])
+    #expect(bodyObject["status"] as? Int == 200)
 }
 
 @Test
@@ -1565,6 +1643,395 @@ func dashboardAuthValidateEndpointReturnsCapabilities() async throws {
     #expect(payload.capabilities.acceptsLegacyToken == true)
     #expect(payload.capabilities.mutatingRoutesProtected == true)
     #expect(payload.capabilities.terminalWebSocketProtected == true)
+}
+
+@Test
+func authChallengeRouteReturnsLoginPasswordMode() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config)
+    await service.setIdentityAuthEnabled(true)
+    let router = CoreRouter(service: service)
+
+    let response = await router.handle(method: "GET", path: "/v1/auth/challenge", body: nil)
+
+    #expect(response.status == 200)
+    let payload = try JSONDecoder().decode(AuthChallengeResponse.self, from: response.body)
+    #expect(payload.mode == .loginPassword)
+    #expect(payload.bootstrapRequired == true)
+    #expect(payload.passkeySupported == false)
+    #expect(payload.accessTokenExpiresInSeconds > 0)
+    #expect(payload.refreshTokenExpiresInSeconds > 0)
+}
+
+@Test
+func identityAuthModeSwitchRequiresIrreversibleConfirmation() async throws {
+    let service = CoreService(config: .test, identityPasswordHashIterations: 1)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+
+    let rejected = await router.handle(
+        method: "POST",
+        path: "/v1/auth/mode",
+        body: try encoder.encode(AuthModeUpdateRequest(mode: .loginPassword, confirmIrreversible: false))
+    )
+    #expect(rejected.status == 400)
+
+    let enabled = await router.handle(
+        method: "POST",
+        path: "/v1/auth/mode",
+        body: try encoder.encode(AuthModeUpdateRequest(mode: .loginPassword, confirmIrreversible: true))
+    )
+    #expect(enabled.status == 200)
+
+    let challenge = try JSONDecoder().decode(AuthChallengeResponse.self, from: enabled.body)
+    #expect(challenge.mode == .loginPassword)
+    #expect(challenge.bootstrapRequired == true)
+}
+
+@Test
+func identityAuthEnforcesTokenAuthAndAdminRoleBoundaries() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, identityPasswordHashIterations: 1)
+    await service.setIdentityAuthEnabled(true)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let bootstrapBody = try encoder.encode(
+        AuthBootstrapAdminRequest(login: "admin", password: "admin-pass", name: "Admin")
+    )
+    let bootstrapResponse = await router.handle(method: "POST", path: "/v1/auth/bootstrap", body: bootstrapBody)
+    #expect(bootstrapResponse.status == 201)
+    let adminSession = try decoder.decode(AuthSessionResponse.self, from: bootstrapResponse.body)
+
+    let inviteResponse = await router.handle(
+        method: "POST",
+        path: "/v1/auth/invites",
+        body: try encoder.encode(AuthInviteCreateRequest(role: .user, ttlSeconds: 600)),
+        headers: ["Authorization": "Bearer \(adminSession.accessToken)"]
+    )
+    #expect(inviteResponse.status == 201)
+    let invite = try decoder.decode(AuthInviteRecord.self, from: inviteResponse.body)
+    let inviteToken = try #require(invite.token)
+
+    let registerBody = try encoder.encode(
+        AuthRegisterRequest(
+            inviteToken: inviteToken,
+            login: "user",
+            password: "user-pass",
+            name: "User"
+        )
+    )
+    let registerResponse = await router.handle(method: "POST", path: "/v1/auth/register", body: registerBody)
+    #expect(registerResponse.status == 201)
+    let userSession = try decoder.decode(AuthSessionResponse.self, from: registerResponse.body)
+    #expect(userSession.user.role == .user)
+
+    let missingAuthConfig = await router.handle(method: "GET", path: "/v1/config", body: nil)
+    #expect(missingAuthConfig.status == 401)
+
+    let userConfig = await router.handle(
+        method: "GET",
+        path: "/v1/config",
+        body: nil,
+        headers: ["Authorization": "Bearer \(userSession.accessToken)"]
+    )
+    #expect(userConfig.status == 403)
+
+    let adminConfig = await router.handle(
+        method: "GET",
+        path: "/v1/config",
+        body: nil,
+        headers: ["Authorization": "Bearer \(adminSession.accessToken)"]
+    )
+    #expect(adminConfig.status == 200)
+}
+
+@Test
+func identityAuthRequiresAdminForMeshAdminRoutes() async throws {
+    let service = CoreService(config: .test, identityPasswordHashIterations: 1)
+    await service.setIdentityAuthEnabled(true)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let bootstrapSession = try decoder.decode(AuthSessionResponse.self, from: (await router.handle(
+        method: "POST",
+        path: "/v1/auth/bootstrap",
+        body: try encoder.encode(AuthBootstrapAdminRequest(login: "admin", password: "admin-pass", name: "Admin"))
+    )).body)
+    let inviteResponse = await router.handle(
+        method: "POST",
+        path: "/v1/auth/invites",
+        body: try encoder.encode(AuthInviteCreateRequest(role: .user, ttlSeconds: 600)),
+        headers: ["Authorization": "Bearer \(bootstrapSession.accessToken)"]
+    )
+    let invite = try decoder.decode(AuthInviteRecord.self, from: inviteResponse.body)
+    let userSession = try decoder.decode(AuthSessionResponse.self, from: (await router.handle(
+        method: "POST",
+        path: "/v1/auth/register",
+        body: try encoder.encode(AuthRegisterRequest(
+            inviteToken: try #require(invite.token),
+            login: "member",
+            password: "member-pass",
+            name: "Member"
+        ))
+    )).body)
+
+    let inviteBody = try encoder.encode(
+        MeshInviteCreateRequest(
+            networkId: "studio",
+            name: "Worker",
+            roles: ["worker"],
+            capabilities: ["run_agent", "git"],
+            ttlSeconds: 600,
+            relayURL: "http://mesh.example.com"
+        )
+    )
+    let userMeshInvite = await router.handle(
+        method: "POST",
+        path: "/v1/node/mesh/invites",
+        body: inviteBody,
+        headers: ["Authorization": "Bearer \(userSession.accessToken)"]
+    )
+    #expect(userMeshInvite.status == 403)
+}
+
+@Test
+func identityAuthAdminCanListAndUpdateUsers() async throws {
+    let service = CoreService(config: .test, identityPasswordHashIterations: 1)
+    await service.setIdentityAuthEnabled(true)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let adminSession = try decoder.decode(AuthSessionResponse.self, from: (await router.handle(
+        method: "POST",
+        path: "/v1/auth/bootstrap",
+        body: try encoder.encode(AuthBootstrapAdminRequest(login: "admin", password: "admin-pass", name: "Admin"))
+    )).body)
+    let invite = try decoder.decode(AuthInviteRecord.self, from: (await router.handle(
+        method: "POST",
+        path: "/v1/auth/invites",
+        body: try encoder.encode(AuthInviteCreateRequest(role: .user, ttlSeconds: 600)),
+        headers: ["Authorization": "Bearer \(adminSession.accessToken)"]
+    )).body)
+    let userSession = try decoder.decode(AuthSessionResponse.self, from: (await router.handle(
+        method: "POST",
+        path: "/v1/auth/register",
+        body: try encoder.encode(AuthRegisterRequest(
+            inviteToken: try #require(invite.token),
+            login: "member",
+            password: "member-pass",
+            name: "Member"
+        ))
+    )).body)
+
+    let forbiddenList = await router.handle(
+        method: "GET",
+        path: "/v1/auth/users",
+        body: nil,
+        headers: ["Authorization": "Bearer \(userSession.accessToken)"]
+    )
+    #expect(forbiddenList.status == 403)
+
+    let adminList = await router.handle(
+        method: "GET",
+        path: "/v1/auth/users",
+        body: nil,
+        headers: ["Authorization": "Bearer \(adminSession.accessToken)"]
+    )
+    #expect(adminList.status == 200)
+    let users = try decoder.decode([AuthUserProfile].self, from: adminList.body)
+    #expect(users.map(\.login) == ["admin", "member"])
+
+    let update = await router.handle(
+        method: "PATCH",
+        path: "/v1/auth/users/member",
+        body: try encoder.encode(AuthUserUpdateRequest(name: "Disabled Member", role: .admin, status: .disabled)),
+        headers: ["Authorization": "Bearer \(adminSession.accessToken)"]
+    )
+    #expect(update.status == 200)
+    let updated = try decoder.decode(AuthUserProfile.self, from: update.body)
+    #expect(updated.role == .admin)
+    #expect(updated.status == .disabled)
+    #expect(updated.name == "Disabled Member")
+
+    let disabledLogin = await router.handle(
+        method: "POST",
+        path: "/v1/auth/login",
+        body: try encoder.encode(AuthLoginRequest(login: "member", password: "member-pass"))
+    )
+    #expect(disabledLogin.status == 401)
+}
+
+@Test
+func identityAuthRejectsDisablingLastActiveAdmin() async throws {
+    let service = CoreService(config: .test, identityPasswordHashIterations: 1)
+    await service.setIdentityAuthEnabled(true)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let adminSession = try decoder.decode(AuthSessionResponse.self, from: (await router.handle(
+        method: "POST",
+        path: "/v1/auth/bootstrap",
+        body: try encoder.encode(AuthBootstrapAdminRequest(login: "admin", password: "admin-pass", name: "Admin"))
+    )).body)
+
+    let disableOnlyAdmin = await router.handle(
+        method: "PATCH",
+        path: "/v1/auth/users/admin",
+        body: try encoder.encode(AuthUserUpdateRequest(status: .disabled)),
+        headers: ["Authorization": "Bearer \(adminSession.accessToken)"]
+    )
+    #expect(disableOnlyAdmin.status == 409)
+
+    let demoteOnlyAdmin = await router.handle(
+        method: "PATCH",
+        path: "/v1/auth/users/admin",
+        body: try encoder.encode(AuthUserUpdateRequest(role: .user)),
+        headers: ["Authorization": "Bearer \(adminSession.accessToken)"]
+    )
+    #expect(demoteOnlyAdmin.status == 409)
+}
+
+@Test
+func legacyDashboardTokenIsRejectedWhenIdentityAuthIsEnabled() async throws {
+    var config = CoreConfig.test
+    config.ui.dashboardAuth.enabled = true
+    config.ui.dashboardAuth.token = "dashboard-secret"
+
+    let service = CoreService(config: config, identityPasswordHashIterations: 1)
+    await service.setIdentityAuthEnabled(true)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+
+    _ = await router.handle(
+        method: "POST",
+        path: "/v1/auth/bootstrap",
+        body: try encoder.encode(AuthBootstrapAdminRequest(login: "admin", password: "admin-pass", name: "Admin"))
+    )
+
+    let legacyDashboardToken = await router.handle(
+        method: "POST",
+        path: "/v1/updates/check",
+        body: nil,
+        headers: ["Authorization": "Bearer dashboard-secret"]
+    )
+    #expect(legacyDashboardToken.status == 401)
+}
+
+@Test
+func identityAuthRefreshRotatesRefreshToken() async throws {
+    let service = CoreService(config: .test, identityPasswordHashIterations: 1)
+    await service.setIdentityAuthEnabled(true)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let bootstrap = await router.handle(
+        method: "POST",
+        path: "/v1/auth/bootstrap",
+        body: try encoder.encode(AuthBootstrapAdminRequest(login: "admin", password: "admin-pass", name: "Admin"))
+    )
+    let session = try decoder.decode(AuthSessionResponse.self, from: bootstrap.body)
+
+    let refresh = await router.handle(
+        method: "POST",
+        path: "/v1/auth/refresh",
+        body: try encoder.encode(AuthRefreshRequest(refreshToken: session.refreshToken))
+    )
+    #expect(refresh.status == 200)
+    let refreshed = try decoder.decode(AuthSessionResponse.self, from: refresh.body)
+    #expect(refreshed.user.id == session.user.id)
+    #expect(refreshed.refreshToken != session.refreshToken)
+}
+
+@Test
+func identityAuthPasswordResetAcceptsRecoveryCode() async throws {
+    let service = CoreService(config: .test, identityPasswordHashIterations: 1)
+    await service.setIdentityAuthEnabled(true)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let bootstrap = await router.handle(
+        method: "POST",
+        path: "/v1/auth/bootstrap",
+        body: try encoder.encode(AuthBootstrapAdminRequest(login: "admin", password: "admin-pass", name: "Admin"))
+    )
+    let session = try decoder.decode(AuthSessionResponse.self, from: bootstrap.body)
+
+    let codesResponse = await router.handle(
+        method: "POST",
+        path: "/v1/auth/recovery-codes",
+        body: nil,
+        headers: ["Authorization": "Bearer \(session.accessToken)"]
+    )
+    #expect(codesResponse.status == 201)
+    let codes = try decoder.decode(AuthRecoveryCodesResponse.self, from: codesResponse.body)
+    let recoveryCode = try #require(codes.codes.first)
+
+    let reset = await router.handle(
+        method: "POST",
+        path: "/v1/auth/password-reset",
+        body: try encoder.encode(AuthPasswordResetRequest(
+            login: "admin",
+            recoveryCode: recoveryCode,
+            newPassword: "new-admin-pass"
+        ))
+    )
+    #expect(reset.status == 200)
+
+    let login = await router.handle(
+        method: "POST",
+        path: "/v1/auth/login",
+        body: try encoder.encode(AuthLoginRequest(login: "admin", password: "new-admin-pass"))
+    )
+    #expect(login.status == 200)
+}
+
+@Test
+func identityAuthPersistsUsersAcrossCoreServiceRestart() async throws {
+    let config = CoreConfig.test
+    let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    do {
+        let service = CoreService(config: config, identityPasswordHashIterations: 1)
+        await service.setIdentityAuthEnabled(true)
+        let router = CoreRouter(service: service)
+
+        let bootstrap = await router.handle(
+            method: "POST",
+            path: "/v1/auth/bootstrap",
+            body: try encoder.encode(AuthBootstrapAdminRequest(login: "admin", password: "admin-pass", name: "Admin"))
+        )
+        #expect(bootstrap.status == 201)
+    }
+
+    let restartedService = CoreService(config: config, identityPasswordHashIterations: 1)
+    let restartedRouter = CoreRouter(service: restartedService)
+
+    let challenge = await restartedRouter.handle(method: "GET", path: "/v1/auth/challenge", body: nil)
+    let challengePayload = try decoder.decode(AuthChallengeResponse.self, from: challenge.body)
+    #expect(challengePayload.mode == .loginPassword)
+    #expect(challengePayload.bootstrapRequired == false)
+
+    let login = await restartedRouter.handle(
+        method: "POST",
+        path: "/v1/auth/login",
+        body: try encoder.encode(AuthLoginRequest(login: "admin", password: "admin-pass"))
+    )
+    #expect(login.status == 200)
 }
 
 @Test

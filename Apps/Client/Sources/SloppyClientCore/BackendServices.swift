@@ -50,6 +50,58 @@ public actor HealthService {
     }
 }
 
+public struct AuthChallenge: Codable, Sendable, Equatable {
+    public var mode: String
+    public var bootstrapRequired: Bool
+    public var passkeySupported: Bool?
+    public var accessTokenExpiresInSeconds: Int?
+    public var refreshTokenExpiresInSeconds: Int?
+}
+
+public struct AuthUserProfile: Codable, Sendable, Equatable {
+    public var id: String
+    public var login: String
+    public var name: String
+    public var avatar: String?
+    public var description: String?
+    public var role: String
+    public var status: String?
+}
+
+public struct AuthSession: Codable, Sendable, Equatable {
+    public var accessToken: String
+    public var refreshToken: String
+    public var accessTokenExpiresAt: Date?
+    public var refreshTokenExpiresAt: Date?
+    public var user: AuthUserProfile?
+}
+
+public actor AuthService {
+    private let http: BackendHTTPClient
+
+    public init(http: BackendHTTPClient) {
+        self.http = http
+    }
+
+    public func fetchAuthChallenge() async throws -> AuthChallenge {
+        try await http.get("/v1/auth/challenge")
+    }
+
+    public func loginIdentityUser(login: String, password: String) async throws -> AuthSession {
+        struct Payload: Encodable {
+            var login: String
+            var password: String
+        }
+        return try await http.post(
+            "/v1/auth/login",
+            body: Payload(
+                login: login.trimmingCharacters(in: .whitespacesAndNewlines),
+                password: password
+            )
+        )
+    }
+}
+
 public actor ProjectService {
     private let http: BackendHTTPClient
 

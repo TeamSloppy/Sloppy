@@ -463,6 +463,55 @@ final class AgentCatalogFileStore {
         )
     }
 
+    func readAgentDocuments(agentID: String, userID: String?) throws -> AgentDocumentBundle {
+        var documents = try readAgentDocuments(agentID: agentID)
+        guard let normalizedID = self.normalizedAgentID(agentID),
+              let normalizedUserID = normalizedUserID(userID)
+        else {
+            return documents
+        }
+
+        let summary = try getAgent(id: normalizedID)
+        let scopedDirectory = userScopedDocumentsDirectoryURL(
+            agentID: normalizedID,
+            isSystem: summary.isSystem,
+            userID: normalizedUserID
+        )
+        documents.userMarkdown = try readTextFile(
+            at: scopedDirectory.appendingPathComponent("USER.md"),
+            fallback: documents.userMarkdown
+        )
+        documents.memoryMarkdown = try readTextFile(
+            at: scopedDirectory.appendingPathComponent("MEMORY.md"),
+            fallback: documents.memoryMarkdown
+        )
+        return documents
+    }
+
+    func writeAgentScopedMarkdown(agentID: String, userID: String?, field: AgentMarkdownDocumentField, markdown: String) throws {
+        guard let normalizedID = self.normalizedAgentID(agentID) else {
+            throw StoreError.invalidID
+        }
+        guard let normalizedUserID = normalizedUserID(userID) else {
+            throw StoreError.invalidID
+        }
+        let summary = try getAgent(id: normalizedID)
+        let directory = userScopedDocumentsDirectoryURL(
+            agentID: normalizedID,
+            isSystem: summary.isSystem,
+            userID: normalizedUserID
+        )
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        let filename: String
+        switch field {
+        case .user:
+            filename = "USER.md"
+        case .memory:
+            filename = "MEMORY.md"
+        }
+        try writeTextFile(contents: markdown, at: directory.appendingPathComponent(filename))
+    }
+
     func directoryURL(agentID: String) throws -> URL {
         guard let normalizedID = self.normalizedAgentID(agentID) else {
             throw StoreError.invalidID
@@ -1082,5 +1131,37 @@ final class AgentCatalogFileStore {
         }
 
         return trimmed
+    }
+
+    private func normalizedUserID(_ raw: String?) -> String? {
+        let trimmed = raw?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+        let lower = trimmed.lowercased()
+        guard lower != "system",
+              lower != "assistant",
+              lower != "agent",
+              lower != "goal",
+              lower != "goal_loop",
+              lower != "onboarding"
+        else {
+            return nil
+        }
+
+        let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-_.@")
+        guard trimmed.rangeOfCharacter(from: allowed.inverted) == nil else {
+            return nil
+        }
+        guard trimmed.count <= 120 else {
+            return nil
+        }
+        return trimmed
+    }
+
+    private func userScopedDocumentsDirectoryURL(agentID: String, isSystem: Bool, userID: String) -> URL {
+        agentDirectoryURL(for: agentID, isSystem: isSystem)
+            .appendingPathComponent("users", isDirectory: true)
+            .appendingPathComponent(userID, isDirectory: true)
     }
 }
