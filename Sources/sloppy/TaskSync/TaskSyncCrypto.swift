@@ -12,8 +12,14 @@ enum TaskSyncCrypto {
     }
 
     static func hmacSHA256Hex(key: Data, message: Data) -> String {
+        hmacSHA256(key: [UInt8](key), message: [UInt8](message))
+            .map { String(format: "%02x", $0) }
+            .joined()
+    }
+
+    static func hmacSHA256(key: [UInt8], message: [UInt8]) -> [UInt8] {
         let blockSize = 64
-        var keyBytes = [UInt8](key)
+        var keyBytes = key
         if keyBytes.count > blockSize {
             keyBytes = sha256(keyBytes)
         }
@@ -23,8 +29,8 @@ enum TaskSyncCrypto {
 
         let outer = keyBytes.map { $0 ^ 0x5c }
         let inner = keyBytes.map { $0 ^ 0x36 }
-        let digest = sha256(inner + [UInt8](message))
-        return sha256(outer + digest).map { String(format: "%02x", $0) }.joined()
+        let digest = sha256(inner + message)
+        return sha256(outer + digest)
     }
 
     private static func constantTimeEquals(_ lhs: String, _ rhs: String) -> Bool {

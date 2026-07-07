@@ -1666,22 +1666,41 @@ func authChallengeRouteReturnsLoginPasswordMode() async throws {
 @Test
 func identityAuthEnforcesTokenAuthAndAdminRoleBoundaries() async throws {
     let config = CoreConfig.test
-    let service = CoreService(config: config)
+    let service = CoreService(config: config, identityPasswordHashIterations: 1)
     await service.setIdentityAuthEnabled(true)
     let router = CoreRouter(service: service)
     let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
 
-    let bootstrapBody = try encoder.encode(AuthBootstrapRequest(email: "admin@example.com", password: "admin-pass"))
+    let bootstrapBody = try encoder.encode(
+        AuthBootstrapAdminRequest(login: "admin", password: "admin-pass", name: "Admin")
+    )
     let bootstrapResponse = await router.handle(method: "POST", path: "/v1/auth/bootstrap", body: bootstrapBody)
     #expect(bootstrapResponse.status == 201)
-    let adminSession = try JSONDecoder().decode(AuthSessionResponse.self, from: bootstrapResponse.body)
+    let adminSession = try decoder.decode(AuthSessionResponse.self, from: bootstrapResponse.body)
 
-    let userLoginBody = try encoder.encode(
-        AuthLoginRequest(email: "user@example.com", password: "user-pass", requestedRole: .user)
+    let inviteResponse = await router.handle(
+        method: "POST",
+        path: "/v1/auth/invites",
+        body: try encoder.encode(AuthInviteCreateRequest(role: .user, ttlSeconds: 600)),
+        headers: ["Authorization": "Bearer \(adminSession.accessToken)"]
     )
-    let userLoginResponse = await router.handle(method: "POST", path: "/v1/auth/login", body: userLoginBody)
-    #expect(userLoginResponse.status == 200)
-    let userSession = try JSONDecoder().decode(AuthSessionResponse.self, from: userLoginResponse.body)
+    #expect(inviteResponse.status == 201)
+    let invite = try decoder.decode(AuthInviteRecord.self, from: inviteResponse.body)
+    let inviteToken = try #require(invite.token)
+
+    let registerBody = try encoder.encode(
+        AuthRegisterRequest(
+            inviteToken: inviteToken,
+            login: "user",
+            password: "user-pass",
+            name: "User"
+        )
+    )
+    let registerResponse = await router.handle(method: "POST", path: "/v1/auth/register", body: registerBody)
+    #expect(registerResponse.status == 201)
+    let userSession = try decoder.decode(AuthSessionResponse.self, from: registerResponse.body)
     #expect(userSession.user.role == .user)
 
     let missingAuthConfig = await router.handle(method: "GET", path: "/v1/config", body: nil)
@@ -1706,20 +1725,35 @@ func identityAuthEnforcesTokenAuthAndAdminRoleBoundaries() async throws {
 
 @Test
 func identityAuthRequiresAdminForMeshAdminRoutes() async throws {
-    let service = CoreService(config: .test)
+    let service = CoreService(config: .test, identityPasswordHashIterations: 1)
     await service.setIdentityAuthEnabled(true)
     let router = CoreRouter(service: service)
     let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
 
-    _ = await router.handle(
+    let bootstrapSession = try decoder.decode(AuthSessionResponse.self, from: (await router.handle(
         method: "POST",
         path: "/v1/auth/bootstrap",
-        body: try encoder.encode(AuthBootstrapRequest(email: "admin@example.com", password: "admin-pass"))
+        body: try encoder.encode(AuthBootstrapAdminRequest(login: "admin", password: "admin-pass", name: "Admin"))
+    )).body)
+    let inviteResponse = await router.handle(
+        method: "POST",
+        path: "/v1/auth/invites",
+        body: try encoder.encode(AuthInviteCreateRequest(role: .user, ttlSeconds: 600)),
+        headers: ["Authorization": "Bearer \(bootstrapSession.accessToken)"]
     )
-    let userLoginBody = try encoder.encode(AuthLoginRequest(email: "member@example.com", password: "member-pass", requestedRole: .user))
-    let userLogin = await router.handle(method: "POST", path: "/v1/auth/login", body: userLoginBody)
-    #expect(userLogin.status == 200)
-    let userSession = try JSONDecoder().decode(AuthSessionResponse.self, from: userLogin.body)
+    let invite = try decoder.decode(AuthInviteRecord.self, from: inviteResponse.body)
+    let userSession = try decoder.decode(AuthSessionResponse.self, from: (await router.handle(
+        method: "POST",
+        path: "/v1/auth/register",
+        body: try encoder.encode(AuthRegisterRequest(
+            inviteToken: try #require(invite.token),
+            login: "member",
+            password: "member-pass",
+            name: "Member"
+        ))
+    )).body)
 
     let inviteBody = try encoder.encode(
         MeshInviteCreateRequest(
@@ -1746,7 +1780,7 @@ func legacyDashboardTokenIsRejectedWhenIdentityAuthIsEnabled() async throws {
     config.ui.dashboardAuth.enabled = true
     config.ui.dashboardAuth.token = "dashboard-secret"
 
-    let service = CoreService(config: config)
+    let service = CoreService(config: config, identityPasswordHashIterations: 1)
     await service.setIdentityAuthEnabled(true)
     let router = CoreRouter(service: service)
     let encoder = JSONEncoder()
@@ -1754,7 +1788,7 @@ func legacyDashboardTokenIsRejectedWhenIdentityAuthIsEnabled() async throws {
     _ = await router.handle(
         method: "POST",
         path: "/v1/auth/bootstrap",
-        body: try encoder.encode(AuthBootstrapRequest(email: "admin@example.com", password: "admin-pass"))
+        body: try encoder.encode(AuthBootstrapAdminRequest(login: "admin", password: "admin-pass", name: "Admin"))
     )
 
     let legacyDashboardToken = await router.handle(

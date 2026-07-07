@@ -4,6 +4,7 @@ extension CoreRouter {
     static func defaultRoutes(service: CoreService) -> [RouteDefinition] {
         let router = CoreRouterRegistrar()
         var routers: [APIRouter] = [
+            AuthAPIRouter(service: service),
             SystemAPIRouter(service: service),
             ChannelsAPIRouter(service: service),
             SessionsAPIRouter(service: service),
