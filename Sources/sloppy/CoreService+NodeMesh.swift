@@ -8,6 +8,7 @@ import SloppyNodeCore
 extension CoreService {
     enum MeshCoreProxyError: Error, LocalizedError {
         case missingLocalNodeConfig
+        case missingMeshUserContext
         case invalidResponse(String)
         case remoteError(String)
 
@@ -15,6 +16,8 @@ extension CoreService {
             switch self {
             case .missingLocalNodeConfig:
                 return "Local node has not joined a remote mesh."
+            case .missingMeshUserContext:
+                return "Missing x-sloppy-user-context header in login/password mode."
             case .invalidResponse(let message):
                 return "Invalid mesh Core response: \(message)"
             case .remoteError(let message):
@@ -49,6 +52,22 @@ extension CoreService {
             )
         }
         return state
+    }
+
+    public func exportMeshDirectorySnapshot() async throws -> MeshDirectorySnapshotPayload {
+        try nodeMeshStore.exportCoordinatorDirectorySnapshot()
+    }
+
+    public func applyMeshDirectorySnapshot(_ payload: MeshDirectorySnapshotPayload) async throws {
+        try nodeMeshStore.applyUserDirectorySnapshot(payload)
+    }
+
+    public func applyMeshDirectoryDelta(_ payload: MeshDirectoryDeltaPayload) async throws {
+        try nodeMeshStore.applyUserDirectoryDelta(payload)
+    }
+
+    public func applyMeshDirectoryRevocation(_ payload: MeshDirectoryRevocationPayload) async throws {
+        try nodeMeshStore.applyUserDirectoryRevocation(payload)
     }
 
     private static func fetchMeshState(from relayURL: String) async throws -> MeshState {
@@ -109,16 +128,31 @@ extension CoreService {
         } catch {
             throw MeshCoreProxyError.missingLocalNodeConfig
         }
+        var forwardedHeaders = headers.reduce(into: [String: String]()) { partial, item in
+            partial[item.key.lowercased()] = item.value
+        }
+        if isLoginPasswordMode(), meshUserIdHeader(from: forwardedHeaders) == nil {
+            throw MeshCoreProxyError.missingMeshUserContext
+        }
+        let dashboardToken = currentConfig.ui.dashboardAuth.token.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !dashboardToken.isEmpty {
+            forwardedHeaders["authorization"] = "Bearer \(dashboardToken)"
+        }
         if nodeId == config.identity.nodeId {
-            return await CoreRouter(service: self).handle(method: method, path: path, body: body, headers: headers)
+            return await CoreRouter(service: self).handle(
+                method: method,
+                path: path,
+                body: body,
+                headers: forwardedHeaders
+            )
         }
         let client = NodeMeshClient(config: config, meshStore: nodeMeshStore)
         var params: [String: JSONValue] = [
             "method": .string(method),
             "path": .string(path),
         ]
-        if !headers.isEmpty {
-            params["headers"] = .object(headers.mapValues(JSONValue.string))
+        if !forwardedHeaders.isEmpty {
+            params["headers"] = .object(forwardedHeaders.mapValues(JSONValue.string))
         }
         if let body {
             params["bodyBase64"] = .string(body.base64EncodedString())
@@ -364,9 +398,25 @@ extension CoreService {
 
         let headers = (object["headers"]?.asObject ?? [:]).reduce(into: [String: String]()) { partial, item in
             if let value = item.value.asString {
-                partial[item.key] = value
+                partial[item.key.lowercased()] = value
             }
         }
+
+        if isLoginPasswordMode(), meshUserIdHeader(from: headers) == nil {
+            return meshCoreRPCErrorPayload(
+                requestId: envelope.id,
+                method: method,
+                code: "mesh_missing_user_context",
+                message: "Missing x-sloppy-user-context header in login/password mode."
+            )
+        }
+
+        var headersWithContext = headers
+        let dashboardToken = currentConfig.ui.dashboardAuth.token.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !dashboardToken.isEmpty {
+            headersWithContext["authorization"] = "Bearer \(dashboardToken)"
+        }
+
         let body: Data?
         if let bodyBase64 = object["bodyBase64"]?.asString, !bodyBase64.isEmpty {
             body = Data(base64Encoded: bodyBase64)
@@ -379,7 +429,7 @@ extension CoreService {
             method: httpMethod,
             path: path,
             body: body,
-            headers: headers,
+            headers: headersWithContext,
             remoteAddress: "mesh:\(envelope.from)"
         )
         guard response.sseStream == nil else {
@@ -401,6 +451,20 @@ extension CoreService {
                 "bodyBase64": .string(response.body.base64EncodedString()),
             ]),
         ])
+    }
+
+    private func isLoginPasswordMode() -> Bool {
+        let status = dashboardAuthStatus()
+        return status.enabled && !status.acceptsLegacyToken
+    }
+
+    private func meshUserIdHeader(from headers: [String: String]) -> String? {
+        let expectedKey = "x-sloppy-user-context"
+        for (key, value) in headers where key.lowercased() == expectedKey {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            return trimmed.isEmpty ? nil : trimmed
+        }
+        return nil
     }
 
     func handleMeshMailboxEnvelope(_ envelope: MeshEnvelope) async -> [MeshEnvelope] {

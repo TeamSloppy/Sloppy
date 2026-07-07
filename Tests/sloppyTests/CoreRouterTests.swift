@@ -441,6 +441,42 @@ func meshCoreHTTPRPCDelegatesToLocalCoreRouter() async throws {
 }
 
 @Test
+func meshCoreHTTPRPCRequiresUserContextInLoginPasswordMode() async throws {
+    var config = CoreConfig.test
+    config.ui.dashboardAuth.enabled = true
+    config.ui.dashboardAuth.token = "dashboard-secret"
+    config.auth.token = ""
+
+    let service = CoreService(config: config)
+    _ = try await service.createProject(ProjectCreateRequest(id: "mesh-login", name: "Mesh Login"))
+
+    let withoutContext = await service.handleMeshCoreHTTPRPC(
+        envelope: MeshEnvelope(id: "rpc_http_context", type: .rpcRequest, from: "node_controller", to: "node_worker"),
+        method: "core.http",
+        params: .object([
+            "method": .string("GET"),
+            "path": .string("/v1/projects"),
+            "headers": .object([:]),
+        ])
+    )
+    let missingObject = try #require(withoutContext.asObject)
+    let missingError = try #require(missingObject["error"]?.asObject)
+    #expect(missingError["code"] == .string("mesh_missing_user_context"))
+
+    let withContext = await service.handleMeshCoreHTTPRPC(
+        envelope: MeshEnvelope(id: "rpc_http_context", type: .rpcRequest, from: "node_controller", to: "node_worker"),
+        method: "core.http",
+        params: .object([
+            "method": .string("GET"),
+            "path": .string("/v1/projects"),
+            "headers": .object(["x-sloppy-user-context": .string("user-admin")]),
+        ])
+    )
+    let withContextObject = try #require(withContext.asObject)
+    #expect(withContextObject["ok"] == .bool(true))
+}
+
+@Test
 func meshAPIProxiesCoreRequestToSelectedNode() async throws {
     let configURL = FileManager.default.temporaryDirectory
         .appendingPathComponent("sloppy-tests-\(UUID().uuidString)")
@@ -470,6 +506,48 @@ func meshAPIProxiesCoreRequestToSelectedNode() async throws {
     let proxiedBody = try #require(Data(base64Encoded: bodyBase64))
     let projects = try #require(JSONSerialization.jsonObject(with: proxiedBody) as? [[String: Any]])
     #expect(projects.contains { $0["id"] as? String == "mesh-proxy" })
+}
+
+@Test
+func meshAPIProxiesCoreRequestRequiresUserContextInLoginPasswordMode() async throws {
+    var config = CoreConfig.test
+    config.ui.dashboardAuth.enabled = true
+    config.ui.dashboardAuth.token = "dashboard-secret"
+    config.auth.token = ""
+
+    let configURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-tests-\(UUID().uuidString)")
+        .appendingPathComponent("node.json")
+    let identity = NodeIdentityGenerator.makeIdentity(
+        name: "Local Mesh",
+        roles: ["controller"],
+        capabilities: ["run_agent", "git"]
+    )
+    let configStore = NodeConfigStore(configURL: configURL)
+    try configStore.save(NodeConfig(identity: identity, relayURL: "http://mesh.example.test"))
+
+    let service = CoreService(config: config, nodeConfigStore: configStore)
+    _ = try await service.createProject(ProjectCreateRequest(id: "mesh-proxy", name: "Mesh Proxy"))
+    let router = CoreRouter(service: service)
+    let body = Data(#"{"method":"GET","path":"/v1/projects"}"#.utf8)
+
+    let missingContext = await router.handle(
+        method: "POST",
+        path: "/v1/node/mesh/nodes/\(identity.nodeId)/core",
+        body: body,
+        headers: ["Authorization": "Bearer dashboard-secret"]
+    )
+    #expect(missingContext.status == 401)
+
+    let authorized = await router.handle(
+        method: "POST",
+        path: "/v1/node/mesh/nodes/\(identity.nodeId)/core",
+        body: body,
+        headers: ["Authorization": "Bearer dashboard-secret", "x-sloppy-user-context": "user-admin"]
+    )
+    #expect(authorized.status == 200)
+    let bodyObject = try #require(JSONSerialization.jsonObject(with: authorized.body) as? [String: Any])
+    #expect(bodyObject["status"] as? Int == 200)
 }
 
 @Test
@@ -1565,6 +1643,127 @@ func dashboardAuthValidateEndpointReturnsCapabilities() async throws {
     #expect(payload.capabilities.acceptsLegacyToken == true)
     #expect(payload.capabilities.mutatingRoutesProtected == true)
     #expect(payload.capabilities.terminalWebSocketProtected == true)
+}
+
+@Test
+func authChallengeRouteReturnsLoginPasswordMode() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config)
+    await service.setIdentityAuthEnabled(true)
+    let router = CoreRouter(service: service)
+
+    let response = await router.handle(method: "GET", path: "/v1/auth/challenge", body: nil)
+
+    #expect(response.status == 200)
+    let payload = try JSONDecoder().decode(AuthChallengeResponse.self, from: response.body)
+    #expect(payload.mode == .loginPassword)
+    #expect(payload.bootstrapRequired == true)
+    #expect(payload.passkeySupported == false)
+    #expect(payload.accessTokenExpiresInSeconds > 0)
+    #expect(payload.refreshTokenExpiresInSeconds > 0)
+}
+
+@Test
+func identityAuthEnforcesTokenAuthAndAdminRoleBoundaries() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config)
+    await service.setIdentityAuthEnabled(true)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+
+    let bootstrapBody = try encoder.encode(AuthBootstrapRequest(email: "admin@example.com", password: "admin-pass"))
+    let bootstrapResponse = await router.handle(method: "POST", path: "/v1/auth/bootstrap", body: bootstrapBody)
+    #expect(bootstrapResponse.status == 201)
+    let adminSession = try JSONDecoder().decode(AuthSessionResponse.self, from: bootstrapResponse.body)
+
+    let userLoginBody = try encoder.encode(
+        AuthLoginRequest(email: "user@example.com", password: "user-pass", requestedRole: .user)
+    )
+    let userLoginResponse = await router.handle(method: "POST", path: "/v1/auth/login", body: userLoginBody)
+    #expect(userLoginResponse.status == 200)
+    let userSession = try JSONDecoder().decode(AuthSessionResponse.self, from: userLoginResponse.body)
+    #expect(userSession.user.role == .user)
+
+    let missingAuthConfig = await router.handle(method: "GET", path: "/v1/config", body: nil)
+    #expect(missingAuthConfig.status == 401)
+
+    let userConfig = await router.handle(
+        method: "GET",
+        path: "/v1/config",
+        body: nil,
+        headers: ["Authorization": "Bearer \(userSession.accessToken)"]
+    )
+    #expect(userConfig.status == 403)
+
+    let adminConfig = await router.handle(
+        method: "GET",
+        path: "/v1/config",
+        body: nil,
+        headers: ["Authorization": "Bearer \(adminSession.accessToken)"]
+    )
+    #expect(adminConfig.status == 200)
+}
+
+@Test
+func identityAuthRequiresAdminForMeshAdminRoutes() async throws {
+    let service = CoreService(config: .test)
+    await service.setIdentityAuthEnabled(true)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+
+    _ = await router.handle(
+        method: "POST",
+        path: "/v1/auth/bootstrap",
+        body: try encoder.encode(AuthBootstrapRequest(email: "admin@example.com", password: "admin-pass"))
+    )
+    let userLoginBody = try encoder.encode(AuthLoginRequest(email: "member@example.com", password: "member-pass", requestedRole: .user))
+    let userLogin = await router.handle(method: "POST", path: "/v1/auth/login", body: userLoginBody)
+    #expect(userLogin.status == 200)
+    let userSession = try JSONDecoder().decode(AuthSessionResponse.self, from: userLogin.body)
+
+    let inviteBody = try encoder.encode(
+        MeshInviteCreateRequest(
+            networkId: "studio",
+            name: "Worker",
+            roles: ["worker"],
+            capabilities: ["run_agent", "git"],
+            ttlSeconds: 600,
+            relayURL: "http://mesh.example.com"
+        )
+    )
+    let userMeshInvite = await router.handle(
+        method: "POST",
+        path: "/v1/node/mesh/invites",
+        body: inviteBody,
+        headers: ["Authorization": "Bearer \(userSession.accessToken)"]
+    )
+    #expect(userMeshInvite.status == 403)
+}
+
+@Test
+func legacyDashboardTokenIsRejectedWhenIdentityAuthIsEnabled() async throws {
+    var config = CoreConfig.test
+    config.ui.dashboardAuth.enabled = true
+    config.ui.dashboardAuth.token = "dashboard-secret"
+
+    let service = CoreService(config: config)
+    await service.setIdentityAuthEnabled(true)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+
+    _ = await router.handle(
+        method: "POST",
+        path: "/v1/auth/bootstrap",
+        body: try encoder.encode(AuthBootstrapRequest(email: "admin@example.com", password: "admin-pass"))
+    )
+
+    let legacyDashboardToken = await router.handle(
+        method: "POST",
+        path: "/v1/updates/check",
+        body: nil,
+        headers: ["Authorization": "Bearer dashboard-secret"]
+    )
+    #expect(legacyDashboardToken.status == 401)
 }
 
 @Test

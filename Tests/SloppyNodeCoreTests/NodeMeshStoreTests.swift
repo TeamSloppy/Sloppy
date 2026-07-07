@@ -931,6 +931,79 @@ struct NodeMeshStoreTests {
         #expect(state.networkName == "personal")
     }
 
+    @Test("mesh directory snapshot payloads encode and decode as typed models")
+    func meshDirectoryPayloadsEncodeAndDecodeAsTypedModels() throws {
+        let snapshot = MeshDirectorySnapshotPayload(users: [
+            MeshDirectoryUserRecord(userId: "user_admin", displayName: "Admin User", role: "admin"),
+            MeshDirectoryUserRecord(userId: "user_worker", displayName: "Worker User", role: "user")
+        ])
+        let delta = MeshDirectoryDeltaPayload(
+            upsertedUsers: [
+                MeshDirectoryUserRecord(userId: "user_guest", displayName: "Guest User", role: "user"),
+            ],
+            revokedUserIds: ["user_retired"]
+        )
+        let revocation = MeshDirectoryRevocationPayload(userIds: ["user_deleted"])
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+
+        let decodedSnapshot = try decoder.decode(MeshDirectorySnapshotPayload.self, from: try encoder.encode(snapshot))
+        let decodedDelta = try decoder.decode(MeshDirectoryDeltaPayload.self, from: try encoder.encode(delta))
+        let decodedRevocation = try decoder.decode(MeshDirectoryRevocationPayload.self, from: try encoder.encode(revocation))
+
+        #expect(decodedSnapshot.users.count == 2)
+        #expect(decodedSnapshot.users.first?.userId == "user_admin")
+        #expect(decodedSnapshot.users.last?.userId == "user_worker")
+        #expect(decodedDelta.upsertedUsers.count == 1)
+        #expect(decodedDelta.upsertedUsers.first?.displayName == "Guest User")
+        #expect(decodedDelta.revokedUserIds == ["user_retired"])
+        #expect(decodedRevocation.userIds == ["user_deleted"])
+    }
+
+    @Test("mesh state decodes without directory as empty")
+    func meshStateDecodesLegacyJSONWithoutUserDirectory() throws {
+        let legacyJSON = """
+        {
+          "networkId" : "personal",
+          "networkName" : "Personal Mesh",
+          "nodes" : [],
+          "invites" : [],
+          "sharedProjects" : [],
+          "tasks" : [],
+          "envelopes" : [],
+          "auditLog" : []
+        }
+        """.data(using: .utf8)!
+
+        let decoder = JSONDecoder()
+        let state = try decoder.decode(MeshState.self, from: legacyJSON)
+
+        #expect(state.userDirectory.isEmpty)
+    }
+
+    @Test("apply user directory snapshot replaces directory state")
+    func applyUserDirectorySnapshotReplacesDirectoryState() throws {
+        let store = NodeMeshStore(stateURL: temporaryStateURL())
+
+        try store.applyUserDirectorySnapshot(
+            MeshDirectorySnapshotPayload(users: [
+                MeshDirectoryUserRecord(userId: "user_admin", displayName: "Admin User", role: "admin"),
+                MeshDirectoryUserRecord(userId: "user_worker", displayName: "Worker User", role: "user"),
+            ])
+        )
+
+        let state = try store.load()
+
+        #expect(state.userDirectory.map(\.userId) == ["user_admin", "user_worker"])
+        let lastAudit = try #require(state.auditLog.last)
+        #expect(lastAudit.action == "user_directory.apply_snapshot")
+        #expect(lastAudit.target == nil)
+        #expect(lastAudit.allowed == true)
+    }
+
     @Test("mesh store lists events after cursor with limit")
     func meshStoreListsEventsAfterCursorWithLimit() throws {
         let store = NodeMeshStore(stateURL: temporaryStateURL())

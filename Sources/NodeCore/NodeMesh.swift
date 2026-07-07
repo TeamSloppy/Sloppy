@@ -18,6 +18,47 @@ public enum MeshMessageType: String, Codable, Sendable, Equatable {
     case taskDispatch = "task.dispatch"
     case taskStatusUpdate = "task.status.update"
     case projectSyncEvent = "project.sync"
+    case userDirectorySnapshot = "user.directory.snapshot"
+    case userDirectoryDelta = "user.directory.delta"
+    case userDirectoryRevocation = "user.directory.revocation"
+}
+
+public struct MeshDirectoryUserRecord: Codable, Sendable, Equatable {
+    public var userId: String
+    public var displayName: String
+    public var role: String
+
+    public init(userId: String, displayName: String, role: String) {
+        self.userId = userId
+        self.displayName = displayName
+        self.role = role
+    }
+}
+
+public struct MeshDirectorySnapshotPayload: Codable, Sendable, Equatable {
+    public var users: [MeshDirectoryUserRecord]
+
+    public init(users: [MeshDirectoryUserRecord] = []) {
+        self.users = users
+    }
+}
+
+public struct MeshDirectoryDeltaPayload: Codable, Sendable, Equatable {
+    public var upsertedUsers: [MeshDirectoryUserRecord]
+    public var revokedUserIds: [String]
+
+    public init(upsertedUsers: [MeshDirectoryUserRecord] = [], revokedUserIds: [String] = []) {
+        self.upsertedUsers = upsertedUsers
+        self.revokedUserIds = revokedUserIds
+    }
+}
+
+public struct MeshDirectoryRevocationPayload: Codable, Sendable, Equatable {
+    public var userIds: [String]
+
+    public init(userIds: [String] = []) {
+        self.userIds = userIds
+    }
 }
 
 public struct MeshEnvelope: Codable, Sendable, Equatable {
@@ -820,6 +861,7 @@ public struct MeshState: Codable, Sendable, Equatable {
     public var localNode: MeshLocalNodeRecord?
     public var nodes: [MeshNodeRecord]
     public var invites: [MeshInvite]
+    public var userDirectory: [MeshDirectoryUserRecord]
     public var sharedProjects: [SharedProjectRecord]
     public var tasks: [MeshTaskRecord]
     public var envelopes: [MeshEnvelope]
@@ -834,6 +876,7 @@ public struct MeshState: Codable, Sendable, Equatable {
         localNode: MeshLocalNodeRecord? = nil,
         nodes: [MeshNodeRecord] = [],
         invites: [MeshInvite] = [],
+        userDirectory: [MeshDirectoryUserRecord] = [],
         sharedProjects: [SharedProjectRecord] = [],
         tasks: [MeshTaskRecord] = [],
         envelopes: [MeshEnvelope] = [],
@@ -847,6 +890,7 @@ public struct MeshState: Codable, Sendable, Equatable {
         self.localNode = localNode
         self.nodes = nodes
         self.invites = invites
+        self.userDirectory = userDirectory
         self.sharedProjects = sharedProjects
         self.tasks = tasks
         self.envelopes = envelopes
@@ -862,6 +906,7 @@ public struct MeshState: Codable, Sendable, Equatable {
         case localNode
         case nodes
         case invites
+        case userDirectory
         case sharedProjects
         case tasks
         case envelopes
@@ -878,6 +923,7 @@ public struct MeshState: Codable, Sendable, Equatable {
         localNode = try container.decodeIfPresent(MeshLocalNodeRecord.self, forKey: .localNode)
         nodes = try container.decodeIfPresent([MeshNodeRecord].self, forKey: .nodes) ?? []
         invites = try container.decodeIfPresent([MeshInvite].self, forKey: .invites) ?? []
+        userDirectory = try container.decodeIfPresent([MeshDirectoryUserRecord].self, forKey: .userDirectory) ?? []
         sharedProjects = try container.decodeIfPresent([SharedProjectRecord].self, forKey: .sharedProjects) ?? []
         tasks = try container.decodeIfPresent([MeshTaskRecord].self, forKey: .tasks) ?? []
         envelopes = try container.decodeIfPresent([MeshEnvelope].self, forKey: .envelopes) ?? []
@@ -1016,6 +1062,60 @@ public struct NodeMeshStore: Sendable {
         let invite = state.invites[index]
         state.invites.remove(at: index)
         state.auditLog.append(MeshAuditLogEntry(actor: actor, action: "node.invite.revoke", allowed: true, message: invite.token))
+        try save(state)
+    }
+
+    public func exportCoordinatorDirectorySnapshot() throws -> MeshDirectorySnapshotPayload {
+        let state = try load()
+        return MeshDirectorySnapshotPayload(users: state.userDirectory)
+    }
+
+    public func applyUserDirectorySnapshot(_ snapshot: MeshDirectorySnapshotPayload, actor: String = "api") throws {
+        var state = try load()
+        state.userDirectory = snapshot.users
+        state.auditLog.append(MeshAuditLogEntry(
+            actor: actor,
+            action: "user_directory.apply_snapshot",
+            allowed: true,
+            message: "users:\(snapshot.users.count)"
+        ))
+        try save(state)
+    }
+
+    public func applyUserDirectoryDelta(_ delta: MeshDirectoryDeltaPayload, actor: String = "api") throws {
+        var state = try load()
+        for user in delta.upsertedUsers {
+            if let index = state.userDirectory.firstIndex(where: { $0.userId == user.userId }) {
+                state.userDirectory[index] = user
+            } else {
+                state.userDirectory.append(user)
+            }
+        }
+        for revokedUserId in delta.revokedUserIds {
+            state.userDirectory.removeAll { $0.userId == revokedUserId }
+        }
+        state.auditLog.append(MeshAuditLogEntry(
+            actor: actor,
+            action: "user_directory.apply_delta",
+            allowed: true,
+            message: "upserted:\(delta.upsertedUsers.count), revoked:\(delta.revokedUserIds.count)"
+        ))
+        try save(state)
+    }
+
+    public func applyUserDirectoryRevocation(_ revocation: MeshDirectoryRevocationPayload, actor: String = "api") throws {
+        var state = try load()
+        if !revocation.userIds.isEmpty {
+            state.userDirectory.removeAll { user in
+                revocation.userIds.contains(user.userId)
+            }
+        }
+        state.auditLog.append(MeshAuditLogEntry(
+            actor: actor,
+            action: "user_directory.apply_revocation",
+            allowed: true,
+            message: "revoked:\(revocation.userIds.count)"
+        ))
         try save(state)
     }
 
