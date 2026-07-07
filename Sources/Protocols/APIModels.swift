@@ -5621,6 +5621,28 @@ public struct AuthRegisterRequest: Codable, Sendable, Equatable {
     }
 }
 
+public struct AuthUserUpdateRequest: Codable, Sendable, Equatable {
+    public var name: String?
+    public var avatar: String?
+    public var description: String?
+    public var role: AuthUserRole?
+    public var status: AuthUserStatus?
+
+    public init(
+        name: String? = nil,
+        avatar: String? = nil,
+        description: String? = nil,
+        role: AuthUserRole? = nil,
+        status: AuthUserStatus? = nil
+    ) {
+        self.name = name
+        self.avatar = avatar
+        self.description = description
+        self.role = role
+        self.status = status
+    }
+}
+
 public struct AuthRecoveryCodesResponse: Codable, Sendable, Equatable {
     public var codes: [String]
 

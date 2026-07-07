@@ -101,6 +101,44 @@ struct AuthAPIRouter: APIRouter {
             }
         }
 
+        router.get("/v1/auth/users", metadata: RouteMetadata(summary: "List auth users", description: "Lists login/password user profiles for admins", tags: ["Auth"])) { request in
+            guard let actor = await CoreRouter.identityActor(for: request, service: service) else {
+                return CoreRouter.json(status: HTTPStatus.unauthorized, payload: ["error": ErrorCode.unauthorized])
+            }
+            guard actor.user.role == .admin else {
+                return CoreRouter.json(status: HTTPStatus.forbidden, payload: ["error": "forbidden"])
+            }
+            do {
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: try await service.listIdentityUsers(actor: actor))
+            } catch {
+                return authErrorResponse(error)
+            }
+        }
+
+        router.patch("/v1/auth/users/:login", metadata: RouteMetadata(summary: "Update auth user", description: "Updates a login/password user profile, role, or status for admins", tags: ["Auth"])) { request in
+            guard let actor = await CoreRouter.identityActor(for: request, service: service) else {
+                return CoreRouter.json(status: HTTPStatus.unauthorized, payload: ["error": ErrorCode.unauthorized])
+            }
+            guard actor.user.role == .admin else {
+                return CoreRouter.json(status: HTTPStatus.forbidden, payload: ["error": "forbidden"])
+            }
+            guard let payload = request.decode(AuthUserUpdateRequest.self) else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            do {
+                return CoreRouter.encodable(
+                    status: HTTPStatus.ok,
+                    payload: try await service.updateIdentityUser(
+                        login: request.pathParam("login") ?? "",
+                        request: payload,
+                        actor: actor
+                    )
+                )
+            } catch {
+                return authErrorResponse(error)
+            }
+        }
+
         router.post("/v1/auth/recovery-codes", metadata: RouteMetadata(summary: "Generate recovery codes", description: "Generates one-time recovery codes for the authenticated user", tags: ["Auth"])) { request in
             guard let actor = await CoreRouter.identityActor(for: request, service: service) else {
                 return CoreRouter.json(status: HTTPStatus.unauthorized, payload: ["error": ErrorCode.unauthorized])
@@ -153,6 +191,8 @@ private func authErrorResponse(_ error: Error) -> CoreRouterResponse {
         return CoreRouter.json(status: HTTPStatus.conflict, payload: ["error": "bootstrap_completed"])
     case CoreIdentityAuthError.bootstrapRequired:
         return CoreRouter.json(status: HTTPStatus.conflict, payload: ["error": "bootstrap_required"])
+    case CoreIdentityAuthError.lastAdmin:
+        return CoreRouter.json(status: HTTPStatus.conflict, payload: ["error": "last_admin"])
     case CoreIdentityAuthError.disabled:
         return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "auth_disabled"])
     case CoreIdentityAuthError.invalidCredentials,

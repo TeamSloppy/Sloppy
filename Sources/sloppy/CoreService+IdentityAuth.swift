@@ -34,6 +34,14 @@ extension CoreService {
         try await identityAuthService.createInvite(request, actor: actor)
     }
 
+    func listIdentityUsers(actor: AuthenticatedUserContext) async throws -> [AuthUserProfile] {
+        try await identityAuthService.listUsers(actor: actor)
+    }
+
+    func updateIdentityUser(login: String, request: AuthUserUpdateRequest, actor: AuthenticatedUserContext) async throws -> AuthUserProfile {
+        try await identityAuthService.updateUser(login: login, request: request, actor: actor)
+    }
+
     func generateIdentityRecoveryCodes(actor: AuthenticatedUserContext) async throws -> AuthRecoveryCodesResponse {
         try await identityAuthService.generateRecoveryCodes(actor: actor)
     }

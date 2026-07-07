@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
 import type { CoreApi } from "../../shared/api/coreApi";
+import { setDashboardAuthToken } from "../../shared/api/dashboardAuth";
 import { AgentGeneratePreview, type GeneratedAgentFiles } from "../agents/components/AgentGeneratePreview";
 import orchestratorImage from "../../assets/orchestrator.png";
 import sloppyAgentsMd from "./agents/sloppy/AGENTS.md?raw";
@@ -14,6 +15,7 @@ interface OnboardingViewProps {
   coreApi: CoreApi;
   initialConfig: AnyRecord;
   onCompleted: (config: AnyRecord) => void;
+  onAuthenticated?: () => void;
 }
 
 interface ProviderDefinition {
@@ -112,6 +114,7 @@ const PROVIDERS: ProviderDefinition[] = [
 ];
 
 const STEP_TITLES = [
+  "Dashboard auth",
   "LLM provider",
   "First agent",
   "Launch prompt"
@@ -530,9 +533,16 @@ function OnboardingAsciiCanvas({
   return <canvas ref={canvasRef} className="onboarding-ascii-canvas" aria-hidden="true" />;
 }
 
-export function OnboardingView({ coreApi, initialConfig, onCompleted }: OnboardingViewProps) {
+export function OnboardingView({ coreApi, initialConfig, onCompleted, onAuthenticated }: OnboardingViewProps) {
   const initialProvider = useMemo(() => initialProviderState(initialConfig), [initialConfig]);
   const [stepIndex, setStepIndex] = useState(0);
+  const [authChallenge, setAuthChallenge] = useState<AnyRecord | null>(null);
+  const [authMode, setAuthMode] = useState<"token" | "login_password">("token");
+  const [authWarningAccepted, setAuthWarningAccepted] = useState(false);
+  const [authAdminName, setAuthAdminName] = useState("Admin");
+  const [authAdminLogin, setAuthAdminLogin] = useState("admin");
+  const [authAdminPassword, setAuthAdminPassword] = useState("");
+  const [authStatus, setAuthStatus] = useState("Choose how this Sloppy instance should authenticate operators.");
   const [providerId, setProviderId] = useState(initialProvider.providerId);
   const [providerApiKey, setProviderApiKey] = useState(initialProvider.apiKey);
   const [providerApiUrl, setProviderApiUrl] = useState(initialProvider.apiUrl);
@@ -558,6 +568,28 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
   const [anthropicOAuthAuthorizationURL, setAnthropicOAuthAuthorizationURL] = useState("");
   const deviceCodePollingRef = useRef(false);
   const anthropicOAuthPopupRef = useRef<Window | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    coreApi.fetchAuthChallenge().then((challenge) => {
+      if (cancelled || !challenge) {
+        return;
+      }
+      setAuthChallenge(challenge);
+      if (challenge.mode === "login_password") {
+        setAuthMode("login_password");
+        setAuthWarningAccepted(true);
+        setAuthStatus(
+          Boolean(challenge.bootstrapRequired)
+            ? "Login/password auth is enabled. Create the first Admin account."
+            : "Login/password auth is already enabled."
+        );
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [coreApi]);
 
   const activeProvider = useMemo(
     () => PROVIDERS.find((provider) => provider.id === providerId) || PROVIDERS[0],
@@ -862,9 +894,15 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
 
   function canAdvance() {
     if (stepIndex === 0) {
-      return probeOk && selectedModel.trim().length > 0;
+      if (authMode === "token") return true;
+      if (!authWarningAccepted) return false;
+      if (authChallenge?.mode === "login_password" && !Boolean(authChallenge?.bootstrapRequired)) return true;
+      return authAdminLogin.trim().length > 0 && authAdminPassword.length > 0;
     }
     if (stepIndex === 1) {
+      return probeOk && selectedModel.trim().length > 0;
+    }
+    if (stepIndex === 2) {
       if (agentName.trim().length === 0 || agentRole.trim().length === 0 || agentId.length === 0) return false;
       if (agentPreset === "generate" && generateDescription.trim().length === 0) return false;
       if (agentPreset === "custom" && customAgentsMarkdown.trim().length === 0) return false;
@@ -995,7 +1033,7 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
   }
 
   async function skipProviderSetup() {
-    if (isSubmitting || stepIndex !== 0) {
+    if (isSubmitting || stepIndex !== 1) {
       return;
     }
 
@@ -1036,11 +1074,65 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
     setStatusText("Review and edit the generated files.");
   }
 
+  async function completeAuthStep() {
+    if (authMode === "token") {
+      setStatusText(`Step 2 of ${STEP_TITLES.length}.`);
+      setStepIndex(1);
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      let challenge = authChallenge;
+      if (challenge?.mode !== "login_password") {
+        setAuthStatus("Enabling login/password auth...");
+        challenge = await coreApi.enableIdentityAuthMode();
+        if (!challenge) {
+          throw new Error("Failed to enable login/password auth.");
+        }
+        setAuthChallenge(challenge);
+      }
+
+      if (Boolean(challenge?.bootstrapRequired)) {
+        setAuthStatus("Creating the first Admin account...");
+        const session = await coreApi.bootstrapIdentityAdmin({
+          login: authAdminLogin.trim(),
+          name: authAdminName.trim() || authAdminLogin.trim(),
+          password: authAdminPassword
+        });
+        const accessToken = typeof session?.accessToken === "string" ? session.accessToken.trim() : "";
+        if (!accessToken) {
+          throw new Error("Failed to create the first Admin account.");
+        }
+        setDashboardAuthToken(accessToken, { persist: true });
+        onAuthenticated?.();
+        const nextChallenge = await coreApi.fetchAuthChallenge();
+        if (nextChallenge) {
+          setAuthChallenge(nextChallenge);
+        }
+        setAuthAdminPassword("");
+      }
+
+      setAuthStatus("Dashboard auth is ready.");
+      setStatusText(`Step 2 of ${STEP_TITLES.length}.`);
+      setStepIndex(1);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to configure dashboard auth.";
+      setAuthStatus(message);
+    } finally {
+      setIsSubmitting(false);
+    }
+  }
+
   function nextStep() {
     if (!canAdvance()) {
       return;
     }
-    if (stepIndex === 1 && agentPreset === "generate" && generationPhase === "form") {
+    if (stepIndex === 0) {
+      void completeAuthStep();
+      return;
+    }
+    if (stepIndex === 2 && agentPreset === "generate" && generationPhase === "form") {
       void runAgentGeneration();
       return;
     }
@@ -1074,7 +1166,7 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
         <div key={stepIndex} className="onboarding-stage">
           <div className="onboarding-stage-head">
             <span className="material-symbols-rounded" aria-hidden="true">
-              {stepIndex === 0 ? "hub" : stepIndex === 1 ? "support_agent" : "terminal"}
+              {stepIndex === 0 ? "admin_panel_settings" : stepIndex === 1 ? "hub" : stepIndex === 2 ? "support_agent" : "terminal"}
             </span>
             <div>
               <p className="onboarding-stage-overline">Step {stepIndex + 1} of {STEP_TITLES.length}</p>
@@ -1084,6 +1176,103 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
           </div>
 
           {stepIndex === 0 ? (
+            <div className="onboarding-form-block">
+              <div className="onboarding-provider-grid">
+                <button
+                  type="button"
+                  className={`onboarding-provider-card ${authMode === "token" ? "active" : ""}`}
+                  onClick={() => {
+                    setAuthMode("token");
+                    setAuthStatus("Token auth keeps the current local operator-token flow.");
+                  }}
+                >
+                  <span className="material-symbols-rounded" aria-hidden="true">
+                    key
+                  </span>
+                  <strong>Token</strong>
+                  <span>Use the existing dashboard operator token flow.</span>
+                </button>
+                <button
+                  type="button"
+                  className={`onboarding-provider-card ${authMode === "login_password" ? "active" : ""}`}
+                  onClick={() => {
+                    setAuthMode("login_password");
+                    setAuthStatus("Login/password auth creates named users and roles.");
+                  }}
+                >
+                  <span className="material-symbols-rounded" aria-hidden="true">
+                    badge
+                  </span>
+                  <strong>Login/password</strong>
+                  <span>Create accounts, invites, roles, recovery codes, and sessions.</span>
+                </button>
+              </div>
+
+              {authMode === "login_password" ? (
+                <>
+                  <label className="agent-tools-guardrail agent-tools-guardrail-toggle">
+                    <span className="agent-tools-guardrail-copy">
+                      <span className="agent-tools-guardrail-title">I understand this switch cannot be reverted to token auth</span>
+                      <span className="agent-tools-guardrail-note">The first account created here becomes Admin.</span>
+                    </span>
+                    <span className="agent-tools-switch">
+                      <input
+                        type="checkbox"
+                        checked={authWarningAccepted}
+                        disabled={authChallenge?.mode === "login_password"}
+                        onChange={(event) => setAuthWarningAccepted(event.target.checked)}
+                      />
+                      <span className="agent-tools-switch-track" />
+                    </span>
+                  </label>
+
+                  {authChallenge?.mode === "login_password" && !Boolean(authChallenge?.bootstrapRequired) ? (
+                    <div className="onboarding-inline-note">
+                      Login/password authentication is already enabled.
+                    </div>
+                  ) : (
+                    <>
+                      <label>
+                        Admin name
+                        <input
+                          value={authAdminName}
+                          onChange={(event) => setAuthAdminName(event.target.value)}
+                          placeholder="Admin"
+                        />
+                      </label>
+                      <label>
+                        Admin login
+                        <input
+                          value={authAdminLogin}
+                          autoCapitalize="off"
+                          autoCorrect="off"
+                          spellCheck={false}
+                          onChange={(event) => setAuthAdminLogin(event.target.value)}
+                          placeholder="admin"
+                        />
+                      </label>
+                      <label>
+                        Admin password
+                        <input
+                          type="password"
+                          value={authAdminPassword}
+                          onChange={(event) => setAuthAdminPassword(event.target.value)}
+                        />
+                      </label>
+                    </>
+                  )}
+                </>
+              ) : null}
+
+              <div className={`onboarding-provider-status ${authMode === "token" || authWarningAccepted ? "ok" : "warn"}`}>
+                <strong>{authMode === "token" ? "Token mode" : "Login/password mode"}</strong>
+                <span>{authStatus}</span>
+                <small>{authChallenge?.passkeySupported ? "PassKey support is advertised by this Core." : "PassKey can be enabled when browser and Core support it."}</small>
+              </div>
+            </div>
+          ) : null}
+
+          {stepIndex === 1 ? (
             <div className="onboarding-form-block">
               <div className="onboarding-provider-grid">
                 {PROVIDERS.map((provider) => (
@@ -1286,7 +1475,7 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
             </div>
           ) : null}
 
-          {stepIndex === 1 ? (
+          {stepIndex === 2 ? (
             <div className="onboarding-form-block">
               <div className="onboarding-preset-grid">
                 {AGENT_PRESETS.map((preset) => (
@@ -1354,7 +1543,7 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
             </div>
           ) : null}
 
-          {stepIndex === 2 ? (
+          {stepIndex === 3 ? (
             <div className="onboarding-form-block">
               <label>
                 Launch prompt
@@ -1376,10 +1565,10 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
           <button
             type="button"
             className="onboarding-ghost-button hover-levitate"
-            onClick={stepIndex === 0 ? () => void skipProviderSetup() : previousStep}
+            onClick={stepIndex === 1 ? () => void skipProviderSetup() : previousStep}
             disabled={isSubmitting}
           >
-            {stepIndex === 0 ? "Skip for now" : "Back"}
+            {stepIndex === 1 ? "Skip for now" : "Back"}
           </button>
           <button
             type="button"
@@ -1389,7 +1578,7 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
           >
             {stepIndex === STEP_TITLES.length - 1
               ? (isSubmitting ? "Booting..." : "Finish setup")
-              : stepIndex === 1 && agentPreset === "generate" && generationPhase === "form"
+              : stepIndex === 2 && agentPreset === "generate" && generationPhase === "form"
                 ? "Generate & Continue"
                 : "Next"}
           </button>
@@ -1417,7 +1606,7 @@ export function OnboardingView({ coreApi, initialConfig, onCompleted }: Onboardi
           onFilesChange={setGeneratedFiles}
           onBack={() => {
             setGenerationPhase("form");
-            setStatusText("Step 2 of 3.");
+            setStatusText(`Step 3 of ${STEP_TITLES.length}.`);
           }}
           onDone={() => {
             setGenerationPhase("form");

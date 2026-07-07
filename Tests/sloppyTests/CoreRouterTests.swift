@@ -1800,6 +1800,107 @@ func identityAuthRequiresAdminForMeshAdminRoutes() async throws {
 }
 
 @Test
+func identityAuthAdminCanListAndUpdateUsers() async throws {
+    let service = CoreService(config: .test, identityPasswordHashIterations: 1)
+    await service.setIdentityAuthEnabled(true)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let adminSession = try decoder.decode(AuthSessionResponse.self, from: (await router.handle(
+        method: "POST",
+        path: "/v1/auth/bootstrap",
+        body: try encoder.encode(AuthBootstrapAdminRequest(login: "admin", password: "admin-pass", name: "Admin"))
+    )).body)
+    let invite = try decoder.decode(AuthInviteRecord.self, from: (await router.handle(
+        method: "POST",
+        path: "/v1/auth/invites",
+        body: try encoder.encode(AuthInviteCreateRequest(role: .user, ttlSeconds: 600)),
+        headers: ["Authorization": "Bearer \(adminSession.accessToken)"]
+    )).body)
+    let userSession = try decoder.decode(AuthSessionResponse.self, from: (await router.handle(
+        method: "POST",
+        path: "/v1/auth/register",
+        body: try encoder.encode(AuthRegisterRequest(
+            inviteToken: try #require(invite.token),
+            login: "member",
+            password: "member-pass",
+            name: "Member"
+        ))
+    )).body)
+
+    let forbiddenList = await router.handle(
+        method: "GET",
+        path: "/v1/auth/users",
+        body: nil,
+        headers: ["Authorization": "Bearer \(userSession.accessToken)"]
+    )
+    #expect(forbiddenList.status == 403)
+
+    let adminList = await router.handle(
+        method: "GET",
+        path: "/v1/auth/users",
+        body: nil,
+        headers: ["Authorization": "Bearer \(adminSession.accessToken)"]
+    )
+    #expect(adminList.status == 200)
+    let users = try decoder.decode([AuthUserProfile].self, from: adminList.body)
+    #expect(users.map(\.login) == ["admin", "member"])
+
+    let update = await router.handle(
+        method: "PATCH",
+        path: "/v1/auth/users/member",
+        body: try encoder.encode(AuthUserUpdateRequest(name: "Disabled Member", role: .admin, status: .disabled)),
+        headers: ["Authorization": "Bearer \(adminSession.accessToken)"]
+    )
+    #expect(update.status == 200)
+    let updated = try decoder.decode(AuthUserProfile.self, from: update.body)
+    #expect(updated.role == .admin)
+    #expect(updated.status == .disabled)
+    #expect(updated.name == "Disabled Member")
+
+    let disabledLogin = await router.handle(
+        method: "POST",
+        path: "/v1/auth/login",
+        body: try encoder.encode(AuthLoginRequest(login: "member", password: "member-pass"))
+    )
+    #expect(disabledLogin.status == 401)
+}
+
+@Test
+func identityAuthRejectsDisablingLastActiveAdmin() async throws {
+    let service = CoreService(config: .test, identityPasswordHashIterations: 1)
+    await service.setIdentityAuthEnabled(true)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let adminSession = try decoder.decode(AuthSessionResponse.self, from: (await router.handle(
+        method: "POST",
+        path: "/v1/auth/bootstrap",
+        body: try encoder.encode(AuthBootstrapAdminRequest(login: "admin", password: "admin-pass", name: "Admin"))
+    )).body)
+
+    let disableOnlyAdmin = await router.handle(
+        method: "PATCH",
+        path: "/v1/auth/users/admin",
+        body: try encoder.encode(AuthUserUpdateRequest(status: .disabled)),
+        headers: ["Authorization": "Bearer \(adminSession.accessToken)"]
+    )
+    #expect(disableOnlyAdmin.status == 409)
+
+    let demoteOnlyAdmin = await router.handle(
+        method: "PATCH",
+        path: "/v1/auth/users/admin",
+        body: try encoder.encode(AuthUserUpdateRequest(role: .user)),
+        headers: ["Authorization": "Bearer \(adminSession.accessToken)"]
+    )
+    #expect(demoteOnlyAdmin.status == 409)
+}
+
+@Test
 func legacyDashboardTokenIsRejectedWhenIdentityAuthIsEnabled() async throws {
     var config = CoreConfig.test
     config.ui.dashboardAuth.enabled = true

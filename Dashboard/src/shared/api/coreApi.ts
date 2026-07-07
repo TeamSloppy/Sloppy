@@ -130,6 +130,14 @@ export interface CoreApi {
   validateDashboardAuthToken: (token: string) => Promise<AnyRecord | null>;
   fetchAuthChallenge: () => Promise<AnyRecord | null>;
   loginIdentityUser: (payload: { login: string; password: string }) => Promise<AnyRecord | null>;
+  enableIdentityAuthMode: () => Promise<AnyRecord | null>;
+  bootstrapIdentityAdmin: (payload: AnyRecord) => Promise<AnyRecord | null>;
+  resetIdentityPassword: (payload: AnyRecord) => Promise<AnyRecord | null>;
+  fetchIdentityUsers: () => Promise<AnyRecord[] | null>;
+  updateIdentityUser: (login: string, payload: AnyRecord) => Promise<AnyRecord | null>;
+  createIdentityInvite: (payload: AnyRecord) => Promise<AnyRecord | null>;
+  generateIdentityRecoveryCodes: () => Promise<AnyRecord | null>;
+  createIdentityPasswordResetToken: (login: string) => Promise<AnyRecord | null>;
   updateRuntimeConfig: (config: AnyRecord) => Promise<AnyRecord>;
   runWorkspaceGitSync: () => Promise<AnyRecord | null>;
   fetchSystemLogs: () => Promise<AnyRecord | null>;
@@ -986,6 +994,101 @@ export function createCoreApi(): CoreApi {
         path: "/v1/auth/login",
         method: "POST",
         body: payload
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    enableIdentityAuthMode: async () => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/auth/mode",
+        method: "POST",
+        body: {
+          mode: "login_password",
+          confirmIrreversible: true
+        }
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    bootstrapIdentityAdmin: async (payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/auth/bootstrap",
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    resetIdentityPassword: async (payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/auth/password-reset",
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    fetchIdentityUsers: async () => {
+      const response = await requestJson<AnyRecord[]>({
+        path: "/v1/auth/users"
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    updateIdentityUser: async (login, payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/auth/users/${encodeURIComponent(login)}`,
+        method: "PATCH",
+        body: payload
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    createIdentityInvite: async (payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/auth/invites",
+        method: "POST",
+        body: payload
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    generateIdentityRecoveryCodes: async () => {
+      const response = await requestJson<AnyRecord>({
+        path: "/v1/auth/recovery-codes",
+        method: "POST"
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    createIdentityPasswordResetToken: async (login) => {
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/auth/users/${encodeURIComponent(login)}/password-reset-token`,
+        method: "POST"
       });
       if (!response.ok) {
         return null;

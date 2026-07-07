@@ -16,6 +16,7 @@ enum CoreIdentityAuthError: Error, Sendable {
     case inviteConsumed
     case invalidRecoverySecret
     case forbidden
+    case lastAdmin
 }
 
 actor CoreIdentityAuthService {
@@ -176,6 +177,54 @@ actor CoreIdentityAuthService {
         )
         saveState()
         return record
+    }
+
+    func listUsers(actor: AuthenticatedUserContext) throws -> [AuthUserProfile] {
+        try requireAdmin(actor)
+        return usersByID.values
+            .map(\.profile)
+            .sorted { lhs, rhs in
+                lhs.login.localizedStandardCompare(rhs.login) == .orderedAscending
+            }
+    }
+
+    func updateUser(login: String, request: AuthUserUpdateRequest, actor: AuthenticatedUserContext) throws -> AuthUserProfile {
+        try requireAdmin(actor)
+        let normalized = normalizedLogin(login)
+        guard let userID = userIDByLogin[normalized],
+              var stored = usersByID[userID] else {
+            throw CoreIdentityAuthError.invalidCredentials
+        }
+
+        var profile = stored.profile
+        if let name = request.name {
+            profile.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let avatar = request.avatar {
+            profile.avatar = avatar.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let description = request.description {
+            profile.description = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let role = request.role {
+            profile.role = role
+        }
+        if let status = request.status {
+            profile.status = status
+        }
+        if stored.profile.role == .admin && (profile.role != .admin || profile.status != .active) {
+            let activeAdminCount = usersByID.values.filter { user in
+                user.profile.role == .admin && user.profile.status == .active
+            }.count
+            if activeAdminCount <= 1 {
+                throw CoreIdentityAuthError.lastAdmin
+            }
+        }
+
+        stored.profile = profile
+        usersByID[userID] = stored
+        saveState()
+        return profile
     }
 
     func register(_ request: AuthRegisterRequest) throws -> AuthSessionResponse {
