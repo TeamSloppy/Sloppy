@@ -128,6 +128,8 @@ export interface CoreApi {
   synthesizeVoice: (payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchDashboardAuthStatus: () => Promise<AnyRecord | null>;
   validateDashboardAuthToken: (token: string) => Promise<AnyRecord | null>;
+  fetchAuthChallenge: () => Promise<AnyRecord | null>;
+  loginIdentityUser: (payload: { login: string; password: string }) => Promise<AnyRecord | null>;
   updateRuntimeConfig: (config: AnyRecord) => Promise<AnyRecord>;
   runWorkspaceGitSync: () => Promise<AnyRecord | null>;
   fetchSystemLogs: () => Promise<AnyRecord | null>;
@@ -953,6 +955,37 @@ export function createCoreApi(): CoreApi {
         headers: {
           Authorization: `Bearer ${token.trim()}`
         }
+      });
+      if (response.ok) {
+        return response.data;
+      }
+      const identityResponse = await requestJson<AnyRecord>({
+        path: "/v1/auth/me",
+        headers: {
+          Authorization: `Bearer ${token.trim()}`
+        }
+      });
+      if (!identityResponse.ok) {
+        return null;
+      }
+      return identityResponse.data;
+    },
+
+    fetchAuthChallenge: async () => {
+      const response = await requestJson<AnyRecord>({
+        path: "/v1/auth/challenge"
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    loginIdentityUser: async (payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/auth/login",
+        method: "POST",
+        body: payload
       });
       if (!response.ok) {
         return null;

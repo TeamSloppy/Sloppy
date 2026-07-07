@@ -1664,6 +1664,31 @@ func authChallengeRouteReturnsLoginPasswordMode() async throws {
 }
 
 @Test
+func identityAuthModeSwitchRequiresIrreversibleConfirmation() async throws {
+    let service = CoreService(config: .test, identityPasswordHashIterations: 1)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+
+    let rejected = await router.handle(
+        method: "POST",
+        path: "/v1/auth/mode",
+        body: try encoder.encode(AuthModeUpdateRequest(mode: .loginPassword, confirmIrreversible: false))
+    )
+    #expect(rejected.status == 400)
+
+    let enabled = await router.handle(
+        method: "POST",
+        path: "/v1/auth/mode",
+        body: try encoder.encode(AuthModeUpdateRequest(mode: .loginPassword, confirmIrreversible: true))
+    )
+    #expect(enabled.status == 200)
+
+    let challenge = try JSONDecoder().decode(AuthChallengeResponse.self, from: enabled.body)
+    #expect(challenge.mode == .loginPassword)
+    #expect(challenge.bootstrapRequired == true)
+}
+
+@Test
 func identityAuthEnforcesTokenAuthAndAdminRoleBoundaries() async throws {
     let config = CoreConfig.test
     let service = CoreService(config: config, identityPasswordHashIterations: 1)
@@ -1868,6 +1893,42 @@ func identityAuthPasswordResetAcceptsRecoveryCode() async throws {
         method: "POST",
         path: "/v1/auth/login",
         body: try encoder.encode(AuthLoginRequest(login: "admin", password: "new-admin-pass"))
+    )
+    #expect(login.status == 200)
+}
+
+@Test
+func identityAuthPersistsUsersAcrossCoreServiceRestart() async throws {
+    let config = CoreConfig.test
+    let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    do {
+        let service = CoreService(config: config, identityPasswordHashIterations: 1)
+        await service.setIdentityAuthEnabled(true)
+        let router = CoreRouter(service: service)
+
+        let bootstrap = await router.handle(
+            method: "POST",
+            path: "/v1/auth/bootstrap",
+            body: try encoder.encode(AuthBootstrapAdminRequest(login: "admin", password: "admin-pass", name: "Admin"))
+        )
+        #expect(bootstrap.status == 201)
+    }
+
+    let restartedService = CoreService(config: config, identityPasswordHashIterations: 1)
+    let restartedRouter = CoreRouter(service: restartedService)
+
+    let challenge = await restartedRouter.handle(method: "GET", path: "/v1/auth/challenge", body: nil)
+    let challengePayload = try decoder.decode(AuthChallengeResponse.self, from: challenge.body)
+    #expect(challengePayload.mode == .loginPassword)
+    #expect(challengePayload.bootstrapRequired == false)
+
+    let login = await restartedRouter.handle(
+        method: "POST",
+        path: "/v1/auth/login",
+        body: try encoder.encode(AuthLoginRequest(login: "admin", password: "admin-pass"))
     )
     #expect(login.status == 200)
 }

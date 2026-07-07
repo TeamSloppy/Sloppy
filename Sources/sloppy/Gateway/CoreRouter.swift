@@ -623,6 +623,9 @@ public actor CoreRouter {
         if request.segments.starts(with: ["v1", "auth", "invites"]) {
             return true
         }
+        if request.segments == ["v1", "auth", "mode"] {
+            return true
+        }
         if request.segments.starts(with: ["v1", "node", "mesh"]),
            request.method != .get {
             return request.segments != ["v1", "node", "mesh", "invites", "accept"]

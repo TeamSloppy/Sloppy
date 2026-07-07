@@ -1,4 +1,5 @@
 import Foundation
+import Protocols
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
@@ -45,6 +46,7 @@ struct SloppyCLIClient {
     let baseURL: String
     let token: String
     let verbose: Bool
+    let localAuthSession: SloppyCLILocalAuthSession?
 
     private var session: URLSession { .shared }
 
@@ -54,16 +56,28 @@ struct SloppyCLIClient {
             ?? loadURLFromConfig()
             ?? "http://127.0.0.1:25101"
 
-        let resolvedToken = token
+        let normalizedURL = resolvedURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let explicitToken = token
             ?? ProcessInfo.processInfo.environment["SLOPPY_TOKEN"]
             ?? loadTokenFromConfig()
+        let localAuth = explicitToken == nil ? SloppyCLILocalAuthStore.load(baseURL: normalizedURL) : nil
+        let resolvedToken = explicitToken
+            ?? localAuth?.accessToken
             ?? "dev-token"
 
         return SloppyCLIClient(
-            baseURL: resolvedURL.trimmingCharacters(in: CharacterSet(charactersIn: "/")),
+            baseURL: normalizedURL,
             token: resolvedToken,
-            verbose: verbose
+            verbose: verbose,
+            localAuthSession: localAuth
         )
+    }
+
+    init(baseURL: String, token: String, verbose: Bool, localAuthSession: SloppyCLILocalAuthSession? = nil) {
+        self.baseURL = baseURL
+        self.token = token
+        self.verbose = verbose
+        self.localAuthSession = localAuthSession
     }
 
     private static func loadURLFromConfig() -> String? {
@@ -153,7 +167,9 @@ struct SloppyCLIClient {
                     return
                 }
                 var request = URLRequest(url: url, timeoutInterval: 60 * 60)
-                request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                if !token.isEmpty {
+                    request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+                }
                 request.setValue("text/event-stream", forHTTPHeaderField: "Accept")
 
                 if verbose {
@@ -192,13 +208,26 @@ struct SloppyCLIClient {
     }
 
     private func request(method: String, urlString: String, body: Data?) async throws -> Data {
+        do {
+            return try await sendRequest(method: method, urlString: urlString, body: body, token: token)
+        } catch CLIClientError.httpError(let code, _) where code == 401 && localAuthSession != nil {
+            guard let refreshedToken = try await refreshLocalAuthSession() else {
+                throw CLIClientError.httpError(code, "identity session expired; run `sloppy auth login` again")
+            }
+            return try await sendRequest(method: method, urlString: urlString, body: body, token: refreshedToken)
+        }
+    }
+
+    private func sendRequest(method: String, urlString: String, body: Data?, token: String) async throws -> Data {
         guard let url = URL(string: urlString) else {
             throw CLIClientError.invalidURL
         }
 
         var req = URLRequest(url: url, timeoutInterval: 30)
         req.httpMethod = method
-        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        if !token.isEmpty {
+            req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
         if let body {
             req.httpBody = body
             req.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -240,6 +269,47 @@ struct SloppyCLIClient {
         }
 
         return data
+    }
+
+    private func refreshLocalAuthSession() async throws -> String? {
+        guard let localAuthSession else { return nil }
+        guard let url = URL(string: baseURL + "/v1/auth/refresh") else {
+            throw CLIClientError.invalidURL
+        }
+
+        let body = try encode(AuthRefreshRequest(refreshToken: localAuthSession.refreshToken))
+        var req = URLRequest(url: url, timeoutInterval: 30)
+        req.httpMethod = "POST"
+        req.httpBody = body
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+
+        let data: Data
+        let response: URLResponse
+        do {
+            (data, response) = try await session.data(for: req)
+        } catch {
+            throw CLIClientError.notConnected(baseURL)
+        }
+        guard let httpResponse = response as? HTTPURLResponse else {
+            throw CLIClientError.noData
+        }
+        guard httpResponse.statusCode < 400 else {
+            return nil
+        }
+
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let refreshed = try decoder.decode(AuthSessionResponse.self, from: data)
+        let updated = SloppyCLILocalAuthSession(
+            baseURL: baseURL,
+            accessToken: refreshed.accessToken,
+            refreshToken: refreshed.refreshToken,
+            accessTokenExpiresAt: refreshed.accessTokenExpiresAt,
+            refreshTokenExpiresAt: refreshed.refreshTokenExpiresAt,
+            user: refreshed.user
+        )
+        try SloppyCLILocalAuthStore.save(updated)
+        return refreshed.accessToken
     }
 }
 

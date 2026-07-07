@@ -639,6 +639,9 @@ export function App() {
   const [bootAttempt, setBootAttempt] = useState(0);
   const [autoStartTutorialAfterOnboarding, setAutoStartTutorialAfterOnboarding] = useState(false);
   const [dashboardTokenInput, setDashboardTokenInput] = useState("");
+  const [identityLoginInput, setIdentityLoginInput] = useState("");
+  const [identityPasswordInput, setIdentityPasswordInput] = useState("");
+  const [authChallenge, setAuthChallenge] = useState<AnyRecord | null>(null);
   const [rememberDashboardToken, setRememberDashboardToken] = useState(() => hasStoredDashboardAuthToken());
   const [authState, setAuthState] = useState<{
     status: "checking" | "required" | "authenticated";
@@ -665,6 +668,38 @@ export function App() {
         }
 
         if (!config) {
+          const challenge = await dependencies.coreApi.fetchAuthChallenge();
+          if (isCancelled) {
+            return;
+          }
+          setAuthChallenge(challenge);
+          if (challenge?.mode === "login_password") {
+            const existingToken = getDashboardAuthToken();
+            if (existingToken) {
+              setAuthState({ status: "checking", error: "" });
+              const validation = await dependencies.coreApi.validateDashboardAuthToken(existingToken);
+              if (isCancelled) {
+                return;
+              }
+              if (validation) {
+                retryBootstrap();
+                return;
+              }
+              setRememberDashboardToken(isDashboardAuthTokenPersisted());
+              setAuthState({
+                status: "required",
+                error: "Saved login session is no longer valid."
+              });
+            } else {
+              setAuthState({ status: "required", error: "" });
+            }
+            setBootState({
+              isLoading: false,
+              config: protectedDashboardAuthConfig(),
+              error: ""
+            });
+            return;
+          }
           const authStatus = await dependencies.coreApi.fetchDashboardAuthStatus();
           if (isCancelled) {
             return;
@@ -837,6 +872,35 @@ export function App() {
     retryBootstrap();
   }
 
+  async function handleIdentityLoginSubmit() {
+    if (!applyApiBaseInput()) {
+      return;
+    }
+    const login = identityLoginInput.trim();
+    const password = identityPasswordInput;
+    if (!login || !password) {
+      setAuthState({
+        status: "required",
+        error: "Enter login and password."
+      });
+      return;
+    }
+    setAuthState({ status: "checking", error: "" });
+    const session = await dependencies.coreApi.loginIdentityUser({ login, password });
+    const accessToken = typeof session?.accessToken === "string" ? session.accessToken.trim() : "";
+    if (!accessToken) {
+      setAuthState({
+        status: "required",
+        error: "Login failed. Check credentials and try again."
+      });
+      return;
+    }
+    setDashboardAuthToken(accessToken, { persist: rememberDashboardToken });
+    setAuthState({ status: "authenticated", error: "" });
+    setIdentityPasswordInput("");
+    retryBootstrap();
+  }
+
   if (bootState.isLoading) {
     return (
       <div className="onboarding-loading-shell">
@@ -928,34 +992,80 @@ export function App() {
             <span className="onboarding-loading-kicker">Dashboard auth</span>
             <strong>Enter the dashboard operator token</strong>
             <div className="onboarding-loading-form">
-              <label className="onboarding-loading-label" htmlFor="sloppy-dashboard-token-onboarding">
-                Token
-              </label>
-              <input
-                id="sloppy-dashboard-token-onboarding"
-                className="onboarding-loading-input"
-                type="password"
-                placeholder="Paste dashboard operator token"
-                autoCapitalize="off"
-                autoCorrect="off"
-                spellCheck={false}
-                value={dashboardTokenInput}
-                onChange={(event) => {
-                  setDashboardTokenInput(event.target.value);
-                  if (authState.error) {
-                    setAuthState((current) => ({
-                      ...current,
-                      error: ""
-                    }));
-                  }
-                }}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    void handleDashboardAuthSubmit();
-                  }
-                }}
-              />
+              {authChallenge?.mode === "login_password" ? (
+                <>
+                  <label className="onboarding-loading-label" htmlFor="sloppy-dashboard-login-onboarding">
+                    Login
+                  </label>
+                  <input
+                    id="sloppy-dashboard-login-onboarding"
+                    className="onboarding-loading-input"
+                    type="text"
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    value={identityLoginInput}
+                    onChange={(event) => {
+                      setIdentityLoginInput(event.target.value);
+                      if (authState.error) {
+                        setAuthState((current) => ({ ...current, error: "" }));
+                      }
+                    }}
+                  />
+                  <label className="onboarding-loading-label" htmlFor="sloppy-dashboard-password-onboarding">
+                    Password
+                  </label>
+                  <input
+                    id="sloppy-dashboard-password-onboarding"
+                    className="onboarding-loading-input"
+                    type="password"
+                    value={identityPasswordInput}
+                    onChange={(event) => {
+                      setIdentityPasswordInput(event.target.value);
+                      if (authState.error) {
+                        setAuthState((current) => ({ ...current, error: "" }));
+                      }
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        void handleIdentityLoginSubmit();
+                      }
+                    }}
+                  />
+                </>
+              ) : (
+                <>
+                  <label className="onboarding-loading-label" htmlFor="sloppy-dashboard-token-onboarding">
+                    Token
+                  </label>
+                  <input
+                    id="sloppy-dashboard-token-onboarding"
+                    className="onboarding-loading-input"
+                    type="password"
+                    placeholder="Paste dashboard operator token"
+                    autoCapitalize="off"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    value={dashboardTokenInput}
+                    onChange={(event) => {
+                      setDashboardTokenInput(event.target.value);
+                      if (authState.error) {
+                        setAuthState((current) => ({
+                          ...current,
+                          error: ""
+                        }));
+                      }
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") {
+                        event.preventDefault();
+                        void handleDashboardAuthSubmit();
+                      }
+                    }}
+                  />
+                </>
+              )}
               <label className="onboarding-loading-label" htmlFor="sloppy-api-base-onboarding-auth">
                 Core API URL
               </label>
@@ -1015,9 +1125,9 @@ export function App() {
               <button
                 type="button"
                 className="onboarding-primary-button"
-                onClick={() => void handleDashboardAuthSubmit()}
+                onClick={() => void (authChallenge?.mode === "login_password" ? handleIdentityLoginSubmit() : handleDashboardAuthSubmit())}
               >
-                Unlock
+                {authChallenge?.mode === "login_password" ? "Login" : "Unlock"}
               </button>
             </div>
           </div>
@@ -1062,36 +1172,82 @@ export function App() {
       <div className="onboarding-loading-shell">
         <div className="onboarding-loading-card onboarding-loading-card-error">
           <span className="onboarding-loading-kicker">Dashboard auth</span>
-          <strong>Enter the dashboard operator token</strong>
+          <strong>{authChallenge?.mode === "login_password" ? "Login to Sloppy" : "Enter the dashboard operator token"}</strong>
           <div className="onboarding-loading-form">
-            <label className="onboarding-loading-label" htmlFor="sloppy-dashboard-token">
-              Token
-            </label>
-            <input
-              id="sloppy-dashboard-token"
-              className="onboarding-loading-input"
-              type="password"
-              placeholder="Paste dashboard operator token"
-              autoCapitalize="off"
-              autoCorrect="off"
-              spellCheck={false}
-              value={dashboardTokenInput}
-              onChange={(event) => {
-                setDashboardTokenInput(event.target.value);
-                if (authState.error) {
-                  setAuthState((current) => ({
-                    ...current,
-                    error: ""
-                  }));
-                }
-              }}
-              onKeyDown={(event) => {
-                if (event.key === "Enter") {
-                  event.preventDefault();
-                  void handleDashboardAuthSubmit();
-                }
-              }}
-            />
+            {authChallenge?.mode === "login_password" ? (
+              <>
+                <label className="onboarding-loading-label" htmlFor="sloppy-dashboard-login">
+                  Login
+                </label>
+                <input
+                  id="sloppy-dashboard-login"
+                  className="onboarding-loading-input"
+                  type="text"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  value={identityLoginInput}
+                  onChange={(event) => {
+                    setIdentityLoginInput(event.target.value);
+                    if (authState.error) {
+                      setAuthState((current) => ({ ...current, error: "" }));
+                    }
+                  }}
+                />
+                <label className="onboarding-loading-label" htmlFor="sloppy-dashboard-password">
+                  Password
+                </label>
+                <input
+                  id="sloppy-dashboard-password"
+                  className="onboarding-loading-input"
+                  type="password"
+                  value={identityPasswordInput}
+                  onChange={(event) => {
+                    setIdentityPasswordInput(event.target.value);
+                    if (authState.error) {
+                      setAuthState((current) => ({ ...current, error: "" }));
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void handleIdentityLoginSubmit();
+                    }
+                  }}
+                />
+              </>
+            ) : (
+              <>
+                <label className="onboarding-loading-label" htmlFor="sloppy-dashboard-token">
+                  Token
+                </label>
+                <input
+                  id="sloppy-dashboard-token"
+                  className="onboarding-loading-input"
+                  type="password"
+                  placeholder="Paste dashboard operator token"
+                  autoCapitalize="off"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  value={dashboardTokenInput}
+                  onChange={(event) => {
+                    setDashboardTokenInput(event.target.value);
+                    if (authState.error) {
+                      setAuthState((current) => ({
+                        ...current,
+                        error: ""
+                      }));
+                    }
+                  }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") {
+                      event.preventDefault();
+                      void handleDashboardAuthSubmit();
+                    }
+                  }}
+                />
+              </>
+            )}
             <label className="onboarding-loading-label" htmlFor="sloppy-api-base-auth">
               Core API URL
             </label>
@@ -1151,9 +1307,9 @@ export function App() {
             <button
               type="button"
               className="onboarding-primary-button"
-              onClick={() => void handleDashboardAuthSubmit()}
+              onClick={() => void (authChallenge?.mode === "login_password" ? handleIdentityLoginSubmit() : handleDashboardAuthSubmit())}
             >
-              Unlock
+              {authChallenge?.mode === "login_password" ? "Login" : "Unlock"}
             </button>
           </div>
         </div>

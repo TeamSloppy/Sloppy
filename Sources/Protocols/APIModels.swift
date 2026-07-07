@@ -5489,6 +5489,16 @@ public struct AuthChallengeResponse: Codable, Sendable, Equatable {
     }
 }
 
+public struct AuthModeUpdateRequest: Codable, Sendable, Equatable {
+    public var mode: AuthMode
+    public var confirmIrreversible: Bool
+
+    public init(mode: AuthMode, confirmIrreversible: Bool) {
+        self.mode = mode
+        self.confirmIrreversible = confirmIrreversible
+    }
+}
+
 public struct AuthSessionResponse: Codable, Sendable, Equatable {
     public var accessToken: String
     public var refreshToken: String

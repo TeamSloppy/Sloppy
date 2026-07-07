@@ -23,8 +23,8 @@ final class ToolExecutionService: @unchecked Sendable {
     var projectService: (any ProjectToolService)?
     var configService: (any RuntimeConfigToolService)?
     var skillsService: (any SkillsToolService)?
-    /// `(agentID, field, markdown)` — used to build per-invocation `ToolContext.applyAgentMarkdown`.
-    var applyAgentMarkdown: ((String, AgentMarkdownDocumentField, String) async throws -> Void)?
+    /// `(agentID, userID, field, markdown)` — used to build per-invocation `ToolContext.applyAgentMarkdown`.
+    var applyAgentMarkdown: ((String, String?, AgentMarkdownDocumentField, String) async throws -> Void)?
     var delegateSubagent: (@Sendable (String, String, String, String?, [String]?, String?, String?) async -> String?)?
     var sessionEnvironmentOverrides: @Sendable (String) async -> [String: String]
 
@@ -113,7 +113,8 @@ final class ToolExecutionService: @unchecked Sendable {
             policy: policy,
             currentProjectID: currentProjectID,
             currentDirectoryURL: currentDirectoryURL,
-            environmentOverrides: await sessionEnvironmentOverrides(sessionID)
+            environmentOverrides: await sessionEnvironmentOverrides(sessionID),
+            userID: latestUserID(agentID: agentID, sessionID: sessionID)
         )
         if let result = await registry.invoke(request: request, context: context) {
             return result
@@ -139,11 +140,12 @@ final class ToolExecutionService: @unchecked Sendable {
         policy: AgentToolsPolicy,
         currentProjectID: String? = nil,
         currentDirectoryURL: URL? = nil,
-        environmentOverrides: [String: String] = [:]
+        environmentOverrides: [String: String] = [:],
+        userID: String? = nil
     ) -> ToolContext {
         let boundApply = applyAgentMarkdown.map { handler in
             { (field: AgentMarkdownDocumentField, markdown: String) async throws in
-                try await handler(agentID, field, markdown)
+                try await handler(agentID, userID, field, markdown)
             }
         }
         let sharedMemoryEnabled = (try? agentCatalogStore.getAgentRuntimeConfig(agentID: agentID).sharedMemoryEnabled) ?? true
@@ -178,5 +180,18 @@ final class ToolExecutionService: @unchecked Sendable {
             applyAgentMarkdown: boundApply,
             delegateSubagent: delegateSubagent
         )
+    }
+
+    private func latestUserID(agentID: String, sessionID: String) -> String? {
+        guard let detail = try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID) else {
+            return nil
+        }
+        return detail.events.reversed().compactMap { event -> String? in
+            guard let message = event.message, message.role == .user else {
+                return nil
+            }
+            let userID = message.userId?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            return userID.isEmpty ? nil : userID
+        }.first
     }
 }

@@ -23,38 +23,63 @@ actor CoreIdentityAuthService {
     static let refreshTokenLifetimeSeconds = 604_800
     static let defaultPasswordHashIterations = 120_000
 
-    private struct StoredUser: Sendable {
+    private struct StoredUser: Codable, Sendable {
         var profile: AuthUserProfile
         var passwordHash: String
         var recoveryCodeHashes: [String]
     }
 
-    private struct StoredInvite: Sendable {
+    private struct StoredInvite: Codable, Sendable {
         var record: AuthInviteRecord
         var tokenHash: String
     }
 
-    private struct StoredResetToken: Sendable {
+    private struct StoredResetToken: Codable, Sendable {
         var userID: String
         var tokenHash: String
         var expiresAt: Date
     }
 
+    private struct StoredTokenSession: Codable, Sendable {
+        var userID: String
+        var expiresAt: Date
+    }
+
+    private struct PersistedState: Codable, Sendable {
+        var enabled: Bool
+        var usersByID: [String: StoredUser]
+        var userIDByLogin: [String: String]
+        var refreshTokens: [String: StoredTokenSession]
+        var invitesByID: [String: StoredInvite]
+        var resetTokensByID: [String: StoredResetToken]
+    }
+
     private var enabled = false
     private var usersByID: [String: StoredUser] = [:]
     private var userIDByLogin: [String: String] = [:]
-    private var accessTokens: [String: (userID: String, expiresAt: Date)] = [:]
-    private var refreshTokens: [String: (userID: String, expiresAt: Date)] = [:]
+    private var accessTokens: [String: StoredTokenSession] = [:]
+    private var refreshTokens: [String: StoredTokenSession] = [:]
     private var invitesByID: [String: StoredInvite] = [:]
     private var resetTokensByID: [String: StoredResetToken] = [:]
     private let passwordHashIterations: Int
+    private let stateURL: URL?
 
-    init(passwordHashIterations: Int = 120_000) {
+    init(passwordHashIterations: Int = 120_000, stateURL: URL? = nil) {
         self.passwordHashIterations = max(1, passwordHashIterations)
+        self.stateURL = stateURL
+        if let state = Self.loadState(from: stateURL) {
+            enabled = state.enabled
+            usersByID = state.usersByID
+            userIDByLogin = state.userIDByLogin
+            refreshTokens = state.refreshTokens
+            invitesByID = state.invitesByID
+            resetTokensByID = state.resetTokensByID
+        }
     }
 
     func setEnabled(_ enabled: Bool) {
         self.enabled = enabled
+        saveState()
     }
 
     func isEnabled() -> Bool {
@@ -96,6 +121,7 @@ actor CoreIdentityAuthService {
             recoveryCodeHashes: []
         )
         userIDByLogin[profile.login] = profile.id
+        saveState()
         return makeSession(for: profile)
     }
 
@@ -148,6 +174,7 @@ actor CoreIdentityAuthService {
             record: record,
             tokenHash: PasswordHash.make(for: token, iterations: passwordHashIterations)
         )
+        saveState()
         return record
     }
 
@@ -192,6 +219,7 @@ actor CoreIdentityAuthService {
         invite.record.consumedAt = now
         invite.record.token = nil
         invitesByID[inviteID] = invite
+        saveState()
         return makeSession(for: profile)
     }
 
@@ -202,6 +230,7 @@ actor CoreIdentityAuthService {
         let codes = (0..<10).map { _ in "slp_rc_" + NodeIdentityGenerator.randomToken(byteCount: 18) }
         stored.recoveryCodeHashes = codes.map { PasswordHash.make(for: $0, iterations: passwordHashIterations) }
         usersByID[stored.profile.id] = stored
+        saveState()
         return AuthRecoveryCodesResponse(codes: codes)
     }
 
@@ -219,6 +248,7 @@ actor CoreIdentityAuthService {
             tokenHash: PasswordHash.make(for: token, iterations: passwordHashIterations),
             expiresAt: expiresAt
         )
+        saveState()
         return AuthAdminPasswordResetResponse(resetToken: token, expiresAt: expiresAt)
     }
 
@@ -253,6 +283,7 @@ actor CoreIdentityAuthService {
         }
         stored.passwordHash = PasswordHash.make(for: request.newPassword, iterations: passwordHashIterations)
         usersByID[userID] = stored
+        saveState()
         return makeSession(for: stored.profile)
     }
 
@@ -281,8 +312,9 @@ actor CoreIdentityAuthService {
         let refreshToken = "slp_rt_" + NodeIdentityGenerator.randomToken(byteCount: 32)
         let accessExpiresAt = now.addingTimeInterval(TimeInterval(Self.accessTokenLifetimeSeconds))
         let refreshExpiresAt = now.addingTimeInterval(TimeInterval(Self.refreshTokenLifetimeSeconds))
-        accessTokens[accessToken] = (profile.id, accessExpiresAt)
-        refreshTokens[refreshToken] = (profile.id, refreshExpiresAt)
+        accessTokens[accessToken] = StoredTokenSession(userID: profile.id, expiresAt: accessExpiresAt)
+        refreshTokens[refreshToken] = StoredTokenSession(userID: profile.id, expiresAt: refreshExpiresAt)
+        saveState()
         return AuthSessionResponse(
             accessToken: accessToken,
             refreshToken: refreshToken,
@@ -298,6 +330,43 @@ actor CoreIdentityAuthService {
 
     private func makeID(prefix: String) -> String {
         prefix + "_" + NodeIdentityGenerator.randomToken(byteCount: 12)
+    }
+
+    private static func loadState(from stateURL: URL?) -> PersistedState? {
+        guard let stateURL,
+              let data = try? Data(contentsOf: stateURL) else {
+            return nil
+        }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return try? decoder.decode(PersistedState.self, from: data)
+    }
+
+    private func saveState() {
+        guard let stateURL else {
+            return
+        }
+        let state = PersistedState(
+            enabled: enabled,
+            usersByID: usersByID,
+            userIDByLogin: userIDByLogin,
+            refreshTokens: refreshTokens,
+            invitesByID: invitesByID,
+            resetTokensByID: resetTokensByID
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        do {
+            try FileManager.default.createDirectory(
+                at: stateURL.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            let data = try encoder.encode(state)
+            try data.write(to: stateURL, options: [.atomic])
+        } catch {
+            // Auth state remains in memory; callers still receive the boundary error paths above.
+        }
     }
 }
 

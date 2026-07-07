@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
+import { requestJson } from "../../../shared/api/httpClient";
 import { loadHoverSoundPreference, persistHoverSoundPreference } from "../../../shared/ui/hoverSound";
 
 const ACCENT_STORAGE_KEY = "sloppy_accent_color";
@@ -56,6 +57,8 @@ export function UIEditor({ draftConfig, mutateDraft }: UIEditorProps) {
   const [accentColor, setAccentColor] = useState(loadStoredAccent);
   const [hexInput, setHexInput] = useState(loadStoredAccent);
   const [hoverSoundsEnabled, setHoverSoundsEnabled] = useState(loadHoverSoundPreference);
+  const [identityAuthChallenge, setIdentityAuthChallenge] = useState<Record<string, any> | null>(null);
+  const [identityAuthStatus, setIdentityAuthStatus] = useState("");
   const dashboardAuthEnabled = Boolean(draftConfig?.ui?.dashboardAuth?.enabled);
   const dashboardAuthToken = String(draftConfig?.ui?.dashboardAuth?.token || "");
   const terminalEnabled = Boolean(draftConfig?.ui?.dashboardTerminal?.enabled);
@@ -112,6 +115,40 @@ export function UIEditor({ draftConfig, mutateDraft }: UIEditorProps) {
 
   useEffect(() => {
     applyAccentColor(accentColor);
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    requestJson<Record<string, any>>({ path: "/v1/auth/challenge" }).then((response) => {
+      if (!cancelled && response.ok) {
+        setIdentityAuthChallenge(response.data);
+      }
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  const enableLoginPasswordAuth = useCallback(async () => {
+    const confirmed = window.confirm(
+      "Switch Sloppy to login/password authentication? This action cannot be reverted to token auth."
+    );
+    if (!confirmed) return;
+    setIdentityAuthStatus("Enabling login/password auth...");
+    const response = await requestJson<Record<string, any>, Record<string, any>>({
+      path: "/v1/auth/mode",
+      method: "POST",
+      body: {
+        mode: "login_password",
+        confirmIrreversible: true
+      }
+    });
+    if (!response.ok || !response.data) {
+      setIdentityAuthStatus("Failed to enable login/password auth.");
+      return;
+    }
+    setIdentityAuthChallenge(response.data);
+    setIdentityAuthStatus("Login/password auth enabled. Create the first Admin account next.");
   }, []);
 
   return (
@@ -245,6 +282,26 @@ export function UIEditor({ draftConfig, mutateDraft }: UIEditorProps) {
               When enabled with a non-empty token, dashboard API routes and the dashboard terminal require bearer auth. The legacy `auth.token` still works for CLI compatibility.
             </span>
           </label>
+          <div className="settings-toggle-row" style={{ marginTop: "12px" }}>
+            <div className="agent-tools-guardrail" style={{ width: "100%" }}>
+              <span className="agent-tools-guardrail-copy">
+                <span className="agent-tools-guardrail-title">Login/password authentication</span>
+                <span className="entry-form-hint">
+                  Current challenge: <code>{String(identityAuthChallenge?.mode || "token")}</code>
+                  {identityAuthChallenge?.passkeySupported ? " · PassKey supported" : ""}. Switching to login/password cannot be undone.
+                </span>
+                {identityAuthStatus ? <span className="entry-form-hint">{identityAuthStatus}</span> : null}
+              </span>
+              <button
+                type="button"
+                className="secondary-button"
+                disabled={identityAuthChallenge?.mode === "login_password"}
+                onClick={enableLoginPasswordAuth}
+              >
+                Enable
+              </button>
+            </div>
+          </div>
         </div>
 
         <div style={{ gridColumn: "1 / -1", marginTop: "20px" }}>

@@ -292,10 +292,13 @@ struct RemoteSloppyTUIBackend: SloppyTUIBackend {
         let token = node.token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             ? environment[node.tokenEnv]?.trimmingCharacters(in: .whitespacesAndNewlines)
             : node.token.trimmingCharacters(in: .whitespacesAndNewlines)
+        let baseURL = node.url.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        let localAuth = token?.isEmpty == false ? nil : SloppyCLILocalAuthStore.load(baseURL: baseURL)
         self.client = SloppyCLIClient(
-            baseURL: node.url.trimmingCharacters(in: CharacterSet(charactersIn: "/")),
-            token: token?.isEmpty == false ? token! : "dev-token",
-            verbose: false
+            baseURL: baseURL,
+            token: token?.isEmpty == false ? token! : localAuth?.accessToken ?? "dev-token",
+            verbose: false,
+            localAuthSession: localAuth
         )
     }
 

@@ -13,6 +13,33 @@ struct AuthAPIRouter: APIRouter {
             CoreRouter.encodable(status: HTTPStatus.ok, payload: await service.identityAuthChallenge())
         }
 
+        router.post("/v1/auth/mode", metadata: RouteMetadata(summary: "Enable login/password auth", description: "Irreversibly switches this Core instance to login/password auth", tags: ["Auth"])) { request in
+            guard let payload = request.decode(AuthModeUpdateRequest.self) else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            guard payload.mode == .loginPassword else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: [
+                    "error": "unsupported_auth_mode",
+                    "message": "Login/password auth can only be enabled, not reverted to token auth."
+                ])
+            }
+            guard payload.confirmIrreversible else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: [
+                    "error": "confirmation_required",
+                    "message": "Set confirmIrreversible to true to acknowledge that login/password auth cannot be reverted."
+                ])
+            }
+            await service.setIdentityAuthEnabled(true)
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: await service.identityAuthChallenge())
+        }
+
+        router.get("/v1/auth/me", metadata: RouteMetadata(summary: "Current identity user", description: "Returns the authenticated login/password user profile", tags: ["Auth"])) { request in
+            guard let actor = await CoreRouter.identityActor(for: request, service: service) else {
+                return CoreRouter.json(status: HTTPStatus.unauthorized, payload: ["error": ErrorCode.unauthorized])
+            }
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: actor.user)
+        }
+
         router.post("/v1/auth/bootstrap", metadata: RouteMetadata(summary: "Bootstrap first admin", description: "Creates the first Admin account for login/password auth", tags: ["Auth"])) { request in
             guard let payload = request.decode(AuthBootstrapAdminRequest.self) else {
                 return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
