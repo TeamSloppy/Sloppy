@@ -258,7 +258,7 @@ Example (macOS, app running):
 - Fix XcodeGen iOS macro host build for CI parity
 
 ## 16. Related Docs
-- [`Apps/Client/README.md`](../../Apps/Client/README.md)
-- [`Apps/docs/current-state.md`](../../Apps/docs/current-state.md)
-- [`Apps/docs/adr/0005-build-distribution-and-push.md`](../../Apps/docs/adr/0005-build-distribution-and-push.md)
+- `Apps/Client/README.md`
+- `Apps/docs/current-state.md`
+- `Apps/docs/adr/0005-build-distribution-and-push.md`
 - [`docs/guides/sdk.md`](../guides/sdk.md) — root `SloppySDK` for non-UI integrators
