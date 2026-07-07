@@ -11,7 +11,7 @@ struct ClientSettingsTests {
         UserDefaults.standard.removeObject(forKey: "client_color_scheme")
 
         let initial = ClientSettings()
-        #expect(initial.colorScheme == .light)
+        #expect(initial.colorScheme == .dark)
 
         initial.colorScheme = .dark
 

@@ -14,11 +14,13 @@ struct MainViewWorkspacePanelSourceTests {
     @Test("desktop main view exposes workspace as a tab-based surface")
     func desktopMainViewExposesWorkspaceAsATabBasedSurface() throws {
         let mainView = try source("Sources/SloppyClient/MainView.swift")
+        let mainViewModel = try source("Sources/SloppyClient/MainViewModel.swift")
 
-        #expect(mainView.contains("var workspacePanelViewModel"))
-        #expect(mainView.contains("var workspaceTabStates: [WorkspaceTab.ID: WorkspaceFilesTabState] = [:]"))
+        #expect(mainViewModel.contains("var workspacePanelViewModel"))
+        #expect(mainViewModel.contains("var tabStates: [WorkspaceTab.ID: WorkspaceTabState] = [:]"))
+        #expect(mainViewModel.contains("WorkspaceTabState(contentState: .workspaceFiles(workspaceState))"))
         #expect(mainView.contains("WorkspacePanelView("))
-        #expect(mainView.contains("func openWorkspaceTabForSelectedContext()"))
+        #expect(mainViewModel.contains("func openWorkspaceTabForSelectedContext()"))
     }
 
     @Test("chat view model exposes project workspace context")

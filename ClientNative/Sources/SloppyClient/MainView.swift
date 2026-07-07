@@ -13,8 +13,15 @@ struct MainView: View {
     let rootSafeAreaInsets: EdgeInsets
 
     @State private var viewModel: MainViewModel
+    @State private var mobileTabPagingDirection = 1
+
+    // iOS
+    @State private var pagerSize: CGSize = .zero
+    @State private var pagerPosition: ScrollPosition = .init()
+    private let pagerOffset: CGFloat = 16
 
     @Environment(\.userInterfaceIdiom) private var idiom
+    @Environment(\.theme) private var theme
 
     private var activeDesktopTab: WorkspaceTab? {
         guard let selectedTabID = viewModel.selectedTabID else {
@@ -51,7 +58,9 @@ struct MainView: View {
                     viewModel.createBlankChatTab(select: true)
                 }
                 viewModel.chatViewModel.loadInitialData()
-                Task { await viewModel.loadProjects() }
+                Task {
+                    await viewModel.loadProjects()
+                }
             }
             .background {
                 Group {
@@ -89,6 +98,9 @@ struct MainView: View {
                     )
                 }
             }
+            .onChange(of: viewModel.selectedTabID) { oldValue, newValue in
+                updateMobileTabPagingDirection(from: oldValue, to: newValue)
+            }
     }
 
     @ViewBuilder
@@ -125,17 +137,54 @@ struct MainView: View {
     }
 
     private var navigationView: some View {
-        NavigationSplitView {
-            sidebarView(isOverlay: true)
+        NavigationSplitView(columnVisibility: $viewModel.columnVisibility) {
+            sidebarView(isOverlay: false)
                 .navigationSplitViewColumnWidth(
                     min: viewModel.sidebarMinimumWidth,
                     ideal: viewModel.sidebarWidth,
                     max: viewModel.sidebarMaximumWidth
                 )
+                .navigationDestination(for: MainSidebarSelection.self) { _ in
+                    contentArea()
+                        .onAppear {
+                            viewModel.dismissMobileSidebar()
+                        }
+                }
         } detail: {
-            desktopContentArea()
+            contentArea()
         }
         .navigationSplitViewStyle(.balanced)
+        .overlay {
+            if idiom == .phone, viewModel.isMobileTabsOverviewPresented {
+                MobileWorkspaceTabsOverview(
+                    tabs: viewModel.tabs,
+                    selectedTabID: viewModel.selectedTabID,
+                    onSelect: { tabID in
+                        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+                            viewModel.selectTab(tabID)
+                            viewModel.dismissMobileTabsOverview()
+                        }
+                    },
+                    onClose: { tabID in
+                        withAnimation(.spring(response: 0.34, dampingFraction: 0.88)) {
+                            viewModel.closeTab(tabID)
+                        }
+                    },
+                    onCreate: {
+                        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+                            viewModel.createBlankChatTab()
+                            viewModel.dismissMobileTabsOverview()
+                        }
+                    },
+                    onDismiss: {
+                        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+                            viewModel.dismissMobileTabsOverview()
+                        }
+                    }
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.94, anchor: .bottom)))
+            }
+        }
 #if os(visionOS)
         .ornament(
             attachmentAnchor: .scene(.top),
@@ -152,36 +201,58 @@ struct MainView: View {
     }
 
     @ViewBuilder
-    private func desktopContentArea() -> some View {
+    private func contentArea() -> some View {
         ZStack(alignment: .top) {
             #if os(visionOS)
             workspaceContentHost(showsFloatingTabChrome: true)
             #else
-            workspaceContentHost(showsFloatingTabChrome: false)
-            #endif
-
-            if idiom == .phone, viewModel.isMobileTabsOverviewPresented {
-                MobileWorkspaceTabsOverview(
-                    tabs: viewModel.tabs,
-                    selectedTabID: viewModel.selectedTabID,
-                    onSelect: { tabID in
-                        viewModel.selectTab(tabID)
-                        viewModel.dismissMobileTabsOverview()
-                    },
-                    onClose: { tabID in
-                        viewModel.closeTab(tabID)
-                    },
-                    onCreate: {
-                        viewModel.createBlankChatTab()
-                        viewModel.dismissMobileTabsOverview()
-                    },
-                    onDismiss: {
-                        viewModel.dismissMobileTabsOverview()
-                    }
-                )
+            if idiom == .phone {
+                phoneWorkspaceContentHost(showsFloatingTabChrome: false)
+            } else {
+                workspaceContentHost(showsFloatingTabChrome: false)
             }
+            #endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .overlay(anchor: .bottom) {
+            ChatComposerOverlay(
+                viewModel: viewModel.chatViewModel,
+                contentWidth: 10,
+                composerBottomInset: 0,
+                tabs: viewModel.tabs,
+                tabActions: idiom == .phone
+                ? ChatComposerTabActions(
+                    tabProgress: updatePagerPosition,
+                    showOverview: { presentMobileTabsOverviewAnimated() },
+                    createTab: { createMobileTabAnimated() }
+                )
+                : nil
+            )
+        }
+    }
+
+    @ViewBuilder
+    private func phoneWorkspaceContentHost(showsFloatingTabChrome: Bool) -> some View {
+        if !viewModel.tabs.isEmpty {
+            ScrollView(.horizontal, showsIndicators: false) {
+                LazyHStack(spacing: pagerOffset) {
+                    ForEach(viewModel.tabs, id: \.id) { tab in
+                        desktopTabContent(for: tab)
+                    }
+                    .background(theme.colors.background)
+                }
+            }
+            .scrollDisabled(true)
+            .scrollPosition($pagerPosition)
+            .onScrollGeometryChange(for: CGSize.self) { geometry in
+                geometry.containerSize
+            } action: { _, newValue in
+                updatePagerSize(newValue)
+            }
+            .background(Color.red)
+        } else {
+            DesktopTabsEmptyState()
+        }
     }
 
     @ViewBuilder
@@ -205,40 +276,76 @@ struct MainView: View {
                     secondary: { desktopTabContent(for: secondaryTab) }
                 )
             } else if let activeDesktopTab {
-                desktopTabContent(for: activeDesktopTab)
+                mountedDesktopTabContent(activeTabID: activeDesktopTab.id)
             } else {
                 DesktopTabsEmptyState()
             }
         }
     }
 
+    private func mountedDesktopTabContent(activeTabID: WorkspaceTab.ID) -> some View {
+        ZStack {
+            ForEach(viewModel.tabs) { tab in
+                desktopTabContent(for: tab)
+                    .opacity(tab.id == activeTabID ? 1.0 : 0.0)
+                    .allowsHitTesting(tab.id == activeTabID)
+                    .accessibilityHidden(tab.id != activeTabID)
+            }
+        }
+    }
+
     @ViewBuilder
     private func desktopTabContent(for tab: WorkspaceTab) -> some View {
+        if let content = cachedContent(for: tab) {
+            content
+        } else {
+            DesktopTabPlaceholderView(
+                title: tab.title,
+                detail: "Tab state is unavailable."
+            )
+        }
+    }
+
+    private func cachedContent(for tab: WorkspaceTab) -> AnyView? {
+        guard let tabState = viewModel.tabStates[tab.id] else {
+            return nil
+        }
+
+        if let content = tabState.content {
+            return content
+        }
+
+        let content = makeDesktopTabContent(for: tab, tabState: tabState)
+        tabState.content = content
+        return content
+    }
+
+    private func makeDesktopTabContent(for tab: WorkspaceTab, tabState: WorkspaceTabState) -> AnyView {
         switch tab.kind {
         case .chat:
-            if let chatState = viewModel.chatTabStates[tab.id] {
-                ChatScreen(
-                    viewModel: chatState.viewModel,
-                    rootSafeAreaInsets: rootSafeAreaInsets,
-                    onOpenSidebar: nil,
-                    composerTabActions: idiom == .phone
-                        ? ChatComposerTabActions(
-                            previousTab: { viewModel.selectAdjacentTab(offset: -1) },
-                            nextTab: { viewModel.selectAdjacentTab(offset: 1) },
-                            showOverview: { viewModel.presentMobileTabsOverview() },
-                            createTab: { viewModel.createBlankChatTab() }
-                        )
-                        : nil
-                )
-            } else {
-                DesktopTabPlaceholderView(
+            guard let chatState = tabState.chatState else {
+                return placeholderContent(
                     title: tab.title,
                     detail: "Chat tab state is unavailable."
                 )
             }
+            let openSidebar = idiom == .phone ? viewModel.openMobileSidebar : nil
+            return AnyView(
+                ChatScreen(
+                    viewModel: chatState.viewModel,
+                    rootSafeAreaInsets: rootSafeAreaInsets,
+                    onOpenSidebar: openSidebar
+                )
+            )
         case .projectKanban:
-            if let kanbanState = viewModel.projectKanbanTabStates[tab.id],
-               case .projectKanban(let context) = tab.payload {
+            guard let kanbanState = tabState.projectKanbanState,
+                  case .projectKanban(let context) = tab.payload else {
+                return placeholderContent(
+                    title: tab.title,
+                    detail: "Kanban tab state is unavailable."
+                )
+            }
+            return AnyView(
                 ProjectKanbanView(
                     viewModel: kanbanState.viewModel,
                     projectId: context.projectId,
@@ -271,15 +378,16 @@ struct MainView: View {
                         )
                     }
                 )
-            } else {
-                DesktopTabPlaceholderView(
+            )
+        case .taskDetail:
+            guard let detailState = tabState.taskDetailState,
+                  case .taskDetail(let context) = tab.payload else {
+                return placeholderContent(
                     title: tab.title,
-                    detail: "Kanban tab state is unavailable."
+                    detail: "Task detail state is unavailable."
                 )
             }
-        case .taskDetail:
-            if let detailState = viewModel.taskDetailTabStates[tab.id],
-               case .taskDetail(let context) = tab.payload {
+            return AnyView(
                 TaskDetailView(
                     viewModel: detailState.viewModel,
                     projectId: context.projectId,
@@ -297,26 +405,84 @@ struct MainView: View {
                         )
                     }
                 )
-            } else {
-                DesktopTabPlaceholderView(
-                    title: tab.title,
-                    detail: "Task detail state is unavailable."
-                )
-            }
+            )
         case .workspaceFiles:
-            if let workspaceState = viewModel.workspaceTabStates[tab.id],
-               case .workspaceFiles(let context) = tab.payload {
-                WorkspacePanelView(
-                    viewModel: workspaceState.viewModel,
-                    context: WorkspacePanelContext(projectId: context.projectId, projectName: context.projectName)
-                )
-            } else {
-                DesktopTabPlaceholderView(
+            guard let workspaceState = tabState.workspaceFilesState,
+                  case .workspaceFiles(let context) = tab.payload else {
+                return placeholderContent(
                     title: tab.title,
                     detail: "Workspace tab state is unavailable."
                 )
             }
+            return AnyView(
+                WorkspacePanelView(
+                    viewModel: workspaceState.viewModel,
+                    context: WorkspacePanelContext(projectId: context.projectId, projectName: context.projectName)
+                )
+            )
         }
+    }
+
+    private func placeholderContent(title: String, detail: String) -> AnyView {
+        AnyView(
+            DesktopTabPlaceholderView(
+                title: title,
+                detail: detail
+            )
+        )
+    }
+
+    private func presentMobileTabsOverviewAnimated() {
+        withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
+            viewModel.presentMobileTabsOverview()
+        }
+    }
+
+    private func createMobileTabAnimated() {
+        withAnimation(.spring(response: 0.36, dampingFraction: 0.9)) {
+            viewModel.createBlankChatTab()
+        }
+    }
+
+    private func updatePagerPosition(_ progress: CGFloat) {
+        let pagerWidth = pagerSize.width
+        guard pagerWidth > 0, progress.isFinite else {
+            return
+        }
+
+        Task { @MainActor in
+            pagerPosition.scrollTo(x: (pagerWidth + pagerOffset) * progress)
+        }
+    }
+
+    private func updatePagerSize(_ newValue: CGSize) {
+        guard pagerSize != newValue else {
+            return
+        }
+
+        Task { @MainActor in
+            pagerSize = newValue
+        }
+    }
+
+    private func updateMobileTabPagingDirection(from oldValue: WorkspaceTab.ID?, to newValue: WorkspaceTab.ID?) {
+        guard let oldValue,
+              let newValue,
+              let oldIndex = viewModel.tabs.firstIndex(where: { $0.id == oldValue }),
+              let newIndex = viewModel.tabs.firstIndex(where: { $0.id == newValue }),
+              oldIndex != newIndex else {
+            return
+        }
+        mobileTabPagingDirection = newIndex > oldIndex ? 1 : -1
+    }
+
+    private func mobileTabPagingTransition(for tab: WorkspaceTab) -> AnyTransition {
+        let insertionEdge: Edge = mobileTabPagingDirection >= 0 ? .trailing : .leading
+        let removalEdge: Edge = mobileTabPagingDirection >= 0 ? .leading : .trailing
+        return .asymmetric(
+            insertion: .move(edge: insertionEdge).combined(with: .opacity),
+            removal: .move(edge: removalEdge).combined(with: .opacity)
+        )
     }
 
     private func chatScreen(showsSidebarControl: Bool) -> some View {
@@ -347,12 +513,17 @@ struct MainView: View {
         }
     }
 
-#if os(visionOS)
     @ViewBuilder
-    private func desktopTabPreviewContent(for tab: WorkspaceTab) -> some View {
+    private func mobileTabPreviewContent(for tab: WorkspaceTab) -> some View {
         desktopTabContent(for: tab)
             .allowsHitTesting(false)
             .clipped()
+    }
+
+#if os(visionOS)
+    @ViewBuilder
+    private func desktopTabPreviewContent(for tab: WorkspaceTab) -> some View {
+        mobileTabPreviewContent(for: tab)
     }
 #endif
 }
@@ -492,3 +663,5 @@ private struct DesktopSplitHandle: View {
         )
     }
 }
+
+fileprivate let chatContentWidth: CGFloat = 840

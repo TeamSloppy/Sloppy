@@ -18,6 +18,7 @@ public enum MaterialSymbol: String, CaseIterable, Sendable {
     case keyboardReturn
     case menu
     case moreHoriz
+    case microphone
     case openInNew
     case radioButtonChecked
     case radioButtonPartial
@@ -46,6 +47,7 @@ public enum MaterialSymbol: String, CaseIterable, Sendable {
         case .keyboardReturn: "return"
         case .menu: "line.3.horizontal"
         case .moreHoriz: "ellipsis"
+        case .microphone: "mic.fill"
         case .openInNew: "arrow.up.right.square"
         case .radioButtonChecked: "circle.inset.filled"
         case .radioButtonPartial: "circle.lefthalf.filled"

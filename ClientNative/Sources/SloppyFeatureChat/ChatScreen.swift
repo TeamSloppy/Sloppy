@@ -8,10 +8,9 @@ fileprivate let chatContentWidth: CGFloat = 840
 
 @MainActor
 public struct ChatScreen: View {
-    private let viewModel: ChatScreenViewModel
+    @State private var viewModel: ChatScreenViewModel
     private let rootSafeAreaInsets: EdgeInsets
     private let onOpenSidebar: (@MainActor () -> Void)?
-    private let composerTabActions: ChatComposerTabActions?
 
     public init(
         apiClient: SloppyAPIClient,
@@ -19,40 +18,53 @@ public struct ChatScreen: View {
         connectionMonitor: ConnectionMonitor,
         onOpenSettings: @escaping @MainActor () -> Void,
         rootSafeAreaInsets: EdgeInsets = EdgeInsets(),
-        onOpenSidebar: (@MainActor () -> Void)? = nil,
-        composerTabActions: ChatComposerTabActions? = nil
+        onOpenSidebar: (@MainActor () -> Void)? = nil
     ) {
         self.rootSafeAreaInsets = rootSafeAreaInsets
         self.onOpenSidebar = onOpenSidebar
-        self.composerTabActions = composerTabActions
-        self.viewModel = ChatScreenViewModel(
-            apiClient: apiClient,
-            settings: settings,
-            connectionMonitor: connectionMonitor,
-            onOpenSettings: onOpenSettings
+        self._viewModel = State(
+            initialValue: ChatScreenViewModel(
+                apiClient: apiClient,
+                settings: settings,
+                connectionMonitor: connectionMonitor,
+                onOpenSettings: onOpenSettings
+            )
         )
     }
-    
+
     public init(
         viewModel: ChatScreenViewModel,
         rootSafeAreaInsets: EdgeInsets = EdgeInsets(),
-        onOpenSidebar: (@MainActor () -> Void)? = nil,
-        composerTabActions: ChatComposerTabActions? = nil
+        onOpenSidebar: (@MainActor () -> Void)? = nil
     ) {
         self.rootSafeAreaInsets = rootSafeAreaInsets
         self.onOpenSidebar = onOpenSidebar
-        self.composerTabActions = composerTabActions
         self.viewModel = viewModel
     }
-    
+
     public var body: some View {
         ChatScreenContent(
             rootSafeAreaInsets: rootSafeAreaInsets,
             onOpenSidebar: onOpenSidebar,
-            composerTabActions: composerTabActions
+            composerTabActions: nil
         )
         .environment(viewModel)
         .environment(viewModel.connectionMonitor)
+        .overlay(anchor: .top, content: {
+            ChatConnectionBar(connectionMonitor: viewModel.connectionMonitor)
+        })
+        .fileImporter(
+            isPresented: $viewModel.isAttachmentPickerShown,
+            allowedContentTypes: [],
+            allowsMultipleSelection: true
+        ) { result in
+            switch result {
+            case .success(let urls):
+                viewModel.attachFileURLs(urls)
+            case .failure:
+                break
+            }
+        }
     }
 }
 
@@ -61,10 +73,10 @@ private struct ChatScreenContent: View {
     let rootSafeAreaInsets: EdgeInsets
     let onOpenSidebar: (@MainActor () -> Void)?
     let composerTabActions: ChatComposerTabActions?
-    
+
     @Environment(ChatScreenViewModel.self) private var viewModel
     @Environment(ConnectionMonitor.self) private var connectionMonitor
-    
+
     var body: some View {
         ChatChrome(
             viewModel: viewModel,
@@ -107,13 +119,10 @@ private struct ChatChrome: View {
                 }
             }
         }
-
-        ChatConnectionBar(connectionMonitor: connectionMonitor)
     }
 
     private func chromeLayout(contentWidth: CGFloat) -> some View {
         let heroWidth = heroWidth(for: contentWidth)
-        let showsComposer = true
 
         return ZStack(alignment: .bottom) {
             if viewModel.transcript.isEmpty {
@@ -132,15 +141,6 @@ private struct ChatChrome: View {
                     composerScrollInset: composerScrollInset
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-
-            if showsComposer {
-                ChatComposerOverlay(
-                    viewModel: viewModel,
-                    contentWidth: contentWidth,
-                    composerBottomInset: composerBottomInset,
-                    tabActions: composerTabActions
-                )
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -302,7 +302,7 @@ private struct MobileChatNavigationCenterCapsule: View {
     let viewModel: ChatScreenViewModel
 
     @Environment(\.theme) private var theme
-    
+
     var body: some View {
         VStack(alignment: .leading, spacing: 1) {
             Picker("", selection: selectedAgentId) {
@@ -382,15 +382,11 @@ private struct ChatConnectionBar: View {
     @ViewBuilder
     var body: some View {
         if connectionMonitor.state != .connected {
-            HStack {
-                Spacer()
-                ConnectionBanner(
-                    state: connectionMonitor.state,
-                    endpoint: connectionMonitor.checkedURL?.absoluteString,
-                    message: connectionMonitor.lastFailureMessage
-                )
-                Spacer()
-            }
+            ConnectionBanner(
+                state: connectionMonitor.state,
+                endpoint: connectionMonitor.checkedURL?.absoluteString,
+                message: connectionMonitor.lastFailureMessage
+            )
         }
     }
 }
@@ -454,22 +450,37 @@ private struct ChatEmptyChatRegion: View {
 }
 
 @MainActor
-private struct ChatComposerOverlay: View {
-    let viewModel: ChatScreenViewModel
-    let contentWidth: CGFloat
-    let composerBottomInset: CGFloat
-    let tabActions: ChatComposerTabActions?
+public struct ChatComposerOverlay: View {
+    public let viewModel: ChatScreenViewModel
+    public let contentWidth: CGFloat
+    public let composerBottomInset: CGFloat
+    public let tabs: [WorkspaceTab]
+    public let tabActions: ChatComposerTabActions?
 
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
 
-    var body: some View {
+    public init(
+        viewModel: ChatScreenViewModel,
+        contentWidth: CGFloat,
+        composerBottomInset: CGFloat,
+        tabs: [WorkspaceTab],
+        tabActions: ChatComposerTabActions?
+    ) {
+        self.viewModel = viewModel
+        self.contentWidth = contentWidth
+        self.composerBottomInset = composerBottomInset
+        self.tabs = tabs
+        self.tabActions = tabActions
+    }
+
+    public var body: some View {
         HStack {
             Spacer(minLength: 0)
             composerBar
-                .frame(width: contentWidth)
+//                .frame(width: contentWidth)
 #if os(visionOS)
-                .frame(alignment: .front)
+                .padding3D(.front)
 #endif
             Spacer(minLength: 0)
         }
@@ -487,7 +498,11 @@ private struct ChatComposerOverlay: View {
             )
             return true
         }
-        #if !os(visionOS)
+        .dropDestination(for: URL.self) { urls, _ in
+            viewModel.attachFileURLs(urls)
+            return !urls.isEmpty
+        }
+#if !os(visionOS)
         .background(
             LinearGradient(colors: [
                 Color.black.opacity(0.01),
@@ -495,13 +510,14 @@ private struct ChatComposerOverlay: View {
                 Color.black
             ], startPoint: .top, endPoint: .bottom)
         )
-        #endif
+#endif
     }
 
     @ViewBuilder
     private var composerBar: some View {
         ChatComposerView(
             draft: viewModel.composerDraft,
+            tabs: tabs,
             viewModel: viewModel,
             tabActions: tabActions
         )
@@ -530,54 +546,50 @@ private struct ChatTranscriptPane: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            VStack(spacing: 0) {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        VStack(spacing: 0) {
-                            if transcript.hasEarlierMessages {
-                                revealEarlierButton
-                                    .padding(.top, messagesTopInset)
-                                    .padding(.bottom, theme.spacing.m)
-                            }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    VStack(spacing: 0) {
+                        if transcript.hasEarlierMessages {
+                            revealEarlierButton
+                                .padding(.top, messagesTopInset)
+                                .padding(.bottom, theme.spacing.m)
+                        }
 
-                            VStack(alignment: .leading, spacing: theme.spacing.xl) {
-                                ForEach(transcript.messages) { msg in
-                                    ChatBubbleView(message: msg)
-                                        .frame(minWidth: 0, maxWidth: .infinity)
-                                }
+                        VStack(alignment: .leading, spacing: theme.spacing.xl) {
+                            ForEach(transcript.messages) { msg in
+                                ChatBubbleView(message: msg)
+                                    .frame(minWidth: 0, maxWidth: .infinity)
                             }
-                            .padding(.top, transcript.hasEarlierMessages ? 0 : messagesTopInset)
-                            .padding(.bottom, composerScrollInset)
                         }
                         .frame(width: contentWidth)
+                        .padding(.top, transcript.hasEarlierMessages ? 0 : messagesTopInset)
+                        .padding(.bottom, composerScrollInset)
                     }
-                    .onChange(of: transcript.messages.count) { oldCount, newCount in
-                        guard newCount > oldCount,
-                              oldCount == 0 || proxy.isNearBottom(threshold: 220),
-                              let lastMessageId = transcript.lastMessage?.id else {
-                            return
-                        }
-
-                        Task { @MainActor in
-                            proxy.scrollTo(lastMessageId, anchor: .bottom)
-                        }
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+                .onChange(of: transcript.messages.count) { oldCount, newCount in
+                    guard newCount > oldCount,
+                          oldCount == 0 || proxy.isNearBottom(threshold: 220),
+                          let lastMessageId = transcript.lastMessage?.id else {
+                        return
                     }
-                    .onChange(of: latestAssistantMessageLayoutKey) { _, _ in
-                        guard proxy.isNearBottom(threshold: 480),
-                              let lastMessage = transcript.lastMessage,
-                              lastMessage.role == .assistant else {
-                            return
-                        }
 
-                        Task { @MainActor in
-                            proxy.scrollTo(lastMessage.id, anchor: .bottom)
-                        }
+                    Task { @MainActor in
+                        proxy.scrollTo(lastMessageId, anchor: .bottom)
                     }
                 }
-                .frame(maxWidth: .infinity)
-                .frame(maxHeight: .infinity)
+                .onChange(of: latestAssistantMessageLayoutKey) { _, _ in
+                    guard proxy.isNearBottom(threshold: 480),
+                          let lastMessage = transcript.lastMessage,
+                          lastMessage.role == .assistant else {
+                        return
+                    }
+
+                    Task { @MainActor in
+                        proxy.scrollTo(lastMessage.id, anchor: .bottom)
+                    }
+                }
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
     }
 
@@ -620,5 +632,25 @@ private struct ChatTranscriptPane: View {
         onOpenSettings: {}
     )
     ChatScreen(viewModel: viewModel)
+#if os(visionOS)
         .backportGlassEffect(.regular, in: .rect(cornerRadius: 24))
+#endif
+}
+
+#Preview {
+    let viewModel = ChatScreenViewModel(
+        apiClient: .init(baseURL: .debugURL),
+        settings: .init(),
+        connectionMonitor: .init(baseURL: URL.debugURL),
+        onOpenSettings: {}
+    )
+    viewModel.transcript.replaceAll([
+        .init(role: .assistant, segments: [
+            .init(kind: .text)
+        ])
+    ])
+    return ChatScreen(viewModel: viewModel)
+    #if os(visionOS)
+        .backportGlassEffect(.regular, in: .rect(cornerRadius: 24))
+    #endif
 }

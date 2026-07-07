@@ -77,16 +77,32 @@ struct ChatComposerRenderingTests {
 
         #expect(source.contains("@Observable"))
         #expect(source.contains("@Bindable public var draft: ChatComposerDraft"))
+        #expect(source.contains("@Bindable var draft: ChatComposerDraft"))
+        #expect(source.contains("ChatTextField("))
+        #expect(source.contains("draft: draft,"))
         #expect(source.contains("text: $draft.text"))
     }
 
-    @Test("composer trailing action swaps between send and stop")
-    func composerTrailingActionSupportsStoppingRuns() throws {
+    @Test("composer trailing action swaps between dictation send and stop")
+    func composerTrailingActionSupportsDictationSendingAndStoppingRuns() throws {
         let source = try chatComposerSource
 
-        #expect(source.contains("viewModel.shouldShowStopButton ? .stop : .arrowUpward"))
+        #expect(source.contains("return .microphone"))
+        #expect(source.contains("return .arrowUpward"))
+        #expect(source.contains("draft.requestDictation()"))
         #expect(source.contains("viewModel.stopActiveRun()"))
         #expect(source.contains("guard !trimmed.isEmpty, viewModel.canSubmitMessage else { return }"))
+    }
+
+    @Test("composer microphone action requests text field dictation focus")
+    func composerMicrophoneActionRequestsTextFieldDictationFocus() throws {
+        let source = try chatComposerSource
+
+        #expect(source.contains("public private(set) var dictationRequestToken: Int = 0"))
+        #expect(source.contains("public func requestDictation()"))
+        #expect(source.contains("dictationRequestToken += 1"))
+        #expect(source.contains(".onChange(of: draft.dictationRequestToken)"))
+        #expect(source.contains("isTextFieldFocused = true"))
     }
 
     @Test("desktop composer exposes one combined model effort and agent menu")

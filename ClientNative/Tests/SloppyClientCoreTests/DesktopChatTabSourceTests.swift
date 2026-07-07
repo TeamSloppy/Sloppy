@@ -15,11 +15,18 @@ struct DesktopChatTabSourceTests {
     func chatTabsOwnLocalChatScreenState() throws {
         let tabs = try source("Sources/SloppyClient/MainTabs.swift")
         let mainView = try source("Sources/SloppyClient/MainView.swift")
+        let mainViewModel = try source("Sources/SloppyClient/MainViewModel.swift")
         let chatScreen = try source("Sources/SloppyFeatureChat/ChatScreen.swift")
 
+        #expect(tabs.contains("final class WorkspaceTabState"))
+        #expect(tabs.contains("var content: AnyView?"))
         #expect(tabs.contains("final class ChatTabState"))
         #expect(tabs.contains("let viewModel: ChatScreenViewModel"))
-        #expect(mainView.contains("makeChatTabState() -> ChatTabState"))
+        #expect(mainViewModel.contains("var tabStates: [WorkspaceTab.ID: WorkspaceTabState] = [:]"))
+        #expect(mainViewModel.contains("makeChatTabState() -> ChatTabState"))
+        #expect(mainView.contains("cachedContent(for: tab)"))
+        #expect(mainView.contains("mountedDesktopTabContent(activeTabID: activeDesktopTab.id)"))
+        #expect(mainView.contains(".allowsHitTesting(tab.id == activeTabID)"))
         #expect(mainView.contains("ChatScreen("))
         #expect(mainView.contains("viewModel: chatState.viewModel"))
         #expect(chatScreen.contains("private let viewModel: ChatScreenViewModel"))
@@ -28,13 +35,13 @@ struct DesktopChatTabSourceTests {
 
     @Test("desktop task and recent session actions use tab-local chats instead of the global chat view model")
     func desktopTaskAndRecentSessionActionsUseTabLocalChats() throws {
-        let mainView = try source("Sources/SloppyClient/MainView.swift")
+        let mainViewModel = try source("Sources/SloppyClient/MainViewModel.swift")
 
-        #expect(mainView.contains("openTaskChatTab("))
-        #expect(mainView.contains("openSessionChatTab("))
-        #expect(mainView.contains("retargetSelectedChatTab(to: session)"))
-        #expect(mainView.contains("private func retargetSelectedChatTab(to session: ChatSessionSummary) -> Bool"))
-        #expect(!mainView.contains("chatViewModel.pickSession(session)"))
-        #expect(!mainView.contains("navigateChat("))
+        #expect(mainViewModel.contains("openTaskChatTab("))
+        #expect(mainViewModel.contains("openSessionChatTab("))
+        #expect(mainViewModel.contains("retargetSelectedChatTab(to: session)"))
+        #expect(mainViewModel.contains("private func retargetSelectedChatTab(to session: ChatSessionSummary) -> Bool"))
+        #expect(!mainViewModel.contains("chatViewModel.pickSession(session)"))
+        #expect(!mainViewModel.contains("navigateChat("))
     }
 }

@@ -41,39 +41,13 @@ struct MobileWorkspaceTabsOverview: View {
                 ScrollView {
                     LazyVGrid(columns: columns, spacing: theme.spacing.m) {
                         ForEach(tabs) { tab in
-                            Button(action: { onSelect(tab.id) }) {
-                                VStack(alignment: .leading, spacing: theme.spacing.s) {
-                                    HStack(alignment: .top) {
-                                        Text(tab.title)
-                                            .font(.system(size: theme.typography.body))
-                                            .foregroundColor(theme.colors.textPrimary)
-                                            .lineLimit(2)
-                                        Spacer(minLength: theme.spacing.s)
-                                        Button(action: { onClose(tab.id) }) {
-                                            Image(systemName: "xmark.circle.fill")
-                                                .foregroundColor(theme.colors.textMuted)
-                                        }
-                                        .buttonStyle(.plain)
-                                    }
-
-                                    Spacer(minLength: 0)
-
-                                    Text(tab.kind.rawValue)
-                                        .font(.system(size: theme.typography.caption))
-                                        .foregroundColor(theme.colors.textSecondary)
-                                }
-                                .frame(maxWidth: .infinity, minHeight: 160, alignment: .topLeading)
-                                .padding(theme.spacing.m)
-                                .background(
-                                    RoundedRectangle(cornerRadius: 24, style: .continuous)
-                                        .fill(
-                                            selectedTabID == tab.id
-                                                ? theme.colors.surfaceRaised
-                                                : theme.colors.surface
-                                        )
-                                )
-                            }
-                            .buttonStyle(.plain)
+                            MobileWorkspaceTabPreviewCard(
+                                tab: tab,
+                                isSelected: selectedTabID == tab.id,
+                                onSelect: { onSelect(tab.id) },
+                                onClose: { onClose(tab.id) }
+                            )
+                            .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .center)))
                         }
                     }
                     .padding(.vertical, theme.spacing.xs)
@@ -93,6 +67,136 @@ struct MobileWorkspaceTabsOverview: View {
                 .buttonStyle(.plain)
             }
             .padding(theme.spacing.l)
+        }
+    }
+
+}
+
+@MainActor
+private struct MobileWorkspaceTabPreviewCard: View {
+    private let previewHeight: CGFloat = 132
+
+    let tab: WorkspaceTab
+    let isSelected: Bool
+    let onSelect: @MainActor () -> Void
+    let onClose: @MainActor () -> Void
+
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        Button(action: onSelect) {
+            VStack(spacing: 0) {
+                ZStack(alignment: .topTrailing) {
+                    MobileWorkspaceTabThumbnail(tab: tab)
+                        .frame(height: previewHeight)
+                        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+                    Button(action: onClose) {
+                        Image(systemName: "xmark.circle.fill")
+                            .font(.system(size: theme.typography.heading))
+                            .foregroundColor(theme.colors.textPrimary)
+                            .shadow(color: .black.opacity(0.28 as CGFloat), radius: 6, y: 2)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(theme.spacing.s)
+                }
+
+                VStack(alignment: .leading, spacing: theme.spacing.xs) {
+                    Text(tab.title)
+                        .font(.system(size: theme.typography.body, weight: .semibold))
+                        .foregroundColor(theme.colors.textPrimary)
+                        .lineLimit(1)
+
+                    Text(tab.kind.rawValue)
+                        .font(.system(size: theme.typography.caption))
+                        .foregroundColor(theme.colors.textSecondary)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(theme.spacing.m)
+            }
+            .frame(maxWidth: .infinity, minHeight: 204, maxHeight: 204, alignment: .topLeading)
+            .background(
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(isSelected ? theme.colors.surfaceRaised : theme.colors.surface)
+            )
+            .overlay {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .stroke(
+                        isSelected ? theme.colors.accentCyan.opacity(0.48 as CGFloat) : theme.colors.border,
+                        lineWidth: isSelected ? 2 : 1
+                    )
+            }
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+@MainActor
+private struct MobileWorkspaceTabThumbnail: View {
+    let tab: WorkspaceTab
+
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        ZStack(alignment: .topLeading) {
+            LinearGradient(
+                colors: [
+                    theme.colors.surfaceRaised,
+                    theme.colors.background
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            VStack(alignment: .leading, spacing: theme.spacing.s) {
+                HStack(spacing: theme.spacing.xs) {
+                    Circle()
+                        .fill(theme.colors.accentCyan.opacity(0.72 as CGFloat))
+                        .frame(width: 8, height: 8)
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(theme.colors.textMuted.opacity(0.36 as CGFloat))
+                        .frame(width: 54, height: 8)
+                    Spacer(minLength: 0)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(theme.colors.textPrimary.opacity(0.26 as CGFloat))
+                        .frame(width: 118, height: 10)
+                    RoundedRectangle(cornerRadius: 4, style: .continuous)
+                        .fill(theme.colors.textSecondary.opacity(0.22 as CGFloat))
+                        .frame(width: 88, height: 8)
+                }
+
+                Spacer(minLength: 0)
+
+                Text(tab.kind.rawValue)
+                    .font(.system(size: theme.typography.micro, weight: .semibold))
+                    .foregroundColor(theme.colors.textSecondary)
+                    .padding(.horizontal, theme.spacing.xs)
+                    .padding(.vertical, 4)
+                    .background(Capsule().fill(theme.colors.surface.opacity(0.72 as CGFloat)))
+            }
+            .padding(theme.spacing.s)
+        }
+        .overlay(alignment: .bottomTrailing) {
+            Image(systemName: thumbnailIconName)
+                .font(.system(size: theme.typography.title, weight: .semibold))
+                .foregroundColor(theme.colors.textMuted.opacity(0.32 as CGFloat))
+                .padding(theme.spacing.s)
+        }
+    }
+
+    private var thumbnailIconName: String {
+        switch tab.kind {
+        case .chat:
+            return "text.bubble"
+        case .projectKanban:
+            return "rectangle.grid.2x2"
+        case .taskDetail:
+            return "checklist"
+        case .workspaceFiles:
+            return "folder"
         }
     }
 }

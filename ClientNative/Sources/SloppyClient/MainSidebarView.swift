@@ -277,7 +277,8 @@ struct MainSidebarView: View {
             c: c,
             sp: sp,
             titleColor: (isSelected || isContextMenuTarget) ? c.textPrimary : c.textSecondary,
-            leadingInset: 12
+            leadingInset: 12,
+            navigationValue: .chats
         ) {
             viewModel.openSessionChatTab(session)
         }
@@ -408,7 +409,8 @@ struct MainSidebarView: View {
                 trailing: nil,
                 isSelected: viewModel.selectedSidebarItem == .project(project.id),
                 c: c,
-                sp: sp
+                sp: sp,
+                navigationValue: .project(project.id)
             ) {
                 viewModel.openProjectKanbanTab(project: project)
             }
@@ -446,7 +448,8 @@ struct MainSidebarView: View {
             c: c,
             sp: sp,
             titleColor: (isSelected || isContextMenuTarget) ? c.textPrimary : c.textSecondary,
-            leadingInset: 12
+            leadingInset: 12,
+            navigationValue: .chats
         ) {
             viewModel.openSessionChatTab(session)
         }
@@ -484,7 +487,8 @@ struct MainSidebarView: View {
             c: c,
             sp: sp,
             titleColor: isSelected ? c.textPrimary : c.textSecondary,
-            leadingInset: 12
+            leadingInset: 12,
+            navigationValue: .task(projectId: projectId, taskId: task.id)
         ) {
             let project = APIProjectRecord(
                 id: projectId,
@@ -532,6 +536,7 @@ struct MainSidebarView: View {
         sp: AppSpacing,
         titleColor: Color? = nil,
         leadingInset: CGFloat = 0,
+        navigationValue: MainSidebarSelection? = nil,
         action: @escaping @MainActor () -> Void
     ) -> some View {
         HoverableSidebarRow(
@@ -547,6 +552,7 @@ struct MainSidebarView: View {
             rowRadius: Self.rowRadius,
             rowMinimumHeight: Self.rowMinimumHeight,
             usesLiquidGlass: usesLiquidGlass,
+            navigationValue: navigationValue,
             action: action
         )
     }
@@ -621,6 +627,7 @@ private struct HoverableSidebarRow: View {
     let rowRadius: CGFloat
     let rowMinimumHeight: CGFloat
     let usesLiquidGlass: Bool
+    let navigationValue: MainSidebarSelection?
     let action: @MainActor () -> Void
 
     @State private var isHovered = false
@@ -631,42 +638,59 @@ private struct HoverableSidebarRow: View {
             maxCharacters: leadingInset > 0 ? 36 : 30
         )
 
-        Button(action: {
-            action()
-        }) {
-            HStack(spacing: spacing.s) {
-                if let icon {
-                    Icons.symbol(icon, size: typography.body)
-                        .foregroundColor(isSelected ? colors.accentCyan : colors.textMuted)
-                        .frame(width: 22)
-                } else {
-                    Color.clear
-                        .frame(width: 22)
+        Group {
+            if let navigationValue {
+                NavigationLink(value: navigationValue) {
+                    rowContent(displayTitle: displayTitle)
                 }
-
-                Text(displayTitle)
-                    .font(.system(size: typography.body))
-                    .foregroundColor(titleColor ?? (isSelected ? colors.textPrimary : colors.textSecondary))
-                    .lineLimit(1)
-                    .multilineTextAlignment(.leading)
-
-                Spacer(minLength: 0)
-
-                if let trailing {
-                    Text(trailing)
-                        .font(.system(size: typography.body))
-                        .foregroundColor(colors.textMuted)
-                        .lineLimit(1)
-                        .multilineTextAlignment(.trailing)
+                .simultaneousGesture(
+                    TapGesture().onEnded {
+                        action()
+                    }
+                )
+            } else {
+                Button(action: {
+                    action()
+                }) {
+                    rowContent(displayTitle: displayTitle)
                 }
             }
-            .padding(.vertical, 6)
-            .padding(.horizontal, 4)
         }
         .onHover {
             isHovered = $0
         }
         .buttonStyle(SideBarButtonStyle(isHover: isHovered))
+    }
+
+    private func rowContent(displayTitle: String) -> some View {
+        HStack(spacing: spacing.s) {
+            if let icon {
+                Icons.symbol(icon, size: typography.body)
+                    .foregroundColor(isSelected ? colors.accentCyan : colors.textMuted)
+                    .frame(width: 22)
+            } else {
+                Color.clear
+                    .frame(width: 22)
+            }
+
+            Text(displayTitle)
+                .font(.system(size: typography.body))
+                .foregroundColor(titleColor ?? (isSelected ? colors.textPrimary : colors.textSecondary))
+                .lineLimit(1)
+                .multilineTextAlignment(.leading)
+
+            Spacer(minLength: 0)
+
+            if let trailing {
+                Text(trailing)
+                    .font(.system(size: typography.body))
+                    .foregroundColor(colors.textMuted)
+                    .lineLimit(1)
+                    .multilineTextAlignment(.trailing)
+            }
+        }
+        .padding(.vertical, 6)
+        .padding(.horizontal, 4)
     }
 
     private func shortened(_ value: String, maxCharacters: Int) -> String {

@@ -223,11 +223,11 @@ private struct DesktopWorkspaceTabButton: View {
             }
             .frame(width: 36, alignment: .leading)
         }
-        .overlay {
-#if os(macOS)
-            MiddleClickCloseArea(onMiddleClick: onClose)
-#endif
-        }
+//#if os(macOS)
+//        .overlay {
+//            MiddleClickCloseArea(onMiddleClick: onClose)
+//        }
+//#endif
         .onHover {
             self.isHovered = $0
         }
@@ -361,6 +361,6 @@ private final class MiddleClickCloseNSView: NSView {
     )
     .frame(width: 700)
 #if os(visionOS)
-    .background(.gray)
+    .backportGlassEffect(.regular, in: .rect)
 #endif
 }

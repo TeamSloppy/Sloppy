@@ -40,8 +40,18 @@ struct MainSidebarSelectionTests {
         let source = try mainSidebarSource
 
         #expect(source.contains("if idiom == .phone, viewModel.isMobileTabsOverviewPresented"))
-        #expect(source.contains("workspaceContentHost()"))
+        #expect(source.contains("workspaceContentHost(showsFloatingTabChrome: false)"))
         #expect(source.contains("MobileWorkspaceTabsOverview("))
+    }
+
+    @Test("main view uses split sidebar column for phone navigation")
+    func mainViewUsesSplitSidebarColumnForPhoneNavigation() throws {
+        let source = try mainSidebarSource
+
+        #expect(source.contains("NavigationSplitView(columnVisibility: $viewModel.columnVisibility)"))
+        #expect(source.contains(".navigationDestination(for: MainSidebarSelection.self)"))
+        #expect(source.contains("viewModel.dismissMobileSidebar()"))
+        #expect(source.contains("sidebarView(isOverlay: false)"))
     }
 
     @Test("overlay sidebar uses dedicated close button styling")

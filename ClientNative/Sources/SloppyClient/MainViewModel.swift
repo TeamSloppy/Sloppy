@@ -7,10 +7,11 @@
 
 import Observation
 import Foundation
+import SwiftUI
 import SloppyClientCore
+import SloppyClientUI
 import SloppyFeatureChat
 import SloppyFeatureProjects
-
 
 enum MainAppSection: String, CaseIterable, Hashable {
     case projects
@@ -38,16 +39,13 @@ final class MainViewModel {
     var selectedAppSection: MainAppSection = .chats
     var selectedSidebarItem: MainSidebarSelection? = nil
     var isSidebarCollapsed = false
-    var isMobileSidebarPresented = false
+    var columnVisibility: NavigationSplitViewVisibility = .detailOnly
     var isMobileTabsOverviewPresented = false
     var isVisionTabsOverviewPresented = false
     var tabs: [WorkspaceTab] = []
     var selectedTabID: WorkspaceTab.ID?
     var desktopSplitState: DesktopTabSplitState?
-    var chatTabStates: [WorkspaceTab.ID: ChatTabState] = [:]
-    var projectKanbanTabStates: [WorkspaceTab.ID: ProjectKanbanTabState] = [:]
-    var taskDetailTabStates: [WorkspaceTab.ID: TaskDetailTabState] = [:]
-    var workspaceTabStates: [WorkspaceTab.ID: WorkspaceFilesTabState] = [:]
+    var tabStates: [WorkspaceTab.ID: WorkspaceTabState] = [:]
     var chatViewModel: ChatScreenViewModel
     var workspacePanelViewModel: WorkspacePanelViewModel
     var chatNavigationSerial = 0
@@ -106,14 +104,11 @@ final class MainViewModel {
 
     func openMobileSidebar() {
         isSidebarCollapsed = false
-        isMobileSidebarPresented = true
+        columnVisibility = .all
     }
 
     func dismissMobileSidebar() {
-        guard isMobileSidebarPresented else {
-            return
-        }
-        isMobileSidebarPresented = false
+        columnVisibility = .detailOnly
     }
 
     func selectNewChat() {
@@ -145,6 +140,7 @@ final class MainViewModel {
     func openSessionChatTab(_ session: ChatSessionSummary) {
         selectAppSection(.chats)
         updateSelectedSidebarItem(.chats)
+        dismissMobileSidebar()
         if retargetSelectedChatTab(to: session) {
             return
         }
@@ -164,7 +160,7 @@ final class MainViewModel {
             payload: .chatSession(sessionID: session.id, title: session.title)
         )
         tabs.append(tab)
-        chatTabStates[tab.id] = chatState
+        tabStates[tab.id] = WorkspaceTabState(contentState: .chat(chatState))
         selectedTabID = tab.id
     }
 
@@ -184,6 +180,7 @@ final class MainViewModel {
     func openProjectKanbanTab(project: APIProjectRecord) {
         selectAppSection(.projects)
         updateSelectedSidebarItem(.project(project.id))
+        dismissMobileSidebar()
         let key = WorkspaceTabKey.projectKanban(project.id)
         if let existing = tabs.first(where: { $0.key == key }) {
             selectedTabID = existing.id
@@ -203,7 +200,7 @@ final class MainViewModel {
             )
         )
         tabs.append(tab)
-        projectKanbanTabStates[tab.id] = kanbanState
+        tabStates[tab.id] = WorkspaceTabState(contentState: .projectKanban(kanbanState))
         selectedTabID = tab.id
     }
 
@@ -230,6 +227,7 @@ final class MainViewModel {
     func openTaskChatTab(project: APIProjectRecord, task: APIProjectTask, fallbackAgentId: String?) {
         selectAppSection(.projects)
         updateSelectedSidebarItem(.task(projectId: project.id, taskId: task.id))
+        dismissMobileSidebar()
         let key = WorkspaceTabKey.chatTask(projectId: project.id, taskId: task.id)
         if let existing = tabs.first(where: { $0.key == key }) {
             selectedTabID = existing.id
@@ -237,7 +235,7 @@ final class MainViewModel {
         }
 
         let chatState = makeChatTabState()
-        chatState.viewModel.applyNavigationRequest(
+        applyNavigationRequestOnNextTurn(
             ChatNavigationRequest(
                 id: Int.random(in: Int.min ... Int.max),
                 context: .task(
@@ -247,9 +245,10 @@ final class MainViewModel {
                     taskTitle: task.title,
                     agentId: task.actorId ?? fallbackAgentId
                 )
-            )
+            ),
+            to: chatState.viewModel,
+            loadInitialData: true
         )
-        chatState.viewModel.loadInitialData()
         let tab = WorkspaceTab(
             key: key,
             kind: .chat,
@@ -263,13 +262,14 @@ final class MainViewModel {
             )
         )
         tabs.append(tab)
-        chatTabStates[tab.id] = chatState
+        tabStates[tab.id] = WorkspaceTabState(contentState: .chat(chatState))
         selectedTabID = tab.id
     }
 
     func openTaskDetailTab(project: APIProjectRecord, task: APIProjectTask, fallbackAgentId: String?) {
         selectAppSection(.projects)
         updateSelectedSidebarItem(.task(projectId: project.id, taskId: task.id))
+        dismissMobileSidebar()
         let key = WorkspaceTabKey.taskDetail(projectId: project.id, taskId: task.id)
         if let existing = tabs.first(where: { $0.key == key }) {
             selectedTabID = existing.id
@@ -292,7 +292,7 @@ final class MainViewModel {
             )
         )
         tabs.append(tab)
-        taskDetailTabStates[tab.id] = detailState
+        tabStates[tab.id] = WorkspaceTabState(contentState: .taskDetail(detailState))
         selectedTabID = tab.id
     }
 
@@ -404,7 +404,7 @@ final class MainViewModel {
             payload: .chatSession(sessionID: draftID, title: "New Chat")
         )
         tabs.append(tab)
-        chatTabStates[tab.id] = chatState
+        tabStates[tab.id] = WorkspaceTabState(contentState: .chat(chatState))
         if select {
             selectedTabID = tab.id
         }
@@ -460,10 +460,7 @@ final class MainViewModel {
         let splitStateBeforeClose = desktopSplitState
         let wasSelected = selectedTabID == tabID
         tabs.remove(at: index)
-        chatTabStates.removeValue(forKey: tabID)
-        projectKanbanTabStates.removeValue(forKey: tabID)
-        taskDetailTabStates.removeValue(forKey: tabID)
-        workspaceTabStates.removeValue(forKey: tabID)
+        tabStates.removeValue(forKey: tabID)
 
         if let splitStateBeforeClose {
             if tabID == splitStateBeforeClose.primaryTabID {
@@ -542,7 +539,7 @@ final class MainViewModel {
             payload: .workspaceFiles(context)
         )
         tabs.append(tab)
-        workspaceTabStates[tab.id] = workspaceState
+        tabStates[tab.id] = WorkspaceTabState(contentState: .workspaceFiles(workspaceState))
         selectedTabID = tab.id
     }
 
@@ -555,9 +552,24 @@ final class MainViewModel {
 
     private func routePrimaryChat(_ context: ChatNavigationRequest.Context) {
         chatNavigationSerial += 1
-        chatViewModel.applyNavigationRequest(
-            ChatNavigationRequest(id: chatNavigationSerial, context: context)
+        applyNavigationRequestOnNextTurn(
+            ChatNavigationRequest(id: chatNavigationSerial, context: context),
+            to: chatViewModel,
+            loadInitialData: false
         )
+    }
+
+    private func applyNavigationRequestOnNextTurn(
+        _ request: ChatNavigationRequest,
+        to viewModel: ChatScreenViewModel,
+        loadInitialData: Bool
+    ) {
+        Task { @MainActor in
+            viewModel.applyNavigationRequest(request)
+            if loadInitialData {
+                viewModel.loadInitialData()
+            }
+        }
     }
 
     private func openOrSelectTab(key: WorkspaceTabKey, makeTab: @autoclosure () -> WorkspaceTab) {
@@ -576,7 +588,7 @@ final class MainViewModel {
         guard let selectedTabID,
               let index = tabs.firstIndex(where: { $0.id == selectedTabID }),
               tabs[index].kind == .chat,
-              let chatState = chatTabStates[selectedTabID] else {
+              let chatState = tabStates[selectedTabID]?.chatState else {
             return false
         }
 
@@ -608,7 +620,7 @@ final class MainViewModel {
         case .taskDetail(let context):
             return WorkspaceFilesTabContext(projectId: context.projectId, projectName: context.projectName)
         case .chatSession:
-            guard let chatState = chatTabStates[tab.id],
+            guard let chatState = tabStates[tab.id]?.chatState,
                   let projectId = chatState.viewModel.activeProjectIdForWorkspacePanel,
                   let projectName = chatState.viewModel.activeProjectNameForWorkspacePanel else {
                 return nil

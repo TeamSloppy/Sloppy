@@ -8,134 +8,69 @@ import SloppyClientCore
 @MainActor
 public final class ChatComposerDraft {
     public var text: String
+    public private(set) var dictationRequestToken: Int = 0
     
     public init(text: String = "") {
         self.text = text
+    }
+
+    public func requestDictation() {
+        dictationRequestToken += 1
     }
 }
 
 public struct ChatComposerView: View {
     public static let panelWidth: CGFloat = 900
-    public static let panelHeight: CGFloat = 64
+    public static let panelHeight: CGFloat = 45
     public static let phonePanelHeight: CGFloat = 72
     private static let panelRadius: CGFloat = 32
-    private static let fieldHeight: CGFloat = 48
     private static let phoneFieldHeight: CGFloat = 48
-    fileprivate static let phoneCircleSize: CGFloat = 48
+    fileprivate static let phoneCircleSize: CGFloat = 36
     fileprivate static let buttonSize: CGFloat = 36
 
-    private let viewModel: ChatScreenViewModel
-    @FocusState private var isTextFieldFocused: Bool
+    @State private var viewModel: ChatScreenViewModel
+    let tabs: [WorkspaceTab]
 
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
-    
+
     @Bindable public var draft: ChatComposerDraft
-    public var tabActions: ChatComposerTabActions?
-    
+    public let tabActions: ChatComposerTabActions?
+
     public init(
         draft: ChatComposerDraft,
+        tabs: [WorkspaceTab],
         viewModel: ChatScreenViewModel,
         tabActions: ChatComposerTabActions? = nil
     ) {
         self.draft = draft
+        self.tabs = tabs
         self.tabActions = tabActions
-        self.viewModel = viewModel
+        self._viewModel = State(initialValue: viewModel)
     }
     
     @ViewBuilder
     public var body: some View {
-        if idiom == .phone {
-            phoneBody
-        } else {
+        #if os(visionOS)
+        regularBody
+        #else
+        GlassEffectContainer {
             regularBody
         }
-    }
-    
-    private var phoneBody: some View {
-        let c = theme.colors
-        let sp = theme.spacing
-        let ty = theme.typography
-        let fieldInk = c.textPrimary
-        
-        return HStack(spacing: sp.s) {
-            MobileComposerCircleButton(symbol: .add, action: {
-                tabActions?.createTab()
-            })
-            
-            TextField(
-                "Ask \(agentDisplayName)",
-                text: $draft.text
-            )
-            .font(.system(size: ty.body))
-            .foregroundColor(fieldInk)
-            .accentColor(.white)
-            .focused($isTextFieldFocused)
-            .submitLabel(.send)
-            .onSubmit(submit)
-            .textFieldStyle(PlainTextFieldStyle())
-            .frame(
-                minWidth: 0, maxWidth: .infinity, minHeight: Self.phoneFieldHeight,
-                maxHeight: Self.phoneFieldHeight, alignment: .leading
-            )
-            .padding(.horizontal, sp.m)
-            .backportGlassEffect(.regular, in: .capsule)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            
-            MobileComposerCircleButton(
-                symbol: trailingActionSymbol,
-                foregroundColor: trailingActionForegroundColor,
-                fillColor: c.surfaceRaised,
-                action: handleTrailingAction
-            )
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(.horizontal, sp.xs)
-        .padding(.vertical, sp.s)
-        .frame(
-            minWidth: 0,
-            maxWidth: .infinity,
-            minHeight: Self.phonePanelHeight,
-            maxHeight: Self.phonePanelHeight,
-            alignment: .leading
-        )
-        .contentShape(Rectangle())
-        .simultaneousGesture(phoneTabGesture)
+        #endif
     }
     
     private var regularBody: some View {
         let c = theme.colors
         let sp = theme.spacing
-        let ty = theme.typography
-        let fieldInk = c.textPrimary
         
         return HStack(spacing: sp.s) {
             MobileComposerCircleButton(symbol: .add, action: {
-                tabActions?.createTab()
+                viewModel.isAttachmentPickerShown = true
             })
 
-            TextField(
-                "Ask \(agentDisplayName)",
-                text: $draft.text
-            )
-            .font(.system(size: ty.body))
-            .foregroundColor(fieldInk)
-            .accentColor(.white)
-            .focused($isTextFieldFocused)
-            .submitLabel(.send)
-            .onSubmit(submit)
-            .textFieldStyle(.plain)
-            .frame(
-                minWidth: 0, maxWidth: .infinity, minHeight: Self.fieldHeight,
-                maxHeight: Self.fieldHeight, alignment: .leading
-            )
-            .padding(.horizontal, sp.m)
-            #if os(visionOS)
-            .glassBackgroundEffect()
-            #else
-            .backportGlassEffect(.regular, in: .capsule)
-            #endif
-
+            textFieldConainer
+                .simultaneousGesture(phoneTabGesture)
 
             MobileComposerCircleButton(
                 symbol: trailingActionSymbol,
@@ -144,7 +79,8 @@ public struct ChatComposerView: View {
                 action: handleTrailingAction
             )
         }
-        .padding(.horizontal, sp.l)
+        .environment(viewModel)
+        .padding(.horizontal, sp.s)
         .frame(
             minWidth: 0,
             maxWidth: .infinity,
@@ -153,13 +89,34 @@ public struct ChatComposerView: View {
             alignment: .leading
         )
         .frame(maxWidth: Self.panelWidth)
-        .onChange(of: viewModel.composerFocusResetToken) { _, _ in
-            isTextFieldFocused = false
-        }
     }
-    
-    private var agentDisplayName: String {
-        return viewModel.selectedAgent?.displayName ?? "Sloppy"
+
+    private var textFieldConainer: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            LazyHStack(spacing: 0) {
+                ForEach(tabs, id: \.id) { tab in
+                    CustomTabItem {
+                        ChatTextField(
+                            tab: tab,
+                            draft: draft,
+                            submit: submit
+                        )
+                    }
+                }
+            }
+        }
+        .frame(height: Self.panelHeight)
+        .scrollTargetBehavior(.paging)
+        .clipShape(Capsule())
+        .onScrollGeometryChange(for: CGFloat.self, of: {
+            let containerSize = $0.containerSize.width
+            let offset = $0.contentOffset.x + $0.contentInsets.leading
+            let progress = offset / containerSize
+            return progress
+        }, action: { _, newValue in
+            tabActions?.tabProgress(newValue)
+        })
+        .textFieldStyle(.plain)
     }
 
     private var trimmedDraftText: String {
@@ -167,7 +124,15 @@ public struct ChatComposerView: View {
     }
 
     private var trailingActionSymbol: MaterialSymbol {
-        viewModel.shouldShowStopButton ? .stop : .arrowUpward
+        if viewModel.shouldShowStopButton {
+            return .stop
+        }
+
+        if trimmedDraftText.isEmpty {
+            return .microphone
+        }
+
+        return .arrowUpward
     }
 
     private var trailingActionForegroundColor: Color {
@@ -175,7 +140,11 @@ public struct ChatComposerView: View {
             return theme.colors.textPrimary
         }
 
-        return trimmedDraftText.isEmpty || !viewModel.canSubmitMessage
+        if trimmedDraftText.isEmpty {
+            return theme.colors.textPrimary
+        }
+
+        return !viewModel.canSubmitMessage
             ? theme.colors.textMuted
             : theme.colors.textPrimary
     }
@@ -197,15 +166,6 @@ public struct ChatComposerView: View {
                 let horizontal = value.translation.width
                 let vertical = value.translation.height
 
-                if abs(horizontal) > abs(vertical), abs(horizontal) > 44 {
-                    if horizontal < 0 {
-                        tabActions?.nextTab()
-                    } else {
-                        tabActions?.previousTab()
-                    }
-                    return
-                }
-
                 if vertical < -56, abs(vertical) > abs(horizontal) {
                     tabActions?.showOverview()
                 }
@@ -216,7 +176,6 @@ public struct ChatComposerView: View {
         let trimmed = trimmedDraftText
         guard !trimmed.isEmpty, viewModel.canSubmitMessage else { return }
         viewModel.sendMessage(content: trimmed)
-        isTextFieldFocused = false
     }
 
     private func handleTrailingAction() {
@@ -225,24 +184,26 @@ public struct ChatComposerView: View {
             return
         }
 
+        if trimmedDraftText.isEmpty {
+            draft.requestDictation()
+            return
+        }
+
         submit()
     }
 }
 
 public struct ChatComposerTabActions {
-    public let previousTab: @MainActor () -> Void
-    public let nextTab: @MainActor () -> Void
+    public let tabProgress: @MainActor (CGFloat) -> Void
     public let showOverview: @MainActor () -> Void
     public let createTab: @MainActor () -> Void
 
     public init(
-        previousTab: @escaping @MainActor () -> Void,
-        nextTab: @escaping @MainActor () -> Void,
+        tabProgress: @escaping @MainActor (CGFloat) -> Void,
         showOverview: @escaping @MainActor () -> Void,
         createTab: @escaping @MainActor () -> Void
     ) {
-        self.previousTab = previousTab
-        self.nextTab = nextTab
+        self.tabProgress = tabProgress
         self.showOverview = showOverview
         self.createTab = createTab
     }
@@ -389,6 +350,133 @@ private struct ComposerMenuItem: View {
     }
 }
 
+struct ChatTextField: View {
+    let tab: WorkspaceTab
+    @Bindable var draft: ChatComposerDraft
+    let submit: @MainActor () -> Void
+
+    private static let fieldHeight: CGFloat = 48
+
+    @FocusState private var isTextFieldFocused: Bool
+    @Environment(\.theme) private var theme
+    @Environment(ChatScreenViewModel.self) private var viewModel
+
+    private var agentDisplayName: String {
+        return viewModel.selectedAgent?.displayName ?? "Sloppy"
+    }
+
+    var body: some View {
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+        let fieldInk = c.textPrimary
+
+        return TextField(
+            "Ask \(agentDisplayName)",
+            text: $draft.text
+        )
+        .font(.system(size: ty.body))
+        .foregroundColor(fieldInk)
+        .accentColor(.white)
+        .focused($isTextFieldFocused)
+        .submitLabel(.send)
+        .onSubmit {
+            submit()
+            isTextFieldFocused = false
+        }
+        .padding(.horizontal, sp.m)
+        .containerRelativeFrame(.horizontal)
+        .frame(
+            minWidth: 0, maxWidth: .infinity, minHeight: Self.fieldHeight,
+            maxHeight: Self.fieldHeight, alignment: .leading
+        )
+        .onChange(of: viewModel.composerFocusResetToken) { _, _ in
+            isTextFieldFocused = false
+        }
+        .onChange(of: draft.dictationRequestToken) { _, _ in
+            isTextFieldFocused = true
+        }
+    }
+
+}
+
+fileprivate struct CustomTabItem<Content: View>: View {
+    @ViewBuilder var content: Content
+    /// View Properties
+    @Environment(\.colorScheme) private var colorScheme
+
+    var body: some View {
+        GeometryReader {
+            let rect = $0.frame(in: .scrollView(axis: .horizontal))
+            let minX = rect.minX
+            let minWidth: CGFloat = 60
+            let distanceBetween: CGFloat = -rect.width / 4.5
+
+            let width: CGFloat = minX <= 0 ? (rect.width + minX) : (rect.width - minX)
+            let progress = 1 - (width / rect.width).clamp(0, 1)
+            let cappedWidth: CGFloat = max((width + (progress * distanceBetween)), minWidth)
+
+            let contentOpacity = calculateContainerOpacity(progress, minX: minX)
+            let containerOpacity = calculateContainerOpacity(progress, minX: minX)
+
+            content
+                .foregroundStyle(foreground)
+                .compositingGroup()
+                .blur(radius: contentOpacity / 2)
+                .opacity(1 - contentOpacity)
+                .frame(width: rect.width, height: rect.height)
+                .frame(width: cappedWidth)
+                .clipShape(.capsule)
+                .glassEffect(
+                    .regular
+                        .tint(background.opacity(0.1))
+                        .interactive(contentOpacity != 1),
+                    in: .capsule
+                )
+                .opacity(1 - containerOpacity)
+                .offset(x: minX <= 0 ? -minX : (rect.width - minX - cappedWidth))
+        }
+        .containerRelativeFrame(.horizontal)
+        .frame(maxHeight: .infinity)
+    }
+
+    func calculateContentOpacity(_ progress: CGFloat, minX: CGFloat) -> CGFloat {
+        if minX < 0 {
+            let limit: CGFloat = 0.35
+            return progress > limit
+            ? ((progress - limit) / 0.1).clamp(0, 1)
+            : 0
+        }
+        let reversedProgress = abs(progress - 1)
+        let limit: CGFloat = 0.5
+        return reversedProgress > limit
+        ? (1 - ((reversedProgress - limit) / 0.1).clamp(0, 1))
+        : 1
+    }
+
+    func calculateContainerOpacity(_ progress: CGFloat, minX: CGFloat) -> CGFloat {
+        let reversedProgress = abs(progress - 1)
+        let limit: CGFloat = 0.35
+        return reversedProgress > limit
+        ? (1 - ((reversedProgress - limit) / 0.1).clamp(0, 1))
+        : 1
+    }
+
+    var foreground: Color {
+        return colorScheme == .dark ? .white : .black
+    }
+
+    var background: Color {
+        return colorScheme == .dark ? .black : .white
+    }
+}
+
+extension BinaryFloatingPoint {
+    func clamp(_ minValue: Self, _ maxValue: Self) -> Self {
+        max(min(self, maxValue), minValue)
+    }
+}
+
 private struct MobileComposerCircleButton: View {
     let symbol: MaterialSymbol
     var foregroundColor: Color = Theme.sloppyDark.colors.textPrimary
@@ -454,13 +542,22 @@ struct SubmitButton: ButtonStyle {
         connectionMonitor: .init(baseURL: URL.debugURL),
         onOpenSettings: {}
     )
-    VStack {
+    viewModel.sessions = [
+        .init(id: "1", agentId: "sloppy", title: "SLOPPY"),
+        .init(id: "2", agentId: "sloppy", title: "SLOPPY"),
+        .init(id: "3", agentId: "sloppy", title: "SLOPPY"),
+    ]
+
+    return VStack(spacing: 16) {
         Section("Phone") {
-            ChatComposerView(draft: .init(), viewModel: viewModel)
+            ChatComposerView(draft: .init(), tabs: [], viewModel: viewModel)
                 .environment(\.userInterfaceIdiom, .phone)
         }
-        Section("desktop") {
-            ChatComposerView(draft: .init(), viewModel: viewModel)
+        
+        Divider()
+
+        Section("Desktop") {
+            ChatComposerView(draft: .init(), tabs: [], viewModel: viewModel)
                 .environment(\.userInterfaceIdiom, .desktop)
         }
     }

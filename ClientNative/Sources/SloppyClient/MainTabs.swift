@@ -1,76 +1,62 @@
 import Foundation
 import CoreGraphics
+import SwiftUI
 import SloppyClientCore
+import SloppyClientUI
 import SloppyFeatureChat
 import SloppyFeatureProjects
-
-enum WorkspaceTabKind: String, Hashable {
-    case chat
-    case projectKanban
-    case taskDetail
-    case workspaceFiles
-}
-
-enum WorkspaceTabKey: Hashable {
-    case chatSession(String)
-    case chatTask(projectId: String, taskId: String)
-    case projectKanban(String)
-    case taskDetail(projectId: String, taskId: String)
-    case workspaceFiles(String)
-}
-
-struct ProjectKanbanTabContext: Hashable, Sendable {
-    var projectId: String
-    var projectName: String
-}
-
-struct WorkspaceFilesTabContext: Hashable, Sendable {
-    var projectId: String
-    var projectName: String
-}
-
-struct TaskDetailTabContext: Hashable, Sendable {
-    var projectId: String
-    var projectName: String
-    var taskId: String
-    var taskTitle: String
-    var fallbackAgentId: String?
-}
-
-enum WorkspaceTabPayload: Hashable {
-    case chatSession(sessionID: String, title: String)
-    case chatTask(projectId: String, projectName: String, taskId: String, taskTitle: String, fallbackAgentId: String?)
-    case projectKanban(ProjectKanbanTabContext)
-    case taskDetail(TaskDetailTabContext)
-    case workspaceFiles(WorkspaceFilesTabContext)
-}
-
-struct WorkspaceTab: Identifiable, Hashable {
-    let id: UUID
-    let key: WorkspaceTabKey
-    let kind: WorkspaceTabKind
-    var title: String
-    var payload: WorkspaceTabPayload
-
-    init(
-        id: UUID = UUID(),
-        key: WorkspaceTabKey,
-        kind: WorkspaceTabKind,
-        title: String,
-        payload: WorkspaceTabPayload
-    ) {
-        self.id = id
-        self.key = key
-        self.kind = kind
-        self.title = title
-        self.payload = payload
-    }
-}
 
 struct DesktopTabSplitState: Equatable {
     var primaryTabID: WorkspaceTab.ID
     var secondaryTabID: WorkspaceTab.ID
     var fraction: CGFloat
+}
+
+@MainActor
+final class WorkspaceTabState {
+    let contentState: WorkspaceTabContentState
+    var content: AnyView?
+
+    init(contentState: WorkspaceTabContentState, content: AnyView? = nil) {
+        self.contentState = contentState
+        self.content = content
+    }
+
+    var chatState: ChatTabState? {
+        guard case .chat(let state) = contentState else {
+            return nil
+        }
+        return state
+    }
+
+    var projectKanbanState: ProjectKanbanTabState? {
+        guard case .projectKanban(let state) = contentState else {
+            return nil
+        }
+        return state
+    }
+
+    var workspaceFilesState: WorkspaceFilesTabState? {
+        guard case .workspaceFiles(let state) = contentState else {
+            return nil
+        }
+        return state
+    }
+
+    var taskDetailState: TaskDetailTabState? {
+        guard case .taskDetail(let state) = contentState else {
+            return nil
+        }
+        return state
+    }
+}
+
+@MainActor
+enum WorkspaceTabContentState {
+    case chat(ChatTabState)
+    case projectKanban(ProjectKanbanTabState)
+    case taskDetail(TaskDetailTabState)
+    case workspaceFiles(WorkspaceFilesTabState)
 }
 
 @MainActor

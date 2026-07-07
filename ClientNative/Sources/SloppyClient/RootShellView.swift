@@ -21,8 +21,10 @@ struct RootShellView: View {
             .environment(viewModel)
         #if os(visionOS)
             .theme(.sloppyDark)
+            .preferredColorScheme(.dark)
         #else
             .theme(viewModel.settings.colorScheme.appTheme)
+            .preferredColorScheme(viewModel.settings.colorScheme.systemColorScheme)
         #endif
             .injectSafeAreaInsets()
             .background {
@@ -50,6 +52,9 @@ private struct RootShellContent: View {
         return ZStack(alignment: .topLeading) {
             #if os(macOS)
             AppAtmosphericBackground()
+                .ignoresSafeArea()
+            #else
+            theme.colors.background
                 .ignoresSafeArea()
             #endif
 
@@ -121,6 +126,15 @@ extension ClientColorScheme {
             return .sloppyLight
         case .dark:
             return .sloppyDark
+        }
+    }
+
+    fileprivate var systemColorScheme: ColorScheme {
+        switch self {
+        case .light:
+            return .light
+        case .dark:
+            return .dark
         }
     }
 }

@@ -15,12 +15,14 @@ struct TaskDetailSourceTests {
     func taskDetailTabIsModeledInMainTabsAndMainView() throws {
         let tabs = try source("Sources/SloppyClient/MainTabs.swift")
         let mainView = try source("Sources/SloppyClient/MainView.swift")
+        let mainViewModel = try source("Sources/SloppyClient/MainViewModel.swift")
 
         #expect(tabs.contains("struct TaskDetailTabContext: Hashable, Sendable"))
         #expect(tabs.contains("case taskDetail(TaskDetailTabContext)"))
         #expect(tabs.contains("final class TaskDetailTabState"))
-        #expect(mainView.contains("var taskDetailTabStates: [WorkspaceTab.ID: TaskDetailTabState] = [:]"))
-        #expect(mainView.contains("func makeTaskDetailTabState() -> TaskDetailTabState"))
+        #expect(mainViewModel.contains("var tabStates: [WorkspaceTab.ID: WorkspaceTabState] = [:]"))
+        #expect(mainViewModel.contains("WorkspaceTabState(contentState: .taskDetail(detailState))"))
+        #expect(mainViewModel.contains("func makeTaskDetailTabState() -> TaskDetailTabState"))
         #expect(mainView.contains("case .taskDetail:"))
         #expect(mainView.contains("TaskDetailView("))
     }

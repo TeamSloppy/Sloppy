@@ -22,8 +22,7 @@ struct ConnectionSetupView: View {
         let ty = theme.typography
         let bo = theme.borders
 
-        return VStack {
-
+        return VStack(alignment: .leading) {
             // Header
             VStack(alignment: .leading, spacing: sp.s) {
                 Icons.symbol(.autoAwesome, size: 32)
@@ -35,6 +34,7 @@ struct ConnectionSetupView: View {
                     .font(.system(size: ty.caption))
                     .foregroundColor(c.textMuted)
             }
+            .padding()
 
             contentView
                 .frame(minWidth: 0, maxWidth: .infinity, minHeight: 0, maxHeight: .infinity, alignment: .topLeading)

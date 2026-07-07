@@ -51,7 +51,18 @@ public struct ConnectionBanner: View {
         }
         .padding(.horizontal, sp.m)
         .padding(.vertical, sp.xs)
-        .background(color.opacity(0.1 as Float))
-        .border(color.opacity(0.3 as Float), lineWidth: 1)
+        .backportGlassEffect(
+            .regular.tint(color.opacity(0.1 as Float)),
+            in: .capsule
+        )
+        .padding(.all, sp.xs)
+    }
+}
+
+#Preview {
+    VStack {
+        ConnectionBanner(state: .connected, endpoint: nil, message: nil)
+        ConnectionBanner(state: .disconnected, endpoint: nil, message: nil)
+        ConnectionBanner(state: .reconnecting, endpoint: nil, message: nil)
     }
 }

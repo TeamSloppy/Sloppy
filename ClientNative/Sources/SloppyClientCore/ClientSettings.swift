@@ -86,7 +86,7 @@ public final class ClientSettings {
         accentColorHex = defaults.string(forKey: Keys.accentColorHex) ?? "#FF2D6F"
         colorScheme = defaults
             .string(forKey: Keys.colorScheme)
-            .flatMap(ClientColorScheme.init(rawValue:)) ?? .light
+            .flatMap(ClientColorScheme.init(rawValue:)) ?? .dark
         chatSidebarMode = defaults
             .string(forKey: Keys.chatSidebarMode)
             .flatMap(ChatSidebarListMode.init(rawValue:)) ?? .allChats

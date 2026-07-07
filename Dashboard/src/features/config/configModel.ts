@@ -10,6 +10,12 @@ export const SETTINGS_ITEMS = [
     searchTerms: ["models", "api key", "api url", "openai", "codex", "openrouter", "anthropic", "claude", "gemini", "ollama"]
   },
   {
+    id: "users",
+    title: "Users",
+    icon: "group",
+    searchTerms: ["web search", "brave", "perplexity", "api key", "active provider"]
+  },
+  {
     id: "search-tools",
     title: "Search Tools",
     icon: "travel_explore",

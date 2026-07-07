@@ -168,6 +168,26 @@ struct MainTabsSourceTests {
         #expect(mainView.contains("private func workspaceContentHost(showsFloatingTabChrome: Bool) -> some View"))
     }
 
+    @Test("main view defers pager geometry writes outside scroll geometry callback")
+    func mainViewDefersPagerGeometryWritesOutsideScrollGeometryCallback() throws {
+        let mainView = try source("Sources/SloppyClient/MainView.swift")
+
+        #expect(mainView.contains("private func updatePagerSize(_ newValue: CGSize)"))
+        #expect(mainView.contains("Task { @MainActor in\n            pagerSize = newValue\n        }"))
+        #expect(!mainView.contains("action: { _, newValue in\n                pagerSize = newValue\n            }"))
+    }
+
+    @Test("main view model defers new task chat navigation requests")
+    func mainViewModelDefersNewTaskChatNavigationRequests() throws {
+        let mainViewModel = try source("Sources/SloppyClient/MainViewModel.swift")
+
+        #expect(mainViewModel.contains("private func applyNavigationRequestOnNextTurn("))
+        #expect(mainViewModel.contains("Task { @MainActor in"))
+        #expect(mainViewModel.contains("viewModel.applyNavigationRequest(request)"))
+        #expect(mainViewModel.contains("if loadInitialData {\n                viewModel.loadInitialData()\n            }"))
+        #expect(!mainViewModel.contains("chatState.viewModel.applyNavigationRequest(\n            ChatNavigationRequest("))
+    }
+
     @Test("main view model exposes active-tab close helper")
     func mainViewModelExposesActiveTabCloseHelper() throws {
         let mainView = try source("Sources/SloppyClient/MainView.swift")

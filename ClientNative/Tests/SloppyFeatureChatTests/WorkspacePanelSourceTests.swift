@@ -31,4 +31,15 @@ struct WorkspacePanelSourceTests {
         #expect(chatVM.contains("func attachProjectFileReference(projectId: String, path: String, type: String)"))
         #expect(chatScreen.contains(".dropDestination(for: String.self)"))
     }
+
+    @Test("chat accepts imported and dropped local file references")
+    func chatAcceptsImportedAndDroppedLocalFileReferences() throws {
+        let chatVM = try source("Sources/SloppyFeatureChat/ChatScreenViewModel.swift")
+        let chatScreen = try source("Sources/SloppyFeatureChat/ChatScreen.swift")
+
+        #expect(chatVM.contains("func attachFileURLs(_ urls: [URL])"))
+        #expect(chatScreen.contains("case .success(let urls):"))
+        #expect(chatScreen.contains("viewModel.attachFileURLs(urls)"))
+        #expect(chatScreen.contains(".dropDestination(for: URL.self)"))
+    }
 }

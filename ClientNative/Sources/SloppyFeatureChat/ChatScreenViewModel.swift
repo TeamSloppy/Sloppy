@@ -88,7 +88,7 @@ public final class ChatScreenViewModel {
     public private(set) var availableModels: [ChatModelOption] = []
     public private(set) var selectedModelId: String = ""
     public private(set) var selectedReasoningEffort: ChatReasoningEffort = .default
-    public private(set) var sessions: [ChatSessionSummary] = []
+    public internal(set) var sessions: [ChatSessionSummary] = []
     public var selectedSessionId: String?
     public var pinnedSessionIds: Set<String> { settings.pinnedSessionIds }
     public private(set) var activeContextTitle: String?
@@ -100,6 +100,7 @@ public final class ChatScreenViewModel {
     public private(set) var composerFocusResetToken = 0
     public let transcript = ChatTranscriptState()
     public let composerDraft = ChatComposerDraft()
+    public var isAttachmentPickerShown = false
 
     public var messages: [ChatMessage] {
         transcript.messages
@@ -343,6 +344,20 @@ public final class ChatScreenViewModel {
         composerDraft.text = composerDraft.text.isEmpty
             ? reference
             : "\(composerDraft.text)\n\(reference)"
+        saveActiveComposerDraft()
+    }
+
+    public func attachFileURLs(_ urls: [URL]) {
+        let references = urls
+            .map { $0.path.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .map { "@file:\($0)" }
+        guard !references.isEmpty else { return }
+
+        composerDraft.text = ([composerDraft.text] + references)
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .joined(separator: "\n")
         saveActiveComposerDraft()
     }
 
