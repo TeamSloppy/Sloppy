@@ -40,6 +40,12 @@ export const SETTINGS_ITEMS = [
     searchTerms: ["pending", "approve", "approval", "requests", "permissions"]
   },
   {
+    id: "users",
+    title: "Users",
+    icon: "manage_accounts",
+    searchTerms: ["auth", "authentication", "login", "password", "accounts", "roles", "admin", "user", "invites", "recovery", "reset"]
+  },
+  {
     id: "plugins",
     title: "Plugins",
     icon: "extension",
