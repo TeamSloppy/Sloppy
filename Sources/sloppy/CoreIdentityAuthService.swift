@@ -14,6 +14,7 @@ enum CoreIdentityAuthError: Error, Sendable {
     case invalidInvite
     case inviteExpired
     case inviteConsumed
+    case invalidRecoverySecret
     case forbidden
 }
 
@@ -25,11 +26,18 @@ actor CoreIdentityAuthService {
     private struct StoredUser: Sendable {
         var profile: AuthUserProfile
         var passwordHash: String
+        var recoveryCodeHashes: [String]
     }
 
     private struct StoredInvite: Sendable {
         var record: AuthInviteRecord
         var tokenHash: String
+    }
+
+    private struct StoredResetToken: Sendable {
+        var userID: String
+        var tokenHash: String
+        var expiresAt: Date
     }
 
     private var enabled = false
@@ -38,6 +46,7 @@ actor CoreIdentityAuthService {
     private var accessTokens: [String: (userID: String, expiresAt: Date)] = [:]
     private var refreshTokens: [String: (userID: String, expiresAt: Date)] = [:]
     private var invitesByID: [String: StoredInvite] = [:]
+    private var resetTokensByID: [String: StoredResetToken] = [:]
     private let passwordHashIterations: Int
 
     init(passwordHashIterations: Int = 120_000) {
@@ -83,7 +92,8 @@ actor CoreIdentityAuthService {
         )
         usersByID[profile.id] = StoredUser(
             profile: profile,
-            passwordHash: PasswordHash.make(for: request.password, iterations: passwordHashIterations)
+            passwordHash: PasswordHash.make(for: request.password, iterations: passwordHashIterations),
+            recoveryCodeHashes: []
         )
         userIDByLogin[profile.login] = profile.id
         return makeSession(for: profile)
@@ -101,6 +111,21 @@ actor CoreIdentityAuthService {
               let stored = usersByID[userID],
               stored.profile.status == .active,
               PasswordHash.verify(password: request.password, hash: stored.passwordHash)
+        else {
+            throw CoreIdentityAuthError.invalidCredentials
+        }
+        return makeSession(for: stored.profile)
+    }
+
+    func refresh(_ request: AuthRefreshRequest) throws -> AuthSessionResponse {
+        guard enabled else {
+            throw CoreIdentityAuthError.disabled
+        }
+        let refreshToken = request.refreshToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let session = refreshTokens.removeValue(forKey: refreshToken),
+              session.expiresAt > Date(),
+              let stored = usersByID[session.userID],
+              stored.profile.status == .active
         else {
             throw CoreIdentityAuthError.invalidCredentials
         }
@@ -160,13 +185,75 @@ actor CoreIdentityAuthService {
         )
         usersByID[profile.id] = StoredUser(
             profile: profile,
-            passwordHash: PasswordHash.make(for: request.password, iterations: passwordHashIterations)
+            passwordHash: PasswordHash.make(for: request.password, iterations: passwordHashIterations),
+            recoveryCodeHashes: []
         )
         userIDByLogin[profile.login] = profile.id
         invite.record.consumedAt = now
         invite.record.token = nil
         invitesByID[inviteID] = invite
         return makeSession(for: profile)
+    }
+
+    func generateRecoveryCodes(actor: AuthenticatedUserContext) throws -> AuthRecoveryCodesResponse {
+        guard var stored = usersByID[actor.user.id] else {
+            throw CoreIdentityAuthError.invalidCredentials
+        }
+        let codes = (0..<10).map { _ in "slp_rc_" + NodeIdentityGenerator.randomToken(byteCount: 18) }
+        stored.recoveryCodeHashes = codes.map { PasswordHash.make(for: $0, iterations: passwordHashIterations) }
+        usersByID[stored.profile.id] = stored
+        return AuthRecoveryCodesResponse(codes: codes)
+    }
+
+    func createPasswordResetToken(login: String, actor: AuthenticatedUserContext) throws -> AuthAdminPasswordResetResponse {
+        try requireAdmin(actor)
+        let normalized = normalizedLogin(login)
+        guard let userID = userIDByLogin[normalized],
+              usersByID[userID] != nil else {
+            throw CoreIdentityAuthError.invalidCredentials
+        }
+        let token = "slp_reset_" + NodeIdentityGenerator.randomToken(byteCount: 24)
+        let expiresAt = Date().addingTimeInterval(900)
+        resetTokensByID[makeID(prefix: "reset")] = StoredResetToken(
+            userID: userID,
+            tokenHash: PasswordHash.make(for: token, iterations: passwordHashIterations),
+            expiresAt: expiresAt
+        )
+        return AuthAdminPasswordResetResponse(resetToken: token, expiresAt: expiresAt)
+    }
+
+    func resetPassword(_ request: AuthPasswordResetRequest) throws -> AuthSessionResponse {
+        guard enabled else {
+            throw CoreIdentityAuthError.disabled
+        }
+        let login = normalizedLogin(request.login)
+        guard let userID = userIDByLogin[login],
+              var stored = usersByID[userID],
+              !request.newPassword.isEmpty else {
+            throw CoreIdentityAuthError.invalidCredentials
+        }
+        if let resetToken = request.resetToken?.trimmingCharacters(in: .whitespacesAndNewlines), !resetToken.isEmpty {
+            guard let tokenID = resetTokensByID.first(where: {
+                $0.value.userID == userID
+                    && $0.value.expiresAt > Date()
+                    && PasswordHash.verify(password: resetToken, hash: $0.value.tokenHash)
+            })?.key else {
+                throw CoreIdentityAuthError.invalidRecoverySecret
+            }
+            resetTokensByID.removeValue(forKey: tokenID)
+        } else if let recoveryCode = request.recoveryCode?.trimmingCharacters(in: .whitespacesAndNewlines), !recoveryCode.isEmpty {
+            guard let codeIndex = stored.recoveryCodeHashes.firstIndex(where: {
+                PasswordHash.verify(password: recoveryCode, hash: $0)
+            }) else {
+                throw CoreIdentityAuthError.invalidRecoverySecret
+            }
+            stored.recoveryCodeHashes.remove(at: codeIndex)
+        } else {
+            throw CoreIdentityAuthError.invalidRecoverySecret
+        }
+        stored.passwordHash = PasswordHash.make(for: request.newPassword, iterations: passwordHashIterations)
+        usersByID[userID] = stored
+        return makeSession(for: stored.profile)
     }
 
     func authenticateAccessToken(_ token: String?) -> AuthenticatedUserContext? {

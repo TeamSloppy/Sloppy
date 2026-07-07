@@ -1801,6 +1801,78 @@ func legacyDashboardTokenIsRejectedWhenIdentityAuthIsEnabled() async throws {
 }
 
 @Test
+func identityAuthRefreshRotatesRefreshToken() async throws {
+    let service = CoreService(config: .test, identityPasswordHashIterations: 1)
+    await service.setIdentityAuthEnabled(true)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let bootstrap = await router.handle(
+        method: "POST",
+        path: "/v1/auth/bootstrap",
+        body: try encoder.encode(AuthBootstrapAdminRequest(login: "admin", password: "admin-pass", name: "Admin"))
+    )
+    let session = try decoder.decode(AuthSessionResponse.self, from: bootstrap.body)
+
+    let refresh = await router.handle(
+        method: "POST",
+        path: "/v1/auth/refresh",
+        body: try encoder.encode(AuthRefreshRequest(refreshToken: session.refreshToken))
+    )
+    #expect(refresh.status == 200)
+    let refreshed = try decoder.decode(AuthSessionResponse.self, from: refresh.body)
+    #expect(refreshed.user.id == session.user.id)
+    #expect(refreshed.refreshToken != session.refreshToken)
+}
+
+@Test
+func identityAuthPasswordResetAcceptsRecoveryCode() async throws {
+    let service = CoreService(config: .test, identityPasswordHashIterations: 1)
+    await service.setIdentityAuthEnabled(true)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let bootstrap = await router.handle(
+        method: "POST",
+        path: "/v1/auth/bootstrap",
+        body: try encoder.encode(AuthBootstrapAdminRequest(login: "admin", password: "admin-pass", name: "Admin"))
+    )
+    let session = try decoder.decode(AuthSessionResponse.self, from: bootstrap.body)
+
+    let codesResponse = await router.handle(
+        method: "POST",
+        path: "/v1/auth/recovery-codes",
+        body: nil,
+        headers: ["Authorization": "Bearer \(session.accessToken)"]
+    )
+    #expect(codesResponse.status == 201)
+    let codes = try decoder.decode(AuthRecoveryCodesResponse.self, from: codesResponse.body)
+    let recoveryCode = try #require(codes.codes.first)
+
+    let reset = await router.handle(
+        method: "POST",
+        path: "/v1/auth/password-reset",
+        body: try encoder.encode(AuthPasswordResetRequest(
+            login: "admin",
+            recoveryCode: recoveryCode,
+            newPassword: "new-admin-pass"
+        ))
+    )
+    #expect(reset.status == 200)
+
+    let login = await router.handle(
+        method: "POST",
+        path: "/v1/auth/login",
+        body: try encoder.encode(AuthLoginRequest(login: "admin", password: "new-admin-pass"))
+    )
+    #expect(login.status == 200)
+}
+
+@Test
 func systemLogsEndpointReadsJSONLFile() async throws {
     let config = CoreConfig.test
 

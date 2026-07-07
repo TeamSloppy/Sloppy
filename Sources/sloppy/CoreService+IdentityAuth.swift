@@ -22,12 +22,28 @@ extension CoreService {
         try await identityAuthService.login(request)
     }
 
+    func refreshIdentitySession(_ request: AuthRefreshRequest) async throws -> AuthSessionResponse {
+        try await identityAuthService.refresh(request)
+    }
+
     func registerIdentityUser(_ request: AuthRegisterRequest) async throws -> AuthSessionResponse {
         try await identityAuthService.register(request)
     }
 
     func createIdentityInvite(_ request: AuthInviteCreateRequest, actor: AuthenticatedUserContext) async throws -> AuthInviteRecord {
         try await identityAuthService.createInvite(request, actor: actor)
+    }
+
+    func generateIdentityRecoveryCodes(actor: AuthenticatedUserContext) async throws -> AuthRecoveryCodesResponse {
+        try await identityAuthService.generateRecoveryCodes(actor: actor)
+    }
+
+    func createIdentityPasswordResetToken(login: String, actor: AuthenticatedUserContext) async throws -> AuthAdminPasswordResetResponse {
+        try await identityAuthService.createPasswordResetToken(login: login, actor: actor)
+    }
+
+    func resetIdentityPassword(_ request: AuthPasswordResetRequest) async throws -> AuthSessionResponse {
+        try await identityAuthService.resetPassword(request)
     }
 
     func authenticateIdentityAccessToken(_ token: String?) async -> AuthenticatedUserContext? {

@@ -595,7 +595,15 @@ public actor CoreRouter {
             return true
         }
         if request.method == .post,
+           request.segments == ["v1", "auth", "refresh"] {
+            return true
+        }
+        if request.method == .post,
            request.segments == ["v1", "auth", "register"] {
+            return true
+        }
+        if request.method == .post,
+           request.segments == ["v1", "auth", "password-reset"] {
             return true
         }
         if request.method == .post,
