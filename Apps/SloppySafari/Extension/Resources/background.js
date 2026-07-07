@@ -4,8 +4,10 @@ import {
   buildBrowserContextPayload,
   coreFetch,
   fallbackSelectionText,
+  fetchAuthChallenge,
   fetchProviderModels,
   fetchVoiceConfig,
+  loginIdentityUser,
   normalizeAgentSessions,
   postBrowserContext,
   postBrowserContextStreaming,
@@ -633,6 +635,30 @@ if (typeof chrome !== "undefined") {
       void saveSettings(message.settings).then((settings) => sendResponse(publicSettings(settings))).catch((error) => {
         sendResponse({ error: error.message || "Settings unavailable." });
       });
+      return true;
+    }
+    if (message?.type === "sloppy.auth.challenge") {
+      void loadSettings()
+        .then((settings) => fetchAuthChallenge(settings))
+        .then((challenge) => sendResponse({ challenge }))
+        .catch((error) => sendResponse({ error: error.message || "Auth challenge unavailable." }));
+      return true;
+    }
+    if (message?.type === "sloppy.auth.login") {
+      void (async () => {
+        try {
+          const settings = await loadSettings();
+          const session = await loginIdentityUser(settings, message.login, message.password);
+          const accessToken = String(session?.accessToken || "").trim();
+          if (!accessToken) {
+            throw new Error("Login response did not include an access token.");
+          }
+          const nextSettings = await saveSettings({ ...settings, authToken: accessToken });
+          sendResponse({ session, settings: publicSettings(nextSettings) });
+        } catch (error) {
+          sendResponse({ error: error.message || "Login failed." });
+        }
+      })();
       return true;
     }
     if (message?.type === "sloppy.agents.list") {

@@ -13,20 +13,37 @@ public actor SloppyAPIClient {
     private let sessions: SessionService
     private let mesh: MeshService
     private let config: ConfigService
+    private let auth: AuthService
 
     public init(
         baseURL: URL = URL(string: "http://localhost:25101")!,
+        authToken: String = "",
         session: URLSession = .shared,
         logger: Logger = Logger(label: "sloppy.api-client")
     ) {
         self.baseURL = baseURL
-        let http = BackendHTTPClient(baseURL: baseURL, session: session, logger: logger)
+        let http = BackendHTTPClient(baseURL: baseURL, authToken: authToken, session: session, logger: logger)
         self.http = http
         self.projects = ProjectService(http: http)
         self.agents = AgentService(http: http)
         self.sessions = SessionService(http: http)
         self.mesh = MeshService(http: http)
         self.config = ConfigService(http: http)
+        self.auth = AuthService(http: http)
+    }
+
+    public func setAuthToken(_ token: String) async {
+        await http.setAuthToken(token)
+    }
+
+    public func fetchAuthChallenge() async throws -> AuthChallenge {
+        try await auth.fetchAuthChallenge()
+    }
+
+    public func loginIdentityUser(login: String, password: String) async throws -> AuthSession {
+        let session = try await auth.loginIdentityUser(login: login, password: password)
+        await setAuthToken(session.accessToken)
+        return session
     }
 
     public func fetchProjects() async throws -> [APIProjectRecord] {

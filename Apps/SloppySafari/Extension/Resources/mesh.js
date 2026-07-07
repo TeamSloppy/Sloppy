@@ -515,13 +515,21 @@ export async function meshCoreFetch(settings, path, options = {}, deps = {}) {
   const socketFactory = deps.socketFactory || ((url) => new WebSocket(url));
   const socket = socketFactory(resolveRelayWebSocketURL(mesh.relayURL));
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
+    let socketClosed = false;
+    const closeSocket = () => {
+      if (socketClosed) {
+        return;
+      }
+      socketClosed = true;
       socket.close?.();
+    };
+    const timeout = setTimeout(() => {
+      closeSocket();
       reject(new Error(`Mesh RPC request timed out: ${requestId}`));
     }, deps.timeoutMs || 30000);
     const fail = (error) => {
       clearTimeout(timeout);
-      socket.close?.();
+      closeSocket();
       reject(error instanceof Error ? error : new Error(String(error)));
     };
     const sendEnvelope = (envelope) => socket.send(JSON.stringify(envelope));
@@ -542,7 +550,7 @@ export async function meshCoreFetch(settings, path, options = {}, deps = {}) {
         }
         if (envelope.type === "rpc.response" && envelope.payload?.requestId === requestId) {
           clearTimeout(timeout);
-          socket.close?.();
+          closeSocket();
           resolve(decodeCoreHTTPRPCResponse(envelope));
         }
       })().catch(fail);
@@ -569,13 +577,21 @@ export async function meshQueueBrowserContextMessage(settings, targetNodeId, pay
   const socketFactory = deps.socketFactory || ((url) => new WebSocket(url));
   const socket = socketFactory(resolveRelayWebSocketURL(mesh.relayURL));
   return new Promise((resolve, reject) => {
-    const timeout = setTimeout(() => {
+    let socketClosed = false;
+    const closeSocket = () => {
+      if (socketClosed) {
+        return;
+      }
+      socketClosed = true;
       socket.close?.();
+    };
+    const timeout = setTimeout(() => {
+      closeSocket();
       reject(new Error(`Mesh mailbox request timed out: ${requestId}`));
     }, deps.timeoutMs || 30000);
     const finish = () => {
       clearTimeout(timeout);
-      socket.close?.();
+      closeSocket();
       resolve({
         status: "queued",
         queued: true,
@@ -585,7 +601,7 @@ export async function meshQueueBrowserContextMessage(settings, targetNodeId, pay
     };
     const fail = (error) => {
       clearTimeout(timeout);
-      socket.close?.();
+      closeSocket();
       reject(error instanceof Error ? error : new Error(String(error)));
     };
     const sendEnvelope = (nextEnvelope) => socket.send(JSON.stringify(nextEnvelope));
