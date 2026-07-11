@@ -14,7 +14,7 @@ struct DesktopWorkspaceTabStripSplitSourceTests {
 
     @Test("desktop tab strip wires drag and drop into split creation")
     func desktopTabStripWiresDragAndDropIntoSplitCreation() throws {
-        let source = try source("Sources", "SloppyClient", "DesktopWorkspaceTabStrip.swift")
+        let source = try source("Sources", "SloppyClient", "Navigation", "Tabs", "DesktopWorkspaceTabStrip.swift")
 
         #expect(source.contains(".draggable(tab.id.uuidString)"))
         #expect(source.contains(".dropDestination(for: String.self)"))
@@ -23,7 +23,7 @@ struct DesktopWorkspaceTabStripSplitSourceTests {
 
     @Test("desktop tab strip blocks window background dragging while reordering tabs")
     func desktopTabStripBlocksWindowBackgroundDragging() throws {
-        let source = try source("Sources", "SloppyClient", "DesktopWorkspaceTabStrip.swift")
+        let source = try source("Sources", "SloppyClient", "Navigation", "Tabs", "DesktopWorkspaceTabStrip.swift")
 
         #expect(source.contains("WindowDragGestureShield {"))
         #expect(source.contains("override var mouseDownCanMoveWindow: Bool { false }"))

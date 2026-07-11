@@ -13,8 +13,8 @@ struct WorkspaceWebViewSourceTests {
 
     @Test("workspace panel exposes files reviews and web browser modes")
     func workspacePanelExposesFilesReviewsAndWebBrowserModes() throws {
-        let panelVM = try source("Sources/SloppyClient/WorkspacePanelViewModel.swift")
-        let panelView = try source("Sources/SloppyClient/WorkspacePanelView.swift")
+        let panelVM = try source("Sources/SloppyClient/Workspace/Panel/WorkspacePanelViewModel.swift")
+        let panelView = try source("Sources/SloppyClient/Workspace/Panel/WorkspacePanelView.swift")
 
         #expect(panelVM.contains("enum WorkspacePanelMode"))
         #expect(panelVM.contains("case files"))
@@ -30,7 +30,7 @@ struct WorkspaceWebViewSourceTests {
 
     @Test("workspace web view model owns browser session state")
     func workspaceWebViewModelOwnsBrowserSessionState() throws {
-        let sourceText = try source("Sources/SloppyClient/WorkspaceWebViewModel.swift")
+        let sourceText = try source("Sources/SloppyClient/Workspace/Web/WorkspaceWebViewModel.swift")
 
         #expect(sourceText.contains("final class WorkspaceWebViewModel"))
         #expect(sourceText.contains("var currentURL"))
@@ -44,8 +44,8 @@ struct WorkspaceWebViewSourceTests {
 
     @Test("workspace web view wraps WKWebView and syncs navigation state")
     func workspaceWebViewWrapsWKWebViewAndSyncsNavigationState() throws {
-        let webViewSource = try source("Sources/SloppyClient/WorkspaceWebView.swift")
-        let modelSource = try source("Sources/SloppyClient/WorkspaceWebViewModel.swift")
+        let webViewSource = try source("Sources/SloppyClient/Workspace/Web/WorkspaceWebView.swift")
+        let modelSource = try source("Sources/SloppyClient/Workspace/Web/WorkspaceWebViewModel.swift")
 
         #expect(webViewSource.contains("import WebKit"))
         #expect(webViewSource.contains("WKWebView"))

@@ -12,27 +12,39 @@ struct MainSidebarSelectionTests {
             let sourceURL = packageRoot
                 .appendingPathComponent("Sources")
                 .appendingPathComponent("SloppyClient")
+                .appendingPathComponent("Navigation")
+                .appendingPathComponent("Main")
                 .appendingPathComponent("MainView.swift")
             return try String(contentsOf: sourceURL, encoding: .utf8)
         }
     }
 
-    @Test("recent sessions are selected only in chat sidebar mode")
-    func recentSessionsAreSelectedOnlyInChatSidebarMode() throws {
+    @Test("recent sessions derive selection from the active tab-local chat")
+    func recentSessionsDeriveSelectionFromTheActiveTabLocalChat() throws {
         let packageRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let sidebarURL = packageRoot
-            .appendingPathComponent("Sources")
-            .appendingPathComponent("SloppyClient")
-            .appendingPathComponent("MainSidebarView.swift")
+            .appendingPathComponent("Sources/SloppyClient/Navigation/Shared/SidebarRecentsList.swift")
         let source = try String(contentsOf: sidebarURL, encoding: .utf8)
-        let rowStart = try #require(source.range(of: "private func chatSessionRow("))
-        let projectsStart = try #require(source.range(of: "private func projectsSection("))
-        let rowSource = source[rowStart.lowerBound..<projectsStart.lowerBound]
 
-        #expect(rowSource.contains("viewModel.selectedSidebarItem == .chats"))
+        #expect(source.contains("viewModel.selectedChatSessionID == session.id"))
+        #expect(!source.contains("viewModel.chatViewModel.selectedSessionId == session.id"))
+    }
+
+    @Test("selected sidebar rows keep a visible background")
+    func selectedSidebarRowsKeepAVisibleBackground() throws {
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let rowURL = packageRoot
+            .appendingPathComponent("Sources/SloppyClient/Navigation/Shared/SidebarNavigationRow.swift")
+        let source = try String(contentsOf: rowURL, encoding: .utf8)
+
+        #expect(source.contains("var isSelected = false"))
+        #expect(source.contains("configuration.isPressed || isHovered || isSelected"))
     }
 
     @Test("main view uses split detail tabs on phones")
@@ -61,11 +73,9 @@ struct MainSidebarSelectionTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let sidebarURL = packageRoot
-            .appendingPathComponent("Sources")
-            .appendingPathComponent("SloppyClient")
-            .appendingPathComponent("MainSidebarView.swift")
+            .appendingPathComponent("Sources/SloppyClient/Navigation/Platforms/iOS/IOSMainSidebar.swift")
         let source = try String(contentsOf: sidebarURL, encoding: .utf8)
 
-        #expect(source.contains("MobileSidebarOverlayIconButtonStyle"))
+        #expect(source.contains("isOverlay ? theme.spacing.xl"))
     }
 }

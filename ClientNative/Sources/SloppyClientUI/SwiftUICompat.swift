@@ -69,7 +69,7 @@ public struct Glass: @unchecked Sendable {
         self
     }
 
-    public func interactive() -> Glass {
+    public func interactive(_ isEnabled: Bool = true) -> Glass {
         self
     }
 }

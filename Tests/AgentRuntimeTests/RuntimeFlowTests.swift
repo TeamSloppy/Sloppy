@@ -2007,6 +2007,42 @@ func recoveryTranscriptSeedsOnlyFreshLanguageModelSession() async {
     #expect(transcripts[1].contains("second live turn"))
 }
 
+@Test
+func recoveryTranscriptToolNamesAreRemappedToSanitizedSessionTools() async {
+    let system = RuntimeSystem()
+    let tools = ModelToolNameSanitizer.sanitizeTools([
+        NamedTool(name: "planning.select_route")
+    ]).tools
+    let transcript = Transcript(entries: [
+        .toolCalls(Transcript.ToolCalls([
+            Transcript.ToolCall(
+                id: "call_123",
+                toolName: "planning.select_route",
+                arguments: GeneratedContent(properties: [:])
+            )
+        ])),
+        .toolOutput(Transcript.ToolOutput(
+            id: "call_123",
+            toolName: "planning.select_route",
+            segments: [.text(.init(content: "{\"ok\":true}"))]
+        ))
+    ])
+
+    let remapped = await system.transcriptWithProviderSafeToolNames(transcript, tools: tools)
+
+    guard case .toolCalls(let calls) = remapped[0] else {
+        Issue.record("Expected tool calls entry")
+        return
+    }
+    guard case .toolOutput(let output) = remapped[1] else {
+        Issue.record("Expected tool output entry")
+        return
+    }
+
+    #expect(calls.first?.toolName == "planning_select_route")
+    #expect(output.toolName == "planning_select_route")
+}
+
 private actor TranscriptCaptureStore {
     private var transcripts: [String] = []
 
@@ -2016,6 +2052,19 @@ private actor TranscriptCaptureStore {
 
     func snapshot() -> [String] {
         transcripts
+    }
+}
+
+private struct NamedTool: Tool {
+    typealias Arguments = GeneratedContent
+    typealias Output = String
+
+    let name: String
+    let description = "Test tool"
+    let parameters: GenerationSchema = String.generationSchema
+
+    func call(arguments: GeneratedContent) async throws -> String {
+        ""
     }
 }
 

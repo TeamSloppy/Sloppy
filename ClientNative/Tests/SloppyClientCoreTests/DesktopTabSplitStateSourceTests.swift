@@ -14,7 +14,7 @@ struct DesktopTabSplitStateSourceTests {
 
     @Test("main tabs defines temporary desktop split state")
     func mainTabsDefinesTemporaryDesktopSplitState() throws {
-        let source = try source("Sources", "SloppyClient", "MainTabs.swift")
+        let source = try source("Sources", "SloppyClient", "Navigation", "Main", "MainTabs.swift")
 
         #expect(source.contains("struct DesktopTabSplitState"))
         #expect(source.contains("var primaryTabID: WorkspaceTab.ID"))

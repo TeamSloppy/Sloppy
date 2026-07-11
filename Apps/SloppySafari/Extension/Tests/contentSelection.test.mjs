@@ -798,6 +798,13 @@ test("start page canvas CSS keeps chat composer above canvas controls", () => {
   assert.match(composerBlock, /z-index:\s*3;/);
 });
 
+test("start page canvas CSS offsets the thread below the floating topbar", () => {
+  const panelCSS = readFileSync(new URL("../Resources/panel.css", import.meta.url), "utf8");
+  const threadBlock = panelCSS.match(/#sloppy-safari-extension-panel\.is-start-canvas \.sloppy-thread,\n\.sloppy-start-page #sloppy-safari-extension-panel\.is-start-canvas \.sloppy-thread\s*\{[\s\S]*?\n\}/)?.[0] || "";
+
+  assert.match(threadBlock, /padding:\s*88px 0 0;/);
+});
+
 test("start page canvas customize keeps mode buttons visible", () => {
   const panelCSS = readFileSync(new URL("../Resources/panel.css", import.meta.url), "utf8");
   const canvasCustomizeBlock = panelCSS.match(/#sloppy-safari-extension-panel\.is-start-canvas\.is-start-customizing \.sloppy-start-config-panel\s*\{[\s\S]*?\n\}/)?.[0] || "";

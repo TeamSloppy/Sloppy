@@ -60,15 +60,23 @@ public struct APIProjectRecord: Codable, Sendable, Identifiable {
     public var id: String
     public var name: String
     public var description: String
+    public var repoPath: String?
+    public var worktreeRootPath: String?
     public var channels: [APIProjectChannel]?
     public var tasks: [APIProjectTask]?
     public var actors: [String]?
     public var teams: [String]?
 
+    public var projectRootPath: String? {
+        worktreeRootPath ?? repoPath
+    }
+
     public init(
         id: String,
         name: String,
         description: String = "",
+        repoPath: String? = nil,
+        worktreeRootPath: String? = nil,
         channels: [APIProjectChannel]? = nil,
         tasks: [APIProjectTask]? = nil,
         actors: [String]? = nil,
@@ -77,6 +85,8 @@ public struct APIProjectRecord: Codable, Sendable, Identifiable {
         self.id = id
         self.name = name
         self.description = description
+        self.repoPath = repoPath
+        self.worktreeRootPath = worktreeRootPath
         self.channels = channels
         self.tasks = tasks
         self.actors = actors

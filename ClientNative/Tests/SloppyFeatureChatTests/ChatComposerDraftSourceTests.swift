@@ -11,8 +11,7 @@ struct ChatComposerDraftSourceTests {
                 .deletingLastPathComponent()
             let sourceURL = packageRoot
                 .appendingPathComponent("Sources")
-                .appendingPathComponent("SloppyFeatureChat")
-                .appendingPathComponent("ChatScreenViewModel.swift")
+                .appendingPathComponent("SloppyFeatureChat/Screens/Chat/ChatScreenViewModel.swift")
             return try String(contentsOf: sourceURL, encoding: .utf8)
         }
     }

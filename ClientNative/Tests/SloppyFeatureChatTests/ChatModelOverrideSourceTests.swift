@@ -26,7 +26,7 @@ struct ChatModelOverrideSourceTests {
 
     @Test("chat view model loads model options and forwards selected overrides when sending")
     func chatViewModelLoadsModelOptionsAndForwardsSelectedOverridesWhenSending() throws {
-        let source = try source("Sources", "SloppyFeatureChat", "ChatScreenViewModel.swift")
+        let source = try source("Sources", "SloppyFeatureChat", "Screens", "Chat", "ChatScreenViewModel.swift")
 
         #expect(source.contains("public private(set) var availableModels: [ChatModelOption] = []"))
         #expect(source.contains("public private(set) var selectedModelId: String = \"\""))

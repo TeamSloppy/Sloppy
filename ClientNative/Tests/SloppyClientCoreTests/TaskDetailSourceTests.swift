@@ -13,9 +13,9 @@ struct TaskDetailSourceTests {
 
     @Test("task detail tab is modeled in main tabs and main view")
     func taskDetailTabIsModeledInMainTabsAndMainView() throws {
-        let tabs = try source("Sources/SloppyClient/MainTabs.swift")
-        let mainView = try source("Sources/SloppyClient/MainView.swift")
-        let mainViewModel = try source("Sources/SloppyClient/MainViewModel.swift")
+        let tabs = try source("Sources/SloppyClient/Navigation/Main/MainTabs.swift")
+        let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
+        let mainViewModel = try source("Sources/SloppyClient/Navigation/Main/MainViewModel.swift")
 
         #expect(tabs.contains("struct TaskDetailTabContext: Hashable, Sendable"))
         #expect(tabs.contains("case taskDetail(TaskDetailTabContext)"))
@@ -29,7 +29,7 @@ struct TaskDetailSourceTests {
 
     @Test("task detail view loads project task and comments")
     func taskDetailViewLoadsProjectTaskAndComments() throws {
-        let detailSource = try source("Sources/SloppyFeatureProjects/TaskDetailView.swift")
+        let detailSource = try source("Sources/SloppyFeatureProjects/Screens/Projects/Views/TaskDetailView.swift")
         let apiSource = try source("Sources/SloppyClientCore/SloppyAPIClient.swift")
 
         #expect(detailSource.contains("final class TaskDetailViewModel"))

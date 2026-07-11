@@ -8,11 +8,19 @@ struct MainSidebarRefreshTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let sourceURL = packageRoot
+        let sourcesRoot = packageRoot
             .appendingPathComponent("Sources")
             .appendingPathComponent("SloppyClient")
-            .appendingPathComponent(fileName)
-        return try String(contentsOf: sourceURL, encoding: .utf8)
+        let sourceURL = FileManager.default.enumerator(
+            at: sourcesRoot,
+            includingPropertiesForKeys: nil
+        )?
+            .compactMap { $0 as? URL }
+            .first(where: { $0.lastPathComponent == fileName })
+        return try String(
+            contentsOf: #require(sourceURL),
+            encoding: .utf8
+        )
     }
 
     @Test("main view model exposes a unified refresh entry point")
@@ -28,7 +36,7 @@ struct MainSidebarRefreshTests {
 
     @Test("sidebar supports pull to refresh")
     func sidebarSupportsPullToRefresh() throws {
-        let source = try source(named: "MainSidebarView.swift")
+        let source = try source(named: "MacMainSidebar.swift")
 
         #expect(source.contains(".refreshable"))
         #expect(source.contains("await viewModel.refreshContent()"))

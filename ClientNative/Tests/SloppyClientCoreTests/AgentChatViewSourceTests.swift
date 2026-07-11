@@ -11,8 +11,7 @@ struct AgentChatViewSourceTests {
                 .deletingLastPathComponent()
             let sourceURL = packageRoot
                 .appendingPathComponent("Sources")
-                .appendingPathComponent("SloppyFeatureAgents")
-                .appendingPathComponent("AgentChatView.swift")
+                .appendingPathComponent("SloppyFeatureAgents/Screens/Agents/Views/AgentChatView.swift")
             return try String(contentsOf: sourceURL, encoding: .utf8)
         }
     }

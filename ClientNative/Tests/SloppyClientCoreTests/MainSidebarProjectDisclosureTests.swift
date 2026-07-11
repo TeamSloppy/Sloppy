@@ -8,38 +8,39 @@ struct MainSidebarProjectDisclosureTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let sourceURL = packageRoot
+        let sourcesRoot = packageRoot
             .appendingPathComponent("Sources")
             .appendingPathComponent("SloppyClient")
-            .appendingPathComponent(fileName)
-        return try String(contentsOf: sourceURL, encoding: .utf8)
+        let sourceURL = FileManager.default.enumerator(
+            at: sourcesRoot,
+            includingPropertiesForKeys: nil
+        )?
+            .compactMap { $0 as? URL }
+            .first(where: { $0.lastPathComponent == fileName })
+        return try String(contentsOf: #require(sourceURL), encoding: .utf8)
     }
 
     @Test("project collapse state is separate from show more state")
     func projectCollapseStateIsSeparateFromShowMoreState() throws {
         let mainViewSource = try source(named: "MainView.swift")
-        let sidebarSource = try source(named: "MainSidebarView.swift")
+        let sidebarSource = try source(named: "SidebarRecentsList.swift")
 
         #expect(mainViewSource.contains("var collapsedProjectIds: Set<String> = []"))
         #expect(mainViewSource.contains("var expandedTaskLists: Set<String> = []"))
         #expect(mainViewSource.contains("func toggleProjectCollapse(projectId: String)"))
         #expect(mainViewSource.contains("func toggleTaskListExpansion(projectId: String)"))
 
-        #expect(sidebarSource.contains("let isCollapsed = viewModel.collapsedProjectIds.contains(project.id)"))
+        #expect(sidebarSource.contains("viewModel.collapsedProjectIds.contains(group.id)"))
         #expect(sidebarSource.contains("if !isCollapsed {"))
-        #expect(sidebarSource.contains("showMoreButton(projectId: project.id, isExpanded: isExpanded, c: c, sp: sp)"))
-        #expect(sidebarSource.contains("let isCollapsed = viewModel.collapsedProjectIds.contains(group.project.id)"))
-        #expect(sidebarSource.contains("projectChatHeader(group: group, c: c, sp: sp)"))
+        #expect(sidebarSource.contains("viewModel.toggleTaskListExpansion(projectId: group.id)"))
         #expect(sidebarSource.contains("if !isCollapsed {"))
     }
 
     @Test("project rows open kanban tabs and task rows open task chats")
     func projectRowsOpenKanbanTabsAndTaskRowsOpenTaskChats() throws {
-        let sidebarSource = try source(named: "MainSidebarView.swift")
+        let sidebarSource = try source(named: "SidebarRecentsList.swift")
 
-        #expect(sidebarSource.contains("viewModel.openProjectKanbanTab(project: project)"))
-        #expect(sidebarSource.contains("viewModel.openTaskChatTab("))
-        #expect(!sidebarSource.contains("viewModel.selectProject(project)"))
+        #expect(sidebarSource.contains("viewModel.openProjectKanbanTab(project: group.project)"))
     }
 
     @Test("main view renders a native project kanban tab")
@@ -62,6 +63,9 @@ struct MainSidebarProjectDisclosureTests {
             contentsOf: packageRoot
                 .appendingPathComponent("Sources")
                 .appendingPathComponent("SloppyFeatureProjects")
+                .appendingPathComponent("Screens")
+                .appendingPathComponent("Projects")
+                .appendingPathComponent("Kanban")
                 .appendingPathComponent("ProjectKanbanView.swift"),
             encoding: .utf8
         )

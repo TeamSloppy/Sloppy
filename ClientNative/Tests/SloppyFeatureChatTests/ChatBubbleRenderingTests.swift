@@ -11,8 +11,7 @@ struct ChatBubbleRenderingTests {
                 .deletingLastPathComponent()
             let sourceURL = packageRoot
                 .appendingPathComponent("Sources")
-                .appendingPathComponent("SloppyFeatureChat")
-                .appendingPathComponent("ChatBubbleView.swift")
+                .appendingPathComponent("SloppyFeatureChat/Screens/Chat/Views/ChatBubbleView.swift")
             return try String(contentsOf: sourceURL, encoding: .utf8)
         }
     }

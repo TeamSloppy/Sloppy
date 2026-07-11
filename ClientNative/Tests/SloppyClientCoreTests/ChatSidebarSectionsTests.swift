@@ -108,4 +108,41 @@ struct ChatSidebarSectionsTests {
         #expect(sections.projectGroups.last?.visibleSessions.map(\.id) == ["project-b"])
         #expect(sections.projectGroups.last?.hiddenCount == 0)
     }
+
+    @Test("projects include empty groups and sort by latest chat activity")
+    func projectsIncludeEmptyGroupsAndSortByLatestChatActivity() {
+        let projects = [
+            APIProjectRecord(id: "empty", name: "Empty"),
+            APIProjectRecord(id: "older", name: "Older"),
+            APIProjectRecord(id: "newer", name: "Newer")
+        ]
+        let sessions = [
+            ChatSessionSummary(
+                id: "older-chat",
+                agentId: "agent",
+                title: "Older",
+                messageCount: 1,
+                updatedAt: Date(timeIntervalSince1970: 100),
+                projectId: "older"
+            ),
+            ChatSessionSummary(
+                id: "newer-chat",
+                agentId: "agent",
+                title: "Newer",
+                messageCount: 1,
+                updatedAt: Date(timeIntervalSince1970: 200),
+                projectId: "newer"
+            )
+        ]
+
+        let sections = ChatSidebarSections.build(
+            sessions: sessions,
+            projects: projects,
+            pinnedSessionIds: [],
+            mode: .projects
+        )
+
+        #expect(sections.projectGroups.map(\.project.id) == ["newer", "older", "empty"])
+        #expect(sections.projectGroups.last?.totalSessions.isEmpty == true)
+    }
 }

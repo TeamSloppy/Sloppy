@@ -26,11 +26,14 @@ public enum MaterialSymbol: String, CaseIterable, Sendable {
     case refresh
     case settings
     case stop
+    case timer
+    case new
     case warning
 
     var systemName: String {
         switch self {
         case .add: "plus"
+        case .new: "square.and.pencil"
         case .arrowForward: "arrow.forward"
         case .arrowUpward: "arrow.up"
         case .autoAwesome: "sparkles"
@@ -55,6 +58,7 @@ public enum MaterialSymbol: String, CaseIterable, Sendable {
         case .refresh: "arrow.clockwise"
         case .settings: "gearshape"
         case .stop: "stop.fill"
+        case .timer: "clock"
         case .warning: "exclamationmark.triangle"
         }
     }

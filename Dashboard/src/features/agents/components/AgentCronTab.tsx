@@ -6,6 +6,8 @@ import {
     deleteAgentCronTask,
     fetchActorsBoard,
     fetchChannelSessions,
+    fetchAgentSessions,
+    createAgentSession,
     sendChannelMessage
 } from "../../../api";
 import { gatewayBindingChannelId, gatewayTopicKey } from "../../../shared/channelGatewayScope";
@@ -192,13 +194,17 @@ function describeChannelId(channelId) {
     return channelId;
 }
 
-function buildCronPayload(form) {
+function buildCronPayload(form, channelId = form.channelId) {
     return {
         schedule: buildScheduleExpression(form),
         command: form.command,
-        channelId: form.channelId,
+        channelId,
         enabled: form.enabled
     };
+}
+
+function agentSessionChannelId(agentId, sessionId) {
+    return `agent:${agentId}:session:${sessionId}`;
 }
 
 function cronTestContent(command, cronId = "draft") {
@@ -452,24 +458,46 @@ function CronFormModal({
                     </label>
 
                     <div className="cron-field-block">
-                        <span className="cron-field-label">Channel</span>
-                        <ChannelSearchDropdown
-                            availableChannels={availableChannels}
-                            selectedChannelId={form.channelId}
-                            isLoadingChannels={isLoadingChannels}
-                            onSelect={(channelId) => onFormChange("channelId", channelId)}
-                        />
-                        {isLoadingChannels ? (
-                            <span className="agent-field-note">Loading agent channels...</span>
-                        ) : hasAvailableChannels ? (
-                            <span className="agent-field-note">
-                                {selectedChannel
-                                    ? `${selectedChannel.meta ? `${selectedChannel.meta}: ` : "Selected channel ID: "}${selectedChannel.channelId}`
-                                    : "Choose one of the linked channels available to this agent."}
-                            </span>
+                        <span className="cron-field-label">Runs in</span>
+                        <div className="cron-target-modes" role="group" aria-label="Automation destination">
+                            <button
+                                type="button"
+                                className={form.targetMode === "existing" ? "active" : ""}
+                                onClick={() => onFormChange("targetMode", "existing")}
+                            >
+                                Existing session / channel
+                            </button>
+                            <button
+                                type="button"
+                                className={form.targetMode === "new" ? "active" : ""}
+                                onClick={() => onFormChange("targetMode", "new")}
+                            >
+                                New session
+                            </button>
+                        </div>
+                        {form.targetMode === "existing" ? (
+                            <>
+                                <ChannelSearchDropdown
+                                    availableChannels={availableChannels}
+                                    selectedChannelId={form.channelId}
+                                    isLoadingChannels={isLoadingChannels}
+                                    onSelect={(channelId) => onFormChange("channelId", channelId)}
+                                />
+                                {isLoadingChannels ? (
+                                    <span className="agent-field-note">Loading sessions and channels...</span>
+                                ) : hasAvailableChannels ? (
+                                    <span className="agent-field-note">
+                                        {selectedChannel
+                                            ? `${selectedChannel.meta ? `${selectedChannel.meta}: ` : "Selected channel ID: "}${selectedChannel.channelId}`
+                                            : "Choose an existing session or linked channel."}
+                                    </span>
+                                ) : (
+                                    <span className="agent-field-note">No sessions or linked channels found for this agent.</span>
+                                )}
+                            </>
                         ) : (
                             <span className="agent-field-note">
-                                No linked channels found for this agent. Add one in the Channels tab first.
+                                A dedicated agent session will be created when you save this automation.
                             </span>
                         )}
                     </div>
@@ -493,7 +521,8 @@ function CronFormModal({
                             type="button"
                             className="cron-test-button"
                             onClick={onTest}
-                            disabled={!buildScheduleExpression(form).trim() || !form.command.trim() || !form.channelId.trim() || isTesting}
+                            disabled={form.targetMode === "new" || !buildScheduleExpression(form).trim() || !form.command.trim() || !form.channelId.trim() || isTesting}
+                            title={form.targetMode === "new" ? "Save the automation to create its session before testing." : undefined}
                         >
                             <span className="material-symbols-rounded" aria-hidden="true">science</span>
                             {isTesting ? "Testing..." : "Test"}
@@ -505,7 +534,7 @@ function CronFormModal({
                             <button
                                 type="submit"
                                 className="project-primary hover-levitate"
-                                disabled={!buildScheduleExpression(form).trim() || !form.command.trim() || !form.channelId.trim()}
+                                disabled={!buildScheduleExpression(form).trim() || !form.command.trim() || (form.targetMode === "existing" && !form.channelId.trim())}
                             >
                                 {editingId ? "Save Changes" : "Create Job"}
                             </button>
@@ -518,10 +547,10 @@ function CronFormModal({
 }
 
 function emptyForm() {
-    return { ...defaultScheduleFields(), command: "", channelId: "", enabled: true };
+    return { ...defaultScheduleFields(), command: "", channelId: "", targetMode: "existing", enabled: true };
 }
 
-function normalizeChannels(board, sessions, agentId) {
+function normalizeChannels(board, channelSessions, agentSessions, agentId) {
     const nodes = Array.isArray(board?.nodes) ? board.nodes : [];
     const byId = new Map();
 
@@ -549,7 +578,19 @@ function normalizeChannels(board, sessions, agentId) {
         upsertChannel(channelId, displayName || channelId, "linked channel");
     }
 
-    for (const session of Array.isArray(sessions) ? sessions : []) {
+    for (const session of Array.isArray(agentSessions) ? agentSessions : []) {
+        const sessionId = String(session?.id || "").trim();
+        if (!sessionId) {
+            continue;
+        }
+        upsertChannel(
+            agentSessionChannelId(agentId, sessionId),
+            String(session?.title || "").trim() || `Session ${sessionId}`,
+            "agent session"
+        );
+    }
+
+    for (const session of Array.isArray(channelSessions) ? channelSessions : []) {
         const channelId = String(session?.channelId || "").trim();
         const topicKey = gatewayTopicKey(channelId);
         const bindingId = gatewayBindingChannelId(channelId);
@@ -635,14 +676,15 @@ export function AgentCronTab({ agentId }) {
         setError("");
 
         try {
-            const [tasksResult, boardResult, sessionsResult] = await Promise.all([
+            const [tasksResult, boardResult, channelSessionsResult, agentSessionsResult] = await Promise.all([
                 fetchAgentCronTasks(agentId),
                 fetchActorsBoard(),
                 fetchChannelSessions({
                     status: "open",
                     agentId,
                     limit: 100
-                }).catch(() => null)
+                }).catch(() => null),
+                fetchAgentSessions(agentId, { limit: 100 }).catch(() => null)
             ]);
 
             if (!tasksResult) {
@@ -652,11 +694,7 @@ export function AgentCronTab({ agentId }) {
                 setTasks(tasksResult);
             }
 
-            if (!boardResult) {
-                setAvailableChannels([]);
-            } else {
-                setAvailableChannels(normalizeChannels(boardResult, sessionsResult, agentId));
-            }
+            setAvailableChannels(normalizeChannels(boardResult, channelSessionsResult, agentSessionsResult, agentId));
         } catch {
             setError("Failed to fetch cron tasks.");
             setTasks([]);
@@ -682,6 +720,7 @@ export function AgentCronTab({ agentId }) {
             ...scheduleFieldsFromExpression(task.schedule),
             command: task.command,
             channelId: task.channelId,
+            targetMode: "existing",
             enabled: task.enabled
         });
         setEditingId(task.id);
@@ -763,7 +802,20 @@ export function AgentCronTab({ agentId }) {
 
     async function handleSubmit(e) {
         e.preventDefault();
-        const payload = buildCronPayload(form);
+        let channelId = form.channelId;
+        if (form.targetMode === "new") {
+            const titleCommand = String(form.command || "").trim();
+            const session = await createAgentSession(agentId, {
+                title: `Automation: ${titleCommand.slice(0, 60)}`,
+                kind: "chat"
+            });
+            if (!session?.id) {
+                alert("Failed to create a session for this automation.");
+                return;
+            }
+            channelId = agentSessionChannelId(agentId, session.id);
+        }
+        const payload = buildCronPayload(form, channelId);
 
         if (editingId) {
             const success = await updateAgentCronTask(agentId, editingId, payload);

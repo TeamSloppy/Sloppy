@@ -302,6 +302,16 @@ test("start page uses the fullscreen chat canvas and hides redundant window cont
   assert.match(css, /\.sloppy-start-page #sloppy-safari-extension-panel \[data-sloppy-close\],\n\.sloppy-start-page #sloppy-safari-extension-panel \[data-sloppy-open-fullscreen\]\s*\{[\s\S]*display:\s*none;/);
 });
 
+test("start page topbar keeps a dark floating surface above page content", () => {
+  const css = loadPanelCSS();
+  const topbarBlock = css.match(/\.sloppy-start-page #sloppy-safari-extension-panel \.sloppy-topbar\s*\{[\s\S]*?\n\}/)?.[0] || "";
+
+  assert.match(topbarBlock, /z-index:\s*4;/);
+  assert.match(topbarBlock, /background:\s*linear-gradient/);
+  assert.match(topbarBlock, /rgba\(24, 24, 24, 0\.88\)/);
+  assert.match(topbarBlock, /backdrop-filter:\s*blur\(22px\) saturate\(1\.1\);/);
+});
+
 test("start page sidebar remains readable over custom backgrounds with one menu scroll", () => {
   const css = loadPanelCSS();
   const sidebarBlock = css.match(/\.sloppy-fullscreen-chat-page #sloppy-safari-extension-panel \.sloppy-app-sidebar,\n\.sloppy-start-page #sloppy-safari-extension-panel \.sloppy-app-sidebar\s*\{[\s\S]*?\n\}/)?.[0] || "";

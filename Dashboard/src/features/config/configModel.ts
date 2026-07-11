@@ -12,8 +12,8 @@ export const SETTINGS_ITEMS = [
   {
     id: "users",
     title: "Users",
-    icon: "group",
-    searchTerms: ["web search", "brave", "perplexity", "api key", "active provider"]
+    icon: "manage_accounts",
+    searchTerms: ["auth", "authentication", "login", "password", "accounts", "roles", "admin", "user", "invites", "recovery", "reset"]
   },
   {
     id: "search-tools",
@@ -44,12 +44,6 @@ export const SETTINGS_ITEMS = [
     title: "Approvals",
     icon: "fact_check",
     searchTerms: ["pending", "approve", "approval", "requests", "permissions"]
-  },
-  {
-    id: "users",
-    title: "Users",
-    icon: "manage_accounts",
-    searchTerms: ["auth", "authentication", "login", "password", "accounts", "roles", "admin", "user", "invites", "recovery", "reset"]
   },
   {
     id: "plugins",

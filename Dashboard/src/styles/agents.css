@@ -186,14 +186,16 @@
 }
 
 .cron-schedule-modes,
-.cron-weekday-picker {
+.cron-weekday-picker,
+.cron-target-modes {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
 }
 
 .cron-schedule-modes button,
-.cron-weekday-picker button {
+.cron-weekday-picker button,
+.cron-target-modes button {
   min-width: 0;
   padding: 6px 10px;
   border-color: var(--line);
@@ -203,7 +205,8 @@
 }
 
 .cron-schedule-modes button.active,
-.cron-weekday-picker button.active {
+.cron-weekday-picker button.active,
+.cron-target-modes button.active {
   border-color: var(--accent);
   background: rgba(var(--accent-rgb, 99, 120, 255), 0.18);
   color: var(--text);

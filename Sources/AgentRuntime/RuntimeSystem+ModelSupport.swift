@@ -306,11 +306,12 @@ extension RuntimeSystem {
         let tools = sanitizedModelTools(channelId: channelId, modelProvider: modelProvider, includeTools: includeTools)
         let session: LanguageModelSession
         if let recoveryTranscript = recoveryTranscriptByChannel[channelId] {
+            let providerSafeTranscript = transcriptWithProviderSafeToolNames(recoveryTranscript, tools: tools)
             session = LanguageModelSession(
                 model: languageModel,
                 tools: tools,
                 transcript: transcriptWithInstructionsIfNeeded(
-                    recoveryTranscript,
+                    providerSafeTranscript,
                     channelId: channelId,
                     modelProvider: modelProvider,
                     tools: tools
@@ -333,6 +334,59 @@ extension RuntimeSystem {
             ]
         )
         return session
+    }
+
+    func transcriptWithProviderSafeToolNames(
+        _ transcript: Transcript,
+        tools: [any Tool]
+    ) -> Transcript {
+        var toolNameMap: [String: String] = [:]
+        for tool in tools {
+            if let sanitized = tool as? SanitizedLanguageModelTool {
+                toolNameMap[sanitized.originalName] = sanitized.name
+                toolNameMap[sanitized.name] = sanitized.name
+            } else {
+                toolNameMap[tool.name] = tool.name
+            }
+        }
+        guard !toolNameMap.isEmpty else {
+            return transcript
+        }
+
+        let entries = transcript.map { entry -> Transcript.Entry in
+            switch entry {
+            case .toolCalls(let calls):
+                let remappedCalls = calls.map { call in
+                    let toolName = toolNameMap[call.toolName] ?? call.toolName
+                    guard toolName != call.toolName else {
+                        return call
+                    }
+                    return Transcript.ToolCall(
+                        id: call.id,
+                        toolName: toolName,
+                        arguments: call.arguments
+                    )
+                }
+                return .toolCalls(Transcript.ToolCalls(remappedCalls))
+
+            case .toolOutput(let output):
+                let toolName = toolNameMap[output.toolName] ?? output.toolName
+                guard toolName != output.toolName else {
+                    return entry
+                }
+                return .toolOutput(
+                    Transcript.ToolOutput(
+                        id: output.id,
+                        toolName: toolName,
+                        segments: output.segments
+                    )
+                )
+
+            case .instructions, .prompt, .response:
+                return entry
+            }
+        }
+        return Transcript(entries: entries)
     }
 
     func transcriptWithInstructionsIfNeeded(

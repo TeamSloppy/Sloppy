@@ -14,6 +14,7 @@ public actor SloppyAPIClient {
     private let mesh: MeshService
     private let config: ConfigService
     private let auth: AuthService
+    private let voice: VoiceService
 
     public init(
         baseURL: URL = URL(string: "http://localhost:25101")!,
@@ -30,6 +31,7 @@ public actor SloppyAPIClient {
         self.mesh = MeshService(http: http)
         self.config = ConfigService(http: http)
         self.auth = AuthService(http: http)
+        self.voice = VoiceService(http: http)
     }
 
     public func setAuthToken(_ token: String) async {
@@ -76,6 +78,28 @@ public actor SloppyAPIClient {
 
     public func fetchAgentTasks(agentId: String) async throws -> [APIAgentTaskRecord] {
         try await agents.fetchAgentTasks(agentId: agentId)
+    }
+
+    public func fetchScheduledTasks(agentId: String) async throws -> [ScheduledTask] {
+        let agent = BackendHTTPClient.encodePathSegment(agentId)
+        return try await http.get("/v1/agents/\(agent)/cron")
+    }
+
+    public func createScheduledTask(agentId: String, request: ScheduledTaskCreateRequest) async throws -> ScheduledTask {
+        let agent = BackendHTTPClient.encodePathSegment(agentId)
+        return try await http.post("/v1/agents/\(agent)/cron", body: request)
+    }
+
+    public func updateScheduledTask(agentId: String, taskId: String, request: ScheduledTaskUpdateRequest) async throws -> ScheduledTask {
+        let agent = BackendHTTPClient.encodePathSegment(agentId)
+        let task = BackendHTTPClient.encodePathSegment(taskId)
+        return try await http.put("/v1/agents/\(agent)/cron/\(task)", body: request)
+    }
+
+    public func deleteScheduledTask(agentId: String, taskId: String) async throws {
+        let agent = BackendHTTPClient.encodePathSegment(agentId)
+        let task = BackendHTTPClient.encodePathSegment(taskId)
+        try await http.delete("/v1/agents/\(agent)/cron/\(task)")
     }
 
     public func fetchOverviewData() async throws -> OverviewData {
@@ -204,5 +228,9 @@ public actor SloppyAPIClient {
 
     public func deleteAccessUser(_ userId: String) async throws {
         try await config.deleteAccessUser(userId)
+    }
+
+    public func transcribeVoice(_ request: VoiceTranscriptionRequest) async throws -> VoiceTranscriptionResponse {
+        try await voice.transcribe(request)
     }
 }

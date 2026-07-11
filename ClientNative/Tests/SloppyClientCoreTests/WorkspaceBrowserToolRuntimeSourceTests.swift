@@ -13,7 +13,7 @@ struct WorkspaceBrowserToolRuntimeSourceTests {
 
     @Test("browser runtime exposes the planned command surface")
     func browserRuntimeExposesPlannedCommandSurface() throws {
-        let runtime = try source("Sources/SloppyClient/WorkspaceBrowserToolRuntime.swift")
+        let runtime = try source("Sources/SloppyClient/Workspace/Web/WorkspaceBrowserToolRuntime.swift")
 
         #expect(runtime.contains("final class WorkspaceBrowserToolRuntime"))
         #expect(runtime.contains("func open(url: String) async throws"))
@@ -27,7 +27,7 @@ struct WorkspaceBrowserToolRuntimeSourceTests {
 
     @Test("browser runtime stays out of chat screen view model")
     func browserRuntimeStaysOutOfChatScreenViewModel() throws {
-        let chatVM = try source("Sources/SloppyFeatureChat/ChatScreenViewModel.swift")
+        let chatVM = try source("Sources/SloppyFeatureChat/Screens/Chat/ChatScreenViewModel.swift")
         #expect(!chatVM.contains("WorkspaceBrowserToolRuntime"))
     }
 }

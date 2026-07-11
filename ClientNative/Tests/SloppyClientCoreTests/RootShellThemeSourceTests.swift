@@ -13,7 +13,7 @@ struct RootShellThemeSourceTests {
 
     @Test("root shell keeps app theme and system color scheme aligned")
     func rootShellKeepsAppThemeAndSystemColorSchemeAligned() throws {
-        let source = try source("Sources/SloppyClient/RootShellView.swift")
+        let source = try source("Sources/SloppyClient/Root/RootShellView.swift")
 
         #expect(source.contains(".theme(viewModel.settings.colorScheme.appTheme)"))
         #expect(source.contains(".preferredColorScheme(viewModel.settings.colorScheme.systemColorScheme)"))

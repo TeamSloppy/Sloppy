@@ -16,7 +16,7 @@ struct SettingsShellSourceTests {
 
     @Test("settings screen defines desktop shell with searchable sidebar")
     func settingsScreenDefinesDesktopShellWithSearchableSidebar() throws {
-        let sourceText = try source("Sources/SloppyFeatureSettings/SettingsScreen.swift")
+        let sourceText = try source("Sources/SloppyFeatureSettings/Screens/Settings/SettingsScreen.swift")
 
         #expect(sourceText.contains("@State private var searchQuery: String = \"\""))
         #expect(sourceText.contains("private var desktopShell: some View"))
@@ -29,9 +29,9 @@ struct SettingsShellSourceTests {
 
     @Test("settings shell uses minimal desktop styling")
     func settingsShellUsesMinimalDesktopStyling() throws {
-        let screen = try source("Sources/SloppyFeatureSettings/SettingsScreen.swift")
-        let forms = try source("Sources/SloppyFeatureSettings/SettingsFormComponents.swift")
-        let client = try source("Sources/SloppyFeatureSettings/ClientSettingsSection.swift")
+        let screen = try source("Sources/SloppyFeatureSettings/Screens/Settings/SettingsScreen.swift")
+        let forms = try source("Sources/SloppyFeatureSettings/Screens/Settings/Views/SettingsFormComponents.swift")
+        let client = try source("Sources/SloppyFeatureSettings/Screens/Settings/Sections/ClientSettingsSection.swift")
 
         #expect(!screen.contains("Color.white.opacity(0.04)"))
         #expect(!client.contains("SectionHeader(\"Client\""))
@@ -41,7 +41,7 @@ struct SettingsShellSourceTests {
 
     @Test("settings screen exposes dashboard section inventory")
     func settingsScreenExposesDashboardSectionInventory() throws {
-        let sourceText = try source("Sources/SloppyFeatureSettings/SettingsScreen.swift")
+        let sourceText = try source("Sources/SloppyFeatureSettings/Screens/Settings/SettingsScreen.swift")
 
         #expect(sourceText.contains("enum SettingsScreenSection"))
         #expect(sourceText.contains("case providers"))
@@ -69,7 +69,7 @@ struct SettingsShellSourceTests {
 
     @Test("settings screen renders detail pane cards or placeholders per section")
     func settingsScreenRendersDetailPaneCardsOrPlaceholdersPerSection() throws {
-        let sourceText = try source("Sources/SloppyFeatureSettings/SettingsScreen.swift")
+        let sourceText = try source("Sources/SloppyFeatureSettings/Screens/Settings/SettingsScreen.swift")
 
         #expect(sourceText.contains("switch selectedSection"))
         #expect(sourceText.contains("ClientSettingsSection("))

@@ -14,7 +14,7 @@ struct ChatScreenLayoutTests {
 
     @Test("phone chat layout avoids geometry reader on first render")
     func phoneChatLayoutAvoidsGeometryReaderOnFirstRender() throws {
-        let source = try source("Sources", "SloppyFeatureChat", "ChatScreen.swift")
+        let source = try source("Sources", "SloppyFeatureChat", "Screens", "Chat", "ChatScreen.swift")
 
         #expect(source.contains("if idiom == .phone"))
         #expect(source.contains("chromeLayout(contentWidth: phoneContentWidth)"))
@@ -24,7 +24,7 @@ struct ChatScreenLayoutTests {
 
     @Test("mobile composer expands to available width with dedicated circle buttons")
     func mobileComposerExpandsToAvailableWidthWithDedicatedCircleButtons() throws {
-        let source = try source("Sources", "SloppyFeatureChat", "ChatComposerView.swift")
+        let source = try source("Sources", "SloppyFeatureChat", "Screens", "Chat", "Views", "ChatComposerView.swift")
 
         #expect(source.contains("private struct MobileComposerCircleButton"))
         #expect(source.contains(".frame(maxWidth: .infinity, alignment: .leading)"))
@@ -36,7 +36,7 @@ struct ChatScreenLayoutTests {
 
     @Test("composer uses one compact menu for model effort and agent")
     func composerUsesOneCompactMenuForModelEffortAndAgent() throws {
-        let source = try source("Sources", "SloppyFeatureChat", "ChatComposerView.swift")
+        let source = try source("Sources", "SloppyFeatureChat", "Screens", "Chat", "Views", "ChatComposerView.swift")
 
         #expect(source.contains("private struct ComposerOptionsMenuView"))
         #expect(source.contains("Menu {"))
@@ -46,7 +46,7 @@ struct ChatScreenLayoutTests {
 
     @Test("desktop transcript keeps full width scroll host with centered content column")
     func desktopTranscriptKeepsFullWidthScrollHostWithCenteredContentColumn() throws {
-        let source = try source("Sources", "SloppyFeatureChat", "ChatScreen.swift")
+        let source = try source("Sources", "SloppyFeatureChat", "Screens", "Chat", "ChatScreen.swift")
 
         #expect(source.contains("ScrollView {\n                        VStack(spacing: 0) {"))
         #expect(source.contains(".frame(width: contentWidth)"))
@@ -54,17 +54,16 @@ struct ChatScreenLayoutTests {
         #expect(!source.contains(".frame(width: contentWidth)\n                .frame(maxHeight: .infinity)"))
     }
 
-    @Test("bounded transcript uses VStack instead of LazyVStack to avoid lazy scroll layout churn")
-    func boundedTranscriptUsesVStackInsteadOfLazyVStack() throws {
-        let source = try source("Sources", "SloppyFeatureChat", "ChatScreen.swift")
+    @Test("transcript virtualizes markdown message rows during scrolling")
+    func transcriptUsesLazyVStackForMarkdownMessageRows() throws {
+        let source = try source("Sources", "SloppyFeatureChat", "Screens", "Chat", "ChatScreen.swift")
 
-        #expect(source.contains("VStack(alignment: .leading, spacing: theme.spacing.xl)"))
-        #expect(!source.contains("LazyVStack(alignment: .leading, spacing: theme.spacing.xl)"))
+        #expect(source.contains("LazyVStack(alignment: .leading, spacing: theme.spacing.xl)"))
     }
 
     @Test("tapping chat content dismisses composer focus")
     func tappingChatContentDismissesComposerFocus() throws {
-        let source = try source("Sources", "SloppyFeatureChat", "ChatScreen.swift")
+        let source = try source("Sources", "SloppyFeatureChat", "Screens", "Chat", "ChatScreen.swift")
 
         #expect(source.contains(".contentShape(Rectangle())"))
         #expect(source.contains(".onTapGesture {"))

@@ -12,6 +12,7 @@ struct SloppyClientAppWiringTests {
             let appURL = packageRoot
                 .appendingPathComponent("Sources")
                 .appendingPathComponent("SloppyClient")
+                .appendingPathComponent("App")
                 .appendingPathComponent("SloppyClientApp.swift")
             return try String(contentsOf: appURL, encoding: .utf8)
         }

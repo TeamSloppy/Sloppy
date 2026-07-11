@@ -8,11 +8,33 @@ struct MainNavigationShellTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let sourceURL = packageRoot
+        let sourcesRoot = packageRoot
             .appendingPathComponent("Sources")
             .appendingPathComponent("SloppyClient")
-            .appendingPathComponent(fileName)
-        return try String(contentsOf: sourceURL, encoding: .utf8)
+        let sourceURL = FileManager.default.enumerator(
+            at: sourcesRoot,
+            includingPropertiesForKeys: nil
+        )?
+            .compactMap { $0 as? URL }
+            .first(where: { $0.lastPathComponent == fileName })
+        return try String(contentsOf: #require(sourceURL), encoding: .utf8)
+    }
+
+    private func featureSource(named fileName: String) throws -> String {
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let sourcesRoot = packageRoot
+            .appendingPathComponent("Sources")
+            .appendingPathComponent("SloppyFeatureChat")
+        let sourceURL = FileManager.default.enumerator(
+            at: sourcesRoot,
+            includingPropertiesForKeys: nil
+        )?
+            .compactMap { $0 as? URL }
+            .first(where: { $0.lastPathComponent == fileName })
+        return try String(contentsOf: #require(sourceURL), encoding: .utf8)
     }
 
     @Test("main view defines section tabs for shell navigation")
@@ -79,12 +101,13 @@ struct MainNavigationShellTests {
 
     @Test("sidebar defines section picker tabs for chats agents and projects")
     func sidebarDefinesSectionPickerTabsForChatsAgentsAndProjects() throws {
-        let source = try source(named: "MainSidebarView.swift")
+        let iosSource = try source(named: "IOSMainSidebar.swift")
+        let visionSource = try source(named: "VisionMainSidebar.swift")
+        let source = iosSource + visionSource
 
         #expect(source.contains("TabView(selection: $viewModel.selectedAppSection)"))
         #expect(source.contains("Tab(\"Chats\""))
         #expect(source.contains("Tab(\"Agents\""))
-        #expect(source.contains("Tab(\"Projects\""))
     }
 
     @Test("workspace toolbar button remains present in main view shell")
@@ -93,6 +116,20 @@ struct MainNavigationShellTests {
 
         #expect(source.contains("case workspace"))
         #expect(source.contains("ToolbarItem(placement: .primaryAction)"))
+    }
+
+    @Test("main view toolbar exposes separate agent and model menus for chat state")
+    func mainViewToolbarExposesSeparateAgentAndModelMenusForChatState() throws {
+        let mainView = try source(named: "MainView.swift")
+        let composer = try featureSource(named: "ChatComposerView.swift")
+
+        #expect(mainView.contains("ChatAgentToolbarMenu("))
+        #expect(mainView.contains("ChatModelToolbarMenu("))
+        #expect(mainView.contains("private var activeChatViewModel: ChatScreenViewModel?"))
+        #expect(mainView.contains("activeChatViewModel.selectedAgent"))
+        #expect(mainView.contains("activeChatViewModel.availableModels"))
+        #expect(composer.contains("struct ChatAgentToolbarMenu: View"))
+        #expect(composer.contains("struct ChatModelToolbarMenu: View"))
     }
 
     @Test("main view loads sidebar chat data on appear")

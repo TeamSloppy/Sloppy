@@ -8,22 +8,28 @@ struct MainSidebarChatModeSourceTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
+        let sourcesRoot = packageRoot
+            .appendingPathComponent("Sources")
+            .appendingPathComponent("SloppyClient")
+        let sourceURL = FileManager.default.enumerator(
+            at: sourcesRoot,
+            includingPropertiesForKeys: nil
+        )?
+            .compactMap { $0 as? URL }
+            .first(where: { $0.lastPathComponent == fileName })
 
         return try String(
-            contentsOf: packageRoot
-                .appendingPathComponent("Sources")
-                .appendingPathComponent("SloppyClient")
-                .appendingPathComponent(fileName),
+            contentsOf: #require(sourceURL),
             encoding: .utf8
         )
     }
 
     @Test("chat sidebar exposes pinned and list mode controls inside chats tab")
     func chatSidebarExposesPinnedAndListModeControlsInsideChatsTab() throws {
-        let source = try source(named: "MainSidebarView.swift")
+        let source = try source(named: "SidebarRecentsList.swift")
 
-        #expect(source.contains("sectionLabel(\"Pinned\""))
-        #expect(source.contains("chatListModeMenu"))
+        #expect(source.contains("SidebarSectionTitle(title: \"Pinned\")"))
+        #expect(source.contains("SidebarListModeMenu"))
         #expect(source.contains("ChatSidebarSections.build("))
     }
 }

@@ -14,7 +14,7 @@ struct DesktopSplitRenderingSourceTests {
 
     @Test("main view renders two desktop panes with a center split handle")
     func mainViewRendersTwoDesktopPanesWithCenterSplitHandle() throws {
-        let source = try source("Sources", "SloppyClient", "MainView.swift")
+        let source = try source("Sources", "SloppyClient", "Navigation", "Main", "MainView.swift")
 
         #expect(source.contains("if let desktopSplitState = viewModel.desktopSplitState"))
         #expect(source.contains("DesktopSplitHandle("))

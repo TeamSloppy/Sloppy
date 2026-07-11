@@ -13,7 +13,7 @@ struct WorkspaceToolbarActionsSourceTests {
 
     @Test("workspace toolbar renders dedicated buttons and a separate tools menu")
     func workspaceToolbarRendersDedicatedButtonsAndToolsMenu() throws {
-        let panelView = try source("Sources/SloppyClient/WorkspacePanelView.swift")
+        let panelView = try source("Sources/SloppyClient/Workspace/Panel/WorkspacePanelView.swift")
 
         #expect(panelView.contains("Open in Zed"))
         #expect(panelView.contains("Reveal in Finder"))
@@ -23,8 +23,8 @@ struct WorkspaceToolbarActionsSourceTests {
 
     @Test("workspace toolbar registers cmd+t to toggle the tools menu")
     func workspaceToolbarRegistersCmdT() throws {
-        let panelView = try source("Sources/SloppyClient/WorkspacePanelView.swift")
-        let panelVM = try source("Sources/SloppyClient/WorkspacePanelViewModel.swift")
+        let panelView = try source("Sources/SloppyClient/Workspace/Panel/WorkspacePanelView.swift")
+        let panelVM = try source("Sources/SloppyClient/Workspace/Panel/WorkspacePanelViewModel.swift")
 
         #expect(panelView.contains(".keyboardShortcut(\"t\", modifiers: [.command])"))
         #expect(panelVM.contains("var isToolsMenuPresented"))
@@ -33,7 +33,7 @@ struct WorkspaceToolbarActionsSourceTests {
 
     @Test("workspace toolbar computes selection-driven enablement")
     func workspaceToolbarComputesSelectionDrivenEnablement() throws {
-        let panelVM = try source("Sources/SloppyClient/WorkspacePanelViewModel.swift")
+        let panelVM = try source("Sources/SloppyClient/Workspace/Panel/WorkspacePanelViewModel.swift")
 
         #expect(panelVM.contains("struct WorkspacePanelSelectionContext"))
         #expect(panelVM.contains("var canOpenInEditor"))

@@ -13,7 +13,7 @@ struct MainSidebarNavigationSourceTests {
 
     @Test("sidebar tab actions dismiss mobile sidebar before showing detail content")
     func sidebarTabActionsDismissMobileSidebarBeforeShowingDetailContent() throws {
-        let source = try source("Sources/SloppyClient/MainViewModel.swift")
+        let source = try source("Sources/SloppyClient/Navigation/Main/MainViewModel.swift")
 
         try assertDismissesMobileSidebar(source, in: "func openSessionChatTab(_ session: ChatSessionSummary)")
         try assertDismissesMobileSidebar(source, in: "func openProjectKanbanTab(project: APIProjectRecord)")
@@ -23,7 +23,7 @@ struct MainSidebarNavigationSourceTests {
 
     @Test("phone chat detail can reopen the sidebar")
     func phoneChatDetailCanReopenTheSidebar() throws {
-        let source = try source("Sources/SloppyClient/MainView.swift")
+        let source = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
 
         #expect(source.contains("let openSidebar: (@MainActor () -> Void)? = idiom == .phone ? viewModel.openMobileSidebar : nil"))
         #expect(source.contains("onOpenSidebar: openSidebar"))
@@ -31,17 +31,18 @@ struct MainSidebarNavigationSourceTests {
 
     @Test("sidebar rows use navigation links to open compact detail")
     func sidebarRowsUseNavigationLinksToOpenCompactDetail() throws {
-        let sidebarSource = try source("Sources/SloppyClient/MainSidebarView.swift")
-        let mainViewSource = try source("Sources/SloppyClient/MainView.swift")
+        let sidebarSource = try source("Sources/SloppyClient/Navigation/Shared/SidebarNavigationRow.swift")
+            + source("Sources/SloppyClient/Navigation/Shared/SidebarSessionRow.swift")
+            + source("Sources/SloppyClient/Navigation/Platforms/macOS/MacMainSidebar.swift")
+        let mainViewSource = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
         let sidebarColumnRange = try #require(mainViewSource.range(of: "private var navigationView: some View"))
         let detailColumnRange = try #require(mainViewSource.range(of: "} detail: {"))
         let sidebarColumnSource = mainViewSource[sidebarColumnRange.lowerBound..<detailColumnRange.lowerBound]
 
-        #expect(sidebarSource.contains("navigationValue: MainSidebarSelection?"))
+        #expect(sidebarSource.contains("var navigationValue: MainSidebarSelection?"))
         #expect(sidebarSource.contains("NavigationLink(value: navigationValue)"))
-        #expect(sidebarSource.contains("navigationValue: .chats"))
-        #expect(sidebarSource.contains("navigationValue: .project(project.id)"))
-        #expect(sidebarSource.contains("navigationValue: .task(projectId: projectId, taskId: task.id)"))
+        #expect(sidebarSource.contains("MainSidebarSelection.chats"))
+        #expect(sidebarSource.contains("navigationValue: .scheduled"))
         #expect(sidebarColumnSource.contains(".navigationDestination(for: MainSidebarSelection.self)"))
         #expect(mainViewSource.contains("NavigationSplitView(columnVisibility: $viewModel.columnVisibility)"))
         #expect(!mainViewSource.contains("mobileSidebarOverlay()"))

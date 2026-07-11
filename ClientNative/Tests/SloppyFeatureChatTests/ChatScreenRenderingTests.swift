@@ -3,6 +3,16 @@ import Testing
 
 @Suite("ChatScreen rendering")
 struct ChatScreenRenderingTests {
+    @Test("desktop chat toolbar provides a dismiss back button")
+    func desktopChatToolbarProvidesDismissBackButton() throws {
+        let source = try chatScreenSource
+
+        #expect(source.contains("@Environment(\\.dismiss) private var dismiss"))
+        #expect(source.contains("Image(systemName: \"chevron.left\")"))
+        #expect(source.contains("Button(action: { dismiss() })"))
+        #expect(source.contains(".accessibilityLabel(\"Back\")"))
+    }
+
     private var chatScreenSource: String {
         get throws {
             let packageRoot = URL(fileURLWithPath: #filePath)
@@ -12,6 +22,8 @@ struct ChatScreenRenderingTests {
             let sourceURL = packageRoot
                 .appendingPathComponent("Sources")
                 .appendingPathComponent("SloppyFeatureChat")
+                .appendingPathComponent("Screens")
+                .appendingPathComponent("Chat")
                 .appendingPathComponent("ChatScreen.swift")
             return try String(contentsOf: sourceURL, encoding: .utf8)
         }

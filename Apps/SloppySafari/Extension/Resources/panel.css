@@ -353,6 +353,17 @@
   top: 16px;
   left: 8px;
   right: 8px;
+  z-index: 4;
+  padding: 12px 14px;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.02)),
+    rgba(24, 24, 24, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 18px;
+  box-shadow:
+    0 18px 40px rgba(0, 0, 0, 0.3),
+    inset 0 1px 0 rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(22px) saturate(1.1);
 }
 
 .sloppy-start-page #sloppy-safari-extension-panel .sloppy-thread {
@@ -366,7 +377,7 @@
   inset: 0;
   z-index: 1;
   overflow: hidden;
-  padding: 0;
+  padding: 88px 0 0;
 }
 
 .sloppy-start-page #sloppy-safari-extension-panel .sloppy-browser-context {

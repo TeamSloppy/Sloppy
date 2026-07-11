@@ -11,8 +11,7 @@ struct ChatComposerRenderingTests {
                 .deletingLastPathComponent()
             let sourceURL = packageRoot
                 .appendingPathComponent("Sources")
-                .appendingPathComponent("SloppyFeatureChat")
-                .appendingPathComponent("ChatComposerView.swift")
+                .appendingPathComponent("SloppyFeatureChat/Screens/Chat/Views/ChatComposerView.swift")
             return try String(contentsOf: sourceURL, encoding: .utf8)
         }
     }
@@ -29,10 +28,25 @@ struct ChatComposerRenderingTests {
         let source = try chatComposerSource
 
         #expect(source.contains("private struct MobileComposerCircleButton"))
-        #expect(source.contains("let circleSize = userInterfaceIdiom == .phone ? ChatComposerView.phoneCircleSize : ChatComposerView.buttonSize"))
-        #expect(source.contains(".frame(width: circleSize, height: circleSize)"))
+        #expect(source.contains(".frame("))
+        #expect(source.contains("width: ChatComposerView.phoneCircleSize"))
+        #expect(source.contains("height: ChatComposerView.phoneCircleSize"))
         #expect(source.contains(".buttonBorderShape(.circle)"))
         #expect(source.contains(".buttonStyle(.glass)"))
+    }
+
+    @Test("composer add button exposes platform-specific picker menus")
+    func composerAddButtonExposesPlatformSpecificPickerMenus() throws {
+        let source = try chatComposerSource
+
+        #expect(source.contains("private struct ComposerAddMenu"))
+        #expect(source.contains("Label(\"Files and Attach\""))
+        #expect(source.contains("Label(\"Model\""))
+        #expect(source.contains("Label(\"Camera\""))
+        #expect(source.contains("Label(\"Photos\""))
+        #expect(source.contains("Label(\"Files\""))
+        #expect(source.contains("Label(\"Agent\""))
+        #expect(source.contains("Label(\"Effort\""))
     }
 
     @Test("chat composer phone layout exposes tab action hooks")
@@ -40,8 +54,8 @@ struct ChatComposerRenderingTests {
         let source = try chatComposerSource
 
         #expect(source.contains("public struct ChatComposerTabActions"))
-        #expect(source.contains("var tabActions: ChatComposerTabActions?"))
-        #expect(source.contains("tabActions?.createTab()"))
+        #expect(source.contains("public let tabActions: ChatComposerTabActions?"))
+        #expect(source.contains("tabActions?.tabProgress(newValue)"))
         #expect(source.contains("tabActions?.showOverview()"))
     }
 
@@ -68,7 +82,7 @@ struct ChatComposerRenderingTests {
         let source = try chatComposerSource
 
         #expect(source.contains(".submitLabel(.send)"))
-        #expect(source.contains(".onSubmit(submit)"))
+        #expect(source.contains(".onSubmit {"))
     }
 
     @Test("composer draft is observable so trailing action reacts while typing")
@@ -87,22 +101,41 @@ struct ChatComposerRenderingTests {
     func composerTrailingActionSupportsDictationSendingAndStoppingRuns() throws {
         let source = try chatComposerSource
 
-        #expect(source.contains("return .microphone"))
+        #expect(source.contains("DictationComposerBar("))
+        #expect(source.contains("if viewModel.isShowingDictationComposer"))
         #expect(source.contains("return .arrowUpward"))
-        #expect(source.contains("draft.requestDictation()"))
+        #expect(source.contains("viewModel.startDictation()"))
+        #expect(source.contains("stop: viewModel.stopDictation"))
         #expect(source.contains("viewModel.stopActiveRun()"))
         #expect(source.contains("guard !trimmed.isEmpty, viewModel.canSubmitMessage else { return }"))
     }
 
-    @Test("composer microphone action requests text field dictation focus")
-    func composerMicrophoneActionRequestsTextFieldDictationFocus() throws {
+    @Test("composer dictation bar replaces controls with waveform timer and stop button")
+    func composerDictationBarReplacesControls() throws {
         let source = try chatComposerSource
 
-        #expect(source.contains("public private(set) var dictationRequestToken: Int = 0"))
-        #expect(source.contains("public func requestDictation()"))
-        #expect(source.contains("dictationRequestToken += 1"))
-        #expect(source.contains(".onChange(of: draft.dictationRequestToken)"))
-        #expect(source.contains("isTextFieldFocused = true"))
+        #expect(source.contains("private struct DictationComposerBar"))
+        #expect(source.contains("ForEach(levels.indices, id: \\.self)"))
+        #expect(source.contains("Text(elapsedText)"))
+        #expect(source.contains("Icons.symbol(.stop"))
+        #expect(!source.contains("draft.requestDictation()"))
+    }
+
+    @Test("dictation bar keeps trailing controls fixed while waveform can overflow left")
+    func dictationBarKeepsTrailingControlsFixed() throws {
+        let source = try chatComposerSource
+
+        #expect(source.contains("private let elapsedTextWidth: CGFloat = 64"))
+        #expect(source.contains("private let stopButtonSize: CGFloat = 32"))
+        #expect(source.contains("private var trailingControlsWidth: CGFloat {"))
+        #expect(source.contains("elapsedTextWidth + theme.spacing.s + stopButtonSize"))
+        #expect(source.contains("waveformViewport"))
+        #expect(source.contains("waveformView"))
+        #expect(source.contains("trailingControls"))
+        #expect(source.contains(".frame(maxWidth: .infinity, alignment: .trailing)"))
+        #expect(source.contains(".overlay(alignment: .trailing)"))
+        #expect(source.contains("Color.clear"))
+        #expect(source.contains(".allowsHitTesting(false)"))
     }
 
     @Test("desktop composer exposes one combined model effort and agent menu")

@@ -16,7 +16,7 @@ struct RootShellSettingsSceneSourceTests {
 
     @Test("root shell can receive a shared root view model")
     func rootShellCanReceiveSharedRootViewModel() throws {
-        let sourceText = try source("Sources/SloppyClient/RootShellView.swift")
+        let sourceText = try source("Sources/SloppyClient/Root/RootShellView.swift")
 
         #expect(sourceText.contains("let viewModel: RootShellViewModel"))
         #expect(sourceText.contains("init(viewModel: RootShellViewModel"))

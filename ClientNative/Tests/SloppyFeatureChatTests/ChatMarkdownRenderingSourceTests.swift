@@ -14,8 +14,8 @@ struct ChatMarkdownRenderingSourceTests {
 
     @Test("chat markdown text stack uses cached rendering helpers instead of parsing inline in body")
     func chatMarkdownTextStackUsesCachedRenderingHelpers() throws {
-        let bubbleSource = try source("Sources", "SloppyFeatureChat", "ChatBubbleView.swift")
-        let supportSource = try source("Sources", "SloppyFeatureChat", "ChatMessageRenderingSupport.swift")
+        let bubbleSource = try source("Sources", "SloppyFeatureChat", "Screens", "Chat", "Views", "ChatBubbleView.swift")
+        let supportSource = try source("Sources", "SloppyFeatureChat", "Support", "ChatMessageRenderingSupport.swift")
 
         #expect(bubbleSource.contains("import Textual"))
         #expect(bubbleSource.contains("StructuredText(markdown: text)"))

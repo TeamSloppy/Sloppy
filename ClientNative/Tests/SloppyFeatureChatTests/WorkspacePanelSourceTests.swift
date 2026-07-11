@@ -13,7 +13,7 @@ struct WorkspacePanelSourceTests {
 
     @Test("workspace panel loads lazy directories and file previews")
     func workspacePanelLoadsLazyDirectoriesAndPreview() throws {
-        let vm = try source("Sources/SloppyClient/WorkspacePanelViewModel.swift")
+        let vm = try source("Sources/SloppyClient/Workspace/Panel/WorkspacePanelViewModel.swift")
 
         #expect(vm.contains("func activate(context: WorkspacePanelContext)"))
         #expect(vm.contains("func refresh() async"))
@@ -25,8 +25,8 @@ struct WorkspacePanelSourceTests {
 
     @Test("chat view model accepts dropped project file references")
     func chatViewModelAcceptsDroppedProjectFileReferences() throws {
-        let chatVM = try source("Sources/SloppyFeatureChat/ChatScreenViewModel.swift")
-        let chatScreen = try source("Sources/SloppyFeatureChat/ChatScreen.swift")
+        let chatVM = try source("Sources/SloppyFeatureChat/Screens/Chat/ChatScreenViewModel.swift")
+        let chatScreen = try source("Sources/SloppyFeatureChat/Screens/Chat/ChatScreen.swift")
 
         #expect(chatVM.contains("func attachProjectFileReference(projectId: String, path: String, type: String)"))
         #expect(chatScreen.contains(".dropDestination(for: String.self)"))
@@ -34,8 +34,8 @@ struct WorkspacePanelSourceTests {
 
     @Test("chat accepts imported and dropped local file references")
     func chatAcceptsImportedAndDroppedLocalFileReferences() throws {
-        let chatVM = try source("Sources/SloppyFeatureChat/ChatScreenViewModel.swift")
-        let chatScreen = try source("Sources/SloppyFeatureChat/ChatScreen.swift")
+        let chatVM = try source("Sources/SloppyFeatureChat/Screens/Chat/ChatScreenViewModel.swift")
+        let chatScreen = try source("Sources/SloppyFeatureChat/Screens/Chat/ChatScreen.swift")
 
         #expect(chatVM.contains("func attachFileURLs(_ urls: [URL])"))
         #expect(chatScreen.contains("case .success(let urls):"))

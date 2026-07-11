@@ -14,7 +14,7 @@ struct ChatBubbleViewSourceTests {
 
     @Test("collapsible cards only use live timeline updates while a segment is still running")
     func collapsibleCardsOnlyUseTimelineViewForRunningSegments() throws {
-        let source = try source("Sources", "SloppyFeatureChat", "ChatBubbleView.swift")
+        let source = try source("Sources", "SloppyFeatureChat", "Screens", "Chat", "Views", "ChatBubbleView.swift")
 
         #expect(source.contains("if showsLiveDuration"))
         #expect(source.contains("TimelineView(.periodic(from: .now, by: 1))"))

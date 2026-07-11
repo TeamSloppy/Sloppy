@@ -13,8 +13,8 @@ struct MobileWorkspaceTabsSourceTests {
 
     @Test("main view presents mobile overview from detail container")
     func mainViewPresentsMobileOverviewFromDetailContainer() throws {
-        let mainView = try source("Sources/SloppyClient/MainView.swift")
-        let overview = try source("Sources/SloppyClient/MobileWorkspaceTabsOverview.swift")
+        let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
+        let overview = try source("Sources/SloppyClient/Navigation/Tabs/MobileWorkspaceTabsOverview.swift")
 
         #expect(mainView.contains("MobileWorkspaceTabsOverview("))
         #expect(mainView.contains("viewModel.isMobileTabsOverviewPresented"))
@@ -24,8 +24,8 @@ struct MobileWorkspaceTabsSourceTests {
 
     @Test("mobile tabs overview uses stable thumbnails and paging motion")
     func mobileTabsOverviewUsesStableThumbnailsAndPagingMotion() throws {
-        let mainView = try source("Sources/SloppyClient/MainView.swift")
-        let overview = try source("Sources/SloppyClient/MobileWorkspaceTabsOverview.swift")
+        let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
+        let overview = try source("Sources/SloppyClient/Navigation/Tabs/MobileWorkspaceTabsOverview.swift")
 
         #expect(mainView.contains("phoneWorkspaceContentHost(showsFloatingTabChrome:"))
         #expect(mainView.contains("mobileTabPagingTransition(for tab: WorkspaceTab)"))

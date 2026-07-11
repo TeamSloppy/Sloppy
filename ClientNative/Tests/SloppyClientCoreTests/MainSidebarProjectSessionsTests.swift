@@ -10,9 +10,7 @@ struct MainSidebarProjectSessionsTests {
                 .deletingLastPathComponent()
                 .deletingLastPathComponent()
             let sourceURL = packageRoot
-                .appendingPathComponent("Sources")
-                .appendingPathComponent("SloppyClient")
-                .appendingPathComponent("MainSidebarView.swift")
+                .appendingPathComponent("Sources/SloppyClient/Navigation/Shared/SidebarRecentsList.swift")
             return try String(contentsOf: sourceURL, encoding: .utf8)
         }
     }
@@ -21,11 +19,18 @@ struct MainSidebarProjectSessionsTests {
     func projectGroupsAreBuiltFromChatSessionsWithMessages() throws {
         let source = try source
 
-        #expect(source.contains("let projectSessions = viewModel.chatViewModel.sessions.filter"))
-        #expect(source.contains("$0.projectId == project.id"))
-        #expect(source.contains("$0.messageCount > 0"))
-        #expect(source.contains("ForEach(visible) { session in"))
-        #expect(source.contains("projectSessionRow(session: session, c: c, sp: sp)"))
+        #expect(source.contains("ChatSidebarSections.build("))
+        #expect(source.contains("ForEach(sections.projectGroups.prefix(viewModel.visibleProjectCount))"))
+        #expect(source.contains("ForEach(sessions)"))
+    }
+
+    @Test("project list reveals additional projects in pages")
+    func projectListRevealsAdditionalProjectsInPages() throws {
+        let source = try source
+
+        #expect(source.contains("sections.projectGroups.prefix(viewModel.visibleProjectCount)"))
+        #expect(source.contains("Button(\"Show more project\")"))
+        #expect(source.contains("viewModel.showMoreProjects()"))
     }
 
     @Test("project and recents session rows open session-backed tabs")

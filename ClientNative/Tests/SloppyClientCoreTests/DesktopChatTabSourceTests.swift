@@ -13,10 +13,10 @@ struct DesktopChatTabSourceTests {
 
     @Test("chat tabs own local chat screen state")
     func chatTabsOwnLocalChatScreenState() throws {
-        let tabs = try source("Sources/SloppyClient/MainTabs.swift")
-        let mainView = try source("Sources/SloppyClient/MainView.swift")
-        let mainViewModel = try source("Sources/SloppyClient/MainViewModel.swift")
-        let chatScreen = try source("Sources/SloppyFeatureChat/ChatScreen.swift")
+        let tabs = try source("Sources/SloppyClient/Navigation/Main/MainTabs.swift")
+        let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
+        let mainViewModel = try source("Sources/SloppyClient/Navigation/Main/MainViewModel.swift")
+        let chatScreen = try source("Sources/SloppyFeatureChat/Screens/Chat/ChatScreen.swift")
 
         #expect(tabs.contains("final class WorkspaceTabState"))
         #expect(tabs.contains("var content: AnyView?"))
@@ -24,6 +24,7 @@ struct DesktopChatTabSourceTests {
         #expect(tabs.contains("let viewModel: ChatScreenViewModel"))
         #expect(mainViewModel.contains("var tabStates: [WorkspaceTab.ID: WorkspaceTabState] = [:]"))
         #expect(mainViewModel.contains("makeChatTabState() -> ChatTabState"))
+        #expect(mainViewModel.contains("restoresLastSession: false"))
         #expect(mainView.contains("cachedContent(for: tab)"))
         #expect(mainView.contains("mountedDesktopTabContent(activeTabID: activeDesktopTab.id)"))
         #expect(mainView.contains(".allowsHitTesting(tab.id == activeTabID)"))
@@ -35,7 +36,7 @@ struct DesktopChatTabSourceTests {
 
     @Test("desktop task and recent session actions use tab-local chats instead of the global chat view model")
     func desktopTaskAndRecentSessionActionsUseTabLocalChats() throws {
-        let mainViewModel = try source("Sources/SloppyClient/MainViewModel.swift")
+        let mainViewModel = try source("Sources/SloppyClient/Navigation/Main/MainViewModel.swift")
 
         #expect(mainViewModel.contains("openTaskChatTab("))
         #expect(mainViewModel.contains("openSessionChatTab("))
@@ -43,5 +44,14 @@ struct DesktopChatTabSourceTests {
         #expect(mainViewModel.contains("private func retargetSelectedChatTab(to session: ChatSessionSummary) -> Bool"))
         #expect(!mainViewModel.contains("chatViewModel.pickSession(session)"))
         #expect(!mainViewModel.contains("navigateChat("))
+    }
+
+    @Test("blank tab-local chats do not restore the previous global session")
+    func blankTabLocalChatsDoNotRestoreThePreviousGlobalSession() throws {
+        let chatViewModel = try source("Sources/SloppyFeatureChat/Screens/Chat/ChatScreenViewModel.swift")
+
+        #expect(chatViewModel.contains("restoresLastSession: Bool = true"))
+        #expect(chatViewModel.contains("else if restoresLastSession,"))
+        #expect(chatViewModel.contains("if restoresLastSession {\n                        settings.lastSessionId = nil"))
     }
 }

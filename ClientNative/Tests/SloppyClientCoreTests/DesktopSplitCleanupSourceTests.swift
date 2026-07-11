@@ -14,7 +14,7 @@ struct DesktopSplitCleanupSourceTests {
 
     @Test("main view model clears temporary split when retargeting selected chat tab")
     func mainViewModelClearsTemporarySplitWhenRetargetingSelectedChatTab() throws {
-        let source = try source("Sources", "SloppyClient", "MainView.swift")
+        let source = try source("Sources", "SloppyClient", "Navigation", "Main", "MainView.swift")
 
         #expect(source.contains("private func retargetSelectedChatTab(to session: ChatSessionSummary)"))
         #expect(source.contains("clearDesktopSplit()"))
