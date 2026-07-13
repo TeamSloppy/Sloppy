@@ -195,6 +195,79 @@ struct ChatModelsTests {
         #expect(detail.messages.first?.textContent == "Open me")
     }
 
+    @Test("ChatSessionDetail exposes only the latest structured build progress event")
+    func chatSessionDetailDecodesLatestBuildProgress() throws {
+        let json = """
+        {
+            "summary": {
+                "id": "sess-progress",
+                "agentId": "agent-1",
+                "title": "Build",
+                "messageCount": 1,
+                "updatedAt": "2026-01-01T00:00:05Z",
+                "kind": "chat"
+            },
+            "events": [
+                {
+                    "id": "evt-message",
+                    "type": "message",
+                    "message": {
+                        "id": "msg-1",
+                        "role": "assistant",
+                        "segments": [{"kind": "text", "text": "Starting"}],
+                        "createdAt": "2026-01-01T00:00:00Z"
+                    }
+                },
+                {
+                    "id": "evt-progress-1",
+                    "type": "build_progress",
+                    "buildProgress": {
+                        "title": "Implementation",
+                        "items": [
+                            {
+                                "id": "inspect",
+                                "title": "Inspect",
+                                "status": "in_progress",
+                                "definitionOfDone": "Relevant code is understood"
+                            }
+                        ],
+                        "createdAt": "2026-01-01T00:00:01Z"
+                    }
+                },
+                {
+                    "id": "evt-progress-2",
+                    "type": "build_progress",
+                    "buildProgress": {
+                        "title": "Implementation",
+                        "items": [
+                            {
+                                "id": "inspect",
+                                "title": "Inspect",
+                                "status": "done",
+                                "definitionOfDone": "Relevant code is understood"
+                            },
+                            {
+                                "id": "render",
+                                "title": "Render progress",
+                                "status": "in_progress",
+                                "definitionOfDone": "The card is visible"
+                            }
+                        ],
+                        "createdAt": "2026-01-01T00:00:02Z"
+                    }
+                }
+            ]
+        }
+        """.data(using: .utf8)!
+
+        let detail = try isoDecoder.decode(ChatSessionDetail.self, from: json)
+
+        #expect(detail.messages.map(\.id) == ["msg-1", "build-progress-current"])
+        let progress = try #require(detail.messages.last?.segments.first?.buildProgress)
+        #expect(progress.items.map(\.status) == [.done, .inProgress])
+        #expect(progress.currentStepNumber == 2)
+    }
+
     @Test("ChatStreamUpdate sessionReady kind decodes")
     func chatStreamUpdateSessionReady() throws {
         let json = """
@@ -272,6 +345,40 @@ struct ChatModelsTests {
         #expect(update.messageText == "Partial assistant response")
         #expect(update.errorText == nil)
         #expect(update.message == nil)
+    }
+
+    @Test("ChatStreamUpdate exposes structured build progress as a timeline message")
+    func chatStreamUpdateBuildProgress() throws {
+        let json = """
+        {
+            "kind": "session_event",
+            "cursor": 7,
+            "event": {
+                "id": "evt-progress",
+                "type": "build_progress",
+                "buildProgress": {
+                    "title": "Implementation",
+                    "items": [
+                        {
+                            "id": "verify",
+                            "title": "Run tests",
+                            "status": "pending",
+                            "definitionOfDone": "Tests pass"
+                        }
+                    ],
+                    "createdAt": "2026-01-01T00:00:03Z"
+                }
+            }
+        }
+        """.data(using: .utf8)!
+
+        let update = try isoDecoder.decode(ChatStreamUpdate.self, from: json)
+
+        #expect(update.streamEvent?.type == .buildProgress)
+        #expect(update.message?.id == "build-progress-current")
+        #expect(update.message?.role == .system)
+        #expect(update.message?.segments.first?.kind == .buildProgress)
+        #expect(update.message?.segments.first?.buildProgress?.items.first?.title == "Run tests")
     }
 
     @Test("ChatStreamUpdate sessionDelta supports delta field alias")

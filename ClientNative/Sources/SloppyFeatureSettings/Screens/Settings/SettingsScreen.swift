@@ -19,6 +19,7 @@ enum SettingsScreenSectionGroup: String, CaseIterable, Hashable {
 
 enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
     case client
+    case backend
     case mesh
     case providers
     case searchTools
@@ -47,6 +48,7 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
     var title: String {
         switch self {
         case .client: "General"
+        case .backend: "Sloppy Backend"
         case .mesh: "Mesh"
         case .providers: "Providers"
         case .searchTools: "Search Tools"
@@ -75,6 +77,7 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
     var subtitle: String {
         switch self {
         case .client: "Connection, appearance, accent, and desktop behavior."
+        case .backend: "Install or update the local Sloppy backend from GitHub Releases."
         case .mesh: "Mesh invite and target node selection."
         case .providers: "Model providers, API URLs, auth, and defaults."
         case .searchTools: "Web search provider routing and credentials."
@@ -104,6 +107,8 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
         switch self {
         case .client:
             ["general", "connection", "appearance", "accent", "desktop", "window"]
+        case .backend:
+            ["backend", "install", "installation", "release", "update", "github", "local"]
         case .mesh:
             ["mesh", "invite", "node", "sharing", "target"]
         case .providers:
@@ -153,7 +158,7 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
 
     var group: SettingsScreenSectionGroup {
         switch self {
-        case .client, .mesh:
+        case .client, .backend, .mesh:
             .client
         case .providers, .searchTools, .channels, .plugins, .nodeHost, .visor, .acp, .proxy, .gitSync, .rawConfig:
             .config
@@ -297,9 +302,11 @@ public struct SettingsScreen: View {
             Text(selectedSection.subtitle)
                 .font(.system(size: ty.body))
                 .foregroundColor(c.textMuted)
-            Text(statusText)
-                .font(.system(size: ty.caption))
-                .foregroundColor(c.textMuted)
+            if selectedSection != .backend {
+                Text(statusText)
+                    .font(.system(size: ty.caption))
+                    .foregroundColor(c.textMuted)
+            }
         }
     }
 
@@ -310,6 +317,12 @@ public struct SettingsScreen: View {
             ClientSettingsSection(settings: settings)
             #if os(macOS)
             windowResizeSection
+            #endif
+        case .backend:
+            #if os(macOS)
+            BackendSettingsSection()
+            #else
+            UnsupportedSettingsSectionView(section: section)
             #endif
         case .mesh:
             MeshSettingsSection(settings: settings)
@@ -509,6 +522,7 @@ private struct SettingsSidebarRowView: View {
     private var iconName: String {
         switch section {
         case .client: "gearshape"
+        case .backend: "shippingbox.and.arrow.backward"
         case .mesh: "point.3.connected.trianglepath.dotted"
         case .providers: "sparkles"
         case .searchTools: "magnifyingglass"

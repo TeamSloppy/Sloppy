@@ -24,12 +24,16 @@ struct WorkspaceTerminalDrawerSourceTests {
         #expect(mainView.contains("WorkspaceTerminalDrawerView"))
     }
 
-    @Test("terminal drawer view exposes resize handle and unavailable state")
-    func terminalDrawerViewExposesResizeHandleAndUnavailableState() throws {
+    @Test("terminal drawer limits its stable resize handle to touch platforms")
+    func terminalDrawerLimitsItsStableResizeHandleToTouchPlatforms() throws {
         let drawer = try source("Sources", "SloppyClient", "Workspace", "Terminal", "WorkspaceTerminalDrawerView.swift")
 
+        #expect(drawer.contains("#if os(iOS) || os(visionOS)"))
         #expect(drawer.contains("Capsule()"))
         #expect(drawer.contains("DragGesture"))
+        #expect(drawer.contains("let startHeight = dragStartHeight ?? height"))
+        #expect(drawer.contains("startHeight - value.translation.height"))
+        #expect(drawer.contains("dragStartHeight = nil"))
         #expect(drawer.contains("Project directory unavailable"))
     }
 }

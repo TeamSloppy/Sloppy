@@ -38,4 +38,12 @@ struct AgentChatViewSourceTests {
         #expect(source.contains("UIClipboard.setString(url.absoluteString)"))
         #expect(source.contains("\"/v1/debug/session-file-path/"))
     }
+
+    @Test("streaming assistant text accumulates across socket flushes")
+    func streamingAssistantTextAccumulatesAcrossSocketFlushes() throws {
+        let source = try agentChatViewSource
+
+        #expect(source.contains("pendingStreamingAssistantText = (pendingStreamingAssistantText ?? \"\") + text"))
+        #expect(source.contains("message.segments[segmentIndex].text = (message.segments[segmentIndex].text ?? \"\") + text"))
+    }
 }

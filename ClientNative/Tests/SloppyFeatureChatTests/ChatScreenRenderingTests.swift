@@ -37,7 +37,7 @@ struct ChatScreenRenderingTests {
         let contentSource = source[contentStart.lowerBound..<chromeStart.lowerBound]
 
         #expect(contentSource.contains("ChatChrome("))
-        #expect(contentSource.contains("ChatNavigationLeadingItems("))
+        #expect(source.contains("ChatNavigationToolbarModifier"))
         #expect(contentSource.contains("viewModel.loadInitialData()"))
     }
 
@@ -70,11 +70,36 @@ struct ChatScreenRenderingTests {
         #expect(source.contains("Text(activeContextTitle)"))
     }
 
+    @Test("empty chat offers project picker and starter prompts")
+    func emptyChatOffersProjectPickerAndStarterPrompts() throws {
+        let source = try chatScreenSource
+        let greetingSource = try chatGreetingSource
+
+        #expect(source.contains("projects: viewModel.projects"))
+        #expect(source.contains("onSelectProject: viewModel.pickProject"))
+        #expect(source.contains("selectedProjectName: viewModel.activeProjectNameForWorkspacePanel"))
+        #expect(source.contains("onSelectPrompt: viewModel.useStarterPrompt"))
+        #expect(greetingSource.contains("Menu {"))
+        #expect(greetingSource.contains("What should we build in"))
+        #expect(greetingSource.contains("Explore and understand code"))
+        #expect(greetingSource.contains("Fix issues and failures"))
+    }
+
     @Test("mobile navigation label shows the active context for drafts")
     func mobileNavigationLabelShowsTheActiveContextForDrafts() throws {
         let source = try chatScreenSource
 
-        #expect(source.contains("viewModel.activeContextTitle ?? \"New chat\""))
+        #expect(source.contains("viewModel.activeSessionTitle"))
+    }
+
+    @Test("desktop chat identifies the active session and surfaces send failures")
+    func desktopChatIdentifiesTheActiveSessionAndSurfacesSendFailures() throws {
+        let source = try chatScreenSource
+
+        #expect(source.contains("ChatSessionContextBar(viewModel: viewModel)"))
+        #expect(source.contains("viewModel.activeSessionTitle"))
+        #expect(source.contains("viewModel.sendErrorMessage"))
+        #expect(source.contains("Current session:"))
     }
 
     @Test("agent selection in header uses picker view")
@@ -92,5 +117,44 @@ struct ChatScreenRenderingTests {
         #expect(source.contains("viewModel.selectedAgent?.id"))
         #expect(source.contains("viewModel.agents.first?.id"))
         #expect(source.contains("?? \"\""))
+    }
+
+    @Test("chat only follows new messages while the transcript is near the bottom")
+    func chatOnlyFollowsNewMessagesNearBottom() throws {
+        let source = try chatScreenSource
+
+        #expect(source.contains("@State private var isNearBottom = true"))
+        #expect(source.contains(".onScrollGeometryChange(for: Bool.self)"))
+        #expect(source.contains(".onScrollPhaseChange"))
+        #expect(source.contains("if isUserScrolling"))
+        #expect(source.contains("geometry.visibleRect.maxY >= geometry.contentSize.height - bottomThreshold"))
+        #expect(source.contains("oldCount == 0 || isNearBottom"))
+        #expect(source.contains("guard isNearBottom,"))
+        #expect(source.contains("proxy.scrollTo(bottomAnchorId, anchor: .bottom)"))
+    }
+
+    @Test("chat groups system activity and shows a shimmering thinking state")
+    func chatGroupsSystemActivityAndShowsThinkingState() throws {
+        let source = try chatScreenSource
+
+        #expect(source.contains("ChatTranscriptGrouping.entries(from: transcript.messages)"))
+        #expect(source.contains("ChatSystemMessageGroupView(messages: messages)"))
+        #expect(source.contains("ChatThinkingIndicator()"))
+        #expect(source.contains("viewModel.isAwaitingAgentResponse"))
+        #expect(source.contains(".onChange(of: showsThinkingIndicator)"))
+    }
+
+    private var chatGreetingSource: String {
+        get throws {
+            let packageRoot = URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+            return try String(
+                contentsOf: packageRoot
+                    .appendingPathComponent("Sources/SloppyFeatureChat/Screens/Chat/Views/ChatGreetingView.swift"),
+                encoding: .utf8
+            )
+        }
     }
 }

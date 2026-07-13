@@ -47,6 +47,8 @@ struct ChatComposerRenderingTests {
         #expect(source.contains("Label(\"Files\""))
         #expect(source.contains("Label(\"Agent\""))
         #expect(source.contains("Label(\"Effort\""))
+        #expect(source.contains(".menuIndicator(.hidden)"))
+        #expect(source.contains(".menuStyle(.button)"))
     }
 
     @Test("chat composer phone layout exposes tab action hooks")
@@ -95,6 +97,16 @@ struct ChatComposerRenderingTests {
         #expect(source.contains("ChatTextField("))
         #expect(source.contains("draft: draft,"))
         #expect(source.contains("text: $draft.text"))
+    }
+
+    @Test("composer command suggestions use a full-size panel")
+    func composerSuggestionsUseFullSizePanel() throws {
+        let source = try chatComposerSource
+
+        #expect(source.contains("private static let panelHeight: CGFloat = 320"))
+        #expect(source.contains("minHeight: Self.panelHeight"))
+        #expect(source.contains("maxHeight: Self.panelHeight"))
+        #expect(source.contains(".overlay(alignment: .bottom)"))
     }
 
     @Test("composer trailing action swaps between dictation send and stop")

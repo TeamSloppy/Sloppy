@@ -212,6 +212,7 @@ struct ScheduledTasksScreen: View {
                     systemImage: "clock",
                     description: Text(searchText.isEmpty ? "Create a recurring task to see it here." : "Try another search or filter.")
                 )
+                .frame(maxHeight: .infinity)
             } else {
                 List(filteredTasks, selection: $viewModel.selectedTaskID) { task in
                     ScheduledTaskRow(task: task, agentName: viewModel.agentName(for: task.agentId))

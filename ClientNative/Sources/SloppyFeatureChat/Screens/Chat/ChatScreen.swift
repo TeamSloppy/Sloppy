@@ -18,6 +18,7 @@ public struct ChatScreen: View {
     private let rootSafeAreaInsets: EdgeInsets
     private let onOpenSidebar: (@MainActor () -> Void)?
     private let showsContextToolbar: Bool
+    private let showsNavigationToolbar: Bool
 
     public init(
         apiClient: SloppyAPIClient,
@@ -26,11 +27,13 @@ public struct ChatScreen: View {
         onOpenSettings: @escaping @MainActor () -> Void,
         rootSafeAreaInsets: EdgeInsets = EdgeInsets(),
         onOpenSidebar: (@MainActor () -> Void)? = nil,
-        showsContextToolbar: Bool = true
+        showsContextToolbar: Bool = true,
+        showsNavigationToolbar: Bool = true
     ) {
         self.rootSafeAreaInsets = rootSafeAreaInsets
         self.onOpenSidebar = onOpenSidebar
         self.showsContextToolbar = showsContextToolbar
+        self.showsNavigationToolbar = showsNavigationToolbar
         self._viewModel = State(
             initialValue: ChatScreenViewModel(
                 apiClient: apiClient,
@@ -45,11 +48,13 @@ public struct ChatScreen: View {
         viewModel: ChatScreenViewModel,
         rootSafeAreaInsets: EdgeInsets = EdgeInsets(),
         onOpenSidebar: (@MainActor () -> Void)? = nil,
-        showsContextToolbar: Bool = true
+        showsContextToolbar: Bool = true,
+        showsNavigationToolbar: Bool = true
     ) {
         self.rootSafeAreaInsets = rootSafeAreaInsets
         self.onOpenSidebar = onOpenSidebar
         self.showsContextToolbar = showsContextToolbar
+        self.showsNavigationToolbar = showsNavigationToolbar
         self.viewModel = viewModel
     }
 
@@ -60,6 +65,13 @@ public struct ChatScreen: View {
             composerTabActions: nil
         )
         .modifier(ChatContextToolbarModifier(viewModel: viewModel, isEnabled: showsContextToolbar))
+        .modifier(
+            ChatNavigationToolbarModifier(
+                viewModel: viewModel,
+                onOpenSidebar: onOpenSidebar,
+                isEnabled: showsNavigationToolbar
+            )
+        )
         .environment(viewModel)
         .environment(viewModel.connectionMonitor)
         .overlay(anchor: .top, content: {
@@ -89,7 +101,7 @@ public struct ChatScreen: View {
 #if canImport(PhotosUI)
 @MainActor
 private struct ChatPhotoAttachmentPickerModifier: ViewModifier {
-    let viewModel: ChatScreenViewModel
+    @State var viewModel: ChatScreenViewModel
     @State private var photoItems: [PhotosPickerItem] = []
 
     func body(content: Content) -> some View {
@@ -238,16 +250,30 @@ private struct ChatScreenContent: View {
             rootSafeAreaInsets: rootSafeAreaInsets,
             composerTabActions: composerTabActions
         )
-        .toolbar {
-            ToolbarItem(placement: .navigation) {
-                ChatNavigationLeadingItems(
-                    viewModel: viewModel,
-                    onOpenSidebar: onOpenSidebar
-                )
-            }
-        }
         .onAppear {
             viewModel.loadInitialData()
+        }
+    }
+}
+
+@MainActor
+private struct ChatNavigationToolbarModifier: ViewModifier {
+    let viewModel: ChatScreenViewModel
+    let onOpenSidebar: (@MainActor () -> Void)?
+    let isEnabled: Bool
+
+    func body(content: Content) -> some View {
+        if isEnabled {
+            content.toolbar {
+                ToolbarItem(placement: .navigation) {
+                    ChatNavigationLeadingItems(
+                        viewModel: viewModel,
+                        onOpenSidebar: onOpenSidebar
+                    )
+                }
+            }
+        } else {
+            content
         }
     }
 }
@@ -290,14 +316,21 @@ private struct ChatChrome: View {
                 ChatTranscriptRegion(
                     viewModel: viewModel,
                     contentWidth: contentWidth,
-                    heroWidth: heroWidth,
                     messagesTopInset: messagesTopInset,
-                    composerScrollInset: composerScrollInset
+                    composerScrollInset: composerScrollInset,
+                    showsThinkingIndicator: showsThinkingIndicator
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+//        .overlay(alignment: .topLeading) {
+//            if idiom != .phone {
+//                ChatSessionContextBar(viewModel: viewModel)
+//                    .padding(.horizontal, theme.spacing.m)
+//                    .padding(.top, theme.spacing.s)
+//            }
+//        }
     }
 
     private func contentWidth(for availableWidth: CGFloat) -> CGFloat {
@@ -354,11 +387,52 @@ private struct ChatChrome: View {
         idiom == .phone ? theme.spacing.l : theme.spacing.xxl
     }
 
+    private var showsThinkingIndicator: Bool {
+        guard viewModel.isAwaitingAgentResponse else { return false }
+        return viewModel.transcript.lastMessage?.id.hasPrefix("streaming-assistant-") != true
+    }
+
     private var screenPointWidth: CGFloat {
         guard let screen = Screen.main else {
             return 390
         }
         return max(320, screen.size.width)
+    }
+}
+
+@MainActor
+private struct ChatSessionContextBar: View {
+    let viewModel: ChatScreenViewModel
+
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: theme.spacing.xs) {
+            HStack(spacing: theme.spacing.s) {
+                Image(systemName: viewModel.selectedSessionId == nil ? "square.and.pencil" : "bubble.left.and.text.bubble.right")
+                Text(viewModel.activeSessionTitle)
+                    .lineLimit(1)
+                if let sessionId = viewModel.selectedSessionId {
+                    Text(String(sessionId.prefix(8)))
+                        .foregroundColor(theme.colors.textMuted)
+                        .monospaced()
+                }
+            }
+            .font(.system(size: theme.typography.caption, weight: .medium))
+            .foregroundColor(theme.colors.textSecondary)
+
+            if let error = viewModel.sendErrorMessage {
+                Text(error)
+                    .font(.system(size: theme.typography.caption))
+                    .foregroundColor(.red)
+                    .lineLimit(2)
+            }
+        }
+        .padding(.horizontal, theme.spacing.m)
+        .padding(.vertical, theme.spacing.s)
+        .background(theme.colors.surfaceRaised.opacity(0.9 as CGFloat), in: RoundedRectangle(cornerRadius: 10))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Current session: \(viewModel.activeSessionTitle)")
     }
 }
 
@@ -492,7 +566,7 @@ private struct MobileChatNavigationCenterCapsule: View {
     }
 
     private var sessionLabel: String {
-        viewModel.selectedSessionId == nil ? (viewModel.activeContextTitle ?? "New chat") : "Recent session"
+        viewModel.activeSessionTitle
     }
 
     private var selectedAgentId: Binding<String> {
@@ -559,18 +633,17 @@ private struct ChatConnectionBar: View {
 private struct ChatTranscriptRegion: View {
     let viewModel: ChatScreenViewModel
     let contentWidth: CGFloat
-    let heroWidth: CGFloat
     let messagesTopInset: CGFloat
     let composerScrollInset: CGFloat
+    let showsThinkingIndicator: Bool
 
     var body: some View {
         ChatTranscriptPane(
             transcript: viewModel.transcript,
-            agentName: viewModel.selectedAgent?.displayName ?? "Agent",
             contentWidth: contentWidth,
-            heroWidth: heroWidth,
             messagesTopInset: messagesTopInset,
-            composerScrollInset: composerScrollInset
+            composerScrollInset: composerScrollInset,
+            showsThinkingIndicator: showsThinkingIndicator
         )
         .contentShape(Rectangle())
         .onTapGesture {
@@ -592,15 +665,13 @@ private struct ChatEmptyChatRegion: View {
     var body: some View {
         VStack(spacing: theme.spacing.xl) {
             Spacer(minLength: idiom == .phone ? theme.spacing.xxl : theme.spacing.l)
-            if let activeContextTitle = viewModel.activeContextTitle {
-                Text(activeContextTitle)
-                    .font(.system(size: idiom == .phone ? theme.typography.caption : theme.typography.body))
-                    .foregroundColor(theme.colors.textMuted)
-                    .multilineTextAlignment(.center)
-                    .lineLimit(2)
-                    .frame(width: heroWidth)
-            }
-            ChatGreetingView(agentName: viewModel.selectedAgent?.displayName ?? "Agent")
+            ChatGreetingView(
+                projects: viewModel.projects,
+                selectedProjectId: viewModel.activeProjectIdForWorkspacePanel,
+                selectedProjectName: viewModel.activeProjectNameForWorkspacePanel,
+                onSelectProject: viewModel.pickProject,
+                onSelectPrompt: viewModel.useStarterPrompt
+            )
                 .frame(width: heroWidth)
             Spacer(minLength: bottomClearance)
         }
@@ -691,70 +762,110 @@ public struct ChatComposerOverlay: View {
 @MainActor
 private struct ChatTranscriptPane: View {
     let transcript: ChatTranscriptState
-    let agentName: String
     let contentWidth: CGFloat
-    let heroWidth: CGFloat
     let messagesTopInset: CGFloat
     let composerScrollInset: CGFloat
+    let showsThinkingIndicator: Bool
 
     @Environment(\.theme) private var theme
+    @State private var isNearBottom = true
+    @State private var isUserScrolling = false
+
+    private let bottomAnchorId = "chat-transcript-bottom"
+    private let bottomThreshold: CGFloat = 44
 
     var body: some View {
-        if transcript.isEmpty {
-            VStack(spacing: theme.spacing.xl) {
-                Color.clear
-                    .frame(height: 300)
-                ChatGreetingView(agentName: agentName)
-                    .frame(width: heroWidth)
-                Spacer()
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else {
-            ScrollViewReader { proxy in
-                ScrollView {
-                    LazyVStack(spacing: 0) {
-                        if transcript.hasEarlierMessages {
-                            revealEarlierButton
-                                .padding(.top, messagesTopInset)
-                                .padding(.bottom, theme.spacing.m)
-                        }
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 0) {
+                    if transcript.hasEarlierMessages {
+                        revealEarlierButton
+                            .padding(.top, messagesTopInset)
+                            .padding(.bottom, theme.spacing.m)
+                    }
 
-                        LazyVStack(alignment: .leading, spacing: theme.spacing.xl) {
-                            ForEach(transcript.messages) { msg in
-                                ChatBubbleView(message: msg)
+                    LazyVStack(alignment: .leading, spacing: theme.spacing.xl) {
+                        ForEach(ChatTranscriptGrouping.entries(from: transcript.messages)) { entry in
+                            switch entry {
+                            case .message(let message):
+                                ChatBubbleView(message: message)
+                                    .frame(minWidth: 0, maxWidth: .infinity)
+                            case .systemGroup(let messages):
+                                ChatSystemMessageGroupView(messages: messages)
                                     .frame(minWidth: 0, maxWidth: .infinity)
                             }
                         }
-                        .frame(width: contentWidth)
-                        .padding(.top, transcript.hasEarlierMessages ? 0 : messagesTopInset)
-                        .padding(.bottom, composerScrollInset)
                     }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-                .onChange(of: transcript.messages.count) { oldCount, newCount in
-                    guard newCount > oldCount,
-                          oldCount == 0 || proxy.isNearBottom(threshold: 220),
-                          let lastMessageId = transcript.lastMessage?.id else {
-                        return
+                    .frame(width: contentWidth)
+                    .padding(.top, transcript.hasEarlierMessages ? 0 : messagesTopInset)
+
+                    if showsThinkingIndicator {
+                        ChatThinkingIndicator()
+                            .frame(width: contentWidth)
+                            .padding(.top, theme.spacing.s)
                     }
 
-                    Task { @MainActor in
-                        proxy.scrollTo(lastMessageId, anchor: .bottom)
-                    }
+                    Color.clear
+                        .frame(height: composerScrollInset)
+                        .id(bottomAnchorId)
                 }
-                .onChange(of: latestAssistantMessageLayoutKey) { _, _ in
-                    guard proxy.isNearBottom(threshold: 480),
-                          let lastMessage = transcript.lastMessage,
-                          lastMessage.role == .assistant else {
-                        return
-                    }
-
-                    Task { @MainActor in
-                        proxy.scrollTo(lastMessage.id, anchor: .bottom)
-                    }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            .onScrollGeometryChange(for: Bool.self) { geometry in
+                isGeometryNearBottom(geometry)
+            } action: { _, newValue in
+                if isUserScrolling {
+                    isNearBottom = newValue
                 }
             }
+            .onScrollPhaseChange { _, newPhase, context in
+                switch newPhase {
+                case .tracking, .interacting, .decelerating:
+                    isUserScrolling = true
+                    isNearBottom = isGeometryNearBottom(context.geometry)
+                case .idle:
+                    if isUserScrolling {
+                        isNearBottom = isGeometryNearBottom(context.geometry)
+                    }
+                    isUserScrolling = false
+                case .animating:
+                    isUserScrolling = false
+                }
+            }
+            .onChange(of: transcript.messages.count) { oldCount, newCount in
+                guard newCount > oldCount,
+                      oldCount == 0 || isNearBottom else {
+                    return
+                }
+
+                scrollToBottom(using: proxy)
+            }
+            .onChange(of: latestAssistantMessageLayoutKey) { _, _ in
+                guard isNearBottom,
+                      let lastMessage = transcript.lastMessage,
+                      lastMessage.role == .assistant else {
+                    return
+                }
+
+                scrollToBottom(using: proxy)
+            }
+            .onChange(of: showsThinkingIndicator) { _, isVisible in
+                guard isVisible, isNearBottom else { return }
+                scrollToBottom(using: proxy)
+            }
         }
+    }
+
+    private func scrollToBottom(using proxy: ScrollViewProxy) {
+        Task { @MainActor in
+            await Task.yield()
+            proxy.scrollTo(bottomAnchorId, anchor: .bottom)
+        }
+    }
+
+    private func isGeometryNearBottom(_ geometry: ScrollGeometry) -> Bool {
+        geometry.contentSize.height <= geometry.containerSize.height
+            || geometry.visibleRect.maxY >= geometry.contentSize.height - bottomThreshold
     }
 
     private var latestAssistantMessageLayoutKey: String {

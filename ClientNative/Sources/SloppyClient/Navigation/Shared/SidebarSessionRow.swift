@@ -70,6 +70,6 @@ struct SidebarSessionRow: View {
         onCopyDebugLink: {},
         onDelete: {}
     )
-    .frame(width: 340)
+    .frame(width: 340, height: 42)
     .padding()
 }

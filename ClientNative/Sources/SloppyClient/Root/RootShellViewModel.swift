@@ -15,6 +15,16 @@ enum AppState: Equatable {
     case settings
 }
 
+enum MenuBarQuickAction: Sendable {
+    case newChat
+    case scheduledTasks
+}
+
+struct MenuBarQuickActionRequest: Equatable, Sendable {
+    var id = UUID()
+    var action: MenuBarQuickAction
+}
+
 @Observable
 @MainActor
 final class RootShellViewModel {
@@ -22,6 +32,7 @@ final class RootShellViewModel {
     var appState: AppState = .splash
     var connectionMonitor: ConnectionMonitor
     var activeBanner: NotificationBannerItem?
+    var menuBarQuickActionRequest: MenuBarQuickActionRequest?
 
     private var bannerDismissTask: Task<Void, Never>?
     private var notificationManager: NotificationSocketManager?
@@ -33,6 +44,9 @@ final class RootShellViewModel {
 
     init() {
         connectionMonitor = ConnectionMonitor(baseURL: URL(string: "http://localhost:25101")!)
+        #if os(macOS)
+        desktopOverlay.start(settings: settings)
+        #endif
     }
 
     func handleDeepLink(_ url: URL) {
@@ -61,9 +75,26 @@ final class RootShellViewModel {
     }
 
     func startConnected(url: URL) {
+        #if os(macOS)
+        desktopOverlay.start(settings: settings)
+        #endif
         connectionMonitor.start(baseURL: url)
         appState = .chat(url)
         startNotificationListener(baseURL: url)
+    }
+
+    func requestMenuBarAction(_ action: MenuBarQuickAction) {
+        if case .chat = appState {
+            // Keep the current connected workspace.
+        } else {
+            startConnected(url: settings.baseURL)
+        }
+        menuBarQuickActionRequest = MenuBarQuickActionRequest(action: action)
+    }
+
+    func consumeMenuBarAction(_ request: MenuBarQuickActionRequest) {
+        guard menuBarQuickActionRequest?.id == request.id else { return }
+        menuBarQuickActionRequest = nil
     }
 
     private func startNotificationListener(baseURL: URL) {

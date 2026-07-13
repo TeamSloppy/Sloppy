@@ -69,6 +69,27 @@ public final class ChatTranscriptState {
         refreshVisibleMessages()
     }
 
+    func appendStreamingAssistantText(_ text: String, messageId: String) {
+        if let messageIndex = allMessages.firstIndex(where: { $0.id == messageId }) {
+            var message = allMessages[messageIndex]
+            if let segmentIndex = message.segments.lastIndex(where: { $0.kind == .text }) {
+                message.segments[segmentIndex].text = (message.segments[segmentIndex].text ?? "") + text
+            } else {
+                message.segments.append(ChatMessageSegment(kind: .text, text: text))
+            }
+            allMessages[messageIndex] = message
+        } else {
+            allMessages.append(
+                ChatMessage(
+                    id: messageId,
+                    role: .assistant,
+                    segments: [ChatMessageSegment(kind: .text, text: text)]
+                )
+            )
+        }
+        refreshVisibleMessages()
+    }
+
     func revealEarlierMessages() {
         visibleStartIndex = max(0, visibleStartIndex - Self.revealStep)
         refreshVisibleMessages()
@@ -90,6 +111,7 @@ public final class ChatTranscriptState {
 @MainActor
 public final class ChatScreenViewModel {
     public private(set) var agents: [APIAgentRecord] = []
+    public private(set) var projects: [APIProjectRecord] = []
     public private(set) var selectedAgent: APIAgentRecord?
     public private(set) var availableModels: [ChatModelOption] = []
     public private(set) var selectedModelId: String = ""
@@ -99,11 +121,13 @@ public final class ChatScreenViewModel {
     public var pinnedSessionIds: Set<String> { settings.pinnedSessionIds }
     public private(set) var activeContextTitle: String?
     public private(set) var sessionActionStatus: String?
+    public private(set) var sendErrorMessage: String?
     public private(set) var isLoadingSessions = false
     public private(set) var isSending = false
     public private(set) var isAwaitingAgentResponse = false
     public private(set) var isStopping = false
     public private(set) var composerFocusResetToken = 0
+    private(set) var composerSuggestions: [ChatComposerSuggestion] = []
     public let transcript = ChatTranscriptState()
     public let composerDraft = ChatComposerDraft()
     public var isAttachmentPickerShown = false
@@ -133,6 +157,15 @@ public final class ChatScreenViewModel {
         selectedAgent != nil && !isSending && !isStopping
     }
 
+    public var activeSessionTitle: String {
+        guard let selectedSessionId else {
+            return activeContextTitle ?? "New chat"
+        }
+        return sessions.first(where: { $0.id == selectedSessionId })?.title
+            ?? activeContextTitle
+            ?? "Session \(selectedSessionId.prefix(8))"
+    }
+
     public var activeProjectNameForWorkspacePanel: String? {
         guard let title = activeContextTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
               !title.isEmpty else {
@@ -160,6 +193,7 @@ public final class ChatScreenViewModel {
     @ObservationIgnored private var streamingFlushTask: Task<Void, Never>?
     @ObservationIgnored private var pendingStreamingSessionId: String?
     @ObservationIgnored private var pendingStreamingAssistantText: String?
+    @ObservationIgnored private var pendingStreamingTextUpdateMode: StreamingTextUpdateMode?
     @ObservationIgnored private var pendingNavigationRequest: ChatNavigationRequest?
     @ObservationIgnored private var pendingSessionSummary: ChatSessionSummary?
     @ObservationIgnored private var lastAppliedNavigationRequestId: Int?
@@ -172,6 +206,7 @@ public final class ChatScreenViewModel {
     @ObservationIgnored private var activeComposerDraftKey: String?
     @ObservationIgnored private let dictationRecorder = DictationRecorder()
     @ObservationIgnored private var dictationMeterTask: Task<Void, Never>?
+    @ObservationIgnored private var suggestionTask: Task<Void, Never>?
 
     public init(
         apiClient: SloppyAPIClient,
@@ -197,6 +232,101 @@ public final class ChatScreenViewModel {
         composerFocusResetToken += 1
     }
 
+    func updateComposerSuggestions(for text: String) {
+        suggestionTask?.cancel()
+        guard let query = ChatComposerQuery.parse(text), let agent = selectedAgent else {
+            composerSuggestions = []
+            return
+        }
+
+        suggestionTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            let suggestions = await loadComposerSuggestions(query: query, agentId: agent.id)
+            guard !Task.isCancelled, ChatComposerQuery.parse(composerDraft.text) == query else { return }
+            composerSuggestions = suggestions
+        }
+    }
+
+    func applyComposerSuggestion(_ suggestion: ChatComposerSuggestion) {
+        guard let query = ChatComposerQuery.parse(composerDraft.text) else { return }
+        composerDraft.text = query.applying(suggestion, to: composerDraft.text)
+        composerSuggestions = []
+    }
+
+    private func loadComposerSuggestions(query: ChatComposerQuery, agentId: String) async -> [ChatComposerSuggestion] {
+        switch query.trigger {
+        case "/":
+            let response = try? await apiClient.fetchChatSlashCommands(agentId: agentId)
+            return filterCommands(response?.commands ?? [], query: query.term, skillsOnly: false)
+        case "@":
+            async let commands = try? await apiClient.fetchChatSlashCommands(agentId: agentId)
+            async let files = loadProjectFiles(projectId: activeProjectId)
+            let skillItems = filterCommands((await commands)?.commands ?? [], query: query.term, skillsOnly: true)
+            return Array((skillItems + (await files).filter { matches(query.term, in: $0.title) }).prefix(12))
+        case "#":
+            guard let projectId = activeProjectId,
+                  let project = try? await apiClient.fetchProject(id: projectId) else { return [] }
+            return (project.tasks ?? [])
+                .filter { matches(query.term, in: $0.title) || matches(query.term, in: $0.id) }
+                .prefix(12)
+                .map {
+                    ChatComposerSuggestion(
+                        id: "task:\($0.id)", kind: .task, title: $0.title,
+                        subtitle: $0.status.replacingOccurrences(of: "_", with: " "), insertion: "#\($0.id)"
+                    )
+                }
+        default:
+            return []
+        }
+    }
+
+    private func filterCommands(
+        _ commands: [AgentChatSlashCommandItem],
+        query: String,
+        skillsOnly: Bool
+    ) -> [ChatComposerSuggestion] {
+        commands
+            .filter { !skillsOnly || $0.source == "skill" }
+            .filter { matches(query, in: $0.name) || matches(query, in: $0.description) }
+            .prefix(12)
+            .map {
+                let isSkill = $0.source == "skill"
+                let prefix = skillsOnly ? "@" : "/"
+                return ChatComposerSuggestion(
+                    id: "\($0.source):\($0.skillId ?? $0.name)",
+                    kind: isSkill ? .skill : .command,
+                    title: prefix + $0.name,
+                    subtitle: $0.description,
+                    insertion: prefix + $0.name
+                )
+            }
+    }
+
+    private func loadProjectFiles(projectId: String?) async -> [ChatComposerSuggestion] {
+        guard let projectId else { return [] }
+        var pending = [""]
+        var results: [ChatComposerSuggestion] = []
+        while let directory = pending.popLast(), results.count < 200, !Task.isCancelled {
+            guard let entries = try? await apiClient.fetchProjectFiles(projectId: projectId, path: directory) else { continue }
+            for entry in entries {
+                let path = directory.isEmpty ? entry.name : "\(directory)/\(entry.name)"
+                if entry.type == .directory {
+                    pending.append(path)
+                } else {
+                    results.append(ChatComposerSuggestion(
+                        id: "file:\(path)", kind: .file, title: path,
+                        subtitle: "Project file", insertion: "@\(path)"
+                    ))
+                }
+            }
+        }
+        return results
+    }
+
+    private func matches(_ query: String, in value: String) -> Bool {
+        query.isEmpty || value.localizedCaseInsensitiveContains(query)
+    }
+
     public func loadInitialData() {
         guard !didLoadInitialData, !isLoadingInitialData else { return }
 
@@ -207,8 +337,12 @@ public final class ChatScreenViewModel {
                 isLoadingInitialData = false
             }
 
-            let fetched = (try? await apiClient.fetchAgents()) ?? []
-            let fetchedModels = (try? await apiClient.fetchAvailableModels()) ?? []
+            async let agentsRequest = try? await apiClient.fetchAgents()
+            async let modelsRequest = try? await apiClient.fetchAvailableModels()
+            async let projectsRequest = try? await apiClient.fetchProjects()
+            let fetched = await agentsRequest ?? []
+            let fetchedModels = await modelsRequest ?? []
+            projects = await projectsRequest ?? []
             if fetched.isEmpty {
                 agents = await cacheStore.loadAgents()
             } else {
@@ -301,6 +435,23 @@ public final class ChatScreenViewModel {
 
     public func pickNewSession() {
         startNewSession()
+    }
+
+    public func pickProject(_ project: APIProjectRecord) {
+        guard let agent = selectedAgent ?? agents.first else { return }
+        activateProjectContext(
+            agent: agent,
+            projectId: project.id,
+            contextTitle: "Project: \(project.name)",
+            preferredSessionTitle: nil,
+            preferredTaskId: nil,
+            opensPreferredSession: false
+        )
+    }
+
+    public func useStarterPrompt(_ prompt: String) {
+        composerDraft.text = prompt
+        saveActiveComposerDraft()
     }
 
     public func deleteSession(_ session: ChatSessionSummary) {
@@ -467,7 +618,7 @@ public final class ChatScreenViewModel {
             sessions.insert(summary, at: 0)
             selectedSessionId = summary.id
             settings.lastSessionId = summary.id
-            connectToSession(agentId: agent.id, sessionId: summary.id)
+            await connectToSession(agentId: agent.id, sessionId: summary.id)
         }
     }
 
@@ -502,7 +653,9 @@ public final class ChatScreenViewModel {
         activeTaskId = taskId
         settings.lastSessionId = sessionId
         syncComposerDraft(toSessionId: sessionId, projectId: retainedProjectId, taskId: taskId, agentId: agent.id)
-        connectToSession(agentId: agent.id, sessionId: sessionId)
+        Task { @MainActor in
+            await connectToSession(agentId: agent.id, sessionId: sessionId)
+        }
     }
 
     private func routeToBlankChat() {
@@ -577,7 +730,8 @@ public final class ChatScreenViewModel {
         projectId: String,
         contextTitle: String,
         preferredSessionTitle: String?,
-        preferredTaskId: String?
+        preferredTaskId: String?,
+        opensPreferredSession: Bool = true
     ) {
         disconnectCurrentSession()
         saveActiveComposerDraft()
@@ -601,6 +755,10 @@ public final class ChatScreenViewModel {
             guard selectedAgent?.id == agent.id,
                   activeProjectId == projectId,
                   selectedSessionId == nil else {
+                return
+            }
+
+            guard opensPreferredSession else {
                 return
             }
 
@@ -630,9 +788,13 @@ public final class ChatScreenViewModel {
         }
     }
 
-    private func connectToSession(agentId: String, sessionId: String) {
+    private func connectToSession(agentId: String, sessionId: String) async {
+        guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
         let manager = SessionSocketManager(baseURL: apiClient.baseURL, agentId: agentId, sessionId: sessionId)
         socketManager = manager
+        // Start the socket before yielding back to callers that may immediately
+        // POST a prompt into a newly-created session.
+        let stream = await manager.connect()
 
         streamTask = Task { @MainActor in
             defer {
@@ -647,8 +809,6 @@ public final class ChatScreenViewModel {
                 guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
                 transcript.replaceAll(cached.messages)
             }
-
-            let stream = await manager.connect()
 
             for await update in stream {
                 guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
@@ -723,8 +883,12 @@ public final class ChatScreenViewModel {
         switch mode {
         case .append:
             pendingStreamingAssistantText = (pendingStreamingAssistantText ?? "") + text
+            if pendingStreamingTextUpdateMode != .replace {
+                pendingStreamingTextUpdateMode = .append
+            }
         case .replace:
             pendingStreamingAssistantText = text
+            pendingStreamingTextUpdateMode = .replace
         }
 
         guard streamingFlushTask == nil else {
@@ -740,15 +904,17 @@ public final class ChatScreenViewModel {
 
     private func flushPendingStreamingAssistantText() {
         guard let sessionId = pendingStreamingSessionId,
-              let text = pendingStreamingAssistantText else {
+              let text = pendingStreamingAssistantText,
+              let mode = pendingStreamingTextUpdateMode else {
             streamingFlushTask = nil
             return
         }
 
         pendingStreamingSessionId = nil
         pendingStreamingAssistantText = nil
+        pendingStreamingTextUpdateMode = nil
         streamingFlushTask = nil
-        applyStreamingAssistantText(text, sessionId: sessionId)
+        applyStreamingAssistantText(text, sessionId: sessionId, mode: mode)
     }
 
     private func cancelPendingStreamingAssistantText(for sessionId: String? = nil) {
@@ -760,17 +926,27 @@ public final class ChatScreenViewModel {
         streamingFlushTask = nil
         pendingStreamingSessionId = nil
         pendingStreamingAssistantText = nil
+        pendingStreamingTextUpdateMode = nil
     }
 
-    private func applyStreamingAssistantText(_ text: String, sessionId: String) {
+    private func applyStreamingAssistantText(
+        _ text: String,
+        sessionId: String,
+        mode: StreamingTextUpdateMode
+    ) {
         let id = streamingAssistantMessageId(for: sessionId)
-        let message = ChatMessage(
-            id: id,
-            role: .assistant,
-            segments: [ChatMessageSegment(kind: .text, text: text)]
-        )
-
-        transcript.upsert(message)
+        switch mode {
+        case .append:
+            transcript.appendStreamingAssistantText(text, messageId: id)
+        case .replace:
+            transcript.upsert(
+                ChatMessage(
+                    id: id,
+                    role: .assistant,
+                    segments: [ChatMessageSegment(kind: .text, text: text)]
+                )
+            )
+        }
     }
 
     private func handleRunStatus(_ status: ChatRunStatusEvent, sessionId: String) {
@@ -917,28 +1093,35 @@ public final class ChatScreenViewModel {
 
     public func sendMessage(content: String) {
         guard let agent = selectedAgent, !isSending, !isStopping else { return }
+        sendErrorMessage = nil
         clearActiveComposerDraft()
         dismissComposerFocus()
         isAwaitingAgentResponse = true
 
         if selectedSessionId == nil {
             Task { @MainActor in
-                guard let summary = try? await apiClient.createAgentSession(
-                    agentId: agent.id,
-                    title: activeTaskId.map(taskSessionTitle(for:)) ?? activeContextTitle ?? "Chat with \(agent.displayName)",
-                    projectId: activeProjectId
-                ) else { return }
-                sessions.insert(summary, at: 0)
-                selectedSessionId = summary.id
-                settings.lastSessionId = summary.id
-                syncComposerDraft(
-                    toSessionId: summary.id,
-                    projectId: activeProjectId,
-                    taskId: activeTaskId,
-                    agentId: agent.id
-                )
-                connectToSession(agentId: agent.id, sessionId: summary.id)
-                await postMessage(content: content, agentId: agent.id, sessionId: summary.id)
+                do {
+                    let summary = try await apiClient.createAgentSession(
+                        agentId: agent.id,
+                        title: activeTaskId.map(taskSessionTitle(for:)) ?? activeContextTitle ?? "Chat with \(agent.displayName)",
+                        projectId: activeProjectId
+                    )
+                    sessions.insert(summary, at: 0)
+                    selectedSessionId = summary.id
+                    settings.lastSessionId = summary.id
+                    syncComposerDraft(
+                        toSessionId: summary.id,
+                        projectId: activeProjectId,
+                        taskId: activeTaskId,
+                        agentId: agent.id
+                    )
+                    await connectToSession(agentId: agent.id, sessionId: summary.id)
+                    await postMessage(content: content, agentId: agent.id, sessionId: summary.id)
+                } catch {
+                    isAwaitingAgentResponse = false
+                    composerDraft.text = content
+                    sendErrorMessage = "Could not create session: \(error.localizedDescription)"
+                }
             }
             return
         }
@@ -969,6 +1152,8 @@ public final class ChatScreenViewModel {
         } catch {
             transcript.removeAll { $0.id == optimistic.id }
             isAwaitingAgentResponse = false
+            composerDraft.text = content
+            sendErrorMessage = "Message was not sent: \(error.localizedDescription)"
         }
     }
 

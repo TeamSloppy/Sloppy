@@ -9,9 +9,11 @@ struct WorkspaceTerminalDrawerView<Host: View>: View {
     @ViewBuilder let host: () -> Host
 
     @Environment(\.theme) private var theme
+    @State private var dragStartHeight: CGFloat?
 
     var body: some View {
         VStack(spacing: 0) {
+            #if os(iOS) || os(visionOS)
             Capsule()
                 .fill(theme.colors.textMuted.opacity(0.45 as CGFloat))
                 .frame(width: 42, height: 5)
@@ -19,9 +21,15 @@ struct WorkspaceTerminalDrawerView<Host: View>: View {
                 .gesture(
                     DragGesture(minimumDistance: 0)
                         .onChanged { value in
-                            onHeightChange(max(180, height - value.translation.height))
+                            let startHeight = dragStartHeight ?? height
+                            dragStartHeight = startHeight
+                            onHeightChange(max(180, startHeight - value.translation.height))
+                        }
+                        .onEnded { _ in
+                            dragStartHeight = nil
                         }
                 )
+            #endif
 
             Divider()
 

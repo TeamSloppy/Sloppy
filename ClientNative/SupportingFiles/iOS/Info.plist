@@ -38,8 +38,6 @@
 	</dict>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Sloppy discovers Sloppy Core on your Wi-Fi and connects over the local network.</string>
-	<key>NSCameraUsageDescription</key>
-	<string>Sloppy uses the camera to attach photos to chat messages.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Sloppy uses the microphone to record audio for voice input.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>

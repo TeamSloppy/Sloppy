@@ -98,6 +98,15 @@ public struct ChatComposerView: View {
             alignment: .leading
         )
         .frame(maxWidth: Self.panelWidth)
+        .overlay(alignment: .bottom) {
+            if !viewModel.composerSuggestions.isEmpty {
+                ComposerSuggestionsView(
+                    suggestions: viewModel.composerSuggestions,
+                    select: viewModel.applyComposerSuggestion
+                )
+                .offset(y: -(Self.panelHeight + sp.s))
+            }
+        }
     }
 
     private var textFieldConainer: some View {
@@ -535,6 +544,9 @@ struct ChatTextField: View {
         .onChange(of: viewModel.composerFocusResetToken) { _, _ in
             isTextFieldFocused = false
         }
+        .onChange(of: draft.text) { _, newValue in
+            viewModel.updateComposerSuggestions(for: newValue)
+        }
     }
 
 }
@@ -789,19 +801,10 @@ private struct ComposerAddMenu: View {
             effortMenu
 #endif
         } label: {
-            Icons.symbol(.add, size: theme.typography.heading)
-                .foregroundColor(theme.colors.textPrimary)
-                .frame(
-                    width: ChatComposerView.phoneCircleSize,
-                    height: ChatComposerView.phoneCircleSize
-                )
+            Color.clear
+                .clipShape(.circle)
         }
-        .buttonBorderShape(.circle)
-#if os(visionOS)
-        .glassBackgroundEffect()
-#else
-        .buttonStyle(.glass)
-#endif
+        .menuStyle(CustomMenuButtonStyle())
         .accessibilityLabel("Add")
     }
 
@@ -949,5 +952,27 @@ struct SubmitButton: ButtonStyle {
                 stop: {}
             )
         }
+    }
+}
+
+struct CustomMenuButtonStyle: MenuStyle {
+
+    @Environment(\.theme) private var theme
+
+    func makeBody(configuration: Configuration) -> some View {
+        ZStack {
+            Menu(configuration)
+                .frame(width: 42, height: 42)
+                .contentShape(.circle)
+                .menuIndicator(.hidden)
+                .menuStyle(.borderlessButton)
+
+            Icons.symbol(.add, size: theme.typography.heading)
+                .foregroundColor(theme.colors.textPrimary)
+                .allowsHitTesting(false)
+        }
+        .buttonBorderShape(.circle)
+        .buttonSizing(.flexible)
+        .backportGlassEffect(.regular.interactive(), in: .circle)
     }
 }

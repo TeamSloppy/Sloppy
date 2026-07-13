@@ -157,28 +157,151 @@ public struct SloppyConfig: Codable, Sendable {
     public struct ChannelConfig: Codable, Sendable {
         public struct Telegram: Codable, Sendable {
             public var botToken: String
+            public var channelChatMap: [String: Int64]
+            public var topicChannelMap: [String: String]
+            public var allowedUserIds: [Int64]
+            public var allowedChatIds: [Int64]
 
-            public init(botToken: String = "") {
+            public init(
+                botToken: String = "",
+                channelChatMap: [String: Int64] = [:],
+                topicChannelMap: [String: String] = [:],
+                allowedUserIds: [Int64] = [],
+                allowedChatIds: [Int64] = []
+            ) {
                 self.botToken = botToken
+                self.channelChatMap = channelChatMap
+                self.topicChannelMap = topicChannelMap
+                self.allowedUserIds = allowedUserIds
+                self.allowedChatIds = allowedChatIds
+            }
+
+            private enum CodingKeys: String, CodingKey {
+                case botToken, channelChatMap, topicChannelMap, allowedUserIds, allowedChatIds
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                botToken = try container.decodeIfPresent(String.self, forKey: .botToken) ?? ""
+                channelChatMap = try container.decodeIfPresent([String: Int64].self, forKey: .channelChatMap) ?? [:]
+                topicChannelMap = try container.decodeIfPresent([String: String].self, forKey: .topicChannelMap) ?? [:]
+                allowedUserIds = try container.decodeIfPresent([Int64].self, forKey: .allowedUserIds) ?? []
+                allowedChatIds = try container.decodeIfPresent([Int64].self, forKey: .allowedChatIds) ?? []
             }
         }
 
         public struct Discord: Codable, Sendable {
             public var botToken: String
-            public var guildId: String
+            public var channelDiscordChannelMap: [String: String]
+            public var allowedGuildIds: [String]
+            public var allowedChannelIds: [String]
+            public var allowedUserIds: [String]
 
-            public init(botToken: String = "", guildId: String = "") {
+            public init(
+                botToken: String = "",
+                channelDiscordChannelMap: [String: String] = [:],
+                allowedGuildIds: [String] = [],
+                allowedChannelIds: [String] = [],
+                allowedUserIds: [String] = []
+            ) {
                 self.botToken = botToken
-                self.guildId = guildId
+                self.channelDiscordChannelMap = channelDiscordChannelMap
+                self.allowedGuildIds = allowedGuildIds
+                self.allowedChannelIds = allowedChannelIds
+                self.allowedUserIds = allowedUserIds
+            }
+
+            private enum CodingKeys: String, CodingKey {
+                case botToken, channelDiscordChannelMap, allowedGuildIds, allowedChannelIds, allowedUserIds
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                botToken = try container.decodeIfPresent(String.self, forKey: .botToken) ?? ""
+                channelDiscordChannelMap = try container.decodeIfPresent([String: String].self, forKey: .channelDiscordChannelMap) ?? [:]
+                allowedGuildIds = try container.decodeIfPresent([String].self, forKey: .allowedGuildIds) ?? []
+                allowedChannelIds = try container.decodeIfPresent([String].self, forKey: .allowedChannelIds) ?? []
+                allowedUserIds = try container.decodeIfPresent([String].self, forKey: .allowedUserIds) ?? []
             }
         }
 
         public var telegram: Telegram?
         public var discord: Discord?
+        public var channelInactivityDays: Int
 
-        public init(telegram: Telegram? = nil, discord: Discord? = nil) {
+        public init(
+            telegram: Telegram? = nil,
+            discord: Discord? = nil,
+            channelInactivityDays: Int = 2
+        ) {
             self.telegram = telegram
             self.discord = discord
+            self.channelInactivityDays = channelInactivityDays
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case telegram, discord, channelInactivityDays
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            telegram = try container.decodeIfPresent(Telegram.self, forKey: .telegram)
+            discord = try container.decodeIfPresent(Discord.self, forKey: .discord)
+            channelInactivityDays = try container.decodeIfPresent(Int.self, forKey: .channelInactivityDays) ?? 2
+        }
+    }
+
+    public struct Node: Codable, Sendable, Equatable, Identifiable {
+        public var id: String
+        public var title: String
+        public var url: String
+        public var token: String
+        public var tokenEnv: String
+        public var enabled: Bool
+        public var kind: String
+
+        public init(
+            id: String,
+            title: String = "",
+            url: String = "",
+            token: String = "",
+            tokenEnv: String = "",
+            enabled: Bool = true,
+            kind: String = "sloppy_instance"
+        ) {
+            self.id = id
+            self.title = title
+            self.url = url
+            self.token = token
+            self.tokenEnv = tokenEnv
+            self.enabled = enabled
+            self.kind = kind
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case id, title, url, token, tokenEnv, enabled, kind
+        }
+
+        public init(from decoder: Decoder) throws {
+            if let legacy = try? decoder.singleValueContainer().decode(String.self) {
+                id = legacy
+                title = legacy
+                url = ""
+                token = ""
+                tokenEnv = ""
+                enabled = true
+                kind = legacy == "local" ? "local" : "legacy"
+                return
+            }
+
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decodeIfPresent(String.self, forKey: .id) ?? ""
+            title = try container.decodeIfPresent(String.self, forKey: .title) ?? ""
+            url = try container.decodeIfPresent(String.self, forKey: .url) ?? ""
+            token = try container.decodeIfPresent(String.self, forKey: .token) ?? ""
+            tokenEnv = try container.decodeIfPresent(String.self, forKey: .tokenEnv) ?? ""
+            enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+            kind = try container.decodeIfPresent(String.self, forKey: .kind) ?? "sloppy_instance"
         }
     }
 
@@ -239,6 +362,22 @@ public struct SloppyConfig: Codable, Sendable {
             self.startupTimeoutMs = startupTimeoutMs
             self.additionalArguments = additionalArguments
         }
+
+        private enum CodingKeys: String, CodingKey {
+            case enabled, executablePath, cdpEndpoint, profileName, profilePath, headless, startupTimeoutMs, additionalArguments
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
+            executablePath = try container.decodeIfPresent(String.self, forKey: .executablePath) ?? ""
+            cdpEndpoint = try container.decodeIfPresent(String.self, forKey: .cdpEndpoint) ?? ""
+            profileName = try container.decodeIfPresent(String.self, forKey: .profileName) ?? "default"
+            profilePath = try container.decodeIfPresent(String.self, forKey: .profilePath) ?? ""
+            headless = try container.decodeIfPresent(Bool.self, forKey: .headless) ?? false
+            startupTimeoutMs = try container.decodeIfPresent(Int.self, forKey: .startupTimeoutMs) ?? 10_000
+            additionalArguments = try container.decodeIfPresent([String].self, forKey: .additionalArguments) ?? []
+        }
     }
 
     public struct MCP: Codable, Sendable {
@@ -292,6 +431,27 @@ public struct SloppyConfig: Codable, Sendable {
             self.exposeResources = exposeResources
             self.exposePrompts = exposePrompts
             self.toolPrefix = toolPrefix
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case id, transport, command, arguments, cwd, endpoint, headers, timeoutMs, enabled, exposeTools, exposeResources, exposePrompts, toolPrefix
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            id = try container.decode(String.self, forKey: .id)
+            transport = try container.decodeIfPresent(String.self, forKey: .transport) ?? "stdio"
+            command = try container.decodeIfPresent(String.self, forKey: .command) ?? ""
+            arguments = try container.decodeIfPresent([String].self, forKey: .arguments) ?? []
+            cwd = try container.decodeIfPresent(String.self, forKey: .cwd) ?? ""
+            endpoint = try container.decodeIfPresent(String.self, forKey: .endpoint) ?? ""
+            headers = try container.decodeIfPresent([String: String].self, forKey: .headers) ?? [:]
+            timeoutMs = try container.decodeIfPresent(Int.self, forKey: .timeoutMs) ?? 15_000
+            enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
+            exposeTools = try container.decodeIfPresent(Bool.self, forKey: .exposeTools) ?? true
+            exposeResources = try container.decodeIfPresent(Bool.self, forKey: .exposeResources) ?? true
+            exposePrompts = try container.decodeIfPresent(Bool.self, forKey: .exposePrompts) ?? true
+            toolPrefix = try container.decodeIfPresent(String.self, forKey: .toolPrefix) ?? ""
         }
     }
 
@@ -611,7 +771,7 @@ public struct SloppyConfig: Codable, Sendable {
     public var onboarding: Onboarding
     public var models: [ModelConfig]
     public var memory: Memory
-    public var nodes: [String]
+    public var nodes: [Node]
     public var plugins: [PluginConfig]
     public var channels: ChannelConfig
     public var searchTools: SearchTools
@@ -636,7 +796,7 @@ public struct SloppyConfig: Codable, Sendable {
         onboarding: Onboarding = Onboarding(),
         models: [ModelConfig] = [],
         memory: Memory = Memory(),
-        nodes: [String] = ["local"],
+        nodes: [Node] = [Node(id: "local", title: "Local", kind: "local")],
         plugins: [PluginConfig] = [],
         channels: ChannelConfig = ChannelConfig(),
         searchTools: SearchTools = SearchTools(),
@@ -691,7 +851,7 @@ public struct SloppyConfig: Codable, Sendable {
         onboarding = try container.decodeIfPresent(Onboarding.self, forKey: .onboarding) ?? Onboarding()
         models = try container.decodeIfPresent([ModelConfig].self, forKey: .models) ?? []
         memory = try container.decode(Memory.self, forKey: .memory)
-        nodes = try container.decodeIfPresent([String].self, forKey: .nodes) ?? []
+        nodes = try container.decodeIfPresent([Node].self, forKey: .nodes) ?? []
         plugins = try container.decodeIfPresent([PluginConfig].self, forKey: .plugins) ?? []
         channels = try container.decodeIfPresent(ChannelConfig.self, forKey: .channels) ?? ChannelConfig()
         searchTools = try container.decodeIfPresent(SearchTools.self, forKey: .searchTools) ?? SearchTools()

@@ -11,16 +11,19 @@ struct MainViewWorkspacePanelSourceTests {
         return try String(contentsOf: packageRoot.appendingPathComponent(path), encoding: .utf8)
     }
 
-    @Test("desktop main view exposes workspace as a tab-based surface")
-    func desktopMainViewExposesWorkspaceAsATabBasedSurface() throws {
+    @Test("desktop main view exposes workspace as a resizable side panel")
+    func desktopMainViewExposesWorkspaceAsAResizableSidePanel() throws {
         let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
         let mainViewModel = try source("Sources/SloppyClient/Navigation/Main/MainViewModel.swift")
 
         #expect(mainViewModel.contains("var workspacePanelViewModel"))
-        #expect(mainViewModel.contains("var tabStates: [WorkspaceTab.ID: WorkspaceTabState] = [:]"))
-        #expect(mainViewModel.contains("WorkspaceTabState(contentState: .workspaceFiles(workspaceState))"))
+        #expect(mainView.contains("@State private var isWorkspacePanelPresented = false"))
+        #expect(mainView.contains(".inspector(isPresented: $isWorkspacePanelPresented)"))
+        #expect(mainView.contains(".inspectorColumnWidth(min: 320, ideal: 420, max: 720)"))
         #expect(mainView.contains("WorkspacePanelView("))
-        #expect(mainViewModel.contains("func openWorkspaceTabForSelectedContext()"))
+        #expect(mainView.contains("isWorkspacePanelPresented.toggle()"))
+        #expect(mainView.contains("ToolbarItemGroup(placement: .primaryAction)"))
+        #expect(mainView.contains("showsNavigationToolbar: idiom == .phone"))
     }
 
     @Test("chat view model exposes project workspace context")
@@ -29,5 +32,19 @@ struct MainViewWorkspacePanelSourceTests {
 
         #expect(chatViewModel.contains("public var activeProjectIdForWorkspacePanel: String?"))
         #expect(chatViewModel.contains("public var activeProjectNameForWorkspacePanel: String?"))
+    }
+
+    @Test("chat tabs synchronize with the session created by the composer")
+    func chatTabsSynchronizeWithTheSessionCreatedByTheComposer() throws {
+        let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
+        let mainViewModel = try source("Sources/SloppyClient/Navigation/Main/MainViewModel.swift")
+
+        #expect(mainView.contains(".onChange(of: chatState.viewModel.selectedSessionId)"))
+        #expect(mainView.contains("viewModel.synchronizeChatTab(tab.id)"))
+        #expect(mainViewModel.contains("func synchronizeChatTab(_ tabID: WorkspaceTab.ID)"))
+        #expect(mainViewModel.contains("key: .chatSession(sessionID)"))
+        #expect(mainView.contains("if let activeChatViewModel"))
+        #expect(mainView.contains("ChatComposerOverlay(\n                    viewModel: activeChatViewModel"))
+        #expect(!mainView.contains("ChatComposerOverlay(\n                viewModel: viewModel.chatViewModel"))
     }
 }

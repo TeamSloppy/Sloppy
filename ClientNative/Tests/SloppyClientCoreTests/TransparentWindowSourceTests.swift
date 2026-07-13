@@ -46,4 +46,22 @@ struct TransparentWindowSourceTests {
         #expect(overlay.contains("window.titlebarSeparatorStyle = .none"))
         #expect(overlay.contains("window.toolbarStyle = .unified"))
     }
+
+    @Test("desktop overlay creates an always-on interactive notch panel")
+    func desktopOverlayCreatesAnAlwaysOnInteractiveNotchPanel() throws {
+        let overlay = try source("Sources/SloppyClient/Overlays/SloppyDesktopOverlay.swift")
+        let rootModel = try source("Sources/SloppyClient/Root/RootShellViewModel.swift")
+
+        #expect(overlay.contains("SloppyNotchPanel"))
+        #expect(overlay.contains("SloppyDesktopNotchView"))
+        #expect(overlay.contains("panel.level = .statusBar"))
+        #expect(overlay.contains(".canJoinAllSpaces"))
+        #expect(overlay.contains("Button(\"Allow\")"))
+        #expect(overlay.contains("Button(\"Deny\""))
+        #expect(overlay.contains(".onHover { hovering in"))
+        #expect(overlay.contains("state.setExpanded(true)"))
+        #expect(overlay.contains("state.toolApproval == nil"))
+        #expect(overlay.contains("state.setExpanded(false)"))
+        #expect(rootModel.contains("desktopOverlay.start(settings: settings)"))
+    }
 }

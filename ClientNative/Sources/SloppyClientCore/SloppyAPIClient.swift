@@ -80,6 +80,10 @@ public actor SloppyAPIClient {
         try await agents.fetchAgentTasks(agentId: agentId)
     }
 
+    public func fetchChatSlashCommands(agentId: String) async throws -> AgentChatSlashCommandsResponse {
+        try await agents.fetchChatSlashCommands(agentId: agentId)
+    }
+
     public func fetchScheduledTasks(agentId: String) async throws -> [ScheduledTask] {
         let agent = BackendHTTPClient.encodePathSegment(agentId)
         return try await http.get("/v1/agents/\(agent)/cron")
@@ -121,6 +125,21 @@ public actor SloppyAPIClient {
             agents: agentOverviews,
             activeTasks: active,
             completedTasks: completed
+        )
+    }
+
+    public func resolveToolApproval(id: String, approved: Bool) async throws {
+        struct DecisionPayload: Encodable {
+            var decidedBy: String?
+            var scope: String
+        }
+        struct DecisionResponse: Decodable { var id: String }
+
+        let approvalID = BackendHTTPClient.encodePathSegment(id)
+        let action = approved ? "approve" : "reject"
+        let _: DecisionResponse = try await http.post(
+            "/v1/tool-approvals/\(approvalID)/\(action)",
+            body: DecisionPayload(decidedBy: "SloppyClient", scope: "once")
         )
     }
 

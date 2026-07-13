@@ -16,6 +16,11 @@ public struct ChatBubbleView: View {
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
     private var isStreamingAssistant: Bool { message.id.hasPrefix("streaming-assistant-") }
+    private var showsMessageActions: Bool {
+        !isStreamingAssistant
+            && message.role == .assistant
+            && message.segments.allSatisfy { $0.kind == .text }
+    }
 
     public var body: some View {
         switch message.role {
@@ -29,9 +34,15 @@ public struct ChatBubbleView: View {
                 .multilineTextAlignment(.leading)
                 .textSelection(.enabled)
         case .assistant:
-            assistantMessage
-                .multilineTextAlignment(.leading)
-                .textSelection(.enabled)
+            if isStreamingAssistant {
+                assistantMessage
+                    .multilineTextAlignment(.leading)
+                    .textSelection(.disabled)
+            } else {
+                assistantMessage
+                    .multilineTextAlignment(.leading)
+                    .textSelection(.enabled)
+            }
         }
     }
 
@@ -69,53 +80,56 @@ public struct ChatBubbleView: View {
             renderedSegmentStack(forceCollapsible: false)
                 .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
 
-            HStack {
-                Button(action: {
-                    // TODO: Add copy to clipboard
-                }, label: {
-                    Image(systemName: "rectangle.on.rectangle")
-                        .scaleEffect(x: -1)
-                        .padding(.all, 4)
-                })
-                Button(action: {
-                    // TODO: Add fork session from this message
-                }, label: {
-                    Image(systemName: "arrow.trianglehead.branch")
-                        .rotationEffect(.degrees(90))
-                        .padding(.all, 4)
-                })
+            if showsMessageActions {
+                HStack {
+                    Button(action: {
+                        // TODO: Add copy to clipboard
+                    }, label: {
+                        Image(systemName: "rectangle.on.rectangle")
+                            .scaleEffect(x: -1)
+                            .padding(.all, 4)
+                    })
+                    Button(action: {
+                        // TODO: Add fork session from this message
+                    }, label: {
+                        Image(systemName: "arrow.trianglehead.branch")
+                            .rotationEffect(.degrees(90))
+                            .padding(.all, 4)
+                    })
+                }
+                .font(.system(size: theme.typography.body, weight: .semibold))
+                .foregroundStyle(theme.colors.textSecondary)
+                #if os(visionOS)
+                .backportGlassEffect(.regular, in: .capsule)
+                #else
+                .buttonStyle(.glass)
+                .buttonBorderShape(.capsule)
+                #endif
             }
-            .font(.system(size: theme.typography.body, weight: .semibold))
-            .foregroundStyle(theme.colors.textSecondary)
-            #if os(visionOS)
-            .backportGlassEffect(.regular, in: .capsule)
-            #else
-            .buttonStyle(.glass)
-            .buttonBorderShape(.capsule)
-            #endif
         }
         .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
     }
 
     private var systemMessage: some View {
-        renderedSegmentStack(forceCollapsible: true)
+        ChatSystemMessageGroupView(messages: [message])
     }
 
     @ViewBuilder
     private func renderedSegmentStack(forceCollapsible: Bool) -> some View {
         VStack(alignment: .leading, spacing: theme.spacing.m) {
             ForEach(Array(message.segments.enumerated()), id: \.offset) { index, segment in
-                if shouldRenderAsCollapsible(segment, forceCollapsible: forceCollapsible) {
+                if let progress = segment.buildProgress {
+                    ChatBuildProgressView(progress: progress)
+                } else if shouldRenderAsCollapsible(segment, forceCollapsible: forceCollapsible) {
                     ChatSegmentCollapsibleCard(
                         message: message,
                         segment: segment,
-                        forceCollapsible: forceCollapsible,
-                        isRunning: isSegmentRunning(segment),
-                        isStreamingAssistant: isStreamingAssistant
+                        isRunning: isSegmentRunning(segment)
                     )
                 } else {
                     ChatMarkdownTextStack(
-                        text: segment.text ?? "…"
+                        text: segment.text ?? "…",
+                        rendersMarkdown: !isStreamingAssistant
                     )
                 }
             }
@@ -130,7 +144,7 @@ public struct ChatBubbleView: View {
         switch segment.kind {
         case .text:
             return false
-        case .thinking, .attachment, .toolCall, .toolResult, .status:
+        case .thinking, .attachment, .toolCall, .toolResult, .status, .buildProgress:
             return true
         }
     }
@@ -143,29 +157,144 @@ public struct ChatBubbleView: View {
     }
 }
 
-private struct ChatMarkdownTextStack: View {
-    let text: String
+struct ChatSystemMessageGroupView: View {
+    let messages: [ChatMessage]
 
+    @State private var isExpanded = true
     @Environment(\.theme) private var theme
 
     var body: some View {
+        let items = segmentItems
+
+        Group {
+            if items.count == 1, let item = items.first {
+                segmentRow(item)
+            } else {
+                VStack(alignment: .leading, spacing: theme.spacing.s) {
+                    groupHeader(items: items)
+
+                    if isExpanded {
+                        VStack(alignment: .leading, spacing: theme.spacing.xs) {
+                            ForEach(items) { item in
+                                segmentRow(item)
+                            }
+                        }
+                        .padding(.leading, 28)
+                    }
+                }
+            }
+        }
+        .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func groupHeader(items: [ChatSystemSegmentItem]) -> some View {
+        HStack(spacing: theme.spacing.s) {
+            Icons.symbol(isExpanded ? .collapseContent : .expandMore, size: theme.typography.caption)
+                .foregroundColor(theme.colors.textMuted)
+
+            Text(summaryTitle(for: items))
+                .font(.system(size: theme.typography.caption))
+                .foregroundColor(theme.colors.textSecondary)
+                .lineLimit(1)
+
+            Spacer(minLength: 0)
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.15)) {
+                isExpanded.toggle()
+            }
+        }
+    }
+
+    private func segmentRow(_ item: ChatSystemSegmentItem) -> some View {
+        ChatSegmentCollapsibleCard(
+            message: item.message,
+            segment: item.segment,
+            isRunning: item.isRunning
+        )
+    }
+
+    private var segmentItems: [ChatSystemSegmentItem] {
+        messages.flatMap { message in
+            message.segments.enumerated().map { index, segment in
+                ChatSystemSegmentItem(
+                    id: "\(message.id):\(index)",
+                    message: message,
+                    segment: segment
+                )
+            }
+        }
+    }
+
+    private func summaryTitle(for items: [ChatSystemSegmentItem]) -> String {
+        let titles = items.compactMap { item -> String? in
+            guard let title = item.segment.title?.trimmingCharacters(in: .whitespacesAndNewlines),
+                  !title.isEmpty else {
+                return nil
+            }
+            return title
+        }
+        return titles.isEmpty ? "Activity" : titles.prefix(3).joined(separator: " · ")
+    }
+}
+
+private struct ChatSystemSegmentItem: Identifiable {
+    let id: String
+    let message: ChatMessage
+    let segment: ChatMessageSegment
+
+    var isRunning: Bool {
+        if let status = segment.status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            return status == "running" || status == "in_progress"
+        }
+        return segment.startedAt != nil && segment.finishedAt == nil
+    }
+}
+
+struct ChatThinkingIndicator: View {
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        HStack {
+            ChatShimmerText(text: "Thinking")
+                .font(.system(size: theme.typography.body, weight: .medium))
+            Spacer(minLength: 0)
+        }
+        .accessibilityLabel("Thinking")
+    }
+}
+
+private struct ChatMarkdownTextStack: View {
+    let text: String
+    var rendersMarkdown = true
+
+    @Environment(\.theme) private var theme
+
+    @ViewBuilder
+    var body: some View {
         let ty = theme.typography
 
-        StructuredText(markdown: text)
-            .textual.structuredTextStyle(.gitHub)
-            .font(.system(size: ty.body))
-            .foregroundColor(theme.colors.textPrimary)
-            .tint(theme.colors.accentCyan)
-            .fixedSize(horizontal: false, vertical: true)
+        if rendersMarkdown {
+            StructuredText(markdown: text)
+                .textual.structuredTextStyle(.gitHub)
+                .font(.system(size: ty.body))
+                .foregroundColor(theme.colors.textPrimary)
+                .tint(theme.colors.accentCyan)
+                .fixedSize(horizontal: false, vertical: true)
+        } else {
+            Text(verbatim: text)
+                .font(.system(size: ty.body))
+                .foregroundColor(theme.colors.textPrimary)
+                .fixedSize(horizontal: false, vertical: true)
+        }
     }
 }
 
 private struct ChatSegmentCollapsibleCard: View {
     let message: ChatMessage
     let segment: ChatMessageSegment
-    let forceCollapsible: Bool
     let isRunning: Bool
-    let isStreamingAssistant: Bool
 
     @State private var isExpanded = false
     @Environment(\.theme) private var theme
@@ -208,9 +337,7 @@ private struct ChatSegmentCollapsibleCard: View {
                 .padding(.leading, 28)
             }
         }
-        .padding(.horizontal, sp.m)
-        .padding(.vertical, sp.s)
-        .backportGlassEffect(.clear, in: .rect(cornerRadius: 16))
+        .padding(.vertical, sp.xs)
         .contentShape(Rectangle())
         .onTapGesture {
             withAnimation(.easeInOut(duration: 0.1)) {
@@ -225,13 +352,20 @@ private struct ChatSegmentCollapsibleCard: View {
         let sp = theme.spacing
 
         HStack(spacing: sp.s) {
-            Icons.symbol(isExpanded ? .collapseContent : .expandMore, size: theme.typography.caption)
-                .foregroundColor(c.textMuted)
-
-            Text(segmentTitle)
+            Image(systemName: segmentSystemImage)
                 .font(.system(size: theme.typography.caption))
-                .foregroundColor(c.textPrimary)
-                .lineLimit(1)
+                .foregroundColor(c.textMuted)
+                .frame(width: 18)
+
+            if isRunning && segment.kind == .thinking {
+                ChatShimmerText(text: "Thinking")
+                    .font(.system(size: theme.typography.caption))
+            } else {
+                Text(segmentTitle)
+                    .font(.system(size: theme.typography.caption))
+                    .foregroundColor(c.textSecondary)
+                    .lineLimit(1)
+            }
 
             if let durationText {
                 Text(durationText)
@@ -242,14 +376,36 @@ private struct ChatSegmentCollapsibleCard: View {
 
             Spacer(minLength: 0)
 
-            if isRunning {
-                ChatShimmerView()
-                    .frame(width: 54, height: 10)
-                    .clipShape(Capsule())
+            if hasExpandableContent {
+                Icons.symbol(isExpanded ? .collapseContent : .expandMore, size: theme.typography.caption)
+                    .foregroundColor(c.textMuted)
             }
         }
-        .onTapGesture {
-            isExpanded.toggle()
+    }
+
+    private var hasExpandableContent: Bool {
+        if let text = segment.text, !text.isEmpty {
+            return true
+        }
+        return segment.metadata?.isEmpty == false
+    }
+
+    private var segmentSystemImage: String {
+        switch segment.kind {
+        case .text:
+            return "text.alignleft"
+        case .thinking:
+            return "brain.head.profile"
+        case .attachment:
+            return "paperclip"
+        case .toolCall:
+            return "terminal"
+        case .toolResult:
+            return "book.closed"
+        case .status:
+            return "circle.dotted"
+        case .buildProgress:
+            return "chart.bar"
         }
     }
 
@@ -271,6 +427,8 @@ private struct ChatSegmentCollapsibleCard: View {
             return "Tool result"
         case .status:
             return "Status"
+        case .buildProgress:
+            return "Progress"
         }
     }
 
@@ -289,23 +447,33 @@ private struct ChatSegmentCollapsibleCard: View {
     }
 }
 
-private struct ChatShimmerView: View {
+private struct ChatShimmerText: View {
+    let text: String
+
     @State private var phase: CGFloat = -1
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.theme) private var theme
 
     var body: some View {
-        LinearGradient(
-            stops: [
-                .init(color: .white.opacity(0.12 as CGFloat), location: 0),
-                .init(color: .white.opacity(0.52 as CGFloat), location: 0.5),
-                .init(color: .white.opacity(0.12 as CGFloat), location: 1),
-            ],
-            startPoint: .leading,
-            endPoint: .trailing
-        )
-        .offset(x: phase * 90)
+        Text(text)
+            .foregroundStyle(
+                LinearGradient(
+                    colors: [
+                        theme.colors.textMuted,
+                        theme.colors.textPrimary,
+                        theme.colors.textMuted,
+                    ],
+                    startPoint: UnitPoint(x: phase - 1, y: 0.5),
+                    endPoint: UnitPoint(x: phase, y: 0.5)
+                )
+            )
         .onAppear {
-            withAnimation(.linear(duration: 1.1).repeatForever(autoreverses: false)) {
-                phase = 1
+            guard !reduceMotion else {
+                phase = 0.5
+                return
+            }
+            withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) {
+                phase = 2
             }
         }
     }

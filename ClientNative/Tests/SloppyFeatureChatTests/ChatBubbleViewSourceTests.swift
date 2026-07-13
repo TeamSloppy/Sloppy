@@ -23,4 +23,14 @@ struct ChatBubbleViewSourceTests {
         #expect(source.contains("private var showsLiveDuration: Bool"))
         #expect(source.contains("segment.finishedAt == nil"))
     }
+
+    @Test("message actions are limited to completed assistant text")
+    func messageActionsAreLimitedToCompletedAssistantText() throws {
+        let source = try source("Sources", "SloppyFeatureChat", "Screens", "Chat", "Views", "ChatBubbleView.swift")
+
+        #expect(source.contains("if showsMessageActions"))
+        #expect(source.contains("!isStreamingAssistant"))
+        #expect(source.contains("message.role == .assistant"))
+        #expect(source.contains("message.segments.allSatisfy { $0.kind == .text }"))
+    }
 }

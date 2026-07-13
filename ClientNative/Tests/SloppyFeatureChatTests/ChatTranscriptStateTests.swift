@@ -47,6 +47,18 @@ struct ChatTranscriptStateTests {
         #expect(transcript.hiddenMessageCount == 22)
     }
 
+    @Test("streaming assistant text accumulates across separate UI flushes")
+    func streamingAssistantTextAccumulatesAcrossFlushes() {
+        let transcript = ChatTranscriptState()
+
+        transcript.appendStreamingAssistantText("Hello", messageId: "streaming-assistant-session")
+        transcript.appendStreamingAssistantText(", world", messageId: "streaming-assistant-session")
+
+        #expect(transcript.messages.count == 1)
+        #expect(transcript.messages.first?.role == .assistant)
+        #expect(transcript.messages.first?.textContent == "Hello, world")
+    }
+
     private func makeMessages(count: Int) -> [ChatMessage] {
         (0..<count).map { message(id: "msg-\($0)", index: $0) }
     }

@@ -7,6 +7,8 @@ struct PlatformMainSidebar: View {
     let viewModel: MainViewModel
     let isOverlay: Bool
 
+    @Environment(\.theme) private var theme
+
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 12) {
@@ -15,6 +17,31 @@ struct PlatformMainSidebar: View {
             }
         }
         .refreshable { await viewModel.refreshContent() }
+        .safeAreaInset(edge: .bottom) {
+            HStack {
+
+                Spacer()
+
+                Button {
+
+                } label: {
+                    Image(systemName: "gearshape")
+                        .font(.system(size: theme.typography.heading))
+                }
+            }
+            .buttonStyle(.borderless)
+            .padding()
+            .frame(maxWidth: .infinity)
+            .frame(height: 56)
+            .background(
+                LinearGradient(colors: [
+                    Color.black.opacity(0.01),
+                    Color.black.opacity(0.1),
+                    Color.black.opacity(0.1),
+                ], startPoint: .top, endPoint: .bottom)
+                .blur(radius: 4)
+            )
+        }
     }
 }
 

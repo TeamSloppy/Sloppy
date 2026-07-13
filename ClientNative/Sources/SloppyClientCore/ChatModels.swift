@@ -22,6 +22,75 @@ public enum ChatMessageSegmentKind: String, Codable, Sendable {
     case toolCall = "tool_call"
     case toolResult = "tool_result"
     case status
+    case buildProgress = "build_progress"
+}
+
+public enum ChatBuildProgressStatus: String, Codable, Sendable, Equatable, CaseIterable {
+    case pending
+    case inProgress = "in_progress"
+    case done
+    case blocked
+    case skipped
+}
+
+public struct ChatBuildProgressItem: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var title: String
+    public var status: ChatBuildProgressStatus
+    public var definitionOfDone: String
+    public var details: String?
+
+    public init(
+        id: String,
+        title: String,
+        status: ChatBuildProgressStatus,
+        definitionOfDone: String,
+        details: String? = nil
+    ) {
+        self.id = id
+        self.title = title
+        self.status = status
+        self.definitionOfDone = definitionOfDone
+        self.details = details
+    }
+}
+
+public struct ChatBuildProgress: Codable, Sendable, Equatable {
+    public var title: String
+    public var items: [ChatBuildProgressItem]
+    public var createdAt: Date
+
+    public init(
+        title: String,
+        items: [ChatBuildProgressItem],
+        createdAt: Date = Date()
+    ) {
+        self.title = title
+        self.items = items
+        self.createdAt = createdAt
+    }
+
+    public var currentStepNumber: Int {
+        if let index = items.firstIndex(where: { $0.status == .inProgress }) {
+            return index + 1
+        }
+        if let index = items.firstIndex(where: { $0.status == .blocked }) {
+            return index + 1
+        }
+        if let index = items.firstIndex(where: { $0.status == .pending }) {
+            return index + 1
+        }
+        return items.count
+    }
+
+    fileprivate var timelineMessage: ChatMessage {
+        ChatMessage(
+            id: "build-progress-current",
+            role: .system,
+            segments: [ChatMessageSegment(kind: .buildProgress, buildProgress: self)],
+            createdAt: createdAt
+        )
+    }
 }
 
 public struct ChatMessageSegment: Codable, Sendable, Equatable {
@@ -32,6 +101,7 @@ public struct ChatMessageSegment: Codable, Sendable, Equatable {
     public var startedAt: Date?
     public var finishedAt: Date?
     public var metadata: [String: String]?
+    public var buildProgress: ChatBuildProgress?
 
     public init(
         kind: ChatMessageSegmentKind,
@@ -40,7 +110,8 @@ public struct ChatMessageSegment: Codable, Sendable, Equatable {
         status: String? = nil,
         startedAt: Date? = nil,
         finishedAt: Date? = nil,
-        metadata: [String: String]? = nil
+        metadata: [String: String]? = nil,
+        buildProgress: ChatBuildProgress? = nil
     ) {
         self.kind = kind
         self.text = text
@@ -49,6 +120,7 @@ public struct ChatMessageSegment: Codable, Sendable, Equatable {
         self.startedAt = startedAt
         self.finishedAt = finishedAt
         self.metadata = metadata
+        self.buildProgress = buildProgress
     }
 }
 
@@ -109,7 +181,22 @@ public struct ChatSessionDetail: Decodable, Sendable {
     private var directMessages: [ChatMessage]
 
     public var messages: [ChatMessage] {
-        directMessages.isEmpty ? events.compactMap { $0.message } : directMessages
+        let latestProgressEventID = events.last(where: { $0.buildProgress != nil })?.id
+        let eventMessages = events.compactMap { event -> ChatMessage? in
+            if event.buildProgress != nil, event.id != latestProgressEventID {
+                return nil
+            }
+            return event.message
+        }
+
+        guard !directMessages.isEmpty else {
+            return eventMessages
+        }
+        guard let progressMessage = eventMessages.last(where: { $0.id == "build-progress-current" }) else {
+            return directMessages
+        }
+        return (directMessages.filter { $0.id != progressMessage.id } + [progressMessage])
+            .sorted { $0.createdAt < $1.createdAt }
     }
 
     public init(summary: ChatSessionSummary, events: [ChatEventEnvelope] = [], messages: [ChatMessage] = []) {
@@ -207,19 +294,27 @@ public struct ChatEventEnvelope: Decodable, Sendable {
     public var id: String
     public var type: String
     public var message: ChatMessage?
+    public var buildProgress: ChatBuildProgress?
 
     private enum CodingKeys: String, CodingKey {
-        case id, type, message, event
+        case id, type, message, buildProgress, event
     }
 
     private struct EmbeddedEvent: Decodable {
         var message: ChatMessage?
+        var buildProgress: ChatBuildProgress?
     }
 
-    public init(id: String, type: String, message: ChatMessage? = nil) {
+    public init(
+        id: String,
+        type: String,
+        message: ChatMessage? = nil,
+        buildProgress: ChatBuildProgress? = nil
+    ) {
         self.id = id
         self.type = type
-        self.message = message
+        self.buildProgress = buildProgress
+        self.message = message ?? buildProgress?.timelineMessage
     }
 
     public init(from decoder: Decoder) throws {
@@ -231,8 +326,12 @@ public struct ChatEventEnvelope: Decodable, Sendable {
         // { "type": "message", "message": { ... } }
         // Some streamed/debug payloads wrap the same value under `event.message`.
         // Support both so opening an existing session can hydrate the transcript.
+        let embeddedEvent = try container.decodeIfPresent(EmbeddedEvent.self, forKey: .event)
+        buildProgress = try container.decodeIfPresent(ChatBuildProgress.self, forKey: .buildProgress)
+            ?? embeddedEvent?.buildProgress
         message = try container.decodeIfPresent(ChatMessage.self, forKey: .message)
-            ?? container.decodeIfPresent(EmbeddedEvent.self, forKey: .event)?.message
+            ?? embeddedEvent?.message
+            ?? buildProgress?.timelineMessage
     }
 }
 
@@ -240,6 +339,7 @@ public enum ChatStreamEventType: String, Codable, Sendable {
     case message
     case runStatus = "run_status"
     case inputRequest = "input_request"
+    case buildProgress = "build_progress"
 }
 
 public enum ChatRunStage: String, Codable, Sendable {
@@ -278,17 +378,20 @@ public struct ChatStreamEvent: Decodable, Sendable, Equatable {
     public var type: ChatStreamEventType
     public var message: ChatMessage?
     public var runStatus: ChatRunStatusEvent?
+    public var buildProgress: ChatBuildProgress?
 
     public init(
         id: String,
         type: ChatStreamEventType,
         message: ChatMessage? = nil,
-        runStatus: ChatRunStatusEvent? = nil
+        runStatus: ChatRunStatusEvent? = nil,
+        buildProgress: ChatBuildProgress? = nil
     ) {
         self.id = id
         self.type = type
         self.message = message
         self.runStatus = runStatus
+        self.buildProgress = buildProgress
     }
 }
 
@@ -341,6 +444,6 @@ extension ChatStreamUpdate: Decodable {
         messageText = kind == .sessionDelta ? text : nil
         errorText = kind == .sessionError || kind == .sessionClosed ? text : nil
         streamEvent = try container.decodeIfPresent(ChatStreamEvent.self, forKey: .event)
-        message = streamEvent?.message
+        message = streamEvent?.message ?? streamEvent?.buildProgress?.timelineMessage
     }
 }

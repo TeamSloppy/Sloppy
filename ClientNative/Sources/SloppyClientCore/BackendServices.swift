@@ -182,6 +182,10 @@ public actor AgentService {
     public func fetchAgentTasks(agentId: String) async throws -> [APIAgentTaskRecord] {
         try await http.get("/v1/agents/\(BackendHTTPClient.encodePathSegment(agentId))/tasks")
     }
+
+    public func fetchChatSlashCommands(agentId: String) async throws -> AgentChatSlashCommandsResponse {
+        try await http.get("/v1/agents/\(BackendHTTPClient.encodePathSegment(agentId))/chat-slash-commands")
+    }
 }
 
 public actor SessionService {

@@ -210,12 +210,12 @@ struct AgentChatView: View {
                 Task { await manager.disconnect() }
             }
 
+            let stream = await manager.connect()
+
             if let detail = try? await apiClient.fetchAgentSession(agentId: agent.id, sessionId: sessionId) {
                 guard selectedSessionId == sessionId else { return }
                 messages = detail.messages
             }
-
-            let stream = await manager.connect()
 
             for await update in stream {
                 guard selectedSessionId == sessionId else { return }
@@ -265,7 +265,7 @@ struct AgentChatView: View {
     private func scheduleStreamingAssistantText(_ text: String, sessionId: String) {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
         pendingStreamingSessionId = sessionId
-        pendingStreamingAssistantText = text
+        pendingStreamingAssistantText = (pendingStreamingAssistantText ?? "") + text
 
         guard streamingFlushTask == nil else {
             return
@@ -306,16 +306,22 @@ struct AgentChatView: View {
         guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
 
         let id = streamingAssistantMessageId(for: sessionId)
-        let message = ChatMessage(
-            id: id,
-            role: .assistant,
-            segments: [ChatMessageSegment(kind: .text, text: text)]
-        )
-
         if let idx = messages.firstIndex(where: { $0.id == id }) {
+            var message = messages[idx]
+            if let segmentIndex = message.segments.lastIndex(where: { $0.kind == .text }) {
+                message.segments[segmentIndex].text = (message.segments[segmentIndex].text ?? "") + text
+            } else {
+                message.segments.append(ChatMessageSegment(kind: .text, text: text))
+            }
             messages[idx] = message
         } else {
-            messages.append(message)
+            messages.append(
+                ChatMessage(
+                    id: id,
+                    role: .assistant,
+                    segments: [ChatMessageSegment(kind: .text, text: text)]
+                )
+            )
         }
     }
 

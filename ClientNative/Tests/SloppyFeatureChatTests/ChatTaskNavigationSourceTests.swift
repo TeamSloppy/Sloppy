@@ -31,4 +31,15 @@ struct ChatTaskNavigationSourceTests {
 
         #expect(!activateSource.contains("createAgentSession("))
     }
+
+    @Test("project picker changes context without opening an existing session")
+    func projectPickerChangesContextWithoutOpeningSession() throws {
+        let source = try chatScreenViewModelSource
+        let pickProjectStart = try #require(source.range(of: "public func pickProject("))
+        let starterPromptStart = try #require(source.range(of: "public func useStarterPrompt("))
+        let pickProjectSource = source[pickProjectStart.lowerBound..<starterPromptStart.lowerBound]
+
+        #expect(pickProjectSource.contains("opensPreferredSession: false"))
+        #expect(source.contains("guard opensPreferredSession else"))
+    }
 }

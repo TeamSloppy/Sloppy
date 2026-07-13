@@ -7,6 +7,9 @@ import SloppyFeatureSettings
 @MainActor
 struct RootShellView: View {
     @State var viewModel: RootShellViewModel
+    #if os(macOS)
+    @State private var backendInstallation = BackendInstallationModel()
+    #endif
 
     init() {
         self._viewModel = State(initialValue: RootShellViewModel())
@@ -17,7 +20,16 @@ struct RootShellView: View {
     }
 
     var body: some View {
-        RootShellContent(viewModel: viewModel)
+        ZStack {
+            RootShellContent(viewModel: viewModel)
+            #if os(macOS)
+            if backendInstallation.blocksApp {
+                BackendInstallationView(model: backendInstallation)
+                    .transition(.opacity)
+                    .zIndex(100)
+            }
+            #endif
+        }
             .environment(viewModel)
         #if os(visionOS)
             .theme(.sloppyDark)
@@ -37,6 +49,11 @@ struct RootShellView: View {
             .onOpenURL { url in
                 viewModel.handleDeepLink(url)
             }
+            #if os(macOS)
+            .task {
+                backendInstallation.checkIfNeeded()
+            }
+            #endif
     }
 }
 
@@ -85,7 +102,9 @@ private struct RootShellContent: View {
                     },
                     onOpenWorkspace: {
                         rootViewModel.appState = .connectionSetup
-                    }
+                    },
+                    menuBarQuickActionRequest: rootViewModel.menuBarQuickActionRequest,
+                    onConsumeMenuBarQuickAction: rootViewModel.consumeMenuBarAction
                 )
 
             case .settings:

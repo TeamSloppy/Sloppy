@@ -68,11 +68,13 @@ final class MainViewModel {
     }
 
     var workspaceContext: WorkspacePanelContext? {
-        guard let projectId = chatViewModel.activeProjectIdForWorkspacePanel,
-              let projectName = chatViewModel.activeProjectNameForWorkspacePanel else {
+        guard let context = activeWorkspaceFilesContext() else {
             return nil
         }
-        return WorkspacePanelContext(projectId: projectId, projectName: projectName)
+        return WorkspacePanelContext(
+            projectId: context.projectId,
+            projectName: context.projectName
+        )
     }
 
     var selectedChatSessionID: String? {
@@ -445,6 +447,34 @@ final class MainViewModel {
         if select {
             selectedTabID = tab.id
         }
+    }
+
+    func synchronizeChatTab(_ tabID: WorkspaceTab.ID) {
+        guard let index = tabs.firstIndex(where: { $0.id == tabID }),
+              tabs[index].kind == .chat,
+              let chatViewModel = tabStates[tabID]?.chatState?.viewModel else {
+            return
+        }
+
+        guard let sessionID = chatViewModel.selectedSessionId else {
+            tabs[index] = WorkspaceTab(
+                id: tabs[index].id,
+                key: tabs[index].key,
+                kind: .chat,
+                title: "New Chat",
+                payload: tabs[index].payload
+            )
+            return
+        }
+
+        let title = chatViewModel.activeSessionTitle
+        tabs[index] = WorkspaceTab(
+            id: tabs[index].id,
+            key: .chatSession(sessionID),
+            kind: .chat,
+            title: title,
+            payload: .chatSession(sessionID: sessionID, title: title)
+        )
     }
 
     func nextTabID(from tabID: WorkspaceTab.ID, offset: Int) -> WorkspaceTab.ID? {

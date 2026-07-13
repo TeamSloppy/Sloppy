@@ -42,6 +42,8 @@ struct MainView: View {
     }
 
     let rootSafeAreaInsets: EdgeInsets
+    let menuBarQuickActionRequest: MenuBarQuickActionRequest?
+    let onConsumeMenuBarQuickAction: @MainActor (MenuBarQuickActionRequest) -> Void
 
     @State private var viewModel: MainViewModel
     @State private var mobileTabPagingDirection = 1
@@ -54,6 +56,7 @@ struct MainView: View {
     @State private var mobileTabsThumbnailFrames: [WorkspaceTab.ID: CGRect] = [:]
     @State private var mobileTabsOverviewProgress: CGFloat = 0
     @State private var isMobileTabsOverviewGestureActive = false
+    @State private var isWorkspacePanelPresented = false
 
     // iOS
     @State private var pagerSize: CGSize = .zero
@@ -91,9 +94,13 @@ struct MainView: View {
         connectionMonitor: ConnectionMonitor,
         rootSafeAreaInsets: EdgeInsets = EdgeInsets(),
         onOpenSettings: @Sendable @escaping @MainActor () -> Void,
-        onOpenWorkspace: @escaping @MainActor () -> Void
+        onOpenWorkspace: @escaping @MainActor () -> Void,
+        menuBarQuickActionRequest: MenuBarQuickActionRequest? = nil,
+        onConsumeMenuBarQuickAction: @escaping @MainActor (MenuBarQuickActionRequest) -> Void = { _ in }
     ) {
         self.rootSafeAreaInsets = rootSafeAreaInsets
+        self.menuBarQuickActionRequest = menuBarQuickActionRequest
+        self.onConsumeMenuBarQuickAction = onConsumeMenuBarQuickAction
         _viewModel = State(
             initialValue: MainViewModel(
                 baseURL: baseURL,
@@ -108,6 +115,10 @@ struct MainView: View {
     var body: some View {
         contentView
             .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .inspector(isPresented: $isWorkspacePanelPresented) {
+                workspaceScreen()
+                    .inspectorColumnWidth(min: 320, ideal: 420, max: 720)
+            }
             .onAppear {
                 if viewModel.tabs.isEmpty {
                     viewModel.createBlankChatTab(select: true)
@@ -116,6 +127,10 @@ struct MainView: View {
                 Task {
                     await viewModel.loadProjects()
                 }
+                handleMenuBarQuickAction(menuBarQuickActionRequest)
+            }
+            .onChange(of: menuBarQuickActionRequest?.id) { _, _ in
+                handleMenuBarQuickAction(menuBarQuickActionRequest)
             }
             .background {
                 Group {
@@ -151,34 +166,31 @@ struct MainView: View {
             )
             #endif
             .toolbar {
-                if let activeChatViewModel {
-                    ToolbarItem(id: "active-chat-agent", placement: .secondaryAction) {
+                ToolbarItemGroup(placement: .primaryAction) {
+                    if let activeChatViewModel {
                         ChatAgentToolbarMenu(
                             selectedAgent: activeChatViewModel.selectedAgent,
                             agents: activeChatViewModel.agents,
                             onSelectAgent: activeChatViewModel.pickAgent
                         )
-                    }
-
-                    ToolbarItem(id: "active-chat-model", placement: .secondaryAction) {
                         ChatModelToolbarMenu(
                             selectedModelId: activeChatViewModel.selectedModelId,
                             models: activeChatViewModel.availableModels,
                             onSelectModel: activeChatViewModel.pickModel
                         )
                     }
-                }
 
-                if idiom != .phone {
-                    ToolbarItem(placement: .primaryAction) {
+                    if idiom != .phone {
                         Button(
                             action: {
-                                viewModel.openWorkspaceTabForSelectedContext()
+                                isWorkspacePanelPresented.toggle()
                             },
                             label: {
                                 Image(systemName: "sidebar.right")
                             }
                         )
+                        .help(isWorkspacePanelPresented ? "Hide Workspace" : "Show Workspace")
+                        .disabled(viewModel.workspaceContext == nil)
                     }
                 }
             }
@@ -222,7 +234,18 @@ struct MainView: View {
         }
 #else
         navigationView
-#endif
+            #endif
+    }
+
+    private func handleMenuBarQuickAction(_ request: MenuBarQuickActionRequest?) {
+        guard let request else { return }
+        switch request.action {
+        case .newChat:
+            viewModel.selectNewChat()
+        case .scheduledTasks:
+            viewModel.selectScheduled()
+        }
+        onConsumeMenuBarQuickAction(request)
     }
 
     private var navigationView: some View {
@@ -340,34 +363,36 @@ struct MainView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(anchor: .bottom) {
-            ChatComposerOverlay(
-                viewModel: viewModel.chatViewModel,
-                contentWidth: 10,
-                composerBottomInset: {
-                    #if os(macOS)
-                    24
-                    #else
-                    0
-                    #endif
-                }(),
-                tabs: viewModel.tabs,
-                tabActions: idiom == .phone
-                ? ChatComposerTabActions(
-                    tabProgress: { progress in updatePagerPosition(progress) },
-                    showOverview: { presentMobileTabsOverviewAnimated() },
-                    beginOverviewGesture: { beginMobileTabsOverviewGesture() },
-                    updateOverviewGesture: { progress in
-                        updateMobileTabsOverviewGesture(progress: progress)
-                    },
-                    endOverviewGesture: { progress, velocity in
-                        endMobileTabsOverviewGesture(progress: progress, upwardVelocity: velocity)
-                    },
-                    createTab: { createMobileTabAnimated() }
+            if let activeChatViewModel {
+                ChatComposerOverlay(
+                    viewModel: activeChatViewModel,
+                    contentWidth: 10,
+                    composerBottomInset: {
+                        #if os(macOS)
+                        24
+                        #else
+                        0
+                        #endif
+                    }(),
+                    tabs: viewModel.tabs,
+                    tabActions: idiom == .phone
+                    ? ChatComposerTabActions(
+                        tabProgress: { progress in updatePagerPosition(progress) },
+                        showOverview: { presentMobileTabsOverviewAnimated() },
+                        beginOverviewGesture: { beginMobileTabsOverviewGesture() },
+                        updateOverviewGesture: { progress in
+                            updateMobileTabsOverviewGesture(progress: progress)
+                        },
+                        endOverviewGesture: { progress, velocity in
+                            endMobileTabsOverviewGesture(progress: progress, upwardVelocity: velocity)
+                        },
+                        createTab: { createMobileTabAnimated() }
+                    )
+                    : nil
                 )
-                : nil
-            )
-            .opacity(shouldHidePhoneComposer ? 0.0 : 1.0)
-            .allowsHitTesting(!viewModel.isMobileTabsOverviewPresented)
+                .opacity(shouldHidePhoneComposer ? 0.0 : 1.0)
+                .allowsHitTesting(!viewModel.isMobileTabsOverviewPresented)
+            }
         }
     }
 
@@ -515,8 +540,12 @@ struct MainView: View {
                     viewModel: chatState.viewModel,
                     rootSafeAreaInsets: rootSafeAreaInsets,
                     onOpenSidebar: openSidebar,
-                    showsContextToolbar: false
+                    showsContextToolbar: false,
+                    showsNavigationToolbar: idiom == .phone
                 )
+                .onChange(of: chatState.viewModel.selectedSessionId) { _, _ in
+                    viewModel.synchronizeChatTab(tab.id)
+                }
             )
         case .projectKanban:
             guard let kanbanState = tabState.projectKanbanState,

@@ -102,6 +102,12 @@ private struct SidebarProjectGroupView: View {
     private var isExpanded: Bool { viewModel.expandedTaskLists.contains(group.id) }
     private var sessions: [ChatSessionSummary] { isExpanded ? group.totalSessions : group.visibleSessions }
 
+    private var isSelected: Bool {
+        viewModel.selectedSidebarItem == .project(group.id)
+    }
+
+    @State private var isHovered = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             Button {
@@ -111,7 +117,7 @@ private struct SidebarProjectGroupView: View {
                     SidebarNavigationRow(
                         icon: .folder,
                         title: group.project.name,
-                        isSelected: viewModel.selectedSidebarItem == .project(group.id),
+                        isSelected: isSelected,
                         navigationValue: .project(group.id),
                         action: { viewModel.openProjectKanbanTab(project: group.project) }
                     )
@@ -120,7 +126,14 @@ private struct SidebarProjectGroupView: View {
                     Spacer()
                 }
             }
-            .buttonStyle(.plain)
+            .onHover {
+                isHovered = $0
+            }
+            .buttonStyle(
+                SidebarHoverButtonStyle(
+                    isHovered: isHovered || isSelected
+                )
+            )
             if !isCollapsed {
                 ForEach(sessions) {
                     SidebarSessionItem(viewModel: viewModel, session: $0)

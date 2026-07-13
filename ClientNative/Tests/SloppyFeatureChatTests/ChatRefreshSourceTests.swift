@@ -32,6 +32,10 @@ struct ChatRefreshSourceTests {
 
         #expect(source.contains("scheduleStreamingAssistantText(text, sessionId: sessionId, mode: .append)"))
         #expect(source.contains("pendingStreamingAssistantText = (pendingStreamingAssistantText ?? \"\") + text"))
+        #expect(source.contains("transcript.appendStreamingAssistantText(text, messageId: id)"))
+        #expect(source.contains("private func connectToSession(agentId: String, sessionId: String) async"))
+        #expect(source.contains("let stream = await manager.connect()"))
+        #expect(source.contains("await connectToSession(agentId: agent.id, sessionId: summary.id)\n                    await postMessage"))
         #expect(source.contains("public func stopActiveRun()"))
         #expect(source.contains("try await apiClient.interruptAgentSession("))
         #expect(source.contains("defer { isSending = false }"))

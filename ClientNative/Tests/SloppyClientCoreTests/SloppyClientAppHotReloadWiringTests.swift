@@ -41,4 +41,17 @@ struct SloppyClientAppWiringTests {
         #expect(source.contains(".defaultSize(width:"))
         #expect(source.contains(".windowResizability("))
     }
+
+    @Test("app exposes macOS menu bar quick actions and survives without windows")
+    func appExposesMenuBarQuickActions() throws {
+        let source = try appSource
+
+        #expect(source.contains("MenuBarExtra(\"Sloppy\""))
+        #expect(source.contains("Button(\"New Chat\""))
+        #expect(source.contains("Button(\"Scheduled Tasks\""))
+        #expect(source.contains("Button(\"Open Sloppy\""))
+        #expect(source.contains("Button(\"Quit Sloppy\""))
+        #expect(source.contains("applicationShouldTerminateAfterLastWindowClosed"))
+        #expect(source.contains("openWindow(id: \"main\")"))
+    }
 }
