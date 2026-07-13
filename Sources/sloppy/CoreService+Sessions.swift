@@ -261,8 +261,7 @@ extension CoreService {
 
     func publishLiveSessionDelta(agentID: String, sessionID: String, chunk: String) {
         let normalized = chunk.replacingOccurrences(of: "\r\n", with: "\n")
-        let trimmed = normalized.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty else {
+        guard !normalized.isEmpty else {
             return
         }
 

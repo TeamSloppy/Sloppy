@@ -5219,7 +5219,7 @@ export function AgentChatTab({
 
     if (kind === "session_delta") {
       const deltaText = String(update.message || "");
-      if (deltaText.trim().length > 0) {
+      if (deltaText.length > 0) {
         pushOptimisticAssistantText(deltaText);
       }
       return;
@@ -5341,7 +5341,7 @@ export function AgentChatTab({
 
     if (kind === "session_delta") {
       const deltaText = String(update.message || "");
-      if (deltaText.trim().length > 0) {
+      if (deltaText.length > 0) {
         pushSubagentOptimisticAssistantText(deltaText);
       }
       return;

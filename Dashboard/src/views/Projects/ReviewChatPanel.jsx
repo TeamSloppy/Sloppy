@@ -117,7 +117,7 @@ export function ReviewChatPanel({ agentId, taskTitle, diff }) {
 
         if (kind === "session_delta") {
           const text = String(update.message || "");
-          if (text.trim()) setStreamText(text);
+          if (text) setStreamText((previous) => previous + text);
           return;
         }
 

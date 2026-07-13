@@ -11,44 +11,60 @@ struct ComposerSuggestionsView: View {
     private static let panelHeight: CGFloat = 320
 
     let suggestions: [ChatComposerSuggestion]
+    let selectedSuggestionID: ChatComposerSuggestion.ID?
     let select: @MainActor (ChatComposerSuggestion) -> Void
 
     @Environment(\.theme) private var theme
 
     var body: some View {
-        ScrollView {
-            LazyVStack(spacing: 2) {
-                ForEach(suggestions) { suggestion in
-                    Button {
-                        select(suggestion)
-                    } label: {
-                        HStack(spacing: theme.spacing.s) {
-                            Image(systemName: symbol(for: suggestion.kind))
-                                .frame(width: 20)
-                                .foregroundColor(theme.colors.textSecondary)
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(spacing: 2) {
+                    ForEach(suggestions) { suggestion in
+                        Button {
+                            select(suggestion)
+                        } label: {
+                            HStack(spacing: theme.spacing.s) {
+                                Image(systemName: symbol(for: suggestion.kind))
+                                    .frame(width: 20)
+                                    .foregroundColor(theme.colors.textSecondary)
 
-                            VStack(alignment: .leading, spacing: 2) {
-                                Text(suggestion.title)
-                                    .foregroundColor(theme.colors.textPrimary)
-                                    .lineLimit(1)
-                                if !suggestion.subtitle.isEmpty {
-                                    Text(suggestion.subtitle)
-                                        .font(.caption)
-                                        .foregroundColor(theme.colors.textSecondary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(suggestion.title)
+                                        .foregroundColor(theme.colors.textPrimary)
                                         .lineLimit(1)
+                                    if !suggestion.subtitle.isEmpty {
+                                        Text(suggestion.subtitle)
+                                            .font(.caption)
+                                            .foregroundColor(theme.colors.textSecondary)
+                                            .lineLimit(1)
+                                    }
+                                }
+                                Spacer(minLength: 0)
+                            }
+                            .padding(.horizontal, theme.spacing.m)
+                            .padding(.vertical, theme.spacing.xs)
+                            .background {
+                                if selectedSuggestionID == suggestion.id {
+                                    RoundedRectangle(cornerRadius: 10, style: .continuous)
+                                        .fill(theme.colors.surfaceRaised)
                                 }
                             }
-                            Spacer(minLength: 0)
+                            .contentShape(Rectangle())
                         }
-                        .padding(.horizontal, theme.spacing.m)
-                        .padding(.vertical, theme.spacing.xs)
-                        .contentShape(Rectangle())
+                        .buttonStyle(.plain)
+                        .id(suggestion.id)
+                        .accessibilityIdentifier("chat.composer.suggestion.\(suggestion.id)")
                     }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("chat.composer.suggestion.\(suggestion.id)")
+                }
+                .padding(theme.spacing.xs)
+            }
+            .onChange(of: selectedSuggestionID) { _, selectedID in
+                guard let selectedID else { return }
+                withAnimation(.easeOut(duration: 0.12)) {
+                    proxy.scrollTo(selectedID, anchor: .center)
                 }
             }
-            .padding(theme.spacing.xs)
         }
         .frame(
             maxWidth: ChatComposerView.panelWidth,
@@ -81,7 +97,7 @@ struct ComposerSuggestionsView: View {
         ChatComposerSuggestion(id: "33", kind: ChatComposerSuggestionKind.skill, title: "skill", subtitle: "skill", insertion: "eee"),
         ChatComposerSuggestion(id: "22", kind: ChatComposerSuggestionKind.skill, title: "skill", subtitle: "skill", insertion: "eee"),
         ChatComposerSuggestion(id: "11", kind: ChatComposerSuggestionKind.skill, title: "skill", subtitle: "skill", insertion: "eee")
-    ], select: { _ in
+    ], selectedSuggestionID: "1", select: { _ in
 
     })
 }

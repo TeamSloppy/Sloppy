@@ -32,7 +32,7 @@ extension SloppyTUIScreen {
                         } else if update.kind == .sessionDelta, let message = update.message {
                             self.markFirstStreamEventIfNeeded()
                             self.markFirstModelChunkIfNeeded()
-                            self.updateLiveAssistantDraftTarget(message)
+                            self.appendLiveAssistantDraftDelta(message)
                         } else if update.kind == .sessionEvent, let event = update.event {
                             self.markFirstStreamEventIfNeeded()
                             if event.toolCall != nil {

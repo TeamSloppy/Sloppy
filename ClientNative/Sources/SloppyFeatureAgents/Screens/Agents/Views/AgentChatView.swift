@@ -263,7 +263,7 @@ struct AgentChatView: View {
     }
 
     private func scheduleStreamingAssistantText(_ text: String, sessionId: String) {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !text.isEmpty else { return }
         pendingStreamingSessionId = sessionId
         pendingStreamingAssistantText = (pendingStreamingAssistantText ?? "") + text
 
@@ -303,7 +303,7 @@ struct AgentChatView: View {
     }
 
     private func applyStreamingAssistantText(_ text: String, sessionId: String) {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !text.isEmpty else { return }
 
         let id = streamingAssistantMessageId(for: sessionId)
         if let idx = messages.firstIndex(where: { $0.id == id }) {

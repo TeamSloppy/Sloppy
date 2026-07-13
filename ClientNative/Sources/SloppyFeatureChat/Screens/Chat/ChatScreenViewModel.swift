@@ -128,6 +128,7 @@ public final class ChatScreenViewModel {
     public private(set) var isStopping = false
     public private(set) var composerFocusResetToken = 0
     private(set) var composerSuggestions: [ChatComposerSuggestion] = []
+    private(set) var composerSuggestionSelection = ChatComposerSuggestionSelection()
     public let transcript = ChatTranscriptState()
     public let composerDraft = ChatComposerDraft()
     public var isAttachmentPickerShown = false
@@ -235,7 +236,7 @@ public final class ChatScreenViewModel {
     func updateComposerSuggestions(for text: String) {
         suggestionTask?.cancel()
         guard let query = ChatComposerQuery.parse(text), let agent = selectedAgent else {
-            composerSuggestions = []
+            setComposerSuggestions([])
             return
         }
 
@@ -243,14 +244,33 @@ public final class ChatScreenViewModel {
             guard let self else { return }
             let suggestions = await loadComposerSuggestions(query: query, agentId: agent.id)
             guard !Task.isCancelled, ChatComposerQuery.parse(composerDraft.text) == query else { return }
-            composerSuggestions = suggestions
+            setComposerSuggestions(suggestions)
         }
+    }
+
+    @discardableResult
+    func moveComposerSuggestionSelection(_ direction: ChatComposerSuggestionSelectionDirection) -> Bool {
+        composerSuggestionSelection.move(direction, in: composerSuggestions)
+    }
+
+    @discardableResult
+    func applySelectedComposerSuggestion() -> Bool {
+        guard let suggestion = composerSuggestionSelection.selectedSuggestion(in: composerSuggestions) else {
+            return false
+        }
+        applyComposerSuggestion(suggestion)
+        return true
     }
 
     func applyComposerSuggestion(_ suggestion: ChatComposerSuggestion) {
         guard let query = ChatComposerQuery.parse(composerDraft.text) else { return }
         composerDraft.text = query.applying(suggestion, to: composerDraft.text)
-        composerSuggestions = []
+        setComposerSuggestions([])
+    }
+
+    private func setComposerSuggestions(_ suggestions: [ChatComposerSuggestion]) {
+        composerSuggestions = suggestions
+        composerSuggestionSelection.reconcile(with: suggestions)
     }
 
     private func loadComposerSuggestions(query: ChatComposerQuery, agentId: String) async -> [ChatComposerSuggestion] {
@@ -876,7 +896,7 @@ public final class ChatScreenViewModel {
         sessionId: String,
         mode: StreamingTextUpdateMode
     ) {
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        guard !text.isEmpty else { return }
         pendingStreamingSessionId = sessionId
         isAwaitingAgentResponse = true
         isStopping = false

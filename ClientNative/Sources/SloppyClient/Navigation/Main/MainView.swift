@@ -41,6 +41,45 @@ struct MainView: View {
         var cornerRadius: CGFloat
     }
 
+    #if os(macOS)
+    private struct ToolbarSearchResultRow: View {
+        let title: String
+        let subtitle: String
+        let systemImage: String
+        let action: @MainActor () -> Void
+
+        @State private var isHovered = false
+
+        var body: some View {
+            Button(action: action) {
+                HStack(spacing: 10) {
+                    Image(systemName: systemImage)
+                        .foregroundStyle(.secondary)
+                        .frame(width: 20)
+
+                    Text(title)
+                        .lineLimit(1)
+
+                    Spacer(minLength: 12)
+
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 36)
+                .contentShape(Rectangle())
+                .background {
+                    RoundedRectangle(cornerRadius: 8, style: .continuous)
+                        .fill(isHovered ? Color.primary.opacity(0.08) : .clear)
+                }
+            }
+            .buttonStyle(.plain)
+            .onHover { isHovered = $0 }
+        }
+    }
+    #endif
+
     let rootSafeAreaInsets: EdgeInsets
     let menuBarQuickActionRequest: MenuBarQuickActionRequest?
     let onConsumeMenuBarQuickAction: @MainActor (MenuBarQuickActionRequest) -> Void
@@ -57,6 +96,11 @@ struct MainView: View {
     @State private var mobileTabsOverviewProgress: CGFloat = 0
     @State private var isMobileTabsOverviewGestureActive = false
     @State private var isWorkspacePanelPresented = false
+    @State private var toolbarSearchText = ""
+    @State private var isToolbarSearchResultsPresented = false
+    #if os(macOS)
+    @FocusState private var isToolbarSearchFocused: Bool
+    #endif
 
     // iOS
     @State private var pagerSize: CGSize = .zero
@@ -166,6 +210,12 @@ struct MainView: View {
             )
             #endif
             .toolbar {
+                #if os(macOS)
+                ToolbarItem(placement: .principal) {
+                    toolbarSearchField
+                }
+                #endif
+
                 ToolbarItemGroup(placement: .primaryAction) {
                     if let activeChatViewModel {
                         ChatAgentToolbarMenu(
@@ -203,6 +253,154 @@ struct MainView: View {
                 updateMobileTabPagingDirection(from: oldValue, to: newValue)
             }
     }
+
+    #if os(macOS)
+    private var toolbarSearchField: some View {
+        HStack(spacing: 8) {
+            Image(systemName: "magnifyingglass")
+                .foregroundStyle(.secondary)
+
+            TextField("Search chats and projects", text: $toolbarSearchText)
+                .textFieldStyle(.plain)
+                .focused($isToolbarSearchFocused)
+                .onExitCommand {
+                    toolbarSearchText = ""
+                    isToolbarSearchResultsPresented = false
+                }
+
+            if !toolbarSearchText.isEmpty {
+                Button {
+                    toolbarSearchText = ""
+                    isToolbarSearchResultsPresented = false
+                } label: {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(.secondary)
+                }
+                .buttonStyle(.plain)
+            }
+        }
+        .padding(.horizontal, 12)
+        .frame(minWidth: 280, idealWidth: 420, maxWidth: 560, minHeight: 30)
+        .background(.regularMaterial, in: Capsule())
+        .overlay {
+            Capsule()
+                .stroke(Color(nsColor: .separatorColor).opacity(0.65), lineWidth: 1)
+        }
+        .onChange(of: toolbarSearchText) { _, text in
+            isToolbarSearchResultsPresented = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        .overlay(alignment: .top) {
+            if isToolbarSearchResultsPresented {
+                toolbarSearchResultsPanel
+                    .offset(y: 38)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(10)
+            }
+        }
+        .animation(.easeOut(duration: 0.14), value: isToolbarSearchResultsPresented)
+    }
+
+    private var toolbarSearchQuery: String {
+        toolbarSearchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var matchingToolbarChatSessions: [ChatSessionSummary] {
+        guard !toolbarSearchQuery.isEmpty else {
+            return []
+        }
+        return viewModel.chatViewModel.sessions.filter {
+            $0.title.localizedStandardContains(toolbarSearchQuery)
+        }
+    }
+
+    private var matchingToolbarProjects: [APIProjectRecord] {
+        guard !toolbarSearchQuery.isEmpty else {
+            return []
+        }
+        return viewModel.projects.filter {
+            $0.name.localizedStandardContains(toolbarSearchQuery)
+        }
+    }
+
+    private var toolbarSearchResultsPanelHeight: CGFloat {
+        let resultCount = matchingToolbarChatSessions.prefix(8).count
+            + matchingToolbarProjects.prefix(8).count
+        let sectionCount = (matchingToolbarChatSessions.isEmpty ? 0 : 1)
+            + (matchingToolbarProjects.isEmpty ? 0 : 1)
+        return min(420, max(64, CGFloat(resultCount) * 38 + CGFloat(sectionCount) * 30 + 16))
+    }
+
+    private var toolbarSearchResultsPanel: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 2) {
+                toolbarSearchSuggestions
+            }
+            .padding(8)
+        }
+        .frame(width: 560, height: toolbarSearchResultsPanelHeight)
+        .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(Color(nsColor: .separatorColor).opacity(0.8), lineWidth: 1)
+        }
+        .shadow(color: .black.opacity(0.28), radius: 18, y: 8)
+    }
+
+    @ViewBuilder
+    private var toolbarSearchSuggestions: some View {
+        if !matchingToolbarChatSessions.isEmpty {
+            Text("Chats")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.top, 4)
+                .frame(height: 28)
+
+            ForEach(matchingToolbarChatSessions.prefix(8)) { session in
+                ToolbarSearchResultRow(
+                    title: session.title,
+                    subtitle: "Chat",
+                    systemImage: "bubble.left",
+                    action: {
+                        viewModel.openSessionChatTab(session)
+                        toolbarSearchText = ""
+                        isToolbarSearchResultsPresented = false
+                    }
+                )
+            }
+        }
+
+        if !matchingToolbarProjects.isEmpty {
+            Text("Projects")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 10)
+                .padding(.top, 4)
+                .frame(height: 28)
+
+            ForEach(matchingToolbarProjects.prefix(8)) { project in
+                ToolbarSearchResultRow(
+                    title: project.name,
+                    subtitle: "Project",
+                    systemImage: "folder",
+                    action: {
+                        viewModel.openProjectKanbanTab(project: project)
+                        toolbarSearchText = ""
+                        isToolbarSearchResultsPresented = false
+                    }
+                )
+            }
+        }
+
+        if !toolbarSearchQuery.isEmpty,
+           matchingToolbarChatSessions.isEmpty,
+           matchingToolbarProjects.isEmpty {
+            Text("No chats or projects found")
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, minHeight: 48)
+        }
+    }
+    #endif
 
     @ViewBuilder
     private var contentView: some View {
@@ -350,7 +548,9 @@ struct MainView: View {
             workspaceContentHost(showsFloatingTabChrome: true)
             #elseif os(macOS)
             VStack(spacing: 0) {
-                DesktopWorkspaceTabStrip(viewModel: viewModel)
+                if viewModel.tabs.count > 1 {
+                    DesktopWorkspaceTabStrip(viewModel: viewModel)
+                }
                 workspaceContentHost(showsFloatingTabChrome: false)
             }
             #else

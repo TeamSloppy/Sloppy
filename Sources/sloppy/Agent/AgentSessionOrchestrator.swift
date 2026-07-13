@@ -5,6 +5,13 @@ import ACPModel
 import Logging
 import Protocols
 
+enum AgentSessionStreamDelta {
+    static func extract(previous: String, snapshot: String) -> String {
+        guard snapshot.hasPrefix(previous) else { return snapshot }
+        return String(snapshot.dropFirst(previous.count))
+    }
+}
+
 private actor NativeAgentLoopOutcomeBox {
     private var value: NativeAgentLoopOutcome?
 
@@ -1756,10 +1763,12 @@ actor AgentSessionOrchestrator {
         }
 
         let normalized = partialText.replacingOccurrences(of: "\r\n", with: "\n")
+        let previous = streamedAssistantByChannel[channelID] ?? ""
+        let delta = AgentSessionStreamDelta.extract(previous: previous, snapshot: normalized)
         streamedAssistantByChannel[channelID] = normalized
 
-        if let responseChunkObserver {
-            await responseChunkObserver(agentID, sessionID, normalized)
+        if !delta.isEmpty, let responseChunkObserver {
+            await responseChunkObserver(agentID, sessionID, delta)
         }
 
         return shouldContinueSessionRun(channelID: channelID, runID: runID)

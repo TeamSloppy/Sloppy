@@ -649,7 +649,7 @@ function normalizeStreamEvent(event = {}) {
       ...event,
       type: "delta",
       text: deltaText,
-      replace: true
+      replace: false
     };
   }
 

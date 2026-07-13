@@ -526,7 +526,7 @@ extension SloppyACPServerDelegate {
             switch update.kind {
             case .sessionDelta:
                 guard let message = update.message,
-                      let delta = await deltaTracker.consume(fullDraft: message)
+                      let delta = await deltaTracker.consume(delta: message)
                 else { return }
                 try await forwardAssistantText(delta, acpSessionID: acpSessionID, thinkBlockRouter: thinkBlockRouter)
             case .sessionEvent:
@@ -903,23 +903,14 @@ actor ACPServerThinkBlockRouter {
 
 actor ACPServerDeltaTracker {
     private(set) var didSendDelta = false
-    private var lastDraft = ""
 
-    func consume(fullDraft: String) -> String? {
-        let normalized = fullDraft.replacingOccurrences(of: "\r\n", with: "\n")
-        let delta: String
-        if normalized.hasPrefix(lastDraft) {
-            delta = String(normalized.dropFirst(lastDraft.count))
-        } else {
-            delta = normalized
-        }
-        lastDraft = normalized
-
-        guard !delta.isEmpty else {
+    func consume(delta: String) -> String? {
+        let normalized = delta.replacingOccurrences(of: "\r\n", with: "\n")
+        guard !normalized.isEmpty else {
             return nil
         }
         didSendDelta = true
-        return delta
+        return normalized
     }
 
     func shouldForwardFinalAssistantMessage() -> Bool {

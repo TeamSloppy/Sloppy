@@ -3,6 +3,18 @@ import Testing
 
 @Suite("Main sidebar selection")
 struct MainSidebarSelectionTests {
+    private var mainViewModelSource: String {
+        get throws {
+            let packageRoot = URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+            let sourceURL = packageRoot
+                .appendingPathComponent("Sources/SloppyClient/Navigation/Main/MainViewModel.swift")
+            return try String(contentsOf: sourceURL, encoding: .utf8)
+        }
+    }
+
     private var mainSidebarSource: String {
         get throws {
             let packageRoot = URL(fileURLWithPath: #filePath)
@@ -45,6 +57,19 @@ struct MainSidebarSelectionTests {
 
         #expect(source.contains("var isSelected = false"))
         #expect(source.contains("configuration.isPressed || isHovered || isSelected"))
+    }
+
+    @Test("loading projects does not select a project implicitly")
+    func loadingProjectsDoesNotSelectAProjectImplicitly() throws {
+        let source = try mainViewModelSource
+        let loadProjectsStart = try #require(source.range(of: "func loadProjects(force: Bool = false) async"))
+        let selectAppSectionStart = try #require(
+            source.range(of: "func selectAppSection", range: loadProjectsStart.upperBound..<source.endIndex)
+        )
+        let loadProjects = source[loadProjectsStart.lowerBound..<selectAppSectionStart.lowerBound]
+
+        #expect(!loadProjects.contains("selectedSidebarItem = .project"))
+        #expect(!loadProjects.contains("firstProject"))
     }
 
     @Test("main view uses split detail tabs on phones")

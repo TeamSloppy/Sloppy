@@ -373,10 +373,6 @@ final class MainViewModel {
             await cacheStore.cacheProjects(list)
         }
         visibleProjectCount = 5
-
-        if selectedSidebarItem == nil, let firstProject = list.first {
-            selectedSidebarItem = .project(firstProject.id)
-        }
     }
 
     func selectAppSection(_ section: MainAppSection) {

@@ -473,13 +473,13 @@ func sloppyACPServerUsesUniqueToolCallIdsForRepeatedToolInvocations() async thro
 }
 
 @Test
-func acpServerDeltaTrackerConvertsFullDraftsToACPChunks() async {
+func acpServerDeltaTrackerForwardsIncrementalChunks() async {
     let tracker = ACPServerDeltaTracker()
 
-    #expect(await tracker.consume(fullDraft: "Пр") == "Пр")
-    #expect(await tracker.consume(fullDraft: "Привет") == "ивет")
-    #expect(await tracker.consume(fullDraft: "Привет! Чем") == "! Чем")
-    #expect(await tracker.consume(fullDraft: "Привет! Чем") == nil)
+    #expect(await tracker.consume(delta: "Пр") == "Пр")
+    #expect(await tracker.consume(delta: "ивет") == "ивет")
+    #expect(await tracker.consume(delta: "! Чем") == "! Чем")
+    #expect(await tracker.consume(delta: "") == nil)
     #expect(await tracker.didSendDelta)
 }
 
@@ -487,7 +487,7 @@ func acpServerDeltaTrackerConvertsFullDraftsToACPChunks() async {
 func acpServerDeltaTrackerSuppressesFinalAssistantReplayAfterLiveDeltas() async {
     let tracker = ACPServerDeltaTracker()
 
-    _ = await tracker.consume(fullDraft: "Hello")
+    _ = await tracker.consume(delta: "Hello")
 
     #expect(await tracker.shouldForwardFinalAssistantMessage() == false)
 }

@@ -9,6 +9,12 @@ import TauTUI
 
 @MainActor
 extension SloppyTUIScreen {
+    func appendLiveAssistantDraftDelta(_ delta: String) {
+        guard !delta.isEmpty else { return }
+        let accumulated = (liveAssistantTarget ?? liveAssistantDraft ?? "") + delta
+        updateLiveAssistantDraftTarget(accumulated)
+    }
+
     func updateLiveAssistantDraftTarget(_ target: String) {
         guard !target.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             return

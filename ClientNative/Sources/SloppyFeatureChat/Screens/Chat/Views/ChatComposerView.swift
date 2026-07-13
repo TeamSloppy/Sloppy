@@ -3,6 +3,9 @@ import Observation
 import SwiftUI
 import SloppyClientUI
 import SloppyClientCore
+#if os(macOS)
+import AppKit
+#endif
 
 @Observable
 @MainActor
@@ -76,8 +79,16 @@ public struct ChatComposerView: View {
                         supportsReasoningEffort: selectedModelSupportsReasoningEffort
                     )
 
+                    #if os(macOS)
+                        ChatTextField(
+                            draft: draft,
+                            submit: submit
+                        )
+                        .glassEffect(.regular, in: .capsule)
+                    #else
                     textFieldConainer
                         .simultaneousGesture(phoneTabGesture)
+                    #endif
 
                     MobileComposerCircleButton(
                         symbol: trailingActionSymbol,
@@ -102,6 +113,7 @@ public struct ChatComposerView: View {
             if !viewModel.composerSuggestions.isEmpty {
                 ComposerSuggestionsView(
                     suggestions: viewModel.composerSuggestions,
+                    selectedSuggestionID: viewModel.composerSuggestionSelection.selectedID,
                     select: viewModel.applyComposerSuggestion
                 )
                 .offset(y: -(Self.panelHeight + sp.s))
@@ -115,7 +127,6 @@ public struct ChatComposerView: View {
                 ForEach(tabs, id: \.id) { tab in
                     CustomTabItem {
                         ChatTextField(
-                            tab: tab,
                             draft: draft,
                             submit: submit
                         )
@@ -123,7 +134,6 @@ public struct ChatComposerView: View {
                 }
             }
         }
-        .frame(height: Self.panelHeight)
         .scrollTargetBehavior(.paging)
         .clipShape(Capsule())
         .onScrollGeometryChange(for: CGFloat.self, of: {
@@ -134,7 +144,6 @@ public struct ChatComposerView: View {
         }, action: { _, newValue in
             tabActions?.tabProgress(newValue)
         })
-        .textFieldStyle(.plain)
     }
 
     private var trimmedDraftText: String {
@@ -502,7 +511,6 @@ private struct ComposerMenuItem: View {
 }
 
 struct ChatTextField: View {
-    let tab: WorkspaceTab
     @Bindable var draft: ChatComposerDraft
     let submit: @MainActor () -> Void
 
@@ -530,13 +538,25 @@ struct ChatTextField: View {
         .foregroundColor(fieldInk)
         .accentColor(.white)
         .focused($isTextFieldFocused)
+        .focusable()
         .submitLabel(.send)
+        .onKeyPress(.upArrow) {
+            viewModel.moveComposerSuggestionSelection(.previous) ? .handled : .ignored
+        }
+        .onKeyPress(.downArrow) {
+            viewModel.moveComposerSuggestionSelection(.next) ? .handled : .ignored
+        }
+        .onKeyPress(.return) {
+            viewModel.applySelectedComposerSuggestion() ? .handled : .ignored
+        }
         .onSubmit {
             submit()
             isTextFieldFocused = false
         }
         .padding(.horizontal, sp.m)
         .containerRelativeFrame(.horizontal)
+        .frame(height: ChatComposerView.panelHeight)
+        .textFieldStyle(.plain)
         .frame(
             minWidth: 0, maxWidth: .infinity, minHeight: Self.fieldHeight,
             maxHeight: Self.fieldHeight, alignment: .leading
@@ -548,7 +568,6 @@ struct ChatTextField: View {
             viewModel.updateComposerSuggestions(for: newValue)
         }
     }
-
 }
 
 private struct DictationComposerBar: View {

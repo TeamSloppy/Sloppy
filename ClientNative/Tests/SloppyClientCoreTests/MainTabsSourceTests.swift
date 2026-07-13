@@ -82,10 +82,29 @@ struct MainTabsSourceTests {
 
         #expect(mainView.contains("private func tabChromeHost() -> some View"))
         #expect(mainView.contains("DesktopWorkspaceTabStrip(viewModel: viewModel)"))
+        #expect(mainView.contains("if viewModel.tabs.count > 1"))
         #expect(mainView.contains("DesktopSplitHandle("))
         #expect(strip.contains("struct DesktopWorkspaceTabStrip: View"))
         #expect(strip.contains("viewModel.createBlankChatTab()"))
         #expect(strip.contains("viewModel.closeTab(tab.id)"))
+    }
+
+    @Test("macOS toolbar searches chats and projects")
+    func macOSToolbarSearchesChatsAndProjects() throws {
+        let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
+
+        #expect(mainView.contains("@State private var toolbarSearchText = \"\""))
+        #expect(mainView.contains("ToolbarItem(placement: .principal)"))
+        #expect(mainView.contains("TextField(\"Search chats and projects\""))
+        #expect(mainView.contains("@FocusState private var isToolbarSearchFocused: Bool"))
+        #expect(mainView.contains(".overlay(alignment: .top)"))
+        #expect(mainView.contains("toolbarSearchResultsPanel"))
+        #expect(mainView.contains(".offset(y: 38)"))
+        #expect(!mainView.contains(".popover(isPresented: $isToolbarSearchResultsPresented"))
+        #expect(mainView.contains("$0.title.localizedStandardContains(toolbarSearchQuery)"))
+        #expect(mainView.contains("$0.name.localizedStandardContains(toolbarSearchQuery)"))
+        #expect(mainView.contains("viewModel.openSessionChatTab(session)"))
+        #expect(mainView.contains("viewModel.openProjectKanbanTab(project: project)"))
     }
 
     @Test("vision tab chrome is extracted into a dedicated floating view")

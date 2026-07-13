@@ -25,4 +25,42 @@ struct ChatComposerSuggestionsTests {
 
         #expect(query.applying(suggestion, to: text) == "Please inspect @README.md ")
     }
+
+    @Test("selection moves with arrow directions and stays within bounds")
+    func movesSelection() throws {
+        let suggestions = [
+            ChatComposerSuggestion(id: "one", kind: .command, title: "/one", subtitle: "", insertion: "/one"),
+            ChatComposerSuggestion(id: "two", kind: .command, title: "/two", subtitle: "", insertion: "/two"),
+            ChatComposerSuggestion(id: "three", kind: .command, title: "/three", subtitle: "", insertion: "/three"),
+        ]
+        var selection = ChatComposerSuggestionSelection()
+
+        selection.reconcile(with: suggestions)
+        #expect(selection.selectedID == "one")
+        #expect(selection.move(.next, in: suggestions))
+        #expect(selection.selectedID == "two")
+        #expect(selection.move(.previous, in: suggestions))
+        #expect(selection.selectedID == "one")
+        #expect(selection.move(.previous, in: suggestions))
+        #expect(selection.selectedID == "one")
+        #expect(selection.selectedSuggestion(in: suggestions)?.id == "one")
+    }
+
+    @Test("selection resets when suggestions disappear")
+    func resetsSelection() {
+        let suggestion = ChatComposerSuggestion(
+            id: "one",
+            kind: .command,
+            title: "/one",
+            subtitle: "",
+            insertion: "/one"
+        )
+        var selection = ChatComposerSuggestionSelection()
+
+        selection.reconcile(with: [suggestion])
+        selection.reconcile(with: [])
+
+        #expect(selection.selectedID == nil)
+        #expect(!selection.move(.next, in: []))
+    }
 }
