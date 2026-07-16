@@ -3,6 +3,7 @@ import Observation
 import SwiftUI
 import SloppyClientUI
 import SloppyClientCore
+import UniformTypeIdentifiers
 #if os(macOS)
 import AppKit
 #endif
@@ -21,7 +22,8 @@ public struct ChatComposerView: View {
     public static let panelWidth: CGFloat = 900
     public static let panelHeight: CGFloat = 45
     public static let phonePanelHeight: CGFloat = 72
-    private static let panelRadius: CGFloat = 32
+    public static let attachmentStripHeight: CGFloat = 42
+    private static let panelRadius: CGFloat = 18
     private static let phoneFieldHeight: CGFloat = 48
     fileprivate static let phoneCircleSize: CGFloat = 36
     fileprivate static let buttonSize: CGFloat = 36
@@ -64,38 +66,49 @@ public struct ChatComposerView: View {
         let c = theme.colors
         let sp = theme.spacing
 
-        return ZStack {
-            if viewModel.isShowingDictationComposer {
-                DictationComposerBar(
-                    phase: viewModel.dictationPhase,
-                    levels: viewModel.dictationLevels,
-                    elapsed: viewModel.dictationDuration,
-                    stop: viewModel.stopDictation
+        return VStack(spacing: sp.s) {
+            if !viewModel.composerAttachments.isEmpty {
+                ChatComposerAttachmentStrip(
+                    attachments: viewModel.composerAttachments,
+                    remove: viewModel.removeComposerAttachment
                 )
-            } else {
-                HStack(spacing: sp.s) {
-                    ComposerAddMenu(
-                        viewModel: viewModel,
-                        supportsReasoningEffort: selectedModelSupportsReasoningEffort
-                    )
+                .frame(height: Self.attachmentStripHeight)
+            }
 
-                    #if os(macOS)
-                        ChatTextField(
-                            draft: draft,
-                            submit: submit
+            ZStack {
+                if viewModel.isShowingDictationComposer {
+                    DictationComposerBar(
+                        phase: viewModel.dictationPhase,
+                        levels: viewModel.dictationLevels,
+                        elapsed: viewModel.dictationDuration,
+                        stop: viewModel.stopDictation
+                    )
+                } else {
+                    HStack(spacing: sp.s) {
+                        ComposerAddMenu(
+                            viewModel: viewModel,
+                            supportsReasoningEffort: selectedModelSupportsReasoningEffort
                         )
-                        .glassEffect(.regular, in: .capsule)
-                    #else
-                    textFieldConainer
-                        .simultaneousGesture(phoneTabGesture)
-                    #endif
 
-                    MobileComposerCircleButton(
-                        symbol: trailingActionSymbol,
-                        foregroundColor: trailingActionForegroundColor,
-                        fillColor: c.surfaceRaised,
-                        action: handleTrailingAction
-                    )
+                        #if os(macOS)
+                            ChatTextField(
+                                draft: draft,
+                                submit: submit
+                            )
+                            .clipShape(.rect(cornerRadius: Self.panelRadius))
+                            .glassEffect(.regular, in: .rect(cornerRadius: Self.panelRadius))
+                        #else
+                        textFieldConainer
+                            .simultaneousGesture(phoneTabGesture)
+                        #endif
+
+                        MobileComposerCircleButton(
+                            symbol: trailingActionSymbol,
+                            foregroundColor: trailingActionForegroundColor,
+                            fillColor: c.surfaceRaised,
+                            action: handleTrailingAction
+                        )
+                    }
                 }
             }
         }
@@ -104,8 +117,7 @@ public struct ChatComposerView: View {
         .frame(
             minWidth: 0,
             maxWidth: .infinity,
-            minHeight: Self.panelHeight,
-            maxHeight: Self.panelHeight,
+            minHeight: Self.panelHeight(for: idiom),
             alignment: .leading
         )
         .frame(maxWidth: Self.panelWidth)
@@ -116,9 +128,15 @@ public struct ChatComposerView: View {
                     selectedSuggestionID: viewModel.composerSuggestionSelection.selectedID,
                     select: viewModel.applyComposerSuggestion
                 )
-                .offset(y: -(Self.panelHeight + sp.s))
+                .offset(y: -composerSuggestionsOffset)
             }
         }
+    }
+
+    private var composerSuggestionsOffset: CGFloat {
+        Self.panelHeight
+            + theme.spacing.s
+            + (viewModel.composerAttachments.isEmpty ? 0 : Self.attachmentStripHeight + theme.spacing.s)
     }
 
     private var textFieldConainer: some View {
@@ -155,7 +173,7 @@ public struct ChatComposerView: View {
             return .stop
         }
 
-        if trimmedDraftText.isEmpty {
+        if trimmedDraftText.isEmpty && viewModel.composerAttachments.isEmpty {
             return .microphone
         }
 
@@ -226,7 +244,7 @@ public struct ChatComposerView: View {
     
     private func submit() {
         let trimmed = trimmedDraftText
-        guard !trimmed.isEmpty, viewModel.canSubmitMessage else { return }
+        guard (!trimmed.isEmpty || !viewModel.composerAttachments.isEmpty), viewModel.canSubmitMessage else { return }
         viewModel.sendMessage(content: trimmed)
     }
 
@@ -236,7 +254,7 @@ public struct ChatComposerView: View {
             return
         }
 
-        if trimmedDraftText.isEmpty {
+        if trimmedDraftText.isEmpty && viewModel.composerAttachments.isEmpty {
             viewModel.startDictation()
             return
         }
@@ -514,8 +532,6 @@ struct ChatTextField: View {
     @Bindable var draft: ChatComposerDraft
     let submit: @MainActor () -> Void
 
-    private static let fieldHeight: CGFloat = 48
-
     @FocusState private var isTextFieldFocused: Bool
     @Environment(\.theme) private var theme
     @Environment(ChatScreenViewModel.self) private var viewModel
@@ -532,8 +548,11 @@ struct ChatTextField: View {
 
         return TextField(
             "Ask \(agentDisplayName)",
-            text: $draft.text
+            text: $draft.text,
+            axis: .vertical
         )
+        .lineLimit(1...6)
+        .scrollIndicators(.visible, axes: .vertical)
         .font(.system(size: ty.body))
         .foregroundColor(fieldInk)
         .accentColor(.white)
@@ -546,26 +565,88 @@ struct ChatTextField: View {
         .onKeyPress(.downArrow) {
             viewModel.moveComposerSuggestionSelection(.next) ? .handled : .ignored
         }
-        .onKeyPress(.return) {
-            viewModel.applySelectedComposerSuggestion() ? .handled : .ignored
+        .onKeyPress(.return, phases: .down) { keyPress in
+            if keyPress.modifiers.contains(.shift) {
+                return .ignored
+            }
+            return viewModel.applySelectedComposerSuggestion() ? .handled : .ignored
         }
         .onSubmit {
             submit()
             isTextFieldFocused = false
         }
+        .onPasteCommand(of: [.fileURL, .image]) { providers in
+            viewModel.attachItemProviders(providers)
+        }
         .padding(.horizontal, sp.m)
-        .containerRelativeFrame(.horizontal)
-        .frame(height: ChatComposerView.panelHeight)
         .textFieldStyle(.plain)
         .frame(
-            minWidth: 0, maxWidth: .infinity, minHeight: Self.fieldHeight,
-            maxHeight: Self.fieldHeight, alignment: .leading
+            minWidth: 0, maxWidth: .infinity, minHeight: Constants.fieldHeight,
+            alignment: .leading
         )
+        .clipped()
+        .layoutPriority(1)
         .onChange(of: viewModel.composerFocusResetToken) { _, _ in
             isTextFieldFocused = false
         }
         .onChange(of: draft.text) { _, newValue in
             viewModel.updateComposerSuggestions(for: newValue)
+        }
+    }
+}
+
+private struct ChatComposerAttachmentStrip: View {
+    let attachments: [ChatComposerAttachment]
+    let remove: @MainActor (ChatComposerAttachment.ID) -> Void
+
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: theme.spacing.s) {
+                ForEach(attachments) { attachment in
+                    attachmentChip(attachment)
+                }
+            }
+            .padding(.horizontal, theme.spacing.xs)
+        }
+        .scrollClipDisabled()
+        .accessibilityLabel("Attachments")
+    }
+
+    private func attachmentChip(_ attachment: ChatComposerAttachment) -> some View {
+        HStack(spacing: theme.spacing.s) {
+            Image(systemName: attachment.mimeType.hasPrefix("image/") ? "photo" : "doc")
+                .foregroundColor(theme.colors.accentCyan)
+
+            VStack(alignment: .leading, spacing: 1) {
+                Text(attachment.name)
+                    .font(.system(size: theme.typography.caption, weight: .medium))
+                    .foregroundColor(theme.colors.textPrimary)
+                    .lineLimit(1)
+                Text(ByteCountFormatter.string(fromByteCount: Int64(attachment.sizeBytes), countStyle: .file))
+                    .font(.system(size: theme.typography.micro))
+                    .foregroundColor(theme.colors.textMuted)
+            }
+
+            Button {
+                remove(attachment.id)
+            } label: {
+                Image(systemName: "xmark")
+                    .font(.system(size: theme.typography.micro, weight: .bold))
+                    .frame(width: 20, height: 20)
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(theme.colors.textSecondary)
+            .accessibilityLabel("Remove \(attachment.name)")
+        }
+        .padding(.leading, theme.spacing.s)
+        .padding(.trailing, theme.spacing.xs)
+        .padding(.vertical, theme.spacing.xs)
+        .background(theme.colors.surfaceRaised.opacity(0.96), in: RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12)
+                .stroke(theme.colors.border, lineWidth: theme.borders.thin)
         }
     }
 }
@@ -579,7 +660,7 @@ private struct DictationComposerBar: View {
     @Environment(\.theme) private var theme
 
     private let elapsedTextWidth: CGFloat = 64
-    private let stopButtonSize: CGFloat = 30
+    private let stopButtonSize: CGFloat = 32
 
     private var trailingControlsWidth: CGFloat {
         elapsedTextWidth + theme.spacing.s + stopButtonSize
@@ -613,7 +694,6 @@ private struct DictationComposerBar: View {
             minHeight: ChatComposerView.panelHeight,
             maxHeight: ChatComposerView.panelHeight
         )
-        .containerRelativeFrame(.horizontal)
         .backportGlassEffect(
             .regular.tint(Color.fromHex(0x1C1C1E)),
             in: .capsule
@@ -622,7 +702,7 @@ private struct DictationComposerBar: View {
 
     private var waveformViewport: some View {
         Color.clear
-//            .frame(maxWidth: .infinity, alignment: .trailing)
+            .frame(maxWidth: .infinity, alignment: .trailing)
             .overlay(alignment: .trailing) {
                 waveformView
                     .allowsHitTesting(false)
@@ -701,12 +781,12 @@ fileprivate struct CustomTabItem<Content: View>: View {
                 .opacity(1 - contentOpacity)
                 .frame(width: rect.width, height: rect.height)
                 .frame(width: cappedWidth)
-                .clipShape(.capsule)
+                .clipShape(RoundedRectangle(cornerRadius: Constants.fieldHeight / 2, style: .continuous))
                 .backportGlassEffect(
                     .regular
                         .tint(background.opacity(0.1))
                         .interactive(contentOpacity != 1),
-                    in: .capsule
+                    in: RoundedRectangle(cornerRadius: Constants.fieldHeight / 2, style: .continuous)
                 )
                 .opacity(1 - containerOpacity)
                 .offset(x: minX <= 0 ? -minX : (rect.width - minX - cappedWidth))
@@ -926,7 +1006,7 @@ struct SubmitButton: ButtonStyle {
         apiClient: .init(),
         settings: .init(),
         connectionMonitor: .init(baseURL: URL.debugURL),
-        onOpenSettings: {}
+        onOpenSettings: { _ in }
     )
     viewModel.sessions = [
         .init(id: "1", agentId: "sloppy", title: "SLOPPY"),
@@ -994,4 +1074,8 @@ struct CustomMenuButtonStyle: MenuStyle {
         .buttonSizing(.flexible)
         .backportGlassEffect(.regular.interactive(), in: .circle)
     }
+}
+
+private enum Constants {
+    static let fieldHeight: CGFloat = 48
 }

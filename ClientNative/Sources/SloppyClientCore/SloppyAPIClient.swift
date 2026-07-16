@@ -194,6 +194,7 @@ public actor SloppyAPIClient {
         sessionId: String,
         content: String,
         userId: String = "user",
+        attachments: [ChatAttachmentUpload] = [],
         selectedModel: String? = nil,
         reasoningEffort: String? = nil
     ) async throws -> ChatSessionSummary {
@@ -202,6 +203,7 @@ public actor SloppyAPIClient {
             sessionId: sessionId,
             content: content,
             userId: userId,
+            attachments: attachments,
             selectedModel: selectedModel,
             reasoningEffort: reasoningEffort
         )

@@ -93,7 +93,7 @@ struct SloppyClientApp: App {
     }
 
     var body: some Scene {
-        WindowGroup("Sloppy", id: "main") {
+        Window("Sloppy", id: "main") {
             RootShellView(viewModel: viewModel)
             #if os(macOS)
                 .containerBackground(.clear, for: .window)

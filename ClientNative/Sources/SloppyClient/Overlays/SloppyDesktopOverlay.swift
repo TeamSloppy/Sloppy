@@ -70,7 +70,15 @@ final class SloppyDesktopOverlay {
         panel.hasShadow = true
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
-        panel.contentView = NSHostingView(rootView: SloppyDesktopNotchView(state: state))
+        panel.contentView = NSHostingView(
+            rootView: SloppyDesktopNotchView(
+                state: state,
+                isPointerInsidePanel: { [weak panel] in
+                    guard let panel else { return false }
+                    return panel.frame.contains(NSEvent.mouseLocation)
+                }
+            )
+        )
         overlayPanel = panel
         state.onExpansionChanged = { [weak self] in
             guard let self, let panel = self.overlayPanel else { return }
@@ -164,9 +172,9 @@ private final class SloppyNotchPanel: NSPanel {
 }
 
 private struct SloppyDesktopNotchView: View {
-    static let collapsedSize = CGSize(width: 196, height: 38)
-    static let expandedSize = CGSize(width: 390, height: 172)
-    static let wideWidth: CGFloat = 620
+    static let collapsedSize = CGSize(width: 164, height: 32)
+    static let expandedSize = CGSize(width: 340, height: 148)
+    static let wideWidth: CGFloat = 520
 
     static func size(for state: SloppyDesktopOverlayState) -> CGSize {
         guard state.usesWideLayout else {
@@ -175,41 +183,52 @@ private struct SloppyDesktopNotchView: View {
         guard state.isExpanded else {
             return CGSize(width: wideWidth, height: collapsedSize.height)
         }
-        let taskHeight = CGFloat(min(state.activeTasks.count, 3)) * 48
-        let approvalHeight: CGFloat = state.toolApproval == nil ? 0 : 150
-        let sectionSpacing: CGFloat = state.toolApproval != nil && !state.activeTasks.isEmpty ? 18 : 0
+        let taskHeight = CGFloat(min(state.activeTasks.count, 3)) * 42
+        let approvalHeight: CGFloat = state.toolApproval == nil ? 0 : 132
+        let sectionSpacing: CGFloat = state.toolApproval != nil && !state.activeTasks.isEmpty ? 14 : 0
         return CGSize(
             width: wideWidth,
-            height: min(360, 76 + taskHeight + approvalHeight + sectionSpacing)
+            height: min(330, 64 + taskHeight + approvalHeight + sectionSpacing)
         )
     }
 
     let state: SloppyDesktopOverlayState
+    let isPointerInsidePanel: @MainActor () -> Bool
     @State private var isHovered = false
+    @State private var hoverCollapseTask: Task<Void, Never>?
+
+    init(
+        state: SloppyDesktopOverlayState,
+        isPointerInsidePanel: @escaping @MainActor () -> Bool = { false }
+    ) {
+        self.state = state
+        self.isPointerInsidePanel = isPointerInsidePanel
+    }
 
     var body: some View {
         VStack(spacing: 0) {
             Button {
                 state.toggleExpanded()
             } label: {
-                HStack(spacing: 9) {
+                HStack(spacing: 7) {
                     Image(systemName: state.toolApproval == nil ? "waveform.path.ecg" : "exclamationmark.shield.fill")
+                        .font(.system(size: 12))
                         .foregroundStyle(state.toolApproval == nil ? .green : .orange)
                     Text(compactTitle)
-                        .font(.system(size: 13, weight: .semibold))
+                        .font(.system(size: 12, weight: .semibold))
                         .lineLimit(1)
-                    Spacer(minLength: 4)
+                    Spacer(minLength: 2)
                     if !state.activeTasks.isEmpty {
                         Label("\(state.activeTasks.count)", systemImage: "bolt.fill")
-                            .font(.system(size: 10, weight: .semibold))
+                            .font(.system(size: 9, weight: .semibold))
                             .foregroundStyle(.cyan)
                             .labelStyle(.titleAndIcon)
                     }
                     Image(systemName: state.isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 10, weight: .bold))
+                        .font(.system(size: 9, weight: .bold))
                         .foregroundStyle(.secondary)
                 }
-                .padding(.horizontal, 14)
+                .padding(.horizontal, 12)
                 .frame(height: Self.collapsedSize.height)
                 .contentShape(Rectangle())
             }
@@ -224,21 +243,17 @@ private struct SloppyDesktopNotchView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .foregroundStyle(.white)
         .background {
-            UnevenRoundedRectangle(bottomLeadingRadius: 18, bottomTrailingRadius: 18)
+            UnevenRoundedRectangle(bottomLeadingRadius: 14, bottomTrailingRadius: 14)
                 .fill(.black.opacity(isHovered ? 0.96 : 0.92))
                 .overlay {
-                    UnevenRoundedRectangle(bottomLeadingRadius: 18, bottomTrailingRadius: 18)
+                    UnevenRoundedRectangle(bottomLeadingRadius: 14, bottomTrailingRadius: 14)
                         .stroke(.white.opacity(0.12), lineWidth: 1)
                 }
         }
-        .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 18, bottomTrailingRadius: 18))
-        .onHover { hovering in
-            isHovered = hovering
-            if hovering {
-                state.setExpanded(true)
-            } else if state.toolApproval == nil && state.activeTasks.isEmpty {
-                state.setExpanded(false)
-            }
+        .clipShape(UnevenRoundedRectangle(bottomLeadingRadius: 14, bottomTrailingRadius: 14))
+        .onHover(perform: handleHoverChange)
+        .onDisappear {
+            hoverCollapseTask?.cancel()
         }
         .animation(.snappy(duration: 0.22), value: state.isExpanded)
         .accessibilityElement(children: .contain)
@@ -249,10 +264,40 @@ private struct SloppyDesktopNotchView: View {
         state.toolApproval?.metadata["tool"] ?? (state.toolApproval == nil ? "Sloppy" : "Approval required")
     }
 
+    private func handleHoverChange(_ hovering: Bool) {
+        hoverCollapseTask?.cancel()
+        hoverCollapseTask = nil
+
+        guard hovering else {
+            scheduleHoverCollapse()
+            return
+        }
+
+        isHovered = true
+        state.setExpanded(true)
+    }
+
+    private func scheduleHoverCollapse() {
+        guard state.toolApproval == nil && state.activeTasks.isEmpty else { return }
+
+        hoverCollapseTask = Task { @MainActor in
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .milliseconds(120))
+                guard !Task.isCancelled else { return }
+                guard state.toolApproval == nil && state.activeTasks.isEmpty else { return }
+                guard !isPointerInsidePanel() else { continue }
+
+                isHovered = false
+                state.setExpanded(false)
+                return
+            }
+        }
+    }
+
     @ViewBuilder
     private var expandedContent: some View {
         if state.usesWideLayout {
-            VStack(alignment: .leading, spacing: 12) {
+            VStack(alignment: .leading, spacing: 10) {
                 if let approval = state.toolApproval {
                     approvalContent(approval)
                 }
@@ -263,30 +308,30 @@ private struct SloppyDesktopNotchView: View {
                     activeTasksContent
                 }
             }
-            .padding(14)
+            .padding(12)
         } else {
-            VStack(spacing: 8) {
+            VStack(spacing: 6) {
                 Image(systemName: "checkmark.circle.fill")
-                    .font(.system(size: 24))
+                    .font(.system(size: 20))
                     .foregroundStyle(.green)
                 Text("Sloppy is running")
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                 Text("Tool approvals will appear here.")
-                    .font(.system(size: 11))
+                    .font(.system(size: 10))
                     .foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(14)
+            .padding(12)
         }
     }
 
     private func approvalContent(_ approval: AppNotification) -> some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 8) {
+        VStack(alignment: .leading, spacing: 8) {
+            HStack(spacing: 7) {
                 Image(systemName: "exclamationmark.shield.fill")
                     .foregroundStyle(.orange)
                 Text(approval.title)
-                    .font(.system(size: 13, weight: .semibold))
+                    .font(.system(size: 12, weight: .semibold))
                 Spacer()
                 if state.isResolving {
                     ProgressView()
@@ -294,7 +339,7 @@ private struct SloppyDesktopNotchView: View {
                 }
             }
                 Text(approval.message)
-                    .font(.system(size: 12))
+                    .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(2)
                 if let errorMessage = state.errorMessage {
@@ -316,15 +361,16 @@ private struct SloppyDesktopNotchView: View {
                     .buttonStyle(.glassProminent)
                 }
                 .buttonBorderShape(.capsule)
+                .controlSize(.small)
                 .disabled(state.isResolving)
         }
     }
 
     private var activeTasksContent: some View {
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: 6) {
             HStack {
                 Label("Tasks in progress", systemImage: "bolt.fill")
-                    .font(.system(size: 12, weight: .semibold))
+                    .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.cyan)
                 Spacer()
                 Text("\(state.activeTasks.count)")
@@ -332,15 +378,15 @@ private struct SloppyDesktopNotchView: View {
                     .foregroundStyle(.secondary)
             }
             ForEach(state.activeTasks.prefix(3)) { task in
-                HStack(spacing: 10) {
+                HStack(spacing: 8) {
                     ProgressView()
                         .controlSize(.mini)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(task.title)
-                            .font(.system(size: 12, weight: .medium))
+                            .font(.system(size: 11, weight: .medium))
                             .lineLimit(1)
                         Text("\(task.projectName) · \(task.statusTitle)")
-                            .font(.system(size: 10))
+                            .font(.system(size: 9))
                             .foregroundStyle(.secondary)
                     }
                     Spacer()

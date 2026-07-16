@@ -40,4 +40,26 @@ struct ChatMessageRenderingSupportTests {
             .systemGroup([thirdSystem]),
         ])
     }
+
+    @Test("adjacent system activity uses compact transcript spacing")
+    func adjacentSystemActivityUsesCompactSpacing() {
+        let thinking = ChatTranscriptEntry.systemGroup([
+            ChatMessage(id: "thinking", role: .system, segments: [
+                .init(kind: .thinking, title: "Thinking")
+            ])
+        ])
+        let progress = ChatTranscriptEntry.message(
+            ChatMessage(id: "progress", role: .system, segments: [
+                .init(kind: .buildProgress)
+            ])
+        )
+        let assistant = ChatTranscriptEntry.message(
+            ChatMessage(id: "assistant", role: .assistant, segments: [
+                .init(kind: .text, text: "Done")
+            ])
+        )
+
+        #expect(ChatTranscriptGrouping.usesCompactSpacing(between: thinking, and: progress))
+        #expect(!ChatTranscriptGrouping.usesCompactSpacing(between: progress, and: assistant))
+    }
 }

@@ -53,6 +53,16 @@ struct ChatScreenRenderingTests {
         #expect(source.contains("Icons.symbol(.menu"))
     }
 
+    @Test("phone navigation offers a new message button")
+    func phoneNavigationOffersNewMessageButton() throws {
+        let source = try chatScreenSource
+
+        #expect(source.contains("MobileChatNavigationIconButton(symbol: .new)"))
+        #expect(source.contains("viewModel.startNewMessage()"))
+        #expect(source.contains(".accessibilityLabel(\"New message\")"))
+        #expect(source.contains(".accessibilityIdentifier(\"chat.navigation.new-message\")"))
+    }
+
     @Test("empty mobile chat keeps composer pinned to bottom")
     func emptyMobileChatKeepsComposerPinnedToBottom() throws {
         let source = try chatScreenSource
@@ -99,6 +109,8 @@ struct ChatScreenRenderingTests {
         #expect(source.contains("ChatSessionContextBar(viewModel: viewModel)"))
         #expect(source.contains("viewModel.activeSessionTitle"))
         #expect(source.contains("viewModel.sendErrorMessage"))
+        #expect(source.contains("providerSettingsRecoveryMessageIDs.contains(message.id)"))
+        #expect(source.contains("viewModel.openSettings(.providers)"))
         #expect(source.contains("Current session:"))
     }
 
@@ -139,9 +151,21 @@ struct ChatScreenRenderingTests {
 
         #expect(source.contains("ChatTranscriptGrouping.entries(from: transcript.messages)"))
         #expect(source.contains("ChatSystemMessageGroupView(messages: messages)"))
-        #expect(source.contains("ChatThinkingIndicator()"))
+        #expect(source.contains("ChatThinkingIndicator(label: runStatusLabel, details: runStatusDetails)"))
         #expect(source.contains("viewModel.isAwaitingAgentResponse"))
+        #expect(source.contains("message.id == activeThinkingMessageId"))
         #expect(source.contains(".onChange(of: showsThinkingIndicator)"))
+    }
+
+    @Test("transcript does not intercept text-selection gestures")
+    func transcriptDoesNotInterceptTextSelectionGestures() throws {
+        let source = try chatScreenSource
+        let transcriptStart = try #require(source.range(of: "private struct ChatTranscriptRegion"))
+        let emptyChatStart = try #require(source.range(of: "private struct ChatEmptyChatRegion"))
+        let transcriptSource = source[transcriptStart.lowerBound..<emptyChatStart.lowerBound]
+
+        #expect(!transcriptSource.contains(".onTapGesture"))
+        #expect(!transcriptSource.contains(".contentShape"))
     }
 
     private var chatGreetingSource: String {

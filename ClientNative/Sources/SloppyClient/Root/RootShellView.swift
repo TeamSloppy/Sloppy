@@ -97,19 +97,22 @@ private struct RootShellContent: View {
                     settings: rootViewModel.settings,
                     connectionMonitor: rootViewModel.connectionMonitor,
                     rootSafeAreaInsets: safeAreaInsets,
-                    onOpenSettings: {
-                        rootViewModel.appState = .settings
+                    onOpenSettings: { destination in
+                        rootViewModel.appState = .settings(destination)
                     },
                     onOpenWorkspace: {
                         rootViewModel.appState = .connectionSetup
                     },
                     menuBarQuickActionRequest: rootViewModel.menuBarQuickActionRequest,
-                    onConsumeMenuBarQuickAction: rootViewModel.consumeMenuBarAction
+                    onConsumeMenuBarQuickAction: rootViewModel.consumeMenuBarAction,
+                    deepLinkRequest: rootViewModel.appDeepLinkRequest,
+                    onConsumeDeepLink: rootViewModel.consumeDeepLink
                 )
 
-            case .settings:
+            case .settings(let destination):
                 SettingsScreen(
                     settings: rootViewModel.settings,
+                    initialDestination: destination,
                     onDismiss: {
                         rootViewModel.startConnected(url: rootViewModel.settings.baseURL)
                     }

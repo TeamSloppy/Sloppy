@@ -25,6 +25,28 @@ public enum ChatMessageSegmentKind: String, Codable, Sendable {
     case buildProgress = "build_progress"
 }
 
+public struct ChatAttachment: Codable, Sendable, Equatable {
+    public var id: String
+    public var name: String
+    public var mimeType: String
+    public var sizeBytes: Int
+    public var relativePath: String?
+
+    public init(
+        id: String,
+        name: String,
+        mimeType: String,
+        sizeBytes: Int,
+        relativePath: String? = nil
+    ) {
+        self.id = id
+        self.name = name
+        self.mimeType = mimeType
+        self.sizeBytes = sizeBytes
+        self.relativePath = relativePath
+    }
+}
+
 public enum ChatBuildProgressStatus: String, Codable, Sendable, Equatable, CaseIterable {
     case pending
     case inProgress = "in_progress"
@@ -102,6 +124,7 @@ public struct ChatMessageSegment: Codable, Sendable, Equatable {
     public var finishedAt: Date?
     public var metadata: [String: String]?
     public var buildProgress: ChatBuildProgress?
+    public var attachment: ChatAttachment?
 
     public init(
         kind: ChatMessageSegmentKind,
@@ -111,7 +134,8 @@ public struct ChatMessageSegment: Codable, Sendable, Equatable {
         startedAt: Date? = nil,
         finishedAt: Date? = nil,
         metadata: [String: String]? = nil,
-        buildProgress: ChatBuildProgress? = nil
+        buildProgress: ChatBuildProgress? = nil,
+        attachment: ChatAttachment? = nil
     ) {
         self.kind = kind
         self.text = text
@@ -121,6 +145,7 @@ public struct ChatMessageSegment: Codable, Sendable, Equatable {
         self.finishedAt = finishedAt
         self.metadata = metadata
         self.buildProgress = buildProgress
+        self.attachment = attachment
     }
 }
 
@@ -197,6 +222,10 @@ public struct ChatSessionDetail: Decodable, Sendable {
         }
         return (directMessages.filter { $0.id != progressMessage.id } + [progressMessage])
             .sorted { $0.createdAt < $1.createdAt }
+    }
+
+    public var latestRunStatus: ChatRunStatusEvent? {
+        events.reversed().compactMap(\.runStatus).first
     }
 
     public init(summary: ChatSessionSummary, events: [ChatEventEnvelope] = [], messages: [ChatMessage] = []) {
@@ -293,27 +322,37 @@ public enum ChatReasoningEffort: String, CaseIterable, Codable, Sendable, Equata
 public struct ChatEventEnvelope: Decodable, Sendable {
     public var id: String
     public var type: String
+    public var createdAt: Date
     public var message: ChatMessage?
     public var buildProgress: ChatBuildProgress?
+    public var runStatus: ChatRunStatusEvent?
 
     private enum CodingKeys: String, CodingKey {
-        case id, type, message, buildProgress, event
+        case id, type, createdAt, message, buildProgress, runStatus, toolCall, toolResult, event
     }
 
     private struct EmbeddedEvent: Decodable {
+        var createdAt: Date?
         var message: ChatMessage?
         var buildProgress: ChatBuildProgress?
+        var runStatus: ChatRunStatusEvent?
+        var toolCall: ChatToolCallPayload?
+        var toolResult: ChatToolResultPayload?
     }
 
     public init(
         id: String,
         type: String,
+        createdAt: Date = Date(),
         message: ChatMessage? = nil,
-        buildProgress: ChatBuildProgress? = nil
+        buildProgress: ChatBuildProgress? = nil,
+        runStatus: ChatRunStatusEvent? = nil
     ) {
         self.id = id
         self.type = type
+        self.createdAt = createdAt
         self.buildProgress = buildProgress
+        self.runStatus = runStatus
         self.message = message ?? buildProgress?.timelineMessage
     }
 
@@ -327,11 +366,22 @@ public struct ChatEventEnvelope: Decodable, Sendable {
         // Some streamed/debug payloads wrap the same value under `event.message`.
         // Support both so opening an existing session can hydrate the transcript.
         let embeddedEvent = try container.decodeIfPresent(EmbeddedEvent.self, forKey: .event)
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt)
+            ?? embeddedEvent?.createdAt
+            ?? Date()
         buildProgress = try container.decodeIfPresent(ChatBuildProgress.self, forKey: .buildProgress)
             ?? embeddedEvent?.buildProgress
+        runStatus = try container.decodeIfPresent(ChatRunStatusEvent.self, forKey: .runStatus)
+            ?? embeddedEvent?.runStatus
+        let toolCall = try container.decodeIfPresent(ChatToolCallPayload.self, forKey: .toolCall)
+            ?? embeddedEvent?.toolCall
+        let toolResult = try container.decodeIfPresent(ChatToolResultPayload.self, forKey: .toolResult)
+            ?? embeddedEvent?.toolResult
         message = try container.decodeIfPresent(ChatMessage.self, forKey: .message)
             ?? embeddedEvent?.message
             ?? buildProgress?.timelineMessage
+            ?? toolCall?.timelineMessage(id: id, createdAt: createdAt)
+            ?? toolResult?.timelineMessage(id: id, createdAt: createdAt)
     }
 }
 
@@ -340,6 +390,8 @@ public enum ChatStreamEventType: String, Codable, Sendable {
     case runStatus = "run_status"
     case inputRequest = "input_request"
     case buildProgress = "build_progress"
+    case toolCall = "tool_call"
+    case toolResult = "tool_result"
 }
 
 public enum ChatRunStage: String, Codable, Sendable {
@@ -392,6 +444,146 @@ public struct ChatStreamEvent: Decodable, Sendable, Equatable {
         self.message = message
         self.runStatus = runStatus
         self.buildProgress = buildProgress
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, type, createdAt, message, runStatus, buildProgress, toolCall, toolResult
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        type = try container.decode(ChatStreamEventType.self, forKey: .type)
+        runStatus = try container.decodeIfPresent(ChatRunStatusEvent.self, forKey: .runStatus)
+        buildProgress = try container.decodeIfPresent(ChatBuildProgress.self, forKey: .buildProgress)
+
+        let createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+        let toolCall = try container.decodeIfPresent(ChatToolCallPayload.self, forKey: .toolCall)
+        let toolResult = try container.decodeIfPresent(ChatToolResultPayload.self, forKey: .toolResult)
+        message = try container.decodeIfPresent(ChatMessage.self, forKey: .message)
+            ?? buildProgress?.timelineMessage
+            ?? toolCall?.timelineMessage(id: id, createdAt: createdAt)
+            ?? toolResult?.timelineMessage(id: id, createdAt: createdAt)
+    }
+}
+
+private struct ChatToolCallPayload: Decodable, Sendable {
+    var tool: String
+    var arguments: [String: ChatJSONValue]
+    var reason: String?
+
+    private enum CodingKeys: String, CodingKey {
+        case tool, arguments, reason
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        tool = try container.decode(String.self, forKey: .tool)
+        arguments = try container.decodeIfPresent([String: ChatJSONValue].self, forKey: .arguments) ?? [:]
+        reason = try container.decodeIfPresent(String.self, forKey: .reason)
+    }
+
+    func timelineMessage(id: String, createdAt: Date) -> ChatMessage {
+        ChatMessage(
+            id: id,
+            role: .system,
+            segments: [
+                ChatMessageSegment(
+                    kind: .toolCall,
+                    text: reason,
+                    title: tool,
+                    status: "started",
+                    metadata: arguments.isEmpty ? nil : arguments.mapValues(\.displayText)
+                )
+            ],
+            createdAt: createdAt
+        )
+    }
+}
+
+private struct ChatToolResultPayload: Decodable, Sendable {
+    var tool: String
+    var ok: Bool
+    var data: ChatJSONValue?
+    var error: ChatToolErrorPayload?
+    var durationMs: Int?
+
+    func timelineMessage(id: String, createdAt: Date) -> ChatMessage {
+        var metadata: [String: String] = [:]
+        if let code = error?.code {
+            metadata["error"] = code
+        }
+        if let hint = error?.hint, !hint.isEmpty {
+            metadata["hint"] = hint
+        }
+
+        return ChatMessage(
+            id: id,
+            role: .system,
+            segments: [
+                ChatMessageSegment(
+                    kind: .toolResult,
+                    text: data?.displayText ?? error?.message,
+                    title: tool,
+                    status: ok ? "done" : "failed",
+                    startedAt: durationMs.map { createdAt.addingTimeInterval(-Double($0) / 1_000) },
+                    finishedAt: createdAt,
+                    metadata: metadata.isEmpty ? nil : metadata
+                )
+            ],
+            createdAt: createdAt
+        )
+    }
+}
+
+private struct ChatToolErrorPayload: Decodable, Sendable {
+    var code: String
+    var message: String
+    var retryable: Bool
+    var hint: String?
+}
+
+private indirect enum ChatJSONValue: Decodable, Sendable {
+    case null
+    case bool(Bool)
+    case number(Double)
+    case string(String)
+    case array([ChatJSONValue])
+    case object([String: ChatJSONValue])
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if container.decodeNil() {
+            self = .null
+        } else if let value = try? container.decode(Bool.self) {
+            self = .bool(value)
+        } else if let value = try? container.decode(Double.self) {
+            self = .number(value)
+        } else if let value = try? container.decode(String.self) {
+            self = .string(value)
+        } else if let value = try? container.decode([ChatJSONValue].self) {
+            self = .array(value)
+        } else {
+            self = .object(try container.decode([String: ChatJSONValue].self))
+        }
+    }
+
+    var displayText: String {
+        switch self {
+        case .null:
+            return "null"
+        case .bool(let value):
+            return value ? "true" : "false"
+        case .number(let value):
+            return value.rounded() == value ? String(format: "%.0f", value) : String(value)
+        case .string(let value):
+            return value
+        case .array(let values):
+            return "[\(values.map(\.displayText).joined(separator: ", "))]"
+        case .object(let values):
+            let fields = values.keys.sorted().map { "\($0): \(values[$0]?.displayText ?? "null")" }
+            return "{\(fields.joined(separator: ", "))}"
+        }
     }
 }
 

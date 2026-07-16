@@ -57,6 +57,65 @@ struct ChatModelsTests {
         #expect(msg.textContent == "visible")
     }
 
+    @Test("ChatMessage decodes attachment metadata")
+    func chatMessageDecodesAttachmentMetadata() throws {
+        let json = """
+        {
+            "id": "msg-attachment",
+            "role": "user",
+            "segments": [{
+                "kind": "attachment",
+                "attachment": {
+                    "id": "attachment-1",
+                    "name": "screenshot.png",
+                    "mimeType": "image/png",
+                    "sizeBytes": 4,
+                    "relativePath": "sessions/assets/screenshot.png"
+                }
+            }],
+            "createdAt": "2026-01-01T00:00:00Z"
+        }
+        """.data(using: .utf8)!
+
+        let message = try isoDecoder.decode(ChatMessage.self, from: json)
+
+        #expect(message.segments.first?.attachment?.name == "screenshot.png")
+        #expect(message.segments.first?.attachment?.mimeType == "image/png")
+    }
+
+    @Test("session detail exposes the latest typed run status")
+    func sessionDetailExposesLatestRunStatus() throws {
+        let json = """
+        {
+            "summary": {
+                "id": "sess-1",
+                "agentId": "agent-1",
+                "title": "Chat",
+                "messageCount": 0,
+                "updatedAt": "2026-01-01T00:00:00Z",
+                "kind": "chat"
+            },
+            "events": [
+                {
+                    "id": "event-1",
+                    "type": "run_status",
+                    "runStatus": {
+                        "stage": "thinking",
+                        "label": "Planning",
+                        "details": "Building a route",
+                        "createdAt": "2026-01-01T00:00:01Z"
+                    }
+                }
+            ]
+        }
+        """.data(using: .utf8)!
+
+        let detail = try isoDecoder.decode(ChatSessionDetail.self, from: json)
+
+        #expect(detail.latestRunStatus?.stage == .thinking)
+        #expect(detail.latestRunStatus?.label == "Planning")
+    }
+
     @Test("ChatMessage decodes tool and status segment metadata from JSON")
     func chatMessageDecodesRichSegments() throws {
         let json = """
@@ -95,6 +154,81 @@ struct ChatModelsTests {
         #expect(msg.segments[1].kind == .toolResult)
         #expect(msg.segments[1].finishedAt == ISO8601DateFormatter().date(from: "2026-01-01T00:00:12Z"))
         #expect(msg.segments[1].metadata?["exitCode"] == "0")
+    }
+
+    @Test("session history converts tool events into visible system messages")
+    func sessionHistoryConvertsToolEventsIntoMessages() throws {
+        let json = """
+        {
+            "summary": {
+                "id": "sess-tools",
+                "agentId": "agent-1",
+                "title": "Tools",
+                "messageCount": 2,
+                "updatedAt": "2026-01-01T00:00:02Z",
+                "kind": "chat"
+            },
+            "events": [
+                {
+                    "id": "tool-call-1",
+                    "type": "tool_call",
+                    "createdAt": "2026-01-01T00:00:00Z",
+                    "toolCall": {
+                        "tool": "files.read",
+                        "arguments": {"path": "Sources/App.swift"},
+                        "reason": "Inspect the source"
+                    }
+                },
+                {
+                    "id": "tool-result-1",
+                    "type": "tool_result",
+                    "createdAt": "2026-01-01T00:00:01Z",
+                    "toolResult": {
+                        "tool": "files.read",
+                        "ok": true,
+                        "data": {"lines": 42},
+                        "durationMs": 250
+                    }
+                }
+            ]
+        }
+        """.data(using: .utf8)!
+
+        let detail = try isoDecoder.decode(ChatSessionDetail.self, from: json)
+
+        #expect(detail.messages.count == 2)
+        #expect(detail.messages[0].role == .system)
+        #expect(detail.messages[0].segments.first?.kind == .toolCall)
+        #expect(detail.messages[0].segments.first?.title == "files.read")
+        #expect(detail.messages[0].segments.first?.metadata?["path"] == "Sources/App.swift")
+        #expect(detail.messages[1].segments.first?.kind == .toolResult)
+        #expect(detail.messages[1].segments.first?.text == "{lines: 42}")
+    }
+
+    @Test("session stream converts a tool call event into a message")
+    func sessionStreamConvertsToolCallIntoMessage() throws {
+        let json = """
+        {
+            "kind": "session_event",
+            "cursor": 3,
+            "event": {
+                "id": "tool-call-live",
+                "type": "tool_call",
+                "createdAt": "2026-01-01T00:00:00Z",
+                "toolCall": {
+                    "tool": "shell.exec",
+                    "arguments": {"command": "swift test"}
+                }
+            },
+            "createdAt": "2026-01-01T00:00:00Z"
+        }
+        """.data(using: .utf8)!
+
+        let update = try isoDecoder.decode(ChatStreamUpdate.self, from: json)
+
+        #expect(update.message?.role == .system)
+        #expect(update.message?.segments.first?.kind == .toolCall)
+        #expect(update.message?.segments.first?.title == "shell.exec")
     }
 
     @Test("ChatSessionSummary decodes from JSON")

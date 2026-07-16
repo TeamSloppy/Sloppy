@@ -172,7 +172,7 @@ public struct SettingsScreen: View {
     @State private var config: SloppyConfig? = nil
     @State private var statusText: String = "Loading config..."
     @State private var searchQuery: String = ""
-    @State private var selectedSection: SettingsScreenSection = .client
+    @State private var selectedSection: SettingsScreenSection
 
     private let settings: ClientSettings
     private let onDismiss: (() -> Void)?
@@ -182,10 +182,17 @@ public struct SettingsScreen: View {
 
     private let api: SloppyAPIClient
 
-    public init(settings: ClientSettings? = nil, onDismiss: (() -> Void)? = nil) {
+    public init(
+        settings: ClientSettings? = nil,
+        initialDestination: ClientSettingsDestination = .general,
+        onDismiss: (() -> Void)? = nil
+    ) {
         self.settings = settings ?? ClientSettings()
         self.onDismiss = onDismiss
         self.api = SloppyAPIClient(baseURL: (settings ?? ClientSettings()).baseURL)
+        self._selectedSection = State(
+            initialValue: initialDestination == .providers ? .providers : .client
+        )
     }
 
     public var body: some View {

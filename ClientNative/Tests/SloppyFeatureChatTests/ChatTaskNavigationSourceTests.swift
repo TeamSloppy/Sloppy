@@ -42,4 +42,23 @@ struct ChatTaskNavigationSourceTests {
         #expect(pickProjectSource.contains("opensPreferredSession: false"))
         #expect(source.contains("guard opensPreferredSession else"))
     }
+
+    @Test("new message opens an empty draft for the selected project")
+    func newMessageOpensEmptyDraftForSelectedProject() throws {
+        let source = try chatScreenViewModelSource
+        let newMessageStart = try #require(source.range(of: "public func startNewMessage()"))
+        let pickProjectStart = try #require(
+            source.range(
+                of: "public func pickProject(",
+                range: newMessageStart.upperBound..<source.endIndex
+            )
+        )
+        let newMessageSource = source[newMessageStart.lowerBound..<pickProjectStart.lowerBound]
+
+        #expect(newMessageSource.contains("guard let projectId = activeProjectId"))
+        #expect(newMessageSource.contains("activateProjectContext("))
+        #expect(newMessageSource.contains("preferredTaskId: nil"))
+        #expect(newMessageSource.contains("opensPreferredSession: false"))
+        #expect(!newMessageSource.contains("createAgentSession("))
+    }
 }

@@ -12,7 +12,7 @@ enum AppState: Equatable {
     case splash
     case connectionSetup
     case chat(URL)
-    case settings
+    case settings(ClientSettingsDestination)
 }
 
 enum MenuBarQuickAction: Sendable {
@@ -25,6 +25,11 @@ struct MenuBarQuickActionRequest: Equatable, Sendable {
     var action: MenuBarQuickAction
 }
 
+struct AppDeepLinkRequest: Equatable, Sendable {
+    var id = UUID()
+    var deepLink: DeepLink
+}
+
 @Observable
 @MainActor
 final class RootShellViewModel {
@@ -33,6 +38,7 @@ final class RootShellViewModel {
     var connectionMonitor: ConnectionMonitor
     var activeBanner: NotificationBannerItem?
     var menuBarQuickActionRequest: MenuBarQuickActionRequest?
+    var appDeepLinkRequest: AppDeepLinkRequest?
 
     private var bannerDismissTask: Task<Void, Never>?
     private var notificationManager: NotificationSocketManager?
@@ -50,10 +56,22 @@ final class RootShellViewModel {
     }
 
     func handleDeepLink(_ url: URL) {
-        guard let deepLink = DeepLink.parse(url),
-              let serverURL = deepLink.serverURL else { return }
-        settings.useServer(deepLink.savedServer)
-        startConnected(url: serverURL)
+        guard let deepLink = DeepLink.parse(url) else { return }
+
+        if case .connect = deepLink,
+           let serverURL = deepLink.serverURL,
+           let savedServer = deepLink.savedServer {
+            settings.useServer(savedServer)
+            startConnected(url: serverURL)
+            return
+        }
+
+        if case .chat = appState {
+            // Keep the current connected workspace.
+        } else {
+            startConnected(url: settings.baseURL)
+        }
+        appDeepLinkRequest = AppDeepLinkRequest(deepLink: deepLink)
     }
 
     func startDesktopWindowIntegration() {
@@ -95,6 +113,11 @@ final class RootShellViewModel {
     func consumeMenuBarAction(_ request: MenuBarQuickActionRequest) {
         guard menuBarQuickActionRequest?.id == request.id else { return }
         menuBarQuickActionRequest = nil
+    }
+
+    func consumeDeepLink(_ request: AppDeepLinkRequest) {
+        guard appDeepLinkRequest?.id == request.id else { return }
+        appDeepLinkRequest = nil
     }
 
     private func startNotificationListener(baseURL: URL) {

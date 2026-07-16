@@ -42,6 +42,13 @@ struct MainSidebarRefreshTests {
         #expect(source.contains("await viewModel.refreshContent()"))
     }
 
+    @Test("sidebar settings button opens settings")
+    func sidebarSettingsButtonOpensSettings() throws {
+        let source = try source(named: "MacMainSidebar.swift")
+
+        #expect(source.contains("viewModel.onOpenSettings(.general)"))
+    }
+
     @Test("main view wires cmd+r to the same refresh flow")
     func mainViewWiresCmdRToRefresh() throws {
         let source = try source(named: "MainView.swift")

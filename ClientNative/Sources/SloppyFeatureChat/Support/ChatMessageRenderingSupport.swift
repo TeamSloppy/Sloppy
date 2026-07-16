@@ -43,6 +43,24 @@ enum ChatTranscriptGrouping {
         message.role == .system
             && message.segments.allSatisfy { $0.buildProgress == nil }
     }
+
+    static func usesCompactSpacing(
+        between current: ChatTranscriptEntry,
+        and next: ChatTranscriptEntry
+    ) -> Bool {
+        current.isSystemActivity && next.isSystemActivity
+    }
+}
+
+private extension ChatTranscriptEntry {
+    var isSystemActivity: Bool {
+        switch self {
+        case .message(let message):
+            return message.role == .system
+        case .systemGroup:
+            return true
+        }
+    }
 }
 
 enum ChatCompactDurationFormatter {

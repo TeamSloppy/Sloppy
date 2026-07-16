@@ -2,7 +2,8 @@ import Foundation
 import SwiftUI
 import SloppyClientCore
 import SloppyClientUI
-#if canImport(PhotosUI)
+import UniformTypeIdentifiers
+#if canImport(PhotosUI) && !os(macOS)
 import PhotosUI
 #endif
 #if os(iOS)
@@ -24,7 +25,7 @@ public struct ChatScreen: View {
         apiClient: SloppyAPIClient,
         settings: ClientSettings,
         connectionMonitor: ConnectionMonitor,
-        onOpenSettings: @escaping @MainActor () -> Void,
+        onOpenSettings: @escaping @MainActor (ClientSettingsDestination) -> Void,
         rootSafeAreaInsets: EdgeInsets = EdgeInsets(),
         onOpenSidebar: (@MainActor () -> Void)? = nil,
         showsContextToolbar: Bool = true,
@@ -89,7 +90,7 @@ public struct ChatScreen: View {
                 break
             }
         }
-#if canImport(PhotosUI)
+#if canImport(PhotosUI) && !os(macOS)
         .modifier(ChatPhotoAttachmentPickerModifier(viewModel: viewModel))
 #endif
 #if os(iOS)
@@ -98,7 +99,7 @@ public struct ChatScreen: View {
     }
 }
 
-#if canImport(PhotosUI)
+#if canImport(PhotosUI) && !os(macOS)
 @MainActor
 private struct ChatPhotoAttachmentPickerModifier: ViewModifier {
     @State var viewModel: ChatScreenViewModel
@@ -262,6 +263,8 @@ private struct ChatNavigationToolbarModifier: ViewModifier {
     let onOpenSidebar: (@MainActor () -> Void)?
     let isEnabled: Bool
 
+    @Environment(\.userInterfaceIdiom) private var idiom
+
     func body(content: Content) -> some View {
         if isEnabled {
             content.toolbar {
@@ -270,6 +273,17 @@ private struct ChatNavigationToolbarModifier: ViewModifier {
                         viewModel: viewModel,
                         onOpenSidebar: onOpenSidebar
                     )
+                }
+
+                if idiom == .phone {
+                    ToolbarItem(placement: .primaryAction) {
+                        MobileChatNavigationIconButton(symbol: .new) {
+                            viewModel.startNewMessage()
+                        }
+                        .accessibilityLabel("New message")
+                        .accessibilityIdentifier("chat.navigation.new-message")
+                        .disabled(viewModel.selectedAgent == nil && viewModel.agents.isEmpty)
+                    }
                 }
             }
         } else {
@@ -318,7 +332,10 @@ private struct ChatChrome: View {
                     contentWidth: contentWidth,
                     messagesTopInset: messagesTopInset,
                     composerScrollInset: composerScrollInset,
-                    showsThinkingIndicator: showsThinkingIndicator
+                    showsThinkingIndicator: showsThinkingIndicator,
+                    isRunActive: viewModel.isAwaitingAgentResponse || viewModel.isStopping,
+                    runStatusLabel: viewModel.activeRunStatusLabel,
+                    runStatusDetails: viewModel.activeRunStatusDetails
                 )
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -363,7 +380,9 @@ private struct ChatChrome: View {
     }
 
     private var composerScrollInset: CGFloat {
-        ChatComposerView.panelHeight(for: idiom) + composerScrollGap
+        ChatComposerView.panelHeight(for: idiom)
+            + (viewModel.composerAttachments.isEmpty ? 0 : ChatComposerView.attachmentStripHeight + theme.spacing.s)
+            + composerScrollGap
     }
 
     private var composerBottomInset: CGFloat {
@@ -389,7 +408,13 @@ private struct ChatChrome: View {
 
     private var showsThinkingIndicator: Bool {
         guard viewModel.isAwaitingAgentResponse else { return false }
-        return viewModel.transcript.lastMessage?.id.hasPrefix("streaming-assistant-") != true
+        let messages = viewModel.transcript.messages
+        guard let lastUserIndex = messages.lastIndex(where: { $0.role == .user }) else {
+            return true
+        }
+        let nextIndex = messages.index(after: lastUserIndex)
+        guard nextIndex < messages.endIndex else { return true }
+        return !messages[nextIndex...].contains(where: { $0.role != .user })
     }
 
     private var screenPointWidth: CGFloat {
@@ -636,6 +661,9 @@ private struct ChatTranscriptRegion: View {
     let messagesTopInset: CGFloat
     let composerScrollInset: CGFloat
     let showsThinkingIndicator: Bool
+    let isRunActive: Bool
+    let runStatusLabel: String
+    let runStatusDetails: String?
 
     var body: some View {
         ChatTranscriptPane(
@@ -643,12 +671,13 @@ private struct ChatTranscriptRegion: View {
             contentWidth: contentWidth,
             messagesTopInset: messagesTopInset,
             composerScrollInset: composerScrollInset,
-            showsThinkingIndicator: showsThinkingIndicator
+            showsThinkingIndicator: showsThinkingIndicator,
+            isRunActive: isRunActive,
+            runStatusLabel: runStatusLabel,
+            runStatusDetails: runStatusDetails,
+            providerSettingsRecoveryMessageIDs: viewModel.providerSettingsRecoveryMessageIDs,
+            onOpenProviderSettings: { viewModel.openSettings(.providers) }
         )
-        .contentShape(Rectangle())
-        .onTapGesture {
-            viewModel.dismissComposerFocus()
-        }
     }
 }
 
@@ -694,6 +723,7 @@ public struct ChatComposerOverlay: View {
 
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
+    @State private var isAttachmentDropTargeted = false
 
     public init(
         viewModel: ChatScreenViewModel,
@@ -733,9 +763,11 @@ public struct ChatComposerOverlay: View {
             )
             return true
         }
-        .dropDestination(for: URL.self) { urls, _ in
-            viewModel.attachFileURLs(urls)
-            return !urls.isEmpty
+        .onDrop(
+            of: [UTType.fileURL, UTType.image],
+            isTargeted: $isAttachmentDropTargeted
+        ) { providers in
+            viewModel.attachItemProviders(providers)
         }
 #if !os(visionOS)
         .background(
@@ -756,6 +788,14 @@ public struct ChatComposerOverlay: View {
             viewModel: viewModel,
             tabActions: tabActions
         )
+        .overlay {
+            if isAttachmentDropTargeted {
+                RoundedRectangle(cornerRadius: 20)
+                    .stroke(theme.colors.accentCyan, style: StrokeStyle(lineWidth: 2, dash: [7, 5]))
+                    .padding(.horizontal, theme.spacing.s)
+                    .allowsHitTesting(false)
+            }
+        }
     }
 }
 
@@ -766,8 +806,14 @@ private struct ChatTranscriptPane: View {
     let messagesTopInset: CGFloat
     let composerScrollInset: CGFloat
     let showsThinkingIndicator: Bool
+    let isRunActive: Bool
+    let runStatusLabel: String
+    let runStatusDetails: String?
+    let providerSettingsRecoveryMessageIDs: Set<String>
+    let onOpenProviderSettings: @MainActor () -> Void
 
     @Environment(\.theme) private var theme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var isNearBottom = true
     @State private var isUserScrolling = false
 
@@ -775,6 +821,8 @@ private struct ChatTranscriptPane: View {
     private let bottomThreshold: CGFloat = 44
 
     var body: some View {
+        let entries = ChatTranscriptGrouping.entries(from: transcript.messages)
+
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 0) {
@@ -784,15 +832,33 @@ private struct ChatTranscriptPane: View {
                             .padding(.bottom, theme.spacing.m)
                     }
 
-                    LazyVStack(alignment: .leading, spacing: theme.spacing.xl) {
-                        ForEach(ChatTranscriptGrouping.entries(from: transcript.messages)) { entry in
+                    LazyVStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
                             switch entry {
                             case .message(let message):
-                                ChatBubbleView(message: message)
-                                    .frame(minWidth: 0, maxWidth: .infinity)
+                                ChatBubbleView(
+                                    message: message,
+                                    isActivelyWorking: message.id == activeThinkingMessageId,
+                                    onOpenProviderSettings: providerSettingsRecoveryMessageIDs.contains(message.id)
+                                        ? onOpenProviderSettings
+                                        : nil
+                                )
+                                .frame(minWidth: 0, maxWidth: .infinity)
+                                .transition(.opacity)
                             case .systemGroup(let messages):
                                 ChatSystemMessageGroupView(messages: messages)
                                     .frame(minWidth: 0, maxWidth: .infinity)
+                                    .transition(.opacity)
+                            }
+
+                            if index < entries.index(before: entries.endIndex) {
+                                Spacer(minLength: 0)
+                                    .frame(
+                                        height: ChatTranscriptGrouping.usesCompactSpacing(
+                                            between: entry,
+                                            and: entries[index + 1]
+                                        ) ? theme.spacing.s : theme.spacing.xl
+                                    )
                             }
                         }
                     }
@@ -800,9 +866,10 @@ private struct ChatTranscriptPane: View {
                     .padding(.top, transcript.hasEarlierMessages ? 0 : messagesTopInset)
 
                     if showsThinkingIndicator {
-                        ChatThinkingIndicator()
+                        ChatThinkingIndicator(label: runStatusLabel, details: runStatusDetails)
                             .frame(width: contentWidth)
                             .padding(.top, theme.spacing.s)
+                            .transition(.opacity)
                     }
 
                     Color.clear
@@ -853,13 +920,27 @@ private struct ChatTranscriptPane: View {
                 guard isVisible, isNearBottom else { return }
                 scrollToBottom(using: proxy)
             }
+            .animation(
+                reduceMotion ? nil : .easeOut(duration: 0.18),
+                value: transcript.messages.map(\.id)
+            )
+            .animation(
+                reduceMotion ? nil : .easeOut(duration: 0.18),
+                value: showsThinkingIndicator
+            )
         }
     }
 
     private func scrollToBottom(using proxy: ScrollViewProxy) {
         Task { @MainActor in
             await Task.yield()
-            proxy.scrollTo(bottomAnchorId, anchor: .bottom)
+            if reduceMotion {
+                proxy.scrollTo(bottomAnchorId, anchor: .bottom)
+            } else {
+                withAnimation(.easeOut(duration: 0.16)) {
+                    proxy.scrollTo(bottomAnchorId, anchor: .bottom)
+                }
+            }
         }
     }
 
@@ -874,6 +955,20 @@ private struct ChatTranscriptPane: View {
             return ""
         }
         return "\(message.id):\(message.textContent.count)"
+    }
+
+    private var activeThinkingMessageId: String? {
+        guard isRunActive else { return nil }
+        let messages = transcript.messages
+        guard let lastUserIndex = messages.lastIndex(where: { $0.role == .user }) else {
+            return nil
+        }
+        let nextIndex = messages.index(after: lastUserIndex)
+        guard nextIndex < messages.endIndex else { return nil }
+        return messages[nextIndex...].reversed().first { message in
+            message.role == .assistant
+                && message.segments.contains(where: { $0.kind == .thinking })
+        }?.id
     }
 
     private var revealEarlierButton: some View {
@@ -904,7 +999,7 @@ private struct ChatTranscriptPane: View {
         apiClient: .init(baseURL: .debugURL),
         settings: .init(),
         connectionMonitor: .init(baseURL: URL.debugURL),
-        onOpenSettings: {}
+        onOpenSettings: { _ in }
     )
     NavigationStack {
         ChatScreen(viewModel: viewModel)
@@ -919,7 +1014,7 @@ private struct ChatTranscriptPane: View {
         apiClient: .init(baseURL: .debugURL),
         settings: .init(),
         connectionMonitor: .init(baseURL: URL.debugURL),
-        onOpenSettings: {}
+        onOpenSettings: { _ in }
     )
     viewModel.transcript.replaceAll([
         .init(role: .assistant, segments: [

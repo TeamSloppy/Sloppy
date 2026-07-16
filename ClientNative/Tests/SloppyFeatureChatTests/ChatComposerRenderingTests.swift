@@ -79,12 +79,65 @@ struct ChatComposerRenderingTests {
         #expect(!source.contains("draft.text = \"\""))
     }
 
+    @Test("composer renders removable attachments and accepts clipboard files")
+    func composerRendersAttachmentsAndAcceptsPaste() throws {
+        let source = try chatComposerSource
+
+        #expect(source.contains("private struct ChatComposerAttachmentStrip"))
+        #expect(source.contains("viewModel.composerAttachments"))
+        #expect(source.contains("remove: viewModel.removeComposerAttachment"))
+        #expect(source.contains(".onPasteCommand(of: [.fileURL, .image])"))
+        #expect(source.contains("viewModel.attachItemProviders(providers)"))
+    }
+
+    @Test("attachment-only drafts expose the send action")
+    func attachmentOnlyDraftsCanSubmit() throws {
+        let source = try chatComposerSource
+
+        #expect(source.contains("trimmedDraftText.isEmpty && viewModel.composerAttachments.isEmpty"))
+        #expect(source.contains("!trimmed.isEmpty || !viewModel.composerAttachments.isEmpty"))
+    }
+
     @Test("composer text fields submit on enter")
     func composerTextFieldsSubmitOnEnter() throws {
         let source = try chatComposerSource
 
         #expect(source.contains(".submitLabel(.send)"))
         #expect(source.contains(".onSubmit {"))
+    }
+
+    @Test("shift return delegates newline insertion to the multiline text field")
+    func shiftReturnDelegatesNewlineInsertion() throws {
+        let source = try chatComposerSource
+
+        #expect(source.contains(".onKeyPress(.return, phases: .down) { keyPress in"))
+        #expect(source.contains("keyPress.modifiers.contains(.shift)"))
+        #expect(source.contains("if keyPress.modifiers.contains(.shift) {\n                return .ignored"))
+        #expect(!source.contains("insertNewlineAtSelection"))
+        #expect(!source.contains("text.distance(from:"))
+    }
+
+    @Test("composer wraps long text without reserving its maximum height")
+    func composerTextFieldWrapsLongTextWithoutInflating() throws {
+        let source = try chatComposerSource
+
+        #expect(source.contains("axis: .vertical"))
+        #expect(source.contains(".lineLimit(1...6)"))
+        #expect(!source.contains("maximumPanelHeight"))
+        #expect(source.contains(".glassEffect(.regular, in: .rect(cornerRadius: Self.panelRadius))"))
+    }
+
+    @Test("long composer text stays bounded and scrolls vertically")
+    func longComposerTextStaysBoundedAndScrollable() throws {
+        let source = try chatComposerSource
+        let fieldStart = try #require(source.range(of: "struct ChatTextField: View"))
+        let dictationStart = try #require(source.range(of: "private struct DictationComposerBar"))
+        let fieldSource = source[fieldStart.lowerBound..<dictationStart.lowerBound]
+
+        #expect(!fieldSource.contains(".containerRelativeFrame(.horizontal)"))
+        #expect(fieldSource.contains(".scrollIndicators(.visible, axes: .vertical)"))
+        #expect(fieldSource.contains(".clipped()"))
+        #expect(fieldSource.contains(".layoutPriority(1)"))
     }
 
     @Test("composer draft is observable so trailing action reacts while typing")
@@ -136,6 +189,9 @@ struct ChatComposerRenderingTests {
     @Test("dictation bar keeps trailing controls fixed while waveform can overflow left")
     func dictationBarKeepsTrailingControlsFixed() throws {
         let source = try chatComposerSource
+        let dictationStart = try #require(source.range(of: "private struct DictationComposerBar"))
+        let customTabStart = try #require(source.range(of: "fileprivate struct CustomTabItem"))
+        let dictationSource = source[dictationStart.lowerBound..<customTabStart.lowerBound]
 
         #expect(source.contains("private let elapsedTextWidth: CGFloat = 64"))
         #expect(source.contains("private let stopButtonSize: CGFloat = 32"))
@@ -148,6 +204,7 @@ struct ChatComposerRenderingTests {
         #expect(source.contains(".overlay(alignment: .trailing)"))
         #expect(source.contains("Color.clear"))
         #expect(source.contains(".allowsHitTesting(false)"))
+        #expect(!dictationSource.contains(".containerRelativeFrame(.horizontal)"))
     }
 
     @Test("desktop composer exposes one combined model effort and agent menu")

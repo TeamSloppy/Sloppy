@@ -23,7 +23,7 @@ struct PlatformMainSidebar: View {
                 Spacer()
 
                 Button {
-
+                    viewModel.onOpenSettings(.general)
                 } label: {
                     Image(systemName: "gearshape")
                         .font(.system(size: theme.typography.heading))

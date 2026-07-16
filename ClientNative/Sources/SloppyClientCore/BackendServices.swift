@@ -10,6 +10,20 @@ public struct HealthCheckResult: Sendable {
     }
 }
 
+public struct ChatAttachmentUpload: Codable, Sendable, Equatable {
+    public var name: String
+    public var mimeType: String
+    public var sizeBytes: Int
+    public var contentBase64: String
+
+    public init(name: String, mimeType: String, sizeBytes: Int, contentBase64: String) {
+        self.name = name
+        self.mimeType = mimeType
+        self.sizeBytes = sizeBytes
+        self.contentBase64 = contentBase64
+    }
+}
+
 public struct AccessUser: Codable, Sendable, Identifiable {
     public var id: String
     public var platform: String
@@ -234,13 +248,14 @@ public actor SessionService {
         sessionId: String,
         content: String,
         userId: String = "user",
+        attachments: [ChatAttachmentUpload] = [],
         selectedModel: String? = nil,
         reasoningEffort: String? = nil
     ) async throws -> ChatSessionSummary {
         struct Payload: Encodable {
             var userId: String
             var content: String
-            var attachments: [String] = []
+            var attachments: [ChatAttachmentUpload]
             var spawnSubSession: Bool = false
             var selectedModel: String?
             var reasoningEffort: String?
@@ -255,6 +270,7 @@ public actor SessionService {
             body: Payload(
                 userId: userId,
                 content: content,
+                attachments: attachments,
                 selectedModel: normalizedSelectedModel?.isEmpty == false ? normalizedSelectedModel : nil,
                 reasoningEffort: normalizedReasoningEffort?.isEmpty == false ? normalizedReasoningEffort : nil
             )

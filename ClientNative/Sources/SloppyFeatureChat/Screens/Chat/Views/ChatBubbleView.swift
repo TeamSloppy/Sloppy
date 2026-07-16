@@ -8,9 +8,17 @@ public struct ChatBubbleView: View {
     private static let userBubbleRadius: CGFloat = 14
 
     public let message: ChatMessage
+    public let isActivelyWorking: Bool
+    public let onOpenProviderSettings: (@MainActor () -> Void)?
 
-    public init(message: ChatMessage) {
+    public init(
+        message: ChatMessage,
+        isActivelyWorking: Bool = false,
+        onOpenProviderSettings: (@MainActor () -> Void)? = nil
+    ) {
         self.message = message
+        self.isActivelyWorking = isActivelyWorking
+        self.onOpenProviderSettings = onOpenProviderSettings
     }
 
     @Environment(\.userInterfaceIdiom) private var idiom
@@ -19,7 +27,8 @@ public struct ChatBubbleView: View {
     private var showsMessageActions: Bool {
         !isStreamingAssistant
             && message.role == .assistant
-            && message.segments.allSatisfy { $0.kind == .text }
+            && message.segments.contains { $0.kind == .text }
+            && message.segments.allSatisfy { $0.kind == .text || $0.kind == .status }
     }
 
     public var body: some View {
@@ -80,6 +89,14 @@ public struct ChatBubbleView: View {
             renderedSegmentStack(forceCollapsible: false)
                 .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
 
+            if let onOpenProviderSettings {
+                Button(action: onOpenProviderSettings) {
+                    Label("Provider Settings", systemImage: "gearshape")
+                }
+                .buttonStyle(.bordered)
+                .controlSize(.small)
+            }
+
             if showsMessageActions {
                 HStack {
                     Button(action: {
@@ -125,11 +142,12 @@ public struct ChatBubbleView: View {
                         message: message,
                         segment: segment,
                         isRunning: isSegmentRunning(segment)
+                            || (isActivelyWorking && segment.kind == .thinking)
                     )
                 } else {
                     ChatMarkdownTextStack(
                         text: segment.text ?? "…",
-                        rendersMarkdown: !isStreamingAssistant
+                        allowsTextSelection: !isStreamingAssistant
                     )
                 }
             }
@@ -253,41 +271,51 @@ private struct ChatSystemSegmentItem: Identifiable {
 }
 
 struct ChatThinkingIndicator: View {
+    let label: String
+    let details: String?
+
     @Environment(\.theme) private var theme
 
     var body: some View {
         HStack {
-            ChatShimmerText(text: "Thinking")
+            ChatShimmerText(text: label)
                 .font(.system(size: theme.typography.body, weight: .medium))
             Spacer(minLength: 0)
         }
-        .accessibilityLabel("Thinking")
+        .accessibilityLabel(accessibilityText)
+    }
+
+    private var accessibilityText: String {
+        guard let details, !details.isEmpty else { return label }
+        return "\(label). \(details)"
     }
 }
 
 private struct ChatMarkdownTextStack: View {
     let text: String
-    var rendersMarkdown = true
+    var allowsTextSelection = true
 
     @Environment(\.theme) private var theme
 
     @ViewBuilder
     var body: some View {
+        if allowsTextSelection {
+            structuredText
+                .textual.textSelection(.enabled)
+        } else {
+            structuredText
+        }
+    }
+
+    private var structuredText: some View {
         let ty = theme.typography
 
-        if rendersMarkdown {
-            StructuredText(markdown: text)
-                .textual.structuredTextStyle(.gitHub)
-                .font(.system(size: ty.body))
-                .foregroundColor(theme.colors.textPrimary)
-                .tint(theme.colors.accentCyan)
-                .fixedSize(horizontal: false, vertical: true)
-        } else {
-            Text(verbatim: text)
-                .font(.system(size: ty.body))
-                .foregroundColor(theme.colors.textPrimary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
+        return StructuredText(markdown: text)
+            .textual.structuredTextStyle(.gitHub)
+            .font(.system(size: ty.body))
+            .foregroundColor(theme.colors.textPrimary)
+            .tint(theme.colors.accentCyan)
+            .fixedSize(horizontal: false, vertical: true)
     }
 }
 
@@ -338,12 +366,6 @@ private struct ChatSegmentCollapsibleCard: View {
             }
         }
         .padding(.vertical, sp.xs)
-        .contentShape(Rectangle())
-        .onTapGesture {
-            withAnimation(.easeInOut(duration: 0.1)) {
-                isExpanded.toggle()
-            }
-        }
     }
 
     @ViewBuilder
@@ -357,8 +379,8 @@ private struct ChatSegmentCollapsibleCard: View {
                 .foregroundColor(c.textMuted)
                 .frame(width: 18)
 
-            if isRunning && segment.kind == .thinking {
-                ChatShimmerText(text: "Thinking")
+            if isRunning {
+                ChatShimmerText(text: segmentTitle)
                     .font(.system(size: theme.typography.caption))
             } else {
                 Text(segmentTitle)
@@ -379,6 +401,12 @@ private struct ChatSegmentCollapsibleCard: View {
             if hasExpandableContent {
                 Icons.symbol(isExpanded ? .collapseContent : .expandMore, size: theme.typography.caption)
                     .foregroundColor(c.textMuted)
+            }
+        }
+        .contentShape(Rectangle())
+        .onTapGesture {
+            withAnimation(.easeInOut(duration: 0.1)) {
+                isExpanded.toggle()
             }
         }
     }
@@ -410,6 +438,10 @@ private struct ChatSegmentCollapsibleCard: View {
     }
 
     private var segmentTitle: String {
+        if let attachmentName = segment.attachment?.name.trimmingCharacters(in: .whitespacesAndNewlines),
+           !attachmentName.isEmpty {
+            return attachmentName
+        }
         if let title = segment.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
             return title
         }

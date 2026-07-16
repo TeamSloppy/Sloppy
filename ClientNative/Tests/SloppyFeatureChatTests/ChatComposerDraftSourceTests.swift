@@ -20,7 +20,8 @@ struct ChatComposerDraftSourceTests {
     func viewModelStoresComposerDraftsPerActiveSessionOrDraftContext() throws {
         let source = try viewModelSource
 
-        #expect(source.contains("private var composerDraftsByKey: [String: String] = [:]"))
+        #expect(source.contains("private var composerDraftsByKey: [String: StoredComposerDraft] = [:]"))
+        #expect(source.contains("composerAttachments = storedDraft?.attachments ?? []"))
         #expect(source.contains("private var activeComposerDraftKey: String?"))
         #expect(source.contains("private func syncComposerDraft("))
         #expect(source.contains("private func composerDraftKey("))
@@ -36,6 +37,7 @@ struct ChatComposerDraftSourceTests {
         #expect(source.contains("dismissComposerFocus()"))
         #expect(source.contains("private func clearActiveComposerDraft()"))
         #expect(source.contains("composerDraft.text = \"\""))
+        #expect(source.contains("composerAttachments = []"))
     }
 
     @Test("send failures restore the draft and expose the error")
@@ -46,6 +48,7 @@ struct ChatComposerDraftSourceTests {
         #expect(source.contains("Could not create session:"))
         #expect(source.contains("Message was not sent:"))
         #expect(source.contains("composerDraft.text = content"))
+        #expect(source.contains("composerAttachments = attachments"))
         #expect(source.contains("let summary = try await apiClient.createAgentSession"))
     }
 }

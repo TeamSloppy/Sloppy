@@ -28,7 +28,7 @@ final class MainViewModel {
     let baseURL: URL
     let settings: ClientSettings
     let connectionMonitor: ConnectionMonitor
-    let onOpenSettings: @MainActor () -> Void
+    let onOpenSettings: @MainActor (ClientSettingsDestination) -> Void
     let onOpenWorkspace: @MainActor () -> Void
     let cacheStore: ClientCacheStore
 
@@ -95,7 +95,7 @@ final class MainViewModel {
         settings: ClientSettings,
         connectionMonitor: ConnectionMonitor,
         cacheStore: ClientCacheStore = ClientCacheStore(),
-        onOpenSettings: @Sendable @escaping @MainActor () -> Void,
+        onOpenSettings: @Sendable @escaping @MainActor (ClientSettingsDestination) -> Void,
         onOpenWorkspace: @escaping @MainActor () -> Void
     ) {
         let apiClient = SloppyAPIClient(baseURL: baseURL)
@@ -641,7 +641,7 @@ final class MainViewModel {
                 settings: settings,
                 connectionMonitor: connectionMonitor,
                 restoresLastSession: false,
-                onOpenSettings: { self.onOpenSettings() }
+                onOpenSettings: { destination in self.onOpenSettings(destination) }
             )
         )
     }

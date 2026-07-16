@@ -1,13 +1,60 @@
 import Foundation
-import SwiftUI
 import Observation
 import SloppyClientCore
 import SloppyClientUI
+import SwiftUI
+import UniformTypeIdentifiers
 
 public enum ChatComposerDictationPhase: Sendable, Equatable {
     case idle
     case recording
     case transcribing
+}
+
+public struct ChatComposerAttachment: Identifiable, Sendable, Equatable {
+    public let id: UUID
+    public let name: String
+    public let mimeType: String
+    public let data: Data
+
+    public init(
+        id: UUID = UUID(),
+        name: String,
+        mimeType: String,
+        data: Data
+    ) {
+        self.id = id
+        self.name = name
+        self.mimeType = mimeType
+        self.data = data
+    }
+
+    public var sizeBytes: Int {
+        data.count
+    }
+
+    var upload: ChatAttachmentUpload {
+        ChatAttachmentUpload(
+            name: name,
+            mimeType: mimeType,
+            sizeBytes: sizeBytes,
+            contentBase64: data.base64EncodedString()
+        )
+    }
+
+    var messageAttachment: ChatAttachment {
+        ChatAttachment(
+            id: id.uuidString.lowercased(),
+            name: name,
+            mimeType: mimeType,
+            sizeBytes: sizeBytes
+        )
+    }
+}
+
+private struct StoredComposerDraft {
+    var text: String
+    var attachments: [ChatComposerAttachment]
 }
 
 @Observable
@@ -43,6 +90,30 @@ public final class ChatTranscriptState {
         refreshVisibleMessages()
     }
 
+    func reconcile(with newMessages: [ChatMessage]) {
+        guard !allMessages.isEmpty else {
+            replaceAll(newMessages)
+            return
+        }
+
+        var reconciledMessages = allMessages
+        for message in newMessages {
+            if let index = reconciledMessages.firstIndex(where: { $0.id == message.id }) {
+                reconciledMessages[index] = message
+                continue
+            }
+
+            let insertionIndex = reconciledMessages.firstIndex {
+                $0.createdAt > message.createdAt
+            } ?? reconciledMessages.endIndex
+            reconciledMessages.insert(message, at: insertionIndex)
+        }
+
+        allMessages = reconciledMessages
+        visibleStartIndex = min(visibleStartIndex, max(0, allMessages.count - 1))
+        refreshVisibleMessages()
+    }
+
     func clear() {
         allMessages = []
         visibleStartIndex = 0
@@ -60,8 +131,22 @@ public final class ChatTranscriptState {
         refreshVisibleMessages()
     }
 
-    func upsert(_ message: ChatMessage) {
+    func upsert(_ message: ChatMessage, before anchorMessageId: String? = nil) {
         if let idx = allMessages.firstIndex(where: { $0.id == message.id }) {
+            allMessages[idx] = message
+        } else if let anchorMessageId,
+                  let anchorIndex = allMessages.firstIndex(where: { $0.id == anchorMessageId }) {
+            allMessages.insert(message, at: anchorIndex)
+        } else {
+            allMessages.append(message)
+        }
+        refreshVisibleMessages()
+    }
+
+    func replaceStreamingAssistant(messageId: String, with message: ChatMessage) {
+        if let idx = allMessages.firstIndex(where: { $0.id == messageId }) {
+            allMessages[idx] = message
+        } else if let idx = allMessages.firstIndex(where: { $0.id == message.id }) {
             allMessages[idx] = message
         } else {
             allMessages.append(message)
@@ -110,6 +195,9 @@ public final class ChatTranscriptState {
 @Observable
 @MainActor
 public final class ChatScreenViewModel {
+    private static let maximumAttachmentCount = 10
+    private static let maximumAttachmentSize = 25 * 1_024 * 1_024
+
     public private(set) var agents: [APIAgentRecord] = []
     public private(set) var projects: [APIProjectRecord] = []
     public private(set) var selectedAgent: APIAgentRecord?
@@ -126,11 +214,14 @@ public final class ChatScreenViewModel {
     public private(set) var isSending = false
     public private(set) var isAwaitingAgentResponse = false
     public private(set) var isStopping = false
+    public private(set) var activeRunStatus: ChatRunStatusEvent?
+    private(set) var providerSettingsRecoveryMessageIDs: Set<String> = []
     public private(set) var composerFocusResetToken = 0
     private(set) var composerSuggestions: [ChatComposerSuggestion] = []
     private(set) var composerSuggestionSelection = ChatComposerSuggestionSelection()
     public let transcript = ChatTranscriptState()
     public let composerDraft = ChatComposerDraft()
+    public private(set) var composerAttachments: [ChatComposerAttachment] = []
     public var isAttachmentPickerShown = false
     public var isCameraPickerShown = false
     public var isPhotoPickerShown = false
@@ -156,6 +247,21 @@ public final class ChatScreenViewModel {
 
     public var canSubmitMessage: Bool {
         selectedAgent != nil && !isSending && !isStopping
+    }
+
+    public var activeRunStatusLabel: String {
+        if isStopping {
+            return "Stopping"
+        }
+        if let label = activeRunStatus?.label.trimmingCharacters(in: .whitespacesAndNewlines),
+           !label.isEmpty {
+            return label
+        }
+        return isSending ? "Processing" : "Thinking"
+    }
+
+    public var activeRunStatusDetails: String? {
+        activeRunStatus?.details?.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
     public var activeSessionTitle: String {
@@ -186,7 +292,7 @@ public final class ChatScreenViewModel {
     @ObservationIgnored private let settings: ClientSettings
     @ObservationIgnored private let restoresLastSession: Bool
     public let connectionMonitor: ConnectionMonitor
-    @ObservationIgnored private let onOpenSettings: @MainActor () -> Void
+    @ObservationIgnored private let onOpenSettings: @MainActor (ClientSettingsDestination) -> Void
 
     @ObservationIgnored private var socketManager: SessionSocketManager?
     @ObservationIgnored private var streamTask: Task<Void, Never>?
@@ -203,7 +309,7 @@ public final class ChatScreenViewModel {
     @ObservationIgnored private var didLoadInitialData = false
     @ObservationIgnored private var isLoadingInitialData = false
     @ObservationIgnored private var sessionLoadGeneration = 0
-    @ObservationIgnored private var composerDraftsByKey: [String: String] = [:]
+    @ObservationIgnored private var composerDraftsByKey: [String: StoredComposerDraft] = [:]
     @ObservationIgnored private var activeComposerDraftKey: String?
     @ObservationIgnored private let dictationRecorder = DictationRecorder()
     @ObservationIgnored private var dictationMeterTask: Task<Void, Never>?
@@ -215,7 +321,7 @@ public final class ChatScreenViewModel {
         settings: ClientSettings,
         connectionMonitor: ConnectionMonitor,
         restoresLastSession: Bool = true,
-        onOpenSettings: @escaping @MainActor () -> Void
+        onOpenSettings: @escaping @MainActor (ClientSettingsDestination) -> Void
     ) {
         self.apiClient = apiClient
         self.cacheStore = cacheStore
@@ -225,8 +331,8 @@ public final class ChatScreenViewModel {
         self.onOpenSettings = onOpenSettings
     }
 
-    public func openSettings() {
-        onOpenSettings()
+    public func openSettings(_ destination: ClientSettingsDestination = .general) {
+        onOpenSettings(destination)
     }
 
     public func dismissComposerFocus() {
@@ -428,11 +534,11 @@ public final class ChatScreenViewModel {
 
         if let selectedSessionId,
            let detail = try? await apiClient.fetchAgentSession(agentId: agent.id, sessionId: selectedSessionId) {
-            transcript.replaceAll(detail.messages)
+            applyHydratedSession(detail)
             await cacheStore.cacheSessionDetail(agentId: agent.id, detail: detail)
         } else if let selectedSessionId,
                   let cached = await cacheStore.loadSessionDetail(agentId: agent.id, sessionId: selectedSessionId) {
-            transcript.replaceAll(cached.messages)
+            applyHydratedSession(cached)
         }
     }
 
@@ -455,6 +561,26 @@ public final class ChatScreenViewModel {
 
     public func pickNewSession() {
         startNewSession()
+    }
+
+    public func startNewMessage() {
+        guard let agent = selectedAgent ?? agents.first else { return }
+
+        guard let projectId = activeProjectId else {
+            activateDraft(agent: agent, contextTitle: nil)
+            return
+        }
+
+        let projectName = projects.first(where: { $0.id == projectId })?.name
+        let contextTitle = projectName.map { "Project: \($0)" } ?? activeContextTitle
+        activateProjectContext(
+            agent: agent,
+            projectId: projectId,
+            contextTitle: contextTitle ?? "Project",
+            preferredSessionTitle: nil,
+            preferredTaskId: nil,
+            opensPreferredSession: false
+        )
     }
 
     public func pickProject(_ project: APIProjectRecord) {
@@ -542,17 +668,121 @@ public final class ChatScreenViewModel {
     }
 
     public func attachFileURLs(_ urls: [URL]) {
-        let references = urls
-            .map { $0.path.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .map { "@file:\($0)" }
-        guard !references.isEmpty else { return }
+        for url in urls {
+            let didAccessSecurityScopedResource = url.startAccessingSecurityScopedResource()
+            defer {
+                if didAccessSecurityScopedResource {
+                    url.stopAccessingSecurityScopedResource()
+                }
+            }
 
-        composerDraft.text = ([composerDraft.text] + references)
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-            .joined(separator: "\n")
+            do {
+                let data = try Data(contentsOf: url, options: .mappedIfSafe)
+                let contentType = UTType(filenameExtension: url.pathExtension)
+                attachData(
+                    data,
+                    suggestedName: url.lastPathComponent,
+                    mimeType: contentType?.preferredMIMEType ?? "application/octet-stream"
+                )
+            } catch {
+                sendErrorMessage = "Could not attach \(url.lastPathComponent): \(error.localizedDescription)"
+            }
+        }
+    }
+
+    public func attachData(_ data: Data, suggestedName: String, mimeType: String) {
+        guard composerAttachments.count < Self.maximumAttachmentCount else {
+            sendErrorMessage = "You can attach up to \(Self.maximumAttachmentCount) files"
+            return
+        }
+        guard data.count <= Self.maximumAttachmentSize else {
+            sendErrorMessage = "\(suggestedName) is larger than 25 MB"
+            return
+        }
+
+        let trimmedName = suggestedName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedMIMEType = mimeType.trimmingCharacters(in: .whitespacesAndNewlines)
+        composerAttachments.append(
+            ChatComposerAttachment(
+                name: trimmedName.isEmpty ? "Attachment" : trimmedName,
+                mimeType: trimmedMIMEType.isEmpty ? "application/octet-stream" : trimmedMIMEType,
+                data: data
+            )
+        )
+        sendErrorMessage = nil
         saveActiveComposerDraft()
+    }
+
+    public func removeComposerAttachment(id: ChatComposerAttachment.ID) {
+        composerAttachments.removeAll { $0.id == id }
+        saveActiveComposerDraft()
+    }
+
+    @discardableResult
+    public func attachItemProviders(_ providers: [NSItemProvider]) -> Bool {
+        var didAcceptProvider = false
+
+        for provider in providers {
+            if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                didAcceptProvider = true
+                provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { [weak self] item, _ in
+                    guard let url = Self.fileURL(from: item) else { return }
+                    Task { @MainActor in
+                        self?.attachFileURLs([url])
+                    }
+                }
+                continue
+            }
+
+            guard let imageType = provider.registeredTypeIdentifiers
+                .compactMap(UTType.init)
+                .first(where: { $0.conforms(to: .image) }) else {
+                continue
+            }
+
+            didAcceptProvider = true
+            let suggestedName = Self.suggestedImageName(
+                providerName: provider.suggestedName,
+                contentType: imageType
+            )
+            provider.loadDataRepresentation(forTypeIdentifier: imageType.identifier) { [weak self] data, _ in
+                guard let data else { return }
+                Task { @MainActor in
+                    self?.attachData(
+                        data,
+                        suggestedName: suggestedName,
+                        mimeType: imageType.preferredMIMEType ?? "image/png"
+                    )
+                }
+            }
+        }
+
+        return didAcceptProvider
+    }
+
+    private nonisolated static func fileURL(from item: NSSecureCoding?) -> URL? {
+        if let url = item as? URL {
+            return url
+        }
+        if let data = item as? Data,
+           let value = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .controlCharacters) {
+            return URL(string: value)
+        }
+        if let value = item as? String {
+            return URL(string: value)
+        }
+        return nil
+    }
+
+    private nonisolated static func suggestedImageName(
+        providerName: String?,
+        contentType: UTType
+    ) -> String {
+        let trimmedName = providerName?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let trimmedName, !trimmedName.isEmpty {
+            return trimmedName
+        }
+        return "Pasted Image.\(contentType.preferredFilenameExtension ?? "png")"
     }
 
     #if DEBUG
@@ -803,6 +1033,9 @@ public final class ChatScreenViewModel {
         streamTask = nil
         cancelPendingStreamingAssistantText()
         socketManager = nil
+        isAwaitingAgentResponse = false
+        isStopping = false
+        activeRunStatus = nil
         if let manager {
             Task { await manager.disconnect() }
         }
@@ -816,24 +1049,39 @@ public final class ChatScreenViewModel {
         // POST a prompt into a newly-created session.
         let stream = await manager.connect()
 
+        await hydrateSession(agentId: agentId, sessionId: sessionId)
+        guard isCurrentSession(agentId: agentId, sessionId: sessionId) else {
+            await manager.disconnect()
+            return
+        }
+
         streamTask = Task { @MainActor in
             defer {
                 Task { await manager.disconnect() }
-            }
-
-            if let detail = try? await apiClient.fetchAgentSession(agentId: agentId, sessionId: sessionId) {
-                guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
-                transcript.replaceAll(detail.messages)
-                await cacheStore.cacheSessionDetail(agentId: agentId, detail: detail)
-            } else if let cached = await cacheStore.loadSessionDetail(agentId: agentId, sessionId: sessionId) {
-                guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
-                transcript.replaceAll(cached.messages)
             }
 
             for await update in stream {
                 guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
                 await handleStreamUpdate(update, agentId: agentId, sessionId: sessionId)
             }
+        }
+    }
+
+    private func hydrateSession(agentId: String, sessionId: String) async {
+        if let detail = try? await apiClient.fetchAgentSession(agentId: agentId, sessionId: sessionId) {
+            guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
+            applyHydratedSession(detail)
+            await cacheStore.cacheSessionDetail(agentId: agentId, detail: detail)
+        } else if let cached = await cacheStore.loadSessionDetail(agentId: agentId, sessionId: sessionId) {
+            guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
+            applyHydratedSession(cached)
+        }
+    }
+
+    private func applyHydratedSession(_ detail: ChatSessionDetail) {
+        transcript.reconcile(with: detail.messages)
+        if let runStatus = detail.latestRunStatus {
+            handleRunStatus(runStatus, sessionId: detail.summary.id)
         }
     }
 
@@ -844,13 +1092,7 @@ public final class ChatScreenViewModel {
     ) async {
         switch update.kind {
         case .sessionReady:
-            guard transcript.isEmpty else { break }
-            if let detail = try? await apiClient.fetchAgentSession(agentId: agentId, sessionId: sessionId) {
-                transcript.replaceAll(detail.messages)
-                await cacheStore.cacheSessionDetail(agentId: agentId, detail: detail)
-            } else if let cached = await cacheStore.loadSessionDetail(agentId: agentId, sessionId: sessionId) {
-                transcript.replaceAll(cached.messages)
-            }
+            await hydrateSession(agentId: agentId, sessionId: sessionId)
         case .sessionEvent, .sessionDelta:
             if update.kind == .sessionDelta, let text = update.messageText {
                 scheduleStreamingAssistantText(text, sessionId: sessionId, mode: .append)
@@ -863,6 +1105,7 @@ public final class ChatScreenViewModel {
         case .sessionClosed, .sessionError:
             isAwaitingAgentResponse = false
             isStopping = false
+            activeRunStatus = nil
             flushPendingStreamingAssistantText()
         case .heartbeat:
             break
@@ -874,16 +1117,24 @@ public final class ChatScreenViewModel {
     }
 
     private func upsertMessage(_ message: ChatMessage, sessionId: String) {
-        if message.role == .assistant {
+        let isAssistantResponse = message.role == .assistant
+            && message.segments.contains(where: { $0.kind == .text })
+
+        if isAssistantResponse {
             cancelPendingStreamingAssistantText(for: sessionId)
-            transcript.removeAll { $0.id == streamingAssistantMessageId(for: sessionId) }
-            isAwaitingAgentResponse = false
-            isStopping = false
+            transcript.replaceStreamingAssistant(
+                messageId: streamingAssistantMessageId(for: sessionId),
+                with: message
+            )
+            return
         } else if message.role == .user {
             transcript.removeAll { $0.id.hasPrefix("optimistic-user-") }
         }
 
-        transcript.upsert(message)
+        transcript.upsert(
+            message,
+            before: streamingAssistantMessageId(for: sessionId)
+        )
     }
 
     private enum StreamingTextUpdateMode {
@@ -899,7 +1150,6 @@ public final class ChatScreenViewModel {
         guard !text.isEmpty else { return }
         pendingStreamingSessionId = sessionId
         isAwaitingAgentResponse = true
-        isStopping = false
         switch mode {
         case .append:
             pendingStreamingAssistantText = (pendingStreamingAssistantText ?? "") + text
@@ -970,6 +1220,16 @@ public final class ChatScreenViewModel {
     }
 
     private func handleRunStatus(_ status: ChatRunStatusEvent, sessionId: String) {
+        activeRunStatus = status
+        if status.stage == .interrupted,
+           let details = status.details?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !details.isEmpty,
+           let failedMessage = transcript.messages.last(where: {
+               $0.role == .assistant
+                   && $0.textContent.trimmingCharacters(in: .whitespacesAndNewlines) == details
+           }) {
+            providerSettingsRecoveryMessageIDs.insert(failedMessage.id)
+        }
         if status.stage == .responding,
            let expandedText = status.expandedText,
            !expandedText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
@@ -977,9 +1237,9 @@ public final class ChatScreenViewModel {
         }
 
         switch status.stage {
-        case .thinking, .searching, .responding, .paused:
+        case .thinking, .searching, .responding:
             isAwaitingAgentResponse = true
-        case .done, .interrupted:
+        case .paused, .done, .interrupted:
             isAwaitingAgentResponse = false
             isStopping = false
         }
@@ -1113,10 +1373,27 @@ public final class ChatScreenViewModel {
 
     public func sendMessage(content: String) {
         guard let agent = selectedAgent, !isSending, !isStopping else { return }
+        let attachments = composerAttachments
+        guard !content.isEmpty || !attachments.isEmpty else { return }
         sendErrorMessage = nil
         clearActiveComposerDraft()
         dismissComposerFocus()
+        isSending = true
         isAwaitingAgentResponse = true
+        activeRunStatus = nil
+        var optimisticSegments: [ChatMessageSegment] = []
+        if !content.isEmpty {
+            optimisticSegments.append(ChatMessageSegment(kind: .text, text: content))
+        }
+        optimisticSegments += attachments.map {
+            ChatMessageSegment(kind: .attachment, attachment: $0.messageAttachment)
+        }
+        let optimistic = ChatMessage(
+            id: "optimistic-user-\(UUID().uuidString)",
+            role: .user,
+            segments: optimisticSegments
+        )
+        transcript.append(optimistic)
 
         if selectedSessionId == nil {
             Task { @MainActor in
@@ -1136,10 +1413,19 @@ public final class ChatScreenViewModel {
                         agentId: agent.id
                     )
                     await connectToSession(agentId: agent.id, sessionId: summary.id)
-                    await postMessage(content: content, agentId: agent.id, sessionId: summary.id)
+                    await postMessage(
+                        content: content,
+                        attachments: attachments,
+                        agentId: agent.id,
+                        sessionId: summary.id,
+                        optimistic: optimistic
+                    )
                 } catch {
+                    isSending = false
                     isAwaitingAgentResponse = false
-                    composerDraft.text = content
+                    activeRunStatus = nil
+                    transcript.removeAll { $0.id == optimistic.id }
+                    restoreComposerDraft(content: content, attachments: attachments)
                     sendErrorMessage = "Could not create session: \(error.localizedDescription)"
                 }
             }
@@ -1148,31 +1434,38 @@ public final class ChatScreenViewModel {
 
         guard let sessionId = selectedSessionId else { return }
         Task { @MainActor in
-            await postMessage(content: content, agentId: agent.id, sessionId: sessionId)
+            await postMessage(
+                content: content,
+                attachments: attachments,
+                agentId: agent.id,
+                sessionId: sessionId,
+                optimistic: optimistic
+            )
         }
     }
 
-    private func postMessage(content: String, agentId: String, sessionId: String) async {
-        isSending = true
+    private func postMessage(
+        content: String,
+        attachments: [ChatComposerAttachment],
+        agentId: String,
+        sessionId: String,
+        optimistic: ChatMessage
+    ) async {
         defer { isSending = false }
-        let optimistic = ChatMessage(
-            id: "optimistic-user-\(UUID().uuidString)",
-            role: .user,
-            segments: [ChatMessageSegment(kind: .text, text: content)]
-        )
-        transcript.append(optimistic)
         do {
             _ = try await apiClient.postSessionMessage(
                 agentId: agentId,
                 sessionId: sessionId,
                 content: content,
+                attachments: attachments.map(\.upload),
                 selectedModel: selectedModelId,
                 reasoningEffort: selectedModelSupportsReasoningEffort ? selectedReasoningEffort.payloadValue : nil
             )
         } catch {
             transcript.removeAll { $0.id == optimistic.id }
             isAwaitingAgentResponse = false
-            composerDraft.text = content
+            activeRunStatus = nil
+            restoreComposerDraft(content: content, attachments: attachments)
             sendErrorMessage = "Message was not sent: \(error.localizedDescription)"
         }
     }
@@ -1356,25 +1649,41 @@ public final class ChatScreenViewModel {
             agentId: agentId
         )
         activeComposerDraftKey = nextKey
-        composerDraft.text = composerDraftsByKey[nextKey] ?? ""
+        let storedDraft = composerDraftsByKey[nextKey]
+        composerDraft.text = storedDraft?.text ?? ""
+        composerAttachments = storedDraft?.attachments ?? []
     }
 
     private func saveActiveComposerDraft() {
         guard let activeComposerDraftKey else { return }
-        if composerDraft.text.isEmpty {
+        if composerDraft.text.isEmpty && composerAttachments.isEmpty {
             composerDraftsByKey.removeValue(forKey: activeComposerDraftKey)
         } else {
-            composerDraftsByKey[activeComposerDraftKey] = composerDraft.text
+            composerDraftsByKey[activeComposerDraftKey] = StoredComposerDraft(
+                text: composerDraft.text,
+                attachments: composerAttachments
+            )
         }
     }
 
     private func clearActiveComposerDraft() {
         guard let activeComposerDraftKey else {
             composerDraft.text = ""
+            composerAttachments = []
             return
         }
         composerDraft.text = ""
+        composerAttachments = []
         composerDraftsByKey.removeValue(forKey: activeComposerDraftKey)
+    }
+
+    private func restoreComposerDraft(
+        content: String,
+        attachments: [ChatComposerAttachment]
+    ) {
+        composerDraft.text = content
+        composerAttachments = attachments
+        saveActiveComposerDraft()
     }
 
     private func composerDraftKey(

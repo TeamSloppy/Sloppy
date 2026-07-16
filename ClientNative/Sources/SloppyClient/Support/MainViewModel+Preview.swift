@@ -7,7 +7,7 @@ extension MainViewModel {
             baseURL: .debugURL,
             settings: ClientSettings(),
             connectionMonitor: ConnectionMonitor(baseURL: .debugURL),
-            onOpenSettings: {},
+            onOpenSettings: { _ in },
             onOpenWorkspace: {}
         )
     }

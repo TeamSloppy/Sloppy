@@ -11,13 +11,18 @@ struct MainViewWorkspacePanelSourceTests {
         return try String(contentsOf: packageRoot.appendingPathComponent(path), encoding: .utf8)
     }
 
-    @Test("desktop main view exposes workspace as a resizable side panel")
-    func desktopMainViewExposesWorkspaceAsAResizableSidePanel() throws {
+    @Test("desktop main view keeps workspace inside the current window")
+    func desktopMainViewKeepsWorkspaceInsideTheCurrentWindow() throws {
         let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
         let mainViewModel = try source("Sources/SloppyClient/Navigation/Main/MainViewModel.swift")
 
         #expect(mainViewModel.contains("var workspacePanelViewModel"))
         #expect(mainView.contains("@State private var isWorkspacePanelPresented = false"))
+        #expect(mainView.contains("private var workspacePanelContainer: some View"))
+        #expect(mainView.contains("HSplitView {"))
+        #expect(mainView.contains(".frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)"))
+        #expect(mainView.contains("if isWorkspacePanelPresented"))
+        #expect(mainView.contains(".frame(minWidth: 320, idealWidth: 420, maxWidth: 720)"))
         #expect(mainView.contains(".inspector(isPresented: $isWorkspacePanelPresented)"))
         #expect(mainView.contains(".inspectorColumnWidth(min: 320, ideal: 420, max: 720)"))
         #expect(mainView.contains("WorkspacePanelView("))

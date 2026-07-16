@@ -24,10 +24,12 @@ struct ChatBubbleRenderingTests {
         #expect(source.contains("ChatSegmentCollapsibleCard"))
         #expect(source.contains("ChatBuildProgressView(progress: progress)"))
         #expect(source.contains("ChatMarkdownTextStack"))
-        #expect(source.contains("rendersMarkdown: !isStreamingAssistant"))
-        #expect(source.contains("Text(verbatim: text)"))
+        #expect(source.contains("StructuredText(markdown: text)"))
+        #expect(!source.contains("rendersMarkdown: !isStreamingAssistant"))
         #expect(source.contains("if isStreamingAssistant"))
         #expect(source.contains("textSelection(.disabled)"))
+        #expect(source.contains(".textual.textSelection(.enabled)"))
+        #expect(source.contains("allowsTextSelection: !isStreamingAssistant"))
     }
 
     @Test("rich transcript includes code block and running state affordances")
@@ -36,7 +38,8 @@ struct ChatBubbleRenderingTests {
 
         #expect(source.contains("StructuredText(markdown: text)"))
         #expect(source.contains("ChatCompactDurationFormatter.string"))
-        #expect(source.contains("ChatShimmerText(text: \"Thinking\")"))
+        #expect(source.contains("ChatShimmerText(text: segmentTitle)"))
+        #expect(source.contains("isActivelyWorking && segment.kind == .thinking"))
         #expect(source.contains("accessibilityReduceMotion"))
     }
 
@@ -50,5 +53,13 @@ struct ChatBubbleRenderingTests {
         #expect(source.contains("struct ChatSystemMessageGroupView"))
         #expect(source.contains("messages.flatMap"))
         #expect(!rowSource.contains("backportGlassEffect"))
+    }
+
+    @Test("recoverable provider failures link to provider settings")
+    func recoverableProviderFailuresLinkToProviderSettings() throws {
+        let source = try source
+
+        #expect(source.contains("onOpenProviderSettings"))
+        #expect(source.contains("Label(\"Provider Settings\", systemImage: \"gearshape\")"))
     }
 }

@@ -58,10 +58,29 @@ struct TransparentWindowSourceTests {
         #expect(overlay.contains(".canJoinAllSpaces"))
         #expect(overlay.contains("Button(\"Allow\")"))
         #expect(overlay.contains("Button(\"Deny\""))
-        #expect(overlay.contains(".onHover { hovering in"))
+        #expect(overlay.contains(".onHover(perform: handleHoverChange)"))
         #expect(overlay.contains("state.setExpanded(true)"))
         #expect(overlay.contains("state.toolApproval == nil"))
         #expect(overlay.contains("state.setExpanded(false)"))
         #expect(rootModel.contains("desktopOverlay.start(settings: settings)"))
+    }
+
+    @Test("desktop overlay ignores transient hover exits caused by panel resizing")
+    func desktopOverlayIgnoresTransientHoverExits() throws {
+        let overlay = try source("Sources/SloppyClient/Overlays/SloppyDesktopOverlay.swift")
+
+        #expect(overlay.contains("isPointerInsidePanel"))
+        #expect(overlay.contains("Task.sleep(for: .milliseconds(120))"))
+        #expect(overlay.contains("guard !isPointerInsidePanel() else { continue }"))
+        #expect(overlay.contains("hoverCollapseTask?.cancel()"))
+    }
+
+    @Test("desktop overlay uses compact panel dimensions")
+    func desktopOverlayUsesCompactPanelDimensions() throws {
+        let overlay = try source("Sources/SloppyClient/Overlays/SloppyDesktopOverlay.swift")
+
+        #expect(overlay.contains("collapsedSize = CGSize(width: 164, height: 32)"))
+        #expect(overlay.contains("expandedSize = CGSize(width: 340, height: 148)"))
+        #expect(overlay.contains("wideWidth: CGFloat = 520"))
     }
 }

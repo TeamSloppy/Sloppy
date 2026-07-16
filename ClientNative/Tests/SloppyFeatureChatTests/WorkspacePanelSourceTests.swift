@@ -38,8 +38,10 @@ struct WorkspacePanelSourceTests {
         let chatScreen = try source("Sources/SloppyFeatureChat/Screens/Chat/ChatScreen.swift")
 
         #expect(chatVM.contains("func attachFileURLs(_ urls: [URL])"))
+        #expect(chatVM.contains("func attachItemProviders(_ providers: [NSItemProvider])"))
         #expect(chatScreen.contains("case .success(let urls):"))
         #expect(chatScreen.contains("viewModel.attachFileURLs(urls)"))
-        #expect(chatScreen.contains(".dropDestination(for: URL.self)"))
+        #expect(chatScreen.contains("of: [UTType.fileURL, UTType.image]"))
+        #expect(chatScreen.contains("viewModel.attachItemProviders(providers)"))
     }
 }

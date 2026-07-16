@@ -83,6 +83,8 @@ struct MainView: View {
     let rootSafeAreaInsets: EdgeInsets
     let menuBarQuickActionRequest: MenuBarQuickActionRequest?
     let onConsumeMenuBarQuickAction: @MainActor (MenuBarQuickActionRequest) -> Void
+    let deepLinkRequest: AppDeepLinkRequest?
+    let onConsumeDeepLink: @MainActor (AppDeepLinkRequest) -> Void
 
     @State private var viewModel: MainViewModel
     @State private var mobileTabPagingDirection = 1
@@ -137,14 +139,18 @@ struct MainView: View {
         settings: ClientSettings,
         connectionMonitor: ConnectionMonitor,
         rootSafeAreaInsets: EdgeInsets = EdgeInsets(),
-        onOpenSettings: @Sendable @escaping @MainActor () -> Void,
+        onOpenSettings: @Sendable @escaping @MainActor (ClientSettingsDestination) -> Void,
         onOpenWorkspace: @escaping @MainActor () -> Void,
         menuBarQuickActionRequest: MenuBarQuickActionRequest? = nil,
-        onConsumeMenuBarQuickAction: @escaping @MainActor (MenuBarQuickActionRequest) -> Void = { _ in }
+        onConsumeMenuBarQuickAction: @escaping @MainActor (MenuBarQuickActionRequest) -> Void = { _ in },
+        deepLinkRequest: AppDeepLinkRequest? = nil,
+        onConsumeDeepLink: @escaping @MainActor (AppDeepLinkRequest) -> Void = { _ in }
     ) {
         self.rootSafeAreaInsets = rootSafeAreaInsets
         self.menuBarQuickActionRequest = menuBarQuickActionRequest
         self.onConsumeMenuBarQuickAction = onConsumeMenuBarQuickAction
+        self.deepLinkRequest = deepLinkRequest
+        self.onConsumeDeepLink = onConsumeDeepLink
         _viewModel = State(
             initialValue: MainViewModel(
                 baseURL: baseURL,
@@ -157,12 +163,7 @@ struct MainView: View {
     }
 
     var body: some View {
-        contentView
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .inspector(isPresented: $isWorkspacePanelPresented) {
-                workspaceScreen()
-                    .inspectorColumnWidth(min: 320, ideal: 420, max: 720)
-            }
+        workspacePanelContainer
             .onAppear {
                 if viewModel.tabs.isEmpty {
                     viewModel.createBlankChatTab(select: true)
@@ -172,9 +173,13 @@ struct MainView: View {
                     await viewModel.loadProjects()
                 }
                 handleMenuBarQuickAction(menuBarQuickActionRequest)
+                handleDeepLink(deepLinkRequest)
             }
             .onChange(of: menuBarQuickActionRequest?.id) { _, _ in
                 handleMenuBarQuickAction(menuBarQuickActionRequest)
+            }
+            .onChange(of: deepLinkRequest?.id) { _, _ in
+                handleDeepLink(deepLinkRequest)
             }
             .background {
                 Group {
@@ -252,6 +257,28 @@ struct MainView: View {
                 }
                 updateMobileTabPagingDirection(from: oldValue, to: newValue)
             }
+    }
+
+    @ViewBuilder
+    private var workspacePanelContainer: some View {
+        #if os(macOS)
+        HSplitView {
+            contentView
+                .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
+
+            if isWorkspacePanelPresented {
+                workspaceScreen()
+                    .frame(minWidth: 320, idealWidth: 420, maxWidth: 720)
+            }
+        }
+        #else
+        contentView
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .inspector(isPresented: $isWorkspacePanelPresented) {
+                workspaceScreen()
+                    .inspectorColumnWidth(min: 320, ideal: 420, max: 720)
+            }
+        #endif
     }
 
     #if os(macOS)
@@ -444,6 +471,54 @@ struct MainView: View {
             viewModel.selectScheduled()
         }
         onConsumeMenuBarQuickAction(request)
+    }
+
+    private func handleDeepLink(_ request: AppDeepLinkRequest?) {
+        guard let request else { return }
+
+        switch request.deepLink {
+        case .connect, .open:
+            onConsumeDeepLink(request)
+        case .project(let id):
+            Task { @MainActor in
+                await viewModel.loadProjects(force: true)
+                if let project = viewModel.projects.first(where: { $0.id == id }) {
+                    viewModel.selectProject(project)
+                }
+                onConsumeDeepLink(request)
+            }
+        case .session(let agentId, let sessionId):
+            Task { @MainActor in
+                if let detail = try? await viewModel.apiClient.fetchAgentSession(
+                    agentId: agentId,
+                    sessionId: sessionId
+                ) {
+                    viewModel.openSessionChatTab(detail.summary)
+                }
+                onConsumeDeepLink(request)
+            }
+        case .dictationToggle(let agentId, let sessionId):
+            Task { @MainActor in
+                if let detail = try? await viewModel.apiClient.fetchAgentSession(
+                    agentId: agentId,
+                    sessionId: sessionId
+                ) {
+                    viewModel.openSessionChatTab(detail.summary)
+                    await Task.yield()
+                    if let chatViewModel = activeChatViewModel {
+                        switch chatViewModel.dictationPhase {
+                        case .idle:
+                            chatViewModel.startDictation()
+                        case .recording:
+                            chatViewModel.stopDictation()
+                        case .transcribing:
+                            break
+                        }
+                    }
+                }
+                onConsumeDeepLink(request)
+            }
+        }
     }
 
     private var navigationView: some View {
@@ -1442,7 +1517,7 @@ fileprivate let chatContentWidth: CGFloat = 840
         baseURL: .debugURL,
         settings: ClientSettings(),
         connectionMonitor: ConnectionMonitor(baseURL: .debugURL),
-        onOpenSettings: {},
+        onOpenSettings: { _ in },
         onOpenWorkspace: {}
     )
 #if os(macOS)
