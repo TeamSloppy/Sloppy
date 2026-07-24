@@ -10,7 +10,7 @@ struct SidebarRecentsList: View {
 
     private var sections: ChatSidebarSections {
         ChatSidebarSections.build(
-            sessions: viewModel.chatViewModel.sessions,
+            sessions: viewModel.chatViewModel.sessionCatalog,
             projects: viewModel.projects,
             pinnedSessionIds: viewModel.chatViewModel.pinnedSessionIds,
             mode: viewModel.chatSidebarMode,
@@ -28,7 +28,17 @@ struct SidebarRecentsList: View {
             HStack {
                 SidebarSectionTitle(title: viewModel.chatSidebarMode == .projects ? "Projects" : "Recents")
                 Spacer()
-                if !viewModel.chatViewModel.sessions.isEmpty {
+                if viewModel.chatSidebarMode == .projects {
+                    Button {
+                        viewModel.presentProjectCreator()
+                    } label: {
+                        Image(systemName: "plus")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("New project")
+                    .help("New project")
+                }
+                if !viewModel.chatViewModel.sessionCatalog.isEmpty {
                     SidebarListModeMenu(viewModel: viewModel)
                 }
             }
@@ -48,7 +58,7 @@ struct SidebarRecentsList: View {
 
     @ViewBuilder
     private var content: some View {
-        if viewModel.chatViewModel.isLoadingSessions && viewModel.chatViewModel.sessions.isEmpty {
+        if viewModel.chatViewModel.isLoadingSessions && viewModel.chatViewModel.sessionCatalog.isEmpty {
             SidebarStatusText(text: "Loading chats…")
         } else if sections.pinned.isEmpty && sections.sessions.isEmpty && sections.projectGroups.isEmpty {
             SidebarStatusText(text: "No chats yet")
@@ -107,33 +117,87 @@ private struct SidebarProjectGroupView: View {
     }
 
     @State private var isHovered = false
+    @State private var isDropTarget = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Button {
-                viewModel.toggleProjectCollapse(projectId: group.id)
-            } label: {
-                HStack {
-                    SidebarNavigationRow(
-                        icon: .folder,
-                        title: group.project.name,
-                        isSelected: isSelected,
-                        navigationValue: .project(group.id),
-                        action: { viewModel.openProjectKanbanTab(project: group.project) }
-                    )
-                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+            HStack(spacing: theme.spacing.xs) {
+                NavigationLink(value: MainSidebarSelection.project(group.id)) {
+                    HStack(spacing: theme.spacing.s) {
+                        Image(systemName: group.project.semanticIconName)
+                            .font(.system(size: theme.typography.body))
+                            .foregroundColor(isSelected ? theme.colors.accentCyan : theme.colors.textMuted)
+                            .frame(width: 22)
+                        Text(group.project.name)
+                            .font(.system(size: theme.typography.body))
+                            .foregroundColor(isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
+                            .lineLimit(1)
+                        Spacer(minLength: 0)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .simultaneousGesture(
+                    TapGesture().onEnded {
+                        viewModel.openProjectKanbanTab(project: group.project)
+                    }
+                )
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity)
 
-                    Spacer()
+                Button {
+                    viewModel.showNewProjectChat(project: group.project)
+                } label: {
+                    Icons.symbol(.chatAddOn, size: theme.typography.body)
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(theme.colors.textMuted)
+                .opacity(Double(isHovered ? 1 : 0))
+                .allowsHitTesting(isHovered)
+                .accessibilityLabel("New chat in \(group.project.name)")
+                .help("New chat")
+
+                Image(systemName: "line.3.horizontal")
+                    .font(.system(size: theme.typography.caption, weight: .semibold))
+                    .foregroundColor(theme.colors.textMuted)
+                    .frame(width: 18, height: 22)
+                    .contentShape(Rectangle())
+                    .draggable(group.id)
+                    .accessibilityLabel("Reorder \(group.project.name)")
+                    .help("Drag to reorder")
+
+                Button {
+                    viewModel.toggleProjectCollapse(projectId: group.id)
+                } label: {
+                    Image(systemName: isCollapsed ? "chevron.right" : "chevron.down")
+                        .font(.system(size: theme.typography.caption, weight: .semibold))
+                        .frame(width: 22, height: 22)
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(theme.colors.textMuted)
+                .accessibilityLabel(isCollapsed ? "Expand \(group.project.name)" : "Collapse \(group.project.name)")
+            }
+            .padding(.vertical, 6)
+            .padding(.horizontal, 4)
+            .frame(minHeight: MainSidebarView.rowMinimumHeight)
+            .background {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(isHovered || isSelected || isDropTarget ? theme.colors.surfaceRaised : .clear)
+            }
+            .dropDestination(for: String.self) { projectIDs, _ in
+                guard let projectID = projectIDs.first else { return false }
+                return viewModel.moveProject(projectID, relativeTo: group.id)
+            } isTargeted: {
+                isDropTarget = $0
+            }
+            .onHover { isHovered = $0 }
+            .animation(.easeInOut(duration: 0.15), value: isHovered)
+            .contextMenu {
+                Button("Edit Project") {
+                    viewModel.presentProjectEditor(group.project)
                 }
             }
-            .onHover {
-                isHovered = $0
-            }
-            .buttonStyle(
-                SidebarHoverButtonStyle(
-                    isHovered: isHovered || isSelected
-                )
-            )
+
             if !isCollapsed {
                 ForEach(sessions) {
                     SidebarSessionItem(viewModel: viewModel, session: $0)

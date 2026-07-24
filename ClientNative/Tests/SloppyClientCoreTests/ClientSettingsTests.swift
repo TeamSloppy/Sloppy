@@ -35,4 +35,19 @@ struct ClientSettingsTests {
 
         UserDefaults.standard.removeObject(forKey: "client_chat_sidebar_mode")
     }
+
+    @Test("persists custom project order")
+    func persistsCustomProjectOrder() {
+        UserDefaults.standard.removeObject(forKey: "client_project_order_ids")
+
+        let initial = ClientSettings()
+        #expect(initial.projectOrderIDs.isEmpty)
+
+        initial.projectOrderIDs = ["project-b", "project-a"]
+
+        let restored = ClientSettings()
+        #expect(restored.projectOrderIDs == ["project-b", "project-a"])
+
+        UserDefaults.standard.removeObject(forKey: "client_project_order_ids")
+    }
 }

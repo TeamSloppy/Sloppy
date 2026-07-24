@@ -71,7 +71,7 @@ public struct ChatSidebarSections: Sendable {
             )
 
         case .projects:
-            let groups = projects.enumerated().map { index, project in
+            let groups = projects.map { project in
                 let projectSessions = unpinned.filter {
                     $0.projectId == project.id && $0.messageCount > 0
                 }
@@ -83,29 +83,12 @@ public struct ChatSidebarSections: Sendable {
                     visibleSessions = projectSessions
                 }
 
-                return (
-                    index: index,
-                    latestActivity: projectSessions.first?.updatedAt,
-                    group: ChatSidebarProjectGroup(
-                        project: project,
-                        visibleSessions: visibleSessions,
-                        totalSessions: projectSessions
-                    )
+                return ChatSidebarProjectGroup(
+                    project: project,
+                    visibleSessions: visibleSessions,
+                    totalSessions: projectSessions
                 )
             }
-            .sorted { lhs, rhs in
-                switch (lhs.latestActivity, rhs.latestActivity) {
-                case let (lhsDate?, rhsDate?):
-                    lhsDate == rhsDate ? lhs.index < rhs.index : lhsDate > rhsDate
-                case (.some, .none):
-                    true
-                case (.none, .some):
-                    false
-                case (.none, .none):
-                    lhs.index < rhs.index
-                }
-            }
-            .map { $0.group }
 
             return ChatSidebarSections(
                 pinned: pinned,

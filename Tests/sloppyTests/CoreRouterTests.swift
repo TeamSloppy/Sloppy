@@ -1146,6 +1146,7 @@ func projectMembersMigrateFromLegacyDashboardProjectsSchema() async throws {
     let updated = try decoder.decode(ProjectRecord.self, from: updateResponse.body)
     #expect(updated.actors == ["actor:builder"])
     #expect(updated.teams == ["team:ops"])
+    #expect(updated.kind == .project)
 
     let restartedService = CoreService(config: config)
     let restartedRouter = CoreRouter(service: restartedService)
@@ -1155,6 +1156,7 @@ func projectMembersMigrateFromLegacyDashboardProjectsSchema() async throws {
     let fetched = try decoder.decode(ProjectRecord.self, from: fetchResponse.body)
     #expect(fetched.actors == ["actor:builder"])
     #expect(fetched.teams == ["team:ops"])
+    #expect(fetched.kind == .project)
 }
 #endif
 

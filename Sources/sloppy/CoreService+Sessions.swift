@@ -185,6 +185,10 @@ extension CoreService {
         )
         let workingDirectory = existingContext.workingDirectory ?? resolvedPath
         let roots = appendingUniqueRoot(resolvedPath, to: existingContext.extraRoots)
+        sessionAddedRoots[normalizedSessionID] = appendingUniqueRoot(
+            resolvedPath,
+            to: sessionAddedRoots[normalizedSessionID] ?? []
+        )
 
         sessionExtraRoots[normalizedSessionID] = roots
         sessionWorkingDirectories[normalizedSessionID] = workingDirectory
@@ -412,6 +416,7 @@ extension CoreService {
             await toolLoopGuard.cleanup(sessionID: normalizedSessionID)
             sessionExtraRoots.removeValue(forKey: normalizedSessionID)
             sessionWorkingDirectories.removeValue(forKey: normalizedSessionID)
+            sessionAddedRoots.removeValue(forKey: normalizedSessionID)
             sessionSubagentToolAllowList.removeValue(forKey: normalizedSessionID)
             sessionToolApprovalBypass.remove(normalizedSessionID)
         } catch {
@@ -735,6 +740,10 @@ extension CoreService {
         )
         let workingDirectory = existingContext.workingDirectory ?? resolvedPath
         let roots = appendingUniqueRoot(resolvedPath, to: existingContext.extraRoots)
+        channelAddedRoots[normalizedChannelID] = appendingUniqueRoot(
+            resolvedPath,
+            to: channelAddedRoots[normalizedChannelID] ?? []
+        )
 
         channelExtraRoots[normalizedChannelID] = roots
         channelWorkingDirectories[normalizedChannelID] = workingDirectory

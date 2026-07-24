@@ -67,6 +67,8 @@ struct ProjectCreateCommand: AsyncParsableCommand {
     @Option(name: .long, help: "Project description") var description: String?
     @Option(name: .long, help: "Repository URL") var repoUrl: String?
     @Option(name: .long, help: "Local repository or project path") var repoPath: String?
+    @Option(name: .long, help: "Project kind: project or workspace") var kind: String?
+    @Option(name: .long, help: "Workspace directory; repeat for multiple roots (first is primary)") var directory: [String] = []
     @Option(name: .long, help: "Source-control provider id for review/worktree isolation") var sourceControlProvider: String?
     @Option(name: .long) var url: String?
     @Option(name: .long) var token: String?
@@ -79,6 +81,8 @@ struct ProjectCreateCommand: AsyncParsableCommand {
         if let description { payload["description"] = description }
         if let repoUrl { payload["repoUrl"] = repoUrl }
         if let repoPath { payload["repoPath"] = repoPath }
+        if let kind { payload["kind"] = kind }
+        if !directory.isEmpty { payload["directoryPaths"] = directory }
         if let sourceControlProvider { payload["sourceControlProviderId"] = sourceControlProvider }
         do {
             let body = try JSONSerialization.data(withJSONObject: payload)
@@ -98,6 +102,8 @@ struct ProjectUpdateCommand: AsyncParsableCommand {
     @Option(name: .long, help: "New name") var name: String?
     @Option(name: .long, help: "New description") var description: String?
     @Option(name: .long, help: "New repo path") var repoPath: String?
+    @Option(name: .long, help: "Project kind: project or workspace") var kind: String?
+    @Option(name: .long, help: "Replacement workspace directory; repeat for multiple roots") var directory: [String] = []
     @Option(name: .long, help: "Source-control provider id for review/worktree isolation") var sourceControlProvider: String?
     @Option(name: .long) var url: String?
     @Option(name: .long) var token: String?
@@ -110,6 +116,8 @@ struct ProjectUpdateCommand: AsyncParsableCommand {
         if let name { payload["name"] = name }
         if let description { payload["description"] = description }
         if let repoPath { payload["repoPath"] = repoPath }
+        if let kind { payload["kind"] = kind }
+        if !directory.isEmpty { payload["directoryPaths"] = directory }
         if let sourceControlProvider { payload["sourceControlProviderId"] = sourceControlProvider }
         do {
             let body = try JSONSerialization.data(withJSONObject: payload)

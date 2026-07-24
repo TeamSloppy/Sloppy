@@ -65,6 +65,58 @@ struct TransparentWindowSourceTests {
         #expect(rootModel.contains("desktopOverlay.start(settings: settings)"))
     }
 
+    @Test("desktop overlay shows typed active agent run status")
+    func desktopOverlayShowsTypedActiveAgentRunStatus() throws {
+        let overlay = try source("Sources/SloppyClient/Overlays/SloppyDesktopOverlay.swift")
+        let rootModel = try source("Sources/SloppyClient/Root/RootShellViewModel.swift")
+
+        #expect(overlay.contains("status.stage.isWorking"))
+        #expect(overlay.contains("Agents working"))
+        #expect(overlay.contains("state.setActiveAgentRuns(activity.activeRuns)"))
+        #expect(overlay.contains("apiClient.fetchAgentSessions("))
+        #expect(rootModel.contains("desktopOverlay.start(settings: settings, baseURL: url)"))
+    }
+
+    @Test("desktop overlay collapses active details after three seconds")
+    func desktopOverlayCollapsesActiveDetailsAfterThreeSeconds() throws {
+        let overlay = try source("Sources/SloppyClient/Overlays/SloppyDesktopOverlay.swift")
+
+        #expect(overlay.contains(".task(id: state.activityRevealToken)"))
+        #expect(overlay.contains("Task.sleep(for: .seconds(3))"))
+        #expect(overlay.contains("while isPointerInsidePanel()"))
+        #expect(overlay.contains("state.setExpanded(false)"))
+        #expect(overlay.contains("activityRevealToken &+= 1"))
+    }
+
+    @Test("desktop overlay opens the selected agent session in the main window")
+    func desktopOverlayOpensSelectedAgentSessionInMainWindow() throws {
+        let overlay = try source("Sources/SloppyClient/Overlays/SloppyDesktopOverlay.swift")
+        let rootModel = try source("Sources/SloppyClient/Root/RootShellViewModel.swift")
+        let rootView = try source("Sources/SloppyClient/Root/RootShellView.swift")
+
+        #expect(overlay.contains("state.openAgentRun(run)"))
+        #expect(overlay.contains("arrow.up.forward.app"))
+        #expect(overlay.contains("window?.makeKeyAndOrderFront(nil)"))
+        #expect(rootModel.contains(".session(agentId: agentID, sessionId: sessionID)"))
+        #expect(rootModel.contains("desktopOverlay.presentMainWindow()"))
+        #expect(rootView.contains("openWindow(id: \"main\")"))
+    }
+
+    @Test("desktop overlay shows three recent chats and sends an inline prompt")
+    func desktopOverlayShowsRecentChatsAndSendsInlinePrompt() throws {
+        let overlay = try source("Sources/SloppyClient/Overlays/SloppyDesktopOverlay.swift")
+
+        #expect(overlay.contains(".prefix(3)"))
+        #expect(overlay.contains("Label(\"Recent chats\""))
+        #expect(overlay.contains("state.setRecentChats(activity.recentChats)"))
+        #expect(overlay.contains("state.togglePromptComposer(for: chat)"))
+        #expect(overlay.contains("TextField("))
+        #expect(overlay.contains("paperplane.fill"))
+        #expect(overlay.contains("apiClient.postSessionMessage("))
+        #expect(overlay.contains("state.submitPrompt(to: chat)"))
+        #expect(overlay.contains("state.openRecentChat(chat)"))
+    }
+
     @Test("desktop overlay ignores transient hover exits caused by panel resizing")
     func desktopOverlayIgnoresTransientHoverExits() throws {
         let overlay = try source("Sources/SloppyClient/Overlays/SloppyDesktopOverlay.swift")
@@ -73,6 +125,14 @@ struct TransparentWindowSourceTests {
         #expect(overlay.contains("Task.sleep(for: .milliseconds(120))"))
         #expect(overlay.contains("guard !isPointerInsidePanel() else { continue }"))
         #expect(overlay.contains("hoverCollapseTask?.cancel()"))
+    }
+
+    @Test("desktop overlay keeps the inline prompt open when the pointer leaves")
+    func desktopOverlayKeepsInlinePromptOpenWhenPointerLeaves() throws {
+        let overlay = try source("Sources/SloppyClient/Overlays/SloppyDesktopOverlay.swift")
+
+        #expect(overlay.contains("state.selectedRecentChatID == nil"))
+        #expect(overlay.contains("guard state.toolApproval == nil, state.selectedRecentChatID == nil else { return }"))
     }
 
     @Test("desktop overlay uses compact panel dimensions")

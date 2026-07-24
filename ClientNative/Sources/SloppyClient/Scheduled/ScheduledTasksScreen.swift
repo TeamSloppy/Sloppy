@@ -137,6 +137,7 @@ struct ScheduledTasksScreen: View {
     @State private var filter: ScheduledTaskFilter = .all
     @State private var searchText = ""
     @State private var presentedDraft: ScheduledTaskDraft?
+    @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
 
     init(apiClient: SloppyAPIClient) {
@@ -159,14 +160,17 @@ struct ScheduledTasksScreen: View {
     }
 
     var body: some View {
-        HStack(spacing: 0) {
-            taskList
-                .frame(minWidth: 340, idealWidth: 430, maxWidth: 520)
-            Divider()
-            detail
-                .frame(minWidth: 440, maxWidth: .infinity, maxHeight: .infinity)
+        Group {
+            if idiom == .phone {
+                compactLayout
+            } else {
+                desktopLayout
+            }
         }
+        .background(theme.colors.background)
         .task { await viewModel.load() }
+        .onChange(of: filter) { _, _ in reconcileSelection() }
+        .onChange(of: searchText) { _, _ in reconcileSelection() }
         .sheet(item: $presentedDraft) { draft in
             ScheduledTaskEditor(
                 draft: draft,
@@ -176,94 +180,474 @@ struct ScheduledTasksScreen: View {
         }
     }
 
-    private var taskList: some View {
-        VStack(spacing: 0) {
-            HStack {
-                Picker("Filter", selection: $filter) {
-                    ForEach(ScheduledTaskFilter.allCases) { item in
-                        Text(item.rawValue).tag(item)
+    private var desktopLayout: some View {
+        HStack(spacing: 0) {
+            taskList(navigatesToDetail: false)
+                .frame(minWidth: 360, idealWidth: 420, maxWidth: 480)
+
+            Rectangle()
+                .fill(theme.colors.border)
+                .frame(width: theme.borders.thin)
+
+            detail
+                .frame(minWidth: 440, maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var compactLayout: some View {
+        NavigationStack {
+            taskList(navigatesToDetail: true)
+                .navigationDestination(for: ScheduledTask.ID.self) { taskID in
+                    if let task = viewModel.tasks.first(where: { $0.id == taskID }) {
+                        detail(for: task)
+                    } else {
+                        ScheduledTaskEmptyState(
+                            title: "Task unavailable",
+                            message: "This scheduled task may have been removed.",
+                            systemImage: "clock.badge.exclamationmark"
+                        )
                     }
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
+        }
+    }
 
-                Button {
-                    presentedDraft = ScheduledTaskDraft(defaultAgentID: viewModel.agents.first?.id ?? "")
-                } label: {
-                    Label("Create", systemImage: "plus")
-                }
-                .disabled(viewModel.agents.isEmpty)
-            }
-            .padding()
+    private func taskList(navigatesToDetail: Bool) -> some View {
+        let c = theme.colors
+        let sp = theme.spacing
 
-            TextField("Search scheduled tasks", text: $searchText)
-                .textFieldStyle(.roundedBorder)
-                .padding(.horizontal)
-                .padding(.bottom, 12)
-
-            Divider()
+        return VStack(spacing: 0) {
+            taskListHeader
 
             if viewModel.isLoading && viewModel.tasks.isEmpty {
-                ProgressView("Loading scheduled tasks…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                loadingList
             } else if filteredTasks.isEmpty {
-                ContentUnavailableView(
-                    "No Scheduled Tasks",
-                    systemImage: "clock",
-                    description: Text(searchText.isEmpty ? "Create a recurring task to see it here." : "Try another search or filter.")
-                )
-                .frame(maxHeight: .infinity)
+                emptyListState
+            } else if navigatesToDetail {
+                compactTaskList
             } else {
-                List(filteredTasks, selection: $viewModel.selectedTaskID) { task in
-                    ScheduledTaskRow(task: task, agentName: viewModel.agentName(for: task.agentId))
-                        .tag(task.id)
-                }
-                .listStyle(.sidebar)
+                desktopTaskList
             }
 
             if let errorMessage = viewModel.errorMessage {
-                Text(errorMessage)
-                    .font(.caption)
-                    .foregroundStyle(.red)
-                    .padding(10)
+                errorBanner(errorMessage)
+                    .padding(sp.m)
+                    .padding(.top, 0)
             }
+        }
+        .background(c.background)
+    }
+
+    private var taskListHeader: some View {
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+
+        return VStack(alignment: .leading, spacing: sp.m) {
+            HStack {
+                VStack(alignment: .leading, spacing: sp.xs) {
+                    Text("Scheduled tasks")
+                        .font(.system(size: ty.heading, weight: .semibold))
+                        .foregroundColor(c.textPrimary)
+
+                    Text(taskSummary)
+                        .font(.system(size: ty.caption))
+                        .foregroundColor(c.textMuted)
+                }
+
+                Spacer(minLength: sp.s)
+
+                Button {
+                    presentNewTask()
+                } label: {
+                    Label("Create", systemImage: "plus")
+                }
+                .buttonStyle(.glassProminent)
+                .buttonBorderShape(.capsule)
+                .controlSize(.regular)
+                .tint(Color.accentColor)
+                .disabled(viewModel.agents.isEmpty)
+                .accessibilityHint("Creates a recurring task")
+            }
+
+            HStack(spacing: sp.s) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundColor(c.textMuted)
+
+                TextField("Search by task, agent, or schedule", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .foregroundColor(c.textPrimary)
+
+                if !searchText.isEmpty {
+                    Button {
+                        searchText = ""
+                    } label: {
+                        Image(systemName: "xmark.circle.fill")
+                            .foregroundColor(c.textMuted)
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear search")
+                }
+            }
+            .padding(.horizontal, 12)
+            .frame(minHeight: 38)
+            .backportGlassEffect(
+                .regular.interactive(),
+                in: RoundedRectangle(cornerRadius: 11, style: .continuous)
+            )
+
+            Picker("Task status", selection: $filter) {
+                ForEach(ScheduledTaskFilter.allCases) { item in
+                    Text(filterTitle(item)).tag(item)
+                }
+            }
+            .pickerStyle(.segmented)
+            .labelsHidden()
+            .accessibilityLabel("Task status filter")
+        }
+        .padding(sp.l)
+        .background(c.surface)
+        .overlay(alignment: .bottom) {
+            Rectangle()
+                .fill(c.border)
+                .frame(height: theme.borders.thin)
+        }
+    }
+
+    private var desktopTaskList: some View {
+        List(filteredTasks, selection: $viewModel.selectedTaskID) { task in
+            ScheduledTaskRow(
+                task: task,
+                agentName: viewModel.agentName(for: task.agentId),
+                isSelected: viewModel.selectedTaskID == task.id
+            )
+            .tag(task.id)
+            .listRowInsets(.init(top: 5, leading: 12, bottom: 5, trailing: 12))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(theme.colors.background)
+        .environment(\.defaultMinListRowHeight, 1)
+    }
+
+    private var compactTaskList: some View {
+        List(filteredTasks) { task in
+            NavigationLink(value: task.id) {
+                ScheduledTaskRow(
+                    task: task,
+                    agentName: viewModel.agentName(for: task.agentId),
+                    isSelected: false
+                )
+            }
+            .buttonStyle(.plain)
+            .listRowInsets(.init(top: 5, leading: 12, bottom: 5, trailing: 12))
+            .listRowSeparator(.hidden)
+            .listRowBackground(Color.clear)
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(theme.colors.background)
+        .environment(\.defaultMinListRowHeight, 1)
+    }
+
+    private var loadingList: some View {
+        List(0..<4, id: \.self) { _ in
+            ScheduledTaskLoadingRow()
+                .listRowInsets(.init(top: 5, leading: 12, bottom: 5, trailing: 12))
+                .listRowSeparator(.hidden)
+                .listRowBackground(Color.clear)
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .background(theme.colors.background)
+        .redacted(reason: .placeholder)
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Loading scheduled tasks")
+    }
+
+    private var emptyListState: some View {
+        let hasTasks = !viewModel.tasks.isEmpty
+        let hasAgents = !viewModel.agents.isEmpty
+        let hasQuery = !searchText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        let title = if hasTasks {
+            "No matching tasks"
+        } else if hasAgents {
+            "No scheduled tasks"
+        } else {
+            "No agents available"
+        }
+        let message = if hasTasks {
+            "Adjust the search or status filter to see more results."
+        } else if hasAgents {
+            "Create a recurring task and Sloppy will run it automatically."
+        } else {
+            "Connect or create an agent before scheduling recurring work."
+        }
+
+        return ScheduledTaskEmptyState(
+            title: title,
+            message: message,
+            systemImage: hasQuery ? "magnifyingglass" : (hasAgents ? "clock.badge.plus" : "person.crop.circle.badge.plus"),
+            actionTitle: hasTasks ? "Clear filters" : (hasAgents ? "Create task" : nil),
+            action: hasTasks ? clearFilters : presentNewTask
+        )
+    }
+
+    private func errorBanner(_ message: String) -> some View {
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+
+        return HStack(alignment: .center, spacing: sp.s) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .foregroundColor(c.statusWarning)
+
+            Text(message)
+                .font(.system(size: ty.caption))
+                .foregroundColor(c.textSecondary)
+                .lineLimit(2)
+
+            Spacer(minLength: 0)
+
+            Button("Retry") {
+                Task { await viewModel.load() }
+            }
+            .buttonStyle(.plain)
+            .font(.system(size: ty.caption, weight: .semibold))
+            .foregroundColor(c.accentCyan)
+
+            Button {
+                viewModel.errorMessage = nil
+            } label: {
+                Image(systemName: "xmark")
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(c.textMuted)
+            .accessibilityLabel("Dismiss error")
+        }
+        .padding(sp.s)
+        .background(c.statusWarning.opacity(0.10), in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 10, style: .continuous)
+                .stroke(c.statusWarning.opacity(0.28), lineWidth: theme.borders.thin)
         }
     }
 
     @ViewBuilder
     private var detail: some View {
         if let task = viewModel.selectedTask {
-            ScheduledTaskDetail(
-                task: task,
-                agentName: viewModel.agentName(for: task.agentId),
-                onEdit: { presentedDraft = ScheduledTaskDraft(task: task) },
-                onToggle: { enabled in Task { await viewModel.setEnabled(enabled, for: task) } },
-                onDelete: { Task { await viewModel.delete(task) } }
-            )
+            detail(for: task)
         } else {
-            ContentUnavailableView("Select a Scheduled Task", systemImage: "clock")
+            ScheduledTaskEmptyState(
+                title: "Select a scheduled task",
+                message: "Choose a task to review its schedule, delivery channel, and controls.",
+                systemImage: "clock.arrow.circlepath"
+            )
         }
+    }
+
+    private func detail(for task: ScheduledTask) -> some View {
+        ScheduledTaskDetail(
+            task: task,
+            agentName: viewModel.agentName(for: task.agentId),
+            onEdit: { presentedDraft = ScheduledTaskDraft(task: task) },
+            onToggle: { enabled in Task { await viewModel.setEnabled(enabled, for: task) } },
+            onDelete: { Task { await viewModel.delete(task) } }
+        )
+    }
+
+    private var taskSummary: String {
+        guard !viewModel.tasks.isEmpty else { return "Automate recurring work" }
+        let activeCount = viewModel.tasks.filter(\.enabled).count
+        return "\(activeCount) active · \(viewModel.tasks.count - activeCount) paused"
+    }
+
+    private func filterTitle(_ item: ScheduledTaskFilter) -> String {
+        let count = switch item {
+        case .all: viewModel.tasks.count
+        case .active: viewModel.tasks.filter(\.enabled).count
+        case .paused: viewModel.tasks.filter { !$0.enabled }.count
+        }
+        return "\(item.rawValue) \(count)"
+    }
+
+    private func presentNewTask() {
+        presentedDraft = ScheduledTaskDraft(defaultAgentID: viewModel.agents.first?.id ?? "")
+    }
+
+    private func clearFilters() {
+        searchText = ""
+        filter = .all
+    }
+
+    private func reconcileSelection() {
+        guard idiom != .phone else { return }
+        if let selectedTaskID = viewModel.selectedTaskID,
+           filteredTasks.contains(where: { $0.id == selectedTaskID }) {
+            return
+        }
+        viewModel.selectedTaskID = filteredTasks.first?.id
+    }
+}
+
+private struct ScheduledTaskEmptyState: View {
+    let title: String
+    let message: String
+    let systemImage: String
+    var actionTitle: String?
+    var action: (() -> Void)?
+
+    @Environment(\.theme) private var theme
+
+    init(
+        title: String,
+        message: String,
+        systemImage: String,
+        actionTitle: String? = nil,
+        action: (() -> Void)? = nil
+    ) {
+        self.title = title
+        self.message = message
+        self.systemImage = systemImage
+        self.actionTitle = actionTitle
+        self.action = action
+    }
+
+    var body: some View {
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+
+        return VStack(spacing: sp.m) {
+            Image(systemName: systemImage)
+                .font(.system(size: 26, weight: .medium))
+                .foregroundColor(c.accentCyan)
+                .frame(width: 58, height: 58)
+                .backportGlassEffect(
+                    .regular.tint(c.accentCyan.opacity(0.14)),
+                    in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                )
+
+            VStack(spacing: sp.s) {
+                Text(title)
+                    .font(.system(size: ty.heading, weight: .semibold))
+                    .foregroundColor(c.textPrimary)
+
+                Text(message)
+                    .font(.system(size: ty.body))
+                    .foregroundColor(c.textMuted)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 360)
+            }
+
+            if let actionTitle, let action {
+                Button(actionTitle, action: action)
+                    .buttonStyle(.glass)
+                    .buttonBorderShape(.capsule)
+                    .controlSize(.large)
+                    .tint(Color.accentColor)
+            }
+        }
+        .padding(sp.xl)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(c.background)
+    }
+}
+
+private struct ScheduledTaskLoadingRow: View {
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        let c = theme.colors
+        let sp = theme.spacing
+
+        return HStack(spacing: 12) {
+            RoundedRectangle(cornerRadius: 11, style: .continuous)
+                .fill(c.surfaceRaised)
+                .frame(width: 38, height: 38)
+
+            VStack(alignment: .leading, spacing: sp.s) {
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(c.surfaceRaised)
+                    .frame(width: 190, height: 12)
+                RoundedRectangle(cornerRadius: 4)
+                    .fill(c.surfaceRaised)
+                    .frame(width: 145, height: 9)
+            }
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(c.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
 }
 
 private struct ScheduledTaskRow: View {
     let task: ScheduledTask
     let agentName: String
+    let isSelected: Bool
+
+    @Environment(\.theme) private var theme
 
     var body: some View {
-        HStack(spacing: 10) {
-            Image(systemName: task.enabled ? "clock.fill" : "pause.circle")
-                .foregroundColor(task.enabled ? .blue : .secondary)
-                .frame(width: 18)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(task.command).fontWeight(.medium).lineLimit(1)
-                Text("\(agentName) · \(CronDescription.describe(task.schedule))")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+        let statusColor = task.enabled ? c.statusDone : c.statusNeutral
+
+        return HStack(alignment: .top, spacing: 12) {
+            Image(systemName: task.enabled ? "clock.arrow.circlepath" : "pause.fill")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundColor(statusColor)
+                .frame(width: 38, height: 38)
+                .background(statusColor.opacity(0.10), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(alignment: .firstTextBaseline, spacing: sp.s) {
+                    Text(task.command)
+                        .font(.system(size: ty.body, weight: .semibold))
+                        .foregroundColor(c.textPrimary)
+                        .lineLimit(2)
+
+                    Spacer(minLength: 0)
+
+                    HStack(spacing: 5) {
+                        Circle()
+                            .fill(statusColor)
+                            .frame(width: 6, height: 6)
+                        Text(task.enabled ? "Active" : "Paused")
+                    }
+                    .font(.system(size: ty.micro, weight: .medium))
+                    .foregroundColor(statusColor)
+                }
+
+                Label(CronDescription.describe(task.schedule), systemImage: "calendar")
+                    .font(.system(size: ty.caption))
+                    .foregroundColor(c.textSecondary)
+                    .lineLimit(1)
+
+                Text("\(agentName) · #\(task.channelId)")
+                    .font(.system(size: ty.caption))
+                    .foregroundColor(c.textMuted)
                     .lineLimit(1)
             }
         }
-        .padding(.vertical, 5)
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(
+            isSelected ? Color.accentColor.opacity(0.13) : c.surface,
+            in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                .stroke(isSelected ? Color.accentColor.opacity(0.50) : c.border, lineWidth: theme.borders.thin)
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            "\(task.command), \(task.enabled ? "active" : "paused"), \(CronDescription.describe(task.schedule))"
+        )
     }
 }
 
@@ -274,38 +658,212 @@ private struct ScheduledTaskDetail: View {
     let onToggle: (Bool) -> Void
     let onDelete: () -> Void
 
+    @State private var isConfirmingDelete = false
+    @Environment(\.theme) private var theme
+
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
-                HStack {
-                    Text(task.enabled ? "Active" : "Paused")
-                        .font(.caption.weight(.semibold))
-                        .foregroundColor(task.enabled ? .blue : .secondary)
-                    Spacer()
-                    Button(task.enabled ? "Pause" : "Resume") { onToggle(!task.enabled) }
-                    Button("Edit", action: onEdit)
-                    Menu {
-                        Button("Delete", role: .destructive, action: onDelete)
-                    } label: { Image(systemName: "ellipsis") }
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+        let statusColor = task.enabled ? c.statusDone : c.statusNeutral
+
+        return ScrollView {
+            VStack(alignment: .leading, spacing: sp.l) {
+                VStack(alignment: .leading, spacing: sp.m) {
+                    HStack(alignment: .top, spacing: sp.m) {
+                        Image(systemName: task.enabled ? "clock.arrow.circlepath" : "pause.fill")
+                            .font(.system(size: 22, weight: .semibold))
+                            .foregroundColor(statusColor)
+                            .frame(width: 52, height: 52)
+                            .background(
+                                statusColor.opacity(0.10),
+                                in: RoundedRectangle(cornerRadius: 15, style: .continuous)
+                            )
+
+                        VStack(alignment: .leading, spacing: 6) {
+                            Text("SCHEDULED TASK")
+                                .font(.system(size: ty.micro, weight: .semibold))
+                                .foregroundColor(c.textMuted)
+                                .tracking(0.8)
+
+                            Text(task.command)
+                                .font(.system(size: ty.title, weight: .semibold))
+                                .foregroundColor(c.textPrimary)
+                                .textSelection(.enabled)
+
+                            StatusBadge(task.enabled ? "Active" : "Paused", color: statusColor)
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+
+                    HStack(spacing: sp.s) {
+                        Button {
+                            onToggle(!task.enabled)
+                        } label: {
+                            Label(
+                                task.enabled ? "Pause" : "Resume",
+                                systemImage: task.enabled ? "pause.fill" : "play.fill"
+                            )
+                        }
+                        .buttonStyle(.glass)
+
+                        Button(action: onEdit) {
+                            Label("Edit", systemImage: "pencil")
+                        }
+                        .buttonStyle(.glassProminent)
+                        .tint(Color.accentColor)
+
+                        Menu {
+                            Button("Delete task", systemImage: "trash", role: .destructive) {
+                                isConfirmingDelete = true
+                            }
+                        } label: {
+                            Image(systemName: "ellipsis")
+                                .frame(width: 20)
+                        }
+                        .accessibilityLabel("More task actions")
+
+                        Spacer(minLength: 0)
+                    }
+                    .controlSize(.large)
                 }
 
-                Text(task.command)
-                    .font(.title2.weight(.semibold))
+                scheduleCard
 
-                GroupBox("Details") {
-                    LabeledContent("Agent", value: agentName)
-                    Divider()
-                    LabeledContent("Channel", value: task.channelId)
+                LazyVGrid(
+                    columns: [GridItem(.adaptive(minimum: 180), spacing: sp.m)],
+                    spacing: sp.m
+                ) {
+                    ScheduledTaskInfoCard(
+                        title: "Agent",
+                        value: agentName,
+                        systemImage: "person.crop.circle",
+                        accent: c.accentCyan
+                    )
+                    ScheduledTaskInfoCard(
+                        title: "Channel",
+                        value: "#\(task.channelId)",
+                        systemImage: "number",
+                        accent: Color.accentColor
+                    )
+                    ScheduledTaskInfoCard(
+                        title: "Updated",
+                        value: task.updatedAt.formatted(date: .abbreviated, time: .shortened),
+                        systemImage: "arrow.triangle.2.circlepath",
+                        accent: c.statusWarning
+                    )
                 }
 
-                GroupBox("Frequency") {
-                    LabeledContent("Repeat", value: CronDescription.describe(task.schedule))
-                    Divider()
-                    LabeledContent("Cron", value: task.schedule)
+                HStack(spacing: sp.s) {
+                    Label(
+                        "Created \(task.createdAt.formatted(date: .abbreviated, time: .shortened))",
+                        systemImage: "calendar.badge.plus"
+                    )
+                    Text("·")
+                    Text("ID \(task.id)")
+                        .textSelection(.enabled)
                 }
+                .font(.system(size: ty.caption))
+                .foregroundColor(c.textMuted)
             }
-            .padding(24)
-            .frame(maxWidth: 760, alignment: .leading)
+            .padding(sp.xl)
+            .frame(maxWidth: 820, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .center)
+        }
+        .background(c.background)
+        .confirmationDialog(
+            "Delete this scheduled task?",
+            isPresented: $isConfirmingDelete,
+            titleVisibility: .visible
+        ) {
+            Button("Delete task", role: .destructive, action: onDelete)
+            Button("Cancel", role: .cancel) {}
+        } message: {
+            Text("This action cannot be undone.")
+        }
+    }
+
+    private var scheduleCard: some View {
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+
+        return HStack(alignment: .top, spacing: sp.m) {
+            Image(systemName: "calendar.badge.clock")
+                .font(.system(size: 20, weight: .medium))
+                .foregroundColor(c.accentCyan)
+                .frame(width: 44, height: 44)
+                .background(
+                    c.accentCyan.opacity(0.10),
+                    in: RoundedRectangle(cornerRadius: 13, style: .continuous)
+                )
+
+            VStack(alignment: .leading, spacing: 7) {
+                Text("Schedule")
+                    .font(.system(size: ty.caption, weight: .semibold))
+                    .foregroundColor(c.textMuted)
+
+                Text(CronDescription.describe(task.schedule))
+                    .font(.system(size: ty.heading, weight: .semibold))
+                    .foregroundColor(c.textPrimary)
+
+                Text(task.schedule)
+                    .font(.system(size: ty.caption, design: .monospaced))
+                    .foregroundColor(c.textSecondary)
+                    .padding(.horizontal, sp.s)
+                    .padding(.vertical, sp.xs)
+                    .background(c.surfaceRaised, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+                    .textSelection(.enabled)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(sp.l)
+        .background(c.surface, in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .stroke(c.border, lineWidth: theme.borders.thin)
+        }
+    }
+}
+
+private struct ScheduledTaskInfoCard: View {
+    let title: String
+    let value: String
+    let systemImage: String
+    let accent: Color
+
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+
+        return VStack(alignment: .leading, spacing: sp.m) {
+            HStack {
+                Image(systemName: systemImage)
+                    .foregroundColor(accent)
+                Spacer(minLength: 0)
+                Text(title.uppercased())
+                    .font(.system(size: ty.micro, weight: .semibold))
+                    .foregroundColor(c.textMuted)
+                    .tracking(0.6)
+            }
+
+            Text(value)
+                .font(.system(size: ty.body, weight: .medium))
+                .foregroundColor(c.textPrimary)
+                .lineLimit(2)
+                .textSelection(.enabled)
+        }
+        .padding(sp.m)
+        .frame(maxWidth: .infinity, minHeight: 104, alignment: .leading)
+        .background(c.surface, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 16, style: .continuous)
+                .stroke(c.border, lineWidth: theme.borders.thin)
         }
     }
 }
@@ -317,54 +875,133 @@ private struct ScheduledTaskEditor: View {
     @State private var isSaving = false
     @State private var errorMessage: String?
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.userInterfaceIdiom) private var idiom
+    @Environment(\.theme) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            Text(draft.taskID == nil ? "Create Scheduled Task" : "Edit Scheduled Task")
-                .font(.title2.weight(.semibold))
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+
+        return VStack(spacing: 0) {
+            HStack(spacing: sp.m) {
+                Image(systemName: draft.taskID == nil ? "clock.badge.plus" : "clock.arrow.circlepath")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundColor(c.accentCyan)
+                    .frame(width: 44, height: 44)
+                    .background(
+                        c.accentCyan.opacity(0.10),
+                        in: RoundedRectangle(cornerRadius: 13, style: .continuous)
+                    )
+
+                VStack(alignment: .leading, spacing: sp.xs) {
+                    Text(draft.taskID == nil ? "Create scheduled task" : "Edit scheduled task")
+                        .font(.system(size: ty.heading, weight: .semibold))
+                        .foregroundColor(c.textPrimary)
+
+                    Text("Choose when Sloppy should run this task and where to deliver it.")
+                        .font(.system(size: ty.caption))
+                        .foregroundColor(c.textMuted)
+                }
+
+                Spacer(minLength: 0)
+            }
+            .padding(sp.l)
+
+            Divider()
 
             Form {
-                Picker("Agent", selection: $draft.agentID) {
-                    ForEach(agents) { agent in Text(agent.displayName).tag(agent.id) }
+                Section("Task") {
+                    TextField("What should Sloppy do?", text: $draft.command, axis: .vertical)
+                        .lineLimit(3...7)
                 }
-                TextField("Channel", text: $draft.channelID)
-                TextField("Cron schedule", text: $draft.schedule)
-                TextField("Task", text: $draft.command, axis: .vertical)
-                    .lineLimit(3...7)
-                Toggle("Active", isOn: $draft.enabled)
-            }
-            .formStyle(.grouped)
 
-            Text(CronDescription.describe(draft.schedule))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            if let errorMessage {
-                Text(errorMessage).font(.caption).foregroundStyle(.red)
-            }
-
-            HStack {
-                Spacer()
-                Button("Cancel") { dismiss() }
-                    .keyboardShortcut(.cancelAction)
-                Button("Save") {
-                    isSaving = true
-                    Task {
-                        do {
-                            try await onSave(draft)
-                            dismiss()
-                        } catch {
-                            errorMessage = error.localizedDescription
-                            isSaving = false
+                Section("Delivery") {
+                    Picker("Agent", selection: $draft.agentID) {
+                        ForEach(agents) { agent in
+                            Text(agent.displayName).tag(agent.id)
                         }
                     }
+                    TextField("Channel", text: $draft.channelID)
                 }
+
+                Section("Schedule") {
+                    TextField("Cron expression", text: $draft.schedule)
+                        .font(.system(.body, design: .monospaced))
+
+                    LabeledContent("Runs", value: CronDescription.describe(draft.schedule))
+
+                    Toggle("Task is active", isOn: $draft.enabled)
+                }
+            }
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
+
+            if let errorMessage {
+                Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    .font(.system(size: ty.caption))
+                    .foregroundColor(c.statusBlocked)
+                    .padding(.horizontal, sp.l)
+                    .padding(.bottom, sp.m)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+            }
+
+            Divider()
+
+            HStack(spacing: sp.s) {
+                Spacer()
+
+                Button("Cancel") { dismiss() }
+                    .keyboardShortcut(.cancelAction)
+
+                Button {
+                    save()
+                } label: {
+                    if isSaving {
+                        ProgressView()
+                            .controlSize(.small)
+                    } else {
+                        Text(draft.taskID == nil ? "Create task" : "Save changes")
+                    }
+                }
+                .buttonStyle(.glassProminent)
+                .tint(Color.accentColor)
                 .keyboardShortcut(.defaultAction)
-                .disabled(isSaving || draft.agentID.isEmpty || draft.channelID.isEmpty || draft.schedule.isEmpty || draft.command.isEmpty)
+                .disabled(isSaving || !isDraftValid)
+            }
+            .controlSize(.large)
+            .padding(sp.l)
+        }
+        .background(c.background)
+        .frame(
+            minWidth: idiom == .phone ? nil : 480,
+            idealWidth: idiom == .phone ? nil : 560,
+            maxWidth: idiom == .phone ? .infinity : 620,
+            minHeight: idiom == .phone ? nil : 560,
+            idealHeight: idiom == .phone ? nil : 640
+        )
+    }
+
+    private var isDraftValid: Bool {
+        !draft.agentID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !draft.channelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !draft.schedule.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !draft.command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func save() {
+        isSaving = true
+        errorMessage = nil
+
+        Task {
+            do {
+                try await onSave(draft)
+                dismiss()
+            } catch {
+                errorMessage = error.localizedDescription
+                isSaving = false
             }
         }
-        .padding(24)
-        .frame(width: 520)
     }
 }
 
@@ -412,12 +1049,12 @@ private extension ScheduledTask {
 }
 
 #Preview("Scheduled Row") {
-    ScheduledTaskRow(task: .preview, agentName: "Codex")
-        .frame(width: 380)
+    ScheduledTaskRow(task: .preview, agentName: "Codex", isSelected: true)
+        .frame(width: 420)
         .padding()
 }
 
-#Preview("Scheduled Detail") {
+#Preview("Scheduled Detail — Dark") {
     ScheduledTaskDetail(
         task: .preview,
         agentName: "Codex",
@@ -425,7 +1062,20 @@ private extension ScheduledTask {
         onToggle: { _ in },
         onDelete: {}
     )
-    .frame(width: 700, height: 560)
+    .theme(.sloppyDark)
+    .frame(width: 700, height: 660)
+}
+
+#Preview("Scheduled Detail — Light") {
+    ScheduledTaskDetail(
+        task: .preview,
+        agentName: "Codex",
+        onEdit: {},
+        onToggle: { _ in },
+        onDelete: {}
+    )
+    .theme(.sloppyLight)
+    .frame(width: 700, height: 660)
 }
 
 #Preview("Scheduled Editor") {

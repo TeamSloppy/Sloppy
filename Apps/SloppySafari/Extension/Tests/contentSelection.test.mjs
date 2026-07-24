@@ -2790,6 +2790,25 @@ test("quickChatPlacementStyle flips above low selections", () => {
   }));
 });
 
+test("quickChatPlacementStyle accounts for the larger translation widget", () => {
+  const { quickChatPlacementStyle } = loadContentScriptSandbox();
+  const rect = { left: 900, top: 120, right: 990, bottom: 144, width: 90, height: 24 };
+  const style = quickChatPlacementStyle(rect, {
+    innerWidth: 1200,
+    innerHeight: 800,
+    navigator: { maxTouchPoints: 0 }
+  }, {
+    width: 480,
+    estimatedHeight: 520
+  });
+
+  assert.equal(JSON.stringify(style), JSON.stringify({
+    left: "704px",
+    top: "156px",
+    transform: "none"
+  }));
+});
+
 test("icon URLs match flattened Safari extension SVG resources", () => {
   const sandbox = loadContentScriptSandbox();
   const requestedPaths = [];

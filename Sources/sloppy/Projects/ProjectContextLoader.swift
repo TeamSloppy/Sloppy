@@ -16,6 +16,7 @@ struct ProjectContextLoader {
 
     struct Result: Sendable {
         var repoPath: String
+        var repoPaths: [String]
         var loadedDocs: [LoadedFile]
         var loadedProjectMemory: LoadedFile?
         var loadedSkills: [LoadedFile]
@@ -30,7 +31,16 @@ struct ProjectContextLoader {
     }
 
     func load(repoPath: String, projectMemoryURL: URL? = nil) -> Result {
-        let rootURL = URL(fileURLWithPath: repoPath, isDirectory: true).standardized
+        load(repoPaths: [repoPath], projectMemoryURL: projectMemoryURL)
+    }
+
+    func load(repoPaths: [String], projectMemoryURL: URL? = nil) -> Result {
+        var seenRoots = Set<String>()
+        let rootURLs = repoPaths.compactMap { raw -> URL? in
+            let root = URL(fileURLWithPath: raw, isDirectory: true).standardizedFileURL
+            let identity = root.resolvingSymlinksInPath().standardizedFileURL.path
+            return seenRoots.insert(identity).inserted ? root : nil
+        }
         var loadedDocs: [LoadedFile] = []
         var loadedProjectMemory: LoadedFile?
         var loadedSkills: [LoadedFile] = []
@@ -77,9 +87,11 @@ struct ProjectContextLoader {
             }
         }
 
-        func readTextFileIfExists(relativePath: String) -> String? {
+        func readTextFileIfExists(rootURL: URL, relativePath: String) -> String? {
             let url = rootURL.appendingPathComponent(relativePath).standardized
-            guard url.path.hasPrefix(rootURL.path) else { return nil }
+            let rootIdentity = rootURL.resolvingSymlinksInPath().standardizedFileURL.path
+            let fileIdentity = url.resolvingSymlinksInPath().standardizedFileURL.path
+            guard fileIdentity == rootIdentity || fileIdentity.hasPrefix(rootIdentity + "/") else { return nil }
             var isDir: ObjCBool = false
             guard FileManager.default.fileExists(atPath: url.path, isDirectory: &isDir), !isDir.boolValue else {
                 return nil
@@ -98,9 +110,11 @@ struct ProjectContextLoader {
             "GEMINI.md",
             "SLOPPY.md"
         ]
-        for relativePath in docPaths {
-            guard let text = readTextFileIfExists(relativePath: relativePath) else { continue }
-            addFile(relativePath: relativePath, content: text, to: &loadedDocs)
+        for rootURL in rootURLs {
+            for relativePath in docPaths {
+                guard let text = readTextFileIfExists(rootURL: rootURL, relativePath: relativePath) else { continue }
+                addFile(relativePath: rootURL.appendingPathComponent(relativePath).path, content: text, to: &loadedDocs)
+            }
         }
 
         if let projectMemoryURL,
@@ -110,16 +124,22 @@ struct ProjectContextLoader {
             loadedProjectMemory = memoryDocs.first
         }
 
-        if totalChars < limits.maxTotalChars {
-            loadSkillFiles(rootURL: rootURL, addFile: { relativePath, content in
-                addFile(relativePath: relativePath, content: content, to: &loadedSkills)
-            }, recordTruncation: {
-                truncated = true
-            })
+        for rootURL in rootURLs where totalChars < limits.maxTotalChars {
+            loadSkillFiles(
+                rootURL: rootURL,
+                maxFiles: max(0, limits.maxSkillFiles - loadedSkills.count),
+                addFile: { relativePath, content in
+                addFile(
+                    relativePath: rootURL.appendingPathComponent(relativePath).path,
+                    content: content,
+                    to: &loadedSkills
+                )
+            }, recordTruncation: { truncated = true })
         }
 
         return Result(
-            repoPath: rootURL.path,
+            repoPath: rootURLs.first?.path ?? "",
+            repoPaths: rootURLs.map(\.path),
             loadedDocs: loadedDocs,
             loadedProjectMemory: loadedProjectMemory,
             loadedSkills: loadedSkills,
@@ -130,6 +150,7 @@ struct ProjectContextLoader {
 
     private func loadSkillFiles(
         rootURL: URL,
+        maxFiles: Int,
         addFile: (String, String) -> Void,
         recordTruncation: () -> Void
     ) {
@@ -140,26 +161,36 @@ struct ProjectContextLoader {
             return
         }
 
-        let fm = FileManager.default
-        let keys: [URLResourceKey] = [.isDirectoryKey, .isRegularFileKey]
-        let enumerator = fm.enumerator(at: skillsRoot, includingPropertiesForKeys: keys, options: [.skipsHiddenFiles])
-
         var skillPaths: [String] = []
-        while let url = enumerator?.nextObject() as? URL {
-            let values = (try? url.resourceValues(forKeys: Set(keys)))
-            guard values?.isRegularFile == true else { continue }
-            guard url.lastPathComponent == "SKILL.md" else { continue }
-            guard url.path.hasPrefix(rootURL.path) else { continue }
-
-            let relative = String(url.path.dropFirst(rootURL.path.count))
-                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-            skillPaths.append(relative)
+        let fm = FileManager.default
+        let rootIdentity = rootURL.resolvingSymlinksInPath().standardizedFileURL.path
+        func collectSkills(in directory: URL) {
+            let keys: Set<URLResourceKey> = [.isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey]
+            let children = (try? fm.contentsOfDirectory(
+                at: directory,
+                includingPropertiesForKeys: Array(keys),
+                options: []
+            )) ?? []
+            for url in children {
+                let values = try? url.resourceValues(forKeys: keys)
+                guard values?.isSymbolicLink != true else { continue }
+                let identity = url.resolvingSymlinksInPath().standardizedFileURL.path
+                guard identity == rootIdentity || identity.hasPrefix(rootIdentity + "/") else { continue }
+                if values?.isDirectory == true {
+                    collectSkills(in: url)
+                } else if values?.isRegularFile == true, url.lastPathComponent == "SKILL.md" {
+                    let relative = String(identity.dropFirst(rootIdentity.count))
+                        .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                    skillPaths.append(relative)
+                }
+            }
         }
+        collectSkills(in: skillsRoot)
 
         skillPaths.sort { $0.localizedCaseInsensitiveCompare($1) == .orderedAscending }
-        if skillPaths.count > limits.maxSkillFiles {
+        if skillPaths.count > maxFiles {
             recordTruncation()
-            skillPaths = Array(skillPaths.prefix(limits.maxSkillFiles))
+            skillPaths = Array(skillPaths.prefix(maxFiles))
         }
 
         for relativePath in skillPaths {

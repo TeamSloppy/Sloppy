@@ -6,6 +6,8 @@ import SloppyClientCore
 import UniformTypeIdentifiers
 #if os(macOS)
 import AppKit
+#elseif canImport(UIKit)
+import UIKit
 #endif
 
 @Observable
@@ -22,7 +24,7 @@ public struct ChatComposerView: View {
     public static let panelWidth: CGFloat = 900
     public static let panelHeight: CGFloat = 45
     public static let phonePanelHeight: CGFloat = 72
-    public static let attachmentStripHeight: CGFloat = 42
+    public static let attachmentStripHeight: CGFloat = 112
     private static let panelRadius: CGFloat = 18
     private static let phoneFieldHeight: CGFloat = 48
     fileprivate static let phoneCircleSize: CGFloat = 36
@@ -67,6 +69,7 @@ public struct ChatComposerView: View {
         let sp = theme.spacing
 
         return VStack(spacing: sp.s) {
+            #if !os(macOS)
             if !viewModel.composerAttachments.isEmpty {
                 ChatComposerAttachmentStrip(
                     attachments: viewModel.composerAttachments,
@@ -74,6 +77,7 @@ public struct ChatComposerView: View {
                 )
                 .frame(height: Self.attachmentStripHeight)
             }
+            #endif
 
             ZStack {
                 if viewModel.isShowingDictationComposer {
@@ -84,19 +88,14 @@ public struct ChatComposerView: View {
                         stop: viewModel.stopDictation
                     )
                 } else {
-                    HStack(spacing: sp.s) {
+                    HStack(alignment: .bottom, spacing: sp.s) {
                         ComposerAddMenu(
                             viewModel: viewModel,
                             supportsReasoningEffort: selectedModelSupportsReasoningEffort
                         )
 
                         #if os(macOS)
-                            ChatTextField(
-                                draft: draft,
-                                submit: submit
-                            )
-                            .clipShape(.rect(cornerRadius: Self.panelRadius))
-                            .glassEffect(.regular, in: .rect(cornerRadius: Self.panelRadius))
+                        macComposerInputSurface
                         #else
                         textFieldConainer
                             .simultaneousGesture(phoneTabGesture)
@@ -132,6 +131,29 @@ public struct ChatComposerView: View {
             }
         }
     }
+
+    #if os(macOS)
+    private var macComposerInputSurface: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if !viewModel.composerAttachments.isEmpty {
+                ChatComposerAttachmentStrip(
+                    attachments: viewModel.composerAttachments,
+                    remove: viewModel.removeComposerAttachment
+                )
+                .frame(height: Self.attachmentStripHeight)
+                .padding(.horizontal, theme.spacing.s)
+                .padding(.top, theme.spacing.s)
+            }
+
+            ChatTextField(
+                draft: draft,
+                submit: submit
+            )
+        }
+        .clipShape(.rect(cornerRadius: Self.panelRadius))
+        .glassEffect(.regular, in: .rect(cornerRadius: Self.panelRadius))
+    }
+    #endif
 
     private var composerSuggestionsOffset: CGFloat {
         Self.panelHeight
@@ -533,6 +555,7 @@ struct ChatTextField: View {
     let submit: @MainActor () -> Void
 
     @FocusState private var isTextFieldFocused: Bool
+    @State private var textSelection: TextSelection?
     @Environment(\.theme) private var theme
     @Environment(ChatScreenViewModel.self) private var viewModel
 
@@ -549,6 +572,7 @@ struct ChatTextField: View {
         return TextField(
             "Ask \(agentDisplayName)",
             text: $draft.text,
+            selection: $textSelection,
             axis: .vertical
         )
         .lineLimit(1...6)
@@ -557,7 +581,6 @@ struct ChatTextField: View {
         .foregroundColor(fieldInk)
         .accentColor(.white)
         .focused($isTextFieldFocused)
-        .focusable()
         .submitLabel(.send)
         .onKeyPress(.upArrow) {
             viewModel.moveComposerSuggestionSelection(.previous) ? .handled : .ignored
@@ -567,7 +590,8 @@ struct ChatTextField: View {
         }
         .onKeyPress(.return, phases: .down) { keyPress in
             if keyPress.modifiers.contains(.shift) {
-                return .ignored
+                insertNewlineAtSelection()
+                return .handled
             }
             return viewModel.applySelectedComposerSuggestion() ? .handled : .ignored
         }
@@ -575,7 +599,15 @@ struct ChatTextField: View {
             submit()
             isTextFieldFocused = false
         }
-        .onPasteCommand(of: [.fileURL, .image]) { providers in
+        #if os(macOS)
+        .onKeyPress("v", phases: .down) { keyPress in
+            guard keyPress.modifiers.contains(.command) else {
+                return .ignored
+            }
+            return pasteAttachmentsFromSystemPasteboard() ? .handled : .ignored
+        }
+        #endif
+        .sloppyAttachmentPasteCommand { providers in
             viewModel.attachItemProviders(providers)
         }
         .padding(.horizontal, sp.m)
@@ -584,6 +616,10 @@ struct ChatTextField: View {
             minWidth: 0, maxWidth: .infinity, minHeight: Constants.fieldHeight,
             alignment: .leading
         )
+        .contentShape(Rectangle())
+        #if os(macOS)
+        .pointerStyle(.horizontalText)
+        #endif
         .clipped()
         .layoutPriority(1)
         .onChange(of: viewModel.composerFocusResetToken) { _, _ in
@@ -592,6 +628,80 @@ struct ChatTextField: View {
         .onChange(of: draft.text) { _, newValue in
             viewModel.updateComposerSuggestions(for: newValue)
         }
+    }
+
+    private func insertNewlineAtSelection() {
+        let replacementRange: Range<String.Index>
+        if let textSelection, case .selection(let range) = textSelection.indices {
+            replacementRange = range
+        } else {
+            replacementRange = draft.text.endIndex..<draft.text.endIndex
+        }
+
+        let insertionOffset = draft.text.distance(
+            from: draft.text.startIndex,
+            to: replacementRange.lowerBound
+        )
+        draft.text.replaceSubrange(replacementRange, with: "\n")
+        let insertionPoint = draft.text.index(
+            draft.text.startIndex,
+            offsetBy: insertionOffset + 1
+        )
+        textSelection = TextSelection(insertionPoint: insertionPoint)
+    }
+
+    #if os(macOS)
+    private func pasteAttachmentsFromSystemPasteboard() -> Bool {
+        let pasteboard = NSPasteboard.general
+        let fileObjects = pasteboard.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]
+        ) ?? []
+        let fileURLs = fileObjects.compactMap {
+            ($0 as? NSURL)?.filePathURL
+        }
+
+        if !fileURLs.isEmpty {
+            viewModel.attachFileURLs(fileURLs)
+            return true
+        }
+
+        if let pngData = pasteboard.data(forType: .png) {
+            viewModel.attachData(
+                pngData,
+                suggestedName: "Pasted Image.png",
+                mimeType: "image/png"
+            )
+            return true
+        }
+
+        guard let image = NSImage(pasteboard: pasteboard),
+              let tiffData = image.tiffRepresentation,
+              let bitmap = NSBitmapImageRep(data: tiffData),
+              let pngData = bitmap.representation(using: .png, properties: [:]) else {
+            return false
+        }
+
+        viewModel.attachData(
+            pngData,
+            suggestedName: "Pasted Image.png",
+            mimeType: "image/png"
+        )
+        return true
+    }
+    #endif
+}
+
+private extension View {
+    @ViewBuilder
+    func sloppyAttachmentPasteCommand(
+        perform action: @escaping ([NSItemProvider]) -> Void
+    ) -> some View {
+        #if os(macOS)
+        self.onPasteCommand(of: [.fileURL, .image], perform: action)
+        #else
+        self
+        #endif
     }
 }
 
@@ -615,39 +725,89 @@ private struct ChatComposerAttachmentStrip: View {
     }
 
     private func attachmentChip(_ attachment: ChatComposerAttachment) -> some View {
-        HStack(spacing: theme.spacing.s) {
-            Image(systemName: attachment.mimeType.hasPrefix("image/") ? "photo" : "doc")
-                .foregroundColor(theme.colors.accentCyan)
-
-            VStack(alignment: .leading, spacing: 1) {
-                Text(attachment.name)
-                    .font(.system(size: theme.typography.caption, weight: .medium))
-                    .foregroundColor(theme.colors.textPrimary)
-                    .lineLimit(1)
-                Text(ByteCountFormatter.string(fromByteCount: Int64(attachment.sizeBytes), countStyle: .file))
-                    .font(.system(size: theme.typography.micro))
-                    .foregroundColor(theme.colors.textMuted)
-            }
+        ZStack(alignment: .topTrailing) {
+            ChatComposerAttachmentPreview(attachment: attachment)
+                .frame(width: 96, height: 96)
+                .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 14, style: .continuous)
+                        .stroke(theme.colors.border, lineWidth: theme.borders.thin)
+                }
 
             Button {
                 remove(attachment.id)
             } label: {
-                Image(systemName: "xmark")
-                    .font(.system(size: theme.typography.micro, weight: .bold))
-                    .frame(width: 20, height: 20)
+                Image(systemName: "xmark.circle.fill")
+                    .font(.system(size: 22, weight: .semibold))
+                    .symbolRenderingMode(.palette)
+                    .foregroundStyle(
+                        theme.colors.textPrimary,
+                        theme.colors.surfaceRaised
+                    )
             }
             .buttonStyle(.plain)
-            .foregroundColor(theme.colors.textSecondary)
+            .padding(5)
             .accessibilityLabel("Remove \(attachment.name)")
         }
-        .padding(.leading, theme.spacing.s)
-        .padding(.trailing, theme.spacing.xs)
-        .padding(.vertical, theme.spacing.xs)
-        .background(theme.colors.surfaceRaised.opacity(0.96), in: RoundedRectangle(cornerRadius: 12))
-        .overlay {
-            RoundedRectangle(cornerRadius: 12)
-                .stroke(theme.colors.border, lineWidth: theme.borders.thin)
+    }
+}
+
+private struct ChatComposerAttachmentPreview: View {
+    let attachment: ChatComposerAttachment
+
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        Group {
+            if let image = platformImage {
+                image
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                VStack(spacing: theme.spacing.xs) {
+                    Image(systemName: "doc")
+                        .font(.system(size: 26))
+                        .foregroundColor(theme.colors.accentCyan)
+                    Text(attachment.name)
+                        .font(.system(size: theme.typography.micro, weight: .medium))
+                        .foregroundColor(theme.colors.textPrimary)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                    Text(
+                        ByteCountFormatter.string(
+                            fromByteCount: Int64(attachment.sizeBytes),
+                            countStyle: .file
+                        )
+                    )
+                    .font(.system(size: theme.typography.micro))
+                    .foregroundColor(theme.colors.textMuted)
+                }
+                .padding(theme.spacing.s)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .background(theme.colors.surfaceRaised.opacity(0.96))
+            }
         }
+        .accessibilityLabel(attachment.name)
+    }
+
+    private var platformImage: Image? {
+        guard attachment.mimeType.hasPrefix("image/") else {
+            return nil
+        }
+
+        #if os(macOS)
+        guard let image = NSImage(data: attachment.data) else {
+            return nil
+        }
+        return Image(nsImage: image)
+        #elseif canImport(UIKit)
+        guard let image = UIImage(data: attachment.data) else {
+            return nil
+        }
+        return Image(uiImage: image)
+        #else
+        return nil
+        #endif
     }
 }
 

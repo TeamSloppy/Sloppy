@@ -1861,7 +1861,8 @@ public actor SQLiteStore: PersistenceStore {
                    models_json, agent_files_json, heartbeat_json,
                    created_at, updated_at, repo_path, review_settings_json,
                    icon, is_archived, task_loop_mode, task_sync_settings_json,
-                   is_favorite, source_control_provider_id, autopilot_settings_json
+                   is_favorite, source_control_provider_id, autopilot_settings_json,
+                   project_kind, directory_paths_json
             FROM dashboard_projects
             ORDER BY created_at ASC;
             """
@@ -1914,6 +1915,9 @@ public actor SQLiteStore: PersistenceStore {
             let taskSyncSettings = (try? JSONDecoder().decode(ProjectTaskSyncSettings.self, from: Data(taskSyncJSON.utf8))) ?? ProjectTaskSyncSettings()
             let isFavorite = sqlite3_column_int(statement, 16) != 0
             let sourceControlProviderId = optionalText(statement: statement, index: 17)
+            let kind = optionalText(statement: statement, index: 19).flatMap(ProjectKind.init(rawValue:)) ?? .project
+            let directoryPathsJSON = sqlite3_column_text(statement, 20).map { String(cString: $0) } ?? "[]"
+            let directoryPaths = (try? JSONDecoder().decode([String].self, from: Data(directoryPathsJSON.utf8))) ?? []
             let channels = loadProjectChannels(db: db, projectID: id)
             let tasks = loadProjectTasks(db: db, projectID: id)
             if let fallback = fallbackProjects[id], fallback.tasks.count > tasks.count {
@@ -1926,6 +1930,8 @@ public actor SQLiteStore: PersistenceStore {
                     name: name,
                     description: description,
                     icon: icon,
+                    kind: kind,
+                    directoryPaths: directoryPaths,
                     channels: channels,
                     tasks: tasks,
                     actors: actors,
@@ -1971,7 +1977,8 @@ public actor SQLiteStore: PersistenceStore {
                    SUM(CASE WHEN t.status = 'waiting_input' THEN 1 ELSE 0 END) AS task_waiting_input,
                    SUM(CASE WHEN t.status = 'blocked' THEN 1 ELSE 0 END) AS task_blocked,
                    SUM(CASE WHEN t.status = 'needs_review' THEN 1 ELSE 0 END) AS task_needs_review,
-                   SUM(CASE WHEN t.status = 'done' THEN 1 ELSE 0 END) AS task_done
+                   SUM(CASE WHEN t.status = 'done' THEN 1 ELSE 0 END) AS task_done,
+                   p.project_kind, p.directory_paths_json
             FROM dashboard_projects p
             LEFT JOIN dashboard_project_tasks t ON t.project_id = p.id
             GROUP BY p.id
@@ -2016,6 +2023,10 @@ public actor SQLiteStore: PersistenceStore {
                     name: String(cString: namePtr),
                     description: String(cString: descriptionPtr),
                     icon: optionalText(statement: statement, index: 8),
+                    kind: optionalText(statement: statement, index: 20).flatMap(ProjectKind.init(rawValue:)) ?? .project,
+                    directoryPaths: sqlite3_column_text(statement, 21).flatMap {
+                        try? JSONDecoder().decode([String].self, from: Data(String(cString: $0).utf8))
+                    } ?? [],
                     channels: loadProjectChannels(db: db, projectID: id),
                     actors: actors,
                     teams: teams,
@@ -2054,7 +2065,8 @@ public actor SQLiteStore: PersistenceStore {
                        models_json, agent_files_json, heartbeat_json,
                        created_at, updated_at, repo_path, review_settings_json,
                        icon, is_archived, task_loop_mode, task_sync_settings_json,
-                       is_favorite, source_control_provider_id, autopilot_settings_json
+                       is_favorite, source_control_provider_id, autopilot_settings_json,
+                       project_kind, directory_paths_json
                 FROM dashboard_projects
                 WHERE id = ?
                 LIMIT 1;
@@ -2101,6 +2113,9 @@ public actor SQLiteStore: PersistenceStore {
                 let taskSyncSettings = (try? JSONDecoder().decode(ProjectTaskSyncSettings.self, from: Data(taskSyncJSON.utf8))) ?? ProjectTaskSyncSettings()
                 let isFavorite = sqlite3_column_int(statement, 16) != 0
                 let sourceControlProviderId = optionalText(statement: statement, index: 17)
+                let kind = optionalText(statement: statement, index: 19).flatMap(ProjectKind.init(rawValue:)) ?? .project
+                let directoryPathsJSON = sqlite3_column_text(statement, 20).map { String(cString: $0) } ?? "[]"
+                let directoryPaths = (try? JSONDecoder().decode([String].self, from: Data(directoryPathsJSON.utf8))) ?? []
                 let tasks = loadProjectTasks(db: db, projectID: projectID)
                 if let fallback = fallbackProjects[id], fallback.tasks.count > tasks.count {
                     return fallback
@@ -2110,6 +2125,8 @@ public actor SQLiteStore: PersistenceStore {
                     name: String(cString: namePtr),
                     description: String(cString: descriptionPtr),
                     icon: icon,
+                    kind: kind,
+                    directoryPaths: directoryPaths,
                     channels: loadProjectChannels(db: db, projectID: projectID),
                     tasks: tasks,
                     actors: actors,
@@ -2164,8 +2181,10 @@ public actor SQLiteStore: PersistenceStore {
                 task_loop_mode,
                 task_sync_settings_json,
                 is_favorite,
-                source_control_provider_id
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                source_control_provider_id,
+                project_kind,
+                directory_paths_json
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
 
         var projectStatement: OpaquePointer?
@@ -2182,6 +2201,7 @@ public actor SQLiteStore: PersistenceStore {
         let reviewSettingsJSON = (try? String(data: JSONEncoder().encode(project.reviewSettings), encoding: .utf8)) ?? "{}"
         let autopilotSettingsJSON = (try? String(data: JSONEncoder().encode(project.autopilotSettings), encoding: .utf8)) ?? "{}"
         let taskSyncSettingsJSON = (try? String(data: JSONEncoder().encode(project.taskSyncSettings), encoding: .utf8)) ?? "{}"
+        let directoryPathsJSON = (try? String(data: JSONEncoder().encode(project.directoryPaths), encoding: .utf8)) ?? "[]"
 
         bindText(project.id, at: 1, statement: projectStatement)
         bindText(project.name, at: 2, statement: projectStatement)
@@ -2202,6 +2222,8 @@ public actor SQLiteStore: PersistenceStore {
         bindText(taskSyncSettingsJSON, at: 17, statement: projectStatement)
         sqlite3_bind_int(projectStatement, 18, project.isFavorite ? 1 : 0)
         bindOptionalText(project.sourceControlProviderId, at: 19, statement: projectStatement)
+        bindText(project.kind.rawValue, at: 20, statement: projectStatement)
+        bindText(directoryPathsJSON, at: 21, statement: projectStatement)
         guard sqlite3_step(projectStatement) == SQLITE_DONE else {
             return
         }
@@ -2527,6 +2549,8 @@ public actor SQLiteStore: PersistenceStore {
             name: project.name,
             description: project.description,
             icon: project.icon,
+            kind: project.kind,
+            directoryPaths: project.directoryPaths,
             channels: project.channels,
             actors: project.actors,
             teams: project.teams,
@@ -4682,6 +4706,16 @@ public actor SQLiteStore: PersistenceStore {
         _ = sqlite3_exec(
             db,
             "ALTER TABLE dashboard_projects ADD COLUMN source_control_provider_id TEXT;",
+            nil, nil, nil
+        )
+        _ = sqlite3_exec(
+            db,
+            "ALTER TABLE dashboard_projects ADD COLUMN project_kind TEXT NOT NULL DEFAULT 'project';",
+            nil, nil, nil
+        )
+        _ = sqlite3_exec(
+            db,
+            "ALTER TABLE dashboard_projects ADD COLUMN directory_paths_json TEXT NOT NULL DEFAULT '[]';",
             nil, nil, nil
         )
         _ = sqlite3_exec(

@@ -253,9 +253,11 @@ public actor CoreService {
     var liveSessionStreamCursor: [String: Int] = [:]
     var sessionExtraRoots: [String: [String]] = [:]
     var sessionWorkingDirectories: [String: String] = [:]
+    var sessionAddedRoots: [String: [String]] = [:]
     var sessionEnvironmentOverrides: [String: [String: String]] = [:]
     var channelExtraRoots: [String: [String]] = [:]
     var channelWorkingDirectories: [String: String] = [:]
+    var channelAddedRoots: [String: [String]] = [:]
     /// When set, only these tool IDs may execute for the session (subagent isolation overlay).
     var sessionSubagentToolAllowList: [String: Set<String>] = [:]
     /// Sessions temporarily exempted from interactive TUI tool usage ceilings.

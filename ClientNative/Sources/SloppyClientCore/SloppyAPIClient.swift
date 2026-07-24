@@ -56,6 +56,21 @@ public actor SloppyAPIClient {
         try await projects.fetchProject(id: id)
     }
 
+    public func createProject(_ request: APIProjectCreateRequest) async throws -> APIProjectRecord {
+        try await projects.createProject(request)
+    }
+
+    public func updateProject(id: String, request: APIProjectUpdateRequest) async throws -> APIProjectRecord {
+        try await projects.updateProject(id: id, request: request)
+    }
+
+    public func createProjectTask(
+        projectId: String,
+        request: APIProjectTaskCreateRequest
+    ) async throws -> APIProjectRecord {
+        try await projects.createTask(projectId: projectId, request: request)
+    }
+
     public func fetchTaskComments(projectId: String, taskId: String) async throws -> [TaskComment] {
         try await projects.fetchTaskComments(projectId: projectId, taskId: taskId)
     }
@@ -145,8 +160,12 @@ public actor SloppyAPIClient {
 
     // MARK: - Session REST API
 
-    public func fetchAgentSessions(agentId: String, projectId: String? = nil) async throws -> [ChatSessionSummary] {
-        try await sessions.fetchAgentSessions(agentId: agentId, projectId: projectId)
+    public func fetchAgentSessions(
+        agentId: String,
+        projectId: String? = nil,
+        limit: Int? = nil
+    ) async throws -> [ChatSessionSummary] {
+        try await sessions.fetchAgentSessions(agentId: agentId, projectId: projectId, limit: limit)
     }
 
     public func fetchAgentSession(agentId: String, sessionId: String) async throws -> ChatSessionDetail {

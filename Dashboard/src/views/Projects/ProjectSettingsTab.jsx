@@ -16,6 +16,7 @@ import {
     createProjectSourceControlWorktree
 } from "../../api";
 import { PROJECT_IMAGE_ICON_MAX_BYTES, ProjectIcon, isProjectImageIcon } from "../../components/ProjectIcon";
+import { WorkspaceDirectoriesEditor } from "./WorkspaceDirectoriesEditor";
 
 const SETTINGS_TABS = [
     { id: "general", title: "General", icon: "settings" },
@@ -352,6 +353,9 @@ function cloneAutopilotSettings(project) {
 }
 
 function cloneDraft(project) {
+    const directoryPaths = Array.isArray(project?.directoryPaths) && project.directoryPaths.length > 0
+        ? [...project.directoryPaths]
+        : (project?.repoPath ? [project.repoPath] : []);
     return {
         name: project?.name ?? "",
         icon: project?.icon ?? "",
@@ -364,6 +368,8 @@ function cloneDraft(project) {
                 : 5
         },
         repoPath: project?.repoPath ?? "",
+        kind: project?.kind === "workspace" ? "workspace" : "project",
+        directoryPaths,
         sourceControlProviderId: project?.sourceControlProviderId ?? DEFAULT_SOURCE_CONTROL_PROVIDER.id,
         reviewSettings: {
             enabled: Boolean(project?.reviewSettings?.enabled),
@@ -596,13 +602,20 @@ export function ProjectSettingsTab({
     }
 
     async function saveSettings() {
+        if (draft.kind === "workspace" && draft.directoryPaths.length < 2) {
+            setStatusText("A workspace requires at least two directories");
+            return;
+        }
         const result = await onUpdateProject({
             name: draft.name.trim() || undefined,
             icon: draft.icon.trim(),
             models: draft.models,
             agentFiles: draft.agentFiles,
             heartbeat: draft.heartbeat,
-            repoPath: draft.repoPath.trim() || null,
+            kind: draft.kind,
+            directoryPaths: draft.kind === "workspace"
+                ? draft.directoryPaths
+                : (draft.repoPath.trim() ? [draft.repoPath.trim()] : []),
             sourceControlProviderId: draft.sourceControlProviderId || DEFAULT_SOURCE_CONTROL_PROVIDER.id,
             reviewSettings: draft.reviewSettings,
             autopilotSettings: draft.autopilotSettings,
@@ -767,7 +780,9 @@ export function ProjectSettingsTab({
     }
 
     function renderGeneral() {
-        const workspacePath = draft.repoPath.trim();
+        const workspacePath = draft.kind === "workspace"
+            ? String(draft.directoryPaths[0] || "").trim()
+            : draft.repoPath.trim();
         return (
             <>
                 <section className="entry-editor-card">
@@ -851,22 +866,67 @@ export function ProjectSettingsTab({
                 </section>
 
                 <section className="entry-editor-card">
-                    <h3>Workspace Path</h3>
+                    <h3>Project Directories</h3>
                     <div className="entry-form-grid">
-                        <label style={{ gridColumn: "1 / -1" }}>
-                            Project workspace / repository path
-                            <input
-                                type="text"
-                                placeholder="e.g. /Users/me/Developer/my-project"
-                                value={draft.repoPath}
-                                onChange={(e) => mutateDraft((d) => { d.repoPath = e.target.value; })}
-                            />
-                            <span className="entry-form-hint">
-                                {workspacePath
-                                    ? <>Agents and file tools will use <code>{workspacePath}</code>.</>
-                                    : "Set the absolute path to the project workspace so agents use the correct directory."}
-                            </span>
-                        </label>
+                        <div className="onboarding-provider-grid" style={{ gridColumn: "1 / -1" }}>
+                            <button
+                                type="button"
+                                className={`onboarding-provider-card ${draft.kind === "project" ? "active" : ""}`}
+                                onClick={() => mutateDraft((d) => {
+                                    d.kind = "project";
+                                    const keptRoot = d.directoryPaths[0] || d.repoPath;
+                                    d.directoryPaths = keptRoot ? [keptRoot] : [];
+                                    d.repoPath = keptRoot || "";
+                                })}
+                            >
+                                <span className="material-symbols-rounded">folder</span>
+                                <strong>Project</strong>
+                                <span>Zero or one working directory.</span>
+                            </button>
+                            <button
+                                type="button"
+                                className={`onboarding-provider-card ${draft.kind === "workspace" ? "active" : ""}`}
+                                onClick={() => mutateDraft((d) => {
+                                    d.kind = "workspace";
+                                    if (d.directoryPaths.length === 0 && d.repoPath) d.directoryPaths = [d.repoPath];
+                                })}
+                            >
+                                <span className="material-symbols-rounded">folder_copy</span>
+                                <strong>Workspace</strong>
+                                <span>Two or more ordered roots.</span>
+                            </button>
+                        </div>
+
+                        {draft.kind === "workspace" ? (
+                            <div style={{ gridColumn: "1 / -1" }}>
+                                <WorkspaceDirectoriesEditor
+                                    paths={draft.directoryPaths}
+                                    onChange={(paths) => mutateDraft((d) => {
+                                        d.directoryPaths = paths;
+                                        d.repoPath = paths[0] || "";
+                                    })}
+                                    minimum={2}
+                                />
+                            </div>
+                        ) : (
+                            <label style={{ gridColumn: "1 / -1" }}>
+                                Project workspace / repository path
+                                <input
+                                    type="text"
+                                    placeholder="e.g. /Users/me/Developer/my-project"
+                                    value={draft.repoPath}
+                                    onChange={(e) => mutateDraft((d) => {
+                                        d.repoPath = e.target.value;
+                                        d.directoryPaths = e.target.value.trim() ? [e.target.value] : [];
+                                    })}
+                                />
+                            </label>
+                        )}
+                        <span className="entry-form-hint" style={{ gridColumn: "1 / -1" }}>
+                            {workspacePath
+                                ? <>Terminal and source control use Primary <code>{workspacePath}</code>.</>
+                                : "Choose the directory access granted to agents."}
+                        </span>
                     </div>
                 </section>
 

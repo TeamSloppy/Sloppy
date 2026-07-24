@@ -136,12 +136,15 @@ function FileTreeNode({ projectId, name, type, path, depth, selectedPath, onSele
         className={`pft-node-row ${isSelected ? "selected" : ""} ${narrowLayout ? "pft-node-row--touch" : ""}`}
         style={{ paddingLeft: `${rowPadLeft}px` }}
         onClick={handleClick}
-        title={name}
+        title={path || name}
       >
         <span className={`material-symbols-rounded pft-node-icon ${type === "directory" ? "pft-icon-dir" : "pft-icon-file"}`}>
           {icon}
         </span>
         <span className="pft-node-name">{name}</span>
+        {depth === 0 && path?.startsWith("/") ? (
+          <span className="pft-node-root-path">{path}</span>
+        ) : null}
         {isLoading && <span className="pft-node-spinner" />}
         {narrowLayout && (
           <span
@@ -164,11 +167,11 @@ function FileTreeNode({ projectId, name, type, path, depth, selectedPath, onSele
           ) : (
             children.map((child) => (
               <FileTreeNode
-                key={child.name}
+                key={child.path || child.name}
                 projectId={projectId}
                 name={child.name}
                 type={child.type}
-                path={path ? `${path}/${child.name}` : child.name}
+                path={child.path || (path ? `${path}/${child.name}` : child.name)}
                 depth={depth + 1}
                 selectedPath={selectedPath}
                 onSelectFile={onSelectFile}
@@ -293,11 +296,11 @@ export function ProjectFilesTab({ project }) {
           ) : (
             rootEntries.map((entry) => (
               <FileTreeNode
-                key={entry.name}
+                key={entry.path || entry.name}
                 projectId={project.id}
                 name={entry.name}
                 type={entry.type}
-                path={entry.name}
+                path={entry.path || entry.name}
                 depth={0}
                 selectedPath={selectedPath}
                 onSelectFile={loadFile}

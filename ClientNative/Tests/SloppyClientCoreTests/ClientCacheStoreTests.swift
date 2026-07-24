@@ -102,4 +102,46 @@ struct ClientCacheStoreTests {
         #expect(hits.first?.text == "SQLite search index is ready")
         #expect(hits.first?.projectId == "project-1")
     }
+
+    @Test("sqlite cache survives a new store instance for offline launch")
+    func sqliteCacheSurvivesStoreRecreation() async {
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sloppy-client-cache-reopen-\(UUID().uuidString).sqlite3")
+        let seedStore = ClientCacheStore(path: tempURL.path)
+        let session = ChatSessionSummary(
+            id: "session-offline",
+            agentId: "agent-offline",
+            title: "Available offline",
+            messageCount: 1,
+            updatedAt: Date(timeIntervalSince1970: 300)
+        )
+        let detail = ChatSessionDetail(
+            summary: session,
+            messages: [
+                ChatMessage(
+                    id: "message-offline",
+                    role: .assistant,
+                    segments: [.init(kind: .text, text: "Restored without the network")],
+                    createdAt: Date(timeIntervalSince1970: 300)
+                )
+            ]
+        )
+
+        await seedStore.cacheSessions(
+            agentId: session.agentId,
+            projectId: nil,
+            sessions: [session]
+        )
+        await seedStore.cacheSessionDetail(agentId: session.agentId, detail: detail)
+
+        let relaunchedStore = ClientCacheStore(path: tempURL.path)
+        let restoredSessions = await relaunchedStore.loadSessions(agentId: session.agentId)
+        let restoredDetail = await relaunchedStore.loadSessionDetail(
+            agentId: session.agentId,
+            sessionId: session.id
+        )
+
+        #expect(restoredSessions.map(\.id) == [session.id])
+        #expect(restoredDetail?.messages.first?.textContent == "Restored without the network")
+    }
 }

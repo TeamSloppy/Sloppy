@@ -918,15 +918,16 @@ function removeQuickChat() {
   state.quickChat = null;
 }
 
-function quickChatPlacementStyle(rect, windowLike = window) {
+function quickChatPlacementStyle(rect, windowLike = window, options = {}) {
   if (!rect) {
     return null;
   }
   const padding = 16;
   const viewportWidth = Number(windowLike.innerWidth || document.documentElement.clientWidth || 0);
   const viewportHeight = Number(windowLike.innerHeight || document.documentElement.clientHeight || 0);
-  const quickWidth = Math.min(360, Math.max(0, viewportWidth - padding * 2));
-  const estimatedHeight = 300;
+  const preferredWidth = Number(options.width || 360);
+  const quickWidth = Math.min(preferredWidth, Math.max(0, viewportWidth - padding * 2));
+  const estimatedHeight = Number(options.estimatedHeight || 300);
   const anchorGap = 12;
   const spaceBelow = viewportHeight - rect.bottom - padding;
   const shouldOpenAbove = spaceBelow < estimatedHeight || rect.top > viewportHeight / 2;
@@ -944,7 +945,10 @@ function quickChatPlacementStyle(rect, windowLike = window) {
 }
 
 function applyQuickChatPlacement(chat, anchorRect) {
-  const style = quickChatPlacementStyle(anchorRect);
+  const isTranslation = state.quickChat?.presentation === "translation";
+  const style = quickChatPlacementStyle(anchorRect, window, isTranslation
+    ? { width: 480, estimatedHeight: 520 }
+    : {});
   if (!style) {
     chat.classList.remove("is-anchored");
     chat.style.removeProperty("--sloppy-quick-left");
@@ -968,6 +972,7 @@ function renderQuickChat() {
     return;
   }
   const chat = ensureQuickChat();
+  chat.classList.toggle("is-translation", quick.presentation === "translation");
   applyQuickChatPlacement(chat, quick.anchorRect);
   const assistantHTML = quick.assistantText
     ? renderMarkdown(quick.assistantText)
@@ -1058,6 +1063,7 @@ async function openQuickChatForPrompt(prompt, options = {}) {
     context,
     prompt,
     title: options.title || t("assistant"),
+    presentation: options.presentation || "compact",
     userText: options.userText || "",
     anchorRect: options.anchorRect || null,
     assistantText: "",
@@ -1267,7 +1273,7 @@ function wireSelectionMenu(menu) {
       const actionId = button.dataset.sloppySelectionAction;
       const prompt = selectionActionPrompt(actionId);
       if (prompt) {
-        void sendSelectionPrompt(prompt, selectionActionTitle(actionId));
+        void sendSelectionPrompt(prompt, selectionActionTitle(actionId), actionId);
       }
     });
   });
@@ -2702,7 +2708,7 @@ async function openPanelWithSelection(selectionText) {
   return panel;
 }
 
-async function sendSelectionPrompt(prompt, title = t("assistant")) {
+async function sendSelectionPrompt(prompt, title = t("assistant"), actionId = "") {
   const selection = state.selectionMenuText || selectedText();
   if (!selection.trim()) {
     return;
@@ -2710,6 +2716,7 @@ async function sendSelectionPrompt(prompt, title = t("assistant")) {
   await openQuickChatForPrompt(prompt, {
     selection,
     title,
+    presentation: actionId === "translate" ? "translation" : "compact",
     userText: selection,
     anchorRect: state.selectionMenuRect
   });

@@ -42,10 +42,26 @@ struct MainView: View {
     }
 
     #if os(macOS)
+    private enum ToolbarSearchResult: Identifiable {
+        case chat(ChatSessionSummary)
+        case project(APIProjectRecord)
+
+        var id: String {
+            switch self {
+            case .chat(let session):
+                "chat:\(session.id)"
+            case .project(let project):
+                "project:\(project.id)"
+            }
+        }
+    }
+
     private struct ToolbarSearchResultRow: View {
         let title: String
         let subtitle: String
         let systemImage: String
+        let isSelected: Bool
+        let onHover: @MainActor () -> Void
         let action: @MainActor () -> Void
 
         @State private var isHovered = false
@@ -67,15 +83,25 @@ struct MainView: View {
                         .foregroundStyle(.tertiary)
                 }
                 .padding(.horizontal, 10)
-                .frame(height: 36)
+                .frame(maxWidth: .infinity, minHeight: 36, maxHeight: 36)
                 .contentShape(Rectangle())
                 .background {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
-                        .fill(isHovered ? Color.primary.opacity(0.08) : .clear)
+                        .fill(
+                            isSelected
+                                ? Color.accentColor.opacity(0.18)
+                                : isHovered ? Color.primary.opacity(0.08) : .clear
+                        )
                 }
             }
             .buttonStyle(.plain)
-            .onHover { isHovered = $0 }
+            .frame(maxWidth: .infinity)
+            .onHover {
+                isHovered = $0
+                if $0 {
+                    onHover()
+                }
+            }
         }
     }
     #endif
@@ -101,6 +127,7 @@ struct MainView: View {
     @State private var toolbarSearchText = ""
     @State private var isToolbarSearchResultsPresented = false
     #if os(macOS)
+    @State private var toolbarSearchSelectionID: ToolbarSearchResult.ID?
     @FocusState private var isToolbarSearchFocused: Bool
     #endif
 
@@ -163,7 +190,13 @@ struct MainView: View {
     }
 
     var body: some View {
-        workspacePanelContainer
+        Group {
+            if viewModel.hasLoadedInitialContent {
+                workspacePanelContainer
+            } else {
+                MainLoadingView()
+            }
+        }
             .onAppear {
                 if viewModel.tabs.isEmpty {
                     viewModel.createBlankChatTab(select: true)
@@ -215,39 +248,55 @@ struct MainView: View {
             )
             #endif
             .toolbar {
-                #if os(macOS)
-                ToolbarItem(placement: .principal) {
-                    toolbarSearchField
-                }
-                #endif
-
-                ToolbarItemGroup(placement: .primaryAction) {
-                    if let activeChatViewModel {
-                        ChatAgentToolbarMenu(
-                            selectedAgent: activeChatViewModel.selectedAgent,
-                            agents: activeChatViewModel.agents,
-                            onSelectAgent: activeChatViewModel.pickAgent
-                        )
-                        ChatModelToolbarMenu(
-                            selectedModelId: activeChatViewModel.selectedModelId,
-                            models: activeChatViewModel.availableModels,
-                            onSelectModel: activeChatViewModel.pickModel
-                        )
+                if viewModel.hasLoadedInitialContent {
+                    #if os(macOS)
+                    ToolbarItem(placement: .principal) {
+                        toolbarSearchField
                     }
+                    #endif
 
-                    if idiom != .phone {
-                        Button(
-                            action: {
-                                isWorkspacePanelPresented.toggle()
-                            },
-                            label: {
-                                Image(systemName: "sidebar.right")
-                            }
-                        )
-                        .help(isWorkspacePanelPresented ? "Hide Workspace" : "Show Workspace")
-                        .disabled(viewModel.workspaceContext == nil)
+                    ToolbarItemGroup(placement: .primaryAction) {
+                        if let activeChatViewModel {
+                            ChatAgentToolbarMenu(
+                                selectedAgent: activeChatViewModel.selectedAgent,
+                                agents: activeChatViewModel.agents,
+                                onSelectAgent: activeChatViewModel.pickAgent
+                            )
+                            ChatModelToolbarMenu(
+                                selectedModelId: activeChatViewModel.selectedModelId,
+                                models: activeChatViewModel.availableModels,
+                                onSelectModel: activeChatViewModel.pickModel
+                            )
+                        }
+
+                        if idiom != .phone {
+                            workspacePanelModePicker
+
+                            Button(
+                                action: {
+                                    isWorkspacePanelPresented.toggle()
+                                },
+                                label: {
+                                    Image(systemName: "sidebar.right")
+                                }
+                            )
+                            .help(isWorkspacePanelPresented ? "Hide Workspace" : "Show Workspace")
+                            .disabled(viewModel.workspaceContext == nil)
+                        }
                     }
                 }
+            }
+            #if os(macOS)
+            .overlay(alignment: .top) {
+                toolbarSearchResultsOverlay
+            }
+            #endif
+            .sheet(isPresented: $viewModel.isProjectEditorPresented) {
+                ProjectEditorSheet(
+                    baseURL: viewModel.baseURL,
+                    project: viewModel.projectBeingEdited,
+                    onSaved: viewModel.didSaveProject
+                )
             }
             .onChange(of: viewModel.selectedTabID) { oldValue, newValue in
                 if let oldValue,
@@ -256,29 +305,48 @@ struct MainView: View {
                     captureMobileTabsSnapshot(for: oldValue, storeInCache: true)
                 }
                 updateMobileTabPagingDirection(from: oldValue, to: newValue)
+                if let newValue {
+                    viewModel.requestChatScrollToEnd(for: newValue)
+                }
             }
     }
 
     @ViewBuilder
     private var workspacePanelContainer: some View {
-        #if os(macOS)
-        HSplitView {
-            contentView
-                .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
-
-            if isWorkspacePanelPresented {
-                workspaceScreen()
-                    .frame(minWidth: 320, idealWidth: 420, maxWidth: 720)
-            }
-        }
-        #else
         contentView
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
             .inspector(isPresented: $isWorkspacePanelPresented) {
                 workspaceScreen()
-                    .inspectorColumnWidth(min: 320, ideal: 420, max: 720)
+                    .inspectorColumnWidth(min: 320, ideal: 380, max: 520)
             }
-        #endif
+    }
+
+    private var workspacePanelModePicker: some View {
+        Picker("Workspace panel", selection: workspacePanelModeBinding) {
+            Label("Browser", systemImage: "safari")
+                .tag(WorkspacePanelMode.webBrowser)
+            Label("Files", systemImage: "folder")
+                .tag(WorkspacePanelMode.files)
+        }
+        .labelStyle(.iconOnly)
+        .labelsHidden()
+        .pickerStyle(.segmented)
+        .controlSize(.small)
+        .frame(width: 92)
+        .disabled(viewModel.workspaceContext == nil)
+        .help("Browser and files")
+    }
+
+    private var workspacePanelModeBinding: Binding<WorkspacePanelMode> {
+        Binding(
+            get: { viewModel.workspacePanelViewModel.mode },
+            set: { mode in
+                viewModel.workspacePanelViewModel.switchMode(mode)
+                if viewModel.workspaceContext != nil {
+                    isWorkspacePanelPresented = true
+                }
+            }
+        )
     }
 
     #if os(macOS)
@@ -290,15 +358,24 @@ struct MainView: View {
             TextField("Search chats and projects", text: $toolbarSearchText)
                 .textFieldStyle(.plain)
                 .focused($isToolbarSearchFocused)
+                .onKeyPress(.downArrow) {
+                    moveToolbarSearchSelection(by: 1)
+                    return .handled
+                }
+                .onKeyPress(.upArrow) {
+                    moveToolbarSearchSelection(by: -1)
+                    return .handled
+                }
+                .onSubmit {
+                    openSelectedToolbarSearchResult()
+                }
                 .onExitCommand {
-                    toolbarSearchText = ""
-                    isToolbarSearchResultsPresented = false
+                    dismissToolbarSearch()
                 }
 
             if !toolbarSearchText.isEmpty {
                 Button {
-                    toolbarSearchText = ""
-                    isToolbarSearchResultsPresented = false
+                    dismissToolbarSearch(keepsFocus: true)
                 } label: {
                     Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
@@ -309,22 +386,17 @@ struct MainView: View {
         .padding(.horizontal, 12)
         .frame(minWidth: 280, idealWidth: 420, maxWidth: 560, minHeight: 30)
         .background(.regularMaterial, in: Capsule())
-        .overlay {
-            Capsule()
-                .stroke(Color(nsColor: .separatorColor).opacity(0.65), lineWidth: 1)
-        }
         .onChange(of: toolbarSearchText) { _, text in
             isToolbarSearchResultsPresented = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            toolbarSearchSelectionID = toolbarSearchResults.first?.id
         }
-        .overlay(alignment: .top) {
-            if isToolbarSearchResultsPresented {
-                toolbarSearchResultsPanel
-                    .offset(y: 38)
-                    .transition(.move(edge: .top).combined(with: .opacity))
-                    .zIndex(10)
+        .onChange(of: toolbarSearchResultIDs) { _, resultIDs in
+            if let toolbarSearchSelectionID,
+               resultIDs.contains(toolbarSearchSelectionID) {
+                return
             }
+            toolbarSearchSelectionID = resultIDs.first
         }
-        .animation(.easeOut(duration: 0.14), value: isToolbarSearchResultsPresented)
     }
 
     private var toolbarSearchQuery: String {
@@ -335,7 +407,7 @@ struct MainView: View {
         guard !toolbarSearchQuery.isEmpty else {
             return []
         }
-        return viewModel.chatViewModel.sessions.filter {
+        return viewModel.chatViewModel.sessionCatalog.filter {
             $0.title.localizedStandardContains(toolbarSearchQuery)
         }
     }
@@ -349,20 +421,57 @@ struct MainView: View {
         }
     }
 
+    private var visibleToolbarChatSessions: [ChatSessionSummary] {
+        Array(matchingToolbarChatSessions.prefix(8))
+    }
+
+    private var visibleToolbarProjects: [APIProjectRecord] {
+        Array(matchingToolbarProjects.prefix(8))
+    }
+
+    private var toolbarSearchResults: [ToolbarSearchResult] {
+        visibleToolbarChatSessions.map(ToolbarSearchResult.chat)
+            + visibleToolbarProjects.map(ToolbarSearchResult.project)
+    }
+
+    private var toolbarSearchResultIDs: [ToolbarSearchResult.ID] {
+        toolbarSearchResults.map(\.id)
+    }
+
     private var toolbarSearchResultsPanelHeight: CGFloat {
-        let resultCount = matchingToolbarChatSessions.prefix(8).count
-            + matchingToolbarProjects.prefix(8).count
+        let resultCount = visibleToolbarChatSessions.count + visibleToolbarProjects.count
         let sectionCount = (matchingToolbarChatSessions.isEmpty ? 0 : 1)
             + (matchingToolbarProjects.isEmpty ? 0 : 1)
         return min(420, max(64, CGFloat(resultCount) * 38 + CGFloat(sectionCount) * 30 + 16))
     }
 
+    @ViewBuilder
+    private var toolbarSearchResultsOverlay: some View {
+        if isToolbarSearchResultsPresented {
+            toolbarSearchResultsPanel
+                .padding(.top, 4)
+                .transition(.move(edge: .top).combined(with: .opacity))
+                .zIndex(10)
+                .animation(.easeOut(duration: 0.14), value: isToolbarSearchResultsPresented)
+        }
+    }
+
     private var toolbarSearchResultsPanel: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 2) {
-                toolbarSearchSuggestions
+        ScrollViewReader { proxy in
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 2) {
+                    toolbarSearchSuggestions
+                }
+                .padding(8)
             }
-            .padding(8)
+            .onChange(of: toolbarSearchSelectionID) { _, selectionID in
+                guard let selectionID else {
+                    return
+                }
+                withAnimation(.easeOut(duration: 0.12)) {
+                    proxy.scrollTo(selectionID, anchor: .center)
+                }
+            }
         }
         .frame(width: 560, height: toolbarSearchResultsPanelHeight)
         .background(.ultraThickMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
@@ -383,17 +492,21 @@ struct MainView: View {
                 .padding(.top, 4)
                 .frame(height: 28)
 
-            ForEach(matchingToolbarChatSessions.prefix(8)) { session in
+            ForEach(visibleToolbarChatSessions) { session in
+                let result = ToolbarSearchResult.chat(session)
                 ToolbarSearchResultRow(
                     title: session.title,
                     subtitle: "Chat",
                     systemImage: "bubble.left",
+                    isSelected: toolbarSearchSelectionID == result.id,
+                    onHover: {
+                        toolbarSearchSelectionID = result.id
+                    },
                     action: {
-                        viewModel.openSessionChatTab(session)
-                        toolbarSearchText = ""
-                        isToolbarSearchResultsPresented = false
+                        openToolbarSearchResult(result)
                     }
                 )
+                .id(result.id)
             }
         }
 
@@ -405,17 +518,21 @@ struct MainView: View {
                 .padding(.top, 4)
                 .frame(height: 28)
 
-            ForEach(matchingToolbarProjects.prefix(8)) { project in
+            ForEach(visibleToolbarProjects) { project in
+                let result = ToolbarSearchResult.project(project)
                 ToolbarSearchResultRow(
                     title: project.name,
-                    subtitle: "Project",
-                    systemImage: "folder",
+                    subtitle: project.kind == .workspace ? "Workspace" : "Project",
+                    systemImage: project.semanticIconName,
+                    isSelected: toolbarSearchSelectionID == result.id,
+                    onHover: {
+                        toolbarSearchSelectionID = result.id
+                    },
                     action: {
-                        viewModel.openProjectKanbanTab(project: project)
-                        toolbarSearchText = ""
-                        isToolbarSearchResultsPresented = false
+                        openToolbarSearchResult(result)
                     }
                 )
+                .id(result.id)
             }
         }
 
@@ -425,6 +542,52 @@ struct MainView: View {
             Text("No chats or projects found")
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, minHeight: 48)
+        }
+    }
+
+    private func moveToolbarSearchSelection(by offset: Int) {
+        let results = toolbarSearchResults
+        guard !results.isEmpty else {
+            toolbarSearchSelectionID = nil
+            return
+        }
+
+        guard let toolbarSearchSelectionID,
+              let selectedIndex = results.firstIndex(where: { $0.id == toolbarSearchSelectionID }) else {
+            self.toolbarSearchSelectionID = offset < 0 ? results.last?.id : results.first?.id
+            return
+        }
+
+        let nextIndex = (selectedIndex + offset + results.count) % results.count
+        self.toolbarSearchSelectionID = results[nextIndex].id
+    }
+
+    private func openSelectedToolbarSearchResult() {
+        let result = toolbarSearchResults.first {
+            $0.id == toolbarSearchSelectionID
+        } ?? toolbarSearchResults.first
+        guard let result else {
+            return
+        }
+        openToolbarSearchResult(result)
+    }
+
+    private func openToolbarSearchResult(_ result: ToolbarSearchResult) {
+        switch result {
+        case .chat(let session):
+            viewModel.openSessionChatTab(session)
+        case .project(let project):
+            viewModel.openProjectKanbanTab(project: project)
+        }
+        dismissToolbarSearch()
+    }
+
+    private func dismissToolbarSearch(keepsFocus: Bool = false) {
+        toolbarSearchText = ""
+        toolbarSearchSelectionID = nil
+        isToolbarSearchResultsPresented = false
+        if !keepsFocus {
+            isToolbarSearchFocused = false
         }
     }
     #endif
@@ -524,6 +687,13 @@ struct MainView: View {
     private var navigationView: some View {
         NavigationSplitView(columnVisibility: $viewModel.columnVisibility) {
             sidebarView(isOverlay: false)
+                #if os(macOS)
+                .frame(
+                    minWidth: viewModel.sidebarMinimumWidth,
+                    idealWidth: viewModel.sidebarWidth,
+                    maxWidth: viewModel.sidebarMaximumWidth
+                )
+                #endif
                 .navigationSplitViewColumnWidth(
                     min: viewModel.sidebarMinimumWidth,
                     ideal: viewModel.sidebarWidth,
@@ -818,6 +988,7 @@ struct MainView: View {
                     showsContextToolbar: false,
                     showsNavigationToolbar: idiom == .phone
                 )
+                .id(ObjectIdentifier(chatState.viewModel))
                 .onChange(of: chatState.viewModel.selectedSessionId) { _, _ in
                     viewModel.synchronizeChatTab(tab.id)
                 }

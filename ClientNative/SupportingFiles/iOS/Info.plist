@@ -42,6 +42,8 @@
 	<string>Sloppy uses the microphone to record audio for voice input.</string>
 	<key>NSSpeechRecognitionUsageDescription</key>
 	<string>Sloppy uses Speech Recognition to transcribe voice input when local fallback is needed.</string>
+	<key>NSSupportsLiveActivities</key>
+	<true/>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UIRequiredDeviceCapabilities</key>

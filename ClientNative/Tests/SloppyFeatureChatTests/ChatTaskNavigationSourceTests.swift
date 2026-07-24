@@ -61,4 +61,19 @@ struct ChatTaskNavigationSourceTests {
         #expect(newMessageSource.contains("opensPreferredSession: false"))
         #expect(!newMessageSource.contains("createAgentSession("))
     }
+
+    @Test("navigation requests can keep a project chat as a new draft")
+    func navigationRequestsCanKeepProjectChatAsNewDraft() throws {
+        let source = try chatScreenViewModelSource
+        let requestSourceURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Sources/SloppyFeatureChat/Support/ChatNavigationRequest.swift")
+        let requestSource = try String(contentsOf: requestSourceURL, encoding: .utf8)
+
+        #expect(requestSource.contains("public var opensPreferredSession: Bool"))
+        #expect(requestSource.contains("opensPreferredSession: Bool = true"))
+        #expect(source.contains("opensPreferredSession: request.opensPreferredSession"))
+    }
 }

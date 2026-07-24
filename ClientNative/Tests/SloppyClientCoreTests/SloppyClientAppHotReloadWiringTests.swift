@@ -18,8 +18,8 @@ struct SloppyClientAppWiringTests {
         }
     }
 
-    @Test("app entry uses SwiftUI WindowGroup")
-    func appEntryUsesSwiftUIWindowGroup() throws {
+    @Test("app entry uses a correctly sized SwiftUI main window")
+    func appEntryUsesCorrectlySizedSwiftUIMainWindow() throws {
         let source = try appSource
 
         #expect(source.contains("@main"))
@@ -27,8 +27,11 @@ struct SloppyClientAppWiringTests {
         #expect(source.contains("@State private var viewModel: RootShellViewModel"))
         #expect(source.contains("init() {"))
         #expect(source.contains("_viewModel = State(initialValue: RootShellViewModel())"))
-        #expect(source.contains("WindowGroup"))
+        #expect(source.contains("Window(\"Sloppy\", id: \"main\")"))
         #expect(source.contains("RootShellView(viewModel: viewModel)"))
+        #expect(source.contains(".frame(minWidth: 1120, minHeight: 760)"))
+        #expect(source.contains(".defaultSize(width: 1360, height: 880)"))
+        #expect(source.contains(".windowResizability(.contentMinSize)"))
     }
 
     @Test("app entry exposes native mac settings scene backed by our settings screen")

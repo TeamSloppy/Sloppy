@@ -34,6 +34,8 @@ final class MainViewModel {
 
     var projects: [APIProjectRecord] = []
     var isLoadingProjects = false
+    var isProjectEditorPresented = false
+    var projectBeingEdited: APIProjectRecord?
     var didLoadProjects = false
     var collapsedProjectIds: Set<String> = []
     var expandedTaskLists: Set<String> = []
@@ -65,6 +67,10 @@ final class MainViewModel {
 
     var sidebarMaximumWidth: CGFloat {
         isSidebarCollapsed ? MainSidebarView.collapsedWidth : MainSidebarView.maximumWidth
+    }
+
+    var hasLoadedInitialContent: Bool {
+        didLoadProjects && chatViewModel.didLoadInitialData
     }
 
     var workspaceContext: WorkspacePanelContext? {
@@ -110,6 +116,7 @@ final class MainViewModel {
             cacheStore: cacheStore,
             settings: settings,
             connectionMonitor: connectionMonitor,
+            loadsGlobalSessionCatalog: true,
             onOpenSettings: onOpenSettings
         )
         self.workspacePanelViewModel = WorkspacePanelViewModel(apiClient: apiClient)
@@ -138,7 +145,7 @@ final class MainViewModel {
         selectAppSection(.chats)
         updateSelectedSidebarItem(.chats)
         dismissMobileSidebar()
-        createBlankChatTab(select: true)
+        showBlankChatInSelectedTab()
     }
 
     func selectChatSession(_ session: ChatSessionSummary) {
@@ -164,27 +171,19 @@ final class MainViewModel {
         selectAppSection(.chats)
         updateSelectedSidebarItem(.chats)
         dismissMobileSidebar()
-        if retargetSelectedChatTab(to: session) {
-            return
-        }
-
-        let key = WorkspaceTabKey.chatSession(session.id)
-        if let existing = tabs.first(where: { $0.key == key }) {
-            selectedTabID = existing.id
-            return
-        }
 
         let chatState = makeChatTabState()
         chatState.viewModel.openSessionFromSummary(session)
         let tab = WorkspaceTab(
-            key: key,
+            key: .chatSession(session.id),
             kind: .chat,
             title: session.title,
             payload: .chatSession(sessionID: session.id, title: session.title)
         )
-        tabs.append(tab)
-        tabStates[tab.id] = WorkspaceTabState(contentState: .chat(chatState))
-        selectedTabID = tab.id
+        showInSelectedTab(
+            tab,
+            state: WorkspaceTabState(contentState: .chat(chatState))
+        )
     }
 
     func selectProject(_ project: APIProjectRecord) {
@@ -205,10 +204,6 @@ final class MainViewModel {
         updateSelectedSidebarItem(.project(project.id))
         dismissMobileSidebar()
         let key = WorkspaceTabKey.projectKanban(project.id)
-        if let existing = tabs.first(where: { $0.key == key }) {
-            selectedTabID = existing.id
-            return
-        }
 
         let kanbanState = makeProjectKanbanTabState()
         Task { @MainActor in
@@ -226,9 +221,68 @@ final class MainViewModel {
                 )
             )
         )
-        tabs.append(tab)
-        tabStates[tab.id] = WorkspaceTabState(contentState: .projectKanban(kanbanState))
-        selectedTabID = tab.id
+        showInSelectedTab(
+            tab,
+            state: WorkspaceTabState(contentState: .projectKanban(kanbanState))
+        )
+    }
+
+    func presentProjectCreator() {
+        projectBeingEdited = nil
+        isProjectEditorPresented = true
+    }
+
+    func presentProjectEditor(_ project: APIProjectRecord) {
+        projectBeingEdited = project
+        isProjectEditorPresented = true
+    }
+
+    func didSaveProject(_ project: APIProjectRecord) {
+        if let index = projects.firstIndex(where: { $0.id == project.id }) {
+            projects[index] = project
+            persistProjectOrder()
+            openProjectKanbanTab(project: project)
+        } else {
+            projects.insert(project, at: 0)
+            persistProjectOrder()
+            showNewProjectChat(project: project)
+        }
+        Task { await cacheStore.cacheProjects(projects) }
+        Task { await loadProjects(force: true) }
+    }
+
+    func showNewProjectChat(project: APIProjectRecord) {
+        selectAppSection(.projects)
+        updateSelectedSidebarItem(.project(project.id))
+        dismissMobileSidebar()
+
+        let chatState = makeChatTabState()
+        chatNavigationSerial += 1
+        applyNavigationRequestOnNextTurn(
+            ChatNavigationRequest(
+                id: chatNavigationSerial,
+                context: .project(
+                    projectId: project.id,
+                    projectName: project.name,
+                    agentId: project.actors?.first
+                ),
+                opensPreferredSession: false
+            ),
+            to: chatState.viewModel,
+            loadInitialData: true
+        )
+
+        let draftID = "draft-\(UUID().uuidString)"
+        let tab = WorkspaceTab(
+            key: .chatSession(draftID),
+            kind: .chat,
+            title: "New Chat",
+            payload: .chatSession(sessionID: draftID, title: "New Chat")
+        )
+        showInSelectedTab(
+            tab,
+            state: WorkspaceTabState(contentState: .chat(chatState))
+        )
     }
 
     func selectTask(
@@ -256,10 +310,6 @@ final class MainViewModel {
         updateSelectedSidebarItem(.task(projectId: project.id, taskId: task.id))
         dismissMobileSidebar()
         let key = WorkspaceTabKey.chatTask(projectId: project.id, taskId: task.id)
-        if let existing = tabs.first(where: { $0.key == key }) {
-            selectedTabID = existing.id
-            return
-        }
 
         let chatState = makeChatTabState()
         applyNavigationRequestOnNextTurn(
@@ -289,9 +339,10 @@ final class MainViewModel {
                 fallbackAgentId: task.actorId ?? fallbackAgentId
             )
         )
-        tabs.append(tab)
-        tabStates[tab.id] = WorkspaceTabState(contentState: .chat(chatState))
-        selectedTabID = tab.id
+        showInSelectedTab(
+            tab,
+            state: WorkspaceTabState(contentState: .chat(chatState))
+        )
     }
 
     func openTaskDetailTab(project: APIProjectRecord, task: APIProjectTask, fallbackAgentId: String?) {
@@ -299,10 +350,6 @@ final class MainViewModel {
         updateSelectedSidebarItem(.task(projectId: project.id, taskId: task.id))
         dismissMobileSidebar()
         let key = WorkspaceTabKey.taskDetail(projectId: project.id, taskId: task.id)
-        if let existing = tabs.first(where: { $0.key == key }) {
-            selectedTabID = existing.id
-            return
-        }
 
         let detailState = makeTaskDetailTabState()
         let tab = WorkspaceTab(
@@ -320,9 +367,10 @@ final class MainViewModel {
                 )
             )
         )
-        tabs.append(tab)
-        tabStates[tab.id] = WorkspaceTabState(contentState: .taskDetail(detailState))
-        selectedTabID = tab.id
+        showInSelectedTab(
+            tab,
+            state: WorkspaceTabState(contentState: .taskDetail(detailState))
+        )
     }
 
     func toggleProjectCollapse(projectId: String) {
@@ -345,6 +393,28 @@ final class MainViewModel {
         visibleProjectCount += 5
     }
 
+    @discardableResult
+    func moveProject(_ projectID: String, relativeTo targetProjectID: String) -> Bool {
+        guard projectID != targetProjectID,
+              let sourceIndex = projects.firstIndex(where: { $0.id == projectID }),
+              let targetIndex = projects.firstIndex(where: { $0.id == targetProjectID }) else {
+            return false
+        }
+
+        let project = projects.remove(at: sourceIndex)
+        guard let remainingTargetIndex = projects.firstIndex(where: { $0.id == targetProjectID }) else {
+            projects.insert(project, at: sourceIndex)
+            return false
+        }
+        let destinationIndex = sourceIndex < targetIndex
+            ? remainingTargetIndex + 1
+            : remainingTargetIndex
+        projects.insert(project, at: destinationIndex)
+        persistProjectOrder()
+        Task { await cacheStore.cacheProjects(projects) }
+        return true
+    }
+
     func refreshContent() async {
         await loadProjects(force: true)
         if chatViewModel.selectedAgent == nil {
@@ -354,25 +424,48 @@ final class MainViewModel {
         }
     }
 
+    func requestChatScrollToEnd(for tabID: WorkspaceTab.ID) {
+        tabStates[tabID]?.chatState?.viewModel.requestTranscriptScrollToEnd()
+    }
+
     func loadProjects(force: Bool = false) async {
         guard force || !didLoadProjects else { return }
         guard !isLoadingProjects else { return }
 
         isLoadingProjects = true
+        if !force {
+            projects = reconcileProjectOrder(await cacheStore.loadProjects())
+            didLoadProjects = true
+            visibleProjectCount = 5
+        }
+
         defer {
             didLoadProjects = true
             isLoadingProjects = false
         }
 
-        let client = SloppyAPIClient(baseURL: baseURL)
-        let list = (try? await client.fetchProjects()) ?? []
-        if list.isEmpty {
-            projects = await cacheStore.loadProjects()
-        } else {
-            projects = list
-            await cacheStore.cacheProjects(list)
+        do {
+            let list = try await apiClient.fetchProjects()
+            projects = reconcileProjectOrder(list)
+            await cacheStore.cacheProjects(projects)
+        } catch {
+            // The cached project snapshot remains available while offline.
         }
         visibleProjectCount = 5
+    }
+
+    private func reconcileProjectOrder(_ availableProjects: [APIProjectRecord]) -> [APIProjectRecord] {
+        let projectsByID = Dictionary(uniqueKeysWithValues: availableProjects.map { ($0.id, $0) })
+        let savedIDs = settings.projectOrderIDs.filter { projectsByID[$0] != nil }
+        let savedIDSet = Set(savedIDs)
+        let newProjects = availableProjects.filter { !savedIDSet.contains($0.id) }
+        let orderedProjects = newProjects + savedIDs.compactMap { projectsByID[$0] }
+        settings.projectOrderIDs = orderedProjects.map(\.id)
+        return orderedProjects
+    }
+
+    private func persistProjectOrder() {
+        settings.projectOrderIDs = projects.map(\.id)
     }
 
     func selectAppSection(_ section: MainAppSection) {
@@ -443,6 +536,21 @@ final class MainViewModel {
         if select {
             selectedTabID = tab.id
         }
+    }
+
+    func showBlankChatInSelectedTab() {
+        let chatState = makeChatTabState()
+        let draftID = "draft-\(UUID().uuidString)"
+        let tab = WorkspaceTab(
+            key: .chatSession(draftID),
+            kind: .chat,
+            title: "New Chat",
+            payload: .chatSession(sessionID: draftID, title: "New Chat")
+        )
+        showInSelectedTab(
+            tab,
+            state: WorkspaceTabState(contentState: .chat(chatState))
+        )
     }
 
     func synchronizeChatTab(_ tabID: WorkspaceTab.ID) {
@@ -634,16 +742,16 @@ final class MainViewModel {
 
     func makeChatTabState() -> ChatTabState {
         let apiClient = SloppyAPIClient(baseURL: baseURL)
-        return ChatTabState(
-            viewModel: ChatScreenViewModel(
-                apiClient: apiClient,
-                cacheStore: cacheStore,
-                settings: settings,
-                connectionMonitor: connectionMonitor,
-                restoresLastSession: false,
-                onOpenSettings: { destination in self.onOpenSettings(destination) }
-            )
+        let viewModel = ChatScreenViewModel(
+            apiClient: apiClient,
+            cacheStore: cacheStore,
+            settings: settings,
+            connectionMonitor: connectionMonitor,
+            restoresLastSession: false,
+            onOpenSettings: { destination in self.onOpenSettings(destination) }
         )
+        viewModel.loadInitialData()
+        return ChatTabState(viewModel: viewModel)
     }
 
     func makeProjectKanbanTabState() -> ProjectKanbanTabState {
@@ -667,11 +775,6 @@ final class MainViewModel {
         }
 
         let key = WorkspaceTabKey.workspaceFiles(context.projectId)
-        if let existing = tabs.first(where: { $0.key == key }) {
-            selectedTabID = existing.id
-            return
-        }
-
         let workspaceState = makeWorkspaceFilesTabState()
         let tab = WorkspaceTab(
             key: key,
@@ -679,9 +782,10 @@ final class MainViewModel {
             title: "\(context.projectName) Files",
             payload: .workspaceFiles(context)
         )
-        tabs.append(tab)
-        tabStates[tab.id] = WorkspaceTabState(contentState: .workspaceFiles(workspaceState))
-        selectedTabID = tab.id
+        showInSelectedTab(
+            tab,
+            state: WorkspaceTabState(contentState: .workspaceFiles(workspaceState))
+        )
     }
 
     func resolveWorkingDirectory(for tabID: WorkspaceTab.ID) -> URL? {
@@ -742,36 +846,28 @@ final class MainViewModel {
         }
     }
 
-    private func openOrSelectTab(key: WorkspaceTabKey, makeTab: @autoclosure () -> WorkspaceTab) {
-        if let existing = tabs.first(where: { $0.key == key }) {
-            selectedTabID = existing.id
+    private func showInSelectedTab(_ tab: WorkspaceTab, state: WorkspaceTabState) {
+        guard let selectedTabID,
+              let index = tabs.firstIndex(where: { $0.id == selectedTabID }) else {
+            tabs.append(tab)
+            tabStates[tab.id] = state
+            self.selectedTabID = tab.id
             return
         }
 
-        let tab = makeTab()
-        tabs.append(tab)
-        selectedTabID = tab.id
-    }
-
-    @discardableResult
-    private func retargetSelectedChatTab(to session: ChatSessionSummary) -> Bool {
-        guard let selectedTabID,
-              let index = tabs.firstIndex(where: { $0.id == selectedTabID }),
-              tabs[index].kind == .chat,
-              let chatState = tabStates[selectedTabID]?.chatState else {
-            return false
-        }
-
         clearDesktopSplit()
-        chatState.viewModel.openSessionFromSummary(session)
+        terminalSessions[selectedTabID]?.terminate()
+        terminalSessions.removeValue(forKey: selectedTabID)
+        terminalHosts.removeValue(forKey: selectedTabID)
+
         tabs[index] = WorkspaceTab(
-            id: tabs[index].id,
-            key: .chatSession(session.id),
-            kind: .chat,
-            title: session.title,
-            payload: .chatSession(sessionID: session.id, title: session.title)
+            id: selectedTabID,
+            key: tab.key,
+            kind: tab.kind,
+            title: tab.title,
+            payload: tab.payload
         )
-        return true
+        tabStates[selectedTabID] = state
     }
 
     private func activeWorkspaceFilesContext() -> WorkspaceFilesTabContext? {

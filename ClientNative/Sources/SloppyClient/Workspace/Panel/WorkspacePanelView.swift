@@ -15,48 +15,40 @@ struct WorkspacePanelView: View {
 
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: sp.s) {
-                Icons.symbol(.folder, size: ty.body)
-                    .foregroundColor(c.textSecondary)
-                Text(context.projectName)
-                    .font(.system(size: ty.body))
-                    .foregroundColor(c.textPrimary)
-                    .lineLimit(1)
-                Spacer(minLength: 0)
-                filesToolbarQuickActions
-                Button(action: { Task { await viewModel.refresh() } }) {
-                    Icons.symbol(.refresh, size: ty.body)
-                        .foregroundColor(c.textSecondary)
+                Image(systemName: viewModel.mode == .files ? "folder" : "safari")
+                    .font(.system(size: ty.body, weight: .semibold))
+                    .foregroundStyle(c.textPrimary)
+                    .frame(width: 18)
+
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(viewModel.mode == .files ? "Files" : "Browser")
+                        .font(.system(size: ty.body, weight: .semibold))
+                        .foregroundColor(c.textPrimary)
+                    Text(context.projectName)
+                        .font(.system(size: ty.micro))
+                        .foregroundColor(c.textMuted)
+                        .lineLimit(1)
                 }
-                .buttonStyle(.plain)
+
+                Spacer(minLength: 0)
+
+                if viewModel.mode == .files {
+                    filesToolbarQuickActions
+                    Button(action: { Task { await viewModel.refresh() } }) {
+                        Icons.symbol(.refresh, size: ty.body)
+                            .foregroundColor(c.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Refresh files")
+                }
             }
             .padding(sp.m)
 
             Divider()
 
-            Picker("", selection: modeBinding) {
-                Text("Files").tag(WorkspacePanelMode.files)
-                Text("Reviews").tag(WorkspacePanelMode.reviews)
-                Text("Web browser").tag(WorkspacePanelMode.webBrowser)
-            }
-            .pickerStyle(.segmented)
-            .padding(.horizontal, sp.m)
-            .padding(.vertical, sp.s)
-
-            Divider()
-
             switch viewModel.mode {
             case .files:
-                HStack(spacing: 0) {
-                    treePane
-                        .frame(minWidth: 220, maxWidth: 320, maxHeight: .infinity)
-
-                    Divider()
-
-                    previewPane
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            case .reviews:
-                reviewsPane
+                filesPane
             case .webBrowser:
                 VStack(spacing: 0) {
                     webToolbar
@@ -66,12 +58,6 @@ struct WorkspacePanelView: View {
                 }
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
-        }
-        .background(c.surfaceRaised.opacity(0.72 as CGFloat))
-        .overlay(alignment: .leading) {
-            Rectangle()
-                .fill(c.border.opacity(0.9 as CGFloat))
-                .frame(width: 1)
         }
         .task(id: context) {
             viewModel.activate(context: context)
@@ -83,6 +69,37 @@ struct WorkspacePanelView: View {
             .keyboardShortcut("t", modifiers: [.command])
             .opacity(0.001)
             .allowsHitTesting(false)
+        }
+    }
+
+    private var filesPane: some View {
+        GeometryReader { proxy in
+            if proxy.size.width >= 600 {
+                HStack(spacing: 0) {
+                    treePane
+                        .frame(minWidth: 220, maxWidth: 320, maxHeight: .infinity)
+
+                    Divider()
+
+                    previewPane
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            } else {
+                VStack(spacing: 0) {
+                    treePane
+                        .frame(
+                            height: min(
+                                max(proxy.size.height * 0.42, 180),
+                                360
+                            )
+                        )
+
+                    Divider()
+
+                    previewPane
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
         }
     }
 
@@ -163,24 +180,6 @@ struct WorkspacePanelView: View {
         }
     }
 
-    private var reviewsPane: some View {
-        VStack(alignment: .leading, spacing: theme.spacing.m) {
-            Spacer(minLength: 0)
-            Text("Reviews")
-                .font(.system(size: theme.typography.title))
-                .foregroundColor(theme.colors.textPrimary)
-            Text("No reviews yet.")
-                .font(.system(size: theme.typography.body))
-                .foregroundColor(theme.colors.textSecondary)
-            Text("This tab is ready for future review surfaces.")
-                .font(.system(size: theme.typography.caption))
-                .foregroundColor(theme.colors.textMuted)
-            Spacer(minLength: 0)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        .padding(theme.spacing.xl)
-    }
-
     private var webToolbar: some View {
         let c = theme.colors
         let sp = theme.spacing
@@ -224,29 +223,28 @@ struct WorkspacePanelView: View {
         .padding(.vertical, sp.s)
     }
 
-    private var modeBinding: Binding<WorkspacePanelMode> {
-        Binding(
-            get: { viewModel.mode },
-            set: { viewModel.switchMode($0) }
-        )
-    }
-
     @ViewBuilder
     private var filesToolbarQuickActions: some View {
         if viewModel.mode == .files {
             let selection = viewModel.selectionContext()
 
-            Button("Open in Zed") {
+            Button {
                 viewModel.perform(.openInZed)
+            } label: {
+                Image(systemName: "arrow.up.forward.app")
             }
             .buttonStyle(.plain)
             .disabled(!selection.canOpenInEditor)
+            .help("Open in Zed")
 
-            Button("Reveal in Finder") {
+            Button {
                 viewModel.perform(.revealInFinder)
+            } label: {
+                Image(systemName: "folder")
             }
             .buttonStyle(.plain)
             .disabled(!selection.canRevealInFinder)
+            .help("Reveal in Finder")
 
             Menu {
                 Button("Open in Zed") {
@@ -259,12 +257,10 @@ struct WorkspacePanelView: View {
                 }
                 .disabled(!selection.canRevealInFinder)
             } label: {
-                HStack(spacing: theme.spacing.xs) {
-                    Text("Tools")
-                    Icons.symbol(.moreHoriz, size: theme.typography.caption)
-                }
+                Image(systemName: "ellipsis")
             }
             .buttonStyle(.plain)
+            .help("More file actions")
         }
     }
 }
@@ -283,10 +279,18 @@ private struct WorkspacePanelNodeView: View {
                 HStack(spacing: theme.spacing.s) {
                     Icons.symbol(icon, size: theme.typography.body)
                         .foregroundColor(node.kind == .directory ? theme.colors.textSecondary : theme.colors.textMuted)
-                    Text(node.name)
-                        .font(.system(size: theme.typography.caption))
-                        .foregroundColor(theme.colors.textPrimary)
-                        .lineLimit(1)
+                    VStack(alignment: .leading, spacing: 1) {
+                        Text(node.name)
+                            .font(.system(size: theme.typography.caption))
+                            .foregroundColor(theme.colors.textPrimary)
+                            .lineLimit(1)
+                        if depth == 0, node.path.hasPrefix("/") {
+                            Text(node.path)
+                                .font(.system(size: theme.typography.micro))
+                                .foregroundColor(theme.colors.textMuted)
+                                .lineLimit(1)
+                        }
+                    }
                     Spacer(minLength: 0)
                     if node.isLoadingChildren {
                         ProgressView()

@@ -7,10 +7,16 @@ public struct ChatNavigationRequest: Equatable, Sendable {
 
     public var id: Int
     public var context: Context
+    public var opensPreferredSession: Bool
 
-    public init(id: Int, context: Context) {
+    public init(
+        id: Int,
+        context: Context,
+        opensPreferredSession: Bool = true
+    ) {
         self.id = id
         self.context = context
+        self.opensPreferredSession = opensPreferredSession
     }
 
     public var preferredAgentId: String? {

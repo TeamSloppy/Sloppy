@@ -6,6 +6,21 @@ import SloppyClientCore
 @Suite("ChatTranscriptState")
 @MainActor
 struct ChatTranscriptStateTests {
+    @Test("late final events close turns in submission order")
+    func lateFinalEventsKeepTurnOrder() {
+        var tracker = ChatStreamingTurnTracker()
+        tracker.begin(sessionId: "session", messageId: "assistant-turn-1")
+        tracker.begin(sessionId: "session", messageId: "assistant-turn-2")
+
+        #expect(tracker.currentMessageId(for: "session") == "assistant-turn-1")
+        #expect(tracker.claimFinalMessageId(for: "session") == "assistant-turn-1")
+
+        tracker.completeNextTurn(for: "session")
+
+        #expect(tracker.currentMessageId(for: "session") == "assistant-turn-2")
+        #expect(tracker.claimFinalMessageId(for: "session") == "assistant-turn-2")
+    }
+
     @Test("replaceAll keeps only a recent window visible for large histories")
     func replaceAllShowsRecentWindowForLargeHistory() {
         let transcript = ChatTranscriptState()
@@ -95,6 +110,38 @@ struct ChatTranscriptStateTests {
         #expect(transcript.messages.count == 1)
         #expect(transcript.messages.first?.id == "assistant-final")
         #expect(transcript.messages.first?.textContent == "Final")
+    }
+
+    @Test("a later turn cannot overwrite an earlier streaming assistant")
+    func laterTurnPreservesEarlierStreamingAssistant() {
+        let transcript = ChatTranscriptState()
+        transcript.append(
+            ChatMessage(
+                id: "user-1",
+                role: .user,
+                segments: [ChatMessageSegment(kind: .text, text: "First question")]
+            )
+        )
+        transcript.appendStreamingAssistantText("First answer", messageId: "streaming-assistant-session-turn-1")
+        transcript.append(
+            ChatMessage(
+                id: "user-2",
+                role: .user,
+                segments: [ChatMessageSegment(kind: .text, text: "Second question")]
+            )
+        )
+        transcript.appendStreamingAssistantText("Second answer", messageId: "streaming-assistant-session-turn-2")
+
+        #expect(transcript.messages.map(\.id) == [
+            "user-1",
+            "streaming-assistant-session-turn-1",
+            "user-2",
+            "streaming-assistant-session-turn-2",
+        ])
+        #expect(transcript.messages.filter { $0.role == .assistant }.map(\.textContent) == [
+            "First answer",
+            "Second answer",
+        ])
     }
 
     @Test("late activity is inserted before the streaming assistant")

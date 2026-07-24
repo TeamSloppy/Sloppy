@@ -17,6 +17,8 @@ struct ProjectCreateTool: CoreTool {
             .init(name: "teams", description: "List of team IDs to assign", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)), isOptional: true),
             .init(name: "repoUrl", description: "Repository URL", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "repoPath", description: "Local repository or project path", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "kind", description: "Project kind: project or workspace", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "directoryPaths", description: "Ordered workspace directories; first is primary", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)), isOptional: true),
         ])
     }
 
@@ -41,7 +43,9 @@ struct ProjectCreateTool: CoreTool {
                     actors: actors,
                     teams: teams,
                     repoUrl: arguments["repoUrl"]?.asString,
-                    repoPath: arguments["repoPath"]?.asString
+                    repoPath: arguments["repoPath"]?.asString,
+                    kind: arguments["kind"]?.asString.flatMap(ProjectKind.init(rawValue:)) ?? .project,
+                    directoryPaths: arguments["directoryPaths"]?.asArray?.compactMap(\.asString) ?? []
                 )
             )
             let project = outcome.project

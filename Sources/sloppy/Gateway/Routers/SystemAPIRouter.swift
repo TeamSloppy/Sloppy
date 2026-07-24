@@ -39,6 +39,10 @@ private struct SelectDirectoryResponse: Encodable {
     var path: String?
 }
 
+private struct SelectDirectoriesResponse: Encodable {
+    var paths: [String]
+}
+
 private struct DashboardAuthValidateResponse: Encodable {
     struct Capabilities: Encodable {
         var acceptsLegacyToken: Bool
@@ -350,6 +354,11 @@ struct SystemAPIRouter: APIRouter {
         router.post("/v1/system/select-directory", metadata: RouteMetadata(summary: "Select local directory", description: "Opens a native directory picker and returns the selected directory path", tags: ["System"])) { _ in
             let path = await service.selectDirectory()
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: SelectDirectoryResponse(path: path))
+        }
+
+        router.post("/v1/system/select-directories", metadata: RouteMetadata(summary: "Select local directories", description: "Opens a native directory picker and returns the selected directory paths", tags: ["System"])) { _ in
+            let paths = await service.selectDirectories()
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: SelectDirectoriesResponse(paths: paths))
         }
     }
 }

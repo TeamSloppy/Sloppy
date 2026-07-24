@@ -9,6 +9,7 @@ struct RootShellView: View {
     @State var viewModel: RootShellViewModel
     #if os(macOS)
     @State private var backendInstallation = BackendInstallationModel()
+    @Environment(\.openWindow) private var openWindow
     #endif
 
     init() {
@@ -51,6 +52,9 @@ struct RootShellView: View {
             }
             #if os(macOS)
             .task {
+                viewModel.configureMainWindowOpener {
+                    openWindow(id: "main")
+                }
                 backendInstallation.checkIfNeeded()
             }
             #endif

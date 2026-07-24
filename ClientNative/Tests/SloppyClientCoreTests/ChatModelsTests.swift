@@ -116,6 +116,54 @@ struct ChatModelsTests {
         #expect(detail.latestRunStatus?.label == "Planning")
     }
 
+    @Test("run stages expose typed working state")
+    func runStagesExposeTypedWorkingState() {
+        #expect(ChatRunStage.thinking.isWorking)
+        #expect(ChatRunStage.searching.isWorking)
+        #expect(ChatRunStage.responding.isWorking)
+        #expect(!ChatRunStage.paused.isWorking)
+        #expect(!ChatRunStage.done.isWorking)
+        #expect(!ChatRunStage.interrupted.isWorking)
+    }
+
+    @Test("session catalog merges chats from every agent and drops heartbeats")
+    func sessionCatalogMergesAllAgentChats() {
+        let older = Date(timeIntervalSince1970: 100)
+        let newer = Date(timeIntervalSince1970: 200)
+        let catalog = ChatSessionCatalog.merge([
+            [
+                ChatSessionSummary(
+                    id: "agent-a-chat",
+                    agentId: "agent-a",
+                    title: "A",
+                    messageCount: 1,
+                    updatedAt: older,
+                    projectId: "project-a"
+                ),
+                ChatSessionSummary(
+                    id: "agent-a-heartbeat",
+                    agentId: "agent-a",
+                    title: "Heartbeat",
+                    updatedAt: newer,
+                    kind: "heartbeat"
+                ),
+            ],
+            [
+                ChatSessionSummary(
+                    id: "agent-b-chat",
+                    agentId: "agent-b",
+                    title: "B",
+                    messageCount: 2,
+                    updatedAt: newer,
+                    projectId: "project-b"
+                ),
+            ],
+        ])
+
+        #expect(catalog.map(\.id) == ["agent-b-chat", "agent-a-chat"])
+        #expect(Set(catalog.map(\.agentId)) == ["agent-a", "agent-b"])
+    }
+
     @Test("ChatMessage decodes tool and status segment metadata from JSON")
     func chatMessageDecodesRichSegments() throws {
         let json = """

@@ -48,6 +48,7 @@ export const runWorkspaceGitSync = coreApi.runWorkspaceGitSync;
 export const fetchSystemLogs = coreApi.fetchSystemLogs;
 export const createIssueReport = coreApi.createIssueReport;
 export const selectDirectory = coreApi.selectDirectory;
+export const selectDirectories = coreApi.selectDirectories;
 export const fetchAvailableModels = coreApi.fetchAvailableModels;
 export const fetchOpenAIModels = coreApi.fetchOpenAIModels;
 export const fetchOpenAIProviderStatus = coreApi.fetchOpenAIProviderStatus;

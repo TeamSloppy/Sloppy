@@ -95,6 +95,16 @@ struct ChatScreenRenderingTests {
         #expect(greetingSource.contains("Fix issues and failures"))
     }
 
+    @Test("empty chat uses the muted Sloppy logo")
+    func emptyChatUsesMutedSloppyLogo() throws {
+        let source = try chatGreetingSource
+
+        #expect(source.contains("SloppyAssets.projectLogo"))
+        #expect(source.contains(".renderingMode(.template)"))
+        #expect(source.contains(".foregroundColor(c.textMuted)"))
+        #expect(!source.contains("Image(systemName: \"terminal\")"))
+    }
+
     @Test("mobile navigation label shows the active context for drafts")
     func mobileNavigationLabelShowsTheActiveContextForDrafts() throws {
         let source = try chatScreenSource
@@ -143,6 +153,16 @@ struct ChatScreenRenderingTests {
         #expect(source.contains("oldCount == 0 || isNearBottom"))
         #expect(source.contains("guard isNearBottom,"))
         #expect(source.contains("proxy.scrollTo(bottomAnchorId, anchor: .bottom)"))
+    }
+
+    @Test("opening a chat always starts at the end of the transcript")
+    func openingChatStartsAtTranscriptEnd() throws {
+        let source = try chatScreenSource
+
+        #expect(source.contains("scrollToEndRequest: viewModel.transcriptScrollToEndRequest"))
+        #expect(source.contains(".defaultScrollAnchor(.bottom)"))
+        #expect(source.contains(".onChange(of: scrollToEndRequest, initial: true)"))
+        #expect(source.contains("scrollToBottom(using: proxy, animated: false)"))
     }
 
     @Test("chat groups system activity and shows a shimmering thinking state")

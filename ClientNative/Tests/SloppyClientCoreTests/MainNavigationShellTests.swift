@@ -140,4 +140,18 @@ struct MainNavigationShellTests {
         #expect(source.contains("viewModel.chatViewModel.loadInitialData()"))
         #expect(source.contains("Task { await viewModel.loadProjects() }"))
     }
+
+    @Test("macOS sidebar enforces its intended layout width")
+    func macOSSidebarEnforcesItsIntendedLayoutWidth() throws {
+        let mainViewSource = try source(named: "MainView.swift")
+        let sidebarSource = try source(named: "MainSidebarView.swift")
+
+        #expect(sidebarSource.contains("static let expandedWidth: CGFloat = 348"))
+        #expect(sidebarSource.contains("static let minimumWidth: CGFloat = 340"))
+        #expect(sidebarSource.contains("static let maximumWidth: CGFloat = 520"))
+        #expect(mainViewSource.contains(".frame("))
+        #expect(mainViewSource.contains("minWidth: viewModel.sidebarMinimumWidth"))
+        #expect(mainViewSource.contains("idealWidth: viewModel.sidebarWidth"))
+        #expect(mainViewSource.contains("maxWidth: viewModel.sidebarMaximumWidth"))
+    }
 }

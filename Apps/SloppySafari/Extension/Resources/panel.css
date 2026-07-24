@@ -4200,6 +4200,11 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
   font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
 }
 
+#sloppy-quick-chat.is-translation {
+  width: min(480px, calc(var(--sloppy-viewport-width, 100vw) - 32px));
+  max-height: min(560px, calc(var(--sloppy-viewport-height, 100vh) - 44px));
+}
+
 #sloppy-quick-chat.is-anchored {
   top: var(--sloppy-quick-top);
   right: auto;
@@ -4272,6 +4277,17 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
   line-height: 1.42;
 }
 
+#sloppy-quick-chat.is-translation .sloppy-quick-title strong {
+  font-size: 16px;
+}
+
+#sloppy-quick-chat.is-translation .sloppy-quick-body {
+  gap: 14px;
+  padding: 8px 20px 16px;
+  font-size: 17px;
+  line-height: 1.58;
+}
+
 #sloppy-quick-chat .sloppy-quick-user {
   justify-self: end;
   max-width: 72%;
@@ -4281,6 +4297,11 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
   color: rgba(242, 242, 242, 0.92);
   overflow-wrap: anywhere;
   white-space: pre-wrap;
+}
+
+#sloppy-quick-chat.is-translation .sloppy-quick-user {
+  max-width: 82%;
+  padding: 10px 14px;
 }
 
 #sloppy-quick-chat .sloppy-quick-assistant {
@@ -4349,6 +4370,11 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
     max-height: min(420px, calc(var(--sloppy-viewport-height, 100vh) - 20px));
   }
 
+  #sloppy-quick-chat.is-translation {
+    width: auto;
+    max-height: min(560px, calc(var(--sloppy-viewport-height, 100vh) - 20px));
+  }
+
   #sloppy-quick-chat .sloppy-quick-shell {
     border-radius: 18px;
   }
@@ -4366,6 +4392,16 @@ button.sloppy-attachment-chip:hover .sloppy-attachment-remove {
 
   #sloppy-quick-chat .sloppy-quick-body {
     padding: 4px 16px 10px;
+  }
+
+  #sloppy-quick-chat.is-translation .sloppy-quick-body {
+    padding: 8px 18px 16px;
+    font-size: 17px;
+    line-height: 1.58;
+  }
+
+  #sloppy-quick-chat.is-translation .sloppy-quick-title strong {
+    font-size: 16px;
   }
 }
 

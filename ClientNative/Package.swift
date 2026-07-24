@@ -16,7 +16,8 @@ let package = Package(
         .library(name: "SloppyFeatureProjects", targets: ["SloppyFeatureProjects"]),
         .library(name: "SloppyFeatureAgents", targets: ["SloppyFeatureAgents"]),
         .library(name: "SloppyFeatureSettings", targets: ["SloppyFeatureSettings"]),
-        .library(name: "SloppyFeatureChat", targets: ["SloppyFeatureChat"])
+        .library(name: "SloppyFeatureChat", targets: ["SloppyFeatureChat"]),
+        .library(name: "SloppyLiveActivity", targets: ["SloppyLiveActivity"])
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-log.git", from: "1.6.0"),
@@ -84,6 +85,13 @@ let package = Package(
             ],
             path: "Sources/SloppyFeatureChat"
         ),
+        .target(
+            name: "SloppyLiveActivity",
+            dependencies: [
+                "SloppyClientCore"
+            ],
+            path: "Sources/SloppyLiveActivity"
+        ),
         .executableTarget(
             name: "SloppyClient",
             dependencies: [
@@ -94,20 +102,29 @@ let package = Package(
                 "SloppyFeatureAgents",
                 "SloppyFeatureSettings",
                 "SloppyFeatureChat",
+                "SloppyLiveActivity",
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "SwiftTerm", package: "SwiftTerm")
             ],
-            path: "Sources/SloppyClient"
+            path: "Sources/SloppyClient",
+            resources: [
+                .process("Resources")
+            ]
         ),
         .testTarget(
             name: "SloppyClientCoreTests",
-            dependencies: ["SloppyClientCore", "CSQLite3"],
+            dependencies: ["SloppyClientCore", "SloppyLiveActivity", "CSQLite3"],
             path: "Tests/SloppyClientCoreTests"
         ),
         .testTarget(
             name: "SloppyFeatureChatTests",
             dependencies: ["SloppyClientCore", "SloppyFeatureChat"],
             path: "Tests/SloppyFeatureChatTests"
+        ),
+        .testTarget(
+            name: "SloppyFeatureProjectsTests",
+            dependencies: ["SloppyClientCore", "SloppyFeatureProjects"],
+            path: "Tests/SloppyFeatureProjectsTests"
         ),
         .systemLibrary(
             name: "CSQLite3",

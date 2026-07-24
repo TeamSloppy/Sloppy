@@ -1082,11 +1082,18 @@ public struct KanbanEvent: Codable, Sendable {
     }
 }
 
+public enum ProjectKind: String, Codable, Sendable, Equatable, CaseIterable {
+    case project
+    case workspace
+}
+
 public struct ProjectRecord: Codable, Sendable, Equatable {
     public var id: String
     public var name: String
     public var description: String
     public var icon: String?
+    public var kind: ProjectKind
+    public var directoryPaths: [String]
     public var channels: [ProjectChannel]
     public var tasks: [ProjectTask]
     public var actors: [String]
@@ -1110,7 +1117,7 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
     public var updatedAt: Date
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, description, icon, channels, tasks, actors, teams, models
+        case id, name, description, icon, kind, directoryPaths, channels, tasks, actors, teams, models
         case agentFiles, heartbeat, repoPath, worktreeRootPath, sourceControlProviderId, reviewSettings, autopilotSettings, taskLoopMode, taskSyncSettings, isFavorite, isArchived, createdAt, updatedAt
         case parentProjectId, worktreeBranch, isWorktree
     }
@@ -1120,6 +1127,8 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         name: String,
         description: String,
         icon: String? = nil,
+        kind: ProjectKind = .project,
+        directoryPaths: [String] = [],
         channels: [ProjectChannel],
         tasks: [ProjectTask],
         actors: [String] = [],
@@ -1146,6 +1155,8 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         self.name = name
         self.description = description
         self.icon = icon
+        self.kind = kind
+        self.directoryPaths = directoryPaths
         self.channels = channels
         self.tasks = tasks
         self.actors = actors
@@ -1175,6 +1186,8 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         name = try container.decode(String.self, forKey: .name)
         description = try container.decode(String.self, forKey: .description)
         icon = try container.decodeIfPresent(String.self, forKey: .icon)
+        kind = try container.decodeIfPresent(ProjectKind.self, forKey: .kind) ?? .project
+        directoryPaths = try container.decodeIfPresent([String].self, forKey: .directoryPaths) ?? []
         channels = try container.decodeIfPresent([ProjectChannel].self, forKey: .channels) ?? []
         tasks = try container.decodeIfPresent([ProjectTask].self, forKey: .tasks) ?? []
         actors = try container.decodeIfPresent([String].self, forKey: .actors) ?? []
@@ -1235,6 +1248,8 @@ public struct ProjectListRecord: Codable, Sendable, Equatable {
     public var name: String
     public var description: String
     public var icon: String?
+    public var kind: ProjectKind
+    public var directoryPaths: [String]
     public var channels: [ProjectChannel]
     public var actors: [String]
     public var teams: [String]
@@ -1251,7 +1266,7 @@ public struct ProjectListRecord: Codable, Sendable, Equatable {
     public var updatedAt: Date
 
     private enum CodingKeys: String, CodingKey {
-        case id, name, description, icon, channels, actors, teams, repoPath, worktreeRootPath, sourceControlProviderId, taskCounts, isFavorite, isArchived
+        case id, name, description, icon, kind, directoryPaths, channels, actors, teams, repoPath, worktreeRootPath, sourceControlProviderId, taskCounts, isFavorite, isArchived
         case parentProjectId, worktreeBranch, isWorktree, createdAt, updatedAt
     }
 
@@ -1260,6 +1275,8 @@ public struct ProjectListRecord: Codable, Sendable, Equatable {
         name: String,
         description: String,
         icon: String? = nil,
+        kind: ProjectKind = .project,
+        directoryPaths: [String] = [],
         channels: [ProjectChannel] = [],
         actors: [String] = [],
         teams: [String] = [],
@@ -1279,6 +1296,8 @@ public struct ProjectListRecord: Codable, Sendable, Equatable {
         self.name = name
         self.description = description
         self.icon = icon
+        self.kind = kind
+        self.directoryPaths = directoryPaths
         self.channels = channels
         self.actors = actors
         self.teams = teams
@@ -1301,6 +1320,8 @@ public struct ProjectListRecord: Codable, Sendable, Equatable {
         name = try container.decode(String.self, forKey: .name)
         description = try container.decode(String.self, forKey: .description)
         icon = try container.decodeIfPresent(String.self, forKey: .icon)
+        kind = try container.decodeIfPresent(ProjectKind.self, forKey: .kind) ?? .project
+        directoryPaths = try container.decodeIfPresent([String].self, forKey: .directoryPaths) ?? []
         channels = try container.decodeIfPresent([ProjectChannel].self, forKey: .channels) ?? []
         actors = try container.decodeIfPresent([String].self, forKey: .actors) ?? []
         teams = try container.decodeIfPresent([String].self, forKey: .teams) ?? []
@@ -1528,6 +1549,8 @@ public struct ProjectCreateRequest: Codable, Sendable {
     public var teams: [String]?
     public var repoUrl: String?
     public var repoPath: String?
+    public var kind: ProjectKind
+    public var directoryPaths: [String]
     public var sourceControlProviderId: String?
 
     private enum CodingKeys: String, CodingKey {
@@ -1539,6 +1562,8 @@ public struct ProjectCreateRequest: Codable, Sendable {
         case teams
         case repoUrl
         case repoPath
+        case kind
+        case directoryPaths
         case sourceControlProviderId
     }
 
@@ -1551,6 +1576,8 @@ public struct ProjectCreateRequest: Codable, Sendable {
         teams: [String]? = nil,
         repoUrl: String? = nil,
         repoPath: String? = nil,
+        kind: ProjectKind = .project,
+        directoryPaths: [String] = [],
         sourceControlProviderId: String? = nil
     ) {
         self.id = id
@@ -1561,6 +1588,8 @@ public struct ProjectCreateRequest: Codable, Sendable {
         self.teams = teams
         self.repoUrl = repoUrl
         self.repoPath = repoPath
+        self.kind = kind
+        self.directoryPaths = directoryPaths
         self.sourceControlProviderId = sourceControlProviderId
     }
 
@@ -1574,6 +1603,8 @@ public struct ProjectCreateRequest: Codable, Sendable {
         teams = try container.decodeIfPresent([String].self, forKey: .teams)
         repoUrl = try container.decodeIfPresent(String.self, forKey: .repoUrl)
         repoPath = try container.decodeIfPresent(String.self, forKey: .repoPath)
+        kind = try container.decodeIfPresent(ProjectKind.self, forKey: .kind) ?? .project
+        directoryPaths = try container.decodeIfPresent([String].self, forKey: .directoryPaths) ?? []
         sourceControlProviderId = try container.decodeIfPresent(String.self, forKey: .sourceControlProviderId)
     }
 }
@@ -1588,6 +1619,8 @@ public struct ProjectUpdateRequest: Codable, Sendable {
     public var agentFiles: [String]?
     public var heartbeat: ProjectHeartbeatSettings?
     public var repoPath: String?
+    public var kind: ProjectKind?
+    public var directoryPaths: [String]?
     public var sourceControlProviderId: String?
     public var reviewSettings: ProjectReviewSettings?
     public var autopilotSettings: ProjectAutopilotSettings?
@@ -1605,6 +1638,8 @@ public struct ProjectUpdateRequest: Codable, Sendable {
         agentFiles: [String]? = nil,
         heartbeat: ProjectHeartbeatSettings? = nil,
         repoPath: String? = nil,
+        kind: ProjectKind? = nil,
+        directoryPaths: [String]? = nil,
         sourceControlProviderId: String? = nil,
         reviewSettings: ProjectReviewSettings? = nil,
         autopilotSettings: ProjectAutopilotSettings? = nil,
@@ -1621,6 +1656,8 @@ public struct ProjectUpdateRequest: Codable, Sendable {
         self.agentFiles = agentFiles
         self.heartbeat = heartbeat
         self.repoPath = repoPath
+        self.kind = kind
+        self.directoryPaths = directoryPaths
         self.sourceControlProviderId = sourceControlProviderId
         self.reviewSettings = reviewSettings
         self.autopilotSettings = autopilotSettings
@@ -6417,11 +6454,13 @@ public struct ProjectFileEntry: Codable, Sendable {
     }
 
     public var name: String
+    public var path: String?
     public var type: EntryType
     public var size: Int?
 
-    public init(name: String, type: EntryType, size: Int? = nil) {
+    public init(name: String, path: String? = nil, type: EntryType, size: Int? = nil) {
         self.name = name
+        self.path = path
         self.type = type
         self.size = size
     }

@@ -62,4 +62,37 @@ struct ChatMessageRenderingSupportTests {
         #expect(ChatTranscriptGrouping.usesCompactSpacing(between: thinking, and: progress))
         #expect(!ChatTranscriptGrouping.usesCompactSpacing(between: progress, and: assistant))
     }
+
+    @Test("collapsed system activity shows only currently executing tools")
+    func collapsedSystemActivityShowsOnlyCurrentTools() {
+        let message = ChatMessage(id: "system", role: .system, segments: [])
+        let items = [
+            ChatSystemSegmentItem(
+                id: "first-call",
+                message: message,
+                segment: .init(kind: .toolCall, title: "runtime.exec", status: "started")
+            ),
+            ChatSystemSegmentItem(
+                id: "first-result",
+                message: message,
+                segment: .init(kind: .toolResult, title: "runtime.exec", status: "done")
+            ),
+            ChatSystemSegmentItem(
+                id: "current-call",
+                message: message,
+                segment: .init(kind: .toolCall, title: "runtime.exec", status: "started")
+            ),
+            ChatSystemSegmentItem(
+                id: "running-thinking",
+                message: message,
+                segment: .init(kind: .thinking, title: "Thinking", status: "running")
+            ),
+        ]
+
+        let collapsed = ChatSystemActivityVisibility.visibleItems(from: items, isExpanded: false)
+        let expanded = ChatSystemActivityVisibility.visibleItems(from: items, isExpanded: true)
+
+        #expect(collapsed.map(\.id) == ["current-call"])
+        #expect(expanded.map(\.id) == items.map(\.id))
+    }
 }

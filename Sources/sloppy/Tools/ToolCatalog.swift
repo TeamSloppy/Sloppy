@@ -536,7 +536,12 @@ enum ToolCatalog {
                     "items": .object(["type": .string("string")])
                 ]),
                 "repoUrl": .object(["type": .string("string")]),
-                "repoPath": .object(["type": .string("string")])
+                "repoPath": .object(["type": .string("string")]),
+                "kind": .object(["type": .string("string"), "enum": .array([.string("project"), .string("workspace")])]),
+                "directoryPaths": .object([
+                    "type": .string("array"),
+                    "items": .object(["type": .string("string")])
+                ])
             ]),
             "required": .array([.string("name")])
         ]),
@@ -555,7 +560,12 @@ enum ToolCatalog {
                     "type": .string("array"),
                     "items": .object(["type": .string("string")])
                 ]),
-                "repoPath": .object(["type": .string("string")])
+                "repoPath": .object(["type": .string("string")]),
+                "kind": .object(["type": .string("string"), "enum": .array([.string("project"), .string("workspace")])]),
+                "directoryPaths": .object([
+                    "type": .string("array"),
+                    "items": .object(["type": .string("string")])
+                ])
             ]),
             "required": .array([.string("projectId")])
         ]),

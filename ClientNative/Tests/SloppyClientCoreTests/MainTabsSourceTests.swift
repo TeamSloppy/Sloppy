@@ -59,8 +59,8 @@ struct MainTabsSourceTests {
         #expect(mainView.contains("func dismissVisionTabsOverview()"))
     }
 
-    @Test("new chat sidebar action opens a selected blank chat tab")
-    func newChatSidebarActionOpensASelectedBlankChatTab() throws {
+    @Test("new chat sidebar action reuses the selected tab")
+    func newChatSidebarActionReusesTheSelectedTab() throws {
         let mainViewModel = try source("Sources/SloppyClient/Navigation/Main/MainViewModel.swift")
         let start = try #require(mainViewModel.range(of: "func selectNewChat()"))
         let end = try #require(
@@ -71,7 +71,8 @@ struct MainTabsSourceTests {
         )
         let method = mainViewModel[start.lowerBound..<end.lowerBound]
 
-        #expect(method.contains("createBlankChatTab(select: true)"))
+        #expect(method.contains("showBlankChatInSelectedTab()"))
+        #expect(!method.contains("createBlankChatTab("))
         #expect(!method.contains("routePrimaryChat(.blank)"))
     }
 
@@ -105,6 +106,32 @@ struct MainTabsSourceTests {
         #expect(mainView.contains("$0.name.localizedStandardContains(toolbarSearchQuery)"))
         #expect(mainView.contains("viewModel.openSessionChatTab(session)"))
         #expect(mainView.contains("viewModel.openProjectKanbanTab(project: project)"))
+        #expect(mainView.contains("Button(action: action)"))
+        #expect(mainView.contains("@State private var toolbarSearchSelectionID"))
+        #expect(mainView.contains(".onKeyPress(.downArrow)"))
+        #expect(mainView.contains(".onKeyPress(.upArrow)"))
+        #expect(mainView.contains("openSelectedToolbarSearchResult()"))
+        #expect(mainView.contains("isSelected: toolbarSearchSelectionID == result.id"))
+        #expect(mainView.contains("toolbarSearchResultsOverlay"))
+        #expect(mainView.contains("private func openToolbarSearchResult("))
+        #expect(mainView.contains("ScrollViewReader { proxy in"))
+        #expect(mainView.contains("proxy.scrollTo(selectionID, anchor: .center)"))
+    }
+
+    @Test("macOS toolbar search relies on material without an extra outline")
+    func macOSToolbarSearchHasNoExtraOutline() throws {
+        let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
+        let searchFieldStart = try #require(mainView.range(
+            of: "private var toolbarSearchField: some View"
+        ))
+        let searchFieldEnd = try #require(mainView.range(
+            of: "private var toolbarSearchQuery: String",
+            range: searchFieldStart.upperBound..<mainView.endIndex
+        ))
+        let searchField = mainView[searchFieldStart.lowerBound..<searchFieldEnd.lowerBound]
+
+        #expect(searchField.contains(".background(.regularMaterial, in: Capsule())"))
+        #expect(!searchField.contains(".stroke("))
     }
 
     @Test("vision tab chrome is extracted into a dedicated floating view")

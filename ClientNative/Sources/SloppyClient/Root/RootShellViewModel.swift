@@ -4,6 +4,10 @@ import SwiftUI
 import SloppyClientCore
 import SloppyClientUI
 
+#if os(iOS)
+import SloppyLiveActivity
+#endif
+
 #if os(macOS)
 import AppKit
 #endif
@@ -46,11 +50,18 @@ final class RootShellViewModel {
     private var notificationBaseURL: URL?
     #if os(macOS)
     private let desktopOverlay = SloppyDesktopOverlay()
+    private var openMainWindow: (@MainActor () -> Void)?
+    #endif
+    #if os(iOS)
+    private let liveActivityCoordinator = SloppyLiveActivityCoordinator()
     #endif
 
     init() {
         connectionMonitor = ConnectionMonitor(baseURL: URL(string: "http://localhost:25101")!)
         #if os(macOS)
+        desktopOverlay.onOpenAgentRun = { [weak self] agentID, sessionID in
+            self?.openAgentSession(agentID: agentID, sessionID: sessionID)
+        }
         desktopOverlay.start(settings: settings)
         #endif
     }
@@ -81,8 +92,25 @@ final class RootShellViewModel {
     }
 
     #if os(macOS)
+    func configureMainWindowOpener(_ action: @escaping @MainActor () -> Void) {
+        openMainWindow = action
+    }
+
     func configureDesktopWindow(_ window: NSWindow) {
         desktopOverlay.attach(window: window)
+    }
+
+    private func openAgentSession(agentID: String, sessionID: String) {
+        if case .chat = appState {
+            // Keep the current connected workspace.
+        } else {
+            startConnected(url: settings.baseURL)
+        }
+        appDeepLinkRequest = AppDeepLinkRequest(
+            deepLink: .session(agentId: agentID, sessionId: sessionID)
+        )
+        openMainWindow?()
+        desktopOverlay.presentMainWindow()
     }
     #endif
 
@@ -94,11 +122,22 @@ final class RootShellViewModel {
 
     func startConnected(url: URL) {
         #if os(macOS)
-        desktopOverlay.start(settings: settings)
+        desktopOverlay.start(settings: settings, baseURL: url)
+        #endif
+        #if os(iOS)
+        liveActivityCoordinator.start(baseURL: url)
         #endif
         connectionMonitor.start(baseURL: url)
         appState = .chat(url)
         startNotificationListener(baseURL: url)
+    }
+
+    func handleScenePhase(_ scenePhase: ScenePhase) {
+        #if os(iOS)
+        if scenePhase == .active {
+            liveActivityCoordinator.applicationDidBecomeActive()
+        }
+        #endif
     }
 
     func requestMenuBarAction(_ action: MenuBarQuickAction) {
@@ -152,6 +191,9 @@ final class RootShellViewModel {
         if notification.type == .toolApproval {
             desktopOverlay.updateToolApproval(notification)
         }
+        #endif
+        #if os(iOS)
+        liveActivityCoordinator.apply(notification)
         #endif
 
         bannerDismissTask?.cancel()

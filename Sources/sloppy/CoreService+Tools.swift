@@ -1103,14 +1103,18 @@ extension CoreService {
         sessionTitle: String,
         projectID: String?
     ) async -> (workingDirectory: String?, extraRoots: [String]) {
-        if let roots = sessionExtraRoots[sessionID] {
-            return (sessionWorkingDirectories[sessionID], roots)
+        if let projectContext = await toolContextForProject(projectID: projectID) {
+            var roots = projectContext.extraRoots
+            for addedRoot in sessionAddedRoots[sessionID] ?? [] where !roots.contains(addedRoot) {
+                roots.append(addedRoot)
+            }
+            sessionExtraRoots[sessionID] = roots
+            sessionWorkingDirectories[sessionID] = projectContext.workingDirectory
+            return (projectContext.workingDirectory, roots)
         }
 
-        if let projectContext = await toolContextForProject(projectID: projectID) {
-            sessionExtraRoots[sessionID] = projectContext.extraRoots
-            sessionWorkingDirectories[sessionID] = projectContext.workingDirectory
-            return projectContext
+        if let roots = sessionExtraRoots[sessionID] {
+            return (sessionWorkingDirectories[sessionID], roots)
         }
 
         let trimmedTitle = sessionTitle.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -1144,8 +1148,11 @@ extension CoreService {
             }
 
             var roots = sessionToolRoots(forWorkingDirectory: workingDirectory)
-            if !roots.contains(repoPath) {
-                roots.append(repoPath)
+            for projectRoot in effectiveProjectDirectoryURLs(project).map(\.path) where !roots.contains(projectRoot) {
+                roots.append(projectRoot)
+            }
+            for addedRoot in sessionAddedRoots[sessionID] ?? [] where !roots.contains(addedRoot) {
+                roots.append(addedRoot)
             }
             sessionExtraRoots[sessionID] = roots
             sessionWorkingDirectories[sessionID] = workingDirectory
@@ -1158,13 +1165,19 @@ extension CoreService {
     private func toolContextForProject(projectID: String?) async -> (workingDirectory: String?, extraRoots: [String])? {
         guard let trimmedProjectID = projectID?.trimmingCharacters(in: .whitespacesAndNewlines),
               !trimmedProjectID.isEmpty,
-              let workingDirectoryURL = try? await resolveProjectWorkspaceRoot(projectID: trimmedProjectID)
+              let normalizedID = normalizedProjectID(trimmedProjectID),
+              let project = await store.project(id: normalizedID)
         else {
             return nil
         }
 
-        let workingDirectory = workingDirectoryURL.path
-        return (workingDirectory, sessionToolRoots(forWorkingDirectory: workingDirectory))
+        let rootPaths = effectiveProjectDirectoryURLs(project).map(\.path)
+        guard let workingDirectory = rootPaths.first else { return nil }
+        var roots = sessionToolRoots(forWorkingDirectory: workingDirectory)
+        for root in rootPaths where !roots.contains(root) {
+            roots.append(root)
+        }
+        return (workingDirectory, roots)
     }
 
     func ensureDebugDirectoryForSessionIfNeeded(
@@ -1272,19 +1285,21 @@ extension CoreService {
         guard let project = await projectForChannel(channelId: channelID) else {
             return (savedWorkingDirectory, savedRoots)
         }
-        guard let workingDirectoryURL = try? await resolveProjectWorkspaceRoot(projectID: project.id) else {
+        let rootPaths = effectiveProjectDirectoryURLs(project).map(\.path)
+        guard let workingDirectory = rootPaths.first else {
             return (savedWorkingDirectory, savedRoots)
         }
 
-        let workingDirectory = workingDirectoryURL.path
         var roots = sessionToolRoots(forWorkingDirectory: workingDirectory)
-        if !roots.contains(workingDirectory) {
-            roots.append(workingDirectory)
-        }
-        for root in savedRoots where !roots.contains(root) {
+        for root in rootPaths where !roots.contains(root) {
             roots.append(root)
         }
-        return (savedWorkingDirectory ?? workingDirectory, roots)
+        for root in channelAddedRoots[channelID] ?? [] where !roots.contains(root) {
+            roots.append(root)
+        }
+        channelExtraRoots[channelID] = roots
+        channelWorkingDirectories[channelID] = workingDirectory
+        return (workingDirectory, roots)
     }
 
 }

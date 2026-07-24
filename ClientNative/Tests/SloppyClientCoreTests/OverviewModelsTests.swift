@@ -44,6 +44,57 @@ struct OverviewModelsTests {
         #expect(summary.activeTaskCount == 0)
     }
 
+    @Test("legacy projects decode with project defaults")
+    func legacyProjectDefaults() throws {
+        let json = #"{"id":"legacy","name":"Legacy","description":"","repoPath":"/tmp/legacy"}"#.data(using: .utf8)!
+        let project = try JSONDecoder().decode(APIProjectRecord.self, from: json)
+
+        #expect(project.kind == .project)
+        #expect(project.directoryPaths.isEmpty)
+        #expect(project.projectRootPath == "/tmp/legacy")
+        #expect(project.semanticIconName == "folder")
+    }
+
+    @Test("workspace projects preserve roots and use workspace icon")
+    func workspaceProjectCoding() throws {
+        let record = APIProjectRecord(
+            id: "workspace",
+            name: "Workspace",
+            kind: .workspace,
+            directoryPaths: ["/tmp/app", "/tmp/api"],
+            repoPath: "/tmp/app"
+        )
+        let decoded = try JSONDecoder().decode(APIProjectRecord.self, from: JSONEncoder().encode(record))
+
+        #expect(decoded.kind == .workspace)
+        #expect(decoded.directoryPaths == ["/tmp/app", "/tmp/api"])
+        #expect(decoded.projectRootPath == "/tmp/app")
+        #expect(decoded.semanticIconName == "square.stack.3d.up")
+    }
+
+    @Test("Material project icons map to SF Symbols")
+    func materialProjectIconsMapToSystemSymbols() {
+        let science = APIProjectRecord(id: "science", name: "Science", icon: "science")
+        let deployedCode = APIProjectRecord(id: "deploy", name: "Deploy", icon: "deployed_code")
+
+        #expect(science.semanticIconName == "flask")
+        #expect(deployedCode.semanticIconName == "shippingbox")
+    }
+
+    @Test("unsupported project icons use the project kind fallback")
+    func unsupportedProjectIconsUseFallback() {
+        let project = APIProjectRecord(id: "project", name: "Project", icon: "not_an_sf_symbol")
+        let workspace = APIProjectRecord(
+            id: "workspace",
+            name: "Workspace",
+            icon: "not_an_sf_symbol",
+            kind: .workspace
+        )
+
+        #expect(project.semanticIconName == "folder")
+        #expect(workspace.semanticIconName == "square.stack.3d.up")
+    }
+
     @Test("APIAgentRecord toOverview preserves fields")
     func agentRecordToOverview() {
         let record = APIAgentRecord(id: "agent-1", displayName: "Codex", role: "developer")
@@ -100,5 +151,26 @@ struct OverviewModelsTests {
         #expect(review.normalizedKanbanColumnID == .needsReview)
         #expect(done.normalizedKanbanColumnID == .done)
         #expect(unknown.normalizedKanbanColumnID == .other)
+    }
+
+    @Test("project task creation request uses the Core wire keys")
+    func projectTaskCreationRequestUsesCoreWireKeys() throws {
+        let request = APIProjectTaskCreateRequest(
+            title: "Create filters",
+            description: "Add task filters",
+            priority: "high",
+            status: "backlog",
+            actorId: "agent:ui",
+            tags: ["frontend"]
+        )
+
+        let object = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any]
+        )
+
+        #expect(object["title"] as? String == "Create filters")
+        #expect(object["actorId"] as? String == "agent:ui")
+        #expect(object["status"] as? String == "backlog")
+        #expect(object["tags"] as? [String] == ["frontend"])
     }
 }

@@ -208,17 +208,34 @@ extension CoreService {
     }
 
     public func listProjectFiles(projectID: String, path: String) async throws -> [ProjectFileEntry] {
-        let rootURL = try await resolveProjectWorkspaceRoot(projectID: projectID)
+        guard let normalizedID = normalizedProjectID(projectID),
+              let project = await store.project(id: normalizedID)
+        else {
+            throw ProjectError.notFound
+        }
+        let rootURLs = effectiveProjectDirectoryURLs(project)
+        guard let rootURL = rootURLs.first else { throw ProjectError.notFound }
 
         let targetURL: URL
         let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        if project.kind == .workspace, trimmedPath.isEmpty || trimmedPath == "/" {
+            return rootURLs.map { root in
+                ProjectFileEntry(
+                    name: root.lastPathComponent.isEmpty ? root.path : root.lastPathComponent,
+                    path: root.path,
+                    type: .directory
+                )
+            }
+        }
         if trimmedPath.isEmpty || trimmedPath == "/" {
             targetURL = rootURL
+        } else if trimmedPath.hasPrefix("/") {
+            targetURL = URL(fileURLWithPath: trimmedPath, isDirectory: true).standardizedFileURL
         } else {
             targetURL = rootURL.appendingPathComponent(trimmedPath).standardized
         }
 
-        guard isProjectURL(targetURL, inside: rootURL) else {
+        guard rootURLs.contains(where: { isProjectURL(targetURL, inside: $0) }) else {
             throw ProjectError.invalidProjectID
         }
 
@@ -236,6 +253,7 @@ extension CoreService {
             let size = resourceValues?.fileSize
             entries.append(ProjectFileEntry(
                 name: url.lastPathComponent,
+                path: project.kind == .workspace || trimmedPath.hasPrefix("/") ? url.standardizedFileURL.path : nil,
                 type: isDirectory ? .directory : .file,
                 size: isDirectory ? nil : size
             ))
@@ -252,7 +270,9 @@ extension CoreService {
         guard let normalizedID = normalizedProjectID(projectID) else {
             throw ProjectError.invalidProjectID
         }
-        let rootURL = try await resolveProjectWorkspaceRoot(projectID: projectID)
+        guard let project = await store.project(id: normalizedID) else { throw ProjectError.notFound }
+        let rootURLs = effectiveProjectDirectoryURLs(project)
+        guard let rootURL = rootURLs.first else { throw ProjectError.notFound }
 
         let fm = FileManager.default
         var isRootDir: ObjCBool = false
@@ -264,7 +284,7 @@ extension CoreService {
         let index = ProjectFileIndex.build(
             projectId: projectID,
             rootURL: rootURL,
-            additionalRootURLs: fallbackPlanArtifactIndexRoots(projectID: normalizedID, rootURL: rootURL),
+            additionalRootURLs: Array(rootURLs.dropFirst()) + fallbackPlanArtifactIndexRoots(projectID: normalizedID, rootURL: rootURL),
             limit: ProjectFileIndex.defaultLimit
         )
         return index.search(query, limit: maxResults).map { entry in
@@ -273,15 +293,23 @@ extension CoreService {
     }
 
     public func readProjectFile(projectID: String, path: String) async throws -> ProjectFileContentResponse {
-        let rootURL = try await resolveProjectWorkspaceRoot(projectID: projectID)
+        guard let normalizedID = normalizedProjectID(projectID),
+              let project = await store.project(id: normalizedID)
+        else {
+            throw ProjectError.notFound
+        }
+        let rootURLs = effectiveProjectDirectoryURLs(project)
+        guard let rootURL = rootURLs.first else { throw ProjectError.notFound }
 
         let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPath.isEmpty else {
             throw ProjectError.invalidProjectID
         }
 
-        let targetURL = rootURL.appendingPathComponent(trimmedPath).standardized
-        guard isProjectURL(targetURL, inside: rootURL) else {
+        let targetURL = trimmedPath.hasPrefix("/")
+            ? URL(fileURLWithPath: trimmedPath).standardizedFileURL
+            : rootURL.appendingPathComponent(trimmedPath).standardizedFileURL
+        guard rootURLs.contains(where: { isProjectURL(targetURL, inside: $0) }) else {
             throw ProjectError.invalidProjectID
         }
 
@@ -294,9 +322,14 @@ extension CoreService {
             throw ProjectError.invalidProjectID
         }
 
-        let relativePath = String(targetURL.path.dropFirst(rootURL.path.count))
-            .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        return ProjectFileContentResponse(path: relativePath, content: text, sizeBytes: data.count)
+        let responsePath: String
+        if project.kind == .workspace || trimmedPath.hasPrefix("/") {
+            responsePath = targetURL.path
+        } else {
+            responsePath = String(targetURL.path.dropFirst(rootURL.path.count))
+                .trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+        }
+        return ProjectFileContentResponse(path: responsePath, content: text, sizeBytes: data.count)
     }
 
     /// Line stats and unified diff for the project workspace from its configured source-control provider.
@@ -568,14 +601,10 @@ extension CoreService {
         guard let project = await store.project(id: normalizedID) else {
             throw ProjectError.notFound
         }
-        let trimmedRepoPath = project.repoPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !trimmedRepoPath.isEmpty else {
-            throw ProjectError.invalidPayload
-        }
-
-        let resolvedRoot = resolvedProjectRootFromStored(repoPath: project.repoPath, normalizedProjectID: normalizedID)
+        let rootPaths = effectiveProjectDirectoryURLs(project).map(\.path)
+        guard !rootPaths.isEmpty else { throw ProjectError.invalidPayload }
         let loader = ProjectContextLoader()
-        let loaded = loader.load(repoPath: resolvedRoot.path, projectMemoryURL: projectMetaMemoryFileURL(projectID: normalizedID))
+        let loaded = loader.load(repoPaths: rootPaths, projectMemoryURL: projectMetaMemoryFileURL(projectID: normalizedID))
         let content = renderProjectContextBootstrap(projectID: normalizedID, projectName: project.name, loaded: loaded)
 
         let channelIDs = project.channels.map(\.channelId)
@@ -609,14 +638,10 @@ extension CoreService {
         guard let project = await store.project(id: normalizedID) else {
             return nil
         }
-        let trimmedRepoPath = project.repoPath?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !trimmedRepoPath.isEmpty else {
-            return nil
-        }
-
-        let resolvedRoot = resolvedProjectRootFromStored(repoPath: project.repoPath, normalizedProjectID: normalizedID)
+        let rootPaths = effectiveProjectDirectoryURLs(project).map(\.path)
+        guard !rootPaths.isEmpty else { return nil }
         let loader = ProjectContextLoader()
-        let loaded = loader.load(repoPath: resolvedRoot.path, projectMemoryURL: projectMetaMemoryFileURL(projectID: normalizedID))
+        let loaded = loader.load(repoPaths: rootPaths, projectMemoryURL: projectMetaMemoryFileURL(projectID: normalizedID))
         return renderProjectContextBootstrap(projectID: normalizedID, projectName: project.name, loaded: loaded)
     }
 
@@ -629,7 +654,14 @@ extension CoreService {
         lines.append(Self.projectContextBootstrapMarker)
         lines.append("Project context initialized.")
         lines.append("Project: \(projectName) (\(projectID))")
-        lines.append("Repo path: \(loaded.repoPath)")
+        if loaded.repoPaths.count > 1 {
+            lines.append("Workspace paths:")
+            for (index, path) in loaded.repoPaths.enumerated() {
+                lines.append("- \(index == 0 ? "primary: " : "")\(path)")
+            }
+        } else {
+            lines.append("Repo path: \(loaded.repoPath)")
+        }
 
         if !loaded.loadedDocs.isEmpty {
             lines.append("")
@@ -696,12 +728,20 @@ extension CoreService {
         let normalizedDescription = normalizeProjectDescription(request.description)
         let trimmedRepoUrl = request.repoUrl?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasRepoUrl = !trimmedRepoUrl.isEmpty
-        let normalizedRepoPath = try normalizedExternalProjectPath(request.repoPath)
-        let sourceControlProviderId = normalizedSourceControlProviderID(request.sourceControlProviderId)
-
-        if hasRepoUrl, normalizedRepoPath != nil {
+        let requestedDirectoryPaths = try normalizedProjectDirectoryPaths(request.directoryPaths)
+        if request.repoPath != nil, !requestedDirectoryPaths.isEmpty {
             throw ProjectError.invalidPayload
         }
+        let normalizedRepoPath = try normalizedExternalProjectPath(request.repoPath)
+        let directoryPaths = requestedDirectoryPaths.isEmpty
+            ? normalizedRepoPath.map { [$0] } ?? []
+            : requestedDirectoryPaths
+        let sourceControlProviderId = normalizedSourceControlProviderID(request.sourceControlProviderId)
+
+        if hasRepoUrl, normalizedRepoPath != nil || !directoryPaths.isEmpty {
+            throw ProjectError.invalidPayload
+        }
+        try validateProjectDirectories(kind: request.kind, directoryPaths: directoryPaths)
         let normalizedID: String
         if let requestedID = request.id, !requestedID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             guard let validID = normalizedProjectID(requestedID) else {
@@ -719,17 +759,19 @@ extension CoreService {
             id: normalizedID,
             name: normalizedName,
             description: normalizedDescription,
+            kind: request.kind,
+            directoryPaths: directoryPaths,
             channels: channels,
             tasks: [],
             actors: request.actors ?? [],
             teams: request.teams ?? [],
-            repoPath: normalizedRepoPath,
+            repoPath: directoryPaths.first ?? normalizedRepoPath,
             sourceControlProviderId: sourceControlProviderId,
             createdAt: now,
             updatedAt: now
         )
 
-        if normalizedRepoPath != nil {
+        if !directoryPaths.isEmpty {
             try prepareExternalProjectWorkspace(projectID: normalizedID)
         }
 
@@ -758,6 +800,10 @@ extension CoreService {
     }
 
     public func selectDirectory() async -> String? {
+        await selectDirectories().first
+    }
+
+    public func selectDirectories() async -> [String] {
 #if canImport(AppKit)
         await withCheckedContinuation { continuation in
             Task { @MainActor in
@@ -766,18 +812,18 @@ extension CoreService {
                 let panel = NSOpenPanel()
                 panel.canChooseFiles = false
                 panel.canChooseDirectories = true
-                panel.allowsMultipleSelection = false
+                panel.allowsMultipleSelection = true
                 panel.canCreateDirectories = false
                 panel.title = "Choose Project Directory"
                 panel.prompt = "Open Project"
                 panel.level = .floating
 
-                func finish(_ response: NSApplication.ModalResponse) {
+                @MainActor func finish(_ response: NSApplication.ModalResponse) {
                     guard response == .OK else {
-                        continuation.resume(returning: nil)
+                        continuation.resume(returning: [])
                         return
                     }
-                    continuation.resume(returning: panel.url?.path)
+                    continuation.resume(returning: panel.urls.map(\.standardizedFileURL.path))
                 }
 
                 if let window = NSApplication.shared.keyWindow ?? NSApplication.shared.mainWindow {
@@ -788,7 +834,7 @@ extension CoreService {
             }
         }
 #else
-        return nil
+        return []
 #endif
     }
 
@@ -825,9 +871,29 @@ extension CoreService {
         if let nextHeartbeat = request.heartbeat {
             project.heartbeat = nextHeartbeat
         }
-        if request.repoPath != nil {
-            project.repoPath = request.repoPath
+        let nextKind = request.kind ?? project.kind
+        if request.repoPath != nil, request.directoryPaths != nil {
+            throw ProjectError.invalidPayload
         }
+        if let requestedPaths = request.directoryPaths {
+            let normalizedPaths = try normalizedProjectDirectoryPaths(requestedPaths)
+            try validateProjectDirectories(kind: nextKind, directoryPaths: normalizedPaths)
+            project.directoryPaths = normalizedPaths
+            project.repoPath = normalizedPaths.first
+            if !normalizedPaths.isEmpty {
+                try prepareExternalProjectWorkspace(projectID: normalizedID)
+            }
+        } else if request.repoPath != nil {
+            let normalizedPath = try normalizedExternalProjectPath(request.repoPath)
+            let normalizedPaths = normalizedPath.map { [$0] } ?? []
+            try validateProjectDirectories(kind: nextKind, directoryPaths: normalizedPaths)
+            project.directoryPaths = normalizedPaths
+            project.repoPath = normalizedPath
+        } else {
+            let existingPaths = effectiveProjectDirectoryURLs(project).map(\.path)
+            try validateProjectDirectories(kind: nextKind, directoryPaths: existingPaths)
+        }
+        project.kind = nextKind
         if request.sourceControlProviderId != nil {
             let previousProviderId = project.sourceControlProviderId ?? Self.defaultSourceControlProviderID
             for index in project.tasks.indices where project.tasks[index].worktreeBranch != nil && project.tasks[index].sourceControlProviderId == nil {
@@ -1886,14 +1952,68 @@ extension CoreService {
 
     private func projectWithRuntimePaths(_ project: ProjectRecord) -> ProjectRecord {
         var result = project
+        result.directoryPaths = effectiveProjectDirectoryURLs(project).map(\.path)
         result.worktreeRootPath = defaultWorktreeRootPath(projectID: project.id)
         return result
     }
 
     private func projectSummaryWithRuntimePaths(_ project: ProjectListRecord) -> ProjectListRecord {
         var result = project
+        if result.directoryPaths.isEmpty {
+            result.directoryPaths = [
+                resolvedProjectRootFromStored(repoPath: project.repoPath, normalizedProjectID: project.id).path
+            ]
+        }
         result.worktreeRootPath = defaultWorktreeRootPath(projectID: project.id)
         return result
+    }
+
+    func effectiveProjectDirectoryURLs(_ project: ProjectRecord) -> [URL] {
+        let stored = project.directoryPaths.compactMap { raw -> URL? in
+            let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmed.isEmpty else { return nil }
+            return URL(fileURLWithPath: trimmed, isDirectory: true).standardizedFileURL
+        }
+        let candidates = stored.isEmpty
+            ? [resolvedProjectRootFromStored(repoPath: project.repoPath, normalizedProjectID: project.id)]
+            : stored
+        var seen = Set<String>()
+        return candidates.filter { seen.insert($0.resolvingSymlinksInPath().standardizedFileURL.path).inserted }
+    }
+
+    func resolveProjectWorkspaceRoots(projectID: String) async throws -> [URL] {
+        guard let normalizedID = normalizedProjectID(projectID) else {
+            throw ProjectError.invalidProjectID
+        }
+        guard let project = await store.project(id: normalizedID) else {
+            return [try await resolveProjectWorkspaceRoot(projectID: normalizedID)]
+        }
+        return effectiveProjectDirectoryURLs(project)
+    }
+
+    func normalizedProjectDirectoryPaths(_ rawPaths: [String]) throws -> [String] {
+        var seen = Set<String>()
+        var result: [String] = []
+        for rawPath in rawPaths {
+            guard let normalized = try normalizedExternalProjectPath(rawPath) else { continue }
+            let identity = URL(fileURLWithPath: normalized, isDirectory: true)
+                .resolvingSymlinksInPath()
+                .standardizedFileURL
+                .path
+            if seen.insert(identity).inserted {
+                result.append(normalized)
+            }
+        }
+        return result
+    }
+
+    func validateProjectDirectories(kind: ProjectKind, directoryPaths: [String]) throws {
+        switch kind {
+        case .project:
+            guard directoryPaths.count <= 1 else { throw ProjectError.invalidPayload }
+        case .workspace:
+            guard directoryPaths.count >= 2 else { throw ProjectError.invalidPayload }
+        }
     }
 
     private func computedWorktreeMetadataProjects(_ projects: [ProjectRecord]) -> [ProjectRecord] {
@@ -2173,8 +2293,8 @@ extension CoreService {
     }
 
     func isProjectURL(_ url: URL, inside rootURL: URL) -> Bool {
-        let rootPath = rootURL.standardizedFileURL.path
-        let targetPath = url.standardizedFileURL.path
+        let rootPath = rootURL.resolvingSymlinksInPath().standardizedFileURL.path
+        let targetPath = url.resolvingSymlinksInPath().standardizedFileURL.path
         return targetPath == rootPath || targetPath.hasPrefix(rootPath + "/")
     }
 

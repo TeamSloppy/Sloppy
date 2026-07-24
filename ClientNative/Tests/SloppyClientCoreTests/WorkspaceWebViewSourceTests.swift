@@ -11,21 +11,23 @@ struct WorkspaceWebViewSourceTests {
         return try String(contentsOf: packageRoot.appendingPathComponent(path), encoding: .utf8)
     }
 
-    @Test("workspace panel exposes files reviews and web browser modes")
-    func workspacePanelExposesFilesReviewsAndWebBrowserModes() throws {
+    @Test("workspace inspector exposes files and browser modes")
+    func workspaceInspectorExposesFilesAndBrowserModes() throws {
         let panelVM = try source("Sources/SloppyClient/Workspace/Panel/WorkspacePanelViewModel.swift")
         let panelView = try source("Sources/SloppyClient/Workspace/Panel/WorkspacePanelView.swift")
 
         #expect(panelVM.contains("enum WorkspacePanelMode"))
         #expect(panelVM.contains("case files"))
-        #expect(panelVM.contains("case reviews"))
         #expect(panelVM.contains("case webBrowser"))
+        #expect(!panelVM.contains("case reviews"))
         #expect(panelVM.contains("var mode: WorkspacePanelMode"))
         #expect(panelVM.contains("var webViewModel: WorkspaceWebViewModel"))
         #expect(panelView.contains("switch viewModel.mode"))
         #expect(panelView.contains("\"Files\""))
-        #expect(panelView.contains("\"Reviews\""))
-        #expect(panelView.contains("\"Web browser\""))
+        #expect(panelView.contains("\"Browser\""))
+        #expect(!panelView.contains("\"Reviews\""))
+        #expect(panelView.contains("private var filesPane: some View"))
+        #expect(panelView.contains("GeometryReader { proxy in"))
     }
 
     @Test("workspace web view model owns browser session state")

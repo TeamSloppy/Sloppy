@@ -7,11 +7,13 @@ public struct ProjectFileEntry: Codable, Sendable, Equatable {
     }
 
     public var name: String
+    public var path: String?
     public var type: EntryType
     public var size: Int?
 
-    public init(name: String, type: EntryType, size: Int? = nil) {
+    public init(name: String, path: String? = nil, type: EntryType, size: Int? = nil) {
         self.name = name
+        self.path = path
         self.type = type
         self.size = size
     }

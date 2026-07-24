@@ -156,6 +156,28 @@ public actor ProjectService {
         try await http.get("/v1/projects/\(BackendHTTPClient.encodePathSegment(id))")
     }
 
+    public func createProject(_ request: APIProjectCreateRequest) async throws -> APIProjectRecord {
+        let result: APIProjectCreateResult = try await http.post("/v1/projects", body: request)
+        return result.project
+    }
+
+    public func updateProject(id: String, request: APIProjectUpdateRequest) async throws -> APIProjectRecord {
+        try await http.patch(
+            "/v1/projects/\(BackendHTTPClient.encodePathSegment(id))",
+            body: request
+        )
+    }
+
+    public func createTask(
+        projectId: String,
+        request: APIProjectTaskCreateRequest
+    ) async throws -> APIProjectRecord {
+        try await http.post(
+            "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/tasks",
+            body: request
+        )
+    }
+
     public func fetchTaskComments(projectId: String, taskId: String) async throws -> [TaskComment] {
         try await http.get(
             "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/tasks/\(BackendHTTPClient.encodePathSegment(taskId))/comments"
@@ -214,10 +236,21 @@ public actor SessionService {
         self.http = http
     }
 
-    public func fetchAgentSessions(agentId: String, projectId: String? = nil) async throws -> [ChatSessionSummary] {
+    public func fetchAgentSessions(
+        agentId: String,
+        projectId: String? = nil,
+        limit: Int? = nil
+    ) async throws -> [ChatSessionSummary] {
         var path = "/v1/agents/\(BackendHTTPClient.encodePathSegment(agentId))/sessions"
+        var queryItems: [String] = []
         if let projectId = projectId?.trimmingCharacters(in: .whitespacesAndNewlines), !projectId.isEmpty {
-            path += "?projectId=\(BackendHTTPClient.encodeQueryValue(projectId))"
+            queryItems.append("projectId=\(BackendHTTPClient.encodeQueryValue(projectId))")
+        }
+        if let limit {
+            queryItems.append("limit=\(max(0, limit))")
+        }
+        if !queryItems.isEmpty {
+            path += "?\(queryItems.joined(separator: "&"))"
         }
         return try await http.get(path)
     }

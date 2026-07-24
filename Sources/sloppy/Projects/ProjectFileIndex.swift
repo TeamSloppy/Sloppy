@@ -403,11 +403,17 @@ private struct ProjectFileIndexBuilder {
 
     mutating func entries(rootURL: URL, pathPrefix: String = "") -> [ProjectFileIndexEntry] {
         var result: [ProjectFileIndexEntry] = []
-        walk(directoryURL: rootURL, relativeDirectory: pathPrefix, result: &result)
+        let rootIdentity = rootURL.resolvingSymlinksInPath().standardizedFileURL.path
+        walk(directoryURL: rootURL, rootIdentity: rootIdentity, relativeDirectory: pathPrefix, result: &result)
         return result
     }
 
-    private mutating func walk(directoryURL: URL, relativeDirectory: String, result: inout [ProjectFileIndexEntry]) {
+    private mutating func walk(
+        directoryURL: URL,
+        rootIdentity: String,
+        relativeDirectory: String,
+        result: inout [ProjectFileIndexEntry]
+    ) {
         guard !Task.isCancelled else {
             truncated = true
             return
@@ -419,7 +425,7 @@ private struct ProjectFileIndexBuilder {
 
         let urls = (try? fileManager.contentsOfDirectory(
             at: directoryURL,
-            includingPropertiesForKeys: [.isDirectoryKey],
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey],
             options: []
         )) ?? []
 
@@ -434,7 +440,10 @@ private struct ProjectFileIndexBuilder {
             }
 
             let name = url.lastPathComponent
-            let values = try? url.resourceValues(forKeys: [.isDirectoryKey])
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey])
+            guard values?.isSymbolicLink != true else { continue }
+            let identity = url.resolvingSymlinksInPath().standardizedFileURL.path
+            guard identity == rootIdentity || identity.hasPrefix(rootIdentity + "/") else { continue }
             let isDirectory = values?.isDirectory == true
             let relativePath = relativeDirectory.isEmpty ? name : "\(relativeDirectory)/\(name)"
             if isDirectory,
@@ -448,7 +457,12 @@ private struct ProjectFileIndexBuilder {
             result.append(ProjectFileIndexEntry(path: relativePath, type: isDirectory ? .directory : .file))
 
             if isDirectory {
-                walk(directoryURL: url, relativeDirectory: relativePath, result: &result)
+                walk(
+                    directoryURL: url,
+                    rootIdentity: rootIdentity,
+                    relativeDirectory: relativePath,
+                    result: &result
+                )
             }
         }
     }

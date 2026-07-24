@@ -34,9 +34,12 @@ public struct ChatGreetingView: View {
         let isPhone = idiom == .phone
 
         return VStack(alignment: .center, spacing: isPhone ? sp.l : sp.xxl) {
-            Image(systemName: "terminal")
-                .font(.system(size: isPhone ? 28 : 38, weight: .medium))
+            SloppyAssets.projectLogo
+                .resizable()
+                .renderingMode(.template)
+                .aspectRatio(contentMode: .fit)
                 .foregroundColor(c.textMuted)
+                .frame(width: isPhone ? 28 : 38, height: isPhone ? 28 : 38)
 
             ViewThatFits(in: .horizontal) {
                 HStack(alignment: .firstTextBaseline, spacing: sp.xs) {
@@ -127,7 +130,7 @@ public struct ChatGreetingView: View {
         StarterPrompt(
             title: "Explore and understand code",
             prompt: "Explore this project and explain how it is structured.",
-            symbol: "telescope",
+            symbol: "binoculars",
             color: .blue
         ),
         StarterPrompt(

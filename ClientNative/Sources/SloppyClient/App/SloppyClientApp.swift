@@ -84,6 +84,7 @@ private struct SloppyMenuBarView: View {
 @main
 struct SloppyClientApp: App {
     @State private var viewModel: RootShellViewModel
+    @Environment(\.scenePhase) private var scenePhase
     #if os(macOS)
     @NSApplicationDelegateAdaptor(SloppyAppDelegate.self) private var appDelegate
     #endif
@@ -92,14 +93,24 @@ struct SloppyClientApp: App {
         _viewModel = State(initialValue: RootShellViewModel())
     }
 
-    var body: some Scene {
-        Window("Sloppy", id: "main") {
-            RootShellView(viewModel: viewModel)
-            #if os(macOS)
-                .containerBackground(.clear, for: .window)
-            #endif
-        }
+    private var mainContent: some View {
+        RootShellView(viewModel: viewModel)
+            .onChange(of: scenePhase) { _, phase in
+                viewModel.handleScenePhase(phase)
+            }
         #if os(macOS)
+            .frame(minWidth: 1120, minHeight: 760)
+            .containerBackground(.clear, for: .window)
+        #endif
+    }
+
+    var body: some Scene {
+        #if os(macOS)
+        Window("Sloppy", id: "main") {
+            mainContent
+        }
+        .defaultSize(width: 1360, height: 880)
+        .windowResizability(.contentMinSize)
         .commands {
             WorkspaceCommands()
         }
@@ -115,6 +126,10 @@ struct SloppyClientApp: App {
 
         MenuBarExtra("Sloppy", systemImage: "waveform.path.ecg") {
             SloppyMenuBarView(viewModel: viewModel)
+        }
+        #else
+        WindowGroup {
+            mainContent
         }
         #endif
     }

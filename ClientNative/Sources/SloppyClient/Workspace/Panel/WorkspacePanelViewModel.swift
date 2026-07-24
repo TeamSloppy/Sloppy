@@ -9,7 +9,6 @@ struct WorkspacePanelContext: Equatable, Sendable {
 
 enum WorkspacePanelMode: Equatable {
     case files
-    case reviews
     case webBrowser
 }
 
@@ -160,7 +159,7 @@ final class WorkspacePanelViewModel {
     }
 
     private static func node(from entry: ProjectFileEntry, parentPath: String?) -> Node {
-        let path = parentPath.map { "\($0)/\(entry.name)" } ?? entry.name
+        let path = entry.path ?? parentPath.map { "\($0)/\(entry.name)" } ?? entry.name
         return Node(
             name: entry.name,
             path: path,

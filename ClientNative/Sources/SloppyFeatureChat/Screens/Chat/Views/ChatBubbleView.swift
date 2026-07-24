@@ -168,61 +168,59 @@ public struct ChatBubbleView: View {
     }
 
     private func isSegmentRunning(_ segment: ChatMessageSegment) -> Bool {
-        if let status = segment.status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-            return status == "running" || status == "in_progress"
-        }
-        return segment.startedAt != nil && segment.finishedAt == nil
+        segment.isExecutionRunning
     }
 }
 
 struct ChatSystemMessageGroupView: View {
     let messages: [ChatMessage]
 
-    @State private var isExpanded = true
+    @State private var isExpanded = false
     @Environment(\.theme) private var theme
 
     var body: some View {
         let items = segmentItems
+        let visibleItems = ChatSystemActivityVisibility.visibleItems(
+            from: items,
+            isExpanded: isExpanded
+        )
 
-        Group {
-            if items.count == 1, let item = items.first {
-                segmentRow(item)
-            } else {
-                VStack(alignment: .leading, spacing: theme.spacing.s) {
-                    groupHeader(items: items)
+        VStack(alignment: .leading, spacing: theme.spacing.s) {
+            groupHeader(items: items)
 
-                    if isExpanded {
-                        VStack(alignment: .leading, spacing: theme.spacing.xs) {
-                            ForEach(items) { item in
-                                segmentRow(item)
-                            }
-                        }
-                        .padding(.leading, 28)
+            if !visibleItems.isEmpty {
+                VStack(alignment: .leading, spacing: theme.spacing.xs) {
+                    ForEach(visibleItems) { item in
+                        segmentRow(item)
                     }
                 }
+                .padding(.leading, 28)
             }
         }
         .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
     }
 
     private func groupHeader(items: [ChatSystemSegmentItem]) -> some View {
-        HStack(spacing: theme.spacing.s) {
-            Icons.symbol(isExpanded ? .collapseContent : .expandMore, size: theme.typography.caption)
-                .foregroundColor(theme.colors.textMuted)
-
-            Text(summaryTitle(for: items))
-                .font(.system(size: theme.typography.caption))
-                .foregroundColor(theme.colors.textSecondary)
-                .lineLimit(1)
-
-            Spacer(minLength: 0)
-        }
-        .contentShape(Rectangle())
-        .onTapGesture {
+        Button {
             withAnimation(.easeInOut(duration: 0.15)) {
                 isExpanded.toggle()
             }
+        } label: {
+            HStack(spacing: theme.spacing.s) {
+                Icons.symbol(isExpanded ? .collapseContent : .expandMore, size: theme.typography.caption)
+                    .foregroundColor(theme.colors.textMuted)
+
+                Text(summaryTitle(for: items))
+                    .font(.system(size: theme.typography.caption))
+                    .foregroundColor(theme.colors.textSecondary)
+                    .lineLimit(1)
+
+                Spacer(minLength: 0)
+            }
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .accessibilityLabel(isExpanded ? "Collapse activity" : "Expand activity")
     }
 
     private func segmentRow(_ item: ChatSystemSegmentItem) -> some View {
@@ -257,16 +255,59 @@ struct ChatSystemMessageGroupView: View {
     }
 }
 
-private struct ChatSystemSegmentItem: Identifiable {
+struct ChatSystemSegmentItem: Identifiable {
     let id: String
     let message: ChatMessage
     let segment: ChatMessageSegment
 
     var isRunning: Bool {
-        if let status = segment.status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-            return status == "running" || status == "in_progress"
+        segment.isExecutionRunning
+    }
+
+    var toolExecutionKey: String? {
+        guard let title = segment.title?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !title.isEmpty else {
+            return nil
         }
-        return segment.startedAt != nil && segment.finishedAt == nil
+        return title
+    }
+}
+
+extension ChatMessageSegment {
+    var isExecutionRunning: Bool {
+        if let status = status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            return status == "started" || status == "running" || status == "in_progress"
+        }
+        return startedAt != nil && finishedAt == nil
+    }
+}
+
+enum ChatSystemActivityVisibility {
+    static func visibleItems(
+        from items: [ChatSystemSegmentItem],
+        isExpanded: Bool
+    ) -> [ChatSystemSegmentItem] {
+        guard !isExpanded else { return items }
+
+        var pendingCallIndicesByTool: [String: [Int]] = [:]
+        for (index, item) in items.enumerated() {
+            guard let toolKey = item.toolExecutionKey else { continue }
+
+            switch item.segment.kind {
+            case .toolCall where item.isRunning:
+                pendingCallIndicesByTool[toolKey, default: []].append(index)
+            case .toolResult:
+                guard pendingCallIndicesByTool[toolKey]?.isEmpty == false else { continue }
+                pendingCallIndicesByTool[toolKey]?.removeFirst()
+            case .text, .thinking, .attachment, .toolCall, .status, .buildProgress:
+                continue
+            }
+        }
+
+        let pendingIndices = Set(pendingCallIndicesByTool.values.joined())
+        return items.enumerated().compactMap { index, item in
+            pendingIndices.contains(index) ? item : nil
+        }
     }
 }
 

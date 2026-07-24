@@ -27,6 +27,16 @@ struct SettingsShellSourceTests {
         #expect(sourceText.contains("groupedFilteredSections"))
     }
 
+    @Test("settings sidebar rows show pointer hover feedback")
+    func settingsSidebarRowsShowPointerHoverFeedback() throws {
+        let sourceText = try source("Sources/SloppyFeatureSettings/Screens/Settings/SettingsScreen.swift")
+
+        #expect(sourceText.contains("@State private var isHovered = false"))
+        #expect(sourceText.contains(".onHover { isHovered = $0 }"))
+        #expect(sourceText.contains("private var rowBackgroundColor: Color"))
+        #expect(sourceText.contains("if isHovered"))
+    }
+
     @Test("settings shell uses minimal desktop styling")
     func settingsShellUsesMinimalDesktopStyling() throws {
         let screen = try source("Sources/SloppyFeatureSettings/Screens/Settings/SettingsScreen.swift")

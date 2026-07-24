@@ -200,6 +200,24 @@ public struct ChatSessionSummary: Codable, Sendable, Equatable, Identifiable {
     }
 }
 
+public enum ChatSessionCatalog {
+    public static func merge(_ batches: [[ChatSessionSummary]]) -> [ChatSessionSummary] {
+        var sessionsByID: [String: ChatSessionSummary] = [:]
+
+        for session in batches.joined() where session.kind != "heartbeat" {
+            guard let existing = sessionsByID[session.id] else {
+                sessionsByID[session.id] = session
+                continue
+            }
+            if session.updatedAt > existing.updatedAt {
+                sessionsByID[session.id] = session
+            }
+        }
+
+        return sessionsByID.values.sorted { $0.updatedAt > $1.updatedAt }
+    }
+}
+
 public struct ChatSessionDetail: Decodable, Sendable {
     public var summary: ChatSessionSummary
     public var events: [ChatEventEnvelope]
@@ -401,6 +419,15 @@ public enum ChatRunStage: String, Codable, Sendable {
     case paused
     case done
     case interrupted
+
+    public var isWorking: Bool {
+        switch self {
+        case .thinking, .searching, .responding:
+            true
+        case .paused, .done, .interrupted:
+            false
+        }
+    }
 }
 
 public struct ChatRunStatusEvent: Codable, Sendable, Equatable {

@@ -21,6 +21,9 @@ struct ChatComposerRenderingTests {
         let source = try chatComposerSource
 
         #expect(source.contains(".accentColor(.white)"))
+        #expect(source.contains(".pointerStyle(.horizontalText)"))
+        #expect(source.contains(".contentShape(Rectangle())"))
+        #expect(!source.contains(".focusable()"))
     }
 
     @Test("mobile composer action buttons are circular")
@@ -88,6 +91,15 @@ struct ChatComposerRenderingTests {
         #expect(source.contains("remove: viewModel.removeComposerAttachment"))
         #expect(source.contains(".onPasteCommand(of: [.fileURL, .image])"))
         #expect(source.contains("viewModel.attachItemProviders(providers)"))
+        #expect(source.contains(".onKeyPress(\"v\", phases: .down)"))
+        #expect(source.contains("NSPasteboard.general"))
+        #expect(source.contains("pasteboard.data(forType: .png)"))
+        #expect(source.contains("NSImage(pasteboard: pasteboard)"))
+        #expect(source.contains("pasteAttachmentsFromSystemPasteboard() ? .handled : .ignored"))
+        #expect(source.contains("private struct ChatComposerAttachmentPreview"))
+        #expect(source.contains("Image(nsImage: image)"))
+        #expect(source.contains("Image(systemName: \"xmark.circle.fill\")"))
+        #expect(source.contains("HStack(alignment: .bottom, spacing: sp.s)"))
     }
 
     @Test("attachment-only drafts expose the send action")
@@ -106,15 +118,16 @@ struct ChatComposerRenderingTests {
         #expect(source.contains(".onSubmit {"))
     }
 
-    @Test("shift return delegates newline insertion to the multiline text field")
-    func shiftReturnDelegatesNewlineInsertion() throws {
+    @Test("shift return inserts a newline without submitting")
+    func shiftReturnInsertsNewlineWithoutSubmitting() throws {
         let source = try chatComposerSource
 
         #expect(source.contains(".onKeyPress(.return, phases: .down) { keyPress in"))
         #expect(source.contains("keyPress.modifiers.contains(.shift)"))
-        #expect(source.contains("if keyPress.modifiers.contains(.shift) {\n                return .ignored"))
-        #expect(!source.contains("insertNewlineAtSelection"))
-        #expect(!source.contains("text.distance(from:"))
+        #expect(source.contains("selection: $textSelection"))
+        #expect(source.contains("insertNewlineAtSelection()\n                return .handled"))
+        #expect(source.contains("draft.text.replaceSubrange(replacementRange, with: \"\\n\")"))
+        #expect(source.contains("TextSelection(insertionPoint: insertionPoint)"))
     }
 
     @Test("composer wraps long text without reserving its maximum height")

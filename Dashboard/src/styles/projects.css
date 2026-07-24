@@ -6953,3 +6953,54 @@ body.task-side-view-resizing {
     display: none;
   }
 }
+.workspace-directories-editor {
+  display: grid;
+  gap: 10px;
+}
+
+.workspace-directories-list {
+  display: grid;
+  gap: 6px;
+}
+
+.workspace-directory-row {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto;
+  align-items: center;
+  gap: 8px;
+  padding: 9px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-raised);
+}
+
+.workspace-directory-row button {
+  min-width: 28px;
+  min-height: 28px;
+}
+
+.workspace-directory-label {
+  display: grid;
+  min-width: 0;
+}
+
+.workspace-directory-label strong,
+.workspace-directory-label small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-directory-label small,
+.pft-node-root-path {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.pft-node-root-path {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-left: auto;
+  max-width: 48%;
+}

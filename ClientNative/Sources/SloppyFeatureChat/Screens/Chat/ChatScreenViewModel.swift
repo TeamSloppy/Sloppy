@@ -57,6 +57,70 @@ private struct StoredComposerDraft {
     var attachments: [ChatComposerAttachment]
 }
 
+struct ChatMessageSendFailurePolicy {
+    static func shouldRestoreDraft(
+        after error: Error,
+        optimisticMessageIsPresent: Bool
+    ) -> Bool {
+        guard optimisticMessageIsPresent else {
+            return false
+        }
+
+        if let apiError = error as? APIError,
+           case .decodingFailed = apiError {
+            return false
+        }
+
+        return true
+    }
+}
+
+private struct SessionCatalogFetchResult: Sendable {
+    var agentId: String
+    var sessions: [ChatSessionSummary]?
+}
+
+struct ChatStreamingTurnTracker {
+    private struct Turn {
+        let sessionId: String
+        let messageId: String
+        var didReceiveFinalMessage = false
+    }
+
+    private var turns: [Turn] = []
+
+    mutating func begin(sessionId: String, messageId: String) {
+        turns.append(Turn(sessionId: sessionId, messageId: messageId))
+    }
+
+    func currentMessageId(for sessionId: String) -> String? {
+        turns.first(where: { $0.sessionId == sessionId })?.messageId
+    }
+
+    mutating func claimFinalMessageId(for sessionId: String) -> String? {
+        guard let index = turns.firstIndex(where: {
+            $0.sessionId == sessionId && !$0.didReceiveFinalMessage
+        }) else {
+            return nil
+        }
+        turns[index].didReceiveFinalMessage = true
+        return turns[index].messageId
+    }
+
+    mutating func completeNextTurn(for sessionId: String) {
+        guard let index = turns.firstIndex(where: { $0.sessionId == sessionId }) else { return }
+        turns.remove(at: index)
+    }
+
+    mutating func clear(sessionId: String? = nil) {
+        guard let sessionId else {
+            turns.removeAll()
+            return
+        }
+        turns.removeAll { $0.sessionId == sessionId }
+    }
+}
+
 @Observable
 @MainActor
 public final class ChatTranscriptState {
@@ -205,6 +269,7 @@ public final class ChatScreenViewModel {
     public private(set) var selectedModelId: String = ""
     public private(set) var selectedReasoningEffort: ChatReasoningEffort = .default
     public internal(set) var sessions: [ChatSessionSummary] = []
+    public private(set) var sessionCatalog: [ChatSessionSummary] = []
     public var selectedSessionId: String?
     public var pinnedSessionIds: Set<String> { settings.pinnedSessionIds }
     public private(set) var activeContextTitle: String?
@@ -215,6 +280,8 @@ public final class ChatScreenViewModel {
     public private(set) var isAwaitingAgentResponse = false
     public private(set) var isStopping = false
     public private(set) var activeRunStatus: ChatRunStatusEvent?
+    public private(set) var didLoadInitialData = false
+    public private(set) var transcriptScrollToEndRequest = 0
     private(set) var providerSettingsRecoveryMessageIDs: Set<String> = []
     public private(set) var composerFocusResetToken = 0
     private(set) var composerSuggestions: [ChatComposerSuggestion] = []
@@ -291,6 +358,7 @@ public final class ChatScreenViewModel {
     @ObservationIgnored private let cacheStore: ClientCacheStore
     @ObservationIgnored private let settings: ClientSettings
     @ObservationIgnored private let restoresLastSession: Bool
+    @ObservationIgnored private let loadsGlobalSessionCatalog: Bool
     public let connectionMonitor: ConnectionMonitor
     @ObservationIgnored private let onOpenSettings: @MainActor (ClientSettingsDestination) -> Void
 
@@ -299,14 +367,15 @@ public final class ChatScreenViewModel {
     @ObservationIgnored private var sessionStatusTask: Task<Void, Never>?
     @ObservationIgnored private var streamingFlushTask: Task<Void, Never>?
     @ObservationIgnored private var pendingStreamingSessionId: String?
+    @ObservationIgnored private var pendingStreamingAssistantMessageId: String?
     @ObservationIgnored private var pendingStreamingAssistantText: String?
     @ObservationIgnored private var pendingStreamingTextUpdateMode: StreamingTextUpdateMode?
+    @ObservationIgnored private var streamingTurnTracker = ChatStreamingTurnTracker()
     @ObservationIgnored private var pendingNavigationRequest: ChatNavigationRequest?
     @ObservationIgnored private var pendingSessionSummary: ChatSessionSummary?
     @ObservationIgnored private var lastAppliedNavigationRequestId: Int?
     @ObservationIgnored private var activeProjectId: String?
     @ObservationIgnored private var activeTaskId: String?
-    @ObservationIgnored private var didLoadInitialData = false
     @ObservationIgnored private var isLoadingInitialData = false
     @ObservationIgnored private var sessionLoadGeneration = 0
     @ObservationIgnored private var composerDraftsByKey: [String: StoredComposerDraft] = [:]
@@ -321,6 +390,7 @@ public final class ChatScreenViewModel {
         settings: ClientSettings,
         connectionMonitor: ConnectionMonitor,
         restoresLastSession: Bool = true,
+        loadsGlobalSessionCatalog: Bool = false,
         onOpenSettings: @escaping @MainActor (ClientSettingsDestination) -> Void
     ) {
         self.apiClient = apiClient
@@ -328,6 +398,7 @@ public final class ChatScreenViewModel {
         self.settings = settings
         self.connectionMonitor = connectionMonitor
         self.restoresLastSession = restoresLastSession
+        self.loadsGlobalSessionCatalog = loadsGlobalSessionCatalog
         self.onOpenSettings = onOpenSettings
     }
 
@@ -337,6 +408,10 @@ public final class ChatScreenViewModel {
 
     public func dismissComposerFocus() {
         composerFocusResetToken += 1
+    }
+
+    public func requestTranscriptScrollToEnd() {
+        transcriptScrollToEndRequest &+= 1
     }
 
     func updateComposerSuggestions(for text: String) {
@@ -458,54 +533,14 @@ public final class ChatScreenViewModel {
 
         isLoadingInitialData = true
         Task { @MainActor in
-            defer {
-                didLoadInitialData = true
-                isLoadingInitialData = false
-            }
+            await restoreInitialDataFromCache()
 
-            async let agentsRequest = try? await apiClient.fetchAgents()
-            async let modelsRequest = try? await apiClient.fetchAvailableModels()
-            async let projectsRequest = try? await apiClient.fetchProjects()
-            let fetched = await agentsRequest ?? []
-            let fetchedModels = await modelsRequest ?? []
-            projects = await projectsRequest ?? []
-            if fetched.isEmpty {
-                agents = await cacheStore.loadAgents()
-            } else {
-                agents = fetched
-                await cacheStore.cacheAgents(fetched)
-            }
-            applyAvailableModels(fetchedModels)
+            // Cached data is enough to render the workspace. Network refreshes
+            // continue after this flag releases the initial loading screen.
+            didLoadInitialData = true
+            isLoadingInitialData = false
 
-            let availableAgents = agents
-            let lastId = settings.lastAgentId
-            let agent = availableAgents.first(where: { $0.id == lastId }) ?? availableAgents.first
-            if let agent {
-                selectedAgent = agent
-                await loadSessions(for: agent)
-
-                if let pendingSessionSummary {
-                    openSessionFromSummary(pendingSessionSummary)
-                } else if restoresLastSession,
-                          let lastSessionId = settings.lastSessionId,
-                          sessions.contains(where: { $0.id == lastSessionId }) {
-                    selectSession(lastSessionId)
-                } else {
-                    selectedSessionId = nil
-                    transcript.clear()
-                    activeContextTitle = nil
-                    activeProjectId = nil
-                    activeTaskId = nil
-                    if restoresLastSession {
-                        settings.lastSessionId = nil
-                    }
-                    syncComposerDraft(toSessionId: nil, projectId: nil, taskId: nil, agentId: agent.id)
-                }
-            }
-
-            if let pendingNavigationRequest {
-                applyNavigationRequest(pendingNavigationRequest)
-            }
+            await revalidateInitialData()
         }
     }
 
@@ -513,15 +548,77 @@ public final class ChatScreenViewModel {
         sessionLoadGeneration += 1
         let generation = sessionLoadGeneration
         isLoadingSessions = true
-        let fetched = (try? await apiClient.fetchAgentSessions(agentId: agent.id, projectId: projectId)) ?? []
+
+        let cached = await cacheStore.loadSessions(agentId: agent.id, projectId: projectId)
         guard generation == sessionLoadGeneration else { return }
-        if fetched.isEmpty {
-            sessions = sortSessions((await cacheStore.loadSessions(agentId: agent.id, projectId: projectId)).filter { $0.kind != "heartbeat" })
-        } else {
+        sessions = sortSessions(cached.filter { $0.kind != "heartbeat" })
+
+        do {
+            let fetched = try await apiClient.fetchAgentSessions(agentId: agent.id, projectId: projectId)
+            guard generation == sessionLoadGeneration else { return }
             let filtered = fetched.filter { $0.kind != "heartbeat" }
             sessions = sortSessions(filtered)
             await cacheStore.cacheSessions(agentId: agent.id, projectId: projectId, sessions: filtered)
+        } catch {
+            // Keep the cached snapshot visible while offline.
         }
+
+        if generation == sessionLoadGeneration {
+            isLoadingSessions = false
+        }
+    }
+
+    private func loadSessionCatalog(for agents: [APIAgentRecord]) async {
+        sessionLoadGeneration += 1
+        let generation = sessionLoadGeneration
+        isLoadingSessions = true
+
+        var cachedBatches: [[ChatSessionSummary]] = []
+        for agent in agents {
+            cachedBatches.append(await cacheStore.loadSessions(agentId: agent.id))
+        }
+        guard generation == sessionLoadGeneration else { return }
+        sessionCatalog = sortSessions(ChatSessionCatalog.merge(cachedBatches))
+
+        let apiClient = apiClient
+        let results = await withTaskGroup(
+            of: SessionCatalogFetchResult.self,
+            returning: [SessionCatalogFetchResult].self
+        ) { group in
+            for agent in agents {
+                group.addTask {
+                    SessionCatalogFetchResult(
+                        agentId: agent.id,
+                        sessions: try? await apiClient.fetchAgentSessions(agentId: agent.id)
+                    )
+                }
+            }
+
+            var results: [SessionCatalogFetchResult] = []
+            for await result in group {
+                results.append(result)
+            }
+            return results
+        }
+
+        guard generation == sessionLoadGeneration else { return }
+        var batches: [[ChatSessionSummary]] = []
+        for result in results {
+            if let fetched = result.sessions {
+                let filtered = fetched.filter { $0.kind != "heartbeat" }
+                batches.append(filtered)
+                await cacheStore.cacheSessions(
+                    agentId: result.agentId,
+                    projectId: nil,
+                    sessions: filtered
+                )
+            } else {
+                batches.append(await cacheStore.loadSessions(agentId: result.agentId))
+            }
+        }
+
+        guard generation == sessionLoadGeneration else { return }
+        sessionCatalog = sortSessions(ChatSessionCatalog.merge(batches))
         isLoadingSessions = false
     }
 
@@ -530,16 +627,119 @@ public final class ChatScreenViewModel {
             return
         }
 
+        if loadsGlobalSessionCatalog {
+            await loadSessionCatalog(for: agents)
+        }
         await loadSessions(for: agent, projectId: activeTaskId == nil ? activeProjectId : nil)
 
-        if let selectedSessionId,
-           let detail = try? await apiClient.fetchAgentSession(agentId: agent.id, sessionId: selectedSessionId) {
-            applyHydratedSession(detail)
-            await cacheStore.cacheSessionDetail(agentId: agent.id, detail: detail)
-        } else if let selectedSessionId,
-                  let cached = await cacheStore.loadSessionDetail(agentId: agent.id, sessionId: selectedSessionId) {
-            applyHydratedSession(cached)
+        if let selectedSessionId {
+            await hydrateSession(agentId: agent.id, sessionId: selectedSessionId)
         }
+    }
+
+    private func restoreInitialDataFromCache() async {
+        async let cachedAgentsRequest = cacheStore.loadAgents()
+        async let cachedProjectsRequest = cacheStore.loadProjects()
+
+        agents = await cachedAgentsRequest
+        projects = await cachedProjectsRequest
+        await restoreInitialAgentContext(using: agents, loadsCachedSessionsOnly: true)
+    }
+
+    private func revalidateInitialData() async {
+        async let agentsRequest: [APIAgentRecord]? = try? await apiClient.fetchAgents()
+        async let modelsRequest: [ChatModelOption]? = try? await apiClient.fetchAvailableModels()
+        async let projectsRequest: [APIProjectRecord]? = try? await apiClient.fetchProjects()
+
+        let fetchedAgents = await agentsRequest
+        let fetchedModels = await modelsRequest
+        let fetchedProjects = await projectsRequest
+
+        if let fetchedAgents {
+            agents = fetchedAgents
+            await cacheStore.cacheAgents(fetchedAgents)
+        }
+        if let fetchedModels {
+            applyAvailableModels(fetchedModels)
+        }
+        if let fetchedProjects {
+            projects = fetchedProjects
+            await cacheStore.cacheProjects(fetchedProjects)
+        }
+
+        await restoreInitialAgentContext(using: agents, loadsCachedSessionsOnly: false)
+    }
+
+    private func restoreInitialAgentContext(
+        using availableAgents: [APIAgentRecord],
+        loadsCachedSessionsOnly: Bool
+    ) async {
+        let preferredAgentId = selectedAgent?.id ?? settings.lastAgentId
+        guard let agent = availableAgents.first(where: { $0.id == preferredAgentId })
+            ?? availableAgents.first else {
+            return
+        }
+
+        selectedAgent = agent
+        settings.lastAgentId = agent.id
+
+        if loadsGlobalSessionCatalog {
+            if loadsCachedSessionsOnly {
+                var batches: [[ChatSessionSummary]] = []
+                for availableAgent in availableAgents {
+                    batches.append(await cacheStore.loadSessions(agentId: availableAgent.id))
+                }
+                sessionCatalog = sortSessions(ChatSessionCatalog.merge(batches))
+            } else {
+                await loadSessionCatalog(for: availableAgents)
+            }
+            sessions = sortSessions(sessionCatalog.filter {
+                $0.agentId == agent.id
+                    && (activeSessionProjectFilter == nil || $0.projectId == activeSessionProjectFilter)
+            })
+        } else if loadsCachedSessionsOnly {
+            let cached = await cacheStore.loadSessions(
+                agentId: agent.id,
+                projectId: activeSessionProjectFilter
+            )
+            sessions = sortSessions(cached.filter { $0.kind != "heartbeat" })
+        } else {
+            await loadSessions(for: agent, projectId: activeSessionProjectFilter)
+        }
+
+        restorePendingOrLastSession(for: agent)
+        if let pendingNavigationRequest {
+            applyNavigationRequest(pendingNavigationRequest)
+        }
+    }
+
+    private func restorePendingOrLastSession(for agent: APIAgentRecord) {
+        if let pendingSessionSummary {
+            openSessionFromSummary(pendingSessionSummary)
+            return
+        }
+
+        if selectedSessionId == nil,
+           restoresLastSession,
+           let lastSessionId = settings.lastSessionId,
+           sessions.contains(where: { $0.id == lastSessionId }) {
+            selectSession(lastSessionId)
+            return
+        }
+
+        guard selectedSessionId == nil else { return }
+        if transcript.isEmpty {
+            syncComposerDraft(
+                toSessionId: nil,
+                projectId: activeProjectId,
+                taskId: activeTaskId,
+                agentId: agent.id
+            )
+        }
+    }
+
+    private var activeSessionProjectFilter: String? {
+        activeTaskId == nil ? activeProjectId : nil
     }
 
     public func pickAgent(_ agent: APIAgentRecord) {
@@ -601,12 +801,12 @@ public final class ChatScreenViewModel {
     }
 
     public func deleteSession(_ session: ChatSessionSummary) {
-        guard let agent = selectedAgent else { return }
         Task { @MainActor in
             do {
-                try await apiClient.deleteAgentSession(agentId: agent.id, sessionId: session.id)
+                try await apiClient.deleteAgentSession(agentId: session.agentId, sessionId: session.id)
                 settings.setSessionPinned(session.id, isPinned: false)
                 sessions.removeAll { $0.id == session.id }
+                sessionCatalog.removeAll { $0.id == session.id }
 
                 if selectedSessionId == session.id {
                     disconnectCurrentSession()
@@ -630,6 +830,7 @@ public final class ChatScreenViewModel {
         let nextPinned = !settings.isSessionPinned(session.id)
         settings.setSessionPinned(session.id, isPinned: nextPinned)
         sessions = sortSessions(sessions)
+        sessionCatalog = sortSessions(sessionCatalog)
         showSessionStatus(nextPinned ? "Pinned \(displayTitle(for: session))" : "Unpinned \(displayTitle(for: session))")
     }
 
@@ -816,14 +1017,20 @@ public final class ChatScreenViewModel {
         case .blank:
             routeToBlankChat()
         case .project(let projectId, let projectName, _):
-            routeToContext(request, projectId: projectId, title: "Project: \(projectName)")
+            routeToContext(
+                request,
+                projectId: projectId,
+                title: "Project: \(projectName)",
+                opensPreferredSession: request.opensPreferredSession
+            )
         case .task(let projectId, let projectName, let taskId, let taskTitle, _):
             routeToContext(
                 request,
                 projectId: projectId,
                 title: "\(projectName) / \(taskTitle)",
                 preferredSessionTitle: taskTitle,
-                preferredTaskId: taskId
+                preferredTaskId: taskId,
+                opensPreferredSession: request.opensPreferredSession
             )
         }
     }
@@ -865,7 +1072,7 @@ public final class ChatScreenViewModel {
                 title: sessionTitle,
                 projectId: projectId
             ) else { return }
-            sessions.insert(summary, at: 0)
+            upsertSessionSummary(summary)
             selectedSessionId = summary.id
             settings.lastSessionId = summary.id
             await connectToSession(agentId: agent.id, sessionId: summary.id)
@@ -903,6 +1110,7 @@ public final class ChatScreenViewModel {
         activeTaskId = taskId
         settings.lastSessionId = sessionId
         syncComposerDraft(toSessionId: sessionId, projectId: retainedProjectId, taskId: taskId, agentId: agent.id)
+        requestTranscriptScrollToEnd()
         Task { @MainActor in
             await connectToSession(agentId: agent.id, sessionId: sessionId)
         }
@@ -928,7 +1136,8 @@ public final class ChatScreenViewModel {
         projectId: String,
         title: String,
         preferredSessionTitle: String? = nil,
-        preferredTaskId: String? = nil
+        preferredTaskId: String? = nil,
+        opensPreferredSession: Bool = true
     ) {
         let agent = agentForNavigation(request) ?? selectedAgent ?? agents.first
         guard let agent else {
@@ -946,7 +1155,8 @@ public final class ChatScreenViewModel {
             projectId: projectId,
             contextTitle: title,
             preferredSessionTitle: preferredSessionTitle,
-            preferredTaskId: preferredTaskId
+            preferredTaskId: preferredTaskId,
+            opensPreferredSession: opensPreferredSession
         )
     }
 
@@ -1032,6 +1242,7 @@ public final class ChatScreenViewModel {
         streamTask?.cancel()
         streamTask = nil
         cancelPendingStreamingAssistantText()
+        clearActiveStreamingAssistantTurn()
         socketManager = nil
         isAwaitingAgentResponse = false
         isStopping = false
@@ -1043,6 +1254,12 @@ public final class ChatScreenViewModel {
 
     private func connectToSession(agentId: String, sessionId: String) async {
         guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
+
+        if let cached = await cacheStore.loadSessionDetail(agentId: agentId, sessionId: sessionId) {
+            guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
+            applyHydratedSession(cached)
+        }
+
         let manager = SessionSocketManager(baseURL: apiClient.baseURL, agentId: agentId, sessionId: sessionId)
         socketManager = manager
         // Start the socket before yielding back to callers that may immediately
@@ -1068,14 +1285,18 @@ public final class ChatScreenViewModel {
     }
 
     private func hydrateSession(agentId: String, sessionId: String) async {
-        if let detail = try? await apiClient.fetchAgentSession(agentId: agentId, sessionId: sessionId) {
-            guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
-            applyHydratedSession(detail)
-            await cacheStore.cacheSessionDetail(agentId: agentId, detail: detail)
-        } else if let cached = await cacheStore.loadSessionDetail(agentId: agentId, sessionId: sessionId) {
+        if transcript.isEmpty,
+           let cached = await cacheStore.loadSessionDetail(agentId: agentId, sessionId: sessionId) {
             guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
             applyHydratedSession(cached)
         }
+
+        guard let detail = try? await apiClient.fetchAgentSession(agentId: agentId, sessionId: sessionId) else {
+            return
+        }
+        guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
+        applyHydratedSession(detail)
+        await cacheStore.cacheSessionDetail(agentId: agentId, detail: detail)
     }
 
     private func applyHydratedSession(_ detail: ChatSessionDetail) {
@@ -1107,6 +1328,7 @@ public final class ChatScreenViewModel {
             isStopping = false
             activeRunStatus = nil
             flushPendingStreamingAssistantText()
+            streamingTurnTracker.clear(sessionId: sessionId)
         case .heartbeat:
             break
         }
@@ -1122,10 +1344,14 @@ public final class ChatScreenViewModel {
 
         if isAssistantResponse {
             cancelPendingStreamingAssistantText(for: sessionId)
-            transcript.replaceStreamingAssistant(
-                messageId: streamingAssistantMessageId(for: sessionId),
-                with: message
-            )
+            if let streamingMessageId = streamingTurnTracker.claimFinalMessageId(for: sessionId) {
+                transcript.replaceStreamingAssistant(
+                    messageId: streamingMessageId,
+                    with: message
+                )
+            } else {
+                transcript.upsert(message)
+            }
             return
         } else if message.role == .user {
             transcript.removeAll { $0.id.hasPrefix("optimistic-user-") }
@@ -1133,7 +1359,7 @@ public final class ChatScreenViewModel {
 
         transcript.upsert(
             message,
-            before: streamingAssistantMessageId(for: sessionId)
+            before: currentStreamingAssistantMessageId(for: sessionId)
         )
     }
 
@@ -1148,7 +1374,13 @@ public final class ChatScreenViewModel {
         mode: StreamingTextUpdateMode
     ) {
         guard !text.isEmpty else { return }
+        let messageId = ensureActiveStreamingAssistantTurn(for: sessionId)
+        if let pendingMessageId = pendingStreamingAssistantMessageId,
+           pendingMessageId != messageId {
+            flushPendingStreamingAssistantText()
+        }
         pendingStreamingSessionId = sessionId
+        pendingStreamingAssistantMessageId = messageId
         isAwaitingAgentResponse = true
         switch mode {
         case .append:
@@ -1173,7 +1405,8 @@ public final class ChatScreenViewModel {
     }
 
     private func flushPendingStreamingAssistantText() {
-        guard let sessionId = pendingStreamingSessionId,
+        guard pendingStreamingSessionId != nil,
+              let messageId = pendingStreamingAssistantMessageId,
               let text = pendingStreamingAssistantText,
               let mode = pendingStreamingTextUpdateMode else {
             streamingFlushTask = nil
@@ -1181,10 +1414,11 @@ public final class ChatScreenViewModel {
         }
 
         pendingStreamingSessionId = nil
+        pendingStreamingAssistantMessageId = nil
         pendingStreamingAssistantText = nil
         pendingStreamingTextUpdateMode = nil
         streamingFlushTask = nil
-        applyStreamingAssistantText(text, sessionId: sessionId, mode: mode)
+        applyStreamingAssistantText(text, messageId: messageId, mode: mode)
     }
 
     private func cancelPendingStreamingAssistantText(for sessionId: String? = nil) {
@@ -1195,23 +1429,23 @@ public final class ChatScreenViewModel {
         streamingFlushTask?.cancel()
         streamingFlushTask = nil
         pendingStreamingSessionId = nil
+        pendingStreamingAssistantMessageId = nil
         pendingStreamingAssistantText = nil
         pendingStreamingTextUpdateMode = nil
     }
 
     private func applyStreamingAssistantText(
         _ text: String,
-        sessionId: String,
+        messageId: String,
         mode: StreamingTextUpdateMode
     ) {
-        let id = streamingAssistantMessageId(for: sessionId)
         switch mode {
         case .append:
-            transcript.appendStreamingAssistantText(text, messageId: id)
+            transcript.appendStreamingAssistantText(text, messageId: messageId)
         case .replace:
             transcript.upsert(
                 ChatMessage(
-                    id: id,
+                    id: messageId,
                     role: .assistant,
                     segments: [ChatMessageSegment(kind: .text, text: text)]
                 )
@@ -1220,6 +1454,9 @@ public final class ChatScreenViewModel {
     }
 
     private func handleRunStatus(_ status: ChatRunStatusEvent, sessionId: String) {
+        if status.stage.isWorking {
+            _ = ensureActiveStreamingAssistantTurn(for: sessionId)
+        }
         activeRunStatus = status
         if status.stage == .interrupted,
            let details = status.details?.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -1240,13 +1477,32 @@ public final class ChatScreenViewModel {
         case .thinking, .searching, .responding:
             isAwaitingAgentResponse = true
         case .paused, .done, .interrupted:
+            flushPendingStreamingAssistantText()
+            streamingTurnTracker.completeNextTurn(for: sessionId)
             isAwaitingAgentResponse = false
             isStopping = false
         }
     }
 
-    private func streamingAssistantMessageId(for sessionId: String) -> String {
-        "streaming-assistant-\(sessionId)"
+    @discardableResult
+    private func beginStreamingAssistantTurn(for sessionId: String) -> String {
+        flushPendingStreamingAssistantText()
+        let messageId = "streaming-assistant-\(sessionId)-\(UUID().uuidString.lowercased())"
+        streamingTurnTracker.begin(sessionId: sessionId, messageId: messageId)
+        return messageId
+    }
+
+    private func ensureActiveStreamingAssistantTurn(for sessionId: String) -> String {
+        currentStreamingAssistantMessageId(for: sessionId)
+            ?? beginStreamingAssistantTurn(for: sessionId)
+    }
+
+    private func currentStreamingAssistantMessageId(for sessionId: String) -> String? {
+        streamingTurnTracker.currentMessageId(for: sessionId)
+    }
+
+    private func clearActiveStreamingAssistantTurn(for sessionId: String? = nil) {
+        streamingTurnTracker.clear(sessionId: sessionId)
     }
 
     private func displayTitle(for session: ChatSessionSummary) -> String {
@@ -1268,10 +1524,20 @@ public final class ChatScreenViewModel {
         }
     }
 
+    private func upsertSessionSummary(_ summary: ChatSessionSummary) {
+        sessions.removeAll { $0.id == summary.id }
+        sessions.append(summary)
+        sessions = sortSessions(sessions)
+
+        sessionCatalog.removeAll { $0.id == summary.id }
+        sessionCatalog.append(summary)
+        sessionCatalog = sortSessions(sessionCatalog)
+    }
+
     private func debugSessionFilePathURL(for session: ChatSessionSummary) -> URL {
         var components = URLComponents(url: apiClient.baseURL, resolvingAgainstBaseURL: false)
             ?? URLComponents()
-        let agentId = selectedAgent?.id ?? session.agentId
+        let agentId = session.agentId
         components.path = "/v1/debug/session-file-path/\(Self.urlPathEscape(agentId))/\(Self.urlPathEscape(session.id))"
         components.queryItems = nil
         return components.url ?? apiClient.baseURL
@@ -1393,6 +1659,9 @@ public final class ChatScreenViewModel {
             role: .user,
             segments: optimisticSegments
         )
+        if let sessionId = selectedSessionId {
+            beginStreamingAssistantTurn(for: sessionId)
+        }
         transcript.append(optimistic)
 
         if selectedSessionId == nil {
@@ -1403,8 +1672,9 @@ public final class ChatScreenViewModel {
                         title: activeTaskId.map(taskSessionTitle(for:)) ?? activeContextTitle ?? "Chat with \(agent.displayName)",
                         projectId: activeProjectId
                     )
-                    sessions.insert(summary, at: 0)
+                    upsertSessionSummary(summary)
                     selectedSessionId = summary.id
+                    beginStreamingAssistantTurn(for: summary.id)
                     settings.lastSessionId = summary.id
                     syncComposerDraft(
                         toSessionId: summary.id,
@@ -1453,7 +1723,7 @@ public final class ChatScreenViewModel {
     ) async {
         defer { isSending = false }
         do {
-            _ = try await apiClient.postSessionMessage(
+            let summary = try await apiClient.postSessionMessage(
                 agentId: agentId,
                 sessionId: sessionId,
                 content: content,
@@ -1461,7 +1731,16 @@ public final class ChatScreenViewModel {
                 selectedModel: selectedModelId,
                 reasoningEffort: selectedModelSupportsReasoningEffort ? selectedReasoningEffort.payloadValue : nil
             )
+            upsertSessionSummary(summary)
         } catch {
+            let shouldRestoreDraft = ChatMessageSendFailurePolicy.shouldRestoreDraft(
+                after: error,
+                optimisticMessageIsPresent: transcript.messages.contains { $0.id == optimistic.id }
+            )
+            guard shouldRestoreDraft else {
+                return
+            }
+
             transcript.removeAll { $0.id == optimistic.id }
             isAwaitingAgentResponse = false
             activeRunStatus = nil

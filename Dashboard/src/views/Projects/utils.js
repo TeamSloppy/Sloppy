@@ -259,6 +259,10 @@ export function normalizeProject(project, index = 0) {
     name,
     description: String(project?.description || "").trim(),
     icon: String(project?.icon || "").trim() || null,
+    kind: project?.kind === "workspace" ? "workspace" : "project",
+    directoryPaths: Array.isArray(project?.directoryPaths)
+      ? project.directoryPaths.map(String).filter(Boolean)
+      : [],
     createdAt: String(project?.createdAt || new Date().toISOString()),
     updatedAt: String(project?.updatedAt || project?.createdAt || new Date().toISOString()),
     chats,
@@ -794,6 +798,7 @@ export function emptyProjectDraft(index = 1) {
     teams: "",
     sourceType: "empty",
     repoUrl: "",
-    repoPath: ""
+    repoPath: "",
+    directoryPaths: []
   };
 }

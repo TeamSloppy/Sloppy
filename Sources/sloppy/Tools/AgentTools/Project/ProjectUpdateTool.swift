@@ -18,6 +18,8 @@ struct ProjectUpdateTool: CoreTool {
             .init(name: "actors", description: "Updated list of actor IDs", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)), isOptional: true),
             .init(name: "teams", description: "Updated list of team IDs", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)), isOptional: true),
             .init(name: "repoPath", description: "Repository path", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "kind", description: "Project kind: project or workspace", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "directoryPaths", description: "Replacement ordered workspace directories", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)), isOptional: true),
             .init(name: "isFavorite", description: "Whether the project is pinned to favorites", schema: DynamicGenerationSchema(type: Bool.self), isOptional: true),
         ])
     }
@@ -45,6 +47,8 @@ struct ProjectUpdateTool: CoreTool {
                     actors: actors,
                     teams: teams,
                     repoPath: arguments["repoPath"]?.asString,
+                    kind: arguments["kind"]?.asString.flatMap(ProjectKind.init(rawValue:)),
+                    directoryPaths: arguments["directoryPaths"]?.asArray?.compactMap(\.asString),
                     isFavorite: arguments["isFavorite"]?.asBool
                 )
             )

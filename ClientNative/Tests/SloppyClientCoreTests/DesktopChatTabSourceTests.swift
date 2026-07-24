@@ -30,8 +30,8 @@ struct DesktopChatTabSourceTests {
         #expect(mainView.contains(".allowsHitTesting(tab.id == activeTabID)"))
         #expect(mainView.contains("ChatScreen("))
         #expect(mainView.contains("viewModel: chatState.viewModel"))
-        #expect(chatScreen.contains("private let viewModel: ChatScreenViewModel"))
-        #expect(!chatScreen.contains("@State private var viewModel: ChatScreenViewModel"))
+        #expect(mainView.contains(".id(ObjectIdentifier(chatState.viewModel))"))
+        #expect(chatScreen.contains("@State private var viewModel: ChatScreenViewModel"))
     }
 
     @Test("desktop task and recent session actions use tab-local chats instead of the global chat view model")
@@ -40,10 +40,20 @@ struct DesktopChatTabSourceTests {
 
         #expect(mainViewModel.contains("openTaskChatTab("))
         #expect(mainViewModel.contains("openSessionChatTab("))
-        #expect(mainViewModel.contains("retargetSelectedChatTab(to: session)"))
-        #expect(mainViewModel.contains("private func retargetSelectedChatTab(to session: ChatSessionSummary) -> Bool"))
+        #expect(mainViewModel.contains("private func showInSelectedTab(_ tab: WorkspaceTab, state: WorkspaceTabState)"))
+        #expect(mainViewModel.contains("tabStates[selectedTabID] = state"))
         #expect(!mainViewModel.contains("chatViewModel.pickSession(session)"))
         #expect(!mainViewModel.contains("navigateChat("))
+    }
+
+    @Test("reactivating a mounted chat tab requests its transcript end")
+    func reactivatingMountedChatTabRequestsTranscriptEnd() throws {
+        let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
+        let mainViewModel = try source("Sources/SloppyClient/Navigation/Main/MainViewModel.swift")
+
+        #expect(mainView.contains(".onChange(of: viewModel.selectedTabID)"))
+        #expect(mainView.contains("viewModel.requestChatScrollToEnd(for: newValue)"))
+        #expect(mainViewModel.contains("requestTranscriptScrollToEnd()"))
     }
 
     @Test("blank tab-local chats do not restore the previous global session")

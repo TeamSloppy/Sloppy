@@ -55,6 +55,19 @@ struct ChatBubbleRenderingTests {
         #expect(!rowSource.contains("backportGlassEffect"))
     }
 
+    @Test("system activity starts collapsed and expands from its header")
+    func systemActivityStartsCollapsedAndExpandsFromHeader() throws {
+        let source = try source
+        let groupStart = try #require(source.range(of: "struct ChatSystemMessageGroupView"))
+        let itemStart = try #require(source.range(of: "struct ChatSystemSegmentItem"))
+        let groupSource = source[groupStart.lowerBound..<itemStart.lowerBound]
+
+        #expect(groupSource.contains("@State private var isExpanded = false"))
+        #expect(groupSource.contains("ChatSystemActivityVisibility.visibleItems"))
+        #expect(groupSource.contains("isExpanded.toggle()"))
+        #expect(groupSource.contains(".buttonStyle(.plain)"))
+    }
+
     @Test("recoverable provider failures link to provider settings")
     func recoverableProviderFailuresLinkToProviderSettings() throws {
         let source = try source

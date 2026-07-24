@@ -19,6 +19,25 @@ public struct ServerAddress: Equatable, Sendable {
         return components.url ?? URL(string: "http://localhost:25101")!
     }
 
+    public var isLoopback: Bool {
+        Self.isLoopbackHost(host)
+    }
+
+    public static func isLoopbackHost(_ rawHost: String?) -> Bool {
+        guard let host = rawHost?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !host.isEmpty else {
+            return false
+        }
+        if host == "localhost" || host == "::1" || host == "[::1]" {
+            return true
+        }
+        let parts = host.split(separator: ".", omittingEmptySubsequences: false)
+        guard parts.count == 4, parts.allSatisfy({ UInt8($0) != nil }) else {
+            return false
+        }
+        return parts[0] == "127"
+    }
+
     public static func parse(
         host rawHost: String,
         port rawPort: String? = nil,

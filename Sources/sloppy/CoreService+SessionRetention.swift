@@ -25,6 +25,7 @@ extension CoreService {
             for summary in deleted {
                 sessionExtraRoots.removeValue(forKey: summary.id)
                 sessionWorkingDirectories.removeValue(forKey: summary.id)
+                sessionAddedRoots.removeValue(forKey: summary.id)
                 sessionSubagentToolAllowList.removeValue(forKey: summary.id)
                 sessionToolUsageLimitBypass.remove(summary.id)
                 sessionToolApprovalBypass.remove(summary.id)

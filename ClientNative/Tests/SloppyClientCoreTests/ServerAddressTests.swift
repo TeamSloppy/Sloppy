@@ -35,4 +35,14 @@ struct ServerAddressTests {
     func rejectsEmptyHost() {
         #expect(ServerAddress.parse(host: "   ") == nil)
     }
+
+    @Test("recognizes only loopback hosts for local directory picking")
+    func recognizesLoopbackHosts() {
+        #expect(ServerAddress.isLoopbackHost("localhost"))
+        #expect(ServerAddress.isLoopbackHost("127.0.0.1"))
+        #expect(ServerAddress.isLoopbackHost("127.32.4.9"))
+        #expect(ServerAddress.isLoopbackHost("::1"))
+        #expect(!ServerAddress.isLoopbackHost("192.168.1.20"))
+        #expect(!ServerAddress.isLoopbackHost("example.com"))
+    }
 }

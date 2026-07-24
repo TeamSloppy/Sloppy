@@ -92,6 +92,8 @@ private func projectCurrentJSONValue(
         "teams": .array(project.teams.map { .string($0) }),
         "models": .array(project.models.map { .string($0) }),
         "repoPath": project.repoPath.map { .string($0) } ?? .null,
+        "kind": .string(project.kind.rawValue),
+        "directoryPaths": .array(project.directoryPaths.map { .string($0) }),
         "taskLoopMode": .string(project.taskLoopMode.rawValue),
         "autopilotSettings": autopilotSettingsJSONValue(project.autopilotSettings),
         "taskSyncSettings": .object([

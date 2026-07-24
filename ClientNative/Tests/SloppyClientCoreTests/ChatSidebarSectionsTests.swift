@@ -109,8 +109,8 @@ struct ChatSidebarSectionsTests {
         #expect(sections.projectGroups.last?.hiddenCount == 0)
     }
 
-    @Test("projects include empty groups and sort by latest chat activity")
-    func projectsIncludeEmptyGroupsAndSortByLatestChatActivity() {
+    @Test("projects include empty groups and preserve the supplied order")
+    func projectsIncludeEmptyGroupsAndPreserveTheSuppliedOrder() {
         let projects = [
             APIProjectRecord(id: "empty", name: "Empty"),
             APIProjectRecord(id: "older", name: "Older"),
@@ -142,7 +142,7 @@ struct ChatSidebarSectionsTests {
             mode: .projects
         )
 
-        #expect(sections.projectGroups.map(\.project.id) == ["newer", "older", "empty"])
-        #expect(sections.projectGroups.last?.totalSessions.isEmpty == true)
+        #expect(sections.projectGroups.map(\.project.id) == ["empty", "older", "newer"])
+        #expect(sections.projectGroups.first?.totalSessions.isEmpty == true)
     }
 }

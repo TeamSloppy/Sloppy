@@ -503,6 +503,7 @@ private struct SettingsSidebarRowView: View {
     let action: () -> Void
 
     @Environment(\.theme) private var theme
+    @State private var isHovered = false
 
     var body: some View {
         Button(action: action) {
@@ -519,11 +520,23 @@ private struct SettingsSidebarRowView: View {
             .padding(.vertical, theme.spacing.s)
             .background(
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(isSelected ? theme.colors.surfaceRaised.opacity(0.28 as CGFloat) : .clear)
+                    .fill(rowBackgroundColor)
             )
             .padding(.horizontal, theme.spacing.m)
         }
         .buttonStyle(.plain)
+        .contentShape(Rectangle())
+        .onHover { isHovered = $0 }
+    }
+
+    private var rowBackgroundColor: Color {
+        if isSelected {
+            return theme.colors.surfaceRaised.opacity(0.28 as CGFloat)
+        }
+        if isHovered {
+            return theme.colors.surfaceRaised.opacity(0.2 as CGFloat)
+        }
+        return .clear
     }
 
     private var iconName: String {

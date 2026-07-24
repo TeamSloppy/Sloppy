@@ -514,6 +514,19 @@ test("quick chat stays compact like the Safari contextual answer bubble", () => 
   assert.match(quickFollowUp, /font-size:\s*14px;/);
 });
 
+test("translation quick chat is larger and keeps translated text readable", () => {
+  const css = loadPanelCSS();
+  const translationRoot = css.match(/#sloppy-quick-chat\.is-translation\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const translationTitle = css.match(/#sloppy-quick-chat\.is-translation \.sloppy-quick-title strong\s*\{[\s\S]*?\n\}/)?.[0] || "";
+  const translationBody = css.match(/#sloppy-quick-chat\.is-translation \.sloppy-quick-body\s*\{[\s\S]*?\n\}/)?.[0] || "";
+
+  assert.match(translationRoot, /width:\s*min\(480px,\s*calc\(var\(--sloppy-viewport-width,\s*100vw\)\s*-\s*32px\)\);/);
+  assert.match(translationRoot, /max-height:\s*min\(560px,\s*calc\(var\(--sloppy-viewport-height,\s*100vh\)\s*-\s*44px\)\);/);
+  assert.match(translationTitle, /font-size:\s*16px;/);
+  assert.match(translationBody, /font-size:\s*17px;/);
+  assert.match(translationBody, /line-height:\s*1\.58;/);
+});
+
 test("selection menu matches the mini chat compact dark surface", () => {
   const css = loadPanelCSS();
   const popoverBlock = css.match(/\.sloppy-selection-popover\s*\{[\s\S]*?\n\}/)?.[0] || "";

@@ -68,6 +68,7 @@ import { ProjectMemoryTab } from "./Projects/ProjectMemoryTab";
 import { ProjectAnalyticsTab } from "./Projects/ProjectAnalyticsTab";
 import { ProjectWorkflowsTab } from "./Projects/ProjectWorkflowsTab";
 import { ProjectInitiativesTab } from "./Projects/ProjectInitiativesTab";
+import { WorkspaceDirectoriesEditor } from "./Projects/WorkspaceDirectoriesEditor";
 
 import { ProjectList } from "./Projects/ProjectList";
 import { TaskReviewView } from "./Projects/TaskReviewView";
@@ -134,6 +135,8 @@ function ProjectCreateModal({ isOpen, draft, onChange, onClose, onCreate, actors
   const canCreateProject =
     draft.sourceType === "open"
       ? draft.displayName.trim() && draft.repoPath.trim()
+      : draft.sourceType === "workspace"
+        ? draft.displayName.trim() && draft.directoryPaths.length >= 2
       : draft.displayName.trim();
 
   return (
@@ -175,6 +178,15 @@ function ProjectCreateModal({ isOpen, draft, onChange, onClose, onCreate, actors
               <strong>Open Project</strong>
               <span>Attach an existing local directory and keep working in place.</span>
             </button>
+            <button
+              type="button"
+              className={`onboarding-provider-card ${draft.sourceType === "workspace" ? "active" : ""}`}
+              onClick={() => onChange("sourceType", "workspace")}
+            >
+              <span className="material-symbols-rounded" aria-hidden="true">folder_copy</span>
+              <strong>Workspace</strong>
+              <span>Give agents access to several local directories.</span>
+            </button>
           </div>
 
           {draft.sourceType === "git" ? (
@@ -201,6 +213,17 @@ function ProjectCreateModal({ isOpen, draft, onChange, onClose, onCreate, actors
               <span className="project-path-hint">
                 Any local folder is allowed. Git features become available automatically when this directory is a repository.
               </span>
+            </label>
+          ) : null}
+
+          {draft.sourceType === "workspace" ? (
+            <label>
+              Workspace directories
+              <WorkspaceDirectoriesEditor
+                paths={draft.directoryPaths}
+                onChange={(paths) => onChange("directoryPaths", paths)}
+                minimum={2}
+              />
             </label>
           ) : null}
 
@@ -1686,6 +1709,9 @@ export function ProjectsView({
     if (projectDraft.sourceType === "open" && !String(projectDraft.repoPath || "").trim()) {
       return;
     }
+    if (projectDraft.sourceType === "workspace" && projectDraft.directoryPaths.length < 2) {
+      return;
+    }
 
     const nextIndex = projects.length + 1;
     const projectId =
@@ -1712,7 +1738,10 @@ export function ProjectsView({
         : {}),
       ...(projectDraft.sourceType === "open" && String(projectDraft.repoPath || "").trim()
         ? { repoPath: String(projectDraft.repoPath).trim() }
-        : {})
+        : {}),
+      ...(projectDraft.sourceType === "workspace"
+        ? { kind: "workspace", directoryPaths: projectDraft.directoryPaths }
+        : { kind: "project", directoryPaths: [] })
     });
 
     if (!outcome?.project) {

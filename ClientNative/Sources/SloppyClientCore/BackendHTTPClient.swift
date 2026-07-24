@@ -78,6 +78,11 @@ public actor BackendHTTPClient {
         return try decode(T.self, from: data)
     }
 
+    public func patch<Body: Encodable, T: Decodable>(_ path: String, body: Body) async throws -> T {
+        let data = try await data(method: "PATCH", path: path, body: body)
+        return try decode(T.self, from: data)
+    }
+
     public func delete(_ path: String) async throws {
         _ = try await data(method: "DELETE", path: path)
     }
@@ -98,7 +103,7 @@ public actor BackendHTTPClient {
 
     public nonisolated static func encodeQueryValue(_ value: String) -> String {
         var allowed = CharacterSet.urlQueryAllowed
-        allowed.remove(charactersIn: ":#[]@!$&'()*+,;=")
+        allowed.remove(charactersIn: ":?#[]@!$&'()*+,;=")
         return value.addingPercentEncoding(withAllowedCharacters: allowed) ?? value
     }
 

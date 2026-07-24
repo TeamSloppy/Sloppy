@@ -147,7 +147,8 @@ private struct ChatCameraAttachmentPickerModifier: ViewModifier {
     let viewModel: ChatScreenViewModel
 
     func body(content: Content) -> some View {
-        content.fullScreenCover(isPresented: $viewModel.isCameraPickerShown) {
+        @Bindable var viewModel = viewModel
+        return content.fullScreenCover(isPresented: $viewModel.isCameraPickerShown) {
             CameraAttachmentPicker { url in
                 viewModel.isCameraPickerShown = false
                 if let url {
@@ -668,6 +669,7 @@ private struct ChatTranscriptRegion: View {
     var body: some View {
         ChatTranscriptPane(
             transcript: viewModel.transcript,
+            scrollToEndRequest: viewModel.transcriptScrollToEndRequest,
             contentWidth: contentWidth,
             messagesTopInset: messagesTopInset,
             composerScrollInset: composerScrollInset,
@@ -802,6 +804,7 @@ public struct ChatComposerOverlay: View {
 @MainActor
 private struct ChatTranscriptPane: View {
     let transcript: ChatTranscriptState
+    let scrollToEndRequest: Int
     let contentWidth: CGFloat
     let messagesTopInset: CGFloat
     let composerScrollInset: CGFloat
@@ -878,6 +881,7 @@ private struct ChatTranscriptPane: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            .defaultScrollAnchor(.bottom)
             .onScrollGeometryChange(for: Bool.self) { geometry in
                 isGeometryNearBottom(geometry)
             } action: { _, newValue in
@@ -898,6 +902,11 @@ private struct ChatTranscriptPane: View {
                 case .animating:
                     isUserScrolling = false
                 }
+            }
+            .onChange(of: scrollToEndRequest, initial: true) { _, _ in
+                isNearBottom = true
+                isUserScrolling = false
+                scrollToBottom(using: proxy, animated: false)
             }
             .onChange(of: transcript.messages.count) { oldCount, newCount in
                 guard newCount > oldCount,
@@ -931,10 +940,10 @@ private struct ChatTranscriptPane: View {
         }
     }
 
-    private func scrollToBottom(using proxy: ScrollViewProxy) {
+    private func scrollToBottom(using proxy: ScrollViewProxy, animated: Bool = true) {
         Task { @MainActor in
             await Task.yield()
-            if reduceMotion {
+            if reduceMotion || !animated {
                 proxy.scrollTo(bottomAnchorId, anchor: .bottom)
             } else {
                 withAnimation(.easeOut(duration: 0.16)) {

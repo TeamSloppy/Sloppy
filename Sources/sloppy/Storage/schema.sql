@@ -302,6 +302,8 @@ CREATE TABLE IF NOT EXISTS dashboard_projects (
     description TEXT NOT NULL,
     actors_json TEXT NOT NULL DEFAULT '[]',
     teams_json TEXT NOT NULL DEFAULT '[]',
+    project_kind TEXT NOT NULL DEFAULT 'project',
+    directory_paths_json TEXT NOT NULL DEFAULT '[]',
     autopilot_settings_json TEXT NOT NULL DEFAULT '{}',
     is_favorite INTEGER NOT NULL DEFAULT 0,
     source_control_provider_id TEXT,

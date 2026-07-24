@@ -17,7 +17,8 @@ struct WorkspaceToolbarActionsSourceTests {
 
         #expect(panelView.contains("Open in Zed"))
         #expect(panelView.contains("Reveal in Finder"))
-        #expect(panelView.contains("Tools"))
+        #expect(panelView.contains("More file actions"))
+        #expect(panelView.contains("Image(systemName: \"ellipsis\")"))
         #expect(panelView.contains("Menu {"))
     }
 

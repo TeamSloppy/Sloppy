@@ -56,10 +56,18 @@ public struct AgentOverview: Codable, Sendable, Equatable, Identifiable {
     }
 }
 
+public enum APIProjectKind: String, Codable, Sendable, Equatable, CaseIterable {
+    case project
+    case workspace
+}
+
 public struct APIProjectRecord: Codable, Sendable, Identifiable {
     public var id: String
     public var name: String
     public var description: String
+    public var icon: String?
+    public var kind: APIProjectKind
+    public var directoryPaths: [String]
     public var repoPath: String?
     public var worktreeRootPath: String?
     public var channels: [APIProjectChannel]?
@@ -68,13 +76,52 @@ public struct APIProjectRecord: Codable, Sendable, Identifiable {
     public var teams: [String]?
 
     public var projectRootPath: String? {
-        worktreeRootPath ?? repoPath
+        directoryPaths.first ?? worktreeRootPath ?? repoPath
     }
+
+    public var semanticIconName: String {
+        let customIcon = icon?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let customIcon, let systemIcon = Self.systemIconNames[customIcon] {
+            return systemIcon
+        }
+        return kind == .workspace ? "square.stack.3d.up" : "folder"
+    }
+
+    private static let systemIconNames: [String: String] = [
+        "folder": "folder",
+        "rocket_launch": "paperplane",
+        "code": "chevron.left.forwardslash.chevron.right",
+        "terminal": "terminal",
+        "science": "flask",
+        "deployed_code": "shippingbox",
+        "bug_report": "ladybug",
+        "psychology": "brain",
+        "smart_toy": "cpu",
+        "extension": "puzzlepiece.extension",
+        "database": "cylinder",
+        "cloud": "cloud",
+        "language": "globe",
+        "brush": "paintbrush",
+        "analytics": "chart.xyaxis.line",
+        "school": "graduationcap",
+        "build": "hammer",
+        "architecture": "ruler",
+        "api": "network",
+        "hub": "point.3.connected.trianglepath.dotted",
+        "storage": "internaldrive",
+        "monitoring": "waveform.path.ecg",
+        "security": "shield",
+        "memory": "memorychip",
+        "web": "globe",
+    ]
 
     public init(
         id: String,
         name: String,
         description: String = "",
+        icon: String? = nil,
+        kind: APIProjectKind = .project,
+        directoryPaths: [String] = [],
         repoPath: String? = nil,
         worktreeRootPath: String? = nil,
         channels: [APIProjectChannel]? = nil,
@@ -85,12 +132,115 @@ public struct APIProjectRecord: Codable, Sendable, Identifiable {
         self.id = id
         self.name = name
         self.description = description
+        self.icon = icon
+        self.kind = kind
+        self.directoryPaths = directoryPaths
         self.repoPath = repoPath
         self.worktreeRootPath = worktreeRootPath
         self.channels = channels
         self.tasks = tasks
         self.actors = actors
         self.teams = teams
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, description, icon, kind, directoryPaths, repoPath, worktreeRootPath
+        case channels, tasks, actors, teams
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
+        icon = try container.decodeIfPresent(String.self, forKey: .icon)
+        kind = try container.decodeIfPresent(APIProjectKind.self, forKey: .kind) ?? .project
+        directoryPaths = try container.decodeIfPresent([String].self, forKey: .directoryPaths) ?? []
+        repoPath = try container.decodeIfPresent(String.self, forKey: .repoPath)
+        worktreeRootPath = try container.decodeIfPresent(String.self, forKey: .worktreeRootPath)
+        channels = try container.decodeIfPresent([APIProjectChannel].self, forKey: .channels)
+        tasks = try container.decodeIfPresent([APIProjectTask].self, forKey: .tasks)
+        actors = try container.decodeIfPresent([String].self, forKey: .actors)
+        teams = try container.decodeIfPresent([String].self, forKey: .teams)
+    }
+}
+
+public struct APIProjectCreateRequest: Codable, Sendable, Equatable {
+    public var name: String
+    public var description: String?
+    public var repoUrl: String?
+    public var repoPath: String?
+    public var kind: APIProjectKind
+    public var directoryPaths: [String]
+
+    public init(
+        name: String,
+        description: String? = nil,
+        repoUrl: String? = nil,
+        repoPath: String? = nil,
+        kind: APIProjectKind = .project,
+        directoryPaths: [String] = []
+    ) {
+        self.name = name
+        self.description = description
+        self.repoUrl = repoUrl
+        self.repoPath = repoPath
+        self.kind = kind
+        self.directoryPaths = directoryPaths
+    }
+}
+
+public struct APIProjectCreateResult: Codable, Sendable {
+    public var project: APIProjectRecord
+    public var repoCloneSucceeded: Bool?
+
+    public init(project: APIProjectRecord, repoCloneSucceeded: Bool? = nil) {
+        self.project = project
+        self.repoCloneSucceeded = repoCloneSucceeded
+    }
+}
+
+public struct APIProjectUpdateRequest: Codable, Sendable, Equatable {
+    public var name: String?
+    public var description: String?
+    public var kind: APIProjectKind?
+    public var directoryPaths: [String]?
+
+    public init(
+        name: String? = nil,
+        description: String? = nil,
+        kind: APIProjectKind? = nil,
+        directoryPaths: [String]? = nil
+    ) {
+        self.name = name
+        self.description = description
+        self.kind = kind
+        self.directoryPaths = directoryPaths
+    }
+}
+
+public struct APIProjectTaskCreateRequest: Codable, Sendable, Equatable {
+    public var title: String
+    public var description: String?
+    public var priority: String
+    public var status: String?
+    public var actorId: String?
+    public var tags: [String]?
+
+    public init(
+        title: String,
+        description: String? = nil,
+        priority: String = "medium",
+        status: String? = nil,
+        actorId: String? = nil,
+        tags: [String]? = nil
+    ) {
+        self.title = title
+        self.description = description
+        self.priority = priority
+        self.status = status
+        self.actorId = actorId
+        self.tags = tags
     }
 }
 

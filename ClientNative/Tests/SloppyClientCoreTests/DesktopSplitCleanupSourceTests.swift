@@ -12,11 +12,11 @@ struct DesktopSplitCleanupSourceTests {
         return try String(contentsOf: url, encoding: .utf8)
     }
 
-    @Test("main view model clears temporary split when retargeting selected chat tab")
-    func mainViewModelClearsTemporarySplitWhenRetargetingSelectedChatTab() throws {
-        let source = try source("Sources", "SloppyClient", "Navigation", "Main", "MainView.swift")
+    @Test("main view model clears temporary split when replacing selected tab content")
+    func mainViewModelClearsTemporarySplitWhenReplacingSelectedTabContent() throws {
+        let source = try source("Sources", "SloppyClient", "Navigation", "Main", "MainViewModel.swift")
 
-        #expect(source.contains("private func retargetSelectedChatTab(to session: ChatSessionSummary)"))
+        #expect(source.contains("private func showInSelectedTab(_ tab: WorkspaceTab, state: WorkspaceTabState)"))
         #expect(source.contains("clearDesktopSplit()"))
     }
 }

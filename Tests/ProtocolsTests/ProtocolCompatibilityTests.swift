@@ -844,6 +844,28 @@ func projectCreateRequestRepoUrlIsOptional() throws {
     """.data(using: .utf8)!
     let request = try JSONDecoder().decode(ProjectCreateRequest.self, from: json)
     #expect(request.repoUrl == nil)
+    #expect(request.kind == .project)
+    #expect(request.directoryPaths.isEmpty)
+}
+
+@Test
+func workspaceProjectPayloadsPreserveOrderedDirectories() throws {
+    let paths = ["/tmp/client", "/tmp/server"]
+    let create = ProjectCreateRequest(
+        name: "Product Workspace",
+        kind: .workspace,
+        directoryPaths: paths
+    )
+    let createData = try JSONEncoder().encode(create)
+    let decodedCreate = try JSONDecoder().decode(ProjectCreateRequest.self, from: createData)
+    #expect(decodedCreate.kind == .workspace)
+    #expect(decodedCreate.directoryPaths == paths)
+
+    let update = ProjectUpdateRequest(kind: .workspace, directoryPaths: Array(paths.reversed()))
+    let updateData = try JSONEncoder().encode(update)
+    let decodedUpdate = try JSONDecoder().decode(ProjectUpdateRequest.self, from: updateData)
+    #expect(decodedUpdate.kind == .workspace)
+    #expect(decodedUpdate.directoryPaths == Array(paths.reversed()))
 }
 
 @Test

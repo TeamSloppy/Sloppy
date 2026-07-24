@@ -269,6 +269,7 @@ extension CoreService {
     func clearChannelSessionDirectories(channelID: String) {
         channelExtraRoots.removeValue(forKey: channelID)
         channelWorkingDirectories.removeValue(forKey: channelID)
+        channelAddedRoots.removeValue(forKey: channelID)
     }
 
     func globalChannelInactivityTimeoutMinutes() -> Int? {

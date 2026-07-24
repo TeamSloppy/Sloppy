@@ -209,9 +209,9 @@ export function ProjectList({
         )}
 
         <div className="project-grid-body">
-          {project.icon ? (
+          {project.icon || project.kind === "workspace" ? (
             <ProjectIcon
-              icon={project.icon}
+              icon={project.icon || "folder_copy"}
               className="project-grid-icon"
               imageClassName="project-grid-icon-image"
             />
