@@ -195,6 +195,8 @@ private func authErrorResponse(_ error: Error) -> CoreRouterResponse {
         return CoreRouter.json(status: HTTPStatus.conflict, payload: ["error": "last_admin"])
     case CoreIdentityAuthError.disabled:
         return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "auth_disabled"])
+    case CoreIdentityAuthError.invalidRole:
+        return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "invalid_role"])
     case CoreIdentityAuthError.invalidCredentials,
          CoreIdentityAuthError.invalidInvite,
          CoreIdentityAuthError.inviteExpired,

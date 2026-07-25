@@ -1,6 +1,7 @@
 import ChannelPluginSupport
 import Foundation
 import Protocols
+import PluginSDK
 
 private struct RuntimeConfigResponse: Encodable {
     var config: CoreConfig
@@ -97,6 +98,11 @@ struct SystemAPIRouter: APIRouter {
                 status: HTTPStatus.ok,
                 payload: HealthResponse(status: "ok", pid: ProcessInfo.processInfo.processIdentifier)
             )
+        }
+
+        router.get("/v1/system/edition", metadata: RouteMetadata(summary: "Get product edition", description: "Returns Community or Enterprise module capabilities without requiring a phone-home check", tags: ["System"])) { _ in
+            let status = await service.enterpriseRuntimeStatus()
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: status)
         }
 
         router.get("/v1/channel/slash-commands", metadata: RouteMetadata(summary: "List channel slash commands", description: "Returns the same command metadata as Telegram/Discord channel plugins (ChannelCommandHandler)", tags: ["System"])) { _ in

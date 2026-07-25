@@ -4,6 +4,8 @@ import SloppyNodeCore
 
 struct AuthenticatedUserContext: Sendable, Equatable {
     var user: AuthUserProfile
+    var groups: [String] = []
+    var identityProviderID: String?
 }
 
 enum CoreIdentityAuthError: Error, Sendable {
@@ -12,6 +14,7 @@ enum CoreIdentityAuthError: Error, Sendable {
     case bootstrapRequired
     case invalidCredentials
     case invalidInvite
+    case invalidRole
     case inviteExpired
     case inviteConsumed
     case invalidRecoverySecret
@@ -161,6 +164,9 @@ actor CoreIdentityAuthService {
 
     func createInvite(_ request: AuthInviteCreateRequest, actor: AuthenticatedUserContext) throws -> AuthInviteRecord {
         try requireAdmin(actor)
+        guard request.role.isCommunityRole else {
+            throw CoreIdentityAuthError.invalidRole
+        }
         let ttl = max(60, min(request.ttlSeconds, Self.refreshTokenLifetimeSeconds))
         let token = "slp_inv_" + NodeIdentityGenerator.randomToken(byteCount: 24)
         let now = Date()
@@ -207,6 +213,9 @@ actor CoreIdentityAuthService {
             profile.description = description.trimmingCharacters(in: .whitespacesAndNewlines)
         }
         if let role = request.role {
+            guard role.isCommunityRole else {
+                throw CoreIdentityAuthError.invalidRole
+            }
             profile.role = role
         }
         if let status = request.status {

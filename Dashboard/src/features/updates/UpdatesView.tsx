@@ -217,6 +217,40 @@ export function UpdatesView({ status, isChecking, onForceCheck }: Props) {
           <CommandBlock label="DOCKER RUN" command={DOCKER_RUN_CMD} />
         </section>
       )}
+
+      <section className="entry-editor-card">
+        <h4>License and Source</h4>
+        <p className="placeholder-text">
+          Sloppy Community server, runtime, Dashboard, and SloppyNode are
+          AGPL-3.0-only. Public SDK and native-client surfaces are MIT licensed.
+        </p>
+        <div className="updates-status-actions">
+          <a
+            href="https://github.com/TeamSloppy/Sloppy"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="updates-release-link"
+          >
+            View source
+          </a>
+          <a
+            href="https://github.com/TeamSloppy/Sloppy/blob/main/LICENSES/README.md"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="updates-release-link"
+          >
+            License details
+          </a>
+          <a
+            href="https://sloppy.team/"
+            target="_blank"
+            rel="noopener noreferrer"
+            className="updates-release-link"
+          >
+            Contact sales
+          </a>
+        </div>
+      </section>
     </div>
   );
 }

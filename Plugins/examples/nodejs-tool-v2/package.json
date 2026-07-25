@@ -1,6 +1,7 @@
 {
   "name": "sloppy-nodejs-tool-v2-example",
   "version": "1.0.0",
+  "license": "MIT",
   "type": "module",
   "dependencies": {
     "@sloppy/plugin": "file:../../sdk/nodejs"

@@ -24,7 +24,7 @@ Entry points (Terminal UI, Telegram, Discord, HTTP API) deliver messages to the 
 - **Observable by design**: every action becomes a typed runtime entity and a persisted event you can inspect or replay
 - **Multi-channel**: one process serves Telegram, Discord, and the HTTP API simultaneously
 - **Plugin-extensible**: add model providers, tools, memory backends, and gateway channels via `PluginSDK`
-- **Open source**: MIT licensed
+- **Open source**: AGPL-3.0-only server/runtime with MIT SDK and native-client surfaces
 
 ## How it works
 

@@ -5469,6 +5469,14 @@ public enum AuthMode: String, Codable, Sendable, Equatable {
 public enum AuthUserRole: String, Codable, Sendable, Equatable, CaseIterable {
     case admin
     case user
+    case `operator`
+    case approver
+    case auditor
+    case viewer
+
+    public var isCommunityRole: Bool {
+        self == .admin || self == .user
+    }
 }
 
 public enum AuthUserStatus: String, Codable, Sendable, Equatable, CaseIterable {

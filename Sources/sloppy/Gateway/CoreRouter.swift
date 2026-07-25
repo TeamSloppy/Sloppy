@@ -2,6 +2,7 @@ import Foundation
 import Logging
 import AgentRuntime
 import Protocols
+import PluginSDK
 
 /// Minimal transport-agnostic response type used by sloppy router handlers.
 public struct CoreRouterResponse: Sendable {
@@ -438,11 +439,45 @@ public actor CoreRouter {
                 remoteAddress: remoteAddress
             )
             if await service.identityAuthEnabled() {
-                if !Self.isPublicIdentityRoute(request) {
+                let isEnterprisePublicRoute = await service.isEnterprisePublicIdentityRoute(
+                    method: request.method.rawValue,
+                    path: "/" + request.segments.joined(separator: "/")
+                )
+                if !Self.isPublicIdentityRoute(request) && !isEnterprisePublicRoute {
                     guard let actor = await Self.identityActor(for: request, service: service) else {
                         return Self.json(status: HTTPStatus.unauthorized, payload: ["error": ErrorCode.unauthorized])
                     }
                     if Self.requiresAdminIdentity(request), actor.user.role != .admin {
+                        return Self.json(status: HTTPStatus.forbidden, payload: ["error": "forbidden"])
+                    }
+                    let authorizationRequest = AuthorizationRequest(
+                        subject: AuthorizationSubject(
+                            userID: actor.user.id,
+                            role: actor.user.role,
+                            groups: actor.groups,
+                            identityProviderID: actor.identityProviderID
+                        ),
+                        action: "\(request.method.rawValue.lowercased()):\(route.path)",
+                        resource: AuthorizationResource(
+                            kind: "http_route",
+                            id: route.path,
+                            projectID: request.pathParam("projectId")
+                        )
+                    )
+                    let decision = await service.evaluateEnterpriseAuthorization(authorizationRequest)
+                    if !decision.allowed {
+                        await service.recordEnterpriseAudit(
+                            AuditEvent(
+                                actorID: actor.user.id,
+                                action: authorizationRequest.action,
+                                resourceKind: authorizationRequest.resource.kind,
+                                resourceID: authorizationRequest.resource.id,
+                                outcome: .denied,
+                                metadata: [
+                                    "reason": .string(decision.reason ?? "policy_denied"),
+                                ]
+                            )
+                        )
                         return Self.json(status: HTTPStatus.forbidden, payload: ["error": "forbidden"])
                     }
                 }

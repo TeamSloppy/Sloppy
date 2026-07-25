@@ -162,6 +162,11 @@ let package = Package(
             path: "Tests/ProtocolsTests"
         ),
         .testTarget(
+            name: "PluginSDKTests",
+            dependencies: ["PluginSDK", "Protocols"],
+            path: "Tests/PluginSDKTests"
+        ),
+        .testTarget(
             name: "AgentRuntimeTests",
             dependencies: ["AgentRuntime", "Protocols", "PluginSDK"],
             path: "Tests/AgentRuntimeTests"

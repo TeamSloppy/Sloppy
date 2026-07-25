@@ -9,11 +9,15 @@
 > Did you catch your Sloppie?
 
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/TeamSloppy/Sloppy)
-[![License](https://img.shields.io/badge/license-MIT-blue.svg)](https://github.com/TeamSloppy/Sloppy/blob/main/LICENSE)
+[![License](https://img.shields.io/badge/license-AGPL--3.0-blue.svg)](https://github.com/TeamSloppy/Sloppy/blob/main/LICENSE)
 [![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FTeamSloppy%2FSloppy%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/TeamSloppy/Sloppy)
 [![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FTeamSloppy%2FSloppy%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/TeamSloppy/Sloppy)
 
 Sloppy is a multi-agent runtime for building operator-visible AI workflows in Swift 6 on macOS and Linux. It combines a rule-based orchestration core, branch and worker execution, persistent runtime state, model/provider plugins, channel integrations, a terminal UI, and a React dashboard for observing what the system is doing.
+
+Sloppy Community is free for companies of every size. Teams that need SSO,
+fine-grained policy, audit export, or a commercial alternative to the AGPL can
+[contact sales](https://sloppy.team/) about Sloppy Enterprise.
 
 ## 🖼️ Gallery
 
@@ -195,9 +199,9 @@ Learn more about Sloppy in [DeepWiki](https://deepwiki.com/TeamSloppy/Sloppy)
 
 ## 🤝 Contributing
 
-Contributions should stay aligned with the current architecture, validation steps, and repository rules.
+Contributions should stay aligned with the current architecture, validation steps, and repository rules. External contributors must accept the project [CLA](CLA.md) before a contribution is merged.
 
-📖 Start here: [install](https://docs.sloppy.team/install) and [development workflow](https://docs.sloppy.team/guides/development-workflow)
+📖 Start here: [contributing guide](CONTRIBUTING.md), [install](https://docs.sloppy.team/install), and [development workflow](https://docs.sloppy.team/guides/development-workflow).
 
 ## ⭐ Star History
 
@@ -205,4 +209,11 @@ Contributions should stay aligned with the current architecture, validation step
 
 ## 📄 License
 
-Sloppy is released under the MIT License. See [LICENSE](LICENSE).
+Sloppy v2 server, runtime, Dashboard, and SloppyNode are released under
+`AGPL-3.0-only`. Public protocols, SDKs, plugin examples, and native clients
+remain MIT licensed. See the [license map](LICENSES/README.md) and
+[Corresponding Source offer](SOURCE_OFFER.md).
+
+`v1.3.1` and earlier copies permanently retain the MIT rights that accompanied
+them. Sloppy Enterprise customers can obtain commercial rights to core under a
+signed Sloppy License and Order Form.

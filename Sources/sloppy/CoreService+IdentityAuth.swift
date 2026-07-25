@@ -55,6 +55,18 @@ extension CoreService {
     }
 
     func authenticateIdentityAccessToken(_ token: String?) async -> AuthenticatedUserContext? {
-        await identityAuthService.authenticateAccessToken(token)
+        if let localIdentity = await identityAuthService.authenticateAccessToken(token) {
+            return localIdentity
+        }
+        guard let token,
+              let enterpriseIdentity = await authenticateEnterpriseIdentity(bearerToken: token)
+        else {
+            return nil
+        }
+        return AuthenticatedUserContext(
+            user: enterpriseIdentity.profile,
+            groups: enterpriseIdentity.groups,
+            identityProviderID: enterpriseIdentity.providerID
+        )
     }
 }

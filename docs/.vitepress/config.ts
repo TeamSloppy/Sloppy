@@ -32,7 +32,8 @@ export default defineConfig({
       { text: "Visor", link: "/visor/overview" },
       { text: "Design", link: "/architecture/project-design" },
       { text: "Specs", link: "/specs/channel-plugin-protocol" },
-      { text: "Dashboard UI", link: "/dashboard-style" }
+      { text: "Dashboard UI", link: "/dashboard-style" },
+      { text: "Licensing", link: "/licensing" }
     ],
     sidebar: [
       {
@@ -40,6 +41,7 @@ export default defineConfig({
         items: [
           { text: "What is Sloppy?", link: "/" },
           { text: "Install", link: "/install" },
+          { text: "Licensing", link: "/licensing" },
           { text: "Dashboard Style", link: "/dashboard-style" },
           { text: "Agent chat (Dashboard)", link: "/dashboard/agent-chat" },
           { text: "API Reference", link: "/api/reference" }
@@ -100,6 +102,7 @@ export default defineConfig({
         text: "Architecture",
         items: [
           { text: "Project Design", link: "/architecture/project-design" },
+          { text: "Enterprise Extension Boundary", link: "/architecture/enterprise-extension-boundary" },
           { text: "Actors Board", link: "/architecture/actors-board" },
           { text: "Swarm", link: "/architecture/swarm" },
         ]
@@ -123,7 +126,7 @@ export default defineConfig({
       provider: "local"
     },
     footer: {
-      message: "Built from docs/ and styled to match the live Dashboard shell.",
+      message: "Sloppy Community is AGPL-3.0-only; public SDK and native-client surfaces are MIT licensed.",
       copyright: "Sloppy"
     }
   }

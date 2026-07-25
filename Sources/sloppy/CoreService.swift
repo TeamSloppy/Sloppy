@@ -283,6 +283,7 @@ public actor CoreService {
     let toolApprovalService: ToolApprovalService
     let dashboardTerminalService: DashboardTerminalService
     let identityAuthService: CoreIdentityAuthService
+    let enterpriseModules: [any EnterpriseModule]
     let channelStreamCancelRegistry: ChannelStreamCancelRegistry
     nonisolated let nodeMeshStore: NodeMeshStore
     nonisolated let nodeConfigStore: NodeConfigStore
@@ -297,6 +298,7 @@ public actor CoreService {
         searchProviderService: SearchProviderService? = nil,
         nodeConfigStore: NodeConfigStore = NodeConfigStore(),
         sharedSkillsRootURLs: [URL]? = nil,
+        enterpriseModules: [any EnterpriseModule] = [],
         identityPasswordHashIterations: Int = 120_000
     ) {
         self.init(
@@ -307,6 +309,7 @@ public actor CoreService {
             searchProviderService: searchProviderService,
             nodeConfigStore: nodeConfigStore,
             sharedSkillsRootURLs: sharedSkillsRootURLs,
+            enterpriseModules: enterpriseModules,
             builtInGatewayPluginFactory: .live,
             issueReportLogUploader: PasteRSIssueReportLogUploader(),
             identityPasswordHashIterations: identityPasswordHashIterations
@@ -322,11 +325,13 @@ public actor CoreService {
         providerProbeService: ProviderProbeService? = nil,
         nodeConfigStore: NodeConfigStore = NodeConfigStore(),
         sharedSkillsRootURLs: [URL]? = nil,
+        enterpriseModules: [any EnterpriseModule] = [],
         builtInGatewayPluginFactory: BuiltInGatewayPluginFactory,
         updateChecker: UpdateCheckerService? = nil,
         issueReportLogUploader: (any IssueReportLogUploading)? = PasteRSIssueReportLogUploader(),
         identityPasswordHashIterations: Int = 120_000
     ) {
+        self.enterpriseModules = enterpriseModules
         self.workspaceCurrentDirectory = currentDirectory
         let workspaceRootURL = config.resolvedWorkspaceRootURL(currentDirectory: currentDirectory)
         self.openAIOAuthService = OpenAIOAuthService(workspaceRootURL: workspaceRootURL)

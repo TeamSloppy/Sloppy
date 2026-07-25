@@ -1,6 +1,7 @@
 {
   "name": "sloppy-nodejs-source-control-v2-example",
   "version": "1.0.0",
+  "license": "MIT",
   "type": "module",
   "dependencies": {
     "@sloppy/plugin": "file:../../sdk/nodejs"
