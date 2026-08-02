@@ -726,6 +726,7 @@ extension CoreService {
         let now = Date()
         let normalizedName = try normalizeProjectName(request.name)
         let normalizedDescription = normalizeProjectDescription(request.description)
+        let normalizedIdea = normalizeProjectIdea(request.idea)
         let trimmedRepoUrl = request.repoUrl?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         let hasRepoUrl = !trimmedRepoUrl.isEmpty
         let requestedDirectoryPaths = try normalizedProjectDirectoryPaths(request.directoryPaths)
@@ -786,6 +787,9 @@ extension CoreService {
         } else {
             ensureProjectWorkspaceDirectory(projectID: normalizedID)
             repoCloneSucceeded = nil
+        }
+        if let normalizedIdea {
+            try writeProjectIdea(normalizedIdea, for: project)
         }
         if !currentConfig.onboarding.completed {
             logger.info(
@@ -1458,6 +1462,20 @@ extension CoreService {
     func normalizeProjectDescription(_ raw: String?) -> String {
         let value = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         return String(value.prefix(2_000))
+    }
+
+    func normalizeProjectIdea(_ raw: String?) -> String? {
+        let value = (raw ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else { return nil }
+        return String(value.prefix(100_000))
+    }
+
+    func writeProjectIdea(_ idea: String, for project: ProjectRecord) throws {
+        guard let rootURL = effectiveProjectDirectoryURLs(project).first else {
+            throw ProjectError.notFound
+        }
+        let fileURL = rootURL.appendingPathComponent("IDEA.md", isDirectory: false)
+        try Data("\(idea)\n".utf8).write(to: fileURL, options: .atomic)
     }
 
     func normalizeInitialProjectChannels(

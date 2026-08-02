@@ -65,6 +65,15 @@ struct TransparentWindowSourceTests {
         #expect(rootModel.contains("desktopOverlay.start(settings: settings)"))
     }
 
+    @Test("desktop overlay stays collapsed while Sloppy Client is active")
+    func desktopOverlayStaysCollapsedWhileSloppyClientIsActive() throws {
+        let overlay = try source("Sources/SloppyClient/Overlays/SloppyDesktopOverlay.swift")
+
+        #expect(overlay.contains("!NSApp.isActive || !self.state.isExpanded"))
+        #expect(overlay.contains("NSApplication.didBecomeActiveNotification"))
+        #expect(overlay.contains("self?.state.setExpanded(false)"))
+    }
+
     @Test("desktop overlay shows typed active agent run status")
     func desktopOverlayShowsTypedActiveAgentRunStatus() throws {
         let overlay = try source("Sources/SloppyClient/Overlays/SloppyDesktopOverlay.swift")

@@ -11,14 +11,18 @@ struct ChatToolbarOwnershipSourceTests {
         return try String(contentsOf: packageRoot.appendingPathComponent(relativePath), encoding: .utf8)
     }
 
-    @Test("mounted chat tabs delegate context toolbar ownership to main view")
-    func mountedTabsDoNotRegisterDuplicateToolbarItems() throws {
+    @Test("macOS composer owns model selection while other platforms retain toolbar fallback")
+    func composerOwnsMacModelSelection() throws {
         let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
         let chatScreen = try source("Sources/SloppyFeatureChat/Screens/Chat/ChatScreen.swift")
+        let composer = try source("Sources/SloppyFeatureChat/Screens/Chat/Views/ChatComposerView.swift")
 
-        #expect(mainView.contains("ToolbarItem(id: \"active-chat-agent\""))
-        #expect(mainView.contains("ToolbarItem(id: \"active-chat-model\""))
+        #expect(mainView.contains("#if !os(macOS)"))
+        #expect(mainView.contains("ChatContextToolbarMenu("))
         #expect(mainView.contains("showsContextToolbar: false"))
+        #expect(chatScreen.contains("#if os(macOS)\n        content"))
         #expect(chatScreen.contains("ChatContextToolbarModifier"))
+        #expect(composer.contains("ComposerOptionsMenuView("))
+        #expect(composer.contains("chat.composer.model-picker"))
     }
 }

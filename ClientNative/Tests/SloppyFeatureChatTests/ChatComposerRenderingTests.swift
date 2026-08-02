@@ -38,13 +38,23 @@ struct ChatComposerRenderingTests {
         #expect(source.contains(".buttonStyle(.glass)"))
     }
 
+    @Test("desktop composer and circular controls share one outer height")
+    func desktopComposerAndCircularControlsShareOneOuterHeight() throws {
+        let source = try chatComposerSource
+
+        #expect(source.contains("private static let panelRadius: CGFloat = panelHeight / 2"))
+        #expect(source.contains("width: ChatComposerView.panelHeight"))
+        #expect(source.contains("height: ChatComposerView.panelHeight"))
+        #expect(!source.contains(".frame(width: 42, height: 42)"))
+    }
+
     @Test("composer add button exposes platform-specific picker menus")
     func composerAddButtonExposesPlatformSpecificPickerMenus() throws {
         let source = try chatComposerSource
 
         #expect(source.contains("private struct ComposerAddMenu"))
         #expect(source.contains("Label(\"Files and Attach\""))
-        #expect(source.contains("Label(\"Model\""))
+        #expect(source.contains("private struct ComposerOptionsMenuView"))
         #expect(source.contains("Label(\"Camera\""))
         #expect(source.contains("Label(\"Photos\""))
         #expect(source.contains("Label(\"Files\""))
@@ -91,11 +101,15 @@ struct ChatComposerRenderingTests {
         #expect(source.contains("remove: viewModel.removeComposerAttachment"))
         #expect(source.contains(".onPasteCommand(of: [.fileURL, .image])"))
         #expect(source.contains("viewModel.attachItemProviders(providers)"))
-        #expect(source.contains(".onKeyPress(\"v\", phases: .down)"))
+        #expect(source.contains("MacAttachmentPasteMonitor(isEnabled: isTextFieldFocused)"))
+        #expect(source.contains("NSEvent.addLocalMonitorForEvents(matching: .keyDown)"))
+        #expect(source.contains("Self.isStandardPasteShortcut(event)"))
+        #expect(source.contains("event.keyCode == 9"))
+        #expect(source.contains("NSEvent.removeMonitor(eventMonitor)"))
         #expect(source.contains("NSPasteboard.general"))
         #expect(source.contains("pasteboard.data(forType: .png)"))
         #expect(source.contains("NSImage(pasteboard: pasteboard)"))
-        #expect(source.contains("pasteAttachmentsFromSystemPasteboard() ? .handled : .ignored"))
+        #expect(source.contains("pasteAttachmentsFromSystemPasteboard()"))
         #expect(source.contains("private struct ChatComposerAttachmentPreview"))
         #expect(source.contains("Image(nsImage: image)"))
         #expect(source.contains("Image(systemName: \"xmark.circle.fill\")"))
@@ -124,10 +138,13 @@ struct ChatComposerRenderingTests {
 
         #expect(source.contains(".onKeyPress(.return, phases: .down) { keyPress in"))
         #expect(source.contains("keyPress.modifiers.contains(.shift)"))
-        #expect(source.contains("selection: $textSelection"))
+        #expect(source.contains("selection: $draft.selection"))
         #expect(source.contains("insertNewlineAtSelection()\n                return .handled"))
         #expect(source.contains("draft.text.replaceSubrange(replacementRange, with: \"\\n\")"))
         #expect(source.contains("TextSelection(insertionPoint: insertionPoint)"))
+        #expect(source.contains(".onChange(of: draft.selection)"))
+        #expect(source.contains("@State private var composerCursorOffset: Int?"))
+        #expect(source.contains("composerCursorOffset = draft.text.distance("))
     }
 
     @Test("composer wraps long text without reserving its maximum height")
@@ -137,7 +154,11 @@ struct ChatComposerRenderingTests {
         #expect(source.contains("axis: .vertical"))
         #expect(source.contains(".lineLimit(1...6)"))
         #expect(!source.contains("maximumPanelHeight"))
-        #expect(source.contains(".glassEffect(.regular, in: .rect(cornerRadius: Self.panelRadius))"))
+        #expect(source.contains("private static let panelRadius: CGFloat = panelHeight / 2"))
+        #expect(source.contains("static let fieldHorizontalPadding: CGFloat = fieldHeight / 2"))
+        #expect(source.contains("RoundedRectangle(cornerRadius: Self.panelRadius, style: .continuous)"))
+        #expect(source.contains(".padding(.horizontal, Constants.fieldHorizontalPadding)"))
+        #expect(source.contains(".padding(.vertical, sp.s)"))
     }
 
     @Test("long composer text stays bounded and scrolls vertically")
@@ -220,18 +241,21 @@ struct ChatComposerRenderingTests {
         #expect(!dictationSource.contains(".containerRelativeFrame(.horizontal)"))
     }
 
-    @Test("desktop composer exposes one combined model effort and agent menu")
-    func desktopComposerExposesOneCombinedModelEffortAndAgentMenu() throws {
+    @Test("desktop composer exposes a searchable model picker")
+    func desktopComposerExposesSearchableModelPicker() throws {
         let source = try chatComposerSource
 
         #expect(source.contains("private struct ComposerOptionsMenuView"))
-        #expect(source.contains("Section(\"Model\")"))
-        #expect(source.contains("Section(\"Reasoning\")"))
-        #expect(source.contains("Section(\"Agent\")"))
+        #expect(source.contains("TextField(\"Search models\", text: $searchText)"))
+        #expect(source.contains("groupedModels"))
+        #expect(source.contains("selectedEffort.compactTitle"))
+        #expect(source.contains("Constants.modelPickerRowHeight"))
+        #expect(source.contains("Constants.modelPickerBottomPadding"))
+        #expect(source.contains("Refresh Models"))
+        #expect(source.contains("Edit Models…"))
+        #expect(source.contains("chat.composer.model-picker"))
         #expect(source.contains("private struct ComposerMenuItem"))
         #expect(source.contains("private var selectedModelTitle: String"))
-        #expect(!source.contains("ModelPickerView("))
-        #expect(!source.contains("ReasoningEffortPickerView("))
-        #expect(!source.contains("AgentPickerView("))
+        #expect(source.contains(".popover(isPresented: $isPresented"))
     }
 }

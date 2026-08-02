@@ -173,4 +173,18 @@ struct OverviewModelsTests {
         #expect(object["status"] as? String == "backlog")
         #expect(object["tags"] as? [String] == ["frontend"])
     }
+
+    @Test("project creation request includes IDEA markdown")
+    func projectCreationRequestIncludesIdeaMarkdown() throws {
+        let request = APIProjectCreateRequest(
+            name: "Research Log",
+            idea: "Track sources and unanswered questions."
+        )
+
+        let object = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(request)) as? [String: Any]
+        )
+
+        #expect(object["idea"] as? String == "Track sources and unanswered questions.")
+    }
 }

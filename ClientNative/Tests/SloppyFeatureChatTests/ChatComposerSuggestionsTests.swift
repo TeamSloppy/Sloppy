@@ -11,6 +11,22 @@ struct ChatComposerSuggestionsTests {
         #expect(ChatComposerQuery.parse("email@example.com") == nil)
     }
 
+    @Test("parses every supported trigger at the cursor when text follows it")
+    func parsesTriggersBeforeExistingText() throws {
+        let cases: [(text: String, trigger: Character, term: String)] = [
+            ("/ruДавай спроектируем игру", "/", "ru"),
+            ("@loДавай спроектируем игру", "@", "lo"),
+            ("#taДавай спроектируем игру", "#", "ta"),
+        ]
+
+        for testCase in cases {
+            let query = try #require(ChatComposerQuery.parse(testCase.text, cursorOffset: 3))
+            #expect(query.trigger == testCase.trigger)
+            #expect(query.term == testCase.term)
+            #expect(String(testCase.text[query.range]) == "\(testCase.trigger)\(testCase.term)")
+        }
+    }
+
     @Test("selection replaces only the active token")
     func appliesSuggestion() throws {
         let text = "Please inspect @rea"
@@ -23,7 +39,24 @@ struct ChatComposerSuggestionsTests {
             insertion: "@README.md"
         )
 
-        #expect(query.applying(suggestion, to: text) == "Please inspect @README.md ")
+        #expect(query.applying(suggestion, to: text).text == "Please inspect @README.md ")
+    }
+
+    @Test("selection replaces the active token without deleting following text")
+    func appliesSuggestionBeforeExistingText() throws {
+        let text = "Please @rea this file"
+        let query = try #require(ChatComposerQuery.parse(text, cursorOffset: 11))
+        let suggestion = ChatComposerSuggestion(
+            id: "file:README.md",
+            kind: .file,
+            title: "README.md",
+            subtitle: "Project file",
+            insertion: "@README.md"
+        )
+
+        let application = query.applying(suggestion, to: text)
+        #expect(application.text == "Please @README.md this file")
+        #expect(application.cursorOffset == 17)
     }
 
     @Test("selection moves with arrow directions and stays within bounds")
@@ -37,11 +70,14 @@ struct ChatComposerSuggestionsTests {
 
         selection.reconcile(with: suggestions)
         #expect(selection.selectedID == "one")
-        #expect(selection.move(.next, in: suggestions))
+        let didMoveNext = selection.move(.next, in: suggestions)
+        #expect(didMoveNext)
         #expect(selection.selectedID == "two")
-        #expect(selection.move(.previous, in: suggestions))
+        let didMovePrevious = selection.move(.previous, in: suggestions)
+        #expect(didMovePrevious)
         #expect(selection.selectedID == "one")
-        #expect(selection.move(.previous, in: suggestions))
+        let didStayAtFirst = selection.move(.previous, in: suggestions)
+        #expect(didStayAtFirst)
         #expect(selection.selectedID == "one")
         #expect(selection.selectedSuggestion(in: suggestions)?.id == "one")
     }
@@ -61,6 +97,7 @@ struct ChatComposerSuggestionsTests {
         selection.reconcile(with: [])
 
         #expect(selection.selectedID == nil)
-        #expect(!selection.move(.next, in: []))
+        let didMove = selection.move(.next, in: [])
+        #expect(!didMove)
     }
 }

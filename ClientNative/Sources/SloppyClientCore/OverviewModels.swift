@@ -168,6 +168,7 @@ public struct APIProjectRecord: Codable, Sendable, Identifiable {
 public struct APIProjectCreateRequest: Codable, Sendable, Equatable {
     public var name: String
     public var description: String?
+    public var idea: String?
     public var repoUrl: String?
     public var repoPath: String?
     public var kind: APIProjectKind
@@ -176,6 +177,7 @@ public struct APIProjectCreateRequest: Codable, Sendable, Equatable {
     public init(
         name: String,
         description: String? = nil,
+        idea: String? = nil,
         repoUrl: String? = nil,
         repoPath: String? = nil,
         kind: APIProjectKind = .project,
@@ -183,6 +185,7 @@ public struct APIProjectCreateRequest: Codable, Sendable, Equatable {
     ) {
         self.name = name
         self.description = description
+        self.idea = idea
         self.repoUrl = repoUrl
         self.repoPath = repoPath
         self.kind = kind

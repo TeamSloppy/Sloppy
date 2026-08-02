@@ -34,14 +34,15 @@ struct ChatScreenLayoutTests {
         #expect(!source.contains(".debugOverlay(.layoutBounds)"))
     }
 
-    @Test("composer uses one compact menu for model effort and agent")
-    func composerUsesOneCompactMenuForModelEffortAndAgent() throws {
+    @Test("composer uses a compact searchable model picker")
+    func composerUsesCompactSearchableModelPicker() throws {
         let source = try source("Sources", "SloppyFeatureChat", "Screens", "Chat", "Views", "ChatComposerView.swift")
 
         #expect(source.contains("private struct ComposerOptionsMenuView"))
-        #expect(source.contains("Menu {"))
-        #expect(source.contains(".menuStyle(.button)"))
-        #expect(source.contains("ComposerMenuChip(title:"))
+        #expect(source.contains("TextField(\"Search models\", text: $searchText)"))
+        #expect(source.contains(".popover(isPresented: $isPresented"))
+        #expect(source.contains("onRefreshModels: viewModel.refreshAvailableModels"))
+        #expect(source.contains("onEditModels: { viewModel.openSettings(.providers) }"))
     }
 
     @Test("desktop transcript keeps full width scroll host with centered content column")

@@ -281,6 +281,7 @@ struct MainView: View {
                     #endif
 
                     ToolbarItemGroup(placement: .primaryAction) {
+                        #if !os(macOS)
                         if !isCanvasWorkspaceSelected,
                            viewModel.selectedAppSection != .artifacts,
                            let activeChatViewModel {
@@ -293,6 +294,7 @@ struct MainView: View {
                                 onSelectModel: activeChatViewModel.pickModel
                             )
                         }
+                        #endif
 
                         if idiom != .phone,
                            !isCanvasWorkspaceSelected,

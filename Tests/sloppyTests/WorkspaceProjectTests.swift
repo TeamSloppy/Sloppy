@@ -42,6 +42,27 @@ func workspaceCreationPreservesRootOrderAndPrimaryRepoPath() async throws {
 }
 
 @Test
+func projectCreationWritesIdeaMarkdownToPrimaryDirectory() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let roots = try makeWorkspaceRoots()
+    defer { roots.forEach { try? FileManager.default.removeItem(at: $0) } }
+
+    _ = try await service.createProject(
+        ProjectCreateRequest(
+            id: "workspace-idea",
+            name: "Research Log",
+            idea: "  Track sources and unanswered questions.  ",
+            kind: .workspace,
+            directoryPaths: roots.map(\.path)
+        )
+    )
+
+    let contents = try String(contentsOf: roots[0].appendingPathComponent("IDEA.md"), encoding: .utf8)
+    #expect(contents == "Track sources and unanswered questions.\n")
+    #expect(!FileManager.default.fileExists(atPath: roots[1].appendingPathComponent("IDEA.md").path))
+}
+
+@Test
 func workspaceValidationRejectsInvalidRootsAndRepoURLConflict() async throws {
     let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let roots = try makeWorkspaceRoots()

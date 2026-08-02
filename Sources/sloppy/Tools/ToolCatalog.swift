@@ -527,6 +527,7 @@ enum ToolCatalog {
             "properties": .object([
                 "name": .object(["type": .string("string")]),
                 "description": .object(["type": .string("string")]),
+                "idea": .object(["type": .string("string")]),
                 "actors": .object([
                     "type": .string("array"),
                     "items": .object(["type": .string("string")])

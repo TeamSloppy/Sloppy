@@ -78,7 +78,7 @@ private struct MacSidebarPrimaryActions: View {
             
             SidebarNavigationRow(
                 icon: .description,
-                title: "Артефакты",
+                title: "Artifacts",
                 isSelected: viewModel.selectedAppSection == .artifacts,
                 navigationValue: .artifacts,
                 action: viewModel.selectArtifacts

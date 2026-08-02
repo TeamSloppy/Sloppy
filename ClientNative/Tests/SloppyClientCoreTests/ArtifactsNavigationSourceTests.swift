@@ -21,8 +21,18 @@ struct ArtifactsNavigationSourceTests {
         )
 
         #expect(!sidebar.contains("title: \"Search chats\""))
-        #expect(sidebar.contains("title: \"Артефакты\""))
+        #expect(sidebar.contains("title: \"Artifacts\""))
         #expect(sidebar.contains("action: viewModel.selectArtifacts"))
+    }
+
+    @Test("artifacts screen uses English interface copy")
+    func artifactsScreenUsesEnglishInterfaceCopy() throws {
+        let screen = try source("Sources/SloppyClient/ArtifactLibrary/ArtifactsScreen.swift")
+
+        #expect(screen.contains("Search artifacts"))
+        #expect(screen.contains("No artifacts yet"))
+        #expect(screen.contains("Open source chat"))
+        #expect(!screen.contains("Артефакт"))
     }
 
     @Test("main navigation presents the artifacts list")

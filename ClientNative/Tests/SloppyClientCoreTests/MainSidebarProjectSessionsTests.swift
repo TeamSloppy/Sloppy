@@ -17,14 +17,19 @@ struct MainSidebarProjectSessionsTests {
         return try String(contentsOf: packageRoot.appendingPathComponent(relativePath), encoding: .utf8)
     }
 
-    @Test("project groups are built from chat sessions with messages")
-    func projectGroupsAreBuiltFromChatSessionsWithMessages() throws {
+    @Test("project groups include sessions created in workspace chat tabs")
+    func projectGroupsIncludeSessionsCreatedInWorkspaceChatTabs() throws {
         let source = try source
         let mainViewModelSource = try sourceFile("Sources/SloppyClient/Navigation/Main/MainViewModel.swift")
+        let chatViewModelSource = try sourceFile("Sources/SloppyFeatureChat/Screens/Chat/ChatScreenViewModel.swift")
 
         #expect(source.contains("ChatSidebarSections.build("))
         #expect(source.contains("sessions: viewModel.chatViewModel.sessionCatalog"))
         #expect(mainViewModelSource.contains("loadsGlobalSessionCatalog: true"))
+        #expect(mainViewModelSource.contains("onSessionSummaryChange: { [weak self] summary in"))
+        #expect(mainViewModelSource.contains("self?.chatViewModel.mergeSessionSummary(summary)"))
+        #expect(chatViewModelSource.contains("public func mergeSessionSummary(_ summary: ChatSessionSummary)"))
+        #expect(chatViewModelSource.contains("onSessionSummaryChange(summary)"))
         #expect(source.contains("ForEach(sections.projectGroups.prefix(viewModel.visibleProjectCount))"))
         #expect(source.contains("ForEach(sessions)"))
         #expect(source.contains("SidebarSessionItem(viewModel: viewModel, session: $0, showsProjectName: false)"))

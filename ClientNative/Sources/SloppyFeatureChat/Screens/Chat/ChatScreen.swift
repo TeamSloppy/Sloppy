@@ -213,6 +213,9 @@ private struct ChatContextToolbarModifier: ViewModifier {
     let isEnabled: Bool
 
     func body(content: Content) -> some View {
+        #if os(macOS)
+        content
+        #else
         if isEnabled {
             content.toolbar(id: "agent.settings") {
                 ToolbarItem(id: "agent", placement: .secondaryAction) {
@@ -233,6 +236,7 @@ private struct ChatContextToolbarModifier: ViewModifier {
         } else {
             content
         }
+        #endif
     }
 }
 

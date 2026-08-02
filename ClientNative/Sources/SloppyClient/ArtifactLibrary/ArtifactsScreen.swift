@@ -64,7 +64,7 @@ private final class ArtifactsViewModel {
         }
 
         artifacts = ChatArtifactCatalog.build(from: details)
-        errorMessage = details.isEmpty ? "Не удалось загрузить артефакты" : nil
+        errorMessage = details.isEmpty ? "Failed to load artifacts" : nil
     }
 }
 
@@ -112,7 +112,7 @@ struct ArtifactsScreen: View {
             content
         }
         .background(theme.colors.background)
-        .searchable(text: $searchText, prompt: "Поиск артефактов")
+        .searchable(text: $searchText, prompt: "Search artifacts")
         .task(id: catalogVersion) {
             await viewModel.load(sessions: sessions)
         }
@@ -120,7 +120,7 @@ struct ArtifactsScreen: View {
 
     private var header: some View {
         HStack(alignment: .firstTextBaseline) {
-            Text("Артефакты")
+            Text("Artifacts")
                 .font(.system(size: theme.typography.title, weight: .semibold))
                 .foregroundColor(theme.colors.textPrimary)
 
@@ -139,8 +139,8 @@ struct ArtifactsScreen: View {
             }
             .buttonStyle(.plain)
             .disabled(viewModel.isLoading)
-            .help("Обновить")
-            .accessibilityLabel("Обновить артефакты")
+            .help("Refresh")
+            .accessibilityLabel("Refresh artifacts")
         }
         .padding(.horizontal, theme.spacing.l)
         .padding(.vertical, theme.spacing.m)
@@ -149,22 +149,22 @@ struct ArtifactsScreen: View {
     @ViewBuilder
     private var content: some View {
         if viewModel.isLoading && viewModel.artifacts.isEmpty {
-            ProgressView("Загрузка артефактов…")
+            ProgressView("Loading artifacts…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let errorMessage = viewModel.errorMessage, viewModel.artifacts.isEmpty {
             ContentUnavailableView(
-                "Артефакты недоступны",
+                "Artifacts unavailable",
                 systemImage: "exclamationmark.triangle",
                 description: Text(errorMessage)
             )
         } else if filteredArtifacts.isEmpty {
             ContentUnavailableView(
-                searchText.isEmpty ? "Артефактов пока нет" : "Ничего не найдено",
+                searchText.isEmpty ? "No artifacts yet" : "No results",
                 systemImage: "doc.on.doc",
                 description: Text(
                     searchText.isEmpty
-                        ? "Файлы из чатов появятся здесь."
-                        : "Попробуйте изменить запрос."
+                        ? "Files from chats will appear here."
+                        : "Try a different search."
                 )
             )
         } else {
@@ -176,7 +176,7 @@ struct ArtifactsScreen: View {
                 }
                 .buttonStyle(.plain)
                 .listRowBackground(Color.clear)
-                .accessibilityHint("Открыть исходный чат")
+                .accessibilityHint("Open source chat")
             }
             .listStyle(.inset)
             .refreshable {

@@ -1544,6 +1544,7 @@ public struct ProjectCreateRequest: Codable, Sendable {
     public var id: String?
     public var name: String
     public var description: String?
+    public var idea: String?
     public var channels: [ProjectChannelCreateRequest]
     public var actors: [String]?
     public var teams: [String]?
@@ -1557,6 +1558,7 @@ public struct ProjectCreateRequest: Codable, Sendable {
         case id
         case name
         case description
+        case idea
         case channels
         case actors
         case teams
@@ -1571,6 +1573,7 @@ public struct ProjectCreateRequest: Codable, Sendable {
         id: String? = nil,
         name: String,
         description: String? = nil,
+        idea: String? = nil,
         channels: [ProjectChannelCreateRequest] = [],
         actors: [String]? = nil,
         teams: [String]? = nil,
@@ -1583,6 +1586,7 @@ public struct ProjectCreateRequest: Codable, Sendable {
         self.id = id
         self.name = name
         self.description = description
+        self.idea = idea
         self.channels = channels
         self.actors = actors
         self.teams = teams
@@ -1598,6 +1602,7 @@ public struct ProjectCreateRequest: Codable, Sendable {
         id = try container.decodeIfPresent(String.self, forKey: .id)
         name = try container.decode(String.self, forKey: .name)
         description = try container.decodeIfPresent(String.self, forKey: .description)
+        idea = try container.decodeIfPresent(String.self, forKey: .idea)
         channels = try container.decodeIfPresent([ProjectChannelCreateRequest].self, forKey: .channels) ?? []
         actors = try container.decodeIfPresent([String].self, forKey: .actors)
         teams = try container.decodeIfPresent([String].self, forKey: .teams)

@@ -14,18 +14,22 @@ import UIKit
 @MainActor
 public final class ChatComposerDraft {
     public var text: String
+    public var selection: TextSelection?
     
-    public init(text: String = "") {
+    public init(text: String = "", selection: TextSelection? = nil) {
         self.text = text
+        self.selection = selection
     }
 }
 
 public struct ChatComposerView: View {
     public static let panelWidth: CGFloat = 900
-    public static let panelHeight: CGFloat = 45
+    public static let panelHeight: CGFloat = Constants.fieldHeight
+        + Constants.modelPickerRowHeight
+        + Constants.modelPickerBottomPadding
     public static let phonePanelHeight: CGFloat = 72
     public static let attachmentStripHeight: CGFloat = 112
-    private static let panelRadius: CGFloat = 18
+    private static let panelRadius: CGFloat = panelHeight / 2
     private static let phoneFieldHeight: CGFloat = 48
     fileprivate static let phoneCircleSize: CGFloat = 36
     fileprivate static let buttonSize: CGFloat = 36
@@ -149,9 +153,32 @@ public struct ChatComposerView: View {
                 draft: draft,
                 submit: submit
             )
+
+            HStack(spacing: theme.spacing.s) {
+                ComposerOptionsMenuView(
+                    selectedModelId: viewModel.selectedModelId,
+                    models: viewModel.availableModels,
+                    selectedEffort: viewModel.selectedReasoningEffort,
+                    supportsReasoningEffort: selectedModelSupportsReasoningEffort,
+                    selectedAgent: viewModel.selectedAgent,
+                    agents: viewModel.agents,
+                    onSelectModel: viewModel.pickModel,
+                    onSelectEffort: viewModel.pickReasoningEffort,
+                    onSelectAgent: viewModel.pickAgent,
+                    onRefreshModels: viewModel.refreshAvailableModels,
+                    onEditModels: { viewModel.openSettings(.providers) }
+                )
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, Constants.fieldHorizontalPadding)
+            .padding(.bottom, Constants.modelPickerBottomPadding)
         }
-        .clipShape(.rect(cornerRadius: Self.panelRadius))
-        .glassEffect(.regular, in: .rect(cornerRadius: Self.panelRadius))
+        .clipShape(RoundedRectangle(cornerRadius: Self.panelRadius, style: .continuous))
+        .glassEffect(
+            .regular,
+            in: RoundedRectangle(cornerRadius: Self.panelRadius, style: .continuous)
+        )
     }
     #endif
 
@@ -175,7 +202,7 @@ public struct ChatComposerView: View {
             }
         }
         .scrollTargetBehavior(.paging)
-        .clipShape(Capsule())
+        .clipShape(RoundedRectangle(cornerRadius: Self.panelRadius, style: .continuous))
         .onScrollGeometryChange(for: CGFloat.self, of: {
             let containerSize = $0.containerSize.width
             let offset = $0.contentOffset.x + $0.contentInsets.leading
@@ -497,47 +524,179 @@ private struct ComposerOptionsMenuView: View {
     let onSelectModel: (ChatModelOption) -> Void
     let onSelectEffort: (ChatReasoningEffort) -> Void
     let onSelectAgent: (APIAgentRecord) -> Void
+    let onRefreshModels: @MainActor () async -> Void
+    let onEditModels: @MainActor () -> Void
 
+    @State private var isPresented = false
+    @State private var searchText = ""
+    @State private var isRefreshing = false
+    @FocusState private var isSearchFocused: Bool
     @Environment(\.theme) private var theme
 
     var body: some View {
-        Menu {
-            Section("Model") {
-                if models.isEmpty {
-                    ComposerMenuItem(title: "No models", isSelected: false)
-                } else {
-                    ForEach(models) { model in
-                        Button {
-                            onSelectModel(model)
-                        } label: {
-                            ComposerMenuItem(
-                                title: model.title,
-                                subtitle: model.id == model.title ? nil : model.id,
-                                isSelected: selectedModelId == model.id
-                            )
+        Button {
+            isPresented.toggle()
+        } label: {
+            HStack(spacing: theme.spacing.xs) {
+                Text(selectedModelTitle)
+                    .font(.system(size: theme.typography.body, weight: .medium))
+                    .foregroundColor(theme.colors.textPrimary)
+                    .lineLimit(1)
+
+                Text("· \(selectedEffort.compactTitle)")
+                    .font(.system(size: theme.typography.caption))
+                    .foregroundColor(theme.colors.textMuted)
+                    .lineLimit(1)
+
+                Icons.symbol(.expandMore, size: 14)
+                    .foregroundColor(theme.colors.textSecondary)
+            }
+            .padding(.horizontal, theme.spacing.s)
+            .frame(height: Constants.modelPickerRowHeight)
+            .background(
+                theme.colors.surfaceRaised.opacity(0.72 as CGFloat),
+                in: RoundedRectangle(cornerRadius: 7, style: .continuous)
+            )
+        }
+        .buttonStyle(.plain)
+        .help("Model · \(selectedModelId)")
+        .accessibilityLabel("Model \(selectedModelTitle), reasoning \(selectedEffort.title)")
+        .accessibilityIdentifier("chat.composer.model-picker")
+        .popover(isPresented: $isPresented, arrowEdge: .bottom) {
+            pickerContent
+                .presentationCompactAdaptation(.popover)
+        }
+    }
+
+    private var selectedModelTitle: String {
+        guard let selected = models.first(where: { $0.id == selectedModelId }) else {
+            return selectedModelId.isEmpty ? "Model" : selectedModelId
+        }
+        return selected.title
+    }
+
+    private var filteredModels: [ChatModelOption] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else {
+            return models
+        }
+        return models.filter {
+            $0.title.localizedStandardContains(query) || $0.id.localizedStandardContains(query)
+        }
+    }
+
+    private var groupedModels: [ComposerModelGroup] {
+        var groups: [ComposerModelGroup] = []
+        for model in filteredModels {
+            let provider = providerTitle(for: model.id)
+            if let index = groups.firstIndex(where: { $0.title == provider }) {
+                groups[index].models.append(model)
+            } else {
+                groups.append(ComposerModelGroup(title: provider, models: [model]))
+            }
+        }
+        return groups
+    }
+
+    private var pickerContent: some View {
+        VStack(spacing: 0) {
+            HStack(spacing: theme.spacing.s) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundColor(theme.colors.textMuted)
+                TextField("Search models", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .focused($isSearchFocused)
+            }
+            .padding(.horizontal, theme.spacing.m)
+            .frame(height: 42)
+
+            Divider()
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: theme.spacing.xs) {
+                    if groupedModels.isEmpty {
+                        Text(models.isEmpty ? "No models available" : "No matching models")
+                            .font(.system(size: theme.typography.caption))
+                            .foregroundColor(theme.colors.textMuted)
+                            .frame(maxWidth: .infinity, minHeight: 90)
+                    } else {
+                        ForEach(groupedModels) { group in
+                            Text(group.title)
+                                .font(.system(size: theme.typography.caption, weight: .semibold))
+                                .foregroundColor(theme.colors.textMuted)
+                                .padding(.horizontal, theme.spacing.m)
+                                .padding(.top, theme.spacing.s)
+
+                            ForEach(group.models) { model in
+                                modelRow(model)
+                            }
                         }
                     }
                 }
+                .padding(.vertical, theme.spacing.s)
             }
+            .frame(maxHeight: 320)
 
-            Section("Reasoning") {
+            Divider()
+            pickerActions
+        }
+        .frame(width: 340)
+        .onAppear {
+            searchText = ""
+            isSearchFocused = true
+        }
+    }
+
+    private func modelRow(_ model: ChatModelOption) -> some View {
+        Button {
+            onSelectModel(model)
+            isPresented = false
+        } label: {
+            HStack(spacing: theme.spacing.s) {
+                Text(model.title)
+                    .foregroundColor(theme.colors.textPrimary)
+                    .lineLimit(1)
+                Text(selectedEffort.compactTitle)
+                    .foregroundColor(theme.colors.textMuted)
+                Spacer(minLength: theme.spacing.s)
+                if selectedModelId == model.id {
+                    Image(systemName: "checkmark")
+                        .foregroundColor(theme.colors.textPrimary)
+                }
+            }
+            .padding(.horizontal, theme.spacing.m)
+            .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+            .contentShape(Rectangle())
+            .background(
+                selectedModelId == model.id
+                    ? theme.colors.accent.opacity(0.14 as CGFloat)
+                    : Color.clear
+            )
+        }
+        .buttonStyle(.plain)
+    }
+
+    private var pickerActions: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Menu {
                 ForEach(ChatReasoningEffort.allCases) { effort in
                     Button {
                         onSelectEffort(effort)
                     } label: {
-                        ComposerMenuItem(
-                            title: effort.title,
-                            isSelected: selectedEffort == effort
-                        )
+                        ComposerMenuItem(title: effort.title, isSelected: selectedEffort == effort)
                     }
-                    .disabled(!supportsReasoningEffort)
                 }
+            } label: {
+                pickerActionLabel(
+                    "Reasoning: \(selectedEffort.title)",
+                    systemImage: "gauge.with.dots.needle.50percent"
+                )
             }
+            .menuStyle(.borderlessButton)
+            .disabled(!supportsReasoningEffort)
 
-            Section("Agent") {
-                if agents.isEmpty {
-                    ComposerMenuItem(title: "No agents", isSelected: false)
-                } else {
+            if !agents.isEmpty {
+                Menu {
                     ForEach(agents) { agent in
                         Button {
                             onSelectAgent(agent)
@@ -548,35 +707,73 @@ private struct ComposerOptionsMenuView: View {
                             )
                         }
                     }
+                } label: {
+                    pickerActionLabel(
+                        "Agent: \(selectedAgent?.displayName ?? "Agent")",
+                        systemImage: "person"
+                    )
                 }
+                .menuStyle(.borderlessButton)
             }
-        } label: {
-            HStack(alignment: .bottom, spacing: theme.spacing.xs) {
-                Text(selectedAgent?.displayName ?? "Sloppy")
-                    .font(.system(size: theme.typography.caption, weight: .semibold))
-                    .foregroundColor(theme.colors.textPrimary)
-                    .lineLimit(1)
 
-                Text(selectedEffort.title)
-                    .font(.system(size: theme.typography.caption))
-                    .foregroundColor(theme.colors.textMuted)
-                    .lineLimit(1)
-
-                Icons.symbol(.expandMore, size: 14)
-                    .foregroundColor(theme.colors.textSecondary)
+            Button {
+                Task {
+                    isRefreshing = true
+                    await onRefreshModels()
+                    isRefreshing = false
+                }
+            } label: {
+                pickerActionLabel(
+                    isRefreshing ? "Refreshing Models…" : "Refresh Models",
+                    systemImage: "arrow.clockwise"
+                )
             }
-            .padding(.horizontal, theme.spacing.m)
-            .frame(height: 36)
+            .buttonStyle(.plain)
+            .disabled(isRefreshing)
+
+            Button {
+                isPresented = false
+                onEditModels()
+            } label: {
+                pickerActionLabel("Edit Models…", systemImage: "gearshape")
+            }
+            .buttonStyle(.plain)
         }
-        .menuStyle(.button)
-        .buttonStyle(.plain)
+        .padding(.vertical, theme.spacing.xs)
     }
 
-    private var selectedModelTitle: String {
-        guard let selected = models.first(where: { $0.id == selectedModelId }) else {
-            return selectedModelId.isEmpty ? "Model" : selectedModelId
+    private func pickerActionLabel(_ title: String, systemImage: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .foregroundColor(theme.colors.textSecondary)
+            .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
+            .padding(.horizontal, theme.spacing.m)
+            .contentShape(Rectangle())
+    }
+
+    private func providerTitle(for modelID: String) -> String {
+        let rawProvider = modelID.split(whereSeparator: { $0 == ":" || $0 == "/" }).first.map(String.init) ?? "Models"
+        return rawProvider
+            .replacingOccurrences(of: "-", with: " ")
+            .replacingOccurrences(of: "_", with: " ")
+            .uppercased()
+    }
+}
+
+private struct ComposerModelGroup: Identifiable {
+    let title: String
+    var models: [ChatModelOption]
+
+    var id: String { title }
+}
+
+private extension ChatReasoningEffort {
+    var compactTitle: String {
+        switch self {
+        case .default: "Auto"
+        case .low: "Low"
+        case .medium: "Med"
+        case .high: "High"
         }
-        return selected.title
     }
 }
 
@@ -626,7 +823,7 @@ struct ChatTextField: View {
     let submit: @MainActor () -> Void
 
     @FocusState private var isTextFieldFocused: Bool
-    @State private var textSelection: TextSelection?
+    @State private var composerCursorOffset: Int?
     @Environment(\.theme) private var theme
     @Environment(ChatScreenViewModel.self) private var viewModel
 
@@ -643,7 +840,7 @@ struct ChatTextField: View {
         return TextField(
             "Ask \(agentDisplayName)",
             text: $draft.text,
-            selection: $textSelection,
+            selection: $draft.selection,
             axis: .vertical
         )
         .lineLimit(1...6)
@@ -671,17 +868,17 @@ struct ChatTextField: View {
             isTextFieldFocused = false
         }
         #if os(macOS)
-        .onKeyPress("v", phases: .down) { keyPress in
-            guard keyPress.modifiers.contains(.command) else {
-                return .ignored
+        .background {
+            MacAttachmentPasteMonitor(isEnabled: isTextFieldFocused) {
+                pasteAttachmentsFromSystemPasteboard()
             }
-            return pasteAttachmentsFromSystemPasteboard() ? .handled : .ignored
         }
         #endif
         .sloppyAttachmentPasteCommand { providers in
             viewModel.attachItemProviders(providers)
         }
-        .padding(.horizontal, sp.m)
+        .padding(.horizontal, Constants.fieldHorizontalPadding)
+        .padding(.vertical, sp.s)
         .textFieldStyle(.plain)
         .frame(
             minWidth: 0, maxWidth: .infinity, minHeight: Constants.fieldHeight,
@@ -697,13 +894,36 @@ struct ChatTextField: View {
             isTextFieldFocused = false
         }
         .onChange(of: draft.text) { _, newValue in
-            viewModel.updateComposerSuggestions(for: newValue)
+            viewModel.updateComposerSuggestions(
+                for: newValue,
+                cursorOffset: composerCursorOffset
+            )
         }
+        .onChange(of: draft.selection) { _, _ in
+            updateComposerCursorOffset()
+        }
+    }
+
+    private func updateComposerCursorOffset() {
+        if let selection = draft.selection,
+           case .selection(let range) = selection.indices,
+           range.isEmpty {
+            composerCursorOffset = draft.text.distance(
+                from: draft.text.startIndex,
+                to: range.lowerBound
+            )
+        } else {
+            composerCursorOffset = nil
+        }
+        viewModel.updateComposerSuggestions(
+            for: draft.text,
+            cursorOffset: composerCursorOffset
+        )
     }
 
     private func insertNewlineAtSelection() {
         let replacementRange: Range<String.Index>
-        if let textSelection, case .selection(let range) = textSelection.indices {
+        if let selection = draft.selection, case .selection(let range) = selection.indices {
             replacementRange = range
         } else {
             replacementRange = draft.text.endIndex..<draft.text.endIndex
@@ -718,7 +938,7 @@ struct ChatTextField: View {
             draft.text.startIndex,
             offsetBy: insertionOffset + 1
         )
-        textSelection = TextSelection(insertionPoint: insertionPoint)
+        draft.selection = TextSelection(insertionPoint: insertionPoint)
     }
 
     #if os(macOS)
@@ -762,6 +982,84 @@ struct ChatTextField: View {
     }
     #endif
 }
+
+#if os(macOS)
+private struct MacAttachmentPasteMonitor: NSViewRepresentable {
+    let isEnabled: Bool
+    let pasteAttachment: @MainActor () -> Bool
+
+    func makeCoordinator() -> Coordinator {
+        Coordinator(
+            isEnabled: isEnabled,
+            pasteAttachment: pasteAttachment
+        )
+    }
+
+    func makeNSView(context: Context) -> NSView {
+        context.coordinator.startMonitoring()
+        return NSView(frame: .zero)
+    }
+
+    func updateNSView(_ nsView: NSView, context: Context) {
+        context.coordinator.isEnabled = isEnabled
+        context.coordinator.pasteAttachment = pasteAttachment
+    }
+
+    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
+        coordinator.stopMonitoring()
+    }
+
+    @MainActor
+    final class Coordinator {
+        var isEnabled: Bool
+        var pasteAttachment: @MainActor () -> Bool
+        private var eventMonitor: Any?
+
+        init(
+            isEnabled: Bool,
+            pasteAttachment: @escaping @MainActor () -> Bool
+        ) {
+            self.isEnabled = isEnabled
+            self.pasteAttachment = pasteAttachment
+        }
+
+        func startMonitoring() {
+            guard eventMonitor == nil else { return }
+
+            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+                guard let self,
+                      self.isEnabled,
+                      Self.isStandardPasteShortcut(event),
+                      self.pasteAttachment() else {
+                    return event
+                }
+                return nil
+            }
+        }
+
+        func stopMonitoring() {
+            if let eventMonitor {
+                NSEvent.removeMonitor(eventMonitor)
+                self.eventMonitor = nil
+            }
+        }
+
+        private static func isStandardPasteShortcut(_ event: NSEvent) -> Bool {
+            let relevantModifiers = event.modifierFlags.intersection([
+                .command,
+                .control,
+                .option,
+                .shift,
+            ])
+            return relevantModifiers == .command
+                && (
+                    event.keyCode == 9
+                        || event.charactersIgnoringModifiers?.lowercased() == "v"
+                )
+        }
+    }
+}
+#endif
 
 private extension View {
     @ViewBuilder
@@ -1072,6 +1370,20 @@ private struct MobileComposerCircleButton: View {
     @Environment(\.theme) private var theme
 
     var body: some View {
+        #if os(macOS)
+        Button(action: action) {
+            Icons.symbol(symbol, size: theme.typography.heading)
+                .foregroundColor(foregroundColor)
+                .frame(
+                    width: ChatComposerView.panelHeight,
+                    height: ChatComposerView.panelHeight
+                )
+                .contentShape(.circle)
+        }
+        .buttonStyle(.plain)
+        .buttonBorderShape(.circle)
+        .backportGlassEffect(.regular.interactive(), in: .circle)
+        #else
         Button(action: action) {
             Icons.symbol(symbol, size: theme.typography.heading)
                 .foregroundColor(foregroundColor)
@@ -1086,6 +1398,7 @@ private struct MobileComposerCircleButton: View {
 #else
         .buttonStyle(.glass)
 #endif
+        #endif
     }
 }
 
@@ -1103,8 +1416,6 @@ private struct ComposerAddMenu: View {
             } label: {
                 Label("Files and Attach", systemImage: "paperclip")
             }
-
-            modelMenu
 #else
             Button {
                 viewModel.isCameraPickerShown = true
@@ -1136,28 +1447,6 @@ private struct ComposerAddMenu: View {
         }
         .menuStyle(CustomMenuButtonStyle())
         .accessibilityLabel("Add")
-    }
-
-    private var modelMenu: some View {
-        Menu {
-            if viewModel.availableModels.isEmpty {
-                Text("No models")
-            } else {
-                ForEach(viewModel.availableModels) { model in
-                    Button {
-                        viewModel.pickModel(model)
-                    } label: {
-                        ComposerMenuItem(
-                            title: model.title,
-                            subtitle: model.id == model.title ? nil : model.id,
-                            isSelected: viewModel.selectedModelId == model.id
-                        )
-                    }
-                }
-            }
-        } label: {
-            Label("Model", systemImage: "brain")
-        }
     }
 
     private var agentMenu: some View {
@@ -1292,7 +1581,10 @@ struct CustomMenuButtonStyle: MenuStyle {
     func makeBody(configuration: Configuration) -> some View {
         ZStack {
             Menu(configuration)
-                .frame(width: 42, height: 42)
+                .frame(
+                    width: ChatComposerView.panelHeight,
+                    height: ChatComposerView.panelHeight
+                )
                 .contentShape(.circle)
                 .menuIndicator(.hidden)
                 .menuStyle(.borderlessButton)
@@ -1301,6 +1593,10 @@ struct CustomMenuButtonStyle: MenuStyle {
                 .foregroundColor(theme.colors.textPrimary)
                 .allowsHitTesting(false)
         }
+        .frame(
+            width: ChatComposerView.panelHeight,
+            height: ChatComposerView.panelHeight
+        )
         .buttonBorderShape(.circle)
         .buttonSizing(.flexible)
         .backportGlassEffect(.regular.interactive(), in: .circle)
@@ -1309,4 +1605,7 @@ struct CustomMenuButtonStyle: MenuStyle {
 
 private enum Constants {
     static let fieldHeight: CGFloat = 48
+    static let fieldHorizontalPadding: CGFloat = fieldHeight / 2
+    static let modelPickerRowHeight: CGFloat = 30
+    static let modelPickerBottomPadding: CGFloat = 8
 }

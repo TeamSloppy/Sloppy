@@ -366,6 +366,7 @@ public final class ChatScreenViewModel {
     @ObservationIgnored private let settings: ClientSettings
     @ObservationIgnored private let restoresLastSession: Bool
     @ObservationIgnored private let loadsGlobalSessionCatalog: Bool
+    @ObservationIgnored private let onSessionSummaryChange: @MainActor (ChatSessionSummary) -> Void
     public let connectionMonitor: ConnectionMonitor
     @ObservationIgnored private let onOpenSettings: @MainActor (ClientSettingsDestination) -> Void
 
@@ -390,6 +391,8 @@ public final class ChatScreenViewModel {
     @ObservationIgnored private let dictationRecorder = DictationRecorder()
     @ObservationIgnored private var dictationMeterTask: Task<Void, Never>?
     @ObservationIgnored private var suggestionTask: Task<Void, Never>?
+    @ObservationIgnored private var composerSuggestionCursorOffset: Int?
+    @ObservationIgnored private var composerSuggestionRequestID: UInt = 0
 
     public init(
         apiClient: SloppyAPIClient,
@@ -398,6 +401,7 @@ public final class ChatScreenViewModel {
         connectionMonitor: ConnectionMonitor,
         restoresLastSession: Bool = true,
         loadsGlobalSessionCatalog: Bool = false,
+        onSessionSummaryChange: @escaping @MainActor (ChatSessionSummary) -> Void = { _ in },
         onOpenSettings: @escaping @MainActor (ClientSettingsDestination) -> Void
     ) {
         self.apiClient = apiClient
@@ -406,6 +410,7 @@ public final class ChatScreenViewModel {
         self.connectionMonitor = connectionMonitor
         self.restoresLastSession = restoresLastSession
         self.loadsGlobalSessionCatalog = loadsGlobalSessionCatalog
+        self.onSessionSummaryChange = onSessionSummaryChange
         self.onOpenSettings = onOpenSettings
     }
 
@@ -421,9 +426,13 @@ public final class ChatScreenViewModel {
         transcriptScrollToEndRequest &+= 1
     }
 
-    func updateComposerSuggestions(for text: String) {
+    func updateComposerSuggestions(for text: String, cursorOffset: Int? = nil) {
         suggestionTask?.cancel()
-        guard let query = ChatComposerQuery.parse(text), let agent = selectedAgent else {
+        composerSuggestionCursorOffset = cursorOffset
+        composerSuggestionRequestID &+= 1
+        let requestID = composerSuggestionRequestID
+        guard let query = ChatComposerQuery.parse(text, cursorOffset: cursorOffset),
+              let agent = selectedAgent else {
             setComposerSuggestions([])
             return
         }
@@ -431,7 +440,7 @@ public final class ChatScreenViewModel {
         suggestionTask = Task { @MainActor [weak self] in
             guard let self else { return }
             let suggestions = await loadComposerSuggestions(query: query, agentId: agent.id)
-            guard !Task.isCancelled, ChatComposerQuery.parse(composerDraft.text) == query else { return }
+            guard !Task.isCancelled, composerSuggestionRequestID == requestID else { return }
             setComposerSuggestions(suggestions)
         }
     }
@@ -451,8 +460,17 @@ public final class ChatScreenViewModel {
     }
 
     func applyComposerSuggestion(_ suggestion: ChatComposerSuggestion) {
-        guard let query = ChatComposerQuery.parse(composerDraft.text) else { return }
-        composerDraft.text = query.applying(suggestion, to: composerDraft.text)
+        guard let query = ChatComposerQuery.parse(
+            composerDraft.text,
+            cursorOffset: composerSuggestionCursorOffset
+        ) else { return }
+        let application = query.applying(suggestion, to: composerDraft.text)
+        composerDraft.text = application.text
+        let insertionPoint = composerDraft.text.index(
+            composerDraft.text.startIndex,
+            offsetBy: application.cursorOffset
+        )
+        composerDraft.selection = TextSelection(insertionPoint: insertionPoint)
         setComposerSuggestions([])
     }
 
@@ -776,6 +794,14 @@ public final class ChatScreenViewModel {
 
     public func pickReasoningEffort(_ effort: ChatReasoningEffort) {
         selectedReasoningEffort = effort
+    }
+
+    public func refreshAvailableModels() async {
+        do {
+            applyAvailableModels(try await apiClient.fetchAvailableModels())
+        } catch {
+            showSessionStatus("Couldn’t refresh models: \(error.localizedDescription)")
+        }
     }
 
     public func pickSession(_ session: ChatSessionSummary) {
@@ -1559,6 +1585,11 @@ public final class ChatScreenViewModel {
         sessionCatalog.removeAll { $0.id == summary.id }
         sessionCatalog.append(summary)
         sessionCatalog = sortSessions(sessionCatalog)
+        onSessionSummaryChange(summary)
+    }
+
+    public func mergeSessionSummary(_ summary: ChatSessionSummary) {
+        upsertSessionSummary(summary)
     }
 
     private func debugSessionFilePathURL(for session: ChatSessionSummary) -> URL {

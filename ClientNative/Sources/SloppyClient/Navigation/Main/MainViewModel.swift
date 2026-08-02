@@ -770,6 +770,9 @@ final class MainViewModel {
             settings: settings,
             connectionMonitor: connectionMonitor,
             restoresLastSession: false,
+            onSessionSummaryChange: { [weak self] summary in
+                self?.chatViewModel.mergeSessionSummary(summary)
+            },
             onOpenSettings: { destination in self.onOpenSettings(destination) }
         )
         viewModel.loadInitialData()

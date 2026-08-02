@@ -69,21 +69,30 @@ struct ChatComposerQuery: Equatable, Sendable {
     var term: String
     var range: Range<String.Index>
 
-    static func parse(_ text: String) -> ChatComposerQuery? {
-        let tokenStart = text.lastIndex(where: { $0.isWhitespace })
+    static func parse(_ text: String, cursorOffset: Int? = nil) -> ChatComposerQuery? {
+        let resolvedCursorOffset = cursorOffset ?? text.count
+        guard resolvedCursorOffset >= 0, resolvedCursorOffset <= text.count else { return nil }
+
+        let cursor = text.index(text.startIndex, offsetBy: resolvedCursorOffset)
+        let tokenStart = text[..<cursor].lastIndex(where: { $0.isWhitespace })
             .map { text.index(after: $0) } ?? text.startIndex
-        guard tokenStart < text.endIndex else { return nil }
+        guard tokenStart < cursor else { return nil }
         let trigger = text[tokenStart]
         guard trigger == "/" || trigger == "@" || trigger == "#" else { return nil }
         let termStart = text.index(after: tokenStart)
-        let term = String(text[termStart...])
+        let term = String(text[termStart..<cursor])
         guard !term.contains(where: { $0.isWhitespace }) else { return nil }
-        return ChatComposerQuery(trigger: trigger, term: term, range: tokenStart..<text.endIndex)
+        return ChatComposerQuery(trigger: trigger, term: term, range: tokenStart..<cursor)
     }
 
-    func applying(_ suggestion: ChatComposerSuggestion, to text: String) -> String {
+    func applying(_ suggestion: ChatComposerSuggestion, to text: String) -> (text: String, cursorOffset: Int) {
+        let insertionSuffix = range.upperBound < text.endIndex && text[range.upperBound].isWhitespace
+            ? ""
+            : " "
+        let replacement = suggestion.insertion + insertionSuffix
+        let prefixCount = text.distance(from: text.startIndex, to: range.lowerBound)
         var result = text
-        result.replaceSubrange(range, with: suggestion.insertion + " ")
-        return result
+        result.replaceSubrange(range, with: replacement)
+        return (result, prefixCount + replacement.count)
     }
 }

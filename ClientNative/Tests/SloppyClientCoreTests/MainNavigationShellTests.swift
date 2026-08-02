@@ -124,20 +124,19 @@ struct MainNavigationShellTests {
         #expect(source.contains("viewModel.selectedAppSection == .workspace"))
     }
 
-    @Test("main view toolbar combines agent and model into one context menu")
-    func mainViewToolbarCombinesAgentAndModelIntoOneContextMenu() throws {
+    @Test("macOS moves model selection from the toolbar into the composer")
+    func macOSMovesModelSelectionIntoComposer() throws {
         let mainView = try source(named: "MainView.swift")
         let composer = try featureSource(named: "ChatComposerView.swift")
 
+        #expect(mainView.contains("#if !os(macOS)"))
         #expect(mainView.contains("ChatContextToolbarMenu("))
         #expect(!mainView.contains("ChatAgentToolbarMenu("))
         #expect(!mainView.contains("ChatModelToolbarMenu("))
         #expect(mainView.contains("private var activeChatViewModel: ChatScreenViewModel?"))
-        #expect(mainView.contains("activeChatViewModel.selectedAgent"))
-        #expect(mainView.contains("activeChatViewModel.availableModels"))
-        #expect(composer.contains("struct ChatContextToolbarMenu: View"))
-        #expect(composer.contains("Section(\"Agent\")"))
-        #expect(composer.contains("Section(\"Model\")"))
+        #expect(composer.contains("ComposerOptionsMenuView("))
+        #expect(composer.contains("chat.composer.model-picker"))
+        #expect(composer.contains("TextField(\"Search models\", text: $searchText)"))
     }
 
     @Test("main view loads sidebar chat data on appear")

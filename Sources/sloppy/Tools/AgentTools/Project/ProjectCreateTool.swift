@@ -13,6 +13,7 @@ struct ProjectCreateTool: CoreTool {
         .objectSchema([
             .init(name: "name", description: "Project name", schema: DynamicGenerationSchema(type: String.self)),
             .init(name: "description", description: "Project description", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "idea", description: "Project idea to save as IDEA.md", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "actors", description: "List of actor IDs to assign", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)), isOptional: true),
             .init(name: "teams", description: "List of team IDs to assign", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)), isOptional: true),
             .init(name: "repoUrl", description: "Repository URL", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
@@ -40,6 +41,7 @@ struct ProjectCreateTool: CoreTool {
                 ProjectCreateRequest(
                     name: projectName,
                     description: arguments["description"]?.asString,
+                    idea: arguments["idea"]?.asString,
                     actors: actors,
                     teams: teams,
                     repoUrl: arguments["repoUrl"]?.asString,

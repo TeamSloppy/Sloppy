@@ -13,6 +13,7 @@ final class SloppyDesktopOverlay {
     private weak var window: NSWindow?
     private var overlayPanel: SloppyNotchPanel?
     private var screenObserver: NSObjectProtocol?
+    private var applicationActivationObserver: NSObjectProtocol?
     private var apiClient = SloppyAPIClient()
     private var closeBehavior: ClientWindowCloseBehavior = .keepProcess
     private var activityRefreshTask: Task<Void, Never>?
@@ -107,6 +108,10 @@ final class SloppyDesktopOverlay {
         overlayPanel = panel
         state.onExpansionChanged = { [weak self] in
             guard let self, let panel = self.overlayPanel else { return }
+            guard !NSApp.isActive || !self.state.isExpanded else {
+                self.state.setExpanded(false)
+                return
+            }
             self.position(panel: panel, animated: true)
         }
         position(panel: panel, animated: false)
@@ -120,6 +125,16 @@ final class SloppyDesktopOverlay {
             Task { @MainActor in
                 guard let self, let panel = self.overlayPanel else { return }
                 self.position(panel: panel, animated: false)
+            }
+        }
+
+        applicationActivationObserver = NotificationCenter.default.addObserver(
+            forName: NSApplication.didBecomeActiveNotification,
+            object: NSApp,
+            queue: .main
+        ) { [weak self] _ in
+            Task { @MainActor in
+                self?.state.setExpanded(false)
             }
         }
     }

@@ -43,6 +43,7 @@ struct ProjectEditorSheet: View {
     @State private var source: Source
     @State private var name: String
     @State private var projectDescription: String
+    @State private var idea = ""
     @State private var repoURL = ""
     @State private var directoryPaths: [String]
     @State private var isSaving = false
@@ -102,6 +103,10 @@ struct ProjectEditorSheet: View {
                     TextField("Name", text: $name)
                     TextField("Description", text: $projectDescription, axis: .vertical)
                         .lineLimit(2...5)
+                }
+
+                if project == nil {
+                    ideaSection
                 }
 
                 Section(project == nil ? "Source" : "Project type") {
@@ -184,6 +189,61 @@ struct ProjectEditorSheet: View {
         }
     }
 
+    private var ideaSection: some View {
+        Section {
+            ZStack(alignment: .topLeading) {
+                TextEditor(text: $idea)
+                    .scrollContentBackground(.hidden)
+                    .frame(minHeight: 112)
+                    .padding(6)
+                    .accessibilityLabel("Project idea")
+
+                if idea.isEmpty {
+                    Text("What's this project about?")
+                        .foregroundStyle(.tertiary)
+                        .padding(.horizontal, 11)
+                        .padding(.vertical, 14)
+                        .allowsHitTesting(false)
+                }
+            }
+            .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10)
+                    .stroke(Color.secondary.opacity(0.18), lineWidth: 1)
+            }
+
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 132), spacing: 8)],
+                alignment: .leading,
+                spacing: 8
+            ) {
+                ForEach(ProjectIdeaSuggestion.allCases) { suggestion in
+                    Button {
+                        idea = suggestion.prompt
+                    } label: {
+                        Text("\(suggestion.emoji) \(suggestion.title)")
+                            .font(.callout)
+                            .lineLimit(1)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 6)
+                            .background(.regularMaterial, in: Capsule())
+                            .overlay {
+                                Capsule()
+                                    .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Use \(suggestion.title) idea")
+                }
+            }
+        } header: {
+            Text("Idea")
+        } footer: {
+            Text("Saved as IDEA.md in the project's primary directory.")
+        }
+    }
+
     private var directoriesSection: some View {
         Section {
             if directoryPaths.isEmpty {
@@ -252,6 +312,7 @@ struct ProjectEditorSheet: View {
         errorMessage = nil
         let trimmedName = name.trimmingCharacters(in: .whitespacesAndNewlines)
         let trimmedDescription = projectDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        let trimmedIdea = idea.trimmingCharacters(in: .whitespacesAndNewlines)
         let kind: APIProjectKind = source == .workspace ? .workspace : .project
         let paths = source == .directory || source == .workspace ? directoryPaths : []
         let repoPath = source == .directory ? paths.first : nil
@@ -275,6 +336,7 @@ struct ProjectEditorSheet: View {
                         APIProjectCreateRequest(
                             name: trimmedName,
                             description: trimmedDescription,
+                            idea: trimmedIdea.isEmpty ? nil : trimmedIdea,
                             repoUrl: source == .clone ? repoURL.trimmingCharacters(in: .whitespacesAndNewlines) : nil,
                             repoPath: repoPath,
                             kind: kind,
@@ -291,6 +353,56 @@ struct ProjectEditorSheet: View {
                 errorMessage = error.localizedDescription
                 isSaving = false
             }
+        }
+    }
+}
+
+private enum ProjectIdeaSuggestion: String, CaseIterable, Identifiable {
+    case workoutPlan
+    case musicToy
+    case researchLog
+    case flashcards
+    case digitalGarden
+    case discordBot
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .workoutPlan: "Workout plan"
+        case .musicToy: "Music toy"
+        case .researchLog: "Research log"
+        case .flashcards: "Flashcards"
+        case .digitalGarden: "Digital garden"
+        case .discordBot: "Discord bot"
+        }
+    }
+
+    var emoji: String {
+        switch self {
+        case .workoutPlan: "🏋️"
+        case .musicToy: "🎵"
+        case .researchLog: "🧪"
+        case .flashcards: "🧠"
+        case .digitalGarden: "📝"
+        case .discordBot: "🤖"
+        }
+    }
+
+    var prompt: String {
+        switch self {
+        case .workoutPlan:
+            "A personal workout planner that adapts weekly routines to available time, equipment, and progress."
+        case .musicToy:
+            "A playful music-making tool for quickly layering loops, experimenting with sounds, and sharing small compositions."
+        case .researchLog:
+            "A research log that keeps sources, observations, hypotheses, and next questions connected over time."
+        case .flashcards:
+            "A focused flashcard app with fast capture, spaced repetition, and clear learning progress."
+        case .digitalGarden:
+            "A personal digital garden for collecting notes, linking ideas, and gradually turning fragments into useful knowledge."
+        case .discordBot:
+            "A Discord bot that helps a community answer recurring questions, run lightweight workflows, and surface useful context."
         }
     }
 }

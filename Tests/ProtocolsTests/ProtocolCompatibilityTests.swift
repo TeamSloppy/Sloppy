@@ -821,6 +821,17 @@ func projectCreateRequestEncodesRepoUrl() throws {
 }
 
 @Test
+func projectCreateRequestPreservesIdeaMarkdown() throws {
+    let request = ProjectCreateRequest(
+        name: "Research Log",
+        idea: "Track sources and unanswered questions."
+    )
+    let data = try JSONEncoder().encode(request)
+    let roundTripped = try JSONDecoder().decode(ProjectCreateRequest.self, from: data)
+    #expect(roundTripped.idea == "Track sources and unanswered questions.")
+}
+
+@Test
 func projectCreateRequestDecodesRepoUrl() throws {
     let json = """
     {
