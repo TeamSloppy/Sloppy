@@ -36,18 +36,33 @@ public struct ChatSidebarProjectGroup: Sendable, Identifiable {
     }
 }
 
+public struct ChatSidebarDayGroup: Sendable, Identifiable {
+    public var day: Date
+    public var sessions: [ChatSessionSummary]
+
+    public var id: Date { day }
+
+    public init(day: Date, sessions: [ChatSessionSummary]) {
+        self.day = day
+        self.sessions = sessions
+    }
+}
+
 public struct ChatSidebarSections: Sendable {
     public var pinned: [ChatSessionSummary]
     public var sessions: [ChatSessionSummary]
+    public var dayGroups: [ChatSidebarDayGroup]
     public var projectGroups: [ChatSidebarProjectGroup]
 
     public init(
         pinned: [ChatSessionSummary] = [],
         sessions: [ChatSessionSummary] = [],
+        dayGroups: [ChatSidebarDayGroup] = [],
         projectGroups: [ChatSidebarProjectGroup] = []
     ) {
         self.pinned = pinned
         self.sessions = sessions
+        self.dayGroups = dayGroups
         self.projectGroups = projectGroups
     }
 
@@ -56,17 +71,31 @@ public struct ChatSidebarSections: Sendable {
         projects: [APIProjectRecord],
         pinnedSessionIds: Set<String>,
         mode: ChatSidebarListMode,
-        projectPreviewLimit: Int? = nil
+        projectPreviewLimit: Int? = nil,
+        calendar: Calendar = .autoupdatingCurrent
     ) -> ChatSidebarSections {
-        let sortedSessions = sessions.sorted { $0.updatedAt > $1.updatedAt }
+        let sortedSessions = sessions.sorted {
+            if $0.updatedAt == $1.updatedAt {
+                return $0.id < $1.id
+            }
+            return $0.updatedAt > $1.updatedAt
+        }
         let pinned = sortedSessions.filter { pinnedSessionIds.contains($0.id) }
         let unpinned = sortedSessions.filter { !pinnedSessionIds.contains($0.id) }
 
         switch mode {
         case .allChats:
+            let sessionsByDay = Dictionary(grouping: unpinned) {
+                calendar.startOfDay(for: $0.updatedAt)
+            }
+            let dayGroups = sessionsByDay.keys.sorted(by: >).map { day in
+                ChatSidebarDayGroup(day: day, sessions: sessionsByDay[day] ?? [])
+            }
+
             return ChatSidebarSections(
                 pinned: pinned,
                 sessions: unpinned,
+                dayGroups: dayGroups,
                 projectGroups: []
             )
 

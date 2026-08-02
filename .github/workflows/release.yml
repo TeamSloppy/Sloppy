@@ -145,6 +145,9 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
       - name: Extract Version from Tag
         id: meta
         run: |
@@ -240,6 +243,13 @@ jobs:
           echo "asset_name=$OUT" >> "$GITHUB_OUTPUT"
           echo "node_asset_name=$NODE_OUT" >> "$GITHUB_OUTPUT"
 
+      - name: Build macOS Installer
+        id: installer
+        run: |
+          INSTALLER_PATH="$(ClientNative/script/build_macos_installer.sh "${{ steps.meta.outputs.version }}" "${{ runner.temp }}" | tail -1)"
+          test -f "$INSTALLER_PATH"
+          echo "installer_path=$INSTALLER_PATH" >> "$GITHUB_OUTPUT"
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -247,6 +257,7 @@ jobs:
           path: |
             ${{ steps.pack.outputs.tarball_path }}
             ${{ steps.pack.outputs.node_tarball_path }}
+            ${{ steps.installer.outputs.installer_path }}
 
   build-windows-node:
     name: Build SloppyNode (Windows)
@@ -398,10 +409,11 @@ jobs:
           NODE_MACOS=$(ls SloppyNode-macos-*.tar.gz | head -1)
           NODE_WINDOWS_EXE=$(ls SloppyNode-windows-x86_64.exe)
           NODE_WINDOWS=$(ls SloppyNode-windows-x86_64.zip)
+          MACOS_INSTALLER=$(ls SloppyClient-macos-*.pkg | head -1)
           LINUX_SHA=$(sha256sum "$LINUX" | awk '{print $1}')
           MACOS_SHA=$(sha256sum "$MACOS" | awk '{print $1}')
           NODE_MACOS_SHA=$(sha256sum "$NODE_MACOS" | awk '{print $1}')
-          sha256sum sloppy-version.json "$LINUX" "$MACOS" "$NODE_MACOS" "$NODE_WINDOWS_EXE" "$NODE_WINDOWS" > SHA256SUMS.txt
+          sha256sum sloppy-version.json "$LINUX" "$MACOS" "$NODE_MACOS" "$MACOS_INSTALLER" "$NODE_WINDOWS_EXE" "$NODE_WINDOWS" > SHA256SUMS.txt
           {
             echo "linux_sha256=$LINUX_SHA"
             echo "macos_sha256=$MACOS_SHA"
@@ -424,6 +436,7 @@ jobs:
             release-assets/Sloppy-linux-x86_64.tar.gz
             release-assets/Sloppy-macos-*.tar.gz
             release-assets/SloppyNode-macos-*.tar.gz
+            release-assets/SloppyClient-macos-*.pkg
             release-assets/SloppyNode-windows-x86_64.exe
             release-assets/SloppyNode-windows-x86_64.zip
 

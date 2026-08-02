@@ -176,6 +176,16 @@ extension CoreService: ToolApprovalBridge {
             return action == nil || action == "start" || action == "stop"
         }
 
+        if toolID == "workspace.transaction.apply" {
+            let deleteCount = arguments["operations"]?.asArray?.reduce(into: 0) { count, operation in
+                guard operation.asObject?["type"]?.asString == WorkspaceOperationKind.deleteElement.rawValue else {
+                    return
+                }
+                count += 1
+            } ?? 0
+            return deleteCount >= 10
+        }
+
         if toolID.hasPrefix("mcp.") {
             let safeTools: Set<String> = [
                 "mcp.list_servers",

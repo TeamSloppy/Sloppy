@@ -16,6 +16,7 @@ interface DashboardRouteController {
   setSection: (section: string) => void;
   setConfigSection: (sectionId: string | null) => void;
   setProjectRoute: (projectId: string | null, projectTab?: string | null, projectTaskReference?: string | null) => void;
+  setWorkspaceRoute: (workspaceId: string | null) => void;
   setAgentRoute: (agentId: string | null, agentTab?: string | null, initialChatSessionId?: string | null) => void;
   setSessionRoute: (sessionId: string | null) => void;
   setChatsRoute: (
@@ -50,6 +51,7 @@ export function useDashboardRoute(): DashboardRouteController {
     route.projectTaskReference,
     route.projectWorkflowId,
     route.projectWorkflowRunId,
+    route.workspaceId,
     route.section,
     route.sessionAgentId,
     route.sessionId
@@ -124,6 +126,19 @@ export function useDashboardRoute(): DashboardRouteController {
     []
   );
 
+  const setWorkspaceRoute = useCallback((workspaceId: string | null) => {
+    const normalizedWorkspaceID =
+      typeof workspaceId === "string" && workspaceId.trim().length > 0 ? workspaceId.trim() : null;
+    setRoute((current) => ({
+      ...current,
+      section: "workspaces",
+      workspaceId: normalizedWorkspaceID,
+      chatProjectId: null,
+      chatAgentId: null,
+      chatSessionId: null
+    }));
+  }, []);
+
   const setSessionRoute = useCallback((sessionId: string | null) => {
     const normalizedSessionID = typeof sessionId === "string" && sessionId.trim().length > 0 ? sessionId : null;
 
@@ -172,6 +187,7 @@ export function useDashboardRoute(): DashboardRouteController {
     setSection,
     setConfigSection,
     setProjectRoute,
+    setWorkspaceRoute,
     setAgentRoute,
     setSessionRoute,
     setChatsRoute

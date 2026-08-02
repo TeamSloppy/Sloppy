@@ -23,6 +23,7 @@ extension CoreRouter {
             CronAPIRouter(service: service),
             SkillsAPIRouter(service: service),
             ArtifactsAPIRouter(service: service),
+            WorkspacesAPIRouter(service: service),
             SourceControlAPIRouter(service: service),
             PluginsAPIRouter(service: service)
         ]

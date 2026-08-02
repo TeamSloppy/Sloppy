@@ -105,6 +105,16 @@ export interface CoreApi {
   createMeshTask: (payload: AnyRecord) => Promise<AnyRecord | null>;
   updateMeshTask: (taskId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchArtifacts: () => Promise<AnyRecord[]>;
+  fetchWorkspaces: (options?: { projectId?: string; archived?: boolean; query?: string }) => Promise<AnyRecord[]>;
+  createWorkspace: (payload: AnyRecord) => Promise<AnyRecord | null>;
+  fetchWorkspace: (workspaceId: string) => Promise<AnyRecord | null>;
+  updateWorkspace: (workspaceId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
+  fetchWorkspaceDocument: (workspaceId: string, revision?: number) => Promise<AnyRecord | null>;
+  applyWorkspaceTransaction: (workspaceId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
+  undoWorkspaceTransaction: (workspaceId: string, transactionId: string) => Promise<AnyRecord | null>;
+  fetchWorkspaceTemplates: (visibility?: string) => Promise<AnyRecord[]>;
+  applyWorkspaceTemplate: (workspaceId: string, templateId: string, payload?: AnyRecord) => Promise<AnyRecord | null>;
+  createWorkspaceRealtimeTicket: (workspaceId: string) => Promise<AnyRecord | null>;
   fetchArtifact: (id: string) => Promise<AnyRecord | null>;
   fetchWidgetArtifact: (id: string) => Promise<AnyRecord | null>;
   planArtifactWebUrl: (projectId: string, planName: string) => string;
@@ -767,6 +777,95 @@ export function createCoreApi(): CoreApi {
         return [];
       }
       return (response.data as AnyRecord).artifacts as AnyRecord[];
+    },
+
+    fetchWorkspaces: async (options = {}) => {
+      const params = new URLSearchParams();
+      if (options.projectId) params.set("projectId", options.projectId);
+      if (typeof options.archived === "boolean") params.set("archived", String(options.archived));
+      if (options.query) params.set("query", options.query);
+      const suffix = params.size > 0 ? `?${params.toString()}` : "";
+      const response = await requestJson<AnyRecord>({ path: `/v1/workspaces${suffix}` });
+      return response.ok && Array.isArray(response.data?.workspaces)
+        ? response.data.workspaces as AnyRecord[]
+        : [];
+    },
+
+    createWorkspace: async (payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/workspaces",
+        method: "POST",
+        body: payload
+      });
+      return response.ok ? response.data : null;
+    },
+
+    fetchWorkspace: async (workspaceId) => {
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/workspaces/${encodeURIComponent(workspaceId)}`
+      });
+      return response.ok ? response.data : null;
+    },
+
+    updateWorkspace: async (workspaceId, payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/workspaces/${encodeURIComponent(workspaceId)}`,
+        method: "PATCH",
+        body: payload
+      });
+      return response.ok ? response.data : null;
+    },
+
+    fetchWorkspaceDocument: async (workspaceId, revision) => {
+      const suffix = typeof revision === "number" ? `?revision=${revision}` : "";
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/workspaces/${encodeURIComponent(workspaceId)}/document${suffix}`
+      });
+      return response.ok ? response.data : null;
+    },
+
+    applyWorkspaceTransaction: async (workspaceId, payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/workspaces/${encodeURIComponent(workspaceId)}/transactions`,
+        method: "POST",
+        body: payload
+      });
+      return response.ok ? response.data : null;
+    },
+
+    undoWorkspaceTransaction: async (workspaceId, transactionId) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/workspaces/${encodeURIComponent(workspaceId)}/transactions/${encodeURIComponent(transactionId)}/undo`,
+        method: "POST",
+        body: {}
+      });
+      return response.ok ? response.data : null;
+    },
+
+    fetchWorkspaceTemplates: async (visibility) => {
+      const suffix = visibility ? `?visibility=${encodeURIComponent(visibility)}` : "";
+      const response = await requestJson<AnyRecord>({ path: `/v1/workspace-templates${suffix}` });
+      return response.ok && Array.isArray(response.data?.templates)
+        ? response.data.templates as AnyRecord[]
+        : [];
+    },
+
+    applyWorkspaceTemplate: async (workspaceId, templateId, payload = {}) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/workspaces/${encodeURIComponent(workspaceId)}/templates/${encodeURIComponent(templateId)}/apply`,
+        method: "POST",
+        body: payload
+      });
+      return response.ok ? response.data : null;
+    },
+
+    createWorkspaceRealtimeTicket: async (workspaceId) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: `/v1/workspaces/${encodeURIComponent(workspaceId)}/realtime-ticket`,
+        method: "POST",
+        body: {}
+      });
+      return response.ok ? response.data : null;
     },
 
     fetchArtifact: async (id) => {

@@ -43,6 +43,22 @@ struct ChatBubbleRenderingTests {
         #expect(source.contains("accessibilityReduceMotion"))
     }
 
+    @Test("macOS markdown avoids Textual's text-layout selection feedback loop")
+    func macOSMarkdownUsesNativeTextSelection() throws {
+        let source = try source
+        let stackStart = try #require(source.range(of: "private struct ChatMarkdownTextStack"))
+        let cardStart = try #require(source.range(of: "private struct ChatSegmentCollapsibleCard"))
+        let stackSource = String(source[stackStart.lowerBound..<cardStart.lowerBound])
+        let macOSBranchStart = try #require(stackSource.range(of: "#if os(macOS)"))
+        let fallbackBranchStart = try #require(stackSource.range(of: "#else"))
+        let macOSBranch = stackSource[macOSBranchStart.lowerBound..<fallbackBranchStart.lowerBound]
+
+        #expect(macOSBranch.contains("structuredText"))
+        #expect(!macOSBranch.contains("textual.textSelection"))
+        #expect(stackSource.contains(".textual.textSelection(.enabled)"))
+        #expect(source.contains(".textSelection(.enabled)"))
+    }
+
     @Test("system activity is grouped without a glass card")
     func systemActivityIsGroupedWithoutGlass() throws {
         let source = try source

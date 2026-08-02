@@ -419,6 +419,45 @@ public protocol PersistenceStore: Sendable {
     /// Deletes one dashboard project and all nested records.
     func deleteProject(id: String) async
 
+    /// Lists canvas workspaces ordered by most recently updated.
+    func listWorkspaces() async -> [WorkspaceRecord]
+
+    /// Returns one canvas workspace by identifier.
+    func workspace(id: String) async -> WorkspaceRecord?
+
+    /// Creates or replaces canvas workspace metadata.
+    func saveWorkspace(_ workspace: WorkspaceRecord) async
+
+    /// Returns the latest durable workspace document snapshot.
+    func workspaceDocument(id: String) async -> WorkspaceDocument?
+
+    /// Creates or replaces the latest workspace document snapshot.
+    func saveWorkspaceDocument(_ document: WorkspaceDocument) async
+
+    /// Lists committed workspace transactions after a revision.
+    func listWorkspaceTransactions(workspaceId: String, afterRevision: Int) async -> [WorkspaceCommittedTransaction]
+
+    /// Returns a committed transaction by client-provided id for idempotency.
+    func workspaceTransaction(workspaceId: String, transactionId: String) async -> WorkspaceCommittedTransaction?
+
+    /// Persists one committed workspace transaction.
+    func saveWorkspaceTransaction(_ transaction: WorkspaceCommittedTransaction) async
+
+    /// Lists workspace access members.
+    func listWorkspaceMembers(workspaceId: String) async -> [WorkspaceMember]
+
+    /// Creates or replaces one workspace member.
+    func saveWorkspaceMember(_ member: WorkspaceMember) async
+
+    /// Removes one workspace member.
+    func deleteWorkspaceMember(workspaceId: String, principalKind: WorkspacePrincipalKind, principalId: String) async
+
+    /// Lists user-created workspace templates.
+    func listWorkspaceTemplates() async -> [WorkspaceTemplate]
+
+    /// Creates or replaces one workspace template.
+    func saveWorkspaceTemplate(_ template: WorkspaceTemplate) async
+
     /// Lists durable initiative records for one project.
     func listInitiatives(projectID: String) async -> [InitiativeRecord]
 

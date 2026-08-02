@@ -102,6 +102,50 @@ async function main() {
       timeout: 30_000
     });
 
+    await page.click('[data-testid="sidebar-nav-workspaces"]');
+    await page.waitForSelector('[data-testid="workspaces-gallery"]', {
+      state: "visible",
+      timeout: 30_000
+    });
+
+    await page.click('[data-testid="workspace-create-button"]');
+    await page.waitForSelector('[data-testid="workspace-create-dialog"]', { state: "visible" });
+    await page.keyboard.press("Escape");
+    await page.waitForSelector('[data-testid="workspace-create-dialog"]', { state: "detached" });
+
+    await page.click(`[data-testid="workspace-card-${seed.workspaceId}"]`);
+    await page.waitForSelector('[data-testid="workspace-editor"]', {
+      state: "visible",
+      timeout: 30_000
+    });
+    await page.waitForSelector('[data-testid="workspace-tool-palette"]', { state: "visible" });
+    await page.waitForSelector('[data-testid="workspace-inspector"]', { state: "visible" });
+    await page.waitForSelector('[data-testid="workspace-agent-composer"]', { state: "visible" });
+
+    const workspaceNodes = page.locator(".react-flow__node-workspace");
+    const initialNodeCount = await workspaceNodes.count();
+    await page.click('[data-testid="workspace-add-sticky"]');
+    await page.waitForFunction(
+      (count) => document.querySelectorAll(".react-flow__node-workspace").length === count + 1,
+      initialNodeCount
+    );
+
+    const workspaceLayers = page.locator('[data-testid="workspace-layer"]');
+    await workspaceLayers.first().click();
+    await page.waitForSelector('[data-testid="workspace-selection-bar"]', { state: "visible" });
+    await page.keyboard.press("Meta+d");
+    await page.waitForFunction(
+      (count) => document.querySelectorAll(".react-flow__node-workspace").length === count + 2,
+      initialNodeCount
+    );
+    await page.keyboard.press("Escape");
+    await page.waitForSelector('[data-testid="workspace-selection-bar"]', { state: "detached" });
+
+    await page.click('[data-testid="workspace-inspector-toggle"]');
+    await page.waitForSelector('[data-testid="workspace-inspector"]', { state: "detached" });
+    await page.click('[data-testid="workspace-inspector-toggle"]');
+    await page.waitForSelector('[data-testid="workspace-inspector"]', { state: "visible" });
+
     await appendConsoleLog(consoleLines);
   } catch (error) {
     await page.screenshot({ path: FAILURE_SCREENSHOT_PATH, fullPage: true });

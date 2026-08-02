@@ -153,6 +153,14 @@ public actor CoreService {
         case conflict
     }
 
+    public enum WorkspaceError: Error {
+        case invalidID
+        case invalidPayload
+        case notFound
+        case forbidden
+        case conflict(latestRevision: Int, elementIds: [String])
+    }
+
     public enum ChannelPluginError: Error {
         case invalidID
         case invalidPayload
@@ -279,6 +287,7 @@ public actor CoreService {
     var nodeMeshClientTask: Task<Void, Never>?
     public let notificationService: NotificationService
     public let kanbanEventService: KanbanEventService
+    let workspaceRealtimeService: WorkspaceRealtimeService
     public let pendingApprovalService: PendingApprovalService
     let toolApprovalService: ToolApprovalService
     let dashboardTerminalService: DashboardTerminalService
@@ -526,6 +535,7 @@ public actor CoreService {
         self.recoveryManager = RecoveryManager(store: self.store, runtime: self.runtime, logger: self.logger)
         self.notificationService = NotificationService()
         self.kanbanEventService = KanbanEventService()
+        self.workspaceRealtimeService = WorkspaceRealtimeService(store: self.store)
         self.toolApprovalService = ToolApprovalService(eventBus: self.runtime.eventBus, notificationService: self.notificationService)
         self.pendingApprovalService = PendingApprovalService(
             workspaceDirectory: config

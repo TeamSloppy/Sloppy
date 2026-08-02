@@ -21,12 +21,12 @@ struct SidebarRecentsList: View {
     var body: some View {
         LazyVStack(alignment: .leading, spacing: theme.spacing.s) {
             if !sections.pinned.isEmpty {
-                SidebarSectionTitle(title: "Pinned")
+                SidebarSectionTitle(title: "Priority")
                 ForEach(sections.pinned) { SidebarSessionItem(viewModel: viewModel, session: $0) }
             }
 
             HStack {
-                SidebarSectionTitle(title: viewModel.chatSidebarMode == .projects ? "Projects" : "Recents")
+                SidebarSectionTitle(title: viewModel.chatSidebarMode.title)
                 Spacer()
                 if viewModel.chatSidebarMode == .projects {
                     Button {
@@ -63,7 +63,13 @@ struct SidebarRecentsList: View {
         } else if sections.pinned.isEmpty && sections.sessions.isEmpty && sections.projectGroups.isEmpty {
             SidebarStatusText(text: "No chats yet")
         } else if viewModel.chatSidebarMode == .allChats {
-            ForEach(sections.sessions.prefix(12)) { SidebarSessionItem(viewModel: viewModel, session: $0) }
+            ForEach(sections.dayGroups) { group in
+                SidebarSectionTitle(title: daySectionTitle(for: group.day))
+                    .padding(.top, theme.spacing.s)
+                ForEach(group.sessions) { session in
+                    SidebarSessionItem(viewModel: viewModel, session: session)
+                }
+            }
         } else {
             ForEach(sections.projectGroups.prefix(viewModel.visibleProjectCount)) {
                 SidebarProjectGroupView(viewModel: viewModel, group: $0)
@@ -80,17 +86,37 @@ struct SidebarRecentsList: View {
             }
         }
     }
+
+    private func daySectionTitle(for day: Date) -> String {
+        let calendar = Calendar.autoupdatingCurrent
+        if calendar.isDateInToday(day) {
+            return "Today"
+        }
+
+        let today = calendar.startOfDay(for: Date())
+        let daysAgo = calendar.dateComponents([.day], from: day, to: today).day ?? 0
+        if (1...6).contains(daysAgo) {
+            return day.formatted(.dateTime.weekday(.wide))
+        }
+
+        if calendar.component(.year, from: day) == calendar.component(.year, from: today) {
+            return day.formatted(.dateTime.month(.wide).day())
+        }
+        return day.formatted(.dateTime.month(.wide).day().year())
+    }
 }
 
 @MainActor
 private struct SidebarSessionItem: View {
     let viewModel: MainViewModel
     let session: ChatSessionSummary
+    var showsProjectName = true
 
     var body: some View {
         SidebarSessionRow(
             session: session,
             projectName: viewModel.projects.first { $0.id == session.projectId }?.name,
+            showsProjectName: showsProjectName,
             isPinned: viewModel.chatViewModel.pinnedSessionIds.contains(session.id),
             isSelected: viewModel.selectedChatSessionID == session.id,
             onOpen: { viewModel.openSessionChatTab(session) },
@@ -200,7 +226,7 @@ private struct SidebarProjectGroupView: View {
 
             if !isCollapsed {
                 ForEach(sessions) {
-                    SidebarSessionItem(viewModel: viewModel, session: $0)
+                    SidebarSessionItem(viewModel: viewModel, session: $0, showsProjectName: false)
                 }
 
                 if group.hiddenCount > 0 {

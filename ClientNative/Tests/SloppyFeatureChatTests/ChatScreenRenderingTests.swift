@@ -90,9 +90,19 @@ struct ChatScreenRenderingTests {
         #expect(source.contains("selectedProjectName: viewModel.activeProjectNameForWorkspacePanel"))
         #expect(source.contains("onSelectPrompt: viewModel.useStarterPrompt"))
         #expect(greetingSource.contains("Menu {"))
-        #expect(greetingSource.contains("What should we build in"))
+        #expect(greetingSource.contains("What should we do in"))
         #expect(greetingSource.contains("Explore and understand code"))
         #expect(greetingSource.contains("Fix issues and failures"))
+    }
+
+    @Test("starter prompt cards expose a visible hover state")
+    func starterPromptCardsExposeVisibleHoverState() throws {
+        let source = try chatGreetingSource
+
+        #expect(source.contains("@State private var isHovered = false"))
+        #expect(source.contains(".onHover { isHovered = $0 }"))
+        #expect(source.contains("isHovered ? prompt.color.opacity"))
+        #expect(source.contains(".scaleEffect(isHovered ?"))
     }
 
     @Test("empty chat uses the muted Sloppy logo")

@@ -44,6 +44,60 @@ CREATE TABLE IF NOT EXISTS artifacts (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS workspaces (
+    id TEXT PRIMARY KEY,
+    title TEXT NOT NULL,
+    description TEXT NOT NULL DEFAULT '',
+    cover TEXT,
+    owner_id TEXT NOT NULL,
+    project_id TEXT,
+    revision INTEGER NOT NULL DEFAULT 0,
+    is_archived INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_workspaces_project_updated ON workspaces(project_id, updated_at DESC);
+CREATE INDEX IF NOT EXISTS idx_workspaces_archived_updated ON workspaces(is_archived, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS workspace_members (
+    workspace_id TEXT NOT NULL,
+    principal_kind TEXT NOT NULL,
+    principal_id TEXT NOT NULL,
+    role TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(workspace_id, principal_kind, principal_id)
+);
+
+CREATE TABLE IF NOT EXISTS workspace_snapshots (
+    workspace_id TEXT PRIMARY KEY,
+    revision INTEGER NOT NULL,
+    document_json TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS workspace_transactions (
+    workspace_id TEXT NOT NULL,
+    id TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    transaction_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY(workspace_id, id),
+    UNIQUE(workspace_id, revision)
+);
+
+CREATE INDEX IF NOT EXISTS idx_workspace_transactions_revision
+    ON workspace_transactions(workspace_id, revision);
+
+CREATE TABLE IF NOT EXISTS workspace_templates (
+    id TEXT PRIMARY KEY,
+    visibility TEXT NOT NULL,
+    owner_id TEXT,
+    template_json TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS project_initiatives (
     id TEXT NOT NULL,
     project_id TEXT NOT NULL,

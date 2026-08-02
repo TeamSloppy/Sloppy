@@ -22,6 +22,7 @@ export interface JsonResponse<TData> {
 
 export const API_BASE_OVERRIDE_STORAGE_KEY = "sloppy_api_base_override";
 const DEFAULT_API_BASE = "http://localhost:25101";
+const API_BASE_QUERY_PARAMETER = "apiBase";
 
 export function normalizeApiBaseInput(value: string) {
   const trimmed = value.trim();
@@ -54,6 +55,15 @@ export function getStoredApiBaseOverride() {
   }
 }
 
+export function getLocationApiBaseOverride() {
+  try {
+    const value = new URLSearchParams(window.location.search).get(API_BASE_QUERY_PARAMETER);
+    return typeof value === "string" ? normalizeApiBaseInput(value) : "";
+  } catch {
+    return "";
+  }
+}
+
 export function setStoredApiBaseOverride(value: string) {
   try {
     const normalized = normalizeApiBaseInput(value);
@@ -69,6 +79,11 @@ export function setStoredApiBaseOverride(value: string) {
 }
 
 export function resolveApiBase() {
+  const locationOverride = getLocationApiBaseOverride();
+  if (locationOverride) {
+    return locationOverride;
+  }
+
   const storedOverride = getStoredApiBaseOverride();
   if (storedOverride) {
     return storedOverride;

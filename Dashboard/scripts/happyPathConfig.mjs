@@ -18,5 +18,7 @@ export const HAPPY_PATH_FIXTURE = {
   agentDisplayName: "Happy Path Agent",
   agentRole: "QA Driver",
   sessionTitle: "Happy Path Session",
-  messageText: "Please summarize the current session state."
+  messageText: "Please summarize the current session state.",
+  workspaceTitle: "Happy Path Workspace",
+  workspaceDescription: "Seeded canvas used by dashboard workspace verification."
 };

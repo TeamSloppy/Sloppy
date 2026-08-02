@@ -18,6 +18,8 @@ import { UpdateBanner } from "./features/updates/UpdateBanner";
 import { useUpdateCheck } from "./features/updates/useUpdateCheck";
 import { ArtifactsView } from "./features/artifacts/ArtifactsView";
 import "./features/artifacts/artifacts.css";
+import { WorkspacesView } from "./features/workspaces/WorkspacesView";
+import "./features/workspaces/workspaces.css";
 import { formatSecureSessionStatus } from "./app/sessionStatus";
 import { AgentsView } from "./views/AgentsView";
 import { ActorsView } from "./views/ActorsView";
@@ -136,7 +138,7 @@ function DashboardShell({
   autoStartTutorialAfterOnboarding: boolean;
 }) {
   const runtime = useRuntimeOverview(dependencies.coreApi);
-  const { route, setSection, setConfigSection, setProjectRoute, setAgentRoute, setSessionRoute, setChatsRoute } =
+  const { route, setSection, setConfigSection, setProjectRoute, setWorkspaceRoute, setAgentRoute, setSessionRoute, setChatsRoute } =
     useDashboardRoute();
   const [sidebarCompact, setSidebarCompact] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -389,6 +391,17 @@ function DashboardShell({
       )
     },
     {
+      id: "workspaces",
+      label: { icon: "space_dashboard", title: "Workspaces" },
+      content: (
+        <WorkspacesView
+          coreApi={dependencies.coreApi}
+          workspaceId={route.workspaceId}
+          onWorkspaceRouteChange={setWorkspaceRoute}
+        />
+      )
+    },
+    {
       id: "artifacts",
       label: { icon: "widgets", title: "Artifacts" },
       content: <ArtifactsView coreApi={dependencies.coreApi} />
@@ -470,6 +483,20 @@ function DashboardShell({
   ) : (
     (sidebarItems.find((item) => item.id === route.section) || sidebarItems[0]).content
   );
+  const isEmbeddedWorkspace =
+    route.section === "workspaces"
+    && new URLSearchParams(window.location.search).get("embed") === "workspace";
+
+  if (isEmbeddedWorkspace) {
+    return (
+      <div className="layout workspace-embed">
+        <div className="page workspace-embed-page">
+          {pageContent}
+        </div>
+        <NotificationToastContainer />
+      </div>
+    );
+  }
 
   return (
     <div
@@ -558,6 +585,7 @@ function DashboardShell({
 
       <div className={`page ${route.section === "config" ? "page-config" : ""}`} style={{ position: "relative" }}>
         <div
+          className="dashboard-secure-session-status"
           style={{
             position: "absolute",
             top: "2px",
@@ -573,6 +601,7 @@ function DashboardShell({
           {formatSecureSessionStatus(runtimeProcessId)}
         </div>
         <div
+          className="dashboard-uplink-status"
           style={{
             position: "absolute",
             bottom: "10px",

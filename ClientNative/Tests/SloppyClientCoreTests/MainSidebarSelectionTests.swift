@@ -59,6 +59,24 @@ struct MainSidebarSelectionTests {
         #expect(source.contains("configuration.isPressed || isHovered || isSelected"))
     }
 
+    @Test("chat rows use their full visual width for hover and selection")
+    func chatRowsUseTheirFullVisualWidthForHoverAndSelection() throws {
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let rowURL = packageRoot
+            .appendingPathComponent("Sources/SloppyClient/Navigation/Shared/SidebarSessionRow.swift")
+        let source = try String(contentsOf: rowURL, encoding: .utf8)
+
+        #expect(source.contains("#if os(macOS)"))
+        #expect(source.contains("Button(action: onOpen)"))
+        #expect(source.contains(".frame(minHeight: MainSidebarView.rowMinimumHeight)"))
+        #expect(source.contains(".contentShape(Rectangle())"))
+        #expect(!source.contains(".frame(maxWidth: .infinity"))
+        #expect(!source.contains(".clipShape(Rectangle())"))
+    }
+
     @Test("loading projects does not select a project implicitly")
     func loadingProjectsDoesNotSelectAProjectImplicitly() throws {
         let source = try mainViewModelSource
@@ -89,6 +107,22 @@ struct MainSidebarSelectionTests {
         #expect(source.contains(".navigationDestination(for: MainSidebarSelection.self)"))
         #expect(source.contains("viewModel.dismissMobileSidebar()"))
         #expect(source.contains("sidebarView(isOverlay: false)"))
+    }
+
+    @Test("split sidebar uses a single width constraint contract")
+    func splitSidebarUsesASingleWidthConstraintContract() throws {
+        let source = try mainSidebarSource
+        let navigationViewStart = try #require(source.range(of: "private var navigationView: some View"))
+        let contentAreaStart = try #require(
+            source.range(
+                of: "private func contentArea()",
+                range: navigationViewStart.upperBound..<source.endIndex
+            )
+        )
+        let navigationView = source[navigationViewStart.lowerBound..<contentAreaStart.lowerBound]
+
+        #expect(navigationView.contains(".navigationSplitViewColumnWidth("))
+        #expect(!navigationView.contains(".frame(\n                    minWidth: viewModel.sidebarMinimumWidth"))
     }
 
     @Test("overlay sidebar uses dedicated close button styling")

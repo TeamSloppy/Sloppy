@@ -3,6 +3,7 @@ import SwiftUI
 
 enum MainSidebarSelection: Hashable {
     case scheduled
+    case artifacts
     case project(String)
     case task(projectId: String, taskId: String)
     case chats

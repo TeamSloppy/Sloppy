@@ -56,6 +56,31 @@ public actor SloppyAPIClient {
         try await projects.fetchProject(id: id)
     }
 
+    public func fetchCanvasWorkspaces(projectId: String? = nil) async throws -> [CanvasWorkspaceSummary] {
+        var path = "/v1/workspaces"
+        if let projectId = projectId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !projectId.isEmpty {
+            path += "?projectId=\(BackendHTTPClient.encodeQueryValue(projectId))"
+        }
+        let response: CanvasWorkspaceListResponse = try await http.get(path)
+        return response.workspaces
+    }
+
+    public func createCanvasWorkspace(
+        title: String,
+        description: String? = nil,
+        projectId: String? = nil,
+        templateId: String? = nil
+    ) async throws -> CanvasWorkspaceSummary {
+        let request = CanvasWorkspaceCreateRequest(
+            title: title,
+            description: description,
+            projectId: projectId,
+            templateId: templateId
+        )
+        return try await http.post("/v1/workspaces", body: request)
+    }
+
     public func createProject(_ request: APIProjectCreateRequest) async throws -> APIProjectRecord {
         try await projects.createProject(request)
     }
@@ -176,8 +201,18 @@ public actor SloppyAPIClient {
         try await sessions.fetchAgentSessionData(agentId: agentId, sessionId: sessionId)
     }
 
-    public func createAgentSession(agentId: String, title: String? = nil, projectId: String? = nil) async throws -> ChatSessionSummary {
-        try await sessions.createAgentSession(agentId: agentId, title: title, projectId: projectId)
+    public func createAgentSession(
+        agentId: String,
+        title: String? = nil,
+        projectId: String? = nil,
+        workspaceId: String? = nil
+    ) async throws -> ChatSessionSummary {
+        try await sessions.createAgentSession(
+            agentId: agentId,
+            title: title,
+            projectId: projectId,
+            workspaceId: workspaceId
+        )
     }
 
     public func fetchMeshNodes() async throws -> [MeshNodeRecord] {

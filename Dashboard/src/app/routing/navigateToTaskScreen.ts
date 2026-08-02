@@ -13,6 +13,7 @@ export function navigateToTaskScreen(taskReference: unknown): void {
     projectTaskReference: normalizedReference,
     projectWorkflowId: null,
     projectWorkflowRunId: null,
+    workspaceId: null,
     agentId: null,
     agentTab: null,
     agentInitialChatSessionId: null,

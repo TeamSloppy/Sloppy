@@ -8,6 +8,27 @@ import Testing
 struct ToolApprovalTests {
 
 @Test
+func largeWorkspaceDeletionUsesRiskyToolApprovalClassification() async {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let deleteOperations: [JSONValue] = (0..<10).map { index in
+        .object([
+            "type": .string(WorkspaceOperationKind.deleteElement.rawValue),
+            "targetId": .string("element-\(index)"),
+        ])
+    }
+    let largeDeletionRequiresApproval = await service.requiresHumanApproval(
+        toolID: "workspace.transaction.apply",
+        arguments: ["operations": .array(deleteOperations)]
+    )
+    let smallDeletionRequiresApproval = await service.requiresHumanApproval(
+        toolID: "workspace.transaction.apply",
+        arguments: ["operations": .array(Array(deleteOperations.prefix(9)))]
+    )
+    #expect(largeDeletionRequiresApproval)
+    #expect(!smallDeletionRequiresApproval)
+}
+
+@Test
 func toolApprovalIsDisabledByDefaultForRuntimeTools() async throws {
     let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let session = try await makeApprovalSession(service: service, agentID: "approval-default-off")

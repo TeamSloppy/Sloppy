@@ -147,6 +147,60 @@ protocol ProjectToolService: Sendable {
     func actorBoard() async throws -> ActorBoardSnapshot
     func requestProjectMemoryCheckpoint(agentID: String, sessionID: String, projectID: String, taskID: String, status: String) async
 
+    func listCanvasWorkspaces(
+        principalKind: WorkspacePrincipalKind,
+        principalId: String,
+        isAdmin: Bool,
+        projectId: String?,
+        includeArchived: Bool
+    ) async -> [WorkspaceRecord]
+    func createCanvasWorkspace(
+        request: WorkspaceCreateRequest,
+        ownerKind: WorkspacePrincipalKind,
+        ownerId: String
+    ) async throws -> WorkspaceRecord
+    func getCanvasWorkspace(
+        id: String,
+        principalKind: WorkspacePrincipalKind,
+        principalId: String,
+        isAdmin: Bool
+    ) async throws -> WorkspaceRecord
+    func updateCanvasWorkspace(
+        id: String,
+        request: WorkspaceUpdateRequest,
+        principalKind: WorkspacePrincipalKind,
+        principalId: String,
+        isAdmin: Bool
+    ) async throws -> WorkspaceRecord
+    func canvasWorkspaceDocument(
+        id: String,
+        principalKind: WorkspacePrincipalKind,
+        principalId: String,
+        isAdmin: Bool
+    ) async throws -> WorkspaceDocument
+    func commitCanvasWorkspaceTransaction(
+        workspaceId: String,
+        request: WorkspaceTransactionRequest,
+        actor: WorkspaceActor,
+        isAdmin: Bool
+    ) async throws -> WorkspaceCommittedTransaction
+    func publishCanvasWorkspaceAgentStatus(
+        workspaceId: String,
+        agentId: String,
+        status: String
+    ) async
+    func workspaceTemplates(principalId: String) async -> [WorkspaceTemplate]
+    func createWorkspaceTemplate(
+        request: WorkspaceTemplateCreateRequest,
+        ownerId: String
+    ) async throws -> WorkspaceTemplate
+    func applyWorkspaceTemplate(
+        workspaceId: String,
+        templateId: String,
+        actor: WorkspaceActor,
+        isAdmin: Bool
+    ) async throws -> WorkspaceCommittedTransaction
+
     func listAllProjects() async -> [ProjectRecord]
     func createProject(_ request: ProjectCreateRequest) async throws -> ProjectCreateResult
     func updateProject(projectID: String, request: ProjectUpdateRequest) async throws -> ProjectRecord
@@ -167,6 +221,87 @@ enum ProjectToolServiceWorkflowError: Error {
 }
 
 extension ProjectToolService {
+    func listCanvasWorkspaces(
+        principalKind _: WorkspacePrincipalKind,
+        principalId _: String,
+        isAdmin _: Bool,
+        projectId _: String?,
+        includeArchived _: Bool
+    ) async -> [WorkspaceRecord] {
+        []
+    }
+
+    func createCanvasWorkspace(
+        request _: WorkspaceCreateRequest,
+        ownerKind _: WorkspacePrincipalKind,
+        ownerId _: String
+    ) async throws -> WorkspaceRecord {
+        throw ProjectToolServiceWorkflowError.unsupported
+    }
+
+    func getCanvasWorkspace(
+        id _: String,
+        principalKind _: WorkspacePrincipalKind,
+        principalId _: String,
+        isAdmin _: Bool
+    ) async throws -> WorkspaceRecord {
+        throw ProjectToolServiceWorkflowError.unsupported
+    }
+
+    func updateCanvasWorkspace(
+        id _: String,
+        request _: WorkspaceUpdateRequest,
+        principalKind _: WorkspacePrincipalKind,
+        principalId _: String,
+        isAdmin _: Bool
+    ) async throws -> WorkspaceRecord {
+        throw ProjectToolServiceWorkflowError.unsupported
+    }
+
+    func canvasWorkspaceDocument(
+        id _: String,
+        principalKind _: WorkspacePrincipalKind,
+        principalId _: String,
+        isAdmin _: Bool
+    ) async throws -> WorkspaceDocument {
+        throw ProjectToolServiceWorkflowError.unsupported
+    }
+
+    func commitCanvasWorkspaceTransaction(
+        workspaceId _: String,
+        request _: WorkspaceTransactionRequest,
+        actor _: WorkspaceActor,
+        isAdmin _: Bool
+    ) async throws -> WorkspaceCommittedTransaction {
+        throw ProjectToolServiceWorkflowError.unsupported
+    }
+
+    func publishCanvasWorkspaceAgentStatus(
+        workspaceId _: String,
+        agentId _: String,
+        status _: String
+    ) async {}
+
+    func workspaceTemplates(principalId _: String) async -> [WorkspaceTemplate] {
+        []
+    }
+
+    func createWorkspaceTemplate(
+        request _: WorkspaceTemplateCreateRequest,
+        ownerId _: String
+    ) async throws -> WorkspaceTemplate {
+        throw ProjectToolServiceWorkflowError.unsupported
+    }
+
+    func applyWorkspaceTemplate(
+        workspaceId _: String,
+        templateId _: String,
+        actor _: WorkspaceActor,
+        isAdmin _: Bool
+    ) async throws -> WorkspaceCommittedTransaction {
+        throw ProjectToolServiceWorkflowError.unsupported
+    }
+
     func listWorkflowDefinitions(projectID _: String) async throws -> [WorkflowDefinition] {
         throw ProjectToolServiceWorkflowError.unsupported
     }

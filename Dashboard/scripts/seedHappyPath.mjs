@@ -104,6 +104,27 @@ async function ensureSession() {
   });
 }
 
+async function ensureWorkspace(projectId) {
+  const response = await request(`/v1/workspaces?projectId=${encodeURIComponent(projectId)}`);
+  const workspaces = Array.isArray(response?.workspaces) ? response.workspaces : [];
+  const existing = workspaces.find(
+    (workspace) => String(workspace?.title || "").trim() === HAPPY_PATH_FIXTURE.workspaceTitle
+  );
+
+  if (existing) {
+    return existing;
+  }
+
+  return request("/v1/workspaces", {
+    method: "POST",
+    body: {
+      title: HAPPY_PATH_FIXTURE.workspaceTitle,
+      description: HAPPY_PATH_FIXTURE.workspaceDescription,
+      projectId
+    }
+  });
+}
+
 async function markOnboardingComplete() {
   const config = await request("/v1/config");
   const nextConfig = {
@@ -128,6 +149,7 @@ async function main() {
   const project = await ensureProject();
   const agent = await ensureAgent();
   const session = await ensureSession();
+  const workspace = await ensureWorkspace(String(project?.id || HAPPY_PATH_FIXTURE.projectId));
 
   const state = {
     coreApiBase: CORE_API_BASE,
@@ -137,7 +159,9 @@ async function main() {
     agentDisplayName: String(agent?.displayName || HAPPY_PATH_FIXTURE.agentDisplayName),
     sessionId: String(session?.id || ""),
     sessionTitle: String(session?.title || HAPPY_PATH_FIXTURE.sessionTitle),
-    messageText: HAPPY_PATH_FIXTURE.messageText
+    messageText: HAPPY_PATH_FIXTURE.messageText,
+    workspaceId: String(workspace?.id || ""),
+    workspaceTitle: String(workspace?.title || HAPPY_PATH_FIXTURE.workspaceTitle)
   };
 
   await fs.writeFile(SEED_STATE_PATH, `${JSON.stringify(state, null, 2)}\n`, "utf8");

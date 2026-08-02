@@ -68,12 +68,20 @@ private struct MacSidebarPrimaryActions: View {
                 navigationValue: .scheduled,
                 action: viewModel.selectScheduled
             )
+
+            SidebarNavigationRow(
+                icon: .workspace,
+                title: "Workspace",
+                isSelected: viewModel.selectedAppSection == .workspace,
+                action: viewModel.selectWorkspace
+            )
             
             SidebarNavigationRow(
-                icon: .autoAwesome,
-                title: "Search chats",
-                isSelected: false,
-                action: {}
+                icon: .description,
+                title: "Артефакты",
+                isSelected: viewModel.selectedAppSection == .artifacts,
+                navigationValue: .artifacts,
+                action: viewModel.selectArtifacts
             )
         }
         .padding(.horizontal, theme.spacing.xs)

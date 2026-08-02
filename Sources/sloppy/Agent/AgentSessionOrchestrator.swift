@@ -2039,6 +2039,17 @@ actor AgentSessionOrchestrator {
             }
         }
 
+        if let detail = try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID),
+           let workspaceID = detail.summary.workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !workspaceID.isEmpty {
+            bootstrapContent += """
+
+            You are working inside Sloppy canvas workspace `\(workspaceID)`.
+            Use the `workspace.get` and `workspace.elements.query` tools before mutating content.
+            Apply canvas changes through atomic `workspace.transaction.apply` calls and keep all changes scoped to this workspace.
+            """
+        }
+
         logger.debug(
             "Session bootstrap prompt prepared",
             metadata: [

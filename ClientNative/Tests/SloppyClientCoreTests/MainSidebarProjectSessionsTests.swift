@@ -27,6 +27,7 @@ struct MainSidebarProjectSessionsTests {
         #expect(mainViewModelSource.contains("loadsGlobalSessionCatalog: true"))
         #expect(source.contains("ForEach(sections.projectGroups.prefix(viewModel.visibleProjectCount))"))
         #expect(source.contains("ForEach(sessions)"))
+        #expect(source.contains("SidebarSessionItem(viewModel: viewModel, session: $0, showsProjectName: false)"))
     }
 
     @Test("project list reveals additional projects in pages")

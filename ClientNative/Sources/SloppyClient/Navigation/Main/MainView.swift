@@ -126,6 +126,9 @@ struct MainView: View {
     @State private var isWorkspacePanelPresented = false
     @State private var toolbarSearchText = ""
     @State private var isToolbarSearchResultsPresented = false
+    @State private var canvasWorkspaceViewModel: CanvasWorkspaceViewModel
+    @State private var hasActivatedWorkspaceMode = false
+    @SceneStorage("sloppy.main-content-mode") private var mainContentModeRawValue = MainContentMode.coding.rawValue
     #if os(macOS)
     @State private var toolbarSearchSelectionID: ToolbarSearchResult.ID?
     @FocusState private var isToolbarSearchFocused: Bool
@@ -178,6 +181,9 @@ struct MainView: View {
         self.onConsumeMenuBarQuickAction = onConsumeMenuBarQuickAction
         self.deepLinkRequest = deepLinkRequest
         self.onConsumeDeepLink = onConsumeDeepLink
+        _canvasWorkspaceViewModel = State(
+            initialValue: CanvasWorkspaceViewModel(baseURL: baseURL)
+        )
         _viewModel = State(
             initialValue: MainViewModel(
                 baseURL: baseURL,
@@ -207,6 +213,10 @@ struct MainView: View {
                 }
                 handleMenuBarQuickAction(menuBarQuickActionRequest)
                 handleDeepLink(deepLinkRequest)
+                if mainContentModeRawValue == MainContentMode.workspace.rawValue {
+                    viewModel.selectWorkspace()
+                    hasActivatedWorkspaceMode = true
+                }
             }
             .onChange(of: menuBarQuickActionRequest?.id) { _, _ in
                 handleMenuBarQuickAction(menuBarQuickActionRequest)
@@ -249,39 +259,45 @@ struct MainView: View {
             #endif
             .toolbar {
                 if viewModel.hasLoadedInitialContent {
+                    if isCanvasWorkspaceSelected,
+                       !canvasWorkspaceViewModel.isShowingLibrary {
+                        ToolbarItem(placement: .navigation) {
+                            Button {
+                                returnToCanvasWorkspaceLibrary()
+                            } label: {
+                                Label("Workspaces", systemImage: "chevron.left")
+                            }
+                            .help("Back to Workspaces")
+                            .accessibilityIdentifier("canvas-workspace-back")
+                        }
+                    }
+
                     #if os(macOS)
-                    ToolbarItem(placement: .principal) {
-                        toolbarSearchField
+                    if !isCanvasWorkspaceSelected {
+                        ToolbarItem(placement: .principal) {
+                            toolbarSearchField
+                        }
                     }
                     #endif
 
                     ToolbarItemGroup(placement: .primaryAction) {
-                        if let activeChatViewModel {
-                            ChatAgentToolbarMenu(
+                        if !isCanvasWorkspaceSelected,
+                           viewModel.selectedAppSection != .artifacts,
+                           let activeChatViewModel {
+                            ChatContextToolbarMenu(
                                 selectedAgent: activeChatViewModel.selectedAgent,
                                 agents: activeChatViewModel.agents,
-                                onSelectAgent: activeChatViewModel.pickAgent
-                            )
-                            ChatModelToolbarMenu(
                                 selectedModelId: activeChatViewModel.selectedModelId,
                                 models: activeChatViewModel.availableModels,
+                                onSelectAgent: activeChatViewModel.pickAgent,
                                 onSelectModel: activeChatViewModel.pickModel
                             )
                         }
 
-                        if idiom != .phone {
-                            workspacePanelModePicker
-
-                            Button(
-                                action: {
-                                    isWorkspacePanelPresented.toggle()
-                                },
-                                label: {
-                                    Image(systemName: "sidebar.right")
-                                }
-                            )
-                            .help(isWorkspacePanelPresented ? "Hide Workspace" : "Show Workspace")
-                            .disabled(viewModel.workspaceContext == nil)
+                        if idiom != .phone,
+                           !isCanvasWorkspaceSelected,
+                           viewModel.selectedAppSection != .artifacts {
+                            workspacePanelMenu
                         }
                     }
                 }
@@ -309,6 +325,21 @@ struct MainView: View {
                     viewModel.requestChatScrollToEnd(for: newValue)
                 }
             }
+            .onChange(of: viewModel.selectedAppSection) { _, _ in
+                mainContentModeRawValue = isCanvasWorkspaceSelected
+                    ? MainContentMode.workspace.rawValue
+                    : MainContentMode.coding.rawValue
+                guard isCanvasWorkspaceSelected else {
+                    return
+                }
+                viewModel.selectedSidebarItem = nil
+                hasActivatedWorkspaceMode = true
+                isWorkspacePanelPresented = false
+                canvasWorkspaceViewModel.showLibrary()
+                #if os(macOS)
+                dismissToolbarSearch()
+                #endif
+            }
     }
 
     @ViewBuilder
@@ -321,32 +352,68 @@ struct MainView: View {
             }
     }
 
-    private var workspacePanelModePicker: some View {
-        Picker("Workspace panel", selection: workspacePanelModeBinding) {
-            Label("Browser", systemImage: "safari")
-                .tag(WorkspacePanelMode.webBrowser)
-            Label("Files", systemImage: "folder")
-                .tag(WorkspacePanelMode.files)
-        }
-        .labelStyle(.iconOnly)
-        .labelsHidden()
-        .pickerStyle(.segmented)
-        .controlSize(.small)
-        .frame(width: 92)
-        .disabled(viewModel.workspaceContext == nil)
-        .help("Browser and files")
-    }
+    private var workspacePanelMenu: some View {
+        Menu {
+            Section("Workspace") {
+                Button {
+                    openWorkspacePanel(mode: .webBrowser)
+                } label: {
+                    Label("Browser", systemImage: workspacePanelMenuImage(for: .webBrowser))
+                }
 
-    private var workspacePanelModeBinding: Binding<WorkspacePanelMode> {
-        Binding(
-            get: { viewModel.workspacePanelViewModel.mode },
-            set: { mode in
-                viewModel.workspacePanelViewModel.switchMode(mode)
-                if viewModel.workspaceContext != nil {
-                    isWorkspacePanelPresented = true
+                Button {
+                    openWorkspacePanel(mode: .files)
+                } label: {
+                    Label("Files", systemImage: workspacePanelMenuImage(for: .files))
                 }
             }
-        )
+
+            if isWorkspacePanelPresented {
+                Divider()
+
+                Button("Hide Workspace", systemImage: "sidebar.right") {
+                    isWorkspacePanelPresented = false
+                }
+            }
+        } label: {
+            Image(
+                systemName: isWorkspacePanelPresented
+                    ? workspacePanelModeSystemImage
+                    : "sidebar.right"
+            )
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .disabled(viewModel.workspaceContext == nil)
+        .help(isWorkspacePanelPresented ? "Workspace options" : "Open Workspace")
+        .accessibilityLabel("Workspace")
+    }
+
+    private var workspacePanelModeSystemImage: String {
+        switch viewModel.workspacePanelViewModel.mode {
+        case .webBrowser:
+            "safari"
+        case .files:
+            "folder"
+        }
+    }
+
+    private func workspacePanelMenuImage(for mode: WorkspacePanelMode) -> String {
+        let baseImage: String
+        switch mode {
+        case .webBrowser:
+            baseImage = "safari"
+        case .files:
+            baseImage = "folder"
+        }
+        return isWorkspacePanelPresented && viewModel.workspacePanelViewModel.mode == mode
+            ? "\(baseImage).fill"
+            : baseImage
+    }
+
+    private func openWorkspacePanel(mode: WorkspacePanelMode) {
+        viewModel.workspacePanelViewModel.switchMode(mode)
+        isWorkspacePanelPresented = true
     }
 
     #if os(macOS)
@@ -447,7 +514,7 @@ struct MainView: View {
 
     @ViewBuilder
     private var toolbarSearchResultsOverlay: some View {
-        if isToolbarSearchResultsPresented {
+        if isToolbarSearchResultsPresented && !isCanvasWorkspaceSelected {
             toolbarSearchResultsPanel
                 .padding(.top, 4)
                 .transition(.move(edge: .top).combined(with: .opacity))
@@ -687,13 +754,6 @@ struct MainView: View {
     private var navigationView: some View {
         NavigationSplitView(columnVisibility: $viewModel.columnVisibility) {
             sidebarView(isOverlay: false)
-                #if os(macOS)
-                .frame(
-                    minWidth: viewModel.sidebarMinimumWidth,
-                    idealWidth: viewModel.sidebarWidth,
-                    maxWidth: viewModel.sidebarMaximumWidth
-                )
-                #endif
                 .navigationSplitViewColumnWidth(
                     min: viewModel.sidebarMinimumWidth,
                     ideal: viewModel.sidebarWidth,
@@ -780,11 +840,64 @@ struct MainView: View {
         Group {
             if viewModel.selectedAppSection == .scheduled {
                 ScheduledTasksScreen(apiClient: viewModel.apiClient)
+            } else if viewModel.selectedAppSection == .artifacts {
+                ArtifactsScreen(
+                    apiClient: viewModel.apiClient,
+                    cacheStore: viewModel.cacheStore,
+                    sessions: viewModel.chatViewModel.sessionCatalog,
+                    onOpenSession: viewModel.openSessionChatTab
+                )
             } else {
-                workspaceArea
+                mainModeContent
             }
         }
         .navigationSplitViewColumnWidth(min: 600, ideal: 940)
+    }
+
+    private var mainModeContent: some View {
+        ZStack {
+            workspaceArea
+                .opacity(isCanvasWorkspaceSelected ? 0.0 : 1.0)
+                .allowsHitTesting(!isCanvasWorkspaceSelected)
+                .accessibilityHidden(isCanvasWorkspaceSelected)
+
+            if hasActivatedWorkspaceMode {
+                CanvasWorkspaceSurface(viewModel: canvasWorkspaceViewModel)
+                    .opacity(isCanvasWorkspaceSelected ? 1.0 : 0.0)
+                    .allowsHitTesting(isCanvasWorkspaceSelected)
+                    .accessibilityHidden(!isCanvasWorkspaceSelected)
+            }
+        }
+        .task(id: canvasResolutionKey) {
+            guard isCanvasWorkspaceSelected else {
+                return
+            }
+            await canvasWorkspaceViewModel.resolve(
+                workspaceID: viewModel.activeCanvasWorkspaceID,
+                projectID: viewModel.activeCanvasProjectID,
+                projectName: viewModel.workspaceContext?.projectName,
+                force: true
+            )
+        }
+    }
+
+    private var canvasResolutionKey: String {
+        [
+            viewModel.selectedAppSection.rawValue,
+            viewModel.activeCanvasWorkspaceID ?? "-",
+            viewModel.activeCanvasProjectID ?? "-"
+        ].joined(separator: "|")
+    }
+
+    private var isCanvasWorkspaceSelected: Bool {
+        viewModel.selectedAppSection == .workspace
+    }
+
+    private func returnToCanvasWorkspaceLibrary() {
+        canvasWorkspaceViewModel.showLibrary()
+        Task {
+            await canvasWorkspaceViewModel.refreshLibrary()
+        }
     }
 
     private var workspaceArea: some View {
@@ -1048,6 +1161,15 @@ struct MainView: View {
                     viewModel: detailState.viewModel,
                     projectId: context.projectId,
                     taskId: context.taskId,
+                    onClose: {
+                        let project = viewModel.projects.first { $0.id == context.projectId }
+                            ?? APIProjectRecord(
+                                id: context.projectId,
+                                name: context.projectName,
+                                directoryPaths: context.projectRootPath.map { [$0] } ?? []
+                            )
+                        viewModel.openProjectKanbanTab(project: project)
+                    },
                     onOpenChat: { task in
                         let project = APIProjectRecord(
                             id: context.projectId,

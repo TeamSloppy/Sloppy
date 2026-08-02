@@ -31,6 +31,11 @@ public actor InMemoryPersistenceStore: PersistenceStore {
     private var channels: [String: PersistedChannelRecord] = [:]
     private var tasks: [String: PersistedTaskRecord] = [:]
     private var projects: [String: ProjectRecord] = [:]
+    private var workspaces: [String: WorkspaceRecord] = [:]
+    private var workspaceDocuments: [String: WorkspaceDocument] = [:]
+    private var workspaceTransactions: [String: [WorkspaceCommittedTransaction]] = [:]
+    private var workspaceMembers: [String: [WorkspaceMember]] = [:]
+    private var workspaceTemplates: [String: WorkspaceTemplate] = [:]
     private var initiatives: [String: InitiativeRecord] = [:]
     private var decisionPackets: [String: DecisionPacketRecord] = [:]
     private var selfImprovementProposalReviewJobs: [String: SelfImprovementProposalReviewJob] = [:]
@@ -431,6 +436,80 @@ public actor InMemoryPersistenceStore: PersistenceStore {
 
     public func deleteProject(id: String) async {
         projects[id] = nil
+    }
+
+    public func listWorkspaces() async -> [WorkspaceRecord] {
+        workspaces.values.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    public func workspace(id: String) async -> WorkspaceRecord? {
+        workspaces[id]
+    }
+
+    public func saveWorkspace(_ workspace: WorkspaceRecord) async {
+        workspaces[workspace.id] = workspace
+    }
+
+    public func workspaceDocument(id: String) async -> WorkspaceDocument? {
+        workspaceDocuments[id]
+    }
+
+    public func saveWorkspaceDocument(_ document: WorkspaceDocument) async {
+        workspaceDocuments[document.workspaceId] = document
+    }
+
+    public func listWorkspaceTransactions(workspaceId: String, afterRevision: Int) async -> [WorkspaceCommittedTransaction] {
+        (workspaceTransactions[workspaceId] ?? [])
+            .filter { $0.revision > afterRevision }
+            .sorted { $0.revision < $1.revision }
+    }
+
+    public func workspaceTransaction(workspaceId: String, transactionId: String) async -> WorkspaceCommittedTransaction? {
+        workspaceTransactions[workspaceId]?.first { $0.id == transactionId }
+    }
+
+    public func saveWorkspaceTransaction(_ transaction: WorkspaceCommittedTransaction) async {
+        var transactions = workspaceTransactions[transaction.workspaceId] ?? []
+        if let index = transactions.firstIndex(where: { $0.id == transaction.id }) {
+            transactions[index] = transaction
+        } else {
+            transactions.append(transaction)
+        }
+        workspaceTransactions[transaction.workspaceId] = transactions
+    }
+
+    public func listWorkspaceMembers(workspaceId: String) async -> [WorkspaceMember] {
+        workspaceMembers[workspaceId] ?? []
+    }
+
+    public func saveWorkspaceMember(_ member: WorkspaceMember) async {
+        var members = workspaceMembers[member.workspaceId] ?? []
+        if let index = members.firstIndex(where: {
+            $0.principalKind == member.principalKind && $0.principalId == member.principalId
+        }) {
+            members[index] = member
+        } else {
+            members.append(member)
+        }
+        workspaceMembers[member.workspaceId] = members
+    }
+
+    public func deleteWorkspaceMember(
+        workspaceId: String,
+        principalKind: WorkspacePrincipalKind,
+        principalId: String
+    ) async {
+        workspaceMembers[workspaceId]?.removeAll {
+            $0.principalKind == principalKind && $0.principalId == principalId
+        }
+    }
+
+    public func listWorkspaceTemplates() async -> [WorkspaceTemplate] {
+        workspaceTemplates.values.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    public func saveWorkspaceTemplate(_ template: WorkspaceTemplate) async {
+        workspaceTemplates[template.id] = template
     }
 
     public func listInitiatives(projectID: String) async -> [InitiativeRecord] {

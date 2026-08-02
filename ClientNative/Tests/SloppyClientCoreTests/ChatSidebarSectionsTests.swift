@@ -40,7 +40,48 @@ struct ChatSidebarSectionsTests {
 
         #expect(sections.pinned.map(\.id) == ["pinned"])
         #expect(sections.sessions.map(\.id) == ["recent", "older"])
+        #expect(sections.dayGroups.flatMap(\.sessions).map(\.id) == ["recent", "older"])
         #expect(sections.projectGroups.isEmpty)
+    }
+
+    @Test("groups all chats by local day with newest groups and sessions first")
+    func groupsAllChatsByLocalDayWithNewestGroupsAndSessionsFirst() throws {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = try #require(TimeZone(secondsFromGMT: 0))
+        let newestDay = try #require(calendar.date(from: DateComponents(year: 2026, month: 8, day: 2)))
+        let olderDay = try #require(calendar.date(from: DateComponents(year: 2026, month: 8, day: 1)))
+        let sessions = [
+            ChatSessionSummary(
+                id: "older-day",
+                agentId: "agent",
+                title: "Older day",
+                updatedAt: olderDay.addingTimeInterval(80)
+            ),
+            ChatSessionSummary(
+                id: "newest",
+                agentId: "agent",
+                title: "Newest",
+                updatedAt: newestDay.addingTimeInterval(120)
+            ),
+            ChatSessionSummary(
+                id: "newer",
+                agentId: "agent",
+                title: "Newer",
+                updatedAt: newestDay.addingTimeInterval(60)
+            )
+        ]
+
+        let sections = ChatSidebarSections.build(
+            sessions: sessions,
+            projects: [],
+            pinnedSessionIds: [],
+            mode: .allChats,
+            calendar: calendar
+        )
+
+        #expect(sections.dayGroups.map(\.day) == [newestDay, olderDay])
+        #expect(sections.dayGroups[0].sessions.map(\.id) == ["newest", "newer"])
+        #expect(sections.dayGroups[1].sessions.map(\.id) == ["older-day"])
     }
 
     @Test("builds project groups without pinned sessions and limits each preview")

@@ -125,6 +125,12 @@ final class AgentSessionFileStore: @unchecked Sendable {
                 }
                 return raw
             }()
+            let workspaceIdMeta: String? = {
+                guard let raw = request.workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+                    return nil
+                }
+                return raw
+            }()
 
             let createdEvent = AgentSessionEvent(
                 agentId: normalizedAgentID,
@@ -135,7 +141,8 @@ final class AgentSessionFileStore: @unchecked Sendable {
                     title: title,
                     parentSessionId: normalizedParentSessionID,
                     kind: request.kind,
-                    projectId: projectIdMeta
+                    projectId: projectIdMeta,
+                    workspaceId: workspaceIdMeta
                 )
             )
 
@@ -538,6 +545,7 @@ final class AgentSessionFileStore: @unchecked Sendable {
         var parentSessionID: String?
         var kind: AgentSessionKind = .chat
         var projectID: String?
+        var workspaceID: String?
         var createdAt = events.first?.createdAt ?? Date()
         var updatedAt = createdAt
         var messageCount = 0
@@ -552,6 +560,7 @@ final class AgentSessionFileStore: @unchecked Sendable {
                 parentSessionID = metadata.parentSessionId
                 kind = metadata.kind
                 projectID = metadata.projectId
+                workspaceID = metadata.workspaceId
             }
 
             if let message = event.message {
@@ -575,7 +584,8 @@ final class AgentSessionFileStore: @unchecked Sendable {
             lastMessagePreview: lastPreview,
             kind: kind,
             userTurnCount: userTurnCount,
-            projectId: projectID
+            projectId: projectID,
+            workspaceId: workspaceID
         )
     }
 

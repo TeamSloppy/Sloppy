@@ -15,6 +15,7 @@ import SloppyFeatureProjects
 
 enum MainAppSection: String, CaseIterable, Hashable {
     case scheduled
+    case artifacts
     case projects
     case agents
     case chats
@@ -81,6 +82,17 @@ final class MainViewModel {
             projectId: context.projectId,
             projectName: context.projectName
         )
+    }
+
+    var activeCanvasProjectID: String? {
+        activeWorkspaceFilesContext()?.projectId
+    }
+
+    var activeCanvasWorkspaceID: String? {
+        guard let selectedTabID else {
+            return nil
+        }
+        return tabStates[selectedTabID]?.chatState?.viewModel.activeWorkspaceIdForCanvas
     }
 
     var selectedChatSessionID: String? {
@@ -479,6 +491,16 @@ final class MainViewModel {
     func selectScheduled() {
         selectedSidebarItem = .scheduled
         selectAppSection(.scheduled)
+    }
+
+    func selectArtifacts() {
+        selectedSidebarItem = .artifacts
+        selectAppSection(.artifacts)
+    }
+
+    func selectWorkspace() {
+        selectedSidebarItem = nil
+        selectAppSection(.workspace)
     }
 
     func selectTab(_ tabID: WorkspaceTab.ID) {

@@ -13,6 +13,7 @@ public final class ClientSettings {
         static let projectOrderIDs = "client_project_order_ids"
         static let windowCloseBehavior = "client_window_close_behavior"
         static let lastAgentId = "client_last_agent_id"
+        static let lastProjectId = "client_last_project_id"
         static let lastSessionId = "client_last_session_id"
         static let pinnedSessionIds = "client_pinned_session_ids"
         static let savedServers = "client_saved_servers"
@@ -49,6 +50,10 @@ public final class ClientSettings {
 
     public var lastAgentId: String? {
         didSet { UserDefaults.standard.set(lastAgentId, forKey: Keys.lastAgentId) }
+    }
+
+    public var lastProjectId: String? {
+        didSet { UserDefaults.standard.set(lastProjectId, forKey: Keys.lastProjectId) }
     }
 
     public var lastSessionId: String? {
@@ -100,6 +105,7 @@ public final class ClientSettings {
             .string(forKey: Keys.windowCloseBehavior)
             .flatMap(ClientWindowCloseBehavior.init(rawValue:)) ?? .keepProcess
         lastAgentId = defaults.string(forKey: Keys.lastAgentId)
+        lastProjectId = defaults.string(forKey: Keys.lastProjectId)
         lastSessionId = defaults.string(forKey: Keys.lastSessionId)
         pinnedSessionIds = Set(defaults.stringArray(forKey: Keys.pinnedSessionIds) ?? [])
 

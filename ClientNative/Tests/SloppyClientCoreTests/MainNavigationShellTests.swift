@@ -99,37 +99,45 @@ struct MainNavigationShellTests {
         #expect(!source.contains(".background(.red)"))
     }
 
-    @Test("sidebar defines section picker tabs for chats agents and projects")
-    func sidebarDefinesSectionPickerTabsForChatsAgentsAndProjects() throws {
+    @Test("sidebar exposes workspace navigation on every platform")
+    func sidebarExposesWorkspaceNavigationOnEveryPlatform() throws {
         let iosSource = try source(named: "IOSMainSidebar.swift")
         let visionSource = try source(named: "VisionMainSidebar.swift")
-        let source = iosSource + visionSource
+        let macSource = try source(named: "MacMainSidebar.swift")
+        let source = iosSource + visionSource + macSource
 
         #expect(source.contains("TabView(selection: $viewModel.selectedAppSection)"))
         #expect(source.contains("Tab(\"Chats\""))
         #expect(source.contains("Tab(\"Agents\""))
+        #expect(iosSource.contains("Tab(\"Workspace\""))
+        #expect(visionSource.contains("Tab(\"Workspace\""))
+        #expect(macSource.contains("title: \"Workspace\""))
+        #expect(macSource.contains("action: viewModel.selectWorkspace"))
     }
 
-    @Test("workspace toolbar button remains present in main view shell")
-    func workspaceToolbarButtonRemainsPresentInMainViewShell() throws {
+    @Test("workspace mode is absent from the main toolbar")
+    func workspaceModeIsAbsentFromMainToolbar() throws {
         let source = try source(named: "MainView.swift")
 
-        #expect(source.contains("case workspace"))
         #expect(source.contains("ToolbarItem(placement: .primaryAction)"))
+        #expect(!source.contains("mainContentModePicker"))
+        #expect(source.contains("viewModel.selectedAppSection == .workspace"))
     }
 
-    @Test("main view toolbar exposes separate agent and model menus for chat state")
-    func mainViewToolbarExposesSeparateAgentAndModelMenusForChatState() throws {
+    @Test("main view toolbar combines agent and model into one context menu")
+    func mainViewToolbarCombinesAgentAndModelIntoOneContextMenu() throws {
         let mainView = try source(named: "MainView.swift")
         let composer = try featureSource(named: "ChatComposerView.swift")
 
-        #expect(mainView.contains("ChatAgentToolbarMenu("))
-        #expect(mainView.contains("ChatModelToolbarMenu("))
+        #expect(mainView.contains("ChatContextToolbarMenu("))
+        #expect(!mainView.contains("ChatAgentToolbarMenu("))
+        #expect(!mainView.contains("ChatModelToolbarMenu("))
         #expect(mainView.contains("private var activeChatViewModel: ChatScreenViewModel?"))
         #expect(mainView.contains("activeChatViewModel.selectedAgent"))
         #expect(mainView.contains("activeChatViewModel.availableModels"))
-        #expect(composer.contains("struct ChatAgentToolbarMenu: View"))
-        #expect(composer.contains("struct ChatModelToolbarMenu: View"))
+        #expect(composer.contains("struct ChatContextToolbarMenu: View"))
+        #expect(composer.contains("Section(\"Agent\")"))
+        #expect(composer.contains("Section(\"Model\")"))
     }
 
     @Test("main view loads sidebar chat data on appear")

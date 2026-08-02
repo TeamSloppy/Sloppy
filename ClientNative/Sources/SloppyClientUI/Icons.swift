@@ -29,6 +29,7 @@ public enum MaterialSymbol: String, CaseIterable, Sendable {
     case timer
     case new
     case warning
+    case workspace
 
     var systemName: String {
         switch self {
@@ -60,6 +61,7 @@ public enum MaterialSymbol: String, CaseIterable, Sendable {
         case .stop: "stop.fill"
         case .timer: "clock"
         case .warning: "exclamationmark.triangle"
+        case .workspace: "square.grid.2x2"
         }
     }
 }

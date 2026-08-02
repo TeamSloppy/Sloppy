@@ -416,6 +416,77 @@ public struct ChatModelToolbarMenu: View {
     }
 }
 
+public struct ChatContextToolbarMenu: View {
+    public let selectedAgent: APIAgentRecord?
+    public let agents: [APIAgentRecord]
+    public let selectedModelId: String
+    public let models: [ChatModelOption]
+    public let onSelectAgent: (APIAgentRecord) -> Void
+    public let onSelectModel: (ChatModelOption) -> Void
+
+    public init(
+        selectedAgent: APIAgentRecord?,
+        agents: [APIAgentRecord],
+        selectedModelId: String,
+        models: [ChatModelOption],
+        onSelectAgent: @escaping (APIAgentRecord) -> Void,
+        onSelectModel: @escaping (ChatModelOption) -> Void
+    ) {
+        self.selectedAgent = selectedAgent
+        self.agents = agents
+        self.selectedModelId = selectedModelId
+        self.models = models
+        self.onSelectAgent = onSelectAgent
+        self.onSelectModel = onSelectModel
+    }
+
+    public var body: some View {
+        Menu {
+            Section("Agent") {
+                if agents.isEmpty {
+                    ComposerMenuItem(title: "No agents", isSelected: false)
+                } else {
+                    ForEach(agents) { agent in
+                        Button {
+                            onSelectAgent(agent)
+                        } label: {
+                            ComposerMenuItem(
+                                title: agent.displayName,
+                                isSelected: selectedAgent?.id == agent.id
+                            )
+                        }
+                    }
+                }
+            }
+
+            Section("Model") {
+                if models.isEmpty {
+                    ComposerMenuItem(title: "No models", isSelected: false)
+                } else {
+                    ForEach(models) { model in
+                        Button {
+                            onSelectModel(model)
+                        } label: {
+                            ComposerMenuItem(
+                                title: model.title,
+                                subtitle: model.id == model.title ? nil : model.id,
+                                isSelected: selectedModelId == model.id
+                            )
+                        }
+                    }
+                }
+            }
+        } label: {
+            Label(selectedAgent?.displayName ?? "Agent", systemImage: "brain")
+                .lineLimit(1)
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .help("Agent and model")
+        .accessibilityLabel("Agent and model")
+    }
+}
+
 private struct ComposerOptionsMenuView: View {
     let selectedModelId: String
     let models: [ChatModelOption]

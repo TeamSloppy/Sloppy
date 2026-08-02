@@ -180,6 +180,7 @@ public struct ChatSessionSummary: Codable, Sendable, Equatable, Identifiable {
     public var updatedAt: Date
     public var kind: String
     public var projectId: String?
+    public var workspaceId: String?
 
     public init(
         id: String,
@@ -188,7 +189,8 @@ public struct ChatSessionSummary: Codable, Sendable, Equatable, Identifiable {
         messageCount: Int = 0,
         updatedAt: Date = Date(),
         kind: String = "chat",
-        projectId: String? = nil
+        projectId: String? = nil,
+        workspaceId: String? = nil
     ) {
         self.id = id
         self.agentId = agentId
@@ -197,6 +199,7 @@ public struct ChatSessionSummary: Codable, Sendable, Equatable, Identifiable {
         self.updatedAt = updatedAt
         self.kind = kind
         self.projectId = projectId
+        self.workspaceId = workspaceId
     }
 }
 

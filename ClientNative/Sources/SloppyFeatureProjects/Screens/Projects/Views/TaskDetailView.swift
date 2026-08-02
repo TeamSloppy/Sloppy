@@ -53,6 +53,7 @@ public struct TaskDetailView: View {
     let viewModel: TaskDetailViewModel
     let projectId: String
     let taskId: String
+    let onClose: @MainActor () -> Void
     let onOpenChat: @MainActor (APIProjectTask) -> Void
 
     @Environment(\.theme) private var theme
@@ -61,40 +62,66 @@ public struct TaskDetailView: View {
         viewModel: TaskDetailViewModel,
         projectId: String,
         taskId: String,
+        onClose: @escaping @MainActor () -> Void = {},
         onOpenChat: @escaping @MainActor (APIProjectTask) -> Void = { _ in }
     ) {
         self.viewModel = viewModel
         self.projectId = projectId
         self.taskId = taskId
+        self.onClose = onClose
         self.onOpenChat = onOpenChat
     }
 
     public var body: some View {
-        Group {
-            if viewModel.isLoading && viewModel.task == nil {
-                ProgressView("Loading task…")
-            } else if let errorMessage = viewModel.errorMessage, viewModel.task == nil {
-                contentState(title: "Task Detail", message: errorMessage)
-            } else if let task = viewModel.task {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: theme.spacing.l) {
-                        header(task: task)
-                        metadata(task: task)
-                        description(task: task)
-                        commentsSection
+        VStack(spacing: 0) {
+            closeButtonBar
+
+            Group {
+                if viewModel.isLoading && viewModel.task == nil {
+                    ProgressView("Loading task…")
+                } else if let errorMessage = viewModel.errorMessage, viewModel.task == nil {
+                    contentState(title: "Task Detail", message: errorMessage)
+                } else if let task = viewModel.task {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: theme.spacing.l) {
+                            header(task: task)
+                            metadata(task: task)
+                            description(task: task)
+                            commentsSection
+                        }
+                        .padding(theme.spacing.xl)
+                        .frame(maxWidth: 920, alignment: .leading)
+                        .frame(maxWidth: .infinity, alignment: .center)
                     }
-                    .padding(theme.spacing.xl)
-                    .frame(maxWidth: 920, alignment: .leading)
-                    .frame(maxWidth: .infinity, alignment: .center)
+                } else {
+                    contentState(title: "Task Detail", message: "No task data available.")
                 }
-            } else {
-                contentState(title: "Task Detail", message: "No task data available.")
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .task(id: "\(projectId):\(taskId)") {
             await viewModel.load(projectId: projectId, taskId: taskId)
         }
+    }
+
+    private var closeButtonBar: some View {
+        HStack {
+            Button(action: onClose) {
+                Label("Back", systemImage: "chevron.left")
+            }
+            .buttonStyle(.plain)
+            .foregroundColor(theme.colors.textSecondary)
+            .keyboardShortcut(.cancelAction)
+            .help("Close task details")
+            .accessibilityLabel("Close task details")
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, theme.spacing.xl)
+        .padding(.top, theme.spacing.l)
+        .frame(maxWidth: 920)
+        .frame(maxWidth: .infinity)
     }
 
     private func header(task: APIProjectTask) -> some View {

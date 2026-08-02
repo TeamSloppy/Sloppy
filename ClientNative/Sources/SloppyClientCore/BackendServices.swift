@@ -263,16 +263,27 @@ public actor SessionService {
         try await http.getData("/v1/agents/\(BackendHTTPClient.encodePathSegment(agentId))/sessions/\(BackendHTTPClient.encodePathSegment(sessionId))")
     }
 
-    public func createAgentSession(agentId: String, title: String? = nil, projectId: String? = nil) async throws -> ChatSessionSummary {
+    public func createAgentSession(
+        agentId: String,
+        title: String? = nil,
+        projectId: String? = nil,
+        workspaceId: String? = nil
+    ) async throws -> ChatSessionSummary {
         struct Payload: Encodable {
             var title: String?
             var kind: String = "chat"
             var projectId: String?
+            var workspaceId: String?
         }
         let normalizedProjectId = projectId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedWorkspaceId = workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines)
         return try await http.post(
             "/v1/agents/\(BackendHTTPClient.encodePathSegment(agentId))/sessions",
-            body: Payload(title: title, projectId: normalizedProjectId?.isEmpty == false ? normalizedProjectId : nil)
+            body: Payload(
+                title: title,
+                projectId: normalizedProjectId?.isEmpty == false ? normalizedProjectId : nil,
+                workspaceId: normalizedWorkspaceId?.isEmpty == false ? normalizedWorkspaceId : nil
+            )
         )
     }
 

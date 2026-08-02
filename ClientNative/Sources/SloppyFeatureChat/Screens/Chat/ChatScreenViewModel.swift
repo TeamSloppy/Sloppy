@@ -308,6 +308,13 @@ public final class ChatScreenViewModel {
         activeProjectId
     }
 
+    public var activeWorkspaceIdForCanvas: String? {
+        guard let selectedSessionId else {
+            return nil
+        }
+        return sessions.first(where: { $0.id == selectedSessionId })?.workspaceId
+    }
+
     public var shouldShowStopButton: Bool {
         isAwaitingAgentResponse || isStopping
     }
@@ -643,6 +650,7 @@ public final class ChatScreenViewModel {
 
         agents = await cachedAgentsRequest
         projects = await cachedProjectsRequest
+        restoreLastProjectContextIfAvailable()
         await restoreInitialAgentContext(using: agents, loadsCachedSessionsOnly: true)
     }
 
@@ -665,6 +673,7 @@ public final class ChatScreenViewModel {
         if let fetchedProjects {
             projects = fetchedProjects
             await cacheStore.cacheProjects(fetchedProjects)
+            restoreLastProjectContextIfAvailable()
         }
 
         await restoreInitialAgentContext(using: agents, loadsCachedSessionsOnly: false)
@@ -711,6 +720,20 @@ public final class ChatScreenViewModel {
         if let pendingNavigationRequest {
             applyNavigationRequest(pendingNavigationRequest)
         }
+    }
+
+    private func restoreLastProjectContextIfAvailable() {
+        guard activeProjectId == nil,
+              activeTaskId == nil,
+              selectedSessionId == nil,
+              pendingNavigationRequest == nil,
+              let projectId = settings.lastProjectId,
+              let project = projects.first(where: { $0.id == projectId }) else {
+            return
+        }
+
+        activeProjectId = project.id
+        activeContextTitle = "Project: \(project.name)"
     }
 
     private func restorePendingOrLastSession(for agent: APIAgentRecord) {
@@ -1109,6 +1132,9 @@ public final class ChatScreenViewModel {
         activeProjectId = retainedProjectId
         activeTaskId = taskId
         settings.lastSessionId = sessionId
+        if let retainedProjectId {
+            settings.lastProjectId = retainedProjectId
+        }
         syncComposerDraft(toSessionId: sessionId, projectId: retainedProjectId, taskId: taskId, agentId: agent.id)
         requestTranscriptScrollToEnd()
         Task { @MainActor in
@@ -1202,6 +1228,7 @@ public final class ChatScreenViewModel {
         activeProjectId = projectId
         activeTaskId = preferredTaskId
         settings.lastAgentId = agent.id
+        settings.lastProjectId = projectId
         settings.lastSessionId = nil
         syncComposerDraft(
             toSessionId: nil,

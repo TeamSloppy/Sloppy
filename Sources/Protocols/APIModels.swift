@@ -4108,19 +4108,23 @@ public struct AgentSessionCreateRequest: Codable, Sendable {
     public var checkpointSessionId: String?
     /// When set, project repo/docs context is merged into the agent session bootstrap (Dashboard project chats).
     public var projectId: String?
+    /// When set, the session is scoped to a canvas workspace.
+    public var workspaceId: String?
 
     public init(
         title: String? = nil,
         parentSessionId: String? = nil,
         kind: AgentSessionKind = .chat,
         checkpointSessionId: String? = nil,
-        projectId: String? = nil
+        projectId: String? = nil,
+        workspaceId: String? = nil
     ) {
         self.title = title
         self.parentSessionId = parentSessionId
         self.kind = kind
         self.checkpointSessionId = checkpointSessionId
         self.projectId = projectId
+        self.workspaceId = workspaceId
     }
 
     enum CodingKeys: String, CodingKey {
@@ -4129,6 +4133,7 @@ public struct AgentSessionCreateRequest: Codable, Sendable {
         case kind
         case checkpointSessionId
         case projectId
+        case workspaceId
     }
 
     public init(from decoder: Decoder) throws {
@@ -4138,6 +4143,7 @@ public struct AgentSessionCreateRequest: Codable, Sendable {
         kind = try container.decodeIfPresent(AgentSessionKind.self, forKey: .kind) ?? .chat
         checkpointSessionId = try container.decodeIfPresent(String.self, forKey: .checkpointSessionId)
         projectId = try container.decodeIfPresent(String.self, forKey: .projectId)
+        workspaceId = try container.decodeIfPresent(String.self, forKey: .workspaceId)
     }
 }
 
@@ -4173,6 +4179,8 @@ public struct AgentSessionSummary: Codable, Sendable, Equatable {
     public var userTurnCount: Int
     /// Optional project scope (Dashboard project chats).
     public var projectId: String?
+    /// Optional workspace scope (Dashboard workspace chats).
+    public var workspaceId: String?
 
     public init(
         id: String,
@@ -4185,7 +4193,8 @@ public struct AgentSessionSummary: Codable, Sendable, Equatable {
         lastMessagePreview: String? = nil,
         kind: AgentSessionKind = .chat,
         userTurnCount: Int = 0,
-        projectId: String? = nil
+        projectId: String? = nil,
+        workspaceId: String? = nil
     ) {
         self.id = id
         self.agentId = agentId
@@ -4198,6 +4207,7 @@ public struct AgentSessionSummary: Codable, Sendable, Equatable {
         self.kind = kind
         self.userTurnCount = userTurnCount
         self.projectId = projectId
+        self.workspaceId = workspaceId
     }
 
     enum CodingKeys: String, CodingKey {
@@ -4212,6 +4222,7 @@ public struct AgentSessionSummary: Codable, Sendable, Equatable {
         case kind
         case userTurnCount
         case projectId
+        case workspaceId
     }
 
     public init(from decoder: Decoder) throws {
@@ -4227,6 +4238,7 @@ public struct AgentSessionSummary: Codable, Sendable, Equatable {
         kind = try container.decodeIfPresent(AgentSessionKind.self, forKey: .kind) ?? .chat
         userTurnCount = try container.decodeIfPresent(Int.self, forKey: .userTurnCount) ?? 0
         projectId = try container.decodeIfPresent(String.self, forKey: .projectId)
+        workspaceId = try container.decodeIfPresent(String.self, forKey: .workspaceId)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -4242,6 +4254,7 @@ public struct AgentSessionSummary: Codable, Sendable, Equatable {
         try container.encode(kind, forKey: .kind)
         try container.encode(userTurnCount, forKey: .userTurnCount)
         try container.encodeIfPresent(projectId, forKey: .projectId)
+        try container.encodeIfPresent(workspaceId, forKey: .workspaceId)
     }
 }
 
@@ -4787,17 +4800,20 @@ public struct AgentSessionMetadataEvent: Codable, Sendable, Equatable {
     public var parentSessionId: String?
     public var kind: AgentSessionKind
     public var projectId: String?
+    public var workspaceId: String?
 
     public init(
         title: String,
         parentSessionId: String? = nil,
         kind: AgentSessionKind = .chat,
-        projectId: String? = nil
+        projectId: String? = nil,
+        workspaceId: String? = nil
     ) {
         self.title = title
         self.parentSessionId = parentSessionId
         self.kind = kind
         self.projectId = projectId
+        self.workspaceId = workspaceId
     }
 
     enum CodingKeys: String, CodingKey {
@@ -4805,6 +4821,7 @@ public struct AgentSessionMetadataEvent: Codable, Sendable, Equatable {
         case parentSessionId
         case kind
         case projectId
+        case workspaceId
     }
 
     public init(from decoder: Decoder) throws {
@@ -4813,6 +4830,7 @@ public struct AgentSessionMetadataEvent: Codable, Sendable, Equatable {
         parentSessionId = try container.decodeIfPresent(String.self, forKey: .parentSessionId)
         kind = try container.decodeIfPresent(AgentSessionKind.self, forKey: .kind) ?? .chat
         projectId = try container.decodeIfPresent(String.self, forKey: .projectId)
+        workspaceId = try container.decodeIfPresent(String.self, forKey: .workspaceId)
     }
 }
 

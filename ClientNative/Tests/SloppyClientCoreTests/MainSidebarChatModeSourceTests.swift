@@ -28,8 +28,9 @@ struct MainSidebarChatModeSourceTests {
     func chatSidebarExposesPinnedAndListModeControlsInsideChatsTab() throws {
         let source = try source(named: "SidebarRecentsList.swift")
 
-        #expect(source.contains("SidebarSectionTitle(title: \"Pinned\")"))
+        #expect(source.contains("SidebarSectionTitle(title: \"Priority\")"))
         #expect(source.contains("SidebarListModeMenu"))
         #expect(source.contains("ChatSidebarSections.build("))
+        #expect(source.contains("ForEach(sections.dayGroups)"))
     }
 }

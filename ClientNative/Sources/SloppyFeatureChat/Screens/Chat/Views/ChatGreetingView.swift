@@ -67,24 +67,12 @@ public struct ChatGreetingView: View {
                 spacing: sp.s
             ) {
                 ForEach(Self.starterPrompts) { prompt in
-                    Button {
+                    StarterPromptButton(
+                        prompt: prompt,
+                        isPhone: isPhone
+                    ) {
                         onSelectPrompt(prompt.prompt)
-                    } label: {
-                        VStack(alignment: .leading, spacing: sp.l) {
-                            Image(systemName: prompt.symbol)
-                                .font(.system(size: ty.heading, weight: .medium))
-                                .foregroundColor(prompt.color)
-                            Text(prompt.title)
-                                .font(.system(size: isPhone ? ty.caption : ty.body, weight: .medium))
-                                .foregroundColor(c.textPrimary)
-                                .multilineTextAlignment(.leading)
-                                .lineLimit(3)
-                        }
-                        .padding(isPhone ? sp.s : sp.m)
-                        .frame(maxWidth: .infinity, minHeight: isPhone ? 116 : 150, alignment: .leading)
-                        .backportGlassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }
@@ -124,6 +112,55 @@ public struct ChatGreetingView: View {
         let color: Color
 
         var id: String { title }
+    }
+
+    private struct StarterPromptButton: View {
+        let prompt: StarterPrompt
+        let isPhone: Bool
+        let action: @MainActor () -> Void
+
+        @Environment(\.theme) private var theme
+        @State private var isHovered = false
+
+        var body: some View {
+            let c = theme.colors
+            let sp = theme.spacing
+            let ty = theme.typography
+            let shape = RoundedRectangle(cornerRadius: 20, style: .continuous)
+
+            Button(action: action) {
+                VStack(alignment: .leading, spacing: sp.l) {
+                    Image(systemName: prompt.symbol)
+                        .font(.system(size: ty.heading, weight: .medium))
+                        .foregroundColor(prompt.color)
+                    Text(prompt.title)
+                        .font(.system(size: isPhone ? ty.caption : ty.body, weight: .medium))
+                        .foregroundColor(c.textPrimary)
+                        .multilineTextAlignment(.leading)
+                        .lineLimit(3)
+                }
+                .padding(isPhone ? sp.s : sp.m)
+                .frame(maxWidth: .infinity, minHeight: isPhone ? 116 : 150, alignment: .leading)
+                .backportGlassEffect(.regular.interactive(), in: shape)
+                .overlay {
+                    shape.stroke(
+                        isHovered ? prompt.color.opacity(0.72) : Color.clear,
+                        lineWidth: theme.borders.thin
+                    )
+                }
+                .shadow(
+                    color: isHovered ? prompt.color.opacity(0.18) : Color.clear,
+                    radius: 14,
+                    y: 6
+                )
+                .scaleEffect(isHovered ? 1.015 : 1)
+            }
+            .buttonStyle(.plain)
+            .contentShape(shape)
+            .onHover { isHovered = $0 }
+            .animation(.easeOut(duration: 0.16), value: isHovered)
+            .accessibilityLabel(prompt.title)
+        }
     }
 
     private static let starterPrompts = [

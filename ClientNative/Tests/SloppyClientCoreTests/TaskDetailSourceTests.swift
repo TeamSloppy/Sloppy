@@ -39,4 +39,17 @@ struct TaskDetailSourceTests {
         #expect(detailSource.contains("Button(\"Open Chat\")"))
         #expect(apiSource.contains("public func fetchTaskComments(projectId: String, taskId: String) async throws -> [TaskComment]"))
     }
+
+    @Test("task detail provides a visible close action that returns to the project")
+    func taskDetailProvidesCloseAction() throws {
+        let detailSource = try source("Sources/SloppyFeatureProjects/Screens/Projects/Views/TaskDetailView.swift")
+        let mainViewSource = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
+
+        #expect(detailSource.contains("let onClose: @MainActor () -> Void"))
+        #expect(detailSource.contains("Label(\"Back\", systemImage: \"chevron.left\")"))
+        #expect(detailSource.contains(".keyboardShortcut(.cancelAction)"))
+        #expect(detailSource.contains(".accessibilityLabel(\"Close task details\")"))
+        #expect(mainViewSource.contains("onClose: {"))
+        #expect(mainViewSource.contains("viewModel.openProjectKanbanTab(project: project)"))
+    }
 }

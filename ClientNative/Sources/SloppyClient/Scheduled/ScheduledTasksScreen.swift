@@ -868,6 +868,199 @@ private struct ScheduledTaskInfoCard: View {
     }
 }
 
+private struct CronScheduleEditor: View {
+    @Binding var expression: String
+    @State private var configuration: CronScheduleConfiguration
+    @State private var isAdvancedExpanded: Bool
+    @Environment(\.theme) private var theme
+
+    init(expression: Binding<String>) {
+        _expression = expression
+        let configuration = CronScheduleConfiguration(expression: expression.wrappedValue)
+        _configuration = State(initialValue: configuration)
+        _isAdvancedExpanded = State(initialValue: configuration.mode == .custom)
+    }
+
+    var body: some View {
+        Picker("Repeat", selection: modeBinding) {
+            ForEach(CronScheduleConfiguration.Mode.allCases, id: \.self) { mode in
+                Text(mode.title).tag(mode)
+            }
+        }
+
+        switch configuration.mode {
+        case .daily, .weekdays, .weekly:
+            DatePicker("Time", selection: timeBinding, displayedComponents: .hourAndMinute)
+
+            if configuration.mode == .weekdays {
+                LabeledContent("On", value: "Monday through Friday")
+            } else if configuration.mode == .weekly {
+                weekdayPicker
+            }
+        case .interval:
+            Picker("Every", selection: intervalBinding) {
+                ForEach(intervalOptions, id: \.self) { minutes in
+                    Text(intervalTitle(minutes)).tag(minutes)
+                }
+            }
+        case .custom:
+            cronExpressionField
+        }
+
+        LabeledContent("Runs") {
+            Text(configuration.summary)
+                .foregroundStyle(configuration.isValid ? theme.colors.textSecondary : theme.colors.statusBlocked)
+                .multilineTextAlignment(.trailing)
+        }
+
+        if configuration.mode != .custom {
+            DisclosureGroup("Advanced", isExpanded: $isAdvancedExpanded) {
+                cronExpressionField
+                    .padding(.top, theme.spacing.s)
+            }
+        }
+
+        if !configuration.isValid {
+            Label(validationMessage, systemImage: "exclamationmark.triangle.fill")
+                .font(.caption)
+                .foregroundStyle(theme.colors.statusBlocked)
+                .accessibilityIdentifier("cron-schedule-validation")
+        }
+    }
+
+    private var weekdayPicker: some View {
+        VStack(alignment: .leading, spacing: theme.spacing.s) {
+            Text("Days")
+                .font(.caption)
+                .foregroundStyle(theme.colors.textSecondary)
+
+            HStack(spacing: theme.spacing.xs) {
+                ForEach(CronScheduleConfiguration.Weekday.allCases) { weekday in
+                    Toggle(isOn: weekdayBinding(weekday)) {
+                        Text(weekday.shortName)
+                            .frame(maxWidth: .infinity)
+                    }
+                    .toggleStyle(.button)
+                    .tint(theme.colors.accentCyan)
+                    .accessibilityLabel(weekday.name)
+                    .accessibilityValue(configuration.weekdays.contains(weekday) ? "Selected" : "Not selected")
+                }
+            }
+        }
+    }
+
+    private var cronExpressionField: some View {
+        TextField("Cron expression", text: rawExpressionBinding)
+            .font(.system(.body, design: .monospaced))
+            .accessibilityHint("Five fields: minute, hour, day, month, and weekday")
+    }
+
+    private var modeBinding: Binding<CronScheduleConfiguration.Mode> {
+        Binding(
+            get: { configuration.mode },
+            set: { mode in
+                configuration.mode = mode
+                if mode == .weekly, configuration.weekdays.isEmpty {
+                    configuration.weekdays = [.monday]
+                }
+                if mode == .custom {
+                    configuration.customExpression = expression
+                    isAdvancedExpanded = true
+                }
+                updateExpression()
+            }
+        )
+    }
+
+    private var timeBinding: Binding<Date> {
+        Binding(
+            get: {
+                var components = DateComponents()
+                components.calendar = Calendar.current
+                components.year = 2001
+                components.month = 1
+                components.day = 1
+                components.hour = configuration.hour
+                components.minute = configuration.minute
+                return components.date ?? Date()
+            },
+            set: { date in
+                let components = Calendar.current.dateComponents([.hour, .minute], from: date)
+                configuration.hour = components.hour ?? 0
+                configuration.minute = components.minute ?? 0
+                updateExpression()
+            }
+        )
+    }
+
+    private var rawExpressionBinding: Binding<String> {
+        Binding(
+            get: { expression },
+            set: { newValue in
+                expression = newValue
+                configuration = CronScheduleConfiguration(expression: newValue)
+            }
+        )
+    }
+
+    private var intervalOptions: [Int] {
+        let defaults = [5, 10, 15, 30, 60, 120, 180, 360, 720]
+        return Array(Set(defaults + [configuration.intervalMinutes])).filter { $0 > 0 }.sorted()
+    }
+
+    private var intervalBinding: Binding<Int> {
+        Binding(
+            get: { configuration.intervalMinutes },
+            set: { minutes in
+                configuration.intervalMinutes = minutes
+                updateExpression()
+            }
+        )
+    }
+
+    private var validationMessage: String {
+        configuration.mode == .weekly
+            ? "Select at least one day."
+            : "Enter a supported five-field cron expression."
+    }
+
+    private func weekdayBinding(_ weekday: CronScheduleConfiguration.Weekday) -> Binding<Bool> {
+        Binding(
+            get: { configuration.weekdays.contains(weekday) },
+            set: { isSelected in
+                if isSelected {
+                    configuration.weekdays.insert(weekday)
+                } else {
+                    configuration.weekdays.remove(weekday)
+                }
+                updateExpression()
+            }
+        )
+    }
+
+    private func intervalTitle(_ minutes: Int) -> String {
+        if minutes == 60 { return "Hour" }
+        if minutes.isMultiple(of: 60) { return "\(minutes / 60) hours" }
+        return "\(minutes) minutes"
+    }
+
+    private func updateExpression() {
+        expression = configuration.expression
+    }
+}
+
+private extension CronScheduleConfiguration.Mode {
+    var title: String {
+        switch self {
+        case .daily: "Daily"
+        case .weekdays: "Weekdays"
+        case .weekly: "Selected days"
+        case .interval: "Interval"
+        case .custom: "Custom"
+        }
+    }
+}
+
 private struct ScheduledTaskEditor: View {
     @State var draft: ScheduledTaskDraft
     let agents: [APIAgentRecord]
@@ -926,10 +1119,7 @@ private struct ScheduledTaskEditor: View {
                 }
 
                 Section("Schedule") {
-                    TextField("Cron expression", text: $draft.schedule)
-                        .font(.system(.body, design: .monospaced))
-
-                    LabeledContent("Runs", value: CronDescription.describe(draft.schedule))
+                    CronScheduleEditor(expression: $draft.schedule)
 
                     Toggle("Task is active", isOn: $draft.enabled)
                 }
@@ -985,7 +1175,7 @@ private struct ScheduledTaskEditor: View {
     private var isDraftValid: Bool {
         !draft.agentID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !draft.channelID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            && !draft.schedule.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && CronScheduleConfiguration(expression: draft.schedule).isValid
             && !draft.command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
@@ -1011,20 +1201,7 @@ extension ScheduledTaskDraft: Identifiable {
 
 private enum CronDescription {
     static func describe(_ expression: String) -> String {
-        let parts = expression.split(separator: " ").map(String.init)
-        guard parts.count == 5 else { return "Custom schedule" }
-        if parts[0].hasPrefix("*/"), parts.dropFirst().allSatisfy({ $0 == "*" }) {
-            return "Every \(parts[0].dropFirst(2)) minutes"
-        }
-        if let minute = Int(parts[0]), let hour = Int(parts[1]), parts[2] == "*", parts[3] == "*" {
-            let time = String(format: "%02d:%02d", hour, minute)
-            if parts[4] == "*" { return "Every day at \(time)" }
-            let days = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"]
-            if let weekday = Int(parts[4]), days.indices.contains(weekday) {
-                return "Every \(days[weekday]) at \(time)"
-            }
-        }
-        return expression
+        CronScheduleConfiguration.describe(expression)
     }
 }
 

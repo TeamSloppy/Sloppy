@@ -48,6 +48,19 @@ struct ChatInitialLoadSourceTests {
         #expect(contentReady.lowerBound < revalidation.lowerBound)
     }
 
+    @Test("initial load restores only a persisted project that is still available")
+    func initialLoadRestoresPersistedAvailableProject() throws {
+        let source = try source
+        let restoreProject = try #require(source.range(of: "restoreLastProjectContextIfAvailable()"))
+        let restoreAgent = try #require(source.range(of: "restoreInitialAgentContext(using: agents"))
+
+        #expect(restoreProject.lowerBound < restoreAgent.lowerBound)
+        #expect(source.contains("let projectId = settings.lastProjectId"))
+        #expect(source.contains("projects.first(where: { $0.id == projectId })"))
+        #expect(source.contains("settings.lastProjectId = projectId"))
+        #expect(!source.contains("settings.lastProjectId = projects.first"))
+    }
+
     @Test("session lists and transcripts render cached snapshots before remote fetches")
     func sessionsAndTranscriptsAreCacheFirst() throws {
         let source = try source

@@ -20,6 +20,9 @@ struct PlatformMainSidebar: View {
             Tab("Chats", systemImage: "message", value: MainAppSection.chats) {
                 ScrollView { SidebarRecentsList(viewModel: viewModel) }
             }
+            Tab("Workspace", systemImage: "square.grid.2x2", value: MainAppSection.workspace) {
+                Color.clear
+            }
         }
         .tabBarMinimizeBehavior(.onScrollDown)
         .refreshable { await viewModel.refreshContent() }

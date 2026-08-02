@@ -1,6 +1,7 @@
 export const TOP_LEVEL_SECTIONS = [
   "chats",
   "projects",
+  "workspaces",
   "artifacts",
   "sessions",
   "overview",
@@ -16,7 +17,7 @@ export const TOP_LEVEL_SECTIONS = [
 ] as const;
 
 export const AGENT_TABS = ["overview", "chat", "workers", "memories", "tasks", "skills", "tools", "channels", "cron", "config"] as const;
-export const PROJECT_TABS = ["overview", "chat", "files", "tasks", "analytics", "workers", "visor", "memory", "workflows", "settings", "review"] as const;
+export const PROJECT_TABS = ["overview", "chat", "files", "workspaces", "tasks", "analytics", "workers", "visor", "memory", "workflows", "settings", "review"] as const;
 
 const TOP_LEVEL_SECTION_SET = new Set<string>(TOP_LEVEL_SECTIONS);
 const AGENT_TAB_SET = new Set<string>(AGENT_TABS);
@@ -38,6 +39,7 @@ export interface DashboardRoute {
   projectTaskReference: string | null;
   projectWorkflowId: string | null;
   projectWorkflowRunId: string | null;
+  workspaceId: string | null;
   agentId: string | null;
   agentTab: AgentTab | null;
   agentInitialChatSessionId: string | null;
@@ -101,6 +103,7 @@ export function parseRouteFromPath(pathname: string): DashboardRoute {
       projectTaskReference: decodePathSegment(sectionArgRaw) || null,
       projectWorkflowId: null,
       projectWorkflowRunId: null,
+      workspaceId: null,
       agentId: null,
       agentTab: null,
       agentInitialChatSessionId: null,
@@ -127,6 +130,7 @@ export function parseRouteFromPath(pathname: string): DashboardRoute {
       projectTaskReference: null,
       projectWorkflowId: null,
       projectWorkflowRunId: null,
+      workspaceId: null,
       agentId: null,
       agentTab: null,
       agentInitialChatSessionId: null,
@@ -152,6 +156,7 @@ export function parseRouteFromPath(pathname: string): DashboardRoute {
       projectTaskReference: sectionArg2 || null,
       projectWorkflowId: null,
       projectWorkflowRunId: null,
+      workspaceId: null,
       agentId: null,
       agentTab: null,
       agentInitialChatSessionId: null,
@@ -164,6 +169,7 @@ export function parseRouteFromPath(pathname: string): DashboardRoute {
   }
 
   const configSection = section === "config" && sectionArg ? sectionArg : null;
+  const workspaceId = section === "workspaces" && sectionArg ? sectionArg : null;
   const projectId = section === "projects" && sectionArg ? sectionArg : null;
   const isWorkflowRunRoute = section === "projects" && Boolean(projectId) && sectionArg2Lower === "workflow-runs";
   const projectTab = isWorkflowRunRoute
@@ -194,6 +200,7 @@ export function parseRouteFromPath(pathname: string): DashboardRoute {
     projectTaskReference,
     projectWorkflowId,
     projectWorkflowRunId,
+    workspaceId,
     agentId,
     agentTab,
     agentInitialChatSessionId,
@@ -247,6 +254,10 @@ export function buildPathFromRoute(route: DashboardRoute) {
         }
       }
     }
+  }
+
+  if (route.section === "workspaces" && route.workspaceId) {
+    nextPathname = `/workspaces/${encodeURIComponent(route.workspaceId)}`;
   }
 
   if (route.section === "agents") {

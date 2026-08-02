@@ -1001,6 +1001,122 @@ public actor CoreRouter {
 
         routes.append(
             .init(
+                path: "/v1/workspaces/:workspaceId/ws",
+                validator: { request in
+                    let workspaceId = request.pathParam("workspaceId") ?? ""
+                    let ticket = request.queryParam("ticket") ?? ""
+                    return !workspaceId.isEmpty && !ticket.isEmpty
+                },
+                callback: { request, connection in
+                    let workspaceId = request.pathParam("workspaceId") ?? ""
+                    let ticket = request.queryParam("ticket") ?? ""
+                    let afterRevision = max(0, Int(request.queryParam("revision") ?? "") ?? 0)
+                    guard let ticketContext = await service.workspaceRealtimeService.consumeTicket(
+                        ticket,
+                        workspaceId: workspaceId
+                    ) else {
+                        await connection.close()
+                        return
+                    }
+
+                    let encoder = JSONEncoder()
+                    encoder.dateEncodingStrategy = .iso8601
+                    let decoder = JSONDecoder()
+                    decoder.dateDecodingStrategy = .iso8601
+
+                    func send(_ message: WorkspaceRealtimeMessage) async -> Bool {
+                        guard let data = try? encoder.encode(message),
+                              let text = String(data: data, encoding: .utf8)
+                        else {
+                            return false
+                        }
+                        return await connection.sendText(text)
+                    }
+
+                    do {
+                        let stream = try await service.workspaceRealtimeService.subscribe(
+                            workspaceId: workspaceId,
+                            afterRevision: afterRevision
+                        )
+                        let forwardTask = Task {
+                            for await message in stream {
+                                if !(await send(message)) {
+                                    break
+                                }
+                            }
+                        }
+
+                        for await rawMessage in connection.incomingMessages() {
+                            guard let data = rawMessage.data(using: .utf8),
+                                  let message = try? decoder.decode(WorkspaceRealtimeMessage.self, from: data)
+                            else {
+                                _ = await send(WorkspaceRealtimeMessage(
+                                    kind: .transactionRejected,
+                                    message: "Malformed workspace message."
+                                ))
+                                continue
+                            }
+                            switch message.kind {
+                            case .transaction:
+                                guard let transactionRequest = message.transactionRequest else {
+                                    _ = await send(WorkspaceRealtimeMessage(
+                                        kind: .transactionRejected,
+                                        message: "Missing transaction request."
+                                    ))
+                                    continue
+                                }
+                                do {
+                                    _ = try await service.workspaceRealtimeService.commit(
+                                        workspaceId: workspaceId,
+                                        request: transactionRequest,
+                                        actor: ticketContext.actor,
+                                        canEdit: ticketContext.role.canEdit
+                                    )
+                                } catch WorkspaceRealtimeService.WorkspaceRealtimeError.conflict(let revision, let ids) {
+                                    _ = await send(WorkspaceRealtimeMessage(
+                                        kind: .transactionRejected,
+                                        latestRevision: revision,
+                                        conflictElementIds: ids,
+                                        message: "workspace_conflict"
+                                    ))
+                                } catch {
+                                    _ = await send(WorkspaceRealtimeMessage(
+                                        kind: .transactionRejected,
+                                        message: "Workspace transaction was rejected."
+                                    ))
+                                }
+                            case .presence:
+                                guard var presence = message.presence else { continue }
+                                presence.actor = ticketContext.actor
+                                await service.workspaceRealtimeService.publishPresence(
+                                    presence,
+                                    workspaceId: workspaceId
+                                )
+                            case .ping:
+                                _ = await send(WorkspaceRealtimeMessage(kind: .pong))
+                            default:
+                                continue
+                            }
+                        }
+                        forwardTask.cancel()
+                    } catch {
+                        _ = await send(WorkspaceRealtimeMessage(
+                            kind: .transactionRejected,
+                            message: "Workspace realtime stream is unavailable."
+                        ))
+                    }
+
+                    await service.workspaceRealtimeService.publishPresence(
+                        WorkspacePresence(actor: ticketContext.actor, status: "offline"),
+                        workspaceId: workspaceId
+                    )
+                    await connection.close()
+                }
+            )
+        )
+
+        routes.append(
+            .init(
                 path: "/v1/projects/:projectId/kanban/ws",
                 validator: { request in
                     let projectId = request.pathParam("projectId") ?? ""

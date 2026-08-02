@@ -50,4 +50,19 @@ struct ClientSettingsTests {
 
         UserDefaults.standard.removeObject(forKey: "client_project_order_ids")
     }
+
+    @Test("persists the last active project")
+    func persistsLastActiveProject() {
+        UserDefaults.standard.removeObject(forKey: "client_last_project_id")
+
+        let initial = ClientSettings()
+        #expect(initial.lastProjectId == nil)
+
+        initial.lastProjectId = "project-sloppy"
+
+        let restored = ClientSettings()
+        #expect(restored.lastProjectId == "project-sloppy")
+
+        UserDefaults.standard.removeObject(forKey: "client_last_project_id")
+    }
 }
