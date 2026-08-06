@@ -25,20 +25,22 @@ public final class ChatComposerDraft {
 public struct ChatComposerView: View {
     public static let panelWidth: CGFloat = 900
     public static let panelHeight: CGFloat = Constants.fieldHeight
-        + Constants.modelPickerRowHeight
-        + Constants.modelPickerBottomPadding
     public static let phonePanelHeight: CGFloat = 72
+    public static let expandedPhonePanelHeight: CGFloat = 228
     public static let attachmentStripHeight: CGFloat = 112
     private static let panelRadius: CGFloat = panelHeight / 2
+    private static let expandedPhonePanelRadius: CGFloat = 28
     private static let phoneFieldHeight: CGFloat = 48
     fileprivate static let phoneCircleSize: CGFloat = 36
     fileprivate static let buttonSize: CGFloat = 36
     private static let overviewGestureDistance: CGFloat = 220
 
-    @State private var viewModel: ChatScreenViewModel
+    private let viewModel: ChatScreenViewModel
     @State private var isOverviewGestureActive = false
+    @State private var isPhoneComposerExpanded = false
     let tabs: [WorkspaceTab]
 
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
 
@@ -54,7 +56,7 @@ public struct ChatComposerView: View {
         self.draft = draft
         self.tabs = tabs
         self.tabActions = tabActions
-        self._viewModel = State(initialValue: viewModel)
+        self.viewModel = viewModel
     }
     
     @ViewBuilder
@@ -71,6 +73,7 @@ public struct ChatComposerView: View {
     private var regularBody: some View {
         let c = theme.colors
         let sp = theme.spacing
+        let autocompleteGap = theme.spacing.s
 
         return VStack(spacing: sp.s) {
             #if !os(macOS)
@@ -92,18 +95,14 @@ public struct ChatComposerView: View {
                         stop: viewModel.stopDictation
                     )
                 } else {
+                    #if os(macOS)
                     HStack(alignment: .bottom, spacing: sp.s) {
                         ComposerAddMenu(
                             viewModel: viewModel,
                             supportsReasoningEffort: selectedModelSupportsReasoningEffort
                         )
 
-                        #if os(macOS)
                         macComposerInputSurface
-                        #else
-                        textFieldConainer
-                            .simultaneousGesture(phoneTabGesture)
-                        #endif
 
                         MobileComposerCircleButton(
                             symbol: trailingActionSymbol,
@@ -112,28 +111,42 @@ public struct ChatComposerView: View {
                             action: handleTrailingAction
                         )
                     }
+                    #else
+                    mobileComposer
+                    #endif
                 }
             }
+            .frame(height: currentPanelHeight, alignment: .bottom)
         }
         .environment(viewModel)
         .padding(.horizontal, sp.s)
         .frame(
             minWidth: 0,
             maxWidth: .infinity,
-            minHeight: Self.panelHeight(for: idiom),
+            minHeight: currentPanelHeight,
             alignment: .leading
         )
         .frame(maxWidth: Self.panelWidth)
-        .overlay(alignment: .bottom) {
+        .overlay(alignment: .top) {
             if !viewModel.composerSuggestions.isEmpty {
                 ComposerSuggestionsView(
                     suggestions: viewModel.composerSuggestions,
                     selectedSuggestionID: viewModel.composerSuggestionSelection.selectedID,
                     select: viewModel.applyComposerSuggestion
                 )
-                .offset(y: -composerSuggestionsOffset)
+                .offset(y: -(ComposerSuggestionsView.panelHeight + autocompleteGap))
             }
         }
+        .disabled(viewModel.activeInputRequest != nil)
+        .accessibilityHint(
+            viewModel.activeInputRequest == nil
+                ? ""
+                : "Answer the agent’s question before sending another message."
+        )
+        .animation(
+            reduceMotion ? nil : .spring(duration: 0.32, bounce: 0.08),
+            value: isPhoneComposerExpanded
+        )
     }
 
     #if os(macOS)
@@ -149,12 +162,12 @@ public struct ChatComposerView: View {
                 .padding(.top, theme.spacing.s)
             }
 
-            ChatTextField(
-                draft: draft,
-                submit: submit
-            )
+            HStack(spacing: 0) {
+                ChatTextField(
+                    draft: draft,
+                    submit: submit
+                )
 
-            HStack(spacing: theme.spacing.s) {
                 ComposerOptionsMenuView(
                     selectedModelId: viewModel.selectedModelId,
                     models: viewModel.availableModels,
@@ -168,11 +181,9 @@ public struct ChatComposerView: View {
                     onRefreshModels: viewModel.refreshAvailableModels,
                     onEditModels: { viewModel.openSettings(.providers) }
                 )
-
-                Spacer(minLength: 0)
+                .fixedSize(horizontal: true, vertical: false)
+                .padding(.trailing, theme.spacing.s)
             }
-            .padding(.horizontal, Constants.fieldHorizontalPadding)
-            .padding(.bottom, Constants.modelPickerBottomPadding)
         }
         .clipShape(RoundedRectangle(cornerRadius: Self.panelRadius, style: .continuous))
         .glassEffect(
@@ -182,20 +193,106 @@ public struct ChatComposerView: View {
     }
     #endif
 
-    private var composerSuggestionsOffset: CGFloat {
-        Self.panelHeight
-            + theme.spacing.s
-            + (viewModel.composerAttachments.isEmpty ? 0 : Self.attachmentStripHeight + theme.spacing.s)
+    #if !os(macOS)
+    private var mobileComposer: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            if isExpandedPhoneLayout {
+                MobileComposerAgentPicker(
+                    selectedAgent: viewModel.selectedAgent,
+                    agents: viewModel.agents,
+                    onSelectAgent: viewModel.pickAgent
+                )
+                .padding(.horizontal, theme.spacing.m)
+                .padding(.top, theme.spacing.m)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+            }
+
+            HStack(spacing: theme.spacing.s) {
+                if !isExpandedPhoneLayout {
+                    composerAddMenu
+                }
+
+                textFieldContainer(showsGlassBackground: !isExpandedPhoneLayout)
+                    .frame(
+                        minHeight: Self.phoneFieldHeight,
+                        maxHeight: isExpandedPhoneLayout ? .infinity : Self.phoneFieldHeight
+                    )
+                    .simultaneousGesture(phoneTabGesture)
+
+                if !isExpandedPhoneLayout {
+                    trailingActionButton
+                }
+            }
+
+            if isExpandedPhoneLayout {
+                HStack(spacing: theme.spacing.s) {
+                    composerAddMenu
+
+                    MobileComposerModelPicker(
+                        selectedModelId: viewModel.selectedModelId,
+                        models: viewModel.availableModels,
+                        selectedEffort: viewModel.selectedReasoningEffort,
+                        supportsReasoningEffort: selectedModelSupportsReasoningEffort,
+                        onSelectModel: viewModel.pickModel,
+                        onSelectEffort: viewModel.pickReasoningEffort
+                    )
+
+                    Spacer(minLength: 0)
+
+                    trailingActionButton
+                }
+                .padding(theme.spacing.s)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+        }
+        .frame(height: currentPanelHeight)
+        .background {
+            if isExpandedPhoneLayout {
+                Color.clear
+                    .backportGlassEffect(
+                        .regular
+                            .tint(theme.colors.surfaceRaised.opacity(0.16 as CGFloat))
+                            .interactive(),
+                        in: RoundedRectangle(
+                            cornerRadius: Self.expandedPhonePanelRadius,
+                            style: .continuous
+                        )
+                    )
+            }
+        }
+        .accessibilityIdentifier(
+            isExpandedPhoneLayout
+                ? "chat.composer.expanded"
+                : "chat.composer.compact"
+        )
     }
 
-    private var textFieldConainer: some View {
+    private var composerAddMenu: some View {
+        ComposerAddMenu(
+            viewModel: viewModel,
+            supportsReasoningEffort: selectedModelSupportsReasoningEffort
+        )
+    }
+
+    private var trailingActionButton: some View {
+        MobileComposerCircleButton(
+            symbol: trailingActionSymbol,
+            foregroundColor: trailingActionForegroundColor,
+            fillColor: theme.colors.surfaceRaised,
+            action: handleTrailingAction
+        )
+    }
+    #endif
+
+    private func textFieldContainer(showsGlassBackground: Bool) -> some View {
         ScrollView(.horizontal, showsIndicators: false) {
             LazyHStack(spacing: 0) {
                 ForEach(tabs, id: \.id) { tab in
-                    CustomTabItem {
+                    CustomTabItem(showsGlassBackground: showsGlassBackground) {
                         ChatTextField(
                             draft: draft,
-                            submit: submit
+                            submit: submit,
+                            onFocusChanged: updatePhoneComposerExpansion
                         )
                     }
                 }
@@ -211,6 +308,22 @@ public struct ChatComposerView: View {
         }, action: { _, newValue in
             tabActions?.tabProgress(newValue)
         })
+    }
+
+    private var currentPanelHeight: CGFloat {
+        if isExpandedPhoneLayout {
+            return Self.expandedPhonePanelHeight
+        }
+        return Self.panelHeight(for: idiom)
+    }
+
+    private var isExpandedPhoneLayout: Bool {
+        idiom == .phone && isPhoneComposerExpanded
+    }
+
+    private func updatePhoneComposerExpansion(_ isFocused: Bool) {
+        guard idiom == .phone else { return }
+        isPhoneComposerExpanded = isFocused
     }
 
     private var trimmedDraftText: String {
@@ -298,6 +411,7 @@ public struct ChatComposerView: View {
     }
 
     private func handleTrailingAction() {
+        guard viewModel.activeInputRequest == nil else { return }
         if viewModel.shouldShowStopButton {
             viewModel.stopActiveRun()
             return
@@ -796,6 +910,111 @@ private struct ComposerMenuChip: View {
     }
 }
 
+#if !os(macOS)
+private struct MobileComposerAgentPicker: View {
+    let selectedAgent: APIAgentRecord?
+    let agents: [APIAgentRecord]
+    let onSelectAgent: (APIAgentRecord) -> Void
+
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        Menu {
+            Section("Agent") {
+                if agents.isEmpty {
+                    ComposerMenuItem(title: "No agents", isSelected: false)
+                } else {
+                    ForEach(agents) { agent in
+                        Button {
+                            onSelectAgent(agent)
+                        } label: {
+                            ComposerMenuItem(
+                                title: agent.displayName,
+                                isSelected: selectedAgent?.id == agent.id
+                            )
+                        }
+                    }
+                }
+            }
+        } label: {
+            ComposerMenuChip(
+                title: selectedAgent?.displayName ?? "Agent",
+                isEnabled: !agents.isEmpty
+            )
+            .frame(minHeight: 32)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .disabled(agents.isEmpty)
+        .accessibilityLabel("Agent \(selectedAgent?.displayName ?? "not selected")")
+        .accessibilityIdentifier("chat.composer.agent-picker")
+    }
+}
+
+private struct MobileComposerModelPicker: View {
+    let selectedModelId: String
+    let models: [ChatModelOption]
+    let selectedEffort: ChatReasoningEffort
+    let supportsReasoningEffort: Bool
+    let onSelectModel: (ChatModelOption) -> Void
+    let onSelectEffort: (ChatReasoningEffort) -> Void
+
+    var body: some View {
+        Menu {
+            Section("Model") {
+                if models.isEmpty {
+                    ComposerMenuItem(title: "No models", isSelected: false)
+                } else {
+                    ForEach(models) { model in
+                        Button {
+                            onSelectModel(model)
+                        } label: {
+                            ComposerMenuItem(
+                                title: model.title,
+                                subtitle: model.id == model.title ? nil : model.id,
+                                isSelected: selectedModelId == model.id
+                            )
+                        }
+                    }
+                }
+            }
+
+            if supportsReasoningEffort {
+                Section("Reasoning") {
+                    ForEach(ChatReasoningEffort.allCases) { effort in
+                        Button {
+                            onSelectEffort(effort)
+                        } label: {
+                            ComposerMenuItem(
+                                title: effort.title,
+                                isSelected: selectedEffort == effort
+                            )
+                        }
+                    }
+                }
+            }
+        } label: {
+            ComposerMenuChip(title: selectedModelTitle, isEnabled: !models.isEmpty)
+                .frame(maxWidth: 180, minHeight: ChatComposerView.phoneCircleSize, alignment: .leading)
+                .contentShape(Rectangle())
+        }
+        .menuStyle(.button)
+        .buttonStyle(.plain)
+        .disabled(models.isEmpty)
+        .accessibilityLabel("Model \(selectedModelTitle)")
+        .accessibilityIdentifier("chat.composer.model-picker")
+    }
+
+    private var selectedModelTitle: String {
+        guard let selected = models.first(where: { $0.id == selectedModelId }) else {
+            return selectedModelId.isEmpty ? "Model" : selectedModelId
+        }
+        return selected.title
+    }
+}
+#endif
+
 private struct ComposerMenuItem: View {
     let title: String
     var subtitle: String?
@@ -821,6 +1040,7 @@ private struct ComposerMenuItem: View {
 struct ChatTextField: View {
     @Bindable var draft: ChatComposerDraft
     let submit: @MainActor () -> Void
+    var onFocusChanged: @MainActor (Bool) -> Void = { _ in }
 
     @FocusState private var isTextFieldFocused: Bool
     @State private var composerCursorOffset: Int?
@@ -893,32 +1113,19 @@ struct ChatTextField: View {
         .onChange(of: viewModel.composerFocusResetToken) { _, _ in
             isTextFieldFocused = false
         }
-        .onChange(of: draft.text) { _, newValue in
+        .onChange(of: isTextFieldFocused) { _, isFocused in
+            onFocusChanged(isFocused)
+        }
+        .onChange(of: draft.text) { oldValue, newValue in
+            composerCursorOffset = ChatComposerTextEdit.cursorOffsetAfterEdit(
+                from: oldValue,
+                to: newValue
+            )
             viewModel.updateComposerSuggestions(
                 for: newValue,
                 cursorOffset: composerCursorOffset
             )
         }
-        .onChange(of: draft.selection) { _, _ in
-            updateComposerCursorOffset()
-        }
-    }
-
-    private func updateComposerCursorOffset() {
-        if let selection = draft.selection,
-           case .selection(let range) = selection.indices,
-           range.isEmpty {
-            composerCursorOffset = draft.text.distance(
-                from: draft.text.startIndex,
-                to: range.lowerBound
-            )
-        } else {
-            composerCursorOffset = nil
-        }
-        viewModel.updateComposerSuggestions(
-            for: draft.text,
-            cursorOffset: composerCursorOffset
-        )
     }
 
     private func insertNewlineAtSelection() {
@@ -1285,10 +1492,20 @@ private struct DictationComposerBar: View {
 }
 
 fileprivate struct CustomTabItem<Content: View>: View {
-    @ViewBuilder var content: Content
+    let showsGlassBackground: Bool
+    @ViewBuilder let content: Content
     /// View Properties
     @Environment(\.colorScheme) private var colorScheme
 
+    init(
+        showsGlassBackground: Bool = true,
+        @ViewBuilder content: () -> Content
+    ) {
+        self.showsGlassBackground = showsGlassBackground
+        self.content = content()
+    }
+
+    @ViewBuilder
     var body: some View {
         GeometryReader {
             let rect = $0.frame(in: .scrollView(axis: .horizontal))
@@ -1303,7 +1520,7 @@ fileprivate struct CustomTabItem<Content: View>: View {
             let contentOpacity = calculateContainerOpacity(progress, minX: minX)
             let containerOpacity = calculateContainerOpacity(progress, minX: minX)
 
-            content
+            let transformedContent = content
                 .foregroundStyle(foreground)
                 .compositingGroup()
                 .blur(radius: contentOpacity / 2)
@@ -1311,14 +1528,20 @@ fileprivate struct CustomTabItem<Content: View>: View {
                 .frame(width: rect.width, height: rect.height)
                 .frame(width: cappedWidth)
                 .clipShape(RoundedRectangle(cornerRadius: Constants.fieldHeight / 2, style: .continuous))
-                .backportGlassEffect(
-                    .regular
-                        .tint(background.opacity(0.1))
-                        .interactive(contentOpacity != 1),
-                    in: RoundedRectangle(cornerRadius: Constants.fieldHeight / 2, style: .continuous)
-                )
                 .opacity(1 - containerOpacity)
                 .offset(x: minX <= 0 ? -minX : (rect.width - minX - cappedWidth))
+
+            if showsGlassBackground {
+                transformedContent
+                    .backportGlassEffect(
+                        .regular
+                            .tint(background.opacity(0.1))
+                            .interactive(contentOpacity != 1),
+                        in: RoundedRectangle(cornerRadius: Constants.fieldHeight / 2, style: .continuous)
+                    )
+            } else {
+                transformedContent
+            }
         }
         .containerRelativeFrame(.horizontal)
         .frame(maxHeight: .infinity)
@@ -1375,14 +1598,15 @@ private struct MobileComposerCircleButton: View {
             Icons.symbol(symbol, size: theme.typography.heading)
                 .foregroundColor(foregroundColor)
                 .frame(
-                    width: ChatComposerView.panelHeight,
-                    height: ChatComposerView.panelHeight
+                    width: ChatComposerView.buttonSize,
+                    height: ChatComposerView.buttonSize
                 )
                 .contentShape(.circle)
         }
         .buttonStyle(.plain)
         .buttonBorderShape(.circle)
         .backportGlassEffect(.regular.interactive(), in: .circle)
+        .padding(.bottom, (ChatComposerView.panelHeight - ChatComposerView.buttonSize) / 2)
         #else
         Button(action: action) {
             Icons.symbol(symbol, size: theme.typography.heading)
@@ -1407,6 +1631,7 @@ private struct ComposerAddMenu: View {
     let supportsReasoningEffort: Bool
 
     @Environment(\.theme) private var theme
+    @Environment(\.userInterfaceIdiom) private var idiom
 
     var body: some View {
         Menu {
@@ -1438,14 +1663,38 @@ private struct ComposerAddMenu: View {
                 Label("Files", systemImage: "folder")
             }
 
-            agentMenu
-            effortMenu
+            if idiom != .phone {
+                agentMenu
+                effortMenu
+            }
 #endif
         } label: {
+#if os(macOS)
             Color.clear
-                .clipShape(.circle)
+                .frame(
+                    width: ChatComposerView.buttonSize,
+                    height: ChatComposerView.buttonSize
+                )
+#else
+            Icons.symbol(.add, size: theme.typography.heading)
+                .foregroundColor(theme.colors.textPrimary)
+                .frame(
+                    width: ChatComposerView.phoneCircleSize,
+                    height: ChatComposerView.phoneCircleSize
+                )
+#endif
         }
+#if os(macOS)
         .menuStyle(CustomMenuButtonStyle())
+#elseif os(visionOS)
+        .menuIndicator(.hidden)
+        .buttonBorderShape(.circle)
+        .glassBackgroundEffect()
+#else
+        .menuIndicator(.hidden)
+        .buttonBorderShape(.circle)
+        .buttonStyle(.glass)
+#endif
         .accessibilityLabel("Add")
     }
 
@@ -1575,15 +1824,14 @@ struct SubmitButton: ButtonStyle {
 }
 
 struct CustomMenuButtonStyle: MenuStyle {
-
     @Environment(\.theme) private var theme
 
     func makeBody(configuration: Configuration) -> some View {
         ZStack {
             Menu(configuration)
                 .frame(
-                    width: ChatComposerView.panelHeight,
-                    height: ChatComposerView.panelHeight
+                    width: ChatComposerView.buttonSize,
+                    height: ChatComposerView.buttonSize
                 )
                 .contentShape(.circle)
                 .menuIndicator(.hidden)
@@ -1594,12 +1842,13 @@ struct CustomMenuButtonStyle: MenuStyle {
                 .allowsHitTesting(false)
         }
         .frame(
-            width: ChatComposerView.panelHeight,
-            height: ChatComposerView.panelHeight
+            width: ChatComposerView.buttonSize,
+            height: ChatComposerView.buttonSize
         )
         .buttonBorderShape(.circle)
         .buttonSizing(.flexible)
         .backportGlassEffect(.regular.interactive(), in: .circle)
+        .padding(.bottom, (ChatComposerView.panelHeight - ChatComposerView.buttonSize) / 2)
     }
 }
 
@@ -1607,5 +1856,4 @@ private enum Constants {
     static let fieldHeight: CGFloat = 48
     static let fieldHorizontalPadding: CGFloat = fieldHeight / 2
     static let modelPickerRowHeight: CGFloat = 30
-    static let modelPickerBottomPadding: CGFloat = 8
 }

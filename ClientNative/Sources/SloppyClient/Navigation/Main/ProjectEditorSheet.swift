@@ -145,7 +145,12 @@ struct ProjectEditorSheet: View {
                 }
             }
         }
+        #if os(iOS)
+        .presentationDetents([.large])
+        .presentationDragIndicator(.visible)
+        #else
         .frame(minWidth: 560, minHeight: 520)
+        #endif
         .interactiveDismissDisabled(isSaving)
     }
 

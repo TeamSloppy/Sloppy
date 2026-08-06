@@ -19,8 +19,17 @@ struct MainSidebarView: View {
 
     let viewModel: MainViewModel
     let isOverlay: Bool
+    let canvasWorkspaceViewModel: CanvasWorkspaceViewModel
 
     var body: some View {
+        #if os(iOS)
+        PlatformMainSidebar(
+            viewModel: viewModel,
+            isOverlay: isOverlay,
+            canvasWorkspaceViewModel: canvasWorkspaceViewModel
+        )
+        #else
         PlatformMainSidebar(viewModel: viewModel, isOverlay: isOverlay)
+        #endif
     }
 }

@@ -59,6 +59,26 @@ struct ChatComposerSuggestionsTests {
         #expect(application.cursorOffset == 17)
     }
 
+    @Test("infers the cursor from text edits without reading stale string indices")
+    func infersCursorFromTextEdits() {
+        #expect(ChatComposerTextEdit.cursorOffsetAfterEdit(
+            from: "Давай спроектируем игру",
+            to: "@Давай спроектируем игру"
+        ) == 1)
+        #expect(ChatComposerTextEdit.cursorOffsetAfterEdit(
+            from: "@lДавай спроектируем игру",
+            to: "@loДавай спроектируем игру"
+        ) == 3)
+        #expect(ChatComposerTextEdit.cursorOffsetAfterEdit(
+            from: "Ask @old about it",
+            to: "Ask @new about it"
+        ) == 8)
+        #expect(ChatComposerTextEdit.cursorOffsetAfterEdit(
+            from: "Ask #task about it",
+            to: "Ask #tas about it"
+        ) == 8)
+    }
+
     @Test("selection moves with arrow directions and stays within bounds")
     func movesSelection() throws {
         let suggestions = [

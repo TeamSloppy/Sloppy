@@ -8,7 +8,7 @@
 import SwiftUI
 
 struct ComposerSuggestionsView: View {
-    private static let panelHeight: CGFloat = 320
+    static let panelHeight: CGFloat = 320
 
     let suggestions: [ChatComposerSuggestion]
     let selectedSuggestionID: ChatComposerSuggestion.ID?

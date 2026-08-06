@@ -341,9 +341,8 @@ private struct ChatMarkdownTextStack: View {
     @ViewBuilder
     var body: some View {
         #if os(macOS)
-        // Textual's AppKit selection overlay feeds each text-layout update back into
-        // view state and can enter a permanent layout cycle in a long transcript.
-        // The enclosing message bubble still provides native SwiftUI selection.
+        // Textual keeps the full GitHub-style renderer here. The local package patch
+        // suppresses its inactive selection geometry and duplicate layout updates.
         structuredText
         #else
         if allowsTextSelection {

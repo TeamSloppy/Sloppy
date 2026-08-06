@@ -21,7 +21,7 @@ let package = Package(
     ],
     dependencies: [
         .package(url: "https://github.com/apple/swift-log.git", from: "1.6.0"),
-        .package(url: "https://github.com/gonzalezreal/textual", from: "0.5.0"),
+        .package(path: "Vendor/Textual"),
         .package(url: "https://github.com/migueldeicaza/SwiftTerm", from: "1.0.0"),
     ],
     targets: [

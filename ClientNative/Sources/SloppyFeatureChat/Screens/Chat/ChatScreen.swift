@@ -80,7 +80,7 @@ public struct ChatScreen: View {
         })
         .fileImporter(
             isPresented: $viewModel.isAttachmentPickerShown,
-            allowedContentTypes: [],
+            allowedContentTypes: [.item],
             allowsMultipleSelection: true
         ) { result in
             switch result {
@@ -212,11 +212,16 @@ private struct ChatContextToolbarModifier: ViewModifier {
     let viewModel: ChatScreenViewModel
     let isEnabled: Bool
 
+    @Environment(\.userInterfaceIdiom) private var idiom
+
+    @ViewBuilder
     func body(content: Content) -> some View {
         #if os(macOS)
         content
         #else
-        if isEnabled {
+        if idiom == .phone {
+            content
+        } else if isEnabled {
             content.toolbar(id: "agent.settings") {
                 ToolbarItem(id: "agent", placement: .secondaryAction) {
                     ChatAgentToolbarMenu(
@@ -270,29 +275,46 @@ private struct ChatNavigationToolbarModifier: ViewModifier {
 
     @Environment(\.userInterfaceIdiom) private var idiom
 
+    @ViewBuilder
     func body(content: Content) -> some View {
         if isEnabled {
-            content.toolbar {
-                ToolbarItem(placement: .navigation) {
-                    ChatNavigationLeadingItems(
-                        viewModel: viewModel,
-                        onOpenSidebar: onOpenSidebar
-                    )
-                }
-
-                if idiom == .phone {
-                    ToolbarItem(placement: .primaryAction) {
-                        MobileChatNavigationIconButton(symbol: .new) {
-                            viewModel.startNewMessage()
+#if os(iOS)
+            if idiom == .phone {
+                content
+                    .navigationTitle(viewModel.activeSessionTitle)
+                    .navigationBarTitleDisplayMode(.inline)
+                    .toolbar {
+                        ToolbarItem(placement: .topBarTrailing) {
+                            Button {
+                                viewModel.startNewMessage()
+                            } label: {
+                                Label("New message", systemImage: "square.and.pencil")
+                                    .labelStyle(.iconOnly)
+                            }
+                            .accessibilityLabel("New message")
+                            .accessibilityIdentifier("chat.navigation.new-message")
+                            .disabled(viewModel.selectedAgent == nil && viewModel.agents.isEmpty)
                         }
-                        .accessibilityLabel("New message")
-                        .accessibilityIdentifier("chat.navigation.new-message")
-                        .disabled(viewModel.selectedAgent == nil && viewModel.agents.isEmpty)
                     }
-                }
+            } else {
+                desktopToolbar(content)
             }
+#else
+            desktopToolbar(content)
+#endif
         } else {
             content
+        }
+    }
+
+    private func desktopToolbar(_ content: Content) -> some View {
+        content.toolbar {
+            ToolbarItem(placement: .navigation) {
+                ChatNavigationLeadingItems(
+                    viewModel: viewModel,
+                    onOpenSidebar: onOpenSidebar
+                )
+            }
         }
     }
 }
@@ -324,7 +346,9 @@ private struct ChatChrome: View {
         let heroWidth = heroWidth(for: contentWidth)
 
         return ZStack(alignment: .bottom) {
-            if viewModel.transcript.isEmpty {
+            if viewModel.isLoadingTranscript, viewModel.transcript.isEmpty {
+                ChatTranscriptLoadingView()
+            } else if viewModel.transcript.isEmpty, viewModel.activeInputRequest == nil {
                 ChatEmptyChatRegion(
                     viewModel: viewModel,
                     contentWidth: contentWidth,
@@ -399,7 +423,7 @@ private struct ChatChrome: View {
             rootSafeAreaBottom: rootSafeAreaInsets.bottom,
             effectiveSafeAreaBottom: safeAreaInsets.bottom,
             normalMinimumSpacing: theme.spacing.s,
-            keyboardSpacing: theme.spacing.xs
+            keyboardSpacing: theme.spacing.s
         )
     }
 
@@ -504,20 +528,8 @@ private struct ChatNavigationLeadingItems: View {
     let onOpenSidebar: (@MainActor () -> Void)?
 
     @Environment(\.dismiss) private var dismiss
-    @Environment(\.userInterfaceIdiom) private var idiom
 
     var body: some View {
-        if idiom == .phone {
-            MobileChatNavigationHeader(
-                viewModel: viewModel,
-                onOpenSidebar: onOpenSidebar
-            )
-        } else {
-            desktopBody
-        }
-    }
-
-    private var desktopBody: some View {
         HStack(spacing: 8) {
             Button(action: { dismiss() }) {
                 Image(systemName: "chevron.left")
@@ -542,103 +554,6 @@ private struct ChatNavigationLeadingItems: View {
                     .foregroundColor(.white.opacity(0.7 as CGFloat))
                     .lineLimit(1)
             }
-        }
-    }
-
-}
-
-@MainActor
-private struct MobileChatNavigationHeader: View {
-    let viewModel: ChatScreenViewModel
-    let onOpenSidebar: (@MainActor () -> Void)?
-
-    @Environment(\.theme) private var theme
-
-    var body: some View {
-        HStack(spacing: theme.spacing.s) {
-            if let onOpenSidebar {
-                MobileChatNavigationIconButton(symbol: .menu, action: onOpenSidebar)
-            }
-
-            MobileChatNavigationCenterCapsule(viewModel: viewModel)
-        }
-    }
-}
-
-@MainActor
-private struct MobileChatNavigationCenterCapsule: View {
-    let viewModel: ChatScreenViewModel
-
-    @Environment(\.theme) private var theme
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 1) {
-            Picker("", selection: selectedAgentId) {
-                if viewModel.agents.isEmpty {
-                    Text("Agent").tag("")
-                } else {
-                    ForEach(viewModel.agents) { agent in
-                        Text(agent.displayName).tag(agent.id)
-                    }
-                }
-            }
-            .pickerStyle(.menu)
-            .labelsHidden()
-            .tint(theme.colors.textPrimary)
-
-            Text(sessionLabel)
-                .font(.system(size: theme.typography.micro))
-                .foregroundColor(theme.colors.textMuted)
-                .lineLimit(1)
-        }
-        .padding(.horizontal, theme.spacing.s)
-        .frame(minWidth: 0, maxWidth: .infinity, minHeight: 46, maxHeight: 46, alignment: .leading)
-    }
-
-    private var sessionLabel: String {
-        viewModel.activeSessionTitle
-    }
-
-    private var selectedAgentId: Binding<String> {
-        Binding(
-            get: { viewModel.selectedAgent?.id ?? viewModel.agents.first?.id ?? "" },
-            set: { nextId in
-                guard let agent = viewModel.agents.first(where: { $0.id == nextId }) else {
-                    return
-                }
-                viewModel.pickAgent(agent)
-            }
-        )
-    }
-
-    private var mobileNavigationCapsuleWidth: CGFloat {
-        let horizontalMargins = theme.spacing.l * 2
-        let leftClusterWidth: CGFloat = 44 + theme.spacing.s
-        let rightClusterWidth: CGFloat = 44 * 2 + theme.spacing.xs + theme.spacing.s
-        let available: CGFloat = screenPointWidth - horizontalMargins - leftClusterWidth - rightClusterWidth
-        return max(150, min(236, available))
-    }
-
-    private var screenPointWidth: CGFloat {
-        guard let screen = Screen.main else {
-            return 390
-        }
-        return max(320, screen.size.width)
-    }
-}
-
-@MainActor
-private struct MobileChatNavigationIconButton: View {
-    let symbol: MaterialSymbol
-    let action: @MainActor () -> Void
-
-    @Environment(\.theme) private var theme
-
-    var body: some View {
-        Button(action: action) {
-            Icons.symbol(symbol, size: theme.typography.heading)
-                .foregroundColor(theme.colors.textPrimary)
-                .frame(width: 44, height: 44)
         }
     }
 }
@@ -681,9 +596,33 @@ private struct ChatTranscriptRegion: View {
             isRunActive: isRunActive,
             runStatusLabel: runStatusLabel,
             runStatusDetails: runStatusDetails,
+            inputRequest: viewModel.activeInputRequest,
+            isSubmittingInputResponse: viewModel.isSubmittingInputResponse,
+            inputRequestErrorMessage: viewModel.inputRequestErrorMessage,
             providerSettingsRecoveryMessageIDs: viewModel.providerSettingsRecoveryMessageIDs,
+            onSubmitInputResponse: viewModel.submitInputResponse,
+            onCancelInputRequest: viewModel.cancelInputRequest,
             onOpenProviderSettings: { viewModel.openSettings(.providers) }
         )
+    }
+}
+
+@MainActor
+private struct ChatTranscriptLoadingView: View {
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        VStack(spacing: theme.spacing.s) {
+            ProgressView()
+                .controlSize(.large)
+            Text("Loading conversation…")
+                .font(.system(size: theme.typography.body))
+                .foregroundColor(theme.colors.textSecondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("Loading conversation")
+        .accessibilityIdentifier("chat.transcript.loading")
     }
 }
 
@@ -816,7 +755,12 @@ private struct ChatTranscriptPane: View {
     let isRunActive: Bool
     let runStatusLabel: String
     let runStatusDetails: String?
+    let inputRequest: ChatPlanInputRequest?
+    let isSubmittingInputResponse: Bool
+    let inputRequestErrorMessage: String?
     let providerSettingsRecoveryMessageIDs: Set<String>
+    let onSubmitInputResponse: @MainActor ([ChatPlanInputAnswer]) -> Void
+    let onCancelInputRequest: @MainActor () -> Void
     let onOpenProviderSettings: @MainActor () -> Void
 
     @Environment(\.theme) private var theme
@@ -879,6 +823,20 @@ private struct ChatTranscriptPane: View {
                             .transition(.opacity)
                     }
 
+                    if let inputRequest {
+                        ChatInputRequestView(
+                            request: inputRequest,
+                            isSubmitting: isSubmittingInputResponse,
+                            errorMessage: inputRequestErrorMessage,
+                            onSubmit: onSubmitInputResponse,
+                            onCancel: onCancelInputRequest
+                        )
+                        .id(inputRequest.id)
+                        .frame(width: contentWidth)
+                        .padding(.top, theme.spacing.m)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+
                     Color.clear
                         .frame(height: composerScrollInset)
                         .id(bottomAnchorId)
@@ -886,13 +844,7 @@ private struct ChatTranscriptPane: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .defaultScrollAnchor(.bottom)
-            .onScrollGeometryChange(for: Bool.self) { geometry in
-                isGeometryNearBottom(geometry)
-            } action: { _, newValue in
-                if isUserScrolling {
-                    isNearBottom = newValue
-                }
-            }
+            .defaultScrollAnchor(.top, for: .alignment)
             .onScrollPhaseChange { _, newPhase, context in
                 switch newPhase {
                 case .tracking, .interacting, .decelerating:
@@ -914,6 +866,7 @@ private struct ChatTranscriptPane: View {
             }
             .onChange(of: transcript.messages.count) { oldCount, newCount in
                 guard newCount > oldCount,
+                      !isUserScrolling,
                       oldCount == 0 || isNearBottom else {
                     return
                 }
@@ -922,15 +875,22 @@ private struct ChatTranscriptPane: View {
             }
             .onChange(of: latestAssistantMessageLayoutKey) { _, _ in
                 guard isNearBottom,
+                      !isUserScrolling,
                       let lastMessage = transcript.lastMessage,
                       lastMessage.role == .assistant else {
                     return
                 }
 
-                scrollToBottom(using: proxy)
+                scrollToBottom(using: proxy, animated: false)
             }
             .onChange(of: showsThinkingIndicator) { _, isVisible in
-                guard isVisible, isNearBottom else { return }
+                guard isVisible, isNearBottom, !isUserScrolling else { return }
+                scrollToBottom(using: proxy)
+            }
+            .onChange(of: inputRequest?.id) { _, requestID in
+                guard requestID != nil else { return }
+                isNearBottom = true
+                isUserScrolling = false
                 scrollToBottom(using: proxy)
             }
             .animation(
@@ -940,6 +900,10 @@ private struct ChatTranscriptPane: View {
             .animation(
                 reduceMotion ? nil : .easeOut(duration: 0.18),
                 value: showsThinkingIndicator
+            )
+            .animation(
+                reduceMotion ? nil : .easeOut(duration: 0.18),
+                value: inputRequest?.id
             )
         }
     }

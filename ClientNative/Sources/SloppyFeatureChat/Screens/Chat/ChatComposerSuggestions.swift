@@ -96,3 +96,17 @@ struct ChatComposerQuery: Equatable, Sendable {
         return (result, prefixCount + replacement.count)
     }
 }
+
+enum ChatComposerTextEdit {
+    static func cursorOffsetAfterEdit(from oldText: String, to newText: String) -> Int {
+        let sharedPrefixCount = zip(oldText, newText)
+            .prefix(while: { $0 == $1 })
+            .count
+        let oldRemainder = oldText.dropFirst(sharedPrefixCount)
+        let newRemainder = newText.dropFirst(sharedPrefixCount)
+        let sharedSuffixCount = zip(oldRemainder.reversed(), newRemainder.reversed())
+            .prefix(while: { $0 == $1 })
+            .count
+        return newText.count - sharedSuffixCount
+    }
+}

@@ -115,6 +115,45 @@ struct MainNavigationShellTests {
         #expect(macSource.contains("action: viewModel.selectWorkspace"))
     }
 
+    @Test("phone workspace tab renders the canvas surface")
+    func phoneWorkspaceTabRendersCanvasSurface() throws {
+        let iosSource = try source(named: "IOSMainSidebar.swift")
+        let mainView = try source(named: "MainView.swift")
+
+        #expect(iosSource.contains("if idiom == .phone"))
+        #expect(iosSource.contains("CanvasWorkspaceSurface(viewModel: canvasWorkspaceViewModel)"))
+        #expect(mainView.contains(".task(id: canvasResolutionKey)"))
+    }
+
+    @Test("phone new chat action uses the iOS 26 tab accessory with a navigation fallback")
+    func phoneNewChatActionUsesNativePlacements() throws {
+        let iosSource = try source(named: "IOSMainSidebar.swift")
+
+        #expect(iosSource.contains(".tabViewBottomAccessory"))
+        #expect(iosSource.contains("if #unavailable(iOS 26.0)"))
+        #expect(iosSource.contains("ToolbarItem(placement: .topBarTrailing)"))
+        #expect(!iosSource.contains(".safeAreaInset(edge: .bottom"))
+    }
+
+    @Test("phone tabs use native navigation titles")
+    func phoneTabsUseNativeNavigationTitles() throws {
+        let iosSource = try source(named: "IOSMainSidebar.swift")
+        let workspaceSource = try source(named: "CanvasWorkspaceLibraryView.swift")
+
+        #expect(iosSource.contains(".navigationTitle(\"Chats\")"))
+        #expect(workspaceSource.contains(".navigationTitle(viewModel.libraryTitle)"))
+        #expect(workspaceSource.contains("Label(\"New Workspace\", systemImage: \"plus\")"))
+        #expect(workspaceSource.contains(".labelStyle(.iconOnly)"))
+    }
+
+    @Test("project editor only applies desktop minimum dimensions on macOS")
+    func projectEditorOnlyAppliesDesktopMinimumDimensionsOnMacOS() throws {
+        let source = try source(named: "ProjectEditorSheet.swift")
+
+        #expect(source.contains("#if os(iOS)\n        .presentationDetents([.large])"))
+        #expect(source.contains(".presentationDetents([.large])"))
+    }
+
     @Test("workspace mode is absent from the main toolbar")
     func workspaceModeIsAbsentFromMainToolbar() throws {
         let source = try source(named: "MainView.swift")

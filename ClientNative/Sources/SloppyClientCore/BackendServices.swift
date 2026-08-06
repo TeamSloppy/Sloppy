@@ -322,6 +322,23 @@ public actor SessionService {
         return response.summary
     }
 
+    public func answerInputRequest(
+        agentId: String,
+        sessionId: String,
+        requestId: String,
+        request: ChatPlanInputAnswerRequest
+    ) async throws -> ChatSessionSummary {
+        struct Response: Decodable {
+            var summary: ChatSessionSummary
+        }
+
+        let response: Response = try await http.post(
+            "/v1/agents/\(BackendHTTPClient.encodePathSegment(agentId))/sessions/\(BackendHTTPClient.encodePathSegment(sessionId))/input-requests/\(BackendHTTPClient.encodePathSegment(requestId))/answer",
+            body: request
+        )
+        return response.summary
+    }
+
     public func deleteAgentSession(agentId: String, sessionId: String) async throws {
         try await http.delete("/v1/agents/\(BackendHTTPClient.encodePathSegment(agentId))/sessions/\(BackendHTTPClient.encodePathSegment(sessionId))")
     }

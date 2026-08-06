@@ -6,18 +6,40 @@ import SloppyFeatureChat
 import SloppyFeatureOverview
 import SloppyFeatureProjects
 import SloppyFeatureSettings
+import UserNotifications
 
 #if os(macOS)
 import AppKit
 
 @MainActor
-private final class SloppyAppDelegate: NSObject, NSApplicationDelegate {
+private final class SloppyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificationCenterDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+        UNUserNotificationCenter.current().delegate = self
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         false
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        [.banner, .sound]
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse
+    ) async {
+        guard let deepLink = response.notification.request.content.userInfo["deepLink"] as? String,
+              let url = URL(string: deepLink) else {
+            return
+        }
+        _ = await MainActor.run {
+            NSWorkspace.shared.open(url)
+        }
     }
 }
 
@@ -79,6 +101,37 @@ private struct SloppyMenuBarView: View {
         NSApp.activate(ignoringOtherApps: true)
     }
 }
+#elseif os(iOS) || os(visionOS)
+import UIKit
+
+@MainActor
+private final class SloppyAppDelegate: NSObject, UIApplicationDelegate, UNUserNotificationCenterDelegate {
+    func application(
+        _ application: UIApplication,
+        didFinishLaunchingWithOptions launchOptions: [UIApplication.LaunchOptionsKey: Any]? = nil
+    ) -> Bool {
+        UNUserNotificationCenter.current().delegate = self
+        return true
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        willPresent notification: UNNotification
+    ) async -> UNNotificationPresentationOptions {
+        [.banner, .sound]
+    }
+
+    nonisolated func userNotificationCenter(
+        _ center: UNUserNotificationCenter,
+        didReceive response: UNNotificationResponse
+    ) async {
+        guard let deepLink = response.notification.request.content.userInfo["deepLink"] as? String,
+              let url = URL(string: deepLink) else {
+            return
+        }
+        _ = await UIApplication.shared.open(url)
+    }
+}
 #endif
 
 @main
@@ -87,6 +140,8 @@ struct SloppyClientApp: App {
     @Environment(\.scenePhase) private var scenePhase
     #if os(macOS)
     @NSApplicationDelegateAdaptor(SloppyAppDelegate.self) private var appDelegate
+    #elseif os(iOS) || os(visionOS)
+    @UIApplicationDelegateAdaptor(SloppyAppDelegate.self) private var appDelegate
     #endif
 
     init() {

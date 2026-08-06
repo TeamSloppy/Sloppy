@@ -342,6 +342,17 @@ struct MainView: View {
                 dismissToolbarSearch()
                 #endif
             }
+            .task(id: canvasResolutionKey) {
+                guard isCanvasWorkspaceSelected else {
+                    return
+                }
+                await canvasWorkspaceViewModel.resolve(
+                    workspaceID: viewModel.activeCanvasWorkspaceID,
+                    projectID: viewModel.activeCanvasProjectID,
+                    projectName: viewModel.workspaceContext?.projectName,
+                    force: true
+                )
+            }
     }
 
     @ViewBuilder
@@ -870,17 +881,6 @@ struct MainView: View {
                     .accessibilityHidden(!isCanvasWorkspaceSelected)
             }
         }
-        .task(id: canvasResolutionKey) {
-            guard isCanvasWorkspaceSelected else {
-                return
-            }
-            await canvasWorkspaceViewModel.resolve(
-                workspaceID: viewModel.activeCanvasWorkspaceID,
-                projectID: viewModel.activeCanvasProjectID,
-                projectName: viewModel.workspaceContext?.projectName,
-                force: true
-            )
-        }
     }
 
     private var canvasResolutionKey: String {
@@ -931,7 +931,7 @@ struct MainView: View {
                         #if os(macOS)
                         24
                         #else
-                        0
+                        theme.spacing.s
                         #endif
                     }(),
                     tabs: viewModel.tabs,
@@ -1647,7 +1647,8 @@ struct MainView: View {
     private func sidebarView(isOverlay: Bool) -> some View {
         MainSidebarView(
             viewModel: viewModel,
-            isOverlay: isOverlay
+            isOverlay: isOverlay,
+            canvasWorkspaceViewModel: canvasWorkspaceViewModel
         )
     }
 

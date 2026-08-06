@@ -22,8 +22,17 @@ struct ChatRefreshSourceTests {
 
         #expect(source.contains("public func refreshCurrentContext() async"))
         #expect(source.contains("if let selectedSessionId"))
-        #expect(source.contains("fetchAgentSession(agentId: agent.id, sessionId: selectedSessionId)"))
-        #expect(source.contains("transcript.replaceAll(detail.messages)"))
+        #expect(source.contains("await hydrateSession(agentId: agent.id, sessionId: selectedSessionId)"))
+        #expect(source.contains("applyHydratedSession(detail)"))
+    }
+
+    @Test("chat view model exposes transcript hydration progress")
+    func chatViewModelExposesTranscriptHydrationProgress() throws {
+        let source = try source
+
+        #expect(source.contains("public private(set) var isLoadingTranscript = false"))
+        #expect(source.contains("transcript.clear()\n        isLoadingTranscript = true"))
+        #expect(source.contains("if isCurrentSession(agentId: agentId, sessionId: sessionId) {\n                isLoadingTranscript = false"))
     }
 
     @Test("chat stream appends delta chunks and exposes an interrupt path")

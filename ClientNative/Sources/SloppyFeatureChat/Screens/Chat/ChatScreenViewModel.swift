@@ -107,9 +107,10 @@ struct ChatStreamingTurnTracker {
         return turns[index].messageId
     }
 
-    mutating func completeNextTurn(for sessionId: String) {
-        guard let index = turns.firstIndex(where: { $0.sessionId == sessionId }) else { return }
-        turns.remove(at: index)
+    @discardableResult
+    mutating func completeNextTurn(for sessionId: String) -> String? {
+        guard let index = turns.firstIndex(where: { $0.sessionId == sessionId }) else { return nil }
+        return turns.remove(at: index).messageId
     }
 
     mutating func clear(sessionId: String? = nil) {
@@ -276,9 +277,13 @@ public final class ChatScreenViewModel {
     public private(set) var sessionActionStatus: String?
     public private(set) var sendErrorMessage: String?
     public private(set) var isLoadingSessions = false
+    public private(set) var isLoadingTranscript = false
     public private(set) var isSending = false
     public private(set) var isAwaitingAgentResponse = false
     public private(set) var isStopping = false
+    public private(set) var activeInputRequest: ChatPlanInputRequest?
+    public private(set) var isSubmittingInputResponse = false
+    public private(set) var inputRequestErrorMessage: String?
     public private(set) var activeRunStatus: ChatRunStatusEvent?
     public private(set) var didLoadInitialData = false
     public private(set) var transcriptScrollToEndRequest = 0
@@ -320,7 +325,10 @@ public final class ChatScreenViewModel {
     }
 
     public var canSubmitMessage: Bool {
-        selectedAgent != nil && !isSending && !isStopping
+        selectedAgent != nil
+            && activeInputRequest == nil
+            && !isSending
+            && !isStopping
     }
 
     public var activeRunStatusLabel: String {
@@ -367,6 +375,7 @@ public final class ChatScreenViewModel {
     @ObservationIgnored private let restoresLastSession: Bool
     @ObservationIgnored private let loadsGlobalSessionCatalog: Bool
     @ObservationIgnored private let onSessionSummaryChange: @MainActor (ChatSessionSummary) -> Void
+    @ObservationIgnored private let responseNotificationScheduler: any AgentResponseNotificationScheduling
     public let connectionMonitor: ConnectionMonitor
     @ObservationIgnored private let onOpenSettings: @MainActor (ClientSettingsDestination) -> Void
 
@@ -402,6 +411,7 @@ public final class ChatScreenViewModel {
         restoresLastSession: Bool = true,
         loadsGlobalSessionCatalog: Bool = false,
         onSessionSummaryChange: @escaping @MainActor (ChatSessionSummary) -> Void = { _ in },
+        responseNotificationScheduler: any AgentResponseNotificationScheduling = LocalAgentResponseNotificationScheduler.shared,
         onOpenSettings: @escaping @MainActor (ClientSettingsDestination) -> Void
     ) {
         self.apiClient = apiClient
@@ -411,6 +421,7 @@ public final class ChatScreenViewModel {
         self.restoresLastSession = restoresLastSession
         self.loadsGlobalSessionCatalog = loadsGlobalSessionCatalog
         self.onSessionSummaryChange = onSessionSummaryChange
+        self.responseNotificationScheduler = responseNotificationScheduler
         self.onOpenSettings = onOpenSettings
     }
 
@@ -1153,6 +1164,7 @@ public final class ChatScreenViewModel {
         saveActiveComposerDraft()
         disconnectCurrentSession()
         transcript.clear()
+        isLoadingTranscript = true
         selectedSessionId = sessionId
         activeContextTitle = retainedContextTitle
         activeProjectId = retainedProjectId
@@ -1299,6 +1311,10 @@ public final class ChatScreenViewModel {
         socketManager = nil
         isAwaitingAgentResponse = false
         isStopping = false
+        isLoadingTranscript = false
+        activeInputRequest = nil
+        isSubmittingInputResponse = false
+        inputRequestErrorMessage = nil
         activeRunStatus = nil
         if let manager {
             Task { await manager.disconnect() }
@@ -1307,6 +1323,11 @@ public final class ChatScreenViewModel {
 
     private func connectToSession(agentId: String, sessionId: String) async {
         guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
+        defer {
+            if isCurrentSession(agentId: agentId, sessionId: sessionId) {
+                isLoadingTranscript = false
+            }
+        }
 
         if let cached = await cacheStore.loadSessionDetail(agentId: agentId, sessionId: sessionId) {
             guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
@@ -1357,6 +1378,14 @@ public final class ChatScreenViewModel {
         if let runStatus = detail.latestRunStatus {
             handleRunStatus(runStatus, sessionId: detail.summary.id)
         }
+        let previousInputRequestID = activeInputRequest?.id
+        activeInputRequest = detail.pendingInputRequest
+        if activeInputRequest?.id != previousInputRequestID {
+            inputRequestErrorMessage = nil
+        }
+        if activeInputRequest != nil {
+            isAwaitingAgentResponse = false
+        }
     }
 
     private func handleStreamUpdate(
@@ -1375,6 +1404,19 @@ public final class ChatScreenViewModel {
             }
             if let runStatus = update.streamEvent?.runStatus {
                 handleRunStatus(runStatus, sessionId: sessionId)
+            }
+            if let inputRequest = update.streamEvent?.inputRequest {
+                flushPendingStreamingAssistantText()
+                streamingTurnTracker.completeNextTurn(for: sessionId)
+                activeInputRequest = inputRequest
+                inputRequestErrorMessage = nil
+                isAwaitingAgentResponse = false
+                isStopping = false
+            }
+            if let inputResponse = update.streamEvent?.inputResponse,
+               inputResponse.requestId == activeInputRequest?.id {
+                activeInputRequest = nil
+                inputRequestErrorMessage = nil
             }
         case .sessionClosed, .sessionError:
             isAwaitingAgentResponse = false
@@ -1531,9 +1573,37 @@ public final class ChatScreenViewModel {
             isAwaitingAgentResponse = true
         case .paused, .done, .interrupted:
             flushPendingStreamingAssistantText()
-            streamingTurnTracker.completeNextTurn(for: sessionId)
+            let completedMessageId = streamingTurnTracker.completeNextTurn(for: sessionId)
             isAwaitingAgentResponse = false
             isStopping = false
+            if status.stage == .done, let completedMessageId {
+                scheduleResponseCompletionNotification(
+                    sessionId: sessionId,
+                    messageId: completedMessageId
+                )
+            }
+        }
+    }
+
+    private func scheduleResponseCompletionNotification(
+        sessionId: String,
+        messageId: String
+    ) {
+        guard let agent = selectedAgent else { return }
+        let responsePreview = transcript.messages.last(where: {
+            $0.role == .assistant
+                && !$0.textContent.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        })?.textContent
+        let notification = AgentResponseCompletionNotification(
+            agentName: agent.displayName,
+            sessionTitle: activeSessionTitle,
+            responsePreview: responsePreview,
+            agentId: agent.id,
+            sessionId: sessionId,
+            messageId: messageId
+        )
+        Task { @MainActor [responseNotificationScheduler] in
+            await responseNotificationScheduler.schedule(notification)
         }
     }
 
@@ -1696,7 +1766,12 @@ public final class ChatScreenViewModel {
     #endif
 
     public func sendMessage(content: String) {
-        guard let agent = selectedAgent, !isSending, !isStopping else { return }
+        guard let agent = selectedAgent,
+              activeInputRequest == nil,
+              !isSending,
+              !isStopping else {
+            return
+        }
         let attachments = composerAttachments
         guard !content.isEmpty || !attachments.isEmpty else { return }
         sendErrorMessage = nil
@@ -1705,6 +1780,9 @@ public final class ChatScreenViewModel {
         isSending = true
         isAwaitingAgentResponse = true
         activeRunStatus = nil
+        Task { @MainActor [responseNotificationScheduler] in
+            await responseNotificationScheduler.prepareAuthorization()
+        }
         var optimisticSegments: [ChatMessageSegment] = []
         if !content.isEmpty {
             optimisticSegments.append(ChatMessageSegment(kind: .text, text: content))
@@ -1769,6 +1847,66 @@ public final class ChatScreenViewModel {
                 sessionId: sessionId,
                 optimistic: optimistic
             )
+        }
+    }
+
+    public func submitInputResponse(_ answers: [ChatPlanInputAnswer]) {
+        answerInputRequest(status: .answered, answers: answers)
+    }
+
+    public func cancelInputRequest() {
+        answerInputRequest(status: .cancelled, answers: [])
+    }
+
+    private func answerInputRequest(
+        status: ChatPlanInputResponseStatus,
+        answers: [ChatPlanInputAnswer]
+    ) {
+        guard let agentId = selectedAgent?.id,
+              let sessionId = selectedSessionId,
+              let inputRequest = activeInputRequest,
+              !isSubmittingInputResponse else {
+            return
+        }
+
+        isSubmittingInputResponse = true
+        inputRequestErrorMessage = nil
+        if status == .answered {
+            _ = ensureActiveStreamingAssistantTurn(for: sessionId)
+        }
+        Task { @MainActor in
+            defer { isSubmittingInputResponse = false }
+            do {
+                let summary = try await apiClient.answerSessionInputRequest(
+                    agentId: agentId,
+                    sessionId: sessionId,
+                    requestId: inputRequest.id,
+                    request: ChatPlanInputAnswerRequest(
+                        status: status,
+                        answers: answers
+                    )
+                )
+                guard isCurrentSession(agentId: agentId, sessionId: sessionId),
+                      activeInputRequest?.id == inputRequest.id else {
+                    return
+                }
+                activeInputRequest = nil
+                upsertSessionSummary(summary)
+                if status == .answered {
+                    isAwaitingAgentResponse = true
+                    activeRunStatus = nil
+                }
+                await hydrateSession(agentId: agentId, sessionId: sessionId)
+            } catch {
+                guard isCurrentSession(agentId: agentId, sessionId: sessionId),
+                      activeInputRequest?.id == inputRequest.id else {
+                    return
+                }
+                if status == .answered {
+                    streamingTurnTracker.completeNextTurn(for: sessionId)
+                }
+                inputRequestErrorMessage = "Answers were not sent: \(error.localizedDescription)"
+            }
         }
     }
 

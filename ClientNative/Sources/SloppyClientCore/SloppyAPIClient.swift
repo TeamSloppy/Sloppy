@@ -201,6 +201,20 @@ public actor SloppyAPIClient {
         try await sessions.fetchAgentSessionData(agentId: agentId, sessionId: sessionId)
     }
 
+    public func answerSessionInputRequest(
+        agentId: String,
+        sessionId: String,
+        requestId: String,
+        request: ChatPlanInputAnswerRequest
+    ) async throws -> ChatSessionSummary {
+        try await sessions.answerInputRequest(
+            agentId: agentId,
+            sessionId: sessionId,
+            requestId: requestId,
+            request: request
+        )
+    }
+
     public func createAgentSession(
         agentId: String,
         title: String? = nil,

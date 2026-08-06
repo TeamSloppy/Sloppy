@@ -34,6 +34,22 @@ struct CanvasWorkspaceLibraryView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .navigationTitle(viewModel.libraryTitle)
+#if os(iOS)
+        .navigationBarTitleDisplayMode(.large)
+#endif
+        .toolbar {
+            ToolbarItem(placement: .primaryAction) {
+                Button {
+                    isCreateSheetPresented = true
+                } label: {
+                    Label("New Workspace", systemImage: "plus")
+                        .labelStyle(.iconOnly)
+                }
+                .accessibilityLabel("New Workspace")
+                .accessibilityIdentifier("canvas-workspace-create")
+            }
+        }
         .accessibilityIdentifier("canvas-workspace-library")
         .sheet(isPresented: $isCreateSheetPresented) {
             CanvasWorkspaceCreateSheet(viewModel: viewModel)
@@ -42,30 +58,16 @@ struct CanvasWorkspaceLibraryView: View {
 
     private var libraryHeader: some View {
         VStack(alignment: .leading, spacing: 16) {
-            HStack(alignment: .center, spacing: 16) {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(viewModel.libraryTitle)
-                        .font(.title2.weight(.semibold))
-                    Text(viewModel.librarySubtitle)
-                        .font(.subheadline)
-                        .foregroundStyle(.secondary)
-                }
-
-                Spacer(minLength: 20)
+            HStack(spacing: 8) {
+                Text(viewModel.librarySubtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
 
                 if viewModel.isResolving, !viewModel.workspaces.isEmpty {
                     ProgressView()
                         .controlSize(.small)
                         .accessibilityLabel("Refreshing workspaces")
                 }
-
-                Button {
-                    isCreateSheetPresented = true
-                } label: {
-                    Label("New Workspace", systemImage: "plus")
-                }
-                .buttonStyle(.borderedProminent)
-                .accessibilityIdentifier("canvas-workspace-create")
             }
 
             HStack(spacing: 8) {

@@ -279,6 +279,133 @@ struct ChatModelsTests {
         #expect(update.message?.segments.first?.title == "shell.exec")
     }
 
+    @Test("session history exposes the newest unanswered structured input request")
+    func sessionHistoryExposesPendingInputRequest() throws {
+        let json = """
+        {
+            "summary": {
+                "id": "sess-input",
+                "agentId": "agent-1",
+                "title": "Plan",
+                "messageCount": 0,
+                "updatedAt": "2026-01-01T00:00:00Z",
+                "kind": "chat"
+            },
+            "events": [
+                {
+                    "id": "request-event-1",
+                    "type": "input_request",
+                    "inputRequest": {
+                        "id": "request-1",
+                        "mode": "plan",
+                        "title": "Choose an approach",
+                        "questions": [{
+                            "id": "architecture",
+                            "header": "Architecture",
+                            "question": "Which route should we take?",
+                            "options": [
+                                {"id": "native", "label": "Native", "description": "Use SwiftUI"},
+                                {"id": "web", "label": "Web"}
+                            ],
+                            "allowCustomAnswer": true
+                        }],
+                        "createdAt": "2026-01-01T00:00:01Z"
+                    }
+                }
+            ]
+        }
+        """.data(using: .utf8)!
+
+        let detail = try isoDecoder.decode(ChatSessionDetail.self, from: json)
+
+        #expect(detail.pendingInputRequest?.id == "request-1")
+        #expect(detail.pendingInputRequest?.questions.first?.options.first?.label == "Native")
+        #expect(detail.pendingInputRequest?.questions.first?.allowCustomAnswer == true)
+    }
+
+    @Test("answered structured input requests are no longer pending")
+    func answeredInputRequestIsNotPending() throws {
+        let json = """
+        {
+            "summary": {
+                "id": "sess-input",
+                "agentId": "agent-1",
+                "title": "Plan",
+                "messageCount": 0,
+                "updatedAt": "2026-01-01T00:00:00Z",
+                "kind": "chat"
+            },
+            "events": [
+                {
+                    "id": "request-event-1",
+                    "type": "input_request",
+                    "inputRequest": {
+                        "id": "request-1",
+                        "mode": "plan",
+                        "questions": [{
+                            "id": "q1",
+                            "question": "Choose?",
+                            "options": [
+                                {"id": "a", "label": "A"},
+                                {"id": "b", "label": "B"}
+                            ]
+                        }],
+                        "createdAt": "2026-01-01T00:00:01Z"
+                    }
+                },
+                {
+                    "id": "response-event-1",
+                    "type": "input_response",
+                    "inputResponse": {
+                        "requestId": "request-1",
+                        "status": "answered",
+                        "answers": [{"questionId": "q1", "selectedOptionId": "a"}],
+                        "userId": "apple-client"
+                    }
+                }
+            ]
+        }
+        """.data(using: .utf8)!
+
+        let detail = try isoDecoder.decode(ChatSessionDetail.self, from: json)
+
+        #expect(detail.pendingInputRequest == nil)
+    }
+
+    @Test("session stream decodes structured input requests")
+    func sessionStreamDecodesInputRequest() throws {
+        let json = """
+        {
+            "kind": "session_event",
+            "cursor": 5,
+            "event": {
+                "id": "request-event-live",
+                "type": "input_request",
+                "inputRequest": {
+                    "id": "request-live",
+                    "mode": "plan",
+                    "questions": [{
+                        "id": "q1",
+                        "question": "Continue?",
+                        "options": [
+                            {"id": "yes", "label": "Yes"},
+                            {"id": "no", "label": "No"}
+                        ]
+                    }],
+                    "createdAt": "2026-01-01T00:00:01Z"
+                }
+            },
+            "createdAt": "2026-01-01T00:00:01Z"
+        }
+        """.data(using: .utf8)!
+
+        let update = try isoDecoder.decode(ChatStreamUpdate.self, from: json)
+
+        #expect(update.streamEvent?.type == .inputRequest)
+        #expect(update.streamEvent?.inputRequest?.id == "request-live")
+        #expect(update.streamEvent?.inputRequest?.questions.first?.allowCustomAnswer == true)
+    }
+
     @Test("ChatSessionSummary decodes from JSON")
     func chatSessionSummaryDecoding() throws {
         let json = """

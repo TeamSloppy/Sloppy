@@ -16,6 +16,19 @@ struct ChatComposerRenderingTests {
         }
     }
 
+    private var composerSuggestionsSource: String {
+        get throws {
+            let packageRoot = URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+            let sourceURL = packageRoot
+                .appendingPathComponent("Sources")
+                .appendingPathComponent("SloppyFeatureChat/Screens/Chat/Views/ComposerSuggestionsView.swift")
+            return try String(contentsOf: sourceURL, encoding: .utf8)
+        }
+    }
+
     @Test("composer text field uses white caret")
     func composerTextFieldUsesWhiteCaret() throws {
         let source = try chatComposerSource
@@ -36,16 +49,31 @@ struct ChatComposerRenderingTests {
         #expect(source.contains("height: ChatComposerView.phoneCircleSize"))
         #expect(source.contains(".buttonBorderShape(.circle)"))
         #expect(source.contains(".buttonStyle(.glass)"))
+        #expect(source.contains("Icons.symbol(.add, size: theme.typography.heading)"))
     }
 
-    @Test("desktop composer and circular controls share one outer height")
-    func desktopComposerAndCircularControlsShareOneOuterHeight() throws {
+    @Test("desktop composer uses a compact single-row layout")
+    func desktopComposerUsesCompactSingleRowLayout() throws {
         let source = try chatComposerSource
 
+        #expect(source.contains("public static let panelHeight: CGFloat = Constants.fieldHeight"))
         #expect(source.contains("private static let panelRadius: CGFloat = panelHeight / 2"))
-        #expect(source.contains("width: ChatComposerView.panelHeight"))
-        #expect(source.contains("height: ChatComposerView.panelHeight"))
-        #expect(!source.contains(".frame(width: 42, height: 42)"))
+        #expect(source.contains("width: ChatComposerView.buttonSize"))
+        #expect(source.contains("height: ChatComposerView.buttonSize"))
+        #expect(source.contains("HStack(spacing: 0)"))
+        #expect(source.contains(".fixedSize(horizontal: true, vertical: false)"))
+        #expect(!source.contains("modelPickerBottomPadding"))
+    }
+
+    @Test("desktop add glyph is centered independently from the menu indicator")
+    func desktopAddGlyphIsCenteredIndependentlyFromMenuIndicator() throws {
+        let source = try chatComposerSource
+
+        #expect(source.contains("struct CustomMenuButtonStyle: MenuStyle"))
+        #expect(source.contains("Color.clear"))
+        #expect(source.contains("ZStack {\n            Menu(configuration)"))
+        #expect(source.contains("Icons.symbol(.add, size: theme.typography.heading)"))
+        #expect(source.contains(".allowsHitTesting(false)"))
     }
 
     @Test("composer add button exposes platform-specific picker menus")
@@ -72,6 +100,27 @@ struct ChatComposerRenderingTests {
         #expect(source.contains("public let tabActions: ChatComposerTabActions?"))
         #expect(source.contains("tabActions?.tabProgress(newValue)"))
         #expect(source.contains("tabActions?.showOverview()"))
+        #expect(source.contains("maxHeight: isExpandedPhoneLayout ? .infinity : Self.phoneFieldHeight"))
+        #expect(source.contains(".frame(height: currentPanelHeight, alignment: .bottom)"))
+    }
+
+    @Test("phone composer expands on focus and exposes agent and model pickers")
+    func phoneComposerExpandsOnFocusWithContextPickers() throws {
+        let source = try chatComposerSource
+
+        #expect(source.contains("@State private var isPhoneComposerExpanded = false"))
+        #expect(source.contains("public static let expandedPhonePanelHeight: CGFloat = 228"))
+        #expect(source.contains("onFocusChanged: updatePhoneComposerExpansion"))
+        #expect(source.contains(".onChange(of: isTextFieldFocused)"))
+        #expect(source.contains("private var isExpandedPhoneLayout: Bool"))
+        #expect(source.contains("textFieldContainer(showsGlassBackground: !isExpandedPhoneLayout)"))
+        #expect(!source.contains("private var expandedPhoneComposer: some View"))
+        #expect(source.contains("MobileComposerAgentPicker("))
+        #expect(source.contains("MobileComposerModelPicker("))
+        #expect(source.contains("chat.composer.expanded"))
+        #expect(source.contains("chat.composer.agent-picker"))
+        #expect(source.contains("chat.composer.model-picker"))
+        #expect(source.contains("if idiom != .phone"))
     }
 
     @Test("composer text fields are focusable and can be blurred externally")
@@ -92,6 +141,16 @@ struct ChatComposerRenderingTests {
         #expect(!source.contains("draft.text = \"\""))
     }
 
+    @Test("composer always uses the currently selected chat view model")
+    func composerUsesCurrentlySelectedChatViewModel() throws {
+        let source = try chatComposerSource
+
+        #expect(source.contains("private let viewModel: ChatScreenViewModel"))
+        #expect(source.contains("self.viewModel = viewModel"))
+        #expect(!source.contains("@State private var viewModel: ChatScreenViewModel"))
+        #expect(!source.contains("State(initialValue: viewModel)"))
+    }
+
     @Test("composer renders removable attachments and accepts clipboard files")
     func composerRendersAttachmentsAndAcceptsPaste() throws {
         let source = try chatComposerSource
@@ -99,7 +158,7 @@ struct ChatComposerRenderingTests {
         #expect(source.contains("private struct ChatComposerAttachmentStrip"))
         #expect(source.contains("viewModel.composerAttachments"))
         #expect(source.contains("remove: viewModel.removeComposerAttachment"))
-        #expect(source.contains(".onPasteCommand(of: [.fileURL, .image])"))
+        #expect(source.contains("onPasteCommand(of: [.fileURL, .image]"))
         #expect(source.contains("viewModel.attachItemProviders(providers)"))
         #expect(source.contains("MacAttachmentPasteMonitor(isEnabled: isTextFieldFocused)"))
         #expect(source.contains("NSEvent.addLocalMonitorForEvents(matching: .keyDown)"))
@@ -142,9 +201,9 @@ struct ChatComposerRenderingTests {
         #expect(source.contains("insertNewlineAtSelection()\n                return .handled"))
         #expect(source.contains("draft.text.replaceSubrange(replacementRange, with: \"\\n\")"))
         #expect(source.contains("TextSelection(insertionPoint: insertionPoint)"))
-        #expect(source.contains(".onChange(of: draft.selection)"))
         #expect(source.contains("@State private var composerCursorOffset: Int?"))
-        #expect(source.contains("composerCursorOffset = draft.text.distance("))
+        #expect(source.contains("ChatComposerTextEdit.cursorOffsetAfterEdit("))
+        #expect(!source.contains(".onChange(of: draft.selection)"))
     }
 
     @Test("composer wraps long text without reserving its maximum height")
@@ -188,12 +247,16 @@ struct ChatComposerRenderingTests {
 
     @Test("composer command suggestions use a full-size panel")
     func composerSuggestionsUseFullSizePanel() throws {
-        let source = try chatComposerSource
+        let composerSource = try chatComposerSource
+        let suggestionsSource = try composerSuggestionsSource
 
-        #expect(source.contains("private static let panelHeight: CGFloat = 320"))
-        #expect(source.contains("minHeight: Self.panelHeight"))
-        #expect(source.contains("maxHeight: Self.panelHeight"))
-        #expect(source.contains(".overlay(alignment: .bottom)"))
+        #expect(suggestionsSource.contains("static let panelHeight: CGFloat = 320"))
+        #expect(suggestionsSource.contains("minHeight: Self.panelHeight"))
+        #expect(suggestionsSource.contains("maxHeight: Self.panelHeight"))
+        #expect(composerSource.contains(".overlay(alignment: .top)"))
+        #expect(composerSource.contains(".offset(y: -(ComposerSuggestionsView.panelHeight + autocompleteGap))"))
+        #expect(!composerSource.contains(".alignmentGuide(.top)"))
+        #expect(!composerSource.contains("composerSuggestionsOffset"))
     }
 
     @Test("composer trailing action swaps between dictation send and stop")
@@ -206,7 +269,7 @@ struct ChatComposerRenderingTests {
         #expect(source.contains("viewModel.startDictation()"))
         #expect(source.contains("stop: viewModel.stopDictation"))
         #expect(source.contains("viewModel.stopActiveRun()"))
-        #expect(source.contains("guard !trimmed.isEmpty, viewModel.canSubmitMessage else { return }"))
+        #expect(source.contains("guard (!trimmed.isEmpty || !viewModel.composerAttachments.isEmpty), viewModel.canSubmitMessage else { return }"))
     }
 
     @Test("composer dictation bar replaces controls with waveform timer and stop button")
@@ -250,7 +313,6 @@ struct ChatComposerRenderingTests {
         #expect(source.contains("groupedModels"))
         #expect(source.contains("selectedEffort.compactTitle"))
         #expect(source.contains("Constants.modelPickerRowHeight"))
-        #expect(source.contains("Constants.modelPickerBottomPadding"))
         #expect(source.contains("Refresh Models"))
         #expect(source.contains("Edit Models…"))
         #expect(source.contains("chat.composer.model-picker"))

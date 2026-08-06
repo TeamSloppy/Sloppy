@@ -15,10 +15,41 @@ struct ChatTranscriptStateTests {
         #expect(tracker.currentMessageId(for: "session") == "assistant-turn-1")
         #expect(tracker.claimFinalMessageId(for: "session") == "assistant-turn-1")
 
-        tracker.completeNextTurn(for: "session")
+        #expect(tracker.completeNextTurn(for: "session") == "assistant-turn-1")
 
         #expect(tracker.currentMessageId(for: "session") == "assistant-turn-2")
         #expect(tracker.claimFinalMessageId(for: "session") == "assistant-turn-2")
+    }
+
+    @Test("completion notification uses response preview and a session deep link")
+    func completionNotificationContent() {
+        let notification = AgentResponseCompletionNotification(
+            agentName: "Builder",
+            sessionTitle: "Fix notifications",
+            responsePreview: "  Finished\nwith   tests.  ",
+            agentId: "agent/id",
+            sessionId: "session?id",
+            messageId: "message-1"
+        )
+
+        #expect(notification.title == "Builder finished responding")
+        #expect(notification.body == "Finished with tests.")
+        #expect(notification.deepLink == "sloppy://session?agent=agent/id&id=session?id")
+        #expect(notification.identifier == "agent-response.session?id.message-1")
+    }
+
+    @Test("completion notification has a fallback body")
+    func completionNotificationFallbackBody() {
+        let notification = AgentResponseCompletionNotification(
+            agentName: "Builder",
+            sessionTitle: "Chat",
+            responsePreview: nil,
+            agentId: "agent",
+            sessionId: "session",
+            messageId: "message"
+        )
+
+        #expect(notification.body == "The agent’s response is ready.")
     }
 
     @Test("replaceAll keeps only a recent window visible for large histories")

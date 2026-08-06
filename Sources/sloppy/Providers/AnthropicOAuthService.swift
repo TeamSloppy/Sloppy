@@ -17,7 +17,7 @@ struct AnthropicOAuthService: @unchecked Sendable {
     typealias Transport = @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse)
 
     private static let clientID = "9d1c250a-e61b-44d9-88ed-5944d1962f5e"
-    private static let authorizationEndpoint = URL(string: "https://console.anthropic.com/oauth/authorize")!
+    private static let authorizationEndpoint = URL(string: "https://platform.claude.com/oauth/authorize")!
     private static let tokenEndpoints = [
         URL(string: "https://platform.claude.com/v1/oauth/token")!,
         URL(string: "https://console.anthropic.com/v1/oauth/token")!,
@@ -26,7 +26,6 @@ struct AnthropicOAuthService: @unchecked Sendable {
         "user:inference",
         "user:profile",
         "user:sessions:claude_code",
-        "offline_access",
     ]
     private static let logger = Logger.sloppy(label: "sloppy.core.anthropic-oauth")
 

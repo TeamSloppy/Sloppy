@@ -41,33 +41,39 @@ struct ChatScreenRenderingTests {
         #expect(contentSource.contains("viewModel.loadInitialData()"))
     }
 
-    @Test("phone navigation uses a dedicated mobile header capsule")
-    func phoneNavigationUsesDedicatedMobileHeaderCapsule() throws {
+    @Test("phone navigation uses a native title without a custom capsule or burger")
+    func phoneNavigationUsesNativeTitle() throws {
         let source = try chatScreenSource
 
-        #expect(source.contains("MobileChatNavigationHeader"))
-        #expect(source.contains("MobileChatNavigationCenterCapsule"))
-        #expect(source.contains("mobileNavigationCapsuleWidth"))
-        #expect(source.contains("ChatOverlayLayout.pickerTopInset"))
-        #expect(source.contains("effectiveSafeAreaTop: safeAreaInsets.top"))
-        #expect(source.contains("Icons.symbol(.menu"))
+        #expect(source.contains(".navigationTitle(viewModel.activeSessionTitle)"))
+        #expect(source.contains(".navigationBarTitleDisplayMode(.inline)"))
+        #expect(!source.contains("MobileChatNavigationHeader"))
+        #expect(!source.contains("MobileChatNavigationCenterCapsule"))
+        #expect(!source.contains("MobileChatNavigationIconButton(symbol: .menu"))
     }
 
     @Test("phone navigation offers a new message button")
     func phoneNavigationOffersNewMessageButton() throws {
         let source = try chatScreenSource
 
-        #expect(source.contains("MobileChatNavigationIconButton(symbol: .new)"))
+        #expect(source.contains("Label(\"New message\", systemImage: \"square.and.pencil\")"))
         #expect(source.contains("viewModel.startNewMessage()"))
         #expect(source.contains(".accessibilityLabel(\"New message\")"))
         #expect(source.contains(".accessibilityIdentifier(\"chat.navigation.new-message\")"))
+    }
+
+    @Test("attachment importer accepts arbitrary files")
+    func attachmentImporterAcceptsArbitraryFiles() throws {
+        let source = try chatScreenSource
+
+        #expect(source.contains("allowedContentTypes: [.item]"))
+        #expect(!source.contains("allowedContentTypes: []"))
     }
 
     @Test("empty mobile chat keeps composer pinned to bottom")
     func emptyMobileChatKeepsComposerPinnedToBottom() throws {
         let source = try chatScreenSource
 
-        #expect(source.contains("let showsComposer = true"))
         #expect(source.contains("bottomClearance: composerScrollInset"))
         #expect(source.contains("Spacer(minLength: bottomClearance)"))
     }
@@ -134,21 +140,23 @@ struct ChatScreenRenderingTests {
         #expect(source.contains("Current session:"))
     }
 
-    @Test("agent selection in header uses picker view")
-    func agentSelectionInHeaderUsesPickerView() throws {
+    @Test("agent selection is not embedded into the phone navigation title")
+    func agentSelectionIsNotEmbeddedIntoPhoneNavigationTitle() throws {
         let source = try chatScreenSource
 
-        #expect(source.contains("Picker(\"\", selection: selectedAgentId"))
-        #expect(source.contains(".pickerStyle(.menu)"))
+        #expect(!source.contains("Picker(\"\", selection: selectedAgentId"))
+        #expect(source.contains("ChatContextToolbarModifier"))
+        #expect(source.contains("if idiom == .phone {\n            content\n        } else if isEnabled"))
     }
 
-    @Test("agent picker binding falls back to the first loaded agent id")
-    func agentPickerBindingFallsBackToFirstLoadedAgentId() throws {
+    @Test("empty transcript shows progress while session history is loading")
+    func emptyTranscriptShowsLoadingProgress() throws {
         let source = try chatScreenSource
 
-        #expect(source.contains("viewModel.selectedAgent?.id"))
-        #expect(source.contains("viewModel.agents.first?.id"))
-        #expect(source.contains("?? \"\""))
+        #expect(source.contains("viewModel.isLoadingTranscript, viewModel.transcript.isEmpty"))
+        #expect(source.contains("private struct ChatTranscriptLoadingView"))
+        #expect(source.contains("Text(\"Loading conversation…\")"))
+        #expect(source.contains("chat.transcript.loading"))
     }
 
     @Test("chat only follows new messages while the transcript is near the bottom")
@@ -156,13 +164,14 @@ struct ChatScreenRenderingTests {
         let source = try chatScreenSource
 
         #expect(source.contains("@State private var isNearBottom = true"))
-        #expect(source.contains(".onScrollGeometryChange(for: Bool.self)"))
+        #expect(!source.contains(".onScrollGeometryChange"))
         #expect(source.contains(".onScrollPhaseChange"))
-        #expect(source.contains("if isUserScrolling"))
+        #expect(source.contains("!isUserScrolling"))
         #expect(source.contains("geometry.visibleRect.maxY >= geometry.contentSize.height - bottomThreshold"))
         #expect(source.contains("oldCount == 0 || isNearBottom"))
         #expect(source.contains("guard isNearBottom,"))
         #expect(source.contains("proxy.scrollTo(bottomAnchorId, anchor: .bottom)"))
+        #expect(source.contains("scrollToBottom(using: proxy, animated: false)"))
     }
 
     @Test("opening a chat always starts at the end of the transcript")
@@ -173,6 +182,13 @@ struct ChatScreenRenderingTests {
         #expect(source.contains(".defaultScrollAnchor(.bottom)"))
         #expect(source.contains(".onChange(of: scrollToEndRequest, initial: true)"))
         #expect(source.contains("scrollToBottom(using: proxy, animated: false)"))
+    }
+
+    @Test("short chats align their first message to the top")
+    func shortChatsAlignFirstMessageToTop() throws {
+        let source = try chatScreenSource
+
+        #expect(source.contains(".defaultScrollAnchor(.top, for: .alignment)"))
     }
 
     @Test("chat groups system activity and shows a shimmering thinking state")
