@@ -131,7 +131,7 @@ targets:
         NSSpeechRecognitionUsageDescription: Sloppy uses Speech Recognition to transcribe voice input when local fallback is needed.
         NSSupportsLiveActivities: true
         NSAppTransportSecurity:
-          NSAllowsLocalNetworking: true
+          NSAllowsArbitraryLoads: true
     entitlements:
       path: SupportingFiles/iOS/SloppyClient-iOS.entitlements
       properties:
@@ -198,7 +198,7 @@ targets:
         NSSpeechRecognitionUsageDescription: Sloppy uses Speech Recognition to transcribe voice input when local fallback is needed.
         NSSupportsLiveActivities: true
         NSAppTransportSecurity:
-          NSAllowsLocalNetworking: true
+          NSAllowsArbitraryLoads: true
     entitlements:
       path: SupportingFiles/iOS/SloppyClient-iPadOS.entitlements
       properties:
@@ -275,7 +275,7 @@ targets:
         NSMicrophoneUsageDescription: Sloppy uses the microphone to record audio for voice input.
         NSSpeechRecognitionUsageDescription: Sloppy uses Speech Recognition to transcribe voice input when local fallback is needed.
         NSAppTransportSecurity:
-          NSAllowsLocalNetworking: true
+          NSAllowsArbitraryLoads: true
     entitlements:
       path: SupportingFiles/visionOS/SloppyClient-visionOS.entitlements
       properties:

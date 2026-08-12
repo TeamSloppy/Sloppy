@@ -13,6 +13,17 @@ public enum APIError: Error, Sendable {
         if case let .httpError(statusCode, _) = self { return statusCode }
         return nil
     }
+
+    public var diagnosticDescription: String {
+        switch self {
+        case .invalidResponse:
+            return "Invalid HTTP response"
+        case .httpError(let statusCode, _):
+            return "HTTP \(statusCode)"
+        case .decodingFailed(let message):
+            return "Response decoding failed: \(message)"
+        }
+    }
 }
 
 public actor BackendHTTPClient {
@@ -155,6 +166,15 @@ public actor BackendHTTPClient {
             return initial.data
         }
 
+        logger.warning(
+            "http.auth.recovery-started",
+            metadata: [
+                "method": .string(method),
+                "path": .string(path),
+                "server": .string(Self.serverDescription(baseURL)),
+            ]
+        )
+
         let recovery = await authSessionStore.recoverSession(
             for: baseURL,
             rejectedAccessToken: initialToken
@@ -163,6 +183,14 @@ public actor BackendHTTPClient {
         }
 
         if case .recovered(let refreshedSession) = recovery {
+            logger.info(
+                "http.auth.recovery-succeeded",
+                metadata: [
+                    "method": .string(method),
+                    "path": .string(path),
+                    "server": .string(Self.serverDescription(baseURL)),
+                ]
+            )
             if authToken.isEmpty || authToken == initialToken {
                 authToken = refreshedSession.accessToken
             }
@@ -185,6 +213,14 @@ public actor BackendHTTPClient {
         if authToken == initialToken {
             authToken = ""
         }
+        logger.warning(
+            "http.auth.recovery-failed",
+            metadata: [
+                "method": .string(method),
+                "path": .string(path),
+                "server": .string(Self.serverDescription(baseURL)),
+            ]
+        )
         notifyAuthenticationRequired()
         try validate(response: initial.response, data: initial.data)
         return initial.data
@@ -221,8 +257,45 @@ public actor BackendHTTPClient {
             request.httpBody = bodyData
         }
 
-        logger.debug("\(method) \(url.absoluteString)")
-        return try await session.data(for: request)
+        let requestID = String(UUID().uuidString.prefix(8)).lowercased()
+        let startedAt = Date()
+        let metadata: Logger.Metadata = [
+            "auth": .string(authToken?.isEmpty == false ? "present" : "absent"),
+            "body_bytes": .stringConvertible(bodyData?.count ?? 0),
+            "method": .string(method),
+            "path": .string(url.path.isEmpty ? "/" : url.path),
+            "request_id": .string(requestID),
+            "server": .string(Self.serverDescription(url)),
+        ]
+        logger.info("http.request.started", metadata: metadata)
+
+        do {
+            let result = try await session.data(for: request)
+            var responseMetadata = metadata
+            responseMetadata["duration_ms"] = .stringConvertible(
+                max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
+            )
+            responseMetadata["response_bytes"] = .stringConvertible(result.0.count)
+            if let statusCode = statusCode(for: result.1) {
+                responseMetadata["status"] = .stringConvertible(statusCode)
+                if statusCode >= 400 {
+                    logger.warning("http.request.completed", metadata: responseMetadata)
+                } else {
+                    logger.info("http.request.completed", metadata: responseMetadata)
+                }
+            } else {
+                logger.error("http.request.invalid-response", metadata: responseMetadata)
+            }
+            return result
+        } catch {
+            var failureMetadata = metadata
+            failureMetadata["duration_ms"] = .stringConvertible(
+                max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
+            )
+            failureMetadata["error"] = .string(String(describing: error))
+            logger.error("http.request.failed", metadata: failureMetadata)
+            throw error
+        }
     }
 
     private func refreshSession(using refreshToken: String) async -> AuthSession? {
@@ -240,7 +313,9 @@ public actor BackendHTTPClient {
             try validate(response: result.response, data: result.data)
             return try decode(AuthSession.self, from: result.data)
         } catch {
-            logger.warning("Could not refresh authentication session: \(error)")
+            let description = (error as? APIError)?.diagnosticDescription
+                ?? (error as NSError).localizedDescription
+            logger.warning("Could not refresh authentication session: \(description)")
             return nil
         }
     }
@@ -262,6 +337,12 @@ public actor BackendHTTPClient {
 
     private func statusCode(for response: URLResponse) -> Int? {
         (response as? HTTPURLResponse)?.statusCode
+    }
+
+    private nonisolated static func serverDescription(_ url: URL) -> String {
+        guard let host = url.host else { return "unknown-server" }
+        if let port = url.port { return "\(host):\(port)" }
+        return host
     }
 
     private func notifyAuthenticationRequired() {

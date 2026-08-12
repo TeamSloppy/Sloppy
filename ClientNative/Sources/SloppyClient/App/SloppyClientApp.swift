@@ -164,6 +164,7 @@ struct SloppyClientApp: App {
     #endif
 
     init() {
+        ClientLogging.bootstrap()
         _viewModel = State(initialValue: RootShellViewModel())
     }
 

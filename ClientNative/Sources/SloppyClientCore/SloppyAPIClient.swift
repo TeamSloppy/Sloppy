@@ -15,6 +15,7 @@ public actor SloppyAPIClient {
     private let config: ConfigService
     private let auth: AuthService
     private let voice: VoiceService
+    private let logger: Logger
 
     public init(
         baseURL: URL = URL(string: "http://localhost:25101")!,
@@ -39,6 +40,7 @@ public actor SloppyAPIClient {
         self.config = ConfigService(http: http)
         self.auth = AuthService(http: http)
         self.voice = VoiceService(http: http)
+        self.logger = logger
     }
 
     public func setAuthToken(_ token: String) async {
@@ -47,6 +49,26 @@ public actor SloppyAPIClient {
 
     public func fetchAuthChallenge() async throws -> AuthChallenge {
         try await auth.fetchAuthChallenge()
+    }
+
+    /// Resolves the authentication UI required for a new connection.
+    ///
+    /// Dashboard-token deployments protect most API routes and some older Core
+    /// versions also protect `/v1/auth/challenge` itself. The dashboard auth
+    /// status endpoint remains public, so a 401 challenge response means the
+    /// client must ask for the legacy dashboard access token.
+    public func fetchConnectionAuthChallenge() async throws -> AuthChallenge {
+        do {
+            return try await auth.fetchAuthChallenge()
+        } catch let error as APIError where error.statusCode == 401 {
+            let status = try await auth.fetchDashboardAuthStatus()
+            guard status.enabled else { throw error }
+            logger.info(
+                "auth.challenge.legacy-token-fallback",
+                metadata: ["server": .string(Self.serverDescription(baseURL))]
+            )
+            return .legacyToken
+        }
     }
 
     public func loginIdentityUser(login: String, password: String) async throws -> AuthSession {
@@ -81,6 +103,12 @@ public actor SloppyAPIClient {
 
     public func logout() async {
         await http.clearAuthSession()
+    }
+
+    private nonisolated static func serverDescription(_ url: URL) -> String {
+        guard let host = url.host else { return "unknown-server" }
+        if let port = url.port { return "\(host):\(port)" }
+        return host
     }
 
     public func fetchProjects() async throws -> [APIProjectRecord] {

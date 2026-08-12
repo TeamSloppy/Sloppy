@@ -229,6 +229,581 @@
   min-width: 0;
 }
 
+/* Users & Auth */
+.auth-users-editor {
+  width: min(100%, 1180px);
+  margin: 0 auto;
+  padding: 20px;
+  display: grid;
+  gap: 14px;
+}
+
+.auth-users-header {
+  padding: 4px 2px 18px;
+  border-bottom: 1px solid var(--line);
+}
+
+.auth-users-header h3 {
+  margin: 5px 0 8px;
+  font-size: clamp(1.28rem, 2vw, 1.65rem);
+  letter-spacing: -0.035em;
+}
+
+.auth-users-header p {
+  max-width: 760px;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.84rem;
+  line-height: 1.55;
+}
+
+.auth-users-eyebrow {
+  color: var(--accent);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.auth-panel {
+  min-width: 0;
+  padding: 18px;
+  display: grid;
+  gap: 16px;
+  border: 1px solid var(--line);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--surface-2) 82%, transparent), var(--surface));
+}
+
+.auth-mode-panel {
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  border-left: 3px solid var(--accent);
+}
+
+.auth-section-heading,
+.auth-panel-header,
+.auth-heading-line,
+.auth-user-identity,
+.auth-user-actions,
+.auth-text-button,
+.auth-button,
+.auth-notice,
+.auth-created-token,
+.auth-secret-banner,
+.auth-token-row {
+  display: flex;
+  align-items: center;
+}
+
+.auth-section-heading {
+  min-width: 0;
+  gap: 12px;
+}
+
+.auth-section-icon,
+.auth-user-avatar,
+.auth-token-icon {
+  width: 38px;
+  height: 38px;
+  flex: 0 0 38px;
+  display: grid;
+  place-items: center;
+  border: 1px solid color-mix(in srgb, var(--accent) 32%, var(--line));
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 7%, var(--surface));
+}
+
+.auth-icon {
+  font-size: 19px;
+  line-height: 1;
+  font-variation-settings: "FILL" 0, "wght" 400, "GRAD" 0, "opsz" 20;
+}
+
+.auth-section-copy {
+  min-width: 0;
+  display: grid;
+  gap: 4px;
+  color: var(--muted);
+  font-size: 0.77rem;
+  line-height: 1.4;
+}
+
+.auth-section-copy h4 {
+  margin: 0;
+  color: var(--text);
+  font-size: 0.9rem;
+}
+
+.auth-heading-line {
+  min-width: 0;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.auth-status-badge,
+.auth-count-badge {
+  min-height: 22px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border: 1px solid var(--line);
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 0.66rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+
+.auth-status-badge.is-active {
+  border-color: color-mix(in srgb, var(--success) 45%, var(--line));
+  color: var(--success);
+  background: color-mix(in srgb, var(--success) 6%, var(--surface));
+}
+
+.auth-status-badge.is-disabled {
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--line));
+  color: var(--danger);
+}
+
+.auth-status-dot {
+  width: 6px;
+  height: 6px;
+  background: currentColor;
+}
+
+.auth-count-badge {
+  min-width: 22px;
+  justify-content: center;
+  padding-inline: 6px;
+  color: var(--text);
+}
+
+.auth-mode-action {
+  display: grid;
+  justify-items: end;
+  gap: 7px;
+}
+
+.auth-mode-action > span {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  color: var(--warn);
+  font-size: 0.68rem;
+}
+
+.auth-button,
+.auth-icon-button,
+.auth-text-button,
+.auth-role-control button {
+  min-width: 0;
+  transition: color 160ms ease, border-color 160ms ease, background 160ms ease;
+}
+
+.auth-button {
+  width: fit-content;
+  min-height: 38px;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 12px;
+}
+
+.auth-button.is-primary {
+  border-color: color-mix(in srgb, var(--accent) 62%, var(--line));
+  color: var(--bg);
+  background: var(--accent);
+}
+
+.auth-button.is-primary:hover {
+  color: var(--bg);
+  border-color: var(--text);
+  background: color-mix(in srgb, var(--accent) 88%, white);
+}
+
+.auth-icon-button {
+  width: 36px;
+  height: 36px;
+  flex: 0 0 36px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  color: var(--muted);
+}
+
+.auth-icon-button:hover,
+.auth-text-button:hover {
+  color: var(--accent);
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line));
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+}
+
+.auth-panel-header {
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.auth-inline-status {
+  margin: 0;
+  padding: 9px 11px;
+  border-left: 2px solid var(--accent);
+  color: var(--muted);
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.auth-user-list,
+.auth-token-list {
+  display: grid;
+  gap: 8px;
+}
+
+.auth-user-row {
+  min-width: 0;
+  min-height: 70px;
+  padding: 10px 12px;
+  display: grid;
+  grid-template-columns: minmax(180px, 1fr) auto auto auto;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+}
+
+.auth-user-row.is-disabled {
+  opacity: 0.68;
+  background: var(--surface);
+}
+
+.auth-user-identity {
+  min-width: 0;
+  gap: 10px;
+}
+
+.auth-user-avatar {
+  width: 34px;
+  height: 34px;
+  flex-basis: 34px;
+  color: var(--text);
+  border-color: var(--line);
+}
+
+.auth-user-identity > span:last-child,
+.auth-token-copy {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.auth-user-identity strong,
+.auth-token-copy strong {
+  overflow: hidden;
+  color: var(--text);
+  font-size: 0.82rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auth-user-identity > span:last-child > span,
+.auth-token-copy > span {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.7rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auth-role-control {
+  padding: 3px;
+  display: inline-grid;
+  grid-template-columns: repeat(2, minmax(62px, 1fr));
+  gap: 3px;
+  border: 1px solid var(--line);
+  background: var(--surface);
+}
+
+.auth-role-control button {
+  min-height: 30px;
+  padding: 5px 9px;
+  border-color: transparent;
+  color: var(--muted);
+  background: transparent;
+  font-size: 0.7rem;
+}
+
+.auth-role-control button:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+.auth-role-control button.is-selected {
+  border-color: color-mix(in srgb, var(--accent) 48%, var(--line));
+  color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+}
+
+.auth-role-control.is-wide {
+  width: 100%;
+}
+
+.auth-user-actions {
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.auth-text-button {
+  min-height: 32px;
+  justify-content: center;
+  gap: 5px;
+  padding: 5px 8px;
+  color: var(--muted);
+  background: transparent;
+  font-size: 0.68rem;
+  white-space: nowrap;
+}
+
+.auth-text-button .auth-icon {
+  font-size: 16px;
+}
+
+.auth-text-button.is-danger {
+  color: var(--danger);
+}
+
+.auth-text-button.is-danger:hover {
+  border-color: color-mix(in srgb, var(--danger) 52%, var(--line));
+  color: var(--danger);
+  background: color-mix(in srgb, var(--danger) 7%, var(--surface));
+}
+
+.auth-text-button.is-success {
+  color: var(--success);
+}
+
+.auth-panel-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+.auth-panel-grid .auth-panel {
+  align-content: start;
+}
+
+.auth-field-label,
+.auth-panel label,
+.auth-created-token label,
+.auth-secret-banner label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.auth-notice {
+  gap: 7px;
+  color: var(--warn);
+  font-size: 0.7rem;
+  line-height: 1.4;
+}
+
+.auth-notice .auth-icon {
+  flex: 0 0 auto;
+  font-size: 16px;
+}
+
+.auth-secret-field,
+.auth-recovery-codes {
+  margin-top: 2px;
+}
+
+.auth-recovery-codes {
+  min-height: 118px;
+  resize: vertical;
+  color: var(--accent);
+  font-size: 0.75rem;
+  line-height: 1.55;
+}
+
+.auth-secret-banner {
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid color-mix(in srgb, var(--warn) 52%, var(--line));
+  color: var(--warn);
+  background: color-mix(in srgb, var(--warn) 6%, var(--surface));
+}
+
+.auth-secret-banner > .auth-icon {
+  flex: 0 0 auto;
+}
+
+.auth-secret-banner label {
+  width: 100%;
+}
+
+.auth-form-grid,
+.auth-token-create {
+  display: grid;
+  align-items: end;
+  gap: 10px;
+}
+
+.auth-form-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr)) auto;
+}
+
+.auth-token-create {
+  grid-template-columns: minmax(220px, 420px) auto;
+}
+
+.auth-created-token {
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid color-mix(in srgb, var(--accent) 48%, var(--line));
+  background: color-mix(in srgb, var(--accent) 6%, var(--surface));
+}
+
+.auth-created-token label {
+  min-width: 0;
+  flex: 1;
+  color: var(--accent);
+}
+
+.auth-token-row {
+  min-width: 0;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface-2) 72%, transparent);
+}
+
+.auth-token-icon {
+  width: 32px;
+  height: 32px;
+  flex-basis: 32px;
+}
+
+.auth-token-copy {
+  flex: 1;
+}
+
+.auth-token-copy code {
+  color: var(--accent);
+}
+
+.auth-empty-state {
+  padding: 18px;
+  border: 1px dashed var(--line);
+  color: var(--muted);
+  text-align: center;
+  font-size: 0.76rem;
+}
+
+@media (max-width: 1100px) {
+  .auth-user-row {
+    grid-template-columns: minmax(180px, 1fr) auto auto;
+  }
+
+  .auth-user-actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+    padding-top: 8px;
+    border-top: 1px solid var(--line);
+  }
+
+  .auth-form-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 760px) {
+  .auth-users-editor {
+    padding: 12px 4px;
+  }
+
+  .auth-panel {
+    padding: 14px;
+  }
+
+  .auth-section-heading {
+    align-items: flex-start;
+  }
+
+  .auth-mode-panel,
+  .auth-panel-grid,
+  .auth-form-grid,
+  .auth-token-create {
+    grid-template-columns: 1fr;
+  }
+
+  .auth-mode-action {
+    justify-items: stretch;
+    padding-top: 12px;
+    border-top: 1px solid var(--line);
+  }
+
+  .auth-mode-action > span {
+    justify-content: flex-start;
+  }
+
+  .auth-mode-action .auth-button,
+  .auth-form-grid .auth-button,
+  .auth-token-create .auth-button {
+    width: 100%;
+  }
+
+  .auth-user-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 10px;
+  }
+
+  .auth-user-row .auth-status-badge {
+    justify-self: start;
+  }
+
+  .auth-role-control {
+    width: 100%;
+  }
+
+  .auth-user-actions {
+    grid-column: auto;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .auth-token-row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .auth-token-row .auth-text-button {
+    width: 100%;
+    margin-left: 42px;
+  }
+
+  .auth-created-token {
+    align-items: stretch;
+    flex-direction: column;
+  }
+
+  .auth-created-token .auth-button {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .auth-button,
+  .auth-icon-button,
+  .auth-text-button,
+  .auth-role-control button {
+    transition: none;
+  }
+}
+
 .settings-main-head {
   display: flex;
   justify-content: space-between;

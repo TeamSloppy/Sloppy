@@ -1,4 +1,5 @@
 import Foundation
+import Logging
 import Observation
 import SwiftUI
 import SloppyClientCore
@@ -49,6 +50,7 @@ final class RootShellViewModel {
     private var notificationManager: NotificationSocketManager?
     private var notificationListenerTask: Task<Void, Never>?
     private var notificationBaseURL: URL?
+    private let logger: Logger
     #if os(macOS)
     private let desktopOverlay = SloppyDesktopOverlay()
     private var openMainWindow: (@MainActor () -> Void)?
@@ -57,7 +59,8 @@ final class RootShellViewModel {
     private let liveActivityCoordinator = SloppyLiveActivityCoordinator()
     #endif
 
-    init() {
+    init(logger: Logger = Logger(label: "sloppy.root-shell")) {
+        self.logger = logger
         connectionMonitor = ConnectionMonitor(baseURL: URL(string: "http://localhost:25101")!)
         #if os(macOS)
         desktopOverlay.onOpenAgentRun = { [weak self] agentID, sessionID in
@@ -122,6 +125,10 @@ final class RootShellViewModel {
     }
 
     func startConnected(url: URL) {
+        logger.info(
+            "app.connection.connected",
+            metadata: ["server": .string(Self.serverDescription(url))]
+        )
         #if os(macOS)
         desktopOverlay.start(settings: settings, baseURL: url)
         #endif
@@ -134,6 +141,10 @@ final class RootShellViewModel {
     }
 
     func connect(to url: URL) {
+        logger.info(
+            "app.connection.requested",
+            metadata: ["server": .string(Self.serverDescription(url))]
+        )
         Task { @MainActor in
             await resolveConnection(to: url)
         }
@@ -149,6 +160,10 @@ final class RootShellViewModel {
                   let baseURL = URL(string: rawURL) else {
                 continue
             }
+            logger.warning(
+                "app.authentication.required",
+                metadata: ["server": .string(Self.serverDescription(baseURL))]
+            )
             await presentAuthentication(
                 for: baseURL,
                 message: "Your session has expired. Sign in again."
@@ -230,7 +245,17 @@ final class RootShellViewModel {
         }
         stopConnectedServices()
         let apiClient = SloppyAPIClient(baseURL: baseURL)
-        guard let challenge = try? await apiClient.fetchAuthChallenge() else {
+        let challenge: AuthChallenge
+        do {
+            challenge = try await apiClient.fetchConnectionAuthChallenge()
+        } catch {
+            logger.error(
+                "app.authentication.challenge-failed",
+                metadata: [
+                    "error": .string(Self.errorDescription(error)),
+                    "server": .string(Self.serverDescription(baseURL)),
+                ]
+            )
             appState = .connectionSetup
             return
         }
@@ -240,18 +265,57 @@ final class RootShellViewModel {
             appState = .splash
             return
         }
+        logger.info(
+            "app.authentication.presented",
+            metadata: [
+                "mode": .string(challenge.mode),
+                "server": .string(Self.serverDescription(baseURL)),
+            ]
+        )
         appState = .authentication(baseURL, challenge, message)
     }
 
     private func resolveConnection(to baseURL: URL) async {
         let apiClient = SloppyAPIClient(baseURL: baseURL)
-        guard let challenge = try? await apiClient.fetchAuthChallenge() else {
+        let challenge: AuthChallenge
+        do {
+            challenge = try await apiClient.fetchConnectionAuthChallenge()
+        } catch let error as APIError where error.statusCode == 404 {
+            logger.info(
+                "app.authentication.unsupported-by-server",
+                metadata: ["server": .string(Self.serverDescription(baseURL))]
+            )
             startConnected(url: baseURL)
+            return
+        } catch {
+            logger.error(
+                "app.connection.auth-resolution-failed",
+                metadata: [
+                    "error": .string(Self.errorDescription(error)),
+                    "server": .string(Self.serverDescription(baseURL)),
+                ]
+            )
+            appState = .connectionSetup
             return
         }
 
+        logger.info(
+            "app.authentication.resolved",
+            metadata: [
+                "mode": .string(challenge.mode),
+                "server": .string(Self.serverDescription(baseURL)),
+            ]
+        )
+
         if challenge.mode == "login_password" {
             guard await apiClient.hasStoredAuthSession() else {
+                logger.info(
+                    "app.authentication.presented",
+                    metadata: [
+                        "mode": .string(challenge.mode),
+                        "server": .string(Self.serverDescription(baseURL)),
+                    ]
+                )
                 appState = .authentication(baseURL, challenge, nil)
                 return
             }
@@ -259,6 +323,10 @@ final class RootShellViewModel {
                 _ = try await apiClient.fetchCurrentAuthUser()
                 startConnected(url: baseURL)
             } catch {
+                logger.warning(
+                    "app.authentication.saved-session-rejected",
+                    metadata: ["server": .string(Self.serverDescription(baseURL))]
+                )
                 await apiClient.logout()
                 appState = .authentication(
                     baseURL,
@@ -280,10 +348,35 @@ final class RootShellViewModel {
                 startConnected(url: baseURL)
                 return
             } catch {
+                logger.warning(
+                    "app.authentication.saved-token-rejected",
+                    metadata: ["server": .string(Self.serverDescription(baseURL))]
+                )
                 await apiClient.logout()
             }
         }
+        logger.info(
+            "app.authentication.presented",
+            metadata: [
+                "mode": .string(challenge.mode),
+                "server": .string(Self.serverDescription(baseURL)),
+            ]
+        )
         appState = .authentication(baseURL, challenge, nil)
+    }
+
+    private nonisolated static func serverDescription(_ url: URL) -> String {
+        guard let host = url.host else { return "unknown-server" }
+        if let port = url.port { return "\(host):\(port)" }
+        return host
+    }
+
+    private nonisolated static func errorDescription(_ error: Error) -> String {
+        if let apiError = error as? APIError {
+            return apiError.diagnosticDescription
+        }
+        let nsError = error as NSError
+        return "\(nsError.domain) \(nsError.code): \(nsError.localizedDescription)"
     }
 
     private func stopConnectedServices() {

@@ -2,11 +2,86 @@ import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
+import Logging
 import Testing
 @testable import SloppyClientCore
 
 @Suite("Backend HTTP auth recovery", .serialized)
 struct BackendHTTPClientAuthRecoveryTests {
+    @Test("401 auth challenge falls back to dashboard token authentication")
+    func resolvesProtectedChallengeAsLegacyTokenAuth() async throws {
+        let baseURL = try #require(URL(string: "https://token-auth.sloppy.test"))
+        let store = AuthSessionStore(persistence: .memory)
+
+        StubURLProtocol.install { request in
+            switch request.url?.path {
+            case "/v1/auth/challenge":
+                return try Self.response(
+                    for: request,
+                    status: 401,
+                    body: Data(#"{"error":"unauthorized"}"#.utf8)
+                )
+            case "/v1/dashboard/auth/status":
+                return try Self.response(
+                    for: request,
+                    status: 200,
+                    body: Data(#"{"enabled":true}"#.utf8)
+                )
+            default:
+                return try Self.response(for: request, status: 404, body: Data())
+            }
+        }
+        defer { StubURLProtocol.reset() }
+
+        let client = SloppyAPIClient(
+            baseURL: baseURL,
+            session: Self.makeSession(),
+            authSessionStore: store
+        )
+        let challenge = try await client.fetchConnectionAuthChallenge()
+
+        #expect(challenge == .legacyToken)
+        #expect(challenge.mode == "token")
+        #expect(challenge.bootstrapRequired == false)
+    }
+
+    @Test("HTTP lifecycle logs expose status but never the bearer token")
+    func logsSafeRequestLifecycle() async throws {
+        let baseURL = try #require(URL(string: "https://logs.sloppy.test"))
+        let store = AuthSessionStore(persistence: .memory)
+        let secret = "never-log-this-token"
+        await store.saveStaticToken(secret, for: baseURL)
+        let recorder = HTTPLogRecorder()
+
+        StubURLProtocol.install { request in
+            try Self.response(for: request, status: 200, body: Data("ok".utf8))
+        }
+        defer { StubURLProtocol.reset() }
+
+        let client = BackendHTTPClient(
+            baseURL: baseURL,
+            session: Self.makeSession(),
+            authSessionStore: store,
+            logger: makeHTTPLogger(recorder)
+        )
+        _ = try await client.getData("/v1/projects")
+
+        let logs = recorder.snapshot()
+        #expect(logs.contains { record in
+            record.message == "http.request.started"
+                && record.metadata["auth"] == "present"
+                && record.metadata["path"] == "/v1/projects"
+        })
+        #expect(logs.contains { record in
+            record.message == "http.request.completed"
+                && record.metadata["status"] == "200"
+        })
+        #expect(!logs.contains { record in
+            record.message.contains(secret)
+                || record.metadata.values.contains(where: { $0.contains(secret) })
+        })
+    }
+
     @Test("stored access token is available to an embedded authenticated surface")
     func exposesStoredAccessToken() async throws {
         let baseURL = try #require(URL(string: "https://workspace.sloppy.test"))
@@ -194,6 +269,64 @@ struct BackendHTTPClientAuthRecoveryTests {
             headerFields: ["Content-Type": "application/json"]
         ))
         return (response, body)
+    }
+}
+
+private final class HTTPLogRecorder: @unchecked Sendable {
+    struct Record {
+        var message: String
+        var metadata: [String: String]
+    }
+
+    private let lock = NSLock()
+    private var records: [Record] = []
+
+    func append(message: Logger.Message, metadata: Logger.Metadata) {
+        lock.withLock {
+            records.append(Record(
+                message: message.description,
+                metadata: metadata.mapValues { String(describing: $0) }
+            ))
+        }
+    }
+
+    func snapshot() -> [Record] {
+        lock.withLock { records }
+    }
+}
+
+private struct HTTPRecordingLogHandler: LogHandler {
+    let recorder: HTTPLogRecorder
+    var metadata: Logger.Metadata = [:]
+    var logLevel: Logger.Level = .trace
+
+    subscript(metadataKey key: String) -> Logger.Metadata.Value? {
+        get { metadata[key] }
+        set { metadata[key] = newValue }
+    }
+
+    func log(
+        level: Logger.Level,
+        message: Logger.Message,
+        metadata explicitMetadata: Logger.Metadata?,
+        source: String,
+        file: String,
+        function: String,
+        line: UInt
+    ) {
+        var merged = metadata
+        if let explicitMetadata {
+            for (key, value) in explicitMetadata {
+                merged[key] = value
+            }
+        }
+        recorder.append(message: message, metadata: merged)
+    }
+}
+
+private func makeHTTPLogger(_ recorder: HTTPLogRecorder) -> Logger {
+    Logger(label: "test.sloppy.http") { _ in
+        HTTPRecordingLogHandler(recorder: recorder)
     }
 }
 

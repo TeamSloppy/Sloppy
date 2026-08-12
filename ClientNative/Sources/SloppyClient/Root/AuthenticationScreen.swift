@@ -65,7 +65,12 @@ struct AuthenticationScreen: View {
                             .textContentType(.password)
                     }
                 } else {
-                    secureAuthenticationField("Access token", text: $token)
+                    VStack(alignment: .leading, spacing: sp.s) {
+                        secureAuthenticationField("Dashboard access token", text: $token)
+                        Text("This server uses dashboard token authentication. Enter the token configured for this Sloppy Core.")
+                            .font(.system(size: ty.caption))
+                            .foregroundColor(c.textMuted)
+                    }
                 }
 
                 if let message = errorMessage ?? initialMessage {

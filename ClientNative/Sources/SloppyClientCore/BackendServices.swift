@@ -95,6 +95,24 @@ public struct AuthChallenge: Codable, Sendable, Equatable {
     public var passkeySupported: Bool?
     public var accessTokenExpiresInSeconds: Int?
     public var refreshTokenExpiresInSeconds: Int?
+
+    public init(
+        mode: String,
+        bootstrapRequired: Bool,
+        passkeySupported: Bool? = nil,
+        accessTokenExpiresInSeconds: Int? = nil,
+        refreshTokenExpiresInSeconds: Int? = nil
+    ) {
+        self.mode = mode
+        self.bootstrapRequired = bootstrapRequired
+        self.passkeySupported = passkeySupported
+        self.accessTokenExpiresInSeconds = accessTokenExpiresInSeconds
+        self.refreshTokenExpiresInSeconds = refreshTokenExpiresInSeconds
+    }
+
+    public static var legacyToken: AuthChallenge {
+        AuthChallenge(mode: "token", bootstrapRequired: false)
+    }
 }
 
 public struct AuthUserProfile: Codable, Sendable, Equatable {
