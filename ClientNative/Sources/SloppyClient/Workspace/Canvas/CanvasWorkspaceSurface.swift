@@ -9,17 +9,17 @@ struct CanvasWorkspaceSurface: View {
             if viewModel.isShowingLibrary {
                 CanvasWorkspaceLibraryView(viewModel: viewModel)
             } else {
-                webEditor
+                nativeEditor
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
-    private var webEditor: some View {
+    private var nativeEditor: some View {
         ZStack {
-            CanvasWorkspaceWebView(viewModel: viewModel)
+            CanvasWorkspaceEditorView(viewModel: viewModel)
 
-            if viewModel.isLoadingPage {
+            if viewModel.isLoadingDocument {
                 ProgressView()
                     .controlSize(.large)
                     .padding(18)

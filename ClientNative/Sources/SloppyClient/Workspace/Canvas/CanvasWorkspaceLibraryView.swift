@@ -1,5 +1,11 @@
+import Foundation
 import SloppyClientCore
 import SwiftUI
+
+private enum CanvasWorkspaceLibraryLayout: String {
+    case list
+    case cards
+}
 
 @MainActor
 struct CanvasWorkspaceLibraryView: View {
@@ -7,6 +13,8 @@ struct CanvasWorkspaceLibraryView: View {
 
     @State private var searchText = ""
     @State private var isCreateSheetPresented = false
+    @AppStorage("canvas-workspace-library-layout")
+    private var libraryLayout = CanvasWorkspaceLibraryLayout.list
 
     private var filteredWorkspaces: [CanvasWorkspaceSummary] {
         let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -63,6 +71,8 @@ struct CanvasWorkspaceLibraryView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
+                projectPicker
+
                 if viewModel.isResolving, !viewModel.workspaces.isEmpty {
                     ProgressView()
                         .controlSize(.small)
@@ -71,52 +81,138 @@ struct CanvasWorkspaceLibraryView: View {
             }
 
             HStack(spacing: 8) {
-                Image(systemName: "magnifyingglass")
-                    .foregroundStyle(.secondary)
+                HStack(spacing: 8) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
 
-                TextField("Search workspaces", text: $searchText)
-                    .textFieldStyle(.plain)
+                    TextField("Search canvases", text: $searchText)
+                        .textFieldStyle(.plain)
 
-                if !searchText.isEmpty {
+                    if !searchText.isEmpty {
+                        Button {
+                            searchText = ""
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Clear workspace search")
+                    }
+
+                    Divider()
+                        .frame(height: 16)
+
+                    Text("\(filteredWorkspaces.count)")
+                        .font(.caption.monospacedDigit())
+                        .foregroundStyle(.secondary)
+
                     Button {
-                        searchText = ""
+                        Task {
+                            await viewModel.refreshLibrary()
+                        }
                     } label: {
-                        Image(systemName: "xmark.circle.fill")
-                            .foregroundStyle(.secondary)
+                        Image(systemName: "arrow.clockwise")
                     }
                     .buttonStyle(.plain)
-                    .accessibilityLabel("Clear workspace search")
+                    .disabled(viewModel.isResolving)
+                    .help("Refresh Workspaces")
+                    .accessibilityLabel("Refresh workspaces")
+                }
+                .padding(.horizontal, 11)
+                .frame(maxWidth: 440, minHeight: 32)
+                .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
+                        .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
                 }
 
-                Divider()
-                    .frame(height: 16)
-
-                Text("\(filteredWorkspaces.count)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
-
-                Button {
-                    Task {
-                        await viewModel.refreshLibrary()
-                    }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
+                Picker("Workspace layout", selection: $libraryLayout) {
+                    Label("List", systemImage: "list.bullet")
+                        .labelStyle(.iconOnly)
+                        .tag(CanvasWorkspaceLibraryLayout.list)
+                    Label("Cards", systemImage: "square.grid.2x2")
+                        .labelStyle(.iconOnly)
+                        .tag(CanvasWorkspaceLibraryLayout.cards)
                 }
-                .buttonStyle(.plain)
-                .disabled(viewModel.isResolving)
-                .help("Refresh Workspaces")
-                .accessibilityLabel("Refresh workspaces")
-            }
-            .padding(.horizontal, 11)
-            .frame(maxWidth: 440, minHeight: 32)
-            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 9, style: .continuous)
-                    .stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                .pickerStyle(.segmented)
+                .fixedSize()
+                .help("Choose list or card layout")
+                .accessibilityIdentifier("canvas-workspace-layout-picker")
             }
         }
         .padding(.horizontal, 20)
         .padding(.vertical, 18)
+    }
+
+    private var projectPicker: some View {
+        Menu {
+            Button {
+                Task {
+                    await viewModel.selectProject(nil)
+                }
+            } label: {
+                projectPickerLabel(
+                    title: "All Projects",
+                    systemImage: "square.stack.3d.up",
+                    isSelected: viewModel.projectID == nil
+                )
+            }
+
+            if !viewModel.projects.isEmpty {
+                Divider()
+            }
+
+            ForEach(viewModel.projects) { project in
+                Button {
+                    Task {
+                        await viewModel.selectProject(project)
+                    }
+                } label: {
+                    projectPickerLabel(
+                        title: project.name,
+                        systemImage: project.semanticIconName,
+                        isSelected: viewModel.projectID == project.id
+                    )
+                }
+            }
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: selectedProject?.semanticIconName ?? "square.stack.3d.up")
+                Text(selectedProject?.name ?? viewModel.projectName ?? "All Projects")
+                    .lineLimit(1)
+                Image(systemName: "chevron.up.chevron.down")
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+            }
+            .font(.subheadline.weight(.medium))
+            .padding(.horizontal, 9)
+            .frame(minHeight: 28)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 8, style: .continuous))
+        }
+        .fixedSize()
+        .disabled(viewModel.isResolving && viewModel.projects.isEmpty)
+        .accessibilityLabel("Choose project")
+        .accessibilityIdentifier("canvas-project-picker")
+    }
+
+    private var selectedProject: APIProjectRecord? {
+        guard let projectID = viewModel.projectID else {
+            return nil
+        }
+        return viewModel.projects.first { $0.id == projectID }
+    }
+
+    private func projectPickerLabel(
+        title: String,
+        systemImage: String,
+        isSelected: Bool
+    ) -> some View {
+        HStack {
+            Label(title, systemImage: systemImage)
+            if isSelected {
+                Image(systemName: "checkmark")
+            }
+        }
     }
 
     @ViewBuilder
@@ -132,14 +228,14 @@ struct CanvasWorkspaceLibraryView: View {
         } else if filteredWorkspaces.isEmpty {
             ContentUnavailableView {
                 Label(
-                    searchText.isEmpty ? "No Workspaces" : "No Results",
+                    searchText.isEmpty ? "No Canvases" : "No Results",
                     systemImage: searchText.isEmpty ? "square.grid.2x2" : "magnifyingglass"
                 )
             } description: {
                 Text(
                     searchText.isEmpty
-                        ? "Create a canvas, then open it in the agent-powered web editor."
-                        : "No workspace matches “\(searchText)”."
+                        ? "Create a native canvas for notes, sketches, and agent-built artifacts."
+                        : "No canvas matches “\(searchText)”."
                 )
             } actions: {
                 if searchText.isEmpty {
@@ -154,16 +250,46 @@ struct CanvasWorkspaceLibraryView: View {
                 }
             }
         } else {
-            List(filteredWorkspaces) { workspace in
-                CanvasWorkspaceLibraryRow(
-                    workspace: workspace,
-                    isSuggested: workspace.id == viewModel.suggestedWorkspaceID
-                ) {
-                    viewModel.openWorkspace(workspace)
-                }
-                .accessibilityIdentifier("canvas-workspace-\(workspace.id)")
+            switch libraryLayout {
+            case .list:
+                workspaceList
+            case .cards:
+                workspaceCards
             }
-            .listStyle(.plain)
+        }
+    }
+
+    private var workspaceList: some View {
+        List(filteredWorkspaces) { workspace in
+            CanvasWorkspaceLibraryRow(
+                workspace: workspace,
+                isSuggested: workspace.id == viewModel.suggestedWorkspaceID
+            ) {
+                viewModel.openWorkspace(workspace)
+            }
+            .accessibilityIdentifier("canvas-workspace-\(workspace.id)")
+        }
+        .listStyle(.plain)
+    }
+
+    private var workspaceCards: some View {
+        ScrollView {
+            LazyVGrid(
+                columns: [GridItem(.adaptive(minimum: 230, maximum: 340), spacing: 16)],
+                alignment: .leading,
+                spacing: 16
+            ) {
+                ForEach(filteredWorkspaces) { workspace in
+                    CanvasWorkspaceLibraryCard(
+                        workspace: workspace,
+                        isSuggested: workspace.id == viewModel.suggestedWorkspaceID
+                    ) {
+                        viewModel.openWorkspace(workspace)
+                    }
+                    .accessibilityIdentifier("canvas-workspace-card-\(workspace.id)")
+                }
+            }
+            .padding(20)
         }
     }
 
@@ -186,6 +312,164 @@ struct CanvasWorkspaceLibraryView: View {
         }
         .padding(10)
         .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
+    }
+}
+
+@MainActor
+private struct CanvasWorkspaceLibraryCard: View {
+    let workspace: CanvasWorkspaceSummary
+    let isSuggested: Bool
+    let action: @MainActor () -> Void
+
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            VStack(alignment: .leading, spacing: 0) {
+                CanvasWorkspaceCardPreview(workspace: workspace)
+                    .aspectRatio(16 / 9, contentMode: .fit)
+
+                Divider()
+
+                VStack(alignment: .leading, spacing: 8) {
+                    HStack(spacing: 7) {
+                        Text(workspace.title)
+                            .font(.body.weight(.semibold))
+                            .lineLimit(1)
+
+                        if isSuggested {
+                            Text("Linked")
+                                .font(.caption2.weight(.medium))
+                                .foregroundStyle(Color.accentColor)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(Color.accentColor.opacity(0.12), in: Capsule())
+                        }
+
+                        Spacer(minLength: 0)
+                    }
+
+                    Text(workspace.description.isEmpty ? "Canvas workspace" : workspace.description)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .lineLimit(2)
+                        .frame(minHeight: 32, alignment: .topLeading)
+
+                    HStack {
+                        Text("Revision \(workspace.revision)")
+                            .font(.caption2.monospacedDigit())
+                        Spacer()
+                        Text(workspace.updatedAt, style: .relative)
+                            .font(.caption2)
+                    }
+                    .foregroundStyle(.tertiary)
+                }
+                .padding(12)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(.regularMaterial)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12, style: .continuous)
+                    .stroke(
+                        isHovered ? Color.accentColor.opacity(0.5) : Color.secondary.opacity(0.2),
+                        lineWidth: 1
+                    )
+            }
+            .shadow(color: .black.opacity(isHovered ? 0.12 : 0.05), radius: isHovered ? 10 : 4, y: 3)
+            .scaleEffect(isHovered ? 1.01 : 1)
+            .animation(.easeOut(duration: 0.15), value: isHovered)
+            .contentShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .accessibilityLabel("Open \(workspace.title)")
+        .accessibilityHint("Opens the native workspace editor")
+    }
+}
+
+private struct CanvasWorkspaceCardPreview: View {
+    let workspace: CanvasWorkspaceSummary
+
+    var body: some View {
+        Group {
+            if let coverURL {
+                AsyncImage(url: coverURL) { phase in
+                    switch phase {
+                    case .empty:
+                        placeholder
+                            .overlay { ProgressView().controlSize(.small) }
+                    case .success(let image):
+                        image
+                            .resizable()
+                            .scaledToFill()
+                    case .failure:
+                        placeholder
+                    @unknown default:
+                        placeholder
+                    }
+                }
+            } else {
+                placeholder
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
+        .accessibilityHidden(true)
+    }
+
+    private var coverURL: URL? {
+        guard let cover = workspace.cover?.trimmingCharacters(in: .whitespacesAndNewlines),
+              let url = URL(string: cover),
+              let scheme = url.scheme?.lowercased(),
+              scheme == "https" || scheme == "http" else {
+            return nil
+        }
+        return url
+    }
+
+    private var placeholder: some View {
+        ZStack {
+            LinearGradient(
+                colors: [
+                    Color.accentColor.opacity(0.22),
+                    Color.secondary.opacity(0.06),
+                ],
+                startPoint: .topLeading,
+                endPoint: .bottomTrailing
+            )
+
+            Image(systemName: "circle.grid.3x3.fill")
+                .font(.system(size: 74))
+                .foregroundStyle(Color.secondary.opacity(0.08))
+
+            HStack(alignment: .bottom, spacing: 18) {
+                RoundedRectangle(cornerRadius: 7, style: .continuous)
+                    .fill(Color.orange.opacity(0.78))
+                    .frame(width: 62, height: 72)
+                    .rotationEffect(.degrees(-5))
+                    .overlay {
+                        Image(systemName: "lightbulb.fill")
+                            .font(.title2)
+                            .foregroundStyle(.white.opacity(0.9))
+                    }
+
+                VStack(alignment: .leading, spacing: 7) {
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color.primary.opacity(0.2))
+                        .frame(width: 72, height: 7)
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color.primary.opacity(0.12))
+                        .frame(width: 96, height: 7)
+                    RoundedRectangle(cornerRadius: 3)
+                        .fill(Color.primary.opacity(0.12))
+                        .frame(width: 54, height: 7)
+                }
+                .padding(12)
+                .background(.thinMaterial, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                .rotationEffect(.degrees(3))
+            }
+        }
     }
 }
 
@@ -246,6 +530,6 @@ private struct CanvasWorkspaceLibraryRow: View {
         }
         .buttonStyle(.plain)
         .accessibilityLabel("Open \(workspace.title)")
-        .accessibilityHint("Opens the workspace in the web editor")
+        .accessibilityHint("Opens the native workspace editor")
     }
 }

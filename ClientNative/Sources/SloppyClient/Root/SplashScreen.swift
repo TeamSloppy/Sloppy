@@ -21,34 +21,40 @@ struct SplashScreen: View {
         let sp = theme.spacing
         let ty = theme.typography
 
-        return VStack(alignment: .leading, spacing: sp.xxl) {
+        return VStack(spacing: sp.xxl) {
             Spacer()
 
-            VStack(alignment: .leading, spacing: sp.m) {
-                Icons.symbol(.autoAwesome, size: Double(64))
-                    .foregroundColor(c.accent)
+            VStack(spacing: sp.m) {
+                SloppyAssets.projectLogo
+                    .renderingMode(.template)
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 64, height: 64)
+                    .foregroundColor(c.textMuted)
 
                 Text("Sloppy")
                     .font(.system(size: ty.hero))
                     .foregroundColor(c.textPrimary)
+                    .multilineTextAlignment(.center)
             }
-            .padding(.horizontal, sp.xxl)
 
-            VStack(alignment: .leading, spacing: sp.s) {
+            VStack(spacing: sp.s) {
                 Text(status.uppercased())
                     .font(.system(size: ty.caption))
                     .foregroundColor(c.textMuted)
+                    .multilineTextAlignment(.center)
 
                 if isScanning {
                     Text("Scanning local network...")
                         .font(.system(size: ty.caption))
                         .foregroundColor(c.textMuted)
+                        .multilineTextAlignment(.center)
                 }
             }
-            .padding(.horizontal, sp.xxl)
 
             Spacer()
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
         .onAppear { attemptConnection() }
     }
 

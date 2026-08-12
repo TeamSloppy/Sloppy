@@ -57,6 +57,19 @@ private struct WorkspaceCommands: Commands {
 }
 
 @MainActor
+private struct AuthenticationCommands: Commands {
+    let viewModel: RootShellViewModel
+
+    var body: some Commands {
+        CommandGroup(after: .appInfo) {
+            Button("Log Out") {
+                viewModel.logout()
+            }
+        }
+    }
+}
+
+@MainActor
 private struct SloppyMenuBarView: View {
     let viewModel: RootShellViewModel
 
@@ -80,6 +93,13 @@ private struct SloppyMenuBarView: View {
 
         SettingsLink {
             Label("Settings…", systemImage: "gearshape")
+        }
+
+        Divider()
+
+        Button("Log Out", systemImage: "rectangle.portrait.and.arrow.right") {
+            viewModel.logout()
+            showMainWindow()
         }
 
         Divider()
@@ -167,6 +187,7 @@ struct SloppyClientApp: App {
         .windowResizability(.contentMinSize)
         .commands {
             WorkspaceCommands()
+            AuthenticationCommands(viewModel: viewModel)
         }
         #endif
 
@@ -178,7 +199,7 @@ struct SloppyClientApp: App {
         .defaultSize(width: 1360, height: 880)
         .windowResizability(.contentMinSize)
 
-        MenuBarExtra("Sloppy", systemImage: "waveform.path.ecg") {
+        MenuBarExtra("Sloppy", image: "SloppyMenuBarIcon") {
             SloppyMenuBarView(viewModel: viewModel)
         }
         #else

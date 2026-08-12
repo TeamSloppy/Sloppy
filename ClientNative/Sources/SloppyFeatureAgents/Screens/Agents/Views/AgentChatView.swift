@@ -427,7 +427,10 @@ struct ChatTranscriptView: View {
                                     Spacer(minLength: 0)
                                     LazyVStack(alignment: .leading, spacing: sp.s) {
                                         ForEach(messages) { msg in
-                                            ChatBubbleView(message: msg)
+                                            ChatBubbleView(
+                                                message: msg,
+                                                isActivelyWorking: msg.id == "streaming-assistant-\(sessionId)"
+                                            )
                                                 .frame(minWidth: 0, maxWidth: .infinity)
                                         }
                                     }

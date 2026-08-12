@@ -44,6 +44,19 @@ struct MainSidebarProjectSessionsTests {
         #expect(source.contains("viewModel.showMoreProjects()"))
     }
 
+    @Test("sidebar can display chats and projects as cards")
+    func sidebarSupportsCardLayout() throws {
+        let source = try source
+
+        #expect(source.contains("client_chat_sidebar_layout_mode"))
+        #expect(source.contains("layoutMode == .cards"))
+        #expect(source.contains("LazyVGrid(columns: cardColumns"))
+        #expect(source.contains("SidebarSessionCard(viewModel: viewModel, session: session)"))
+        #expect(source.contains("SidebarProjectCard(viewModel: viewModel, group: $0)"))
+        #expect(source.contains("Show as cards"))
+        #expect(source.contains("Show as list"))
+    }
+
     @Test("project and recents session rows open session-backed tabs")
     func projectAndRecentsSessionRowsOpenSessionBackedTabs() throws {
         let source = try source

@@ -50,6 +50,9 @@ struct RootShellView: View {
             .onOpenURL { url in
                 viewModel.handleDeepLink(url)
             }
+            .task {
+                await viewModel.observeAuthenticationRequirements()
+            }
             #if os(macOS)
             .task {
                 viewModel.configureMainWindowOpener {
@@ -84,7 +87,7 @@ private struct RootShellContent: View {
                 SplashScreen(settings: rootViewModel.settings) { result in
                     switch result {
                     case .connected(let url):
-                        rootViewModel.startConnected(url: url)
+                        rootViewModel.connect(to: url)
                     case .needsSetup:
                         rootViewModel.appState = .connectionSetup
                     }
@@ -92,8 +95,21 @@ private struct RootShellContent: View {
 
             case .connectionSetup:
                 ConnectionSetupView(settings: rootViewModel.settings) { url in
-                    rootViewModel.startConnected(url: url)
+                    rootViewModel.connect(to: url)
                 }
+
+            case .authentication(let url, let challenge, let message):
+                AuthenticationScreen(
+                    baseURL: url,
+                    challenge: challenge,
+                    initialMessage: message,
+                    onAuthenticated: { authenticatedURL in
+                        rootViewModel.startConnected(url: authenticatedURL)
+                    },
+                    onChooseServer: {
+                        rootViewModel.appState = .connectionSetup
+                    }
+                )
 
             case .chat(let url):
                 MainView(

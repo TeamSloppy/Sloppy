@@ -49,7 +49,7 @@ struct SloppyClientAppWiringTests {
     func appExposesMenuBarQuickActions() throws {
         let source = try appSource
 
-        #expect(source.contains("MenuBarExtra(\"Sloppy\""))
+        #expect(source.contains("MenuBarExtra(\"Sloppy\", image: \"SloppyMenuBarIcon\")"))
         #expect(source.contains("Button(\"New Chat\""))
         #expect(source.contains("Button(\"Scheduled Tasks\""))
         #expect(source.contains("Button(\"Open Sloppy\""))

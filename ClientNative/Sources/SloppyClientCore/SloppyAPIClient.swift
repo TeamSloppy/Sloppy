@@ -20,10 +20,17 @@ public actor SloppyAPIClient {
         baseURL: URL = URL(string: "http://localhost:25101")!,
         authToken: String = "",
         session: URLSession = .shared,
+        authSessionStore: AuthSessionStore = .shared,
         logger: Logger = Logger(label: "sloppy.api-client")
     ) {
         self.baseURL = baseURL
-        let http = BackendHTTPClient(baseURL: baseURL, authToken: authToken, session: session, logger: logger)
+        let http = BackendHTTPClient(
+            baseURL: baseURL,
+            authToken: authToken,
+            session: session,
+            authSessionStore: authSessionStore,
+            logger: logger
+        )
         self.http = http
         self.projects = ProjectService(http: http)
         self.agents = AgentService(http: http)
@@ -44,8 +51,36 @@ public actor SloppyAPIClient {
 
     public func loginIdentityUser(login: String, password: String) async throws -> AuthSession {
         let session = try await auth.loginIdentityUser(login: login, password: password)
-        await setAuthToken(session.accessToken)
+        await http.installAuthSession(session)
         return session
+    }
+
+    public func fetchCurrentAuthUser() async throws -> AuthUserProfile {
+        try await auth.fetchCurrentUser()
+    }
+
+    public func fetchDashboardAuthStatus() async throws -> DashboardAuthStatus {
+        try await auth.fetchDashboardAuthStatus()
+    }
+
+    public func validateCurrentAuthToken() async throws {
+        try await auth.validateCurrentToken()
+    }
+
+    public func installStaticAuthToken(_ token: String) async {
+        await http.installStaticAuthToken(token)
+    }
+
+    public func hasStoredAuthSession() async -> Bool {
+        await http.hasStoredAuthSession()
+    }
+
+    public func currentAccessToken() async -> String? {
+        await http.currentAccessToken()
+    }
+
+    public func logout() async {
+        await http.clearAuthSession()
     }
 
     public func fetchProjects() async throws -> [APIProjectRecord] {
@@ -79,6 +114,27 @@ public actor SloppyAPIClient {
             templateId: templateId
         )
         return try await http.post("/v1/workspaces", body: request)
+    }
+
+    public func fetchCanvasWorkspaceDocument(workspaceId: String) async throws -> CanvasWorkspaceDocument {
+        let response: CanvasWorkspaceDocumentResponse = try await http.get(
+            "/v1/workspaces/\(BackendHTTPClient.encodePathSegment(workspaceId))/document"
+        )
+        return response.document
+    }
+
+    public func applyCanvasWorkspaceTransaction(
+        workspaceId: String,
+        request: CanvasWorkspaceTransactionRequest
+    ) async throws -> CanvasWorkspaceCommittedTransaction {
+        try await http.post(
+            "/v1/workspaces/\(BackendHTTPClient.encodePathSegment(workspaceId))/transactions",
+            body: request
+        )
+    }
+
+    public func fetchCanvasWidgetArtifact(id: String) async throws -> CanvasWidgetArtifact {
+        try await http.get("/v1/artifacts/\(BackendHTTPClient.encodePathSegment(id))/widget")
     }
 
     public func createProject(_ request: APIProjectCreateRequest) async throws -> APIProjectRecord {

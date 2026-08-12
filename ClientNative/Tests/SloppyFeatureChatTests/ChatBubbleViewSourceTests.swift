@@ -30,7 +30,8 @@ struct ChatBubbleViewSourceTests {
 
         #expect(source.contains("if showsMessageActions"))
         #expect(source.contains("!isStreamingAssistant"))
+        #expect(source.contains("!isActivelyWorking"))
         #expect(source.contains("message.role == .assistant"))
-        #expect(source.contains("message.segments.allSatisfy { $0.kind == .text }"))
+        #expect(source.contains("message.segments.allSatisfy { $0.kind == .text || $0.kind == .status }"))
     }
 }

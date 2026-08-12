@@ -15,6 +15,7 @@ import AppKit
 enum AppState: Equatable {
     case splash
     case connectionSetup
+    case authentication(URL, AuthChallenge, String?)
     case chat(URL)
     case settings(ClientSettingsDestination)
 }
@@ -73,14 +74,14 @@ final class RootShellViewModel {
            let serverURL = deepLink.serverURL,
            let savedServer = deepLink.savedServer {
             settings.useServer(savedServer)
-            startConnected(url: serverURL)
+            connect(to: serverURL)
             return
         }
 
         if case .chat = appState {
             // Keep the current connected workspace.
         } else {
-            startConnected(url: settings.baseURL)
+            connect(to: settings.baseURL)
         }
         appDeepLinkRequest = AppDeepLinkRequest(deepLink: deepLink)
     }
@@ -132,6 +133,38 @@ final class RootShellViewModel {
         startNotificationListener(baseURL: url)
     }
 
+    func connect(to url: URL) {
+        Task { @MainActor in
+            await resolveConnection(to: url)
+        }
+    }
+
+    func observeAuthenticationRequirements() async {
+        let notifications = NotificationCenter.default.sloppyNotifications(
+            named: AuthSessionNotifications.authenticationRequired
+        )
+        for await notification in notifications {
+            guard !Task.isCancelled,
+                  let rawURL = notification.rawValue.userInfo?[AuthSessionNotifications.baseURLUserInfoKey] as? String,
+                  let baseURL = URL(string: rawURL) else {
+                continue
+            }
+            await presentAuthentication(
+                for: baseURL,
+                message: "Your session has expired. Sign in again."
+            )
+        }
+    }
+
+    func logout() {
+        let baseURL = currentBaseURL
+        stopConnectedServices()
+        Task { @MainActor in
+            await SloppyAPIClient(baseURL: baseURL).logout()
+            await presentAuthentication(for: baseURL, message: nil)
+        }
+    }
+
     func handleScenePhase(_ scenePhase: ScenePhase) {
         #if os(iOS)
         if scenePhase == .active {
@@ -141,10 +174,12 @@ final class RootShellViewModel {
     }
 
     func requestMenuBarAction(_ action: MenuBarQuickAction) {
-        if case .chat = appState {
+        if case .authentication = appState {
+            return
+        } else if case .chat = appState {
             // Keep the current connected workspace.
         } else {
-            startConnected(url: settings.baseURL)
+            connect(to: settings.baseURL)
         }
         menuBarQuickActionRequest = MenuBarQuickActionRequest(action: action)
     }
@@ -177,6 +212,89 @@ final class RootShellViewModel {
                 showBanner(for: notification)
             }
         }
+    }
+
+    private var currentBaseURL: URL {
+        switch appState {
+        case .authentication(let url, _, _), .chat(let url):
+            return url
+        case .splash, .connectionSetup, .settings:
+            return settings.baseURL
+        }
+    }
+
+    private func presentAuthentication(for baseURL: URL, message: String?) async {
+        if case .authentication(let currentURL, _, _) = appState,
+           currentURL == baseURL {
+            return
+        }
+        stopConnectedServices()
+        let apiClient = SloppyAPIClient(baseURL: baseURL)
+        guard let challenge = try? await apiClient.fetchAuthChallenge() else {
+            appState = .connectionSetup
+            return
+        }
+        if challenge.mode != "login_password",
+           let status = try? await apiClient.fetchDashboardAuthStatus(),
+           !status.enabled {
+            appState = .splash
+            return
+        }
+        appState = .authentication(baseURL, challenge, message)
+    }
+
+    private func resolveConnection(to baseURL: URL) async {
+        let apiClient = SloppyAPIClient(baseURL: baseURL)
+        guard let challenge = try? await apiClient.fetchAuthChallenge() else {
+            startConnected(url: baseURL)
+            return
+        }
+
+        if challenge.mode == "login_password" {
+            guard await apiClient.hasStoredAuthSession() else {
+                appState = .authentication(baseURL, challenge, nil)
+                return
+            }
+            do {
+                _ = try await apiClient.fetchCurrentAuthUser()
+                startConnected(url: baseURL)
+            } catch {
+                await apiClient.logout()
+                appState = .authentication(
+                    baseURL,
+                    challenge,
+                    "Your saved session has expired. Sign in again."
+                )
+            }
+            return
+        }
+
+        let dashboardAuthEnabled = (try? await apiClient.fetchDashboardAuthStatus().enabled) ?? false
+        guard dashboardAuthEnabled else {
+            startConnected(url: baseURL)
+            return
+        }
+        if await apiClient.hasStoredAuthSession() {
+            do {
+                try await apiClient.validateCurrentAuthToken()
+                startConnected(url: baseURL)
+                return
+            } catch {
+                await apiClient.logout()
+            }
+        }
+        appState = .authentication(baseURL, challenge, nil)
+    }
+
+    private func stopConnectedServices() {
+        connectionMonitor.stop()
+        notificationListenerTask?.cancel()
+        notificationListenerTask = nil
+        if let notificationManager {
+            Task { await notificationManager.disconnect() }
+        }
+        notificationManager = nil
+        notificationBaseURL = nil
     }
 
     private func showBanner(for notification: AppNotification) {

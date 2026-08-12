@@ -22,16 +22,19 @@ public actor BackendHTTPClient {
     private let decoder: JSONDecoder
     private let encoder: JSONEncoder
     private let logger: Logger
+    private let authSessionStore: AuthSessionStore
     private var authToken: String
 
     public init(
         baseURL: URL = URL(string: "http://localhost:25101")!,
         authToken: String = "",
         session: URLSession = .shared,
+        authSessionStore: AuthSessionStore = .shared,
         logger: Logger = Logger(label: "sloppy.backend-http")
     ) {
         self.baseURL = baseURL
         self.session = session
+        self.authSessionStore = authSessionStore
         self.logger = logger
         self.authToken = authToken.trimmingCharacters(in: .whitespacesAndNewlines)
 
@@ -91,6 +94,29 @@ public actor BackendHTTPClient {
         authToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    public func installAuthSession(_ session: AuthSession) async {
+        authToken = session.accessToken.trimmingCharacters(in: .whitespacesAndNewlines)
+        await authSessionStore.save(session, for: baseURL)
+    }
+
+    public func installStaticAuthToken(_ token: String) async {
+        authToken = token.trimmingCharacters(in: .whitespacesAndNewlines)
+        await authSessionStore.saveStaticToken(authToken, for: baseURL)
+    }
+
+    public func clearAuthSession() async {
+        authToken = ""
+        await authSessionStore.clear(for: baseURL)
+    }
+
+    public func hasStoredAuthSession() async -> Bool {
+        await authSessionStore.session(for: baseURL) != nil
+    }
+
+    public func currentAccessToken() async -> String? {
+        await resolvedAuthToken()
+    }
+
     public nonisolated func url(for path: String) -> URL {
         URL(string: path, relativeTo: baseURL)?.absoluteURL ?? baseURL.appendingPathComponent(path)
     }
@@ -113,26 +139,137 @@ public actor BackendHTTPClient {
         body: Body? = Optional<EmptyBody>.none,
         timeout: TimeInterval? = nil
     ) async throws -> Data {
+        let bodyData = try body.map { try encoder.encode($0) }
+        let initialToken = await resolvedAuthToken()
+        let initial = try await send(
+            method: method,
+            path: path,
+            bodyData: bodyData,
+            timeout: timeout,
+            authToken: initialToken
+        )
+
+        guard statusCode(for: initial.response) == 401,
+              shouldAttemptSessionRecovery(for: path) else {
+            try validate(response: initial.response, data: initial.data)
+            return initial.data
+        }
+
+        let recovery = await authSessionStore.recoverSession(
+            for: baseURL,
+            rejectedAccessToken: initialToken
+        ) { [weak self] refreshToken in
+            await self?.refreshSession(using: refreshToken)
+        }
+
+        if case .recovered(let refreshedSession) = recovery {
+            if authToken.isEmpty || authToken == initialToken {
+                authToken = refreshedSession.accessToken
+            }
+            let retried = try await send(
+                method: method,
+                path: path,
+                bodyData: bodyData,
+                timeout: timeout,
+                authToken: refreshedSession.accessToken
+            )
+            if statusCode(for: retried.response) == 401 {
+                authToken = ""
+                await authSessionStore.clear(for: baseURL)
+                notifyAuthenticationRequired()
+            }
+            try validate(response: retried.response, data: retried.data)
+            return retried.data
+        }
+
+        if authToken == initialToken {
+            authToken = ""
+        }
+        notifyAuthenticationRequired()
+        try validate(response: initial.response, data: initial.data)
+        return initial.data
+    }
+
+    private func resolvedAuthToken() async -> String? {
+        if !authToken.isEmpty {
+            return authToken
+        }
+        let stored = await authSessionStore.session(for: baseURL)?.accessToken
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        return stored?.isEmpty == false ? stored : nil
+    }
+
+    private func send(
+        method: String,
+        path: String,
+        bodyData: Data?,
+        timeout: TimeInterval?,
+        authToken: String?
+    ) async throws -> (data: Data, response: URLResponse) {
         let url = url(for: path)
         var request = URLRequest(url: url)
         request.httpMethod = method
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if !authToken.isEmpty {
+        if let authToken, !authToken.isEmpty {
             request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
         }
         if let timeout {
             request.timeoutInterval = timeout
         }
-
-        if let body {
+        if let bodyData {
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = try encoder.encode(body)
+            request.httpBody = bodyData
         }
 
         logger.debug("\(method) \(url.absoluteString)")
-        let (data, response) = try await session.data(for: request)
-        try validate(response: response, data: data)
-        return data
+        return try await session.data(for: request)
+    }
+
+    private func refreshSession(using refreshToken: String) async -> AuthSession? {
+        struct RefreshPayload: Encodable { var refreshToken: String }
+
+        do {
+            let bodyData = try encoder.encode(RefreshPayload(refreshToken: refreshToken))
+            let result = try await send(
+                method: "POST",
+                path: "/v1/auth/refresh",
+                bodyData: bodyData,
+                timeout: nil,
+                authToken: nil
+            )
+            try validate(response: result.response, data: result.data)
+            return try decode(AuthSession.self, from: result.data)
+        } catch {
+            logger.warning("Could not refresh authentication session: \(error)")
+            return nil
+        }
+    }
+
+    private func shouldAttemptSessionRecovery(for path: String) -> Bool {
+        switch path {
+        case "/v1/auth/challenge",
+             "/v1/auth/login",
+             "/v1/auth/refresh",
+             "/v1/auth/bootstrap",
+             "/v1/auth/register",
+             "/v1/auth/password-reset",
+             "/v1/dashboard/auth/validate":
+            return false
+        default:
+            return true
+        }
+    }
+
+    private func statusCode(for response: URLResponse) -> Int? {
+        (response as? HTTPURLResponse)?.statusCode
+    }
+
+    private func notifyAuthenticationRequired() {
+        NotificationCenter.default.post(
+            name: AuthSessionNotifications.authenticationRequired,
+            object: nil,
+            userInfo: [AuthSessionNotifications.baseURLUserInfoKey: baseURL.absoluteString]
+        )
     }
 
     private func validate(response: URLResponse, data: Data) throws {

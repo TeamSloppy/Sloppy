@@ -1,3 +1,4 @@
+import Foundation
 import SwiftUI
 
 #if os(macOS)
@@ -36,10 +37,14 @@ struct CanvasWorkspaceWebView: NSViewRepresentable {
         )
     }
 
+    @MainActor
     final class Coordinator: NSObject, WKNavigationDelegate {
+        private static let dashboardAuthStorageKey = "sloppy_dashboard_auth_token"
+
         private let viewModel: CanvasWorkspaceViewModel
         private var requestedURL: URL?
         private var requestedReloadToken = -1
+        private var navigationTask: Task<Void, Never>?
 
         init(viewModel: CanvasWorkspaceViewModel) {
             self.viewModel = viewModel
@@ -57,7 +62,22 @@ struct CanvasWorkspaceWebView: NSViewRepresentable {
             requestedURL = url
             requestedReloadToken = reloadToken
             viewModel.pageError = nil
-            webView.load(URLRequest(url: url))
+            navigationTask?.cancel()
+            navigationTask = Task { [weak self, weak webView] in
+                guard let self, let webView else { return }
+                let accessToken = await viewModel.currentAccessToken()
+                guard !Task.isCancelled,
+                      requestedURL == url,
+                      requestedReloadToken == reloadToken else {
+                    return
+                }
+                installDashboardAuthBootstrap(
+                    accessToken: accessToken,
+                    dashboardURL: url,
+                    in: webView
+                )
+                webView.load(URLRequest(url: url))
+            }
         }
 
         func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
@@ -66,6 +86,7 @@ struct CanvasWorkspaceWebView: NSViewRepresentable {
 
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             syncState(from: webView, isLoading: false)
+            clearPersistedDashboardAuthBootstrap(from: webView)
         }
 
         func webView(
@@ -87,6 +108,60 @@ struct CanvasWorkspaceWebView: NSViewRepresentable {
         private func handleFailure(_ error: Error, webView: WKWebView) {
             viewModel.pageError = error.localizedDescription
             syncState(from: webView, isLoading: false)
+        }
+
+        private func installDashboardAuthBootstrap(
+            accessToken: String?,
+            dashboardURL: URL,
+            in webView: WKWebView
+        ) {
+            let userContentController = webView.configuration.userContentController
+            userContentController.removeAllUserScripts()
+
+            let origin = Self.origin(for: dashboardURL)
+            let normalizedToken = accessToken?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let action: String
+            if normalizedToken.isEmpty {
+                action = "window.localStorage.removeItem(\(Self.javaScriptLiteral(Self.dashboardAuthStorageKey)));"
+            } else {
+                action = "window.localStorage.setItem(\(Self.javaScriptLiteral(Self.dashboardAuthStorageKey)), \(Self.javaScriptLiteral(normalizedToken)));"
+            }
+            let source = """
+            if (window.location.origin === \(Self.javaScriptLiteral(origin))) {
+                \(action)
+            }
+            """
+            userContentController.addUserScript(
+                WKUserScript(
+                    source: source,
+                    injectionTime: .atDocumentStart,
+                    forMainFrameOnly: true
+                )
+            )
+        }
+
+        private func clearPersistedDashboardAuthBootstrap(from webView: WKWebView) {
+            let key = Self.javaScriptLiteral(Self.dashboardAuthStorageKey)
+            webView.evaluateJavaScript("window.localStorage.removeItem(\(key));")
+        }
+
+        private static func origin(for url: URL) -> String {
+            guard var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+                return url.absoluteString
+            }
+            components.path = ""
+            components.query = nil
+            components.fragment = nil
+            return components.string?.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                ?? url.absoluteString
+        }
+
+        private static func javaScriptLiteral(_ value: String) -> String {
+            guard let data = try? JSONEncoder().encode(value),
+                  let literal = String(data: data, encoding: .utf8) else {
+                return "\"\""
+            }
+            return literal
         }
 
         private func syncState(from webView: WKWebView, isLoading: Bool? = nil) {

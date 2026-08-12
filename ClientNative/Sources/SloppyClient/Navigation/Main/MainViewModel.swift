@@ -844,7 +844,7 @@ final class MainViewModel {
 
     func terminalWorkingDirectory(for tabID: WorkspaceTab.ID) -> URL {
         resolveWorkingDirectory(for: tabID)
-            ?? FileManager.default.homeDirectoryForCurrentUser
+            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
     }
 
     private func updateSelectedSidebarItem(_ selection: MainSidebarSelection) {

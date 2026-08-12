@@ -196,10 +196,12 @@ struct ChatScreenRenderingTests {
         let source = try chatScreenSource
 
         #expect(source.contains("ChatTranscriptGrouping.entries(from: transcript.messages)"))
-        #expect(source.contains("ChatSystemMessageGroupView(messages: messages)"))
+        #expect(source.contains("ChatSystemMessageGroupView("))
+        #expect(source.contains("activeRunMessageIDs: activeRunMessageIDs"))
         #expect(source.contains("ChatThinkingIndicator(label: runStatusLabel, details: runStatusDetails)"))
         #expect(source.contains("viewModel.isAwaitingAgentResponse"))
-        #expect(source.contains("message.id == activeThinkingMessageId"))
+        #expect(source.contains("ChatActiveRunMessages.messageIDs"))
+        #expect(source.contains("activeRunMessageIDs.contains(message.id)"))
         #expect(source.contains(".onChange(of: showsThinkingIndicator)"))
     }
 

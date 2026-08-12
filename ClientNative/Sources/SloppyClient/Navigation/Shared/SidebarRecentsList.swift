@@ -7,6 +7,7 @@ struct SidebarRecentsList: View {
     let viewModel: MainViewModel
 
     @Environment(\.theme) private var theme
+    @AppStorage("client_chat_sidebar_layout_mode") private var layoutMode = SidebarLayoutMode.list
 
     private var sections: ChatSidebarSections {
         ChatSidebarSections.build(
@@ -22,7 +23,11 @@ struct SidebarRecentsList: View {
         LazyVStack(alignment: .leading, spacing: theme.spacing.s) {
             if !sections.pinned.isEmpty {
                 SidebarSectionTitle(title: "Priority")
-                ForEach(sections.pinned) { SidebarSessionItem(viewModel: viewModel, session: $0) }
+                if layoutMode == .cards {
+                    sessionCardGrid(sections.pinned)
+                } else {
+                    ForEach(sections.pinned) { SidebarSessionItem(viewModel: viewModel, session: $0) }
+                }
             }
 
             HStack {
@@ -41,6 +46,16 @@ struct SidebarRecentsList: View {
                 if !viewModel.chatViewModel.sessionCatalog.isEmpty {
                     SidebarListModeMenu(viewModel: viewModel)
                 }
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        layoutMode = layoutMode == .list ? .cards : .list
+                    }
+                } label: {
+                    Image(systemName: layoutMode == .list ? "rectangle.grid.2x2" : "list.bullet")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(layoutMode == .list ? "Show as cards" : "Show as list")
+                .help(layoutMode == .list ? "Card view" : "List view")
             }
             .padding(.trailing, theme.spacing.m)
 
@@ -63,16 +78,29 @@ struct SidebarRecentsList: View {
         } else if sections.pinned.isEmpty && sections.sessions.isEmpty && sections.projectGroups.isEmpty {
             SidebarStatusText(text: "No chats yet")
         } else if viewModel.chatSidebarMode == .allChats {
-            ForEach(sections.dayGroups) { group in
-                SidebarSectionTitle(title: daySectionTitle(for: group.day))
-                    .padding(.top, theme.spacing.s)
-                ForEach(group.sessions) { session in
-                    SidebarSessionItem(viewModel: viewModel, session: session)
+            if layoutMode == .cards {
+                sessionCardGrid(sections.sessions)
+            } else {
+                ForEach(sections.dayGroups) { group in
+                    SidebarSectionTitle(title: daySectionTitle(for: group.day))
+                        .padding(.top, theme.spacing.s)
+                    ForEach(group.sessions) { session in
+                        SidebarSessionItem(viewModel: viewModel, session: session)
+                    }
                 }
             }
         } else {
-            ForEach(sections.projectGroups.prefix(viewModel.visibleProjectCount)) {
-                SidebarProjectGroupView(viewModel: viewModel, group: $0)
+            if layoutMode == .cards {
+                LazyVGrid(columns: cardColumns, alignment: .leading, spacing: theme.spacing.s) {
+                    ForEach(sections.projectGroups.prefix(viewModel.visibleProjectCount)) {
+                        SidebarProjectCard(viewModel: viewModel, group: $0)
+                    }
+                }
+                .padding(.horizontal, theme.spacing.xs)
+            } else {
+                ForEach(sections.projectGroups.prefix(viewModel.visibleProjectCount)) {
+                    SidebarProjectGroupView(viewModel: viewModel, group: $0)
+                }
             }
 
             if sections.projectGroups.count > viewModel.visibleProjectCount {
@@ -85,6 +113,19 @@ struct SidebarRecentsList: View {
                 .padding(.vertical, theme.spacing.s)
             }
         }
+    }
+
+    private var cardColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: 148, maximum: 280), spacing: theme.spacing.s, alignment: .top)]
+    }
+
+    private func sessionCardGrid(_ sessions: [ChatSessionSummary]) -> some View {
+        LazyVGrid(columns: cardColumns, alignment: .leading, spacing: theme.spacing.s) {
+            ForEach(sessions) { session in
+                SidebarSessionCard(viewModel: viewModel, session: session)
+            }
+        }
+        .padding(.horizontal, theme.spacing.xs)
     }
 
     private func daySectionTitle(for day: Date) -> String {
@@ -104,6 +145,11 @@ struct SidebarRecentsList: View {
         }
         return day.formatted(.dateTime.month(.wide).day().year())
     }
+}
+
+private enum SidebarLayoutMode: String {
+    case list
+    case cards
 }
 
 @MainActor

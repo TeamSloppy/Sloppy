@@ -773,6 +773,10 @@ private struct ChatTranscriptPane: View {
 
     var body: some View {
         let entries = ChatTranscriptGrouping.entries(from: transcript.messages)
+        let activeRunMessageIDs = ChatActiveRunMessages.messageIDs(
+            in: transcript.messages,
+            isRunActive: isRunActive
+        )
 
         ScrollViewReader { proxy in
             ScrollView {
@@ -789,7 +793,7 @@ private struct ChatTranscriptPane: View {
                             case .message(let message):
                                 ChatBubbleView(
                                     message: message,
-                                    isActivelyWorking: message.id == activeThinkingMessageId,
+                                    isActivelyWorking: activeRunMessageIDs.contains(message.id),
                                     onOpenProviderSettings: providerSettingsRecoveryMessageIDs.contains(message.id)
                                         ? onOpenProviderSettings
                                         : nil
@@ -797,7 +801,10 @@ private struct ChatTranscriptPane: View {
                                 .frame(minWidth: 0, maxWidth: .infinity)
                                 .transition(.opacity)
                             case .systemGroup(let messages):
-                                ChatSystemMessageGroupView(messages: messages)
+                                ChatSystemMessageGroupView(
+                                    messages: messages,
+                                    activeRunMessageIDs: activeRunMessageIDs
+                                )
                                     .frame(minWidth: 0, maxWidth: .infinity)
                                     .transition(.opacity)
                             }
@@ -932,20 +939,6 @@ private struct ChatTranscriptPane: View {
             return ""
         }
         return "\(message.id):\(message.textContent.count)"
-    }
-
-    private var activeThinkingMessageId: String? {
-        guard isRunActive else { return nil }
-        let messages = transcript.messages
-        guard let lastUserIndex = messages.lastIndex(where: { $0.role == .user }) else {
-            return nil
-        }
-        let nextIndex = messages.index(after: lastUserIndex)
-        guard nextIndex < messages.endIndex else { return nil }
-        return messages[nextIndex...].reversed().first { message in
-            message.role == .assistant
-                && message.segments.contains(where: { $0.kind == .thinking })
-        }?.id
     }
 
     private var revealEarlierButton: some View {

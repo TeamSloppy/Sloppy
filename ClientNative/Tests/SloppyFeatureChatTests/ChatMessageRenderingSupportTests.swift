@@ -63,6 +63,42 @@ struct ChatMessageRenderingSupportTests {
         #expect(!ChatTranscriptGrouping.usesCompactSpacing(between: progress, and: assistant))
     }
 
+    @Test("inactive runs never animate stale execution states")
+    func inactiveRunsHaveNoActiveMessages() {
+        let messages = [
+            ChatMessage(id: "user", role: .user, segments: [.init(kind: .text, text: "Go")]),
+            ChatMessage(id: "stale", role: .system, segments: [
+                .init(kind: .toolCall, title: "Tests", status: "running")
+            ]),
+        ]
+
+        #expect(ChatActiveRunMessages.messageIDs(in: messages, isRunActive: false).isEmpty)
+    }
+
+    @Test("active runs only animate execution after the latest user message")
+    func activeRunsOnlyIncludeCurrentTurnMessages() {
+        let messages = [
+            ChatMessage(id: "old-user", role: .user, segments: [.init(kind: .text, text: "Old")]),
+            ChatMessage(id: "old-running", role: .system, segments: [
+                .init(kind: .toolCall, title: "Old tool", status: "running")
+            ]),
+            ChatMessage(id: "current-user", role: .user, segments: [.init(kind: .text, text: "New")]),
+            ChatMessage(id: "current-tool", role: .system, segments: [
+                .init(kind: .toolCall, title: "Current tool", status: "in_progress")
+            ]),
+            ChatMessage(id: "current-thinking", role: .assistant, segments: [
+                .init(kind: .thinking, text: "Working")
+            ]),
+            ChatMessage(id: "completed", role: .system, segments: [
+                .init(kind: .toolResult, title: "Done", status: "completed")
+            ]),
+        ]
+
+        let activeIDs = ChatActiveRunMessages.messageIDs(in: messages, isRunActive: true)
+
+        #expect(activeIDs == ["current-tool", "current-thinking"])
+    }
+
     @Test("collapsed system activity shows only currently executing tools")
     func collapsedSystemActivityShowsOnlyCurrentTools() {
         let message = ChatMessage(id: "system", role: .system, segments: [])

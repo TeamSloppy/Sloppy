@@ -26,6 +26,7 @@ public struct ChatBubbleView: View {
     private var isStreamingAssistant: Bool { message.id.hasPrefix("streaming-assistant-") }
     private var showsMessageActions: Bool {
         !isStreamingAssistant
+            && !isActivelyWorking
             && message.role == .assistant
             && message.segments.contains { $0.kind == .text }
             && message.segments.allSatisfy { $0.kind == .text || $0.kind == .status }
@@ -36,22 +37,13 @@ public struct ChatBubbleView: View {
         case .user:
             userMessage
                 .multilineTextAlignment(.leading)
-                .textSelection(.enabled)
                 .padding(.bottom, 16)
         case .system:
             systemMessage
                 .multilineTextAlignment(.leading)
-                .textSelection(.enabled)
         case .assistant:
-            if isStreamingAssistant {
-                assistantMessage
-                    .multilineTextAlignment(.leading)
-                    .textSelection(.disabled)
-            } else {
-                assistantMessage
-                    .multilineTextAlignment(.leading)
-                    .textSelection(.enabled)
-            }
+            assistantMessage
+                .multilineTextAlignment(.leading)
         }
     }
 
@@ -128,7 +120,10 @@ public struct ChatBubbleView: View {
     }
 
     private var systemMessage: some View {
-        ChatSystemMessageGroupView(messages: [message])
+        ChatSystemMessageGroupView(
+            messages: [message],
+            activeRunMessageIDs: isActivelyWorking ? [message.id] : []
+        )
     }
 
     @ViewBuilder
@@ -147,7 +142,7 @@ public struct ChatBubbleView: View {
                 } else {
                     ChatMarkdownTextStack(
                         text: segment.text ?? "…",
-                        allowsTextSelection: !isStreamingAssistant
+                        allowsTextSelection: !isStreamingAssistant && !isActivelyWorking
                     )
                 }
             }
@@ -168,12 +163,13 @@ public struct ChatBubbleView: View {
     }
 
     private func isSegmentRunning(_ segment: ChatMessageSegment) -> Bool {
-        segment.isExecutionRunning
+        isActivelyWorking && segment.isExecutionRunning
     }
 }
 
 struct ChatSystemMessageGroupView: View {
     let messages: [ChatMessage]
+    var activeRunMessageIDs: Set<ChatMessage.ID> = []
 
     @State private var isExpanded = false
     @Environment(\.theme) private var theme
@@ -237,7 +233,9 @@ struct ChatSystemMessageGroupView: View {
                 ChatSystemSegmentItem(
                     id: "\(message.id):\(index)",
                     message: message,
-                    segment: segment
+                    segment: segment,
+                    isRunning: activeRunMessageIDs.contains(message.id)
+                        && segment.isExecutionRunning
                 )
             }
         }
@@ -259,9 +257,18 @@ struct ChatSystemSegmentItem: Identifiable {
     let id: String
     let message: ChatMessage
     let segment: ChatMessageSegment
+    let isRunning: Bool
 
-    var isRunning: Bool {
-        segment.isExecutionRunning
+    init(
+        id: String,
+        message: ChatMessage,
+        segment: ChatMessageSegment,
+        isRunning: Bool? = nil
+    ) {
+        self.id = id
+        self.message = message
+        self.segment = segment
+        self.isRunning = isRunning ?? segment.isExecutionRunning
     }
 
     var toolExecutionKey: String? {
@@ -270,15 +277,6 @@ struct ChatSystemSegmentItem: Identifiable {
             return nil
         }
         return title
-    }
-}
-
-extension ChatMessageSegment {
-    var isExecutionRunning: Bool {
-        if let status = status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
-            return status == "started" || status == "running" || status == "in_progress"
-        }
-        return startedAt != nil && finishedAt == nil
     }
 }
 
@@ -341,9 +339,12 @@ private struct ChatMarkdownTextStack: View {
     @ViewBuilder
     var body: some View {
         #if os(macOS)
-        // Textual keeps the full GitHub-style renderer here. The local package patch
-        // suppresses its inactive selection geometry and duplicate layout updates.
-        structuredText
+        if allowsTextSelection {
+            structuredText
+                .textSelection(.enabled)
+        } else {
+            structuredText
+        }
         #else
         if allowsTextSelection {
             structuredText
@@ -390,7 +391,10 @@ private struct ChatSegmentCollapsibleCard: View {
             if isExpanded {
                 VStack(alignment: .leading, spacing: sp.s) {
                     if let text = segment.text, !text.isEmpty {
-                        ChatMarkdownTextStack(text: text)
+                        ChatMarkdownTextStack(
+                            text: text,
+                            allowsTextSelection: !isRunning
+                        )
                     }
 
                     if let metadata = segment.metadata, !metadata.isEmpty {
@@ -400,10 +404,7 @@ private struct ChatSegmentCollapsibleCard: View {
                                     Text(key)
                                         .font(.system(size: theme.typography.micro, design: .monospaced))
                                         .foregroundColor(c.textMuted)
-                                    Text(metadata[key] ?? "")
-                                        .font(.system(size: theme.typography.caption, design: .monospaced))
-                                        .foregroundColor(c.textSecondary)
-                                        .textSelection(.enabled)
+                                    metadataValue(metadata[key] ?? "")
                                 }
                             }
                         }
@@ -413,6 +414,19 @@ private struct ChatSegmentCollapsibleCard: View {
             }
         }
         .padding(.vertical, sp.xs)
+    }
+
+    @ViewBuilder
+    private func metadataValue(_ value: String) -> some View {
+        let text = Text(value)
+            .font(.system(size: theme.typography.caption, design: .monospaced))
+            .foregroundColor(theme.colors.textSecondary)
+
+        if isRunning {
+            text
+        } else {
+            text.textSelection(.enabled)
+        }
     }
 
     @ViewBuilder

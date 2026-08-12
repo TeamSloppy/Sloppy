@@ -26,10 +26,8 @@ struct ChatBubbleRenderingTests {
         #expect(source.contains("ChatMarkdownTextStack"))
         #expect(source.contains("StructuredText(markdown: text)"))
         #expect(!source.contains("rendersMarkdown: !isStreamingAssistant"))
-        #expect(source.contains("if isStreamingAssistant"))
-        #expect(source.contains("textSelection(.disabled)"))
         #expect(source.contains(".textual.textSelection(.enabled)"))
-        #expect(source.contains("allowsTextSelection: !isStreamingAssistant"))
+        #expect(source.contains("allowsTextSelection: !isStreamingAssistant && !isActivelyWorking"))
     }
 
     @Test("rich transcript includes code block and running state affordances")
@@ -40,6 +38,9 @@ struct ChatBubbleRenderingTests {
         #expect(source.contains("ChatCompactDurationFormatter.string"))
         #expect(source.contains("ChatShimmerText(text: segmentTitle)"))
         #expect(source.contains("isActivelyWorking && segment.kind == .thinking"))
+        #expect(source.contains("isActivelyWorking && segment.isExecutionRunning"))
+        #expect(source.contains("if isRunning"))
+        #expect(source.contains("allowsTextSelection: !isRunning"))
         #expect(source.contains("accessibilityReduceMotion"))
     }
 
@@ -53,10 +54,14 @@ struct ChatBubbleRenderingTests {
         let fallbackBranchStart = try #require(stackSource.range(of: "#else"))
         let macOSBranch = stackSource[macOSBranchStart.lowerBound..<fallbackBranchStart.lowerBound]
 
-        #expect(macOSBranch.contains("structuredText"))
+        #expect(macOSBranch.contains(".textSelection(.enabled)"))
         #expect(!macOSBranch.contains("textual.textSelection"))
         #expect(stackSource.contains(".textual.textSelection(.enabled)"))
-        #expect(source.contains(".textSelection(.enabled)"))
+
+        let bubbleBodyStart = try #require(source.range(of: "public var body: some View"))
+        let userMessageStart = try #require(source.range(of: "private var userMessage"))
+        let bubbleBody = source[bubbleBodyStart.lowerBound..<userMessageStart.lowerBound]
+        #expect(!bubbleBody.contains("textSelection"))
     }
 
     @Test("system activity is grouped without a glass card")

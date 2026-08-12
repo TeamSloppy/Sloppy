@@ -52,6 +52,44 @@ enum ChatTranscriptGrouping {
     }
 }
 
+enum ChatActiveRunMessages {
+    static func messageIDs(
+        in messages: [ChatMessage],
+        isRunActive: Bool
+    ) -> Set<ChatMessage.ID> {
+        guard isRunActive,
+              let lastUserIndex = messages.lastIndex(where: { $0.role == .user }) else {
+            return []
+        }
+
+        let firstActiveIndex = messages.index(after: lastUserIndex)
+        guard firstActiveIndex < messages.endIndex else { return [] }
+
+        let activeMessages = messages[firstActiveIndex...]
+        var messageIDs = Set(activeMessages.compactMap { message -> ChatMessage.ID? in
+            message.segments.contains(where: \.isExecutionRunning) ? message.id : nil
+        })
+
+        if let thinkingMessage = activeMessages.reversed().first(where: { message in
+            message.role == .assistant
+                && message.segments.contains(where: { $0.kind == .thinking })
+        }) {
+            messageIDs.insert(thinkingMessage.id)
+        }
+
+        return messageIDs
+    }
+}
+
+extension ChatMessageSegment {
+    var isExecutionRunning: Bool {
+        if let status = status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() {
+            return status == "started" || status == "running" || status == "in_progress"
+        }
+        return startedAt != nil && finishedAt == nil
+    }
+}
+
 private extension ChatTranscriptEntry {
     var isSystemActivity: Bool {
         switch self {

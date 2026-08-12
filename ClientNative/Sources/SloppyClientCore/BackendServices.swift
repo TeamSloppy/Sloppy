@@ -113,6 +113,24 @@ public struct AuthSession: Codable, Sendable, Equatable {
     public var accessTokenExpiresAt: Date?
     public var refreshTokenExpiresAt: Date?
     public var user: AuthUserProfile?
+
+    public init(
+        accessToken: String,
+        refreshToken: String,
+        accessTokenExpiresAt: Date? = nil,
+        refreshTokenExpiresAt: Date? = nil,
+        user: AuthUserProfile? = nil
+    ) {
+        self.accessToken = accessToken
+        self.refreshToken = refreshToken
+        self.accessTokenExpiresAt = accessTokenExpiresAt
+        self.refreshTokenExpiresAt = refreshTokenExpiresAt
+        self.user = user
+    }
+}
+
+public struct DashboardAuthStatus: Codable, Sendable, Equatable {
+    public var enabled: Bool
 }
 
 public actor AuthService {
@@ -138,6 +156,27 @@ public actor AuthService {
                 password: password
             )
         )
+    }
+
+    public func fetchCurrentUser() async throws -> AuthUserProfile {
+        try await http.get("/v1/auth/me")
+    }
+
+    public func fetchDashboardAuthStatus() async throws -> DashboardAuthStatus {
+        try await http.get("/v1/dashboard/auth/status")
+    }
+
+    public func validateCurrentToken() async throws {
+        struct EmptyPayload: Encodable {}
+        struct ValidationResponse: Decodable { var ok: Bool }
+
+        let response: ValidationResponse = try await http.post(
+            "/v1/dashboard/auth/validate",
+            body: EmptyPayload()
+        )
+        guard response.ok else {
+            throw APIError.invalidResponse
+        }
     }
 }
 
