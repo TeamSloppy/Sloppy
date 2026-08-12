@@ -150,6 +150,52 @@ struct AuthAPIRouter: APIRouter {
             }
         }
 
+        router.get("/v1/auth/application-tokens", metadata: RouteMetadata(summary: "List application tokens", description: "Lists long-lived application tokens owned by the authenticated user", tags: ["Auth"])) { request in
+            guard let actor = await CoreRouter.identityActor(for: request, service: service) else {
+                return CoreRouter.json(status: HTTPStatus.unauthorized, payload: ["error": ErrorCode.unauthorized])
+            }
+            do {
+                return CoreRouter.encodable(
+                    status: HTTPStatus.ok,
+                    payload: try await service.listIdentityApplicationTokens(actor: actor)
+                )
+            } catch {
+                return authErrorResponse(error)
+            }
+        }
+
+        router.post("/v1/auth/application-tokens", metadata: RouteMetadata(summary: "Create application token", description: "Creates a long-lived bearer token for SloppySafari or another application", tags: ["Auth"])) { request in
+            guard let actor = await CoreRouter.identityActor(for: request, service: service) else {
+                return CoreRouter.json(status: HTTPStatus.unauthorized, payload: ["error": ErrorCode.unauthorized])
+            }
+            guard let payload = request.decode(AuthApplicationTokenCreateRequest.self) else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            do {
+                return CoreRouter.encodable(
+                    status: HTTPStatus.created,
+                    payload: try await service.createIdentityApplicationToken(payload, actor: actor)
+                )
+            } catch {
+                return authErrorResponse(error)
+            }
+        }
+
+        router.delete("/v1/auth/application-tokens/:tokenId", metadata: RouteMetadata(summary: "Revoke application token", description: "Revokes an application token owned by the authenticated user", tags: ["Auth"])) { request in
+            guard let actor = await CoreRouter.identityActor(for: request, service: service) else {
+                return CoreRouter.json(status: HTTPStatus.unauthorized, payload: ["error": ErrorCode.unauthorized])
+            }
+            do {
+                try await service.revokeIdentityApplicationToken(
+                    id: request.pathParam("tokenId") ?? "",
+                    actor: actor
+                )
+                return CoreRouterResponse(status: 204, body: Data(), contentType: "application/json")
+            } catch {
+                return authErrorResponse(error)
+            }
+        }
+
         router.post("/v1/auth/users/:login/password-reset-token", metadata: RouteMetadata(summary: "Create password reset token", description: "Creates a short-lived admin password reset token for a user", tags: ["Auth"])) { request in
             guard let actor = await CoreRouter.identityActor(for: request, service: service) else {
                 return CoreRouter.json(status: HTTPStatus.unauthorized, payload: ["error": ErrorCode.unauthorized])
@@ -197,6 +243,10 @@ private func authErrorResponse(_ error: Error) -> CoreRouterResponse {
         return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "auth_disabled"])
     case CoreIdentityAuthError.invalidRole:
         return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "invalid_role"])
+    case CoreIdentityAuthError.invalidApplicationTokenName:
+        return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "invalid_application_token_name"])
+    case CoreIdentityAuthError.applicationTokenNotFound:
+        return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": "application_token_not_found"])
     case CoreIdentityAuthError.invalidCredentials,
          CoreIdentityAuthError.invalidInvite,
          CoreIdentityAuthError.inviteExpired,

@@ -1691,6 +1691,24 @@ func identityAuthModeSwitchRequiresIrreversibleConfirmation() async throws {
 }
 
 @Test
+func identityAuthBootstrapAcceptsDashboardPayloadWithoutProfileFields() async throws {
+    let service = CoreService(config: .test, identityPasswordHashIterations: 1)
+    await service.setIdentityAuthEnabled(true)
+    let router = CoreRouter(service: service)
+    let body = Data(#"{"login":"admin","name":"Admin","password":"admin-pass"}"#.utf8)
+
+    let response = await router.handle(method: "POST", path: "/v1/auth/bootstrap", body: body)
+
+    #expect(response.status == 201)
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let session = try decoder.decode(AuthSessionResponse.self, from: response.body)
+    #expect(session.user.login == "admin")
+    #expect(session.user.avatar == "")
+    #expect(session.user.description == "")
+}
+
+@Test
 func identityAuthEnforcesTokenAuthAndAdminRoleBoundaries() async throws {
     let config = CoreConfig.test
     let service = CoreService(config: config, identityPasswordHashIterations: 1)
@@ -1953,6 +1971,77 @@ func identityAuthRefreshRotatesRefreshToken() async throws {
     let refreshed = try decoder.decode(AuthSessionResponse.self, from: refresh.body)
     #expect(refreshed.user.id == session.user.id)
     #expect(refreshed.refreshToken != session.refreshToken)
+}
+
+@Test
+func identityApplicationTokensPersistAuthenticateAndCanBeRevoked() async throws {
+    let config = CoreConfig.test
+    let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    var applicationToken = ""
+    var applicationTokenID = ""
+
+    do {
+        let service = CoreService(config: config, identityPasswordHashIterations: 1)
+        await service.setIdentityAuthEnabled(true)
+        let router = CoreRouter(service: service)
+        let bootstrap = await router.handle(
+            method: "POST",
+            path: "/v1/auth/bootstrap",
+            body: try encoder.encode(AuthBootstrapAdminRequest(login: "admin", password: "admin-pass", name: "Admin"))
+        )
+        let session = try decoder.decode(AuthSessionResponse.self, from: bootstrap.body)
+
+        let create = await router.handle(
+            method: "POST",
+            path: "/v1/auth/application-tokens",
+            body: try encoder.encode(AuthApplicationTokenCreateRequest(
+                name: "Sloppy Safari",
+                expiresInSeconds: 31_536_000
+            )),
+            headers: ["Authorization": "Bearer \(session.accessToken)"]
+        )
+
+        #expect(create.status == 201)
+        let record = try decoder.decode(AuthApplicationTokenRecord.self, from: create.body)
+        applicationToken = try #require(record.token)
+        applicationTokenID = record.id
+        #expect(record.name == "Sloppy Safari")
+        #expect(applicationToken.hasPrefix("slp_pat_"))
+        #expect(record.tokenPrefix.hasPrefix("slp_pat_"))
+    }
+
+    let restartedService = CoreService(config: config, identityPasswordHashIterations: 1)
+    let restartedRouter = CoreRouter(service: restartedService)
+    let authorization = ["Authorization": "Bearer \(applicationToken)"]
+
+    let me = await restartedRouter.handle(method: "GET", path: "/v1/auth/me", body: nil, headers: authorization)
+    #expect(me.status == 200)
+    let profile = try decoder.decode(AuthUserProfile.self, from: me.body)
+    #expect(profile.login == "admin")
+
+    let list = await restartedRouter.handle(
+        method: "GET",
+        path: "/v1/auth/application-tokens",
+        body: nil,
+        headers: authorization
+    )
+    #expect(list.status == 200)
+    let records = try decoder.decode([AuthApplicationTokenRecord].self, from: list.body)
+    #expect(records.count == 1)
+    #expect(records.first?.token == nil)
+
+    let revoke = await restartedRouter.handle(
+        method: "DELETE",
+        path: "/v1/auth/application-tokens/\(applicationTokenID)",
+        body: nil,
+        headers: authorization
+    )
+    #expect(revoke.status == 204)
+
+    let rejected = await restartedRouter.handle(method: "GET", path: "/v1/auth/me", body: nil, headers: authorization)
+    #expect(rejected.status == 401)
 }
 
 @Test

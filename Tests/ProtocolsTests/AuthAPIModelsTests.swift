@@ -59,3 +59,18 @@ func authRecoveryModelsKeepCodesExplicit() throws {
 
     #expect(decoded.codes == ["sloppy-a", "sloppy-b"])
 }
+
+@Test
+func authAccountRequestsDefaultMissingProfileFields() throws {
+    let bootstrapData = Data(#"{"login":"admin","password":"admin-pass","name":"Admin"}"#.utf8)
+    let bootstrap = try JSONDecoder().decode(AuthBootstrapAdminRequest.self, from: bootstrapData)
+
+    #expect(bootstrap.avatar == "")
+    #expect(bootstrap.description == "")
+
+    let registerData = Data(#"{"inviteToken":"invite","login":"user","password":"user-pass","name":"User"}"#.utf8)
+    let register = try JSONDecoder().decode(AuthRegisterRequest.self, from: registerData)
+
+    #expect(register.avatar == "")
+    #expect(register.description == "")
+}

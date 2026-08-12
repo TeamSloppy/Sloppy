@@ -14,6 +14,10 @@ export function AuthUsersEditor() {
   const [bootstrapPassword, setBootstrapPassword] = useState("");
   const [recoveryCodes, setRecoveryCodes] = useState<string[]>([]);
   const [passwordResetToken, setPasswordResetToken] = useState("");
+  const [applicationTokens, setApplicationTokens] = useState<Record<string, any>[]>([]);
+  const [applicationTokenName, setApplicationTokenName] = useState("Sloppy Safari");
+  const [createdApplicationToken, setCreatedApplicationToken] = useState("");
+  const [applicationTokenStatus, setApplicationTokenStatus] = useState("");
 
   const loadAuthChallenge = useCallback(async () => {
     const response = await requestJson<Record<string, any>>({ path: "/v1/auth/challenge" });
@@ -36,18 +40,30 @@ export function AuthUsersEditor() {
     setIdentityUsersStatus("");
   }, []);
 
+  const loadApplicationTokens = useCallback(async () => {
+    const response = await requestJson<Record<string, any>[]>({ path: "/v1/auth/application-tokens" });
+    if (!response.ok || !Array.isArray(response.data)) {
+      setApplicationTokens([]);
+      setApplicationTokenStatus("Unable to load application tokens.");
+      return;
+    }
+    setApplicationTokens(response.data);
+    setApplicationTokenStatus("");
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     loadAuthChallenge().then((challenge) => {
       if (cancelled) return;
       if (challenge?.mode === "login_password" && !Boolean(challenge?.bootstrapRequired)) {
         void loadIdentityUsers();
+        void loadApplicationTokens();
       }
     });
     return () => {
       cancelled = true;
     };
-  }, [loadAuthChallenge, loadIdentityUsers]);
+  }, [loadApplicationTokens, loadAuthChallenge, loadIdentityUsers]);
 
   const enableLoginPasswordAuth = useCallback(async () => {
     const confirmed = window.confirm(
@@ -160,6 +176,56 @@ export function AuthUsersEditor() {
     setPasswordResetToken(token);
     setIdentityAuthStatus(`Password reset token created for ${login}.`);
   }, []);
+
+  const createApplicationToken = useCallback(async () => {
+    const name = applicationTokenName.trim();
+    if (!name) {
+      setApplicationTokenStatus("Enter a token name.");
+      return;
+    }
+    setApplicationTokenStatus("Creating application token...");
+    setCreatedApplicationToken("");
+    const response = await requestJson<Record<string, any>, Record<string, any>>({
+      path: "/v1/auth/application-tokens",
+      method: "POST",
+      body: {
+        name,
+        expiresInSeconds: 31_536_000
+      }
+    });
+    const token = typeof response.data?.token === "string" ? response.data.token.trim() : "";
+    if (!response.ok || !token) {
+      setApplicationTokenStatus("Failed to create application token.");
+      return;
+    }
+    setCreatedApplicationToken(token);
+    await loadApplicationTokens();
+    setApplicationTokenStatus("Token created. Copy it now; it will not be shown again.");
+  }, [applicationTokenName, loadApplicationTokens]);
+
+  const revokeApplicationToken = useCallback(async (id: string, name: string) => {
+    if (!window.confirm(`Revoke application token “${name}”?`)) return;
+    setApplicationTokenStatus("Revoking application token...");
+    const response = await requestJson({
+      path: `/v1/auth/application-tokens/${encodeURIComponent(id)}`,
+      method: "DELETE"
+    });
+    if (!response.ok) {
+      setApplicationTokenStatus("Failed to revoke application token.");
+      return;
+    }
+    setCreatedApplicationToken("");
+    await loadApplicationTokens();
+  }, [loadApplicationTokens]);
+
+  const copyCreatedApplicationToken = useCallback(async () => {
+    try {
+      await navigator.clipboard.writeText(createdApplicationToken);
+      setApplicationTokenStatus("Token copied. It will not be shown again after you leave this page.");
+    } catch {
+      setApplicationTokenStatus("Unable to copy automatically. Select the token and copy it manually.");
+    }
+  }, [createdApplicationToken]);
 
   return (
     <section className="entry-editor-card">
@@ -292,6 +358,65 @@ export function AuthUsersEditor() {
                               Reset token
                             </button>
                           </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  <span className="agent-tools-guardrail-copy">
+                    <span className="agent-tools-guardrail-title">Application tokens</span>
+                    <span className="entry-form-hint">
+                      Long-lived bearer tokens for Sloppy Safari and other clients. Tokens inherit your current role and expire after one year.
+                    </span>
+                  </span>
+                  <div className="settings-toggle-row">
+                    <input
+                      value={applicationTokenName}
+                      placeholder="Sloppy Safari"
+                      onChange={(event) => setApplicationTokenName(event.target.value)}
+                    />
+                    <button type="button" className="secondary-button" onClick={() => void createApplicationToken()}>
+                      Generate token
+                    </button>
+                  </div>
+                  {applicationTokenStatus ? <span className="entry-form-hint">{applicationTokenStatus}</span> : null}
+                  {createdApplicationToken ? (
+                    <div className="settings-toggle-row">
+                      <label>
+                        New application token
+                        <input
+                          readOnly
+                          value={createdApplicationToken}
+                          onFocus={(event) => event.currentTarget.select()}
+                        />
+                      </label>
+                      <button type="button" className="secondary-button" onClick={() => void copyCreatedApplicationToken()}>
+                        Copy token
+                      </button>
+                    </div>
+                  ) : null}
+                  <div style={{ display: "grid", gap: "10px" }}>
+                    {applicationTokens.map((token) => {
+                      const id = String(token.id || "");
+                      const name = String(token.name || "Application token");
+                      const prefix = String(token.tokenPrefix || "");
+                      const expiresAt = String(token.expiresAt || "");
+                      const expiry = expiresAt ? new Date(expiresAt).toLocaleDateString() : "unknown";
+                      return (
+                        <div key={id} className="agent-tools-guardrail">
+                          <span className="agent-tools-guardrail-copy">
+                            <span className="agent-tools-guardrail-title">{name}</span>
+                            <span className="entry-form-hint">
+                              <code>{prefix}</code> · expires {expiry}
+                            </span>
+                          </span>
+                          <button
+                            type="button"
+                            className="secondary-button"
+                            onClick={() => void revokeApplicationToken(id, name)}
+                          >
+                            Revoke
+                          </button>
                         </div>
                       );
                     })}

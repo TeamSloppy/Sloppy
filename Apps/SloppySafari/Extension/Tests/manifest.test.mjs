@@ -59,6 +59,14 @@ test("extension declares context menu access for page summary shortcut", () => {
   assert.match(contentSource, /openQuickChatForPrompt\(summarizePagePrompt\(\)/);
 });
 
+test("connection settings point application tokens to Dashboard auth settings", () => {
+  const settingsSource = loadSettingsPanelScript();
+
+  assert.match(settingsSource, /Application token/);
+  assert.match(settingsSource, /Sloppy Dashboard → Settings → Users &amp; Auth/);
+  assert.match(settingsSource, /data-sloppy-auth-token/);
+});
+
 test("extension does not request persistent microphone permission in manifest", () => {
   const manifest = loadManifest();
   assert.equal((manifest.permissions || []).includes("microphone"), false);

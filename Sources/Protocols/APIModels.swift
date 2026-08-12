@@ -5607,6 +5607,41 @@ public struct AuthRefreshRequest: Codable, Sendable, Equatable {
     }
 }
 
+public struct AuthApplicationTokenCreateRequest: Codable, Sendable, Equatable {
+    public var name: String
+    public var expiresInSeconds: Int?
+
+    public init(name: String, expiresInSeconds: Int? = nil) {
+        self.name = name
+        self.expiresInSeconds = expiresInSeconds
+    }
+}
+
+public struct AuthApplicationTokenRecord: Codable, Sendable, Equatable {
+    public var id: String
+    public var name: String
+    public var token: String?
+    public var tokenPrefix: String
+    public var createdAt: Date
+    public var expiresAt: Date
+
+    public init(
+        id: String,
+        name: String,
+        token: String? = nil,
+        tokenPrefix: String,
+        createdAt: Date = Date(),
+        expiresAt: Date
+    ) {
+        self.id = id
+        self.name = name
+        self.token = token
+        self.tokenPrefix = tokenPrefix
+        self.createdAt = createdAt
+        self.expiresAt = expiresAt
+    }
+}
+
 public struct AuthBootstrapAdminRequest: Codable, Sendable, Equatable {
     public var login: String
     public var password: String
@@ -5626,6 +5661,15 @@ public struct AuthBootstrapAdminRequest: Codable, Sendable, Equatable {
         self.name = name
         self.avatar = avatar
         self.description = description
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        login = try container.decode(String.self, forKey: .login)
+        password = try container.decode(String.self, forKey: .password)
+        name = try container.decode(String.self, forKey: .name)
+        avatar = try container.decodeIfPresent(String.self, forKey: .avatar) ?? ""
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
     }
 }
 
@@ -5686,6 +5730,16 @@ public struct AuthRegisterRequest: Codable, Sendable, Equatable {
         self.name = name
         self.avatar = avatar
         self.description = description
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        inviteToken = try container.decode(String.self, forKey: .inviteToken)
+        login = try container.decode(String.self, forKey: .login)
+        password = try container.decode(String.self, forKey: .password)
+        name = try container.decode(String.self, forKey: .name)
+        avatar = try container.decodeIfPresent(String.self, forKey: .avatar) ?? ""
+        description = try container.decodeIfPresent(String.self, forKey: .description) ?? ""
     }
 }
 

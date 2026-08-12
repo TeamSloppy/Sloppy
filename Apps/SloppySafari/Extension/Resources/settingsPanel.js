@@ -27,7 +27,8 @@
             <section class="sloppy-settings-pane" data-sloppy-settings-section="connection">
               <div class="sloppy-settings-group">
                 <label>Core URL<input data-sloppy-core-url placeholder="http://127.0.0.1:25101"></label>
-                <label>Auth token<input data-sloppy-auth-token type="password" autocomplete="off"></label>
+                <label>Application token<input data-sloppy-auth-token type="password" autocomplete="off"></label>
+                <p class="sloppy-settings-note">Generate this token in Sloppy Dashboard → Settings → Users &amp; Auth.</p>
                 <label>Default agent<input data-sloppy-default-agent placeholder="sloppy"></label>
               </div>
               <div class="sloppy-settings-actions">

@@ -54,6 +54,21 @@ extension CoreService {
         try await identityAuthService.resetPassword(request)
     }
 
+    func createIdentityApplicationToken(
+        _ request: AuthApplicationTokenCreateRequest,
+        actor: AuthenticatedUserContext
+    ) async throws -> AuthApplicationTokenRecord {
+        try await identityAuthService.createApplicationToken(request, actor: actor)
+    }
+
+    func listIdentityApplicationTokens(actor: AuthenticatedUserContext) async throws -> [AuthApplicationTokenRecord] {
+        try await identityAuthService.listApplicationTokens(actor: actor)
+    }
+
+    func revokeIdentityApplicationToken(id: String, actor: AuthenticatedUserContext) async throws {
+        try await identityAuthService.revokeApplicationToken(id: id, actor: actor)
+    }
+
     func authenticateIdentityAccessToken(_ token: String?) async -> AuthenticatedUserContext? {
         if let localIdentity = await identityAuthService.authenticateAccessToken(token) {
             return localIdentity

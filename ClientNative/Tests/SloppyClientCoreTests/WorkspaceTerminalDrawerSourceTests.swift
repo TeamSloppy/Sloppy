@@ -12,15 +12,18 @@ struct WorkspaceTerminalDrawerSourceTests {
         return try String(contentsOf: url, encoding: .utf8)
     }
 
-    @Test("app registers cmd j and main view exposes the focused terminal action")
-    func appRegistersCmdJAndMainViewExposesFocusedTerminalAction() throws {
+    @Test("main view registers cmd j and mounts a root terminal overlay")
+    func mainViewRegistersCmdJAndMountsRootTerminalOverlay() throws {
         let app = try source("Sources", "SloppyClient", "App", "SloppyClientApp.swift")
         let mainView = try source("Sources", "SloppyClient", "Navigation", "Main", "MainView.swift")
 
-        #expect(app.contains(".keyboardShortcut(\"j\", modifiers: [.command])"))
         #expect(app.contains("@FocusedValue(\\.toggleWorkspaceTerminal)"))
+        #expect(!app.contains(".keyboardShortcut(\"j\", modifiers: [.command])"))
+        #expect(mainView.contains(".keyboardShortcut(\"j\", modifiers: [.command])"))
         #expect(mainView.contains(".focusedSceneValue("))
         #expect(mainView.contains("viewModel.toggleTerminalForSelectedTab()"))
+        #expect(mainView.contains("private var workspaceTerminalOverlay: some View"))
+        #expect(mainView.contains(".overlay(alignment: .bottom)"))
         #expect(mainView.contains("WorkspaceTerminalDrawerView"))
     }
 

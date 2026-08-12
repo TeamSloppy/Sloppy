@@ -25,6 +25,8 @@ macOS defaults to `http://127.0.0.1:25101`.
 
 iOS, iPadOS, and visionOS need a LAN URL for the Mac or host running Sloppy Core, such as `http://192.168.1.50:25101`.
 
+When Core uses login/password authentication, generate a one-year Application Token in Dashboard → Settings → Users & Auth and paste it into SloppySafari → Settings → Connection. The token can be revoked from the same Dashboard section.
+
 ## Mesh Runtime
 
 The extension can join Sloppy mesh directly. Paste a bundled `slp_mesh_...` invite into the Mesh section of the extension settings, click Join mesh, then set the target node id that exposes the agent Core API.

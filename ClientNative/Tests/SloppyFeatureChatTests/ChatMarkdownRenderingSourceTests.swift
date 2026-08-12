@@ -42,11 +42,18 @@ struct ChatMarkdownRenderingSourceTests {
             "Vendor", "Textual", "Sources", "Textual", "Internal", "TextInteraction", "AppKit",
             "AppKitTextSelectionView.swift"
         )
+        let structuredTextSource = try source(
+            "Vendor", "Textual", "Sources", "Textual", "StructuredText", "StructuredText.swift"
+        )
 
         #expect(packageSource.contains(#".package(path: "Vendor/Textual")"#))
         #expect(packageSource.contains(#".product(name: "Textual", package: "textual")"#))
         #expect(textBuilderSource.contains("guard attachmentSizes != currentAttachmentSizes else { return }"))
         #expect(selectionBackgroundSource.contains("if textSelectionModel != nil"))
         #expect(selectionViewSource.contains("guard updatedSelectionRects != selectionRects else { return }"))
+        #expect(structuredTextSource.contains("actor BackgroundMarkdownParser"))
+        #expect(structuredTextSource.contains(".task(id: markup)"))
+        #expect(structuredTextSource.contains("guard !Task.isCancelled else { return }"))
+        #expect(!structuredTextSource.contains(".onChange(of: markup, initial: true)"))
     }
 }

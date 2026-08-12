@@ -679,11 +679,11 @@ final class MainViewModel {
 
     func ensureTerminalSessionStarted(for tabID: WorkspaceTab.ID) {
         guard terminalSessions[tabID] == nil,
-              let terminalState = tabStates[tabID]?.terminalState,
-              let workingDirectory = resolveWorkingDirectory(for: tabID) else {
+              let terminalState = tabStates[tabID]?.terminalState else {
             return
         }
 
+        let workingDirectory = terminalWorkingDirectory(for: tabID)
         terminalState.workingDirectory = workingDirectory
         let session = WorkspaceTerminalSession(
             id: terminalState.sessionID,
@@ -840,6 +840,11 @@ final class MainViewModel {
             return nil
         }
         return URL(fileURLWithPath: projectRootPath, isDirectory: true)
+    }
+
+    func terminalWorkingDirectory(for tabID: WorkspaceTab.ID) -> URL {
+        resolveWorkingDirectory(for: tabID)
+            ?? FileManager.default.homeDirectoryForCurrentUser
     }
 
     private func updateSelectedSidebarItem(_ selection: MainSidebarSelection) {

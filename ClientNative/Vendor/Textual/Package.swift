@@ -37,5 +37,9 @@ let package = Package(
           .when(platforms: [.macOS, .macCatalyst, .iOS, .visionOS])),
       ]
     ),
+    .testTarget(
+      name: "TextualTests",
+      dependencies: ["Textual"]
+    ),
   ]
 )

@@ -51,7 +51,6 @@ private struct WorkspaceCommands: Commands {
             Button("Toggle Terminal") {
                 toggleWorkspaceTerminal?()
             }
-            .keyboardShortcut("j", modifiers: [.command])
             .disabled(toggleWorkspaceTerminal == nil)
         }
     }

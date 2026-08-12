@@ -106,6 +106,8 @@ public struct StructuredText: View {
 
   private let markup: String
   private let parser: any MarkupParser
+  private let backgroundMarkdownBaseURL: URL?
+  private let parsesMarkdownInBackground: Bool
 
   /// Creates a structured-text view by parsing `markup` with a custom parser.
   ///
@@ -113,6 +115,8 @@ public struct StructuredText: View {
   public init(_ markup: String, parser: any MarkupParser) {
     self.markup = markup
     self.parser = parser
+    self.backgroundMarkdownBaseURL = nil
+    self.parsesMarkdownInBackground = false
   }
 
   public var body: some View {
@@ -122,15 +126,48 @@ public struct StructuredText: View {
         .modifier(TextSelectionCoordination())
     }
     .coordinateSpace(.textContainer)
-    .onChange(of: markup, initial: true) {
-      markupDidChange(markup)
+    .task(id: markup) {
+      await markupDidChange(markup)
     }
     // Disable line limit to avoid per-fragment truncation
     .lineLimit(nil)
   }
 
-  private func markupDidChange(_ markup: String) {
-    self.attributedString = (try? parser.attributedString(for: markup)) ?? .init()
+  private func markupDidChange(_ markup: String) async {
+    let parsed: AttributedString
+    if parsesMarkdownInBackground {
+      parsed = await BackgroundMarkdownParser.shared.parse(
+        markup,
+        baseURL: backgroundMarkdownBaseURL
+      )
+    } else {
+      parsed = (try? parser.attributedString(for: markup)) ?? .init()
+    }
+
+    // `.task(id:)` cancels the previous parse whenever streaming appends more
+    // markup. Never publish a stale document after a newer parse was requested.
+    guard !Task.isCancelled else { return }
+    attributedString = parsed
+  }
+}
+
+// Foundation's Markdown parser is synchronous. Serializing it through an actor keeps
+// that work off the main actor and prevents a fast stream from starting an unbounded
+// number of concurrent full-document parses. Cancelled requests waiting for the actor
+// are discarded before they do any parsing work.
+actor BackgroundMarkdownParser {
+  static let shared = BackgroundMarkdownParser()
+
+  func parse(_ markup: String, baseURL: URL?) -> AttributedString {
+    guard !Task.isCancelled else { return .init() }
+
+    return (
+      try? AttributedString(
+        markdown: markup,
+        including: \.textual,
+        baseURL: baseURL
+      )
+    ) ?? .init()
   }
 }
 
@@ -158,13 +195,13 @@ extension StructuredText {
     baseURL: URL? = nil,
     syntaxExtensions: [AttributedStringMarkdownParser.SyntaxExtension] = []
   ) {
-    self.init(
-      markdown,
-      parser: .markdown(
-        baseURL: baseURL,
-        syntaxExtensions: syntaxExtensions
-      )
+    self.markup = markdown
+    self.parser = AttributedStringMarkdownParser(
+      baseURL: baseURL,
+      syntaxExtensions: syntaxExtensions
     )
+    self.backgroundMarkdownBaseURL = baseURL
+    self.parsesMarkdownInBackground = syntaxExtensions.isEmpty
   }
 }
 

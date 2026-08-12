@@ -29,7 +29,9 @@ struct WorkspaceTerminalDirectoryResolutionSourceTests {
         let viewModel = try source("Sources", "SloppyClient", "Navigation", "Main", "MainViewModel.swift")
 
         #expect(viewModel.contains("func resolveWorkingDirectory(for tabID: WorkspaceTab.ID) -> URL?"))
+        #expect(viewModel.contains("func terminalWorkingDirectory(for tabID: WorkspaceTab.ID) -> URL"))
         #expect(viewModel.contains("context.projectRootPath"))
         #expect(viewModel.contains("projects.first(where: { $0.id == projectId })?.projectRootPath"))
+        #expect(viewModel.contains("FileManager.default.homeDirectoryForCurrentUser"))
     }
 }

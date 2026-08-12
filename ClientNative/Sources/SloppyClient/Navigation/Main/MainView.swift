@@ -203,6 +203,9 @@ struct MainView: View {
                 MainLoadingView()
             }
         }
+            .overlay(alignment: .bottom) {
+                workspaceTerminalOverlay
+            }
             .onAppear {
                 if viewModel.tabs.isEmpty {
                     viewModel.createBlankChatTab(select: true)
@@ -247,6 +250,14 @@ struct MainView: View {
                     .opacity(0.001)
                     .allowsHitTesting(false)
 
+                    #if os(macOS)
+                    Button("") {
+                        viewModel.toggleTerminalForSelectedTab()
+                    }
+                    .keyboardShortcut("j", modifiers: [.command])
+                    .opacity(0.001)
+                    .allowsHitTesting(false)
+                    #endif
                 }
             }
             #if os(macOS)
@@ -357,12 +368,45 @@ struct MainView: View {
 
     @ViewBuilder
     private var workspacePanelContainer: some View {
+        #if os(macOS)
+        HStack(spacing: 0) {
+            contentView
+                .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
+
+            if isWorkspacePanelPresented {
+                Divider()
+
+                workspaceScreen()
+                    .frame(width: 380)
+                    .frame(maxHeight: .infinity)
+                    .background(theme.colors.surface)
+            }
+        }
+        #else
         contentView
             .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
             .inspector(isPresented: $isWorkspacePanelPresented) {
                 workspaceScreen()
                     .inspectorColumnWidth(min: 320, ideal: 380, max: 520)
             }
+        #endif
+    }
+
+    @ViewBuilder
+    private var workspaceTerminalOverlay: some View {
+        if let selectedTabID = viewModel.selectedTabID,
+           let terminalState = viewModel.tabStates[selectedTabID]?.terminalState,
+           terminalState.isPresented {
+            WorkspaceTerminalDrawerView(
+                height: terminalState.height,
+                canStartSession: viewModel.terminalSessions[selectedTabID] != nil,
+                onHeightChange: { terminalState.height = $0 }
+            ) {
+                viewModel.makeTerminalHostView(for: selectedTabID)
+            }
+            .transition(.move(edge: .bottom).combined(with: .opacity))
+            .zIndex(20)
+        }
     }
 
     private var workspacePanelMenu: some View {
@@ -1006,36 +1050,20 @@ struct MainView: View {
 
     @ViewBuilder
     private func workspaceContentHost(showsFloatingTabChrome: Bool) -> some View {
-        VStack(spacing: 0) {
-            Group {
-                if let desktopSplitState = viewModel.desktopSplitState,
-                   let primaryTab = viewModel.tabs.first(where: { $0.id == desktopSplitState.primaryTabID }),
-                   let secondaryTab = viewModel.tabs.first(where: { $0.id == desktopSplitState.secondaryTabID }) {
-                    DesktopSplitContentView(
-                        fraction: desktopSplitState.fraction,
-                        onFractionChange: viewModel.updateDesktopSplitFraction(_:),
-                        onClearSplit: viewModel.clearDesktopSplit,
-                        primary: { desktopTabContent(for: primaryTab) },
-                        secondary: { desktopTabContent(for: secondaryTab) }
-                    )
-                } else if let activeDesktopTab {
-                    mountedDesktopTabContent(activeTabID: activeDesktopTab.id)
-                } else {
-                    DesktopTabsEmptyState()
-                }
-            }
-
-            if let selectedTabID = viewModel.selectedTabID,
-               let terminalState = viewModel.tabStates[selectedTabID]?.terminalState,
-               terminalState.isPresented {
-                WorkspaceTerminalDrawerView(
-                    height: terminalState.height,
-                    canStartSession: terminalState.workingDirectory != nil || viewModel.resolveWorkingDirectory(for: selectedTabID) != nil,
-                    onHeightChange: { terminalState.height = $0 }
-                ) {
-                    viewModel.makeTerminalHostView(for: selectedTabID)
-                }
-            }
+        if let desktopSplitState = viewModel.desktopSplitState,
+           let primaryTab = viewModel.tabs.first(where: { $0.id == desktopSplitState.primaryTabID }),
+           let secondaryTab = viewModel.tabs.first(where: { $0.id == desktopSplitState.secondaryTabID }) {
+            DesktopSplitContentView(
+                fraction: desktopSplitState.fraction,
+                onFractionChange: viewModel.updateDesktopSplitFraction(_:),
+                onClearSplit: viewModel.clearDesktopSplit,
+                primary: { desktopTabContent(for: primaryTab) },
+                secondary: { desktopTabContent(for: secondaryTab) }
+            )
+        } else if let activeDesktopTab {
+            mountedDesktopTabContent(activeTabID: activeDesktopTab.id)
+        } else {
+            DesktopTabsEmptyState()
         }
     }
 

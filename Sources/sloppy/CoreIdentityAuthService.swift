@@ -18,6 +18,8 @@ enum CoreIdentityAuthError: Error, Sendable {
     case inviteExpired
     case inviteConsumed
     case invalidRecoverySecret
+    case invalidApplicationTokenName
+    case applicationTokenNotFound
     case forbidden
     case lastAdmin
 }
@@ -25,6 +27,7 @@ enum CoreIdentityAuthError: Error, Sendable {
 actor CoreIdentityAuthService {
     static let accessTokenLifetimeSeconds = 900
     static let refreshTokenLifetimeSeconds = 604_800
+    static let applicationTokenLifetimeSeconds = 31_536_000
     static let defaultPasswordHashIterations = 120_000
 
     private struct StoredUser: Codable, Sendable {
@@ -49,6 +52,11 @@ actor CoreIdentityAuthService {
         var expiresAt: Date
     }
 
+    private struct StoredApplicationToken: Codable, Sendable {
+        var record: AuthApplicationTokenRecord
+        var userID: String
+    }
+
     private struct PersistedState: Codable, Sendable {
         var enabled: Bool
         var usersByID: [String: StoredUser]
@@ -56,6 +64,7 @@ actor CoreIdentityAuthService {
         var refreshTokens: [String: StoredTokenSession]
         var invitesByID: [String: StoredInvite]
         var resetTokensByID: [String: StoredResetToken]
+        var applicationTokensByHash: [String: StoredApplicationToken]?
     }
 
     private var enabled = false
@@ -65,6 +74,7 @@ actor CoreIdentityAuthService {
     private var refreshTokens: [String: StoredTokenSession] = [:]
     private var invitesByID: [String: StoredInvite] = [:]
     private var resetTokensByID: [String: StoredResetToken] = [:]
+    private var applicationTokensByHash: [String: StoredApplicationToken] = [:]
     private let passwordHashIterations: Int
     private let stateURL: URL?
 
@@ -78,6 +88,7 @@ actor CoreIdentityAuthService {
             refreshTokens = state.refreshTokens
             invitesByID = state.invitesByID
             resetTokensByID = state.resetTokensByID
+            applicationTokensByHash = state.applicationTokensByHash ?? [:]
         }
     }
 
@@ -345,14 +356,77 @@ actor CoreIdentityAuthService {
         return makeSession(for: stored.profile)
     }
 
+    func createApplicationToken(
+        _ request: AuthApplicationTokenCreateRequest,
+        actor: AuthenticatedUserContext
+    ) throws -> AuthApplicationTokenRecord {
+        guard enabled, usersByID[actor.user.id]?.profile.status == .active else {
+            throw CoreIdentityAuthError.invalidCredentials
+        }
+        let name = request.name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty else {
+            throw CoreIdentityAuthError.invalidApplicationTokenName
+        }
+        let lifetime = max(
+            3_600,
+            min(request.expiresInSeconds ?? Self.applicationTokenLifetimeSeconds, Self.applicationTokenLifetimeSeconds)
+        )
+        let now = Date()
+        let token = "slp_pat_" + NodeIdentityGenerator.randomToken(byteCount: 32)
+        let record = AuthApplicationTokenRecord(
+            id: makeID(prefix: "application_token"),
+            name: name,
+            token: token,
+            tokenPrefix: String(token.prefix(16)) + "…",
+            createdAt: now,
+            expiresAt: now.addingTimeInterval(TimeInterval(lifetime))
+        )
+        var storedRecord = record
+        storedRecord.token = nil
+        applicationTokensByHash[applicationTokenHash(token)] = StoredApplicationToken(
+            record: storedRecord,
+            userID: actor.user.id
+        )
+        saveState()
+        return record
+    }
+
+    func listApplicationTokens(actor: AuthenticatedUserContext) throws -> [AuthApplicationTokenRecord] {
+        guard enabled, usersByID[actor.user.id]?.profile.status == .active else {
+            throw CoreIdentityAuthError.invalidCredentials
+        }
+        return applicationTokensByHash.values
+            .filter { $0.userID == actor.user.id }
+            .map(\.record)
+            .sorted { $0.createdAt > $1.createdAt }
+    }
+
+    func revokeApplicationToken(id: String, actor: AuthenticatedUserContext) throws {
+        guard let hash = applicationTokensByHash.first(where: {
+            $0.value.record.id == id && $0.value.userID == actor.user.id
+        })?.key else {
+            throw CoreIdentityAuthError.applicationTokenNotFound
+        }
+        applicationTokensByHash.removeValue(forKey: hash)
+        saveState()
+    }
+
     func authenticateAccessToken(_ token: String?) -> AuthenticatedUserContext? {
         let trimmed = token?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        guard !trimmed.isEmpty,
-              let session = accessTokens[trimmed],
-              session.expiresAt > Date(),
-              let stored = usersByID[session.userID],
-              stored.profile.status == .active
-        else {
+        guard !trimmed.isEmpty else {
+            return nil
+        }
+        let now = Date()
+        if let session = accessTokens[trimmed],
+           session.expiresAt > now,
+           let stored = usersByID[session.userID],
+           stored.profile.status == .active {
+            return AuthenticatedUserContext(user: stored.profile)
+        }
+        guard let applicationToken = applicationTokensByHash[applicationTokenHash(trimmed)],
+              applicationToken.record.expiresAt > now,
+              let stored = usersByID[applicationToken.userID],
+              stored.profile.status == .active else {
             return nil
         }
         return AuthenticatedUserContext(user: stored.profile)
@@ -390,6 +464,13 @@ actor CoreIdentityAuthService {
         prefix + "_" + NodeIdentityGenerator.randomToken(byteCount: 12)
     }
 
+    private func applicationTokenHash(_ token: String) -> String {
+        TaskSyncCrypto.hmacSHA256Hex(
+            key: Data("sloppy.application-token.v1".utf8),
+            message: Data(token.utf8)
+        )
+    }
+
     private static func loadState(from stateURL: URL?) -> PersistedState? {
         guard let stateURL,
               let data = try? Data(contentsOf: stateURL) else {
@@ -410,7 +491,8 @@ actor CoreIdentityAuthService {
             userIDByLogin: userIDByLogin,
             refreshTokens: refreshTokens,
             invitesByID: invitesByID,
-            resetTokensByID: resetTokensByID
+            resetTokensByID: resetTokensByID,
+            applicationTokensByHash: applicationTokensByHash
         )
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
