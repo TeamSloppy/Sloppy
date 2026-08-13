@@ -5,6 +5,34 @@
   },
   "openapi" : "3.0.0",
   "paths" : {
+    "\/v1\/auth\/device-pairing" : {
+      "post" : {
+        "description" : "Creates a short-lived one-time pairing token for the authenticated user",
+        "responses" : {
+          "201" : {
+            "description" : "Successful response"
+          }
+        },
+        "summary" : "Create device pairing",
+        "tags" : [
+          "Auth"
+        ]
+      }
+    },
+    "\/v1\/auth\/device-pairing\/redeem" : {
+      "post" : {
+        "description" : "Consumes a short-lived pairing token and creates a user auth session",
+        "responses" : {
+          "200" : {
+            "description" : "Successful response"
+          }
+        },
+        "summary" : "Redeem device pairing",
+        "tags" : [
+          "Auth"
+        ]
+      }
+    },
     "\/health" : {
       "get" : {
         "description" : "Returns the current status of the sloppy service",

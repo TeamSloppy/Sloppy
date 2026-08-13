@@ -634,6 +634,10 @@ public actor CoreRouter {
             return true
         }
         if request.method == .post,
+           request.segments == ["v1", "auth", "device-pairing", "redeem"] {
+            return true
+        }
+        if request.method == .post,
            request.segments == ["v1", "auth", "register"] {
             return true
         }

@@ -20,6 +20,7 @@ enum CoreIdentityAuthError: Error, Sendable {
     case invalidRecoverySecret
     case invalidApplicationTokenName
     case applicationTokenNotFound
+    case invalidDevicePairing
     case forbidden
     case lastAdmin
 }
@@ -28,6 +29,7 @@ actor CoreIdentityAuthService {
     static let accessTokenLifetimeSeconds = 900
     static let refreshTokenLifetimeSeconds = 604_800
     static let applicationTokenLifetimeSeconds = 31_536_000
+    static let maximumDevicePairingLifetimeSeconds = 300
     static let defaultPasswordHashIterations = 120_000
 
     private struct StoredUser: Codable, Sendable {
@@ -57,6 +59,13 @@ actor CoreIdentityAuthService {
         var userID: String
     }
 
+    private struct StoredDevicePairing: Sendable {
+        var id: String
+        var userID: String
+        var clientName: String
+        var expiresAt: Date
+    }
+
     private struct PersistedState: Codable, Sendable {
         var enabled: Bool
         var usersByID: [String: StoredUser]
@@ -75,6 +84,7 @@ actor CoreIdentityAuthService {
     private var invitesByID: [String: StoredInvite] = [:]
     private var resetTokensByID: [String: StoredResetToken] = [:]
     private var applicationTokensByHash: [String: StoredApplicationToken] = [:]
+    private var devicePairingsByHash: [String: StoredDevicePairing] = [:]
     private let passwordHashIterations: Int
     private let stateURL: URL?
 
@@ -356,6 +366,62 @@ actor CoreIdentityAuthService {
         return makeSession(for: stored.profile)
     }
 
+    func createDevicePairing(
+        _ request: AuthDevicePairingCreateRequest,
+        actor: AuthenticatedUserContext
+    ) throws -> AuthDevicePairingRecord {
+        guard enabled,
+              let stored = usersByID[actor.user.id],
+              stored.profile.status == .active else {
+            throw CoreIdentityAuthError.invalidCredentials
+        }
+
+        removeExpiredDevicePairings()
+        let requestedClientName = request.clientName.trimmingCharacters(in: .whitespacesAndNewlines)
+        let clientName = String((requestedClientName.isEmpty ? "Sloppy Client" : requestedClientName).prefix(80))
+        devicePairingsByHash = devicePairingsByHash.filter {
+            $0.value.userID != stored.profile.id || $0.value.clientName != clientName
+        }
+        let ttl = max(60, min(request.ttlSeconds, Self.maximumDevicePairingLifetimeSeconds))
+        let now = Date()
+        let token = "slp_pair_" + NodeIdentityGenerator.randomToken(byteCount: 32)
+        let pairing = StoredDevicePairing(
+            id: makeID(prefix: "device_pairing"),
+            userID: stored.profile.id,
+            clientName: clientName,
+            expiresAt: now.addingTimeInterval(TimeInterval(ttl))
+        )
+        devicePairingsByHash[devicePairingHash(token)] = pairing
+        return AuthDevicePairingRecord(
+            id: pairing.id,
+            token: token,
+            clientName: pairing.clientName,
+            createdAt: now,
+            expiresAt: pairing.expiresAt,
+            user: stored.profile
+        )
+    }
+
+    func redeemDevicePairing(_ request: AuthDevicePairingRedeemRequest) throws -> AuthSessionResponse {
+        guard enabled else {
+            throw CoreIdentityAuthError.disabled
+        }
+        let token = request.token.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard token.hasPrefix("slp_pair_") else {
+            throw CoreIdentityAuthError.invalidDevicePairing
+        }
+
+        let hash = devicePairingHash(token)
+        guard let pairing = devicePairingsByHash.removeValue(forKey: hash),
+              pairing.expiresAt > Date(),
+              let stored = usersByID[pairing.userID],
+              stored.profile.status == .active else {
+            removeExpiredDevicePairings()
+            throw CoreIdentityAuthError.invalidDevicePairing
+        }
+        return makeSession(for: stored.profile)
+    }
+
     func createApplicationToken(
         _ request: AuthApplicationTokenCreateRequest,
         actor: AuthenticatedUserContext
@@ -469,6 +535,18 @@ actor CoreIdentityAuthService {
             key: Data("sloppy.application-token.v1".utf8),
             message: Data(token.utf8)
         )
+    }
+
+    private func devicePairingHash(_ token: String) -> String {
+        TaskSyncCrypto.hmacSHA256Hex(
+            key: Data("sloppy.device-pairing.v1".utf8),
+            message: Data(token.utf8)
+        )
+    }
+
+    private func removeExpiredDevicePairings() {
+        let now = Date()
+        devicePairingsByHash = devicePairingsByHash.filter { $0.value.expiresAt > now }
     }
 
     private static func loadState(from stateURL: URL?) -> PersistedState? {

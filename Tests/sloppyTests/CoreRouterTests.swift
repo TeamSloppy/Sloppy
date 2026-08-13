@@ -1974,6 +1974,62 @@ func identityAuthRefreshRotatesRefreshToken() async throws {
 }
 
 @Test
+func identityDevicePairingIsUserBoundShortLivedAndSingleUse() async throws {
+    let service = CoreService(config: .test, identityPasswordHashIterations: 1)
+    await service.setIdentityAuthEnabled(true)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let bootstrap = await router.handle(
+        method: "POST",
+        path: "/v1/auth/bootstrap",
+        body: try encoder.encode(AuthBootstrapAdminRequest(login: "admin", password: "admin-pass", name: "Admin"))
+    )
+    let dashboardSession = try decoder.decode(AuthSessionResponse.self, from: bootstrap.body)
+
+    let unauthorizedCreate = await router.handle(
+        method: "POST",
+        path: "/v1/auth/device-pairing",
+        body: try encoder.encode(AuthDevicePairingCreateRequest(clientName: "Sloppy Rokid"))
+    )
+    #expect(unauthorizedCreate.status == 401)
+
+    let create = await router.handle(
+        method: "POST",
+        path: "/v1/auth/device-pairing",
+        body: try encoder.encode(AuthDevicePairingCreateRequest(clientName: "Sloppy Rokid", ttlSeconds: 120)),
+        headers: ["Authorization": "Bearer \(dashboardSession.accessToken)"]
+    )
+    #expect(create.status == 201)
+    let pairing = try decoder.decode(AuthDevicePairingRecord.self, from: create.body)
+    #expect(pairing.token.hasPrefix("slp_pair_"))
+    #expect(pairing.clientName == "Sloppy Rokid")
+    #expect(pairing.user.id == dashboardSession.user.id)
+    #expect(pairing.expiresAt > pairing.createdAt)
+
+    let redeemBody = try encoder.encode(AuthDevicePairingRedeemRequest(token: pairing.token))
+    let redeem = await router.handle(
+        method: "POST",
+        path: "/v1/auth/device-pairing/redeem",
+        body: redeemBody
+    )
+    #expect(redeem.status == 200)
+    let glassesSession = try decoder.decode(AuthSessionResponse.self, from: redeem.body)
+    #expect(glassesSession.user.id == dashboardSession.user.id)
+    #expect(glassesSession.accessToken != dashboardSession.accessToken)
+    #expect(glassesSession.refreshToken != dashboardSession.refreshToken)
+
+    let secondRedeem = await router.handle(
+        method: "POST",
+        path: "/v1/auth/device-pairing/redeem",
+        body: redeemBody
+    )
+    #expect(secondRedeem.status == 401)
+}
+
+@Test
 func identityApplicationTokensPersistAuthenticateAndCanBeRevoked() async throws {
     let config = CoreConfig.test
     let encoder = JSONEncoder()

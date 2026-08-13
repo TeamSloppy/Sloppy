@@ -26,6 +26,17 @@ extension CoreService {
         try await identityAuthService.refresh(request)
     }
 
+    func createIdentityDevicePairing(
+        _ request: AuthDevicePairingCreateRequest,
+        actor: AuthenticatedUserContext
+    ) async throws -> AuthDevicePairingRecord {
+        try await identityAuthService.createDevicePairing(request, actor: actor)
+    }
+
+    func redeemIdentityDevicePairing(_ request: AuthDevicePairingRedeemRequest) async throws -> AuthSessionResponse {
+        try await identityAuthService.redeemDevicePairing(request)
+    }
+
     func registerIdentityUser(_ request: AuthRegisterRequest) async throws -> AuthSessionResponse {
         try await identityAuthService.register(request)
     }

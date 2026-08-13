@@ -73,6 +73,37 @@ struct AuthAPIRouter: APIRouter {
             }
         }
 
+        router.post("/v1/auth/device-pairing", metadata: RouteMetadata(summary: "Create device pairing", description: "Creates a short-lived one-time pairing token for the authenticated user", tags: ["Auth"])) { request in
+            guard let actor = await CoreRouter.identityActor(for: request, service: service) else {
+                return CoreRouter.json(status: HTTPStatus.unauthorized, payload: ["error": ErrorCode.unauthorized])
+            }
+            guard let payload = request.decode(AuthDevicePairingCreateRequest.self) else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            do {
+                return CoreRouter.encodable(
+                    status: HTTPStatus.created,
+                    payload: try await service.createIdentityDevicePairing(payload, actor: actor)
+                )
+            } catch {
+                return authErrorResponse(error)
+            }
+        }
+
+        router.post("/v1/auth/device-pairing/redeem", metadata: RouteMetadata(summary: "Redeem device pairing", description: "Consumes a short-lived pairing token and creates a user auth session", tags: ["Auth"])) { request in
+            guard let payload = request.decode(AuthDevicePairingRedeemRequest.self) else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            do {
+                return CoreRouter.encodable(
+                    status: HTTPStatus.ok,
+                    payload: try await service.redeemIdentityDevicePairing(payload)
+                )
+            } catch {
+                return authErrorResponse(error)
+            }
+        }
+
         router.post("/v1/auth/register", metadata: RouteMetadata(summary: "Register invited user", description: "Consumes an invite and creates a user account", tags: ["Auth"])) { request in
             guard let payload = request.decode(AuthRegisterRequest.self) else {
                 return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
@@ -251,6 +282,7 @@ private func authErrorResponse(_ error: Error) -> CoreRouterResponse {
          CoreIdentityAuthError.invalidInvite,
          CoreIdentityAuthError.inviteExpired,
          CoreIdentityAuthError.inviteConsumed,
+         CoreIdentityAuthError.invalidDevicePairing,
          CoreIdentityAuthError.invalidRecoverySecret:
         return CoreRouter.json(status: HTTPStatus.unauthorized, payload: ["error": ErrorCode.unauthorized])
     default:

@@ -5607,6 +5607,49 @@ public struct AuthRefreshRequest: Codable, Sendable, Equatable {
     }
 }
 
+public struct AuthDevicePairingCreateRequest: Codable, Sendable, Equatable {
+    public var clientName: String
+    public var ttlSeconds: Int
+
+    public init(clientName: String = "Sloppy Client", ttlSeconds: Int = 120) {
+        self.clientName = clientName
+        self.ttlSeconds = ttlSeconds
+    }
+}
+
+public struct AuthDevicePairingRecord: Codable, Sendable, Equatable {
+    public var id: String
+    public var token: String
+    public var clientName: String
+    public var createdAt: Date
+    public var expiresAt: Date
+    public var user: AuthUserProfile
+
+    public init(
+        id: String,
+        token: String,
+        clientName: String,
+        createdAt: Date = Date(),
+        expiresAt: Date,
+        user: AuthUserProfile
+    ) {
+        self.id = id
+        self.token = token
+        self.clientName = clientName
+        self.createdAt = createdAt
+        self.expiresAt = expiresAt
+        self.user = user
+    }
+}
+
+public struct AuthDevicePairingRedeemRequest: Codable, Sendable, Equatable {
+    public var token: String
+
+    public init(token: String) {
+        self.token = token
+    }
+}
+
 public struct AuthApplicationTokenCreateRequest: Codable, Sendable, Equatable {
     public var name: String
     public var expiresInSeconds: Int?
