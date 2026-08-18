@@ -32,6 +32,16 @@ struct CanvasWorkspaceCreateSheet: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                } else {
+                    Section("Location") {
+                        Label(
+                            CanvasWorkspaceViewModel.personalWorkspaceName,
+                            systemImage: "person.crop.circle"
+                        )
+                        Text("The new workspace will be kept in your personal workspace.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
 
                 if let errorMessage {

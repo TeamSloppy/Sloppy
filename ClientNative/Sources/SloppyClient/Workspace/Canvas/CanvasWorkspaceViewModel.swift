@@ -18,6 +18,7 @@ private struct CanvasWorkspaceTarget: Equatable {
 final class CanvasWorkspaceViewModel {
     private static let defaultAPIBaseURL = URL(string: "http://localhost:25101")!
     private static let defaultDashboardBaseURL = URL(string: "http://localhost:25102")!
+    static let personalWorkspaceName = "Personal"
 
     private let apiClient: SloppyAPIClient
     private let apiBaseURL: URL
@@ -62,7 +63,7 @@ final class CanvasWorkspaceViewModel {
     }
 
     var libraryTitle: String {
-        projectID == nil ? "Workspaces" : "Project Workspaces"
+        projectID == nil ? "Personal Workspaces" : "Project Workspaces"
     }
 
     var librarySubtitle: String {
@@ -72,7 +73,7 @@ final class CanvasWorkspaceViewModel {
         if projectID != nil {
             return "Canvases in the current project"
         }
-        return "Canvases across all projects"
+        return "Canvases in \(Self.personalWorkspaceName)"
     }
 
     init(
@@ -92,10 +93,11 @@ final class CanvasWorkspaceViewModel {
         projectName: String? = nil,
         force: Bool = false
     ) async {
+        let normalizedProjectID = Self.normalized(projectID)
         let nextTarget = CanvasWorkspaceTarget(
             workspaceID: Self.normalized(workspaceID),
-            projectID: Self.normalized(projectID),
-            projectName: Self.normalized(projectName)
+            projectID: normalizedProjectID,
+            projectName: normalizedProjectID == nil ? nil : Self.normalized(projectName)
         )
         guard force || target != nextTarget else {
             return
@@ -134,8 +136,10 @@ final class CanvasWorkspaceViewModel {
         }
 
         do {
-            let records = try await apiClient.fetchCanvasWorkspaces(projectId: projectID)
+            let requestedProjectID = projectID
+            let records = try await apiClient.fetchCanvasWorkspaces(projectId: requestedProjectID)
                 .filter { !$0.isArchived }
+                .filter { requestedProjectID != nil || $0.projectId == nil }
                 .sorted { $0.updatedAt > $1.updatedAt }
             guard resolutionID == requestID else {
                 return
@@ -359,7 +363,11 @@ final class CanvasWorkspaceViewModel {
                     contentBase64: data.base64EncodedString()
                 )]
             } ?? []
-            appendMessage(ChatMessage(role: .user, segments: [.init(kind: .text, text: content)]))
+            appendMessage(ChatMessage(
+                id: "optimistic-user-\(UUID().uuidString)",
+                role: .user,
+                segments: [.init(kind: .text, text: content)]
+            ))
             beginStreamingAssistantMessage(sessionID: sessionID)
             editorStatus = "Agent is working…"
             _ = try await apiClient.postSessionMessage(
@@ -512,6 +520,8 @@ final class CanvasWorkspaceViewModel {
            let streamingMessageID {
             messages.removeAll { $0.id == streamingMessageID }
             self.streamingMessageID = nil
+        } else if message.role == .user {
+            messages.removeAll { $0.id.hasPrefix("optimistic-user-") }
         }
         if let index = messages.firstIndex(where: { $0.id == message.id }) {
             messages[index] = message

@@ -152,8 +152,8 @@ struct CanvasWorkspaceLibraryView: View {
                 }
             } label: {
                 projectPickerLabel(
-                    title: "All Projects",
-                    systemImage: "square.stack.3d.up",
+                    title: CanvasWorkspaceViewModel.personalWorkspaceName,
+                    systemImage: "person.crop.circle",
                     isSelected: viewModel.projectID == nil
                 )
             }
@@ -177,8 +177,12 @@ struct CanvasWorkspaceLibraryView: View {
             }
         } label: {
             HStack(spacing: 6) {
-                Image(systemName: selectedProject?.semanticIconName ?? "square.stack.3d.up")
-                Text(selectedProject?.name ?? viewModel.projectName ?? "All Projects")
+                Image(systemName: selectedProject?.semanticIconName ?? "person.crop.circle")
+                Text(
+                    selectedProject?.name
+                        ?? viewModel.projectName
+                        ?? CanvasWorkspaceViewModel.personalWorkspaceName
+                )
                     .lineLimit(1)
                 Image(systemName: "chevron.up.chevron.down")
                     .font(.caption2)
