@@ -1128,6 +1128,61 @@ public struct CoreConfig: Codable, Sendable {
         }
     }
 
+    public struct ImageGeneration: Codable, Sendable, Equatable {
+        public enum ProviderID: String, Codable, Sendable, Equatable {
+            case fal
+            case openAI = "openai"
+        }
+
+        public struct FAL: Codable, Sendable, Equatable {
+            public var apiKey: String
+
+            public init(apiKey: String = "") {
+                self.apiKey = apiKey
+            }
+        }
+
+        public var enabled: Bool
+        public var provider: ProviderID
+        public var model: String
+        public var fal: FAL
+        public var timeoutMs: Int
+
+        public init(
+            enabled: Bool = false,
+            provider: ProviderID = .fal,
+            model: String = "fal-ai/flux-2",
+            fal: FAL = FAL(),
+            timeoutMs: Int = 180_000
+        ) {
+            self.enabled = enabled
+            self.provider = provider
+            let normalizedModel = model.trimmingCharacters(in: .whitespacesAndNewlines)
+            self.model = normalizedModel.isEmpty ? "fal-ai/flux-2" : normalizedModel
+            self.fal = fal
+            self.timeoutMs = min(max(timeoutMs, 10_000), 600_000)
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case enabled
+            case provider
+            case model
+            case fal
+            case timeoutMs
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.init(
+                enabled: try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false,
+                provider: try container.decodeIfPresent(ProviderID.self, forKey: .provider) ?? .fal,
+                model: try container.decodeIfPresent(String.self, forKey: .model) ?? "fal-ai/flux-2",
+                fal: try container.decodeIfPresent(FAL.self, forKey: .fal) ?? FAL(),
+                timeoutMs: try container.decodeIfPresent(Int.self, forKey: .timeoutMs) ?? 180_000
+            )
+        }
+    }
+
     public struct ChannelConfig: Codable, Sendable, Equatable {
         public struct Discord: Codable, Sendable, Equatable {
             /// Discord bot token.
@@ -1886,6 +1941,7 @@ public struct CoreConfig: Codable, Sendable {
     public var acp: ACP
     public var lsp: LSP
     public var searchTools: SearchTools
+    public var imageGeneration: ImageGeneration
     public var proxy: Proxy
     public var browser: Browser
     public var voiceMode: VoiceMode
@@ -1922,6 +1978,7 @@ public struct CoreConfig: Codable, Sendable {
         acp: ACP = ACP(),
         lsp: LSP = LSP(),
         searchTools: SearchTools = SearchTools(),
+        imageGeneration: ImageGeneration = ImageGeneration(),
         proxy: Proxy = Proxy(),
         browser: Browser = Browser(),
         voiceMode: VoiceMode = VoiceMode(),
@@ -1957,6 +2014,7 @@ public struct CoreConfig: Codable, Sendable {
         self.acp = acp
         self.lsp = lsp
         self.searchTools = searchTools
+        self.imageGeneration = imageGeneration
         self.proxy = proxy
         self.browser = browser
         self.voiceMode = voiceMode
@@ -2085,6 +2143,7 @@ public struct CoreConfig: Codable, Sendable {
         case acp
         case lsp
         case searchTools
+        case imageGeneration
         case proxy
         case browser
         case voiceMode
@@ -2121,6 +2180,7 @@ public struct CoreConfig: Codable, Sendable {
         acp = try container.decodeIfPresent(ACP.self, forKey: .acp) ?? .init()
         lsp = try container.decodeIfPresent(LSP.self, forKey: .lsp) ?? .init()
         searchTools = try container.decodeIfPresent(SearchTools.self, forKey: .searchTools) ?? .init()
+        imageGeneration = try container.decodeIfPresent(ImageGeneration.self, forKey: .imageGeneration) ?? .init()
         proxy = try container.decodeIfPresent(Proxy.self, forKey: .proxy) ?? .init()
         browser = try container.decodeIfPresent(Browser.self, forKey: .browser) ?? .init()
         voiceMode = try container.decodeIfPresent(VoiceMode.self, forKey: .voiceMode) ?? .init()
@@ -2165,6 +2225,7 @@ public struct CoreConfig: Codable, Sendable {
         try container.encode(acp, forKey: .acp)
         try container.encode(lsp, forKey: .lsp)
         try container.encode(searchTools, forKey: .searchTools)
+        try container.encode(imageGeneration, forKey: .imageGeneration)
         try container.encode(proxy, forKey: .proxy)
         try container.encode(browser, forKey: .browser)
         try container.encode(voiceMode, forKey: .voiceMode)

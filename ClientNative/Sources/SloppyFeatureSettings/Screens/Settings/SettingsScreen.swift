@@ -220,7 +220,7 @@ public struct SettingsScreen: View {
         return NavigationSplitView(sidebar: {
             settingsSidebar
                 .searchable(text: $searchQuery, placement: .sidebar, prompt: "Search settings...")
-                .frame(width: 308)
+                .navigationSplitViewColumnWidth(min: 240, ideal: 308, max: 380)
         }, detail: {
             settingsDetailPane
         })
@@ -229,70 +229,62 @@ public struct SettingsScreen: View {
     }
 
     private var settingsSidebar: some View {
-        let c = theme.colors
-        let sp = theme.spacing
-        let ty = theme.typography
-
-        return VStack(alignment: .leading, spacing: sp.m) {
+        List(selection: selectedSectionBinding) {
             if let onDismiss {
-                Button(action: onDismiss) {
-                    HStack(spacing: sp.s) {
-                        Image(systemName: "arrow.left")
-                            .font(.system(size: ty.caption))
-                        Text("Back to app")
-                            .font(.system(size: ty.body))
+                Section {
+                    Button(action: onDismiss) {
+                        Label("Back to app", systemImage: "arrow.left")
                     }
-                    .foregroundColor(c.textSecondary)
+                    .buttonStyle(.plain)
                 }
-                .buttonStyle(.plain)
-                .padding(.horizontal, sp.l)
-                .padding(.top, sp.l)
             }
 
-            Text("Settings")
-                .font(.system(size: ty.caption, weight: .semibold))
-                .foregroundColor(c.textMuted)
-                .padding(.horizontal, sp.l)
-
-            ScrollView {
-                VStack(alignment: .leading, spacing: sp.l) {
-                    ForEach(SettingsScreenSectionGroup.allCases, id: \.self) { group in
-                        let groupSections = groupedFilteredSections[group] ?? []
-                        if !groupSections.isEmpty {
-                            VStack(alignment: .leading, spacing: sp.xs) {
-                                Text(group.title)
-                                    .font(.system(size: ty.caption))
-                                    .foregroundColor(c.textMuted)
-                                    .padding(.horizontal, sp.l)
-                                    .padding(.bottom, sp.xs)
-
-                                ForEach(groupSections, id: \.self) { section in
-                                    SettingsSidebarRowView(
-                                        section: section,
-                                        isSelected: selectedSection == section,
-                                        action: { selectedSection = section }
-                                    )
-                                }
-                            }
+            ForEach(SettingsScreenSectionGroup.allCases, id: \.self) { group in
+                let groupSections = groupedFilteredSections[group] ?? []
+                if !groupSections.isEmpty {
+                    Section(group.title) {
+                        ForEach(groupSections, id: \.self) { section in
+                            Label(section.title, systemImage: section.iconName)
+                                .tag(section)
                         }
                     }
                 }
-                .padding(.bottom, sp.l)
             }
         }
+        .listStyle(.sidebar)
+        .navigationTitle("Settings")
+    }
+
+    private var selectedSectionBinding: Binding<SettingsScreenSection?> {
+        Binding(
+            get: { selectedSection },
+            set: { selection in
+                if let selection {
+                    selectedSection = selection
+                }
+            }
+        )
     }
 
     private var settingsDetailPane: some View {
         let sp = theme.spacing
 
-        return ScrollView {
-            VStack(alignment: .leading, spacing: sp.xl) {
-                headerSection
-                detailContent(for: selectedSection)
+        return VStack(alignment: .leading, spacing: 0) {
+            headerSection
+                .padding(.horizontal, sp.xxl)
+                .padding(.top, sp.xl)
+                .frame(maxWidth: 920, alignment: .leading)
+
+            Form {
+                Section {
+                    detailContent(for: selectedSection)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
             }
-            .padding(.horizontal, sp.xxl)
-            .padding(.vertical, sp.xl)
-            .frame(maxWidth: 860, alignment: .leading)
+            .formStyle(.grouped)
+            .scrollContentBackground(.hidden)
+            .background(.clear)
+            .frame(maxWidth: 920)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
@@ -497,50 +489,9 @@ public struct SettingsScreen: View {
     }
 }
 
-private struct SettingsSidebarRowView: View {
-    let section: SettingsScreenSection
-    let isSelected: Bool
-    let action: () -> Void
-
-    @Environment(\.theme) private var theme
-    @State private var isHovered = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: theme.spacing.s) {
-                Image(systemName: iconName)
-                    .font(.system(size: theme.typography.caption))
-                    .frame(width: 18)
-                Text(section.title)
-                    .font(.system(size: theme.typography.body))
-                Spacer(minLength: 0)
-            }
-            .foregroundColor(isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
-            .padding(.horizontal, theme.spacing.m)
-            .padding(.vertical, theme.spacing.s)
-            .background(
-                RoundedRectangle(cornerRadius: 12)
-                    .fill(rowBackgroundColor)
-            )
-            .padding(.horizontal, theme.spacing.m)
-        }
-        .buttonStyle(.plain)
-        .contentShape(Rectangle())
-        .onHover { isHovered = $0 }
-    }
-
-    private var rowBackgroundColor: Color {
-        if isSelected {
-            return theme.colors.surfaceRaised.opacity(0.28 as CGFloat)
-        }
-        if isHovered {
-            return theme.colors.surfaceRaised.opacity(0.2 as CGFloat)
-        }
-        return .clear
-    }
-
-    private var iconName: String {
-        switch section {
+private extension SettingsScreenSection {
+    var iconName: String {
+        switch self {
         case .client: "gearshape"
         case .backend: "shippingbox.and.arrow.backward"
         case .mesh: "point.3.connected.trianglepath.dotted"

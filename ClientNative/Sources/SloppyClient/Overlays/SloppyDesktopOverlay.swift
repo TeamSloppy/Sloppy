@@ -44,6 +44,17 @@ final class SloppyDesktopOverlay {
                 content: prompt
             )
         }
+        state.onCreateTask = { [weak self] project, title in
+            guard let self else { return }
+            _ = try await self.apiClient.createProjectTask(
+                projectId: project.id,
+                request: APIProjectTaskCreateRequest(
+                    title: title,
+                    status: "ready",
+                    actorId: project.actorID
+                )
+            )
+        }
         startActivityRefresh()
         ensureOverlayPanel()
         if let window {
@@ -169,6 +180,13 @@ final class SloppyDesktopOverlay {
         let agents = try? await agentsRequest
 
         if let projects {
+            state.setProjects(projects.map {
+                SloppyDesktopProject(
+                    id: $0.id,
+                    name: $0.name,
+                    actorID: $0.actors?.first
+                )
+            })
             let activeTasks = projects.flatMap { project in
                 (project.tasks ?? []).compactMap { task -> SloppyDesktopTask? in
                     guard task.normalizedKanbanColumnID == .inProgress
@@ -339,9 +357,10 @@ private struct SloppyDesktopNotchView: View {
         let visibleActivityRows = min(state.activeAgentRuns.count, 3) + min(state.activeTasks.count, 3)
         let visibleRecentChatRows = min(state.recentChats.count, 3)
         let rowHeight = CGFloat(visibleActivityRows + visibleRecentChatRows) * 42
-        let composerHeight: CGFloat = state.selectedRecentChatID == nil
+        let chatComposerHeight: CGFloat = state.selectedRecentChatID == nil
             ? 0
             : (state.promptError == nil ? 40 : 58)
+        let taskComposerHeight: CGFloat = state.taskCreationError == nil ? 46 : 62
         let approvalHeight: CGFloat = state.toolApproval == nil ? 0 : 132
         let sectionCount = (state.activeAgentRuns.isEmpty ? 0 : 1)
             + (state.activeTasks.isEmpty ? 0 : 1)
@@ -350,7 +369,10 @@ private struct SloppyDesktopNotchView: View {
             + (state.toolApproval != nil && state.activityCount > 0 ? 14 : 0)
         return CGSize(
             width: wideWidth,
-            height: min(520, 64 + rowHeight + composerHeight + approvalHeight + sectionSpacing)
+            height: min(
+                520,
+                64 + rowHeight + chatComposerHeight + taskComposerHeight + approvalHeight + sectionSpacing
+            )
         )
     }
 
@@ -359,6 +381,7 @@ private struct SloppyDesktopNotchView: View {
     @State private var isHovered = false
     @State private var hoverCollapseTask: Task<Void, Never>?
     @FocusState private var focusedRecentChatID: String?
+    @FocusState private var isTaskComposerFocused: Bool
 
     init(
         state: SloppyDesktopOverlayState,
@@ -478,7 +501,10 @@ private struct SloppyDesktopNotchView: View {
     }
 
     private func scheduleHoverCollapse() {
-        guard state.toolApproval == nil, state.selectedRecentChatID == nil else { return }
+        guard state.toolApproval == nil,
+              state.selectedRecentChatID == nil,
+              !state.hasTaskDraft,
+              !isTaskComposerFocused else { return }
 
         hoverCollapseTask = Task { @MainActor in
             while !Task.isCancelled {
@@ -486,6 +512,7 @@ private struct SloppyDesktopNotchView: View {
                 guard !Task.isCancelled else { return }
                 guard state.toolApproval == nil else { return }
                 guard state.selectedRecentChatID == nil else { return }
+                guard !state.hasTaskDraft, !isTaskComposerFocused else { return }
                 guard !isPointerInsidePanel() else { continue }
 
                 isHovered = false
@@ -507,7 +534,9 @@ private struct SloppyDesktopNotchView: View {
 
         guard state.toolApproval == nil,
               state.activityCount > 0,
-              state.selectedRecentChatID == nil else { return }
+              state.selectedRecentChatID == nil,
+              !state.hasTaskDraft,
+              !isTaskComposerFocused else { return }
         isHovered = false
         state.setExpanded(false)
     }
@@ -538,6 +567,10 @@ private struct SloppyDesktopNotchView: View {
                 if !state.recentChats.isEmpty {
                     recentChatsContent
                 }
+                if state.hasContentBeforeTaskComposer {
+                    Divider().opacity(0.35)
+                }
+                taskComposerContent
             }
             .padding(12)
         } else {
@@ -775,6 +808,75 @@ private struct SloppyDesktopNotchView: View {
             }
         }
     }
+
+    private var taskComposerContent: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 7) {
+                Picker(
+                    "Project",
+                    selection: Binding(
+                        get: { state.selectedProjectID ?? "" },
+                        set: { state.selectProject(id: $0) }
+                    )
+                ) {
+                    if state.projects.isEmpty {
+                        Text("No projects").tag("")
+                    } else {
+                        ForEach(state.projects) { project in
+                            Text(project.name).tag(project.id)
+                        }
+                    }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .controlSize(.small)
+                .frame(width: 142)
+                .help("Project for the new task")
+
+                TextField(
+                    "New task for agent…",
+                    text: Binding(
+                        get: { state.taskDraft },
+                        set: { state.updateTaskDraft($0) }
+                    )
+                )
+                .textFieldStyle(.plain)
+                .font(.system(size: 11))
+                .padding(.horizontal, 9)
+                .frame(height: 28)
+                .background(.white.opacity(0.09), in: Capsule())
+                .focused($isTaskComposerFocused)
+                .onSubmit {
+                    state.submitTask()
+                }
+
+                Button {
+                    state.submitTask()
+                } label: {
+                    if state.isCreatingTask {
+                        ProgressView()
+                            .controlSize(.mini)
+                            .frame(width: 26, height: 26)
+                    } else {
+                        Image(systemName: "paperplane.fill")
+                            .font(.system(size: 10, weight: .semibold))
+                            .frame(width: 26, height: 26)
+                    }
+                }
+                .buttonStyle(.glassProminent)
+                .buttonBorderShape(.circle)
+                .disabled(!state.canCreateTask)
+                .help("Create task")
+            }
+
+            if let taskCreationError = state.taskCreationError {
+                Text(taskCreationError)
+                    .font(.system(size: 9))
+                    .foregroundStyle(.red)
+                    .lineLimit(1)
+            }
+        }
+    }
 }
 
 @MainActor
@@ -840,6 +942,7 @@ final class SloppyDesktopOverlayState {
     var activeAgentRuns: [SloppyDesktopAgentRun] = []
     var activeTasks: [SloppyDesktopTask] = []
     var recentChats: [SloppyDesktopRecentChat] = []
+    var projects: [SloppyDesktopProject] = []
     var isExpanded = false
     var isResolving = false
     var errorMessage: String?
@@ -848,14 +951,19 @@ final class SloppyDesktopOverlayState {
     var promptText = ""
     var isSendingPrompt = false
     var promptError: String?
+    var selectedProjectID: String?
+    var taskDraft = ""
+    var isCreatingTask = false
+    var taskCreationError: String?
     var onExpansionChanged: (@MainActor () -> Void)?
     var onDecision: (@MainActor (String, Bool) async -> Void)?
     var onOpenAgentRun: (@MainActor (SloppyDesktopAgentRun) -> Void)?
     var onOpenRecentChat: (@MainActor (SloppyDesktopRecentChat) -> Void)?
     var onSendPrompt: (@MainActor (SloppyDesktopRecentChat, String) async throws -> Void)?
+    var onCreateTask: (@MainActor (SloppyDesktopProject, String) async throws -> Void)?
 
     var usesWideLayout: Bool {
-        usesWideCollapsedLayout || !recentChats.isEmpty
+        true
     }
 
     var usesWideCollapsedLayout: Bool {
@@ -874,6 +982,25 @@ final class SloppyDesktopOverlayState {
     var canSendPrompt: Bool {
         !promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !isSendingPrompt
+    }
+
+    var hasTaskDraft: Bool {
+        !taskDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    var canCreateTask: Bool {
+        hasTaskDraft
+            && selectedProject != nil
+            && !isCreatingTask
+    }
+
+    var hasContentBeforeTaskComposer: Bool {
+        toolApproval != nil || activityCount > 0 || !recentChats.isEmpty
+    }
+
+    private var selectedProject: SloppyDesktopProject? {
+        guard let selectedProjectID else { return nil }
+        return projects.first { $0.id == selectedProjectID }
     }
 
     func toggleExpanded() {
@@ -935,6 +1062,37 @@ final class SloppyDesktopOverlayState {
         }
     }
 
+    func selectProject(id: String) {
+        selectedProjectID = projects.contains { $0.id == id } ? id : nil
+        taskCreationError = nil
+    }
+
+    func updateTaskDraft(_ draft: String) {
+        taskDraft = draft
+        taskCreationError = nil
+    }
+
+    func submitTask() {
+        let title = taskDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !title.isEmpty,
+              !isCreatingTask,
+              let selectedProject,
+              let onCreateTask else { return }
+
+        isCreatingTask = true
+        taskCreationError = nil
+        Task { @MainActor in
+            do {
+                try await onCreateTask(selectedProject, title)
+                taskDraft = ""
+            } catch {
+                taskCreationError = error.localizedDescription
+            }
+            isCreatingTask = false
+            onExpansionChanged?()
+        }
+    }
+
     func setActiveTasks(_ tasks: [SloppyDesktopTask]) {
         let previouslyUsedWideLayout = usesWideLayout
         let hadActivity = activityCount > 0
@@ -978,6 +1136,17 @@ final class SloppyDesktopOverlayState {
         }
     }
 
+    func setProjects(_ projects: [SloppyDesktopProject]) {
+        let projectsChanged = self.projects != projects
+        self.projects = projects
+        if selectedProject == nil {
+            selectedProjectID = projects.first?.id
+        }
+        if projectsChanged {
+            onExpansionChanged?()
+        }
+    }
+
     private func revealActivityTemporarily() {
         isExpanded = true
         activityRevealToken &+= 1
@@ -1017,6 +1186,12 @@ struct SloppyDesktopTask: Identifiable, Equatable {
         case .other: "Other"
         }
     }
+}
+
+struct SloppyDesktopProject: Identifiable, Equatable, Sendable {
+    let id: String
+    let name: String
+    let actorID: String?
 }
 
 struct SloppyDesktopAgentRun: Identifiable, Equatable, Sendable {
@@ -1137,6 +1312,19 @@ private struct SloppyDesktopOverlayPreviewCase {
         state.activeAgentRuns = activeAgentRuns
         state.recentChats = recentChats
         state.activeTasks = activeTasks
+        state.projects = [
+            SloppyDesktopProject(
+                id: "sloppy-client",
+                name: "Sloppy Client",
+                actorID: "sloppy"
+            ),
+            SloppyDesktopProject(
+                id: "ada-engine",
+                name: "AdaEngine",
+                actorID: "sloppy"
+            ),
+        ]
+        state.selectedProjectID = state.projects.first?.id
         return state
     }
 

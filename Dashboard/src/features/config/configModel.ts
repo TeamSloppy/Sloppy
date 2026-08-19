@@ -22,6 +22,12 @@ export const SETTINGS_ITEMS = [
     searchTerms: ["web search", "brave", "perplexity", "api key", "active provider"]
   },
   {
+    id: "image-generation",
+    title: "Image Generation",
+    icon: "image",
+    searchTerms: ["images", "fal", "flux", "generation", "editing", "api key"]
+  },
+  {
     id: "model-routing",
     title: "Model routing",
     icon: "linear_scale",
@@ -426,6 +432,15 @@ export const EMPTY_CONFIG = {
         apiKey: ""
       }
     }
+  },
+  imageGeneration: {
+    enabled: false,
+    provider: "fal",
+    model: "fal-ai/flux-2",
+    fal: {
+      apiKey: ""
+    },
+    timeoutMs: 180000
   },
   gitSync: {
     enabled: false,
@@ -1047,6 +1062,17 @@ export function normalizeConfig(config) {
       : "perplexity";
   normalized.searchTools.providers.brave.apiKey = String(config?.searchTools?.providers?.brave?.apiKey || "");
   normalized.searchTools.providers.perplexity.apiKey = String(config?.searchTools?.providers?.perplexity?.apiKey || "");
+  normalized.imageGeneration.enabled = Boolean(config?.imageGeneration?.enabled);
+  normalized.imageGeneration.provider = String(config?.imageGeneration?.provider || "fal").trim().toLowerCase() === "openai"
+    ? "openai"
+    : "fal";
+  const defaultImageModel = normalized.imageGeneration.provider === "openai" ? "gpt-image-2" : "fal-ai/flux-2";
+  normalized.imageGeneration.model = String(config?.imageGeneration?.model || defaultImageModel).trim() || defaultImageModel;
+  normalized.imageGeneration.fal.apiKey = String(config?.imageGeneration?.fal?.apiKey || "");
+  normalized.imageGeneration.timeoutMs = Math.min(
+    600000,
+    Math.max(10000, parseInteger(config?.imageGeneration?.timeoutMs ?? 180000, 180000))
+  );
 
   normalized.acp.enabled = Boolean(config?.acp?.enabled);
   normalized.acp.targets = Array.isArray(config?.acp?.targets) ? config.acp.targets : [];

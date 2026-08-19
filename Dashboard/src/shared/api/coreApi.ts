@@ -1,4 +1,4 @@
-import { buildApiURL, buildWebSocketURL, formatHttpError, requestJson } from "./httpClient";
+import { buildApiURL, buildWebSocketURL, formatHttpError, requestBlob, requestJson } from "./httpClient";
 import {
   clearDashboardAuthToken,
   getDashboardAuthToken,
@@ -116,6 +116,7 @@ export interface CoreApi {
   applyWorkspaceTemplate: (workspaceId: string, templateId: string, payload?: AnyRecord) => Promise<AnyRecord | null>;
   createWorkspaceRealtimeTicket: (workspaceId: string) => Promise<AnyRecord | null>;
   fetchArtifact: (id: string) => Promise<AnyRecord | null>;
+  fetchArtifactFile: (id: string, signal?: AbortSignal) => Promise<Blob | null>;
   fetchWidgetArtifact: (id: string) => Promise<AnyRecord | null>;
   planArtifactWebUrl: (projectId: string, planName: string) => string;
   fetchPlanArtifact: (projectId: string, planName: string) => Promise<AnyRecord | null>;
@@ -178,6 +179,7 @@ export interface CoreApi {
   probeProvider: (payload: AnyRecord) => Promise<AnyRecord | null>;
   probeACPTarget: (payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchSearchProviderStatus: () => Promise<AnyRecord | null>;
+  fetchImageGenerationStatus: () => Promise<AnyRecord | null>;
   fetchProjects: () => Promise<AnyRecord[] | null>;
   fetchProjectSummaries: () => Promise<AnyRecord[] | null>;
   fetchProject: (projectId: string) => Promise<AnyRecord | null>;
@@ -878,6 +880,9 @@ export function createCoreApi(): CoreApi {
       return response.data;
     },
 
+    fetchArtifactFile: async (id, signal) =>
+      requestBlob(`/v1/artifacts/${encodeURIComponent(id)}/file`, signal),
+
     fetchWidgetArtifact: async (id) => {
       const response = await requestJson<AnyRecord>({
         path: `/v1/artifacts/${encodeURIComponent(id)}/widget`
@@ -1299,6 +1304,13 @@ export function createCoreApi(): CoreApi {
         return null;
       }
       return response.data;
+    },
+
+    fetchImageGenerationStatus: async () => {
+      const response = await requestJson<AnyRecord>({
+        path: "/v1/providers/image-generation/status"
+      });
+      return response.ok ? response.data : null;
     },
 
     fetchAnthropicProviderStatus: async () => {

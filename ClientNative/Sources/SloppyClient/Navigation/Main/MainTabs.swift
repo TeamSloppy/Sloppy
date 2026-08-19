@@ -1,5 +1,6 @@
 import Foundation
 import CoreGraphics
+import Observation
 import SwiftUI
 import SloppyClientCore
 import SloppyClientUI
@@ -10,6 +11,30 @@ struct DesktopTabSplitState: Equatable {
     var primaryTabID: WorkspaceTab.ID
     var secondaryTabID: WorkspaceTab.ID
     var fraction: CGFloat
+}
+
+enum ProjectModeSection: String, CaseIterable, Hashable, Identifiable {
+    case kanban
+    case workspaces
+    case chats
+
+    var id: Self { self }
+
+    var title: String {
+        switch self {
+        case .kanban: "Kanban"
+        case .workspaces: "Workspaces"
+        case .chats: "Chats"
+        }
+    }
+
+    var systemImage: String {
+        switch self {
+        case .kanban: "rectangle.split.3x1"
+        case .workspaces: "square.grid.2x2"
+        case .chats: "bubble.left.and.bubble.right"
+        }
+    }
 }
 
 @MainActor
@@ -95,11 +120,23 @@ final class ChatTabState {
 }
 
 @MainActor
+@Observable
 final class ProjectKanbanTabState {
     let viewModel: ProjectKanbanViewModel
+    let workspaceViewModel: CanvasWorkspaceViewModel
+    let chatViewModel: ChatScreenViewModel
+    var selectedSection: ProjectModeSection
 
-    init(viewModel: ProjectKanbanViewModel) {
+    init(
+        viewModel: ProjectKanbanViewModel,
+        workspaceViewModel: CanvasWorkspaceViewModel,
+        chatViewModel: ChatScreenViewModel,
+        selectedSection: ProjectModeSection
+    ) {
         self.viewModel = viewModel
+        self.workspaceViewModel = workspaceViewModel
+        self.chatViewModel = chatViewModel
+        self.selectedSection = selectedSection
     }
 }
 

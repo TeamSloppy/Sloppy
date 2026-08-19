@@ -5403,3 +5403,51 @@ body.agent-chat-no-page-scroll .page {
 .visor-chat-textarea::placeholder {
   color: var(--muted);
 }
+.agent-chat-image-artifact {
+  display: grid;
+  gap: 10px;
+  max-width: min(680px, 100%);
+  margin: 8px 0 16px;
+  padding: 10px;
+  background: var(--surface-2);
+  border: 1px solid var(--line);
+}
+
+.agent-chat-image-artifact-preview {
+  display: grid;
+  place-items: center;
+  min-height: 220px;
+  overflow: hidden;
+  background: color-mix(in srgb, var(--surface-3) 78%, #000);
+}
+
+.agent-chat-image-artifact-preview img {
+  display: block;
+  width: 100%;
+  max-height: 560px;
+  object-fit: contain;
+}
+
+.agent-chat-image-artifact-placeholder {
+  display: grid;
+  place-items: center;
+  gap: 8px;
+  color: var(--muted);
+}
+
+.agent-chat-image-artifact-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.agent-chat-image-artifact-meta > div {
+  display: grid;
+  gap: 3px;
+}
+
+.agent-chat-image-artifact-meta span {
+  color: var(--muted);
+  font-size: 0.78rem;
+}

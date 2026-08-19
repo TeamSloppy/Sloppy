@@ -66,6 +66,7 @@ struct ToolRegistry: Sendable {
             FilesGrepTool(),
             FilesEditTool(),
             FilesWriteTool(),
+            ImagesGenerateTool(),
             WidgetArtifactGenerateTool(),
             WorkspacesListTool(),
             WorkspacesCreateTool(),

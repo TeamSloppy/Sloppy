@@ -1459,6 +1459,35 @@
   background: color-mix(in srgb, var(--accent) 10%, transparent);
 }
 
+.config-image-model-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.config-image-model-list .actor-team-search-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 12px;
+  color: var(--text);
+  background: var(--surface-3);
+  border: 1px solid var(--line);
+  cursor: pointer;
+  text-align: left;
+}
+
+.config-image-model-list .actor-team-search-option small {
+  color: var(--muted);
+}
+
+.config-image-model-list .actor-team-search-option.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 10%, var(--surface-3));
+}
+
 .config-voice-capability-status {
   margin: -2px 0 0;
   color: var(--muted);

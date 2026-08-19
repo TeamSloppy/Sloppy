@@ -22,13 +22,13 @@ struct MainSidebarProjectDisclosureTests {
 
     @Test("project collapse state is separate from show more state")
     func projectCollapseStateIsSeparateFromShowMoreState() throws {
-        let mainViewSource = try source(named: "MainView.swift")
+        let mainViewModelSource = try source(named: "MainViewModel.swift")
         let sidebarSource = try source(named: "SidebarRecentsList.swift")
 
-        #expect(mainViewSource.contains("var collapsedProjectIds: Set<String> = []"))
-        #expect(mainViewSource.contains("var expandedTaskLists: Set<String> = []"))
-        #expect(mainViewSource.contains("func toggleProjectCollapse(projectId: String)"))
-        #expect(mainViewSource.contains("func toggleTaskListExpansion(projectId: String)"))
+        #expect(mainViewModelSource.contains("var collapsedProjectIds: Set<String> = []"))
+        #expect(mainViewModelSource.contains("var expandedTaskLists: Set<String> = []"))
+        #expect(mainViewModelSource.contains("func toggleProjectCollapse(projectId: String)"))
+        #expect(mainViewModelSource.contains("func toggleTaskListExpansion(projectId: String)"))
 
         #expect(sidebarSource.contains("viewModel.collapsedProjectIds.contains(group.id)"))
         #expect(sidebarSource.contains("if !isCollapsed {"))
@@ -46,10 +46,12 @@ struct MainSidebarProjectDisclosureTests {
     @Test("main view renders a native project kanban tab")
     func mainViewRendersNativeProjectKanbanTab() throws {
         let mainViewSource = try source(named: "MainView.swift")
+        let mainTabsSource = try source(named: "MainTabs.swift")
+        let projectModeSource = try source(named: "ProjectModeView.swift")
 
-        #expect(mainViewSource.contains("ProjectKanbanView("))
+        #expect(projectModeSource.contains("ProjectKanbanView("))
         #expect(mainViewSource.contains("case .projectKanban"))
-        #expect(mainViewSource.contains("ProjectKanbanTabState"))
+        #expect(mainTabsSource.contains("ProjectKanbanTabState"))
     }
 
     @Test("kanban cards open task detail from the content area")

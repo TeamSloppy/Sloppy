@@ -9,6 +9,7 @@ import {
   fetchGeminiProviderStatus,
   fetchOpenAIModels,
   fetchOpenAIProviderStatus,
+  fetchImageGenerationStatus,
   fetchRuntimeConfig,
   fetchVoiceCapabilities,
   fetchAvailableModels,
@@ -36,6 +37,7 @@ import { PluginEditor } from "./components/PluginEditor";
 import { ProviderEditor } from "./components/ProviderEditor";
 import { buildOAuthRedirectURI } from "./oauthRedirect";
 import { SearchToolsEditor } from "./components/SearchToolsEditor";
+import { ImageGenerationEditor } from "./components/ImageGenerationEditor";
 import { SettingsMainHeader } from "./components/SettingsMainHeader";
 import { SettingsPlaceholder } from "./components/SettingsPlaceholder";
 import { SettingsSidebar } from "./components/SettingsSidebar";
@@ -152,6 +154,15 @@ export function ConfigView({
     activeProvider: "perplexity",
     brave: { hasEnvironmentKey: false, hasConfiguredKey: false, hasAnyKey: false },
     perplexity: { hasEnvironmentKey: false, hasConfiguredKey: false, hasAnyKey: false }
+  });
+  const [imageGenerationStatus, setImageGenerationStatus] = useState({
+    enabled: false,
+    provider: "fal",
+    model: "fal-ai/flux-2",
+    hasEnvironmentKey: false,
+    hasConfiguredKey: false,
+    hasAnyKey: false,
+    models: []
   });
   const providerModelLoadTimerRef = useRef(null);
   const providerModelLoadTokenRef = useRef(0);
@@ -359,6 +370,7 @@ export function ConfigView({
     await loadAnthropicProviderStatus();
     await loadGeminiProviderStatus();
     await loadSearchProviderStatus();
+    await loadImageGenerationStatus();
     await loadGitHubAuthStatus();
   }
 
@@ -399,6 +411,7 @@ export function ConfigView({
       await loadAnthropicProviderStatus();
       await loadGeminiProviderStatus();
       await loadSearchProviderStatus();
+      await loadImageGenerationStatus();
       await loadGitHubAuthStatus();
       setStatusText("Config saved");
       return true;
@@ -555,6 +568,23 @@ export function ConfigView({
     });
   }
 
+  async function loadImageGenerationStatus() {
+    const response = await fetchImageGenerationStatus();
+    if (!response) {
+      return;
+    }
+    const payload = response as any;
+    setImageGenerationStatus({
+      enabled: Boolean(payload.enabled),
+      provider: String(payload.provider || "fal"),
+      model: String(payload.model || "fal-ai/flux-2"),
+      hasEnvironmentKey: Boolean(payload.hasEnvironmentKey),
+      hasConfiguredKey: Boolean(payload.hasConfiguredKey),
+      hasAnyKey: Boolean(payload.hasAnyKey),
+      models: Array.isArray(payload.models) ? payload.models : []
+    });
+  }
+
   function mutateDraft(mutator) {
     setDraftConfig((previous) => {
       const next = clone(previous);
@@ -592,6 +622,7 @@ export function ConfigView({
       await loadAnthropicProviderStatus();
       await loadGeminiProviderStatus();
       await loadSearchProviderStatus();
+      await loadImageGenerationStatus();
       await loadGitHubAuthStatus();
       setStatusText(successMessage);
       return true;
@@ -1650,6 +1681,15 @@ export function ConfigView({
         <SearchToolsEditor
           draftConfig={draftConfig}
           searchProviderStatus={searchProviderStatus}
+          mutateDraft={mutateDraft}
+        />
+      );
+    }
+    if (selectedSettings === "image-generation") {
+      return (
+        <ImageGenerationEditor
+          draftConfig={draftConfig}
+          status={imageGenerationStatus}
           mutateDraft={mutateDraft}
         />
       );

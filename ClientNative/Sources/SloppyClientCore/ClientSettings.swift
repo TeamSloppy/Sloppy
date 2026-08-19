@@ -11,6 +11,7 @@ public final class ClientSettings {
         static let colorScheme = "client_color_scheme"
         static let chatSidebarMode = "client_chat_sidebar_mode"
         static let projectOrderIDs = "client_project_order_ids"
+        static let projectModeSections = "client_project_mode_sections"
         static let windowCloseBehavior = "client_window_close_behavior"
         static let lastAgentId = "client_last_agent_id"
         static let lastProjectId = "client_last_project_id"
@@ -42,6 +43,10 @@ public final class ClientSettings {
 
     public var projectOrderIDs: [String] {
         didSet { UserDefaults.standard.set(projectOrderIDs, forKey: Keys.projectOrderIDs) }
+    }
+
+    public var projectModeSections: [String: String] {
+        didSet { UserDefaults.standard.set(projectModeSections, forKey: Keys.projectModeSections) }
     }
 
     public var windowCloseBehavior: ClientWindowCloseBehavior {
@@ -101,6 +106,7 @@ public final class ClientSettings {
             .string(forKey: Keys.chatSidebarMode)
             .flatMap(ChatSidebarListMode.init(rawValue:)) ?? .allChats
         projectOrderIDs = defaults.stringArray(forKey: Keys.projectOrderIDs) ?? []
+        projectModeSections = defaults.dictionary(forKey: Keys.projectModeSections) as? [String: String] ?? [:]
         windowCloseBehavior = defaults
             .string(forKey: Keys.windowCloseBehavior)
             .flatMap(ClientWindowCloseBehavior.init(rawValue:)) ?? .keepProcess

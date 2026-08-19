@@ -23,7 +23,8 @@ import {
   approveToolApproval,
   rejectToolApproval,
   answerAgentSessionInputRequest,
-  planArtifactWebUrl
+  planArtifactWebUrl,
+  fetchArtifactFile
 } from "../../../api";
 import { navigateToTaskScreen } from "../../../app/routing/navigateToTaskScreen";
 import { ProjectSourceControlDiffPanel } from "./ProjectSourceControlDiffPanel";
@@ -44,6 +45,7 @@ import {
   deepResearchSkillInvocation,
   parseDeepResearchCommand
 } from "../deepResearch";
+import { imageArtifactFromToolResult } from "../imageArtifactTimeline";
 
 const INLINE_ATTACHMENT_MAX_BYTES = 2 * 1024 * 1024;
 const ACTIVE_RUN_STATUS_REFRESH_AFTER_MS = 30 * 1000;
@@ -1580,6 +1582,56 @@ function buildTechnicalRecord(
   return null;
 }
 
+function ImageArtifactCard({ artifact }) {
+  const [objectURL, setObjectURL] = useState("");
+  const [loadFailed, setLoadFailed] = useState(false);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    let activeURL = "";
+    setObjectURL("");
+    setLoadFailed(false);
+    fetchArtifactFile(artifact.id, controller.signal).then((blob) => {
+      if (controller.signal.aborted) return;
+      if (!blob) {
+        setLoadFailed(true);
+        return;
+      }
+      activeURL = URL.createObjectURL(blob);
+      setObjectURL(activeURL);
+    });
+    return () => {
+      controller.abort();
+      if (activeURL) URL.revokeObjectURL(activeURL);
+    };
+  }, [artifact.id]);
+
+  const dimensions = artifact.width && artifact.height ? `${artifact.width} × ${artifact.height}` : "";
+  return (
+    <section className="agent-chat-image-artifact" aria-label="Generated image">
+      <div className="agent-chat-image-artifact-preview">
+        {objectURL ? <img src={objectURL} alt="Generated artifact" /> : (
+          <div className="agent-chat-image-artifact-placeholder">
+            <span className="material-symbols-rounded" aria-hidden="true">{loadFailed ? "broken_image" : "progress_activity"}</span>
+            <span>{loadFailed ? "Image preview unavailable" : "Loading generated image…"}</span>
+          </div>
+        )}
+      </div>
+      <div className="agent-chat-image-artifact-meta">
+        <div>
+          <strong>Generated image</strong>
+          <span>{[artifact.model, dimensions].filter(Boolean).join(" · ")}</span>
+        </div>
+        {objectURL ? (
+          <a href={objectURL} download={`sloppy-image-${artifact.id}.png`} className="agent-chat-technical-link">
+            Download
+          </a>
+        ) : null}
+      </div>
+    </section>
+  );
+}
+
 function answeredInputRequestIds(events) {
   return new Set(
     (Array.isArray(events) ? events : [])
@@ -2148,6 +2200,14 @@ function buildTimelineItems({
         record: technicalRecord
       });
     }
+    const imageArtifact = imageArtifactFromToolResult(eventItem);
+    if (imageArtifact) {
+      timelineItems.push({
+        id: `${extractEventKey(eventItem, index)}-image-artifact`,
+        kind: "image_artifact",
+        artifact: imageArtifact
+      });
+    }
   }
 
   if (optimisticUserEvent) {
@@ -2566,6 +2626,10 @@ function AgentChatEvents({
 
             if (timelineItem.kind === "technical" && timelineItem.record) {
               return renderTechEntry(timelineItem, index);
+            }
+
+            if (timelineItem.kind === "image_artifact" && timelineItem.artifact) {
+              return <ImageArtifactCard key={timelineItem.id} artifact={timelineItem.artifact} />;
             }
 
             if (timelineItem.kind === "input_request") {

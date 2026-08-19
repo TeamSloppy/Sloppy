@@ -113,7 +113,8 @@ struct CanvasWorkspaceIntegrationTests {
         )
 
         #expect(surface.contains("if viewModel.isShowingLibrary"))
-        #expect(surface.contains("CanvasWorkspaceLibraryView(viewModel: viewModel)"))
+        #expect(surface.contains("CanvasWorkspaceLibraryView("))
+        #expect(surface.contains("allowsProjectSelection: allowsProjectSelection"))
         #expect(surface.contains("CanvasWorkspaceEditorView(viewModel: viewModel)"))
         #expect(!surface.contains("CanvasWorkspaceWebView(viewModel: viewModel)"))
         #expect(!surface.contains(".overlay(alignment: .topLeading)"))

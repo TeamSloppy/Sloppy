@@ -158,10 +158,19 @@ struct MainView: View {
     private var activeChatViewModel: ChatScreenViewModel? {
         guard let selectedTabID = viewModel.selectedTabID,
               let tab = viewModel.tabs.first(where: { $0.id == selectedTabID }),
-              tab.kind == .chat else {
+              let tabState = viewModel.tabStates[selectedTabID] else {
             return nil
         }
-        return viewModel.tabStates[selectedTabID]?.chatState?.viewModel
+
+        if tab.kind == .chat {
+            return tabState.chatState?.viewModel
+        }
+        if tab.kind == .projectKanban,
+           let projectState = tabState.projectKanbanState,
+           projectState.selectedSection == .chats {
+            return projectState.chatViewModel
+        }
+        return nil
     }
 
     init(
@@ -1144,25 +1153,21 @@ struct MainView: View {
                     detail: "Kanban tab state is unavailable."
                 )
             }
+            let project = viewModel.projects.first { $0.id == context.projectId }
+                ?? APIProjectRecord(
+                    id: context.projectId,
+                    name: context.projectName,
+                    directoryPaths: context.projectRootPath.map { [$0] } ?? []
+                )
             return AnyView(
-                ProjectKanbanView(
-                    viewModel: kanbanState.viewModel,
-                    projectId: context.projectId,
-                    projectName: context.projectName,
+                ProjectModeView(
+                    project: project,
+                    state: kanbanState,
+                    rootSafeAreaInsets: rootSafeAreaInsets,
+                    onSelectSection: { section in
+                        viewModel.selectProjectModeSection(section, project: project)
+                    },
                     onOpenTask: { card in
-                        let project = APIProjectRecord(
-                            id: context.projectId,
-                            name: context.projectName,
-                            tasks: [
-                                APIProjectTask(
-                                    id: card.id,
-                                    title: card.title,
-                                    status: card.status,
-                                    priority: card.priority,
-                                    actorId: card.actorID
-                                )
-                            ]
-                        )
                         let task = APIProjectTask(
                             id: card.id,
                             title: card.title,

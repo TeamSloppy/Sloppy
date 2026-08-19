@@ -3,11 +3,15 @@ import SwiftUI
 @MainActor
 struct CanvasWorkspaceSurface: View {
     let viewModel: CanvasWorkspaceViewModel
+    var allowsProjectSelection = true
 
     var body: some View {
         Group {
             if viewModel.isShowingLibrary {
-                CanvasWorkspaceLibraryView(viewModel: viewModel)
+                CanvasWorkspaceLibraryView(
+                    viewModel: viewModel,
+                    allowsProjectSelection: allowsProjectSelection
+                )
             } else {
                 nativeEditor
             }

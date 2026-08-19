@@ -100,6 +100,27 @@ enum ToolCatalog {
             ]),
             "required": .array([.string("path"), .string("content")])
         ]),
+        "images.generate": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "prompt": .object([
+                    "type": .string("string"),
+                    "description": .string("Detailed prompt describing the desired image or edit.")
+                ]),
+                "aspectRatio": .object([
+                    "type": .string("string"),
+                    "enum": .array([.string("landscape"), .string("square"), .string("portrait")])
+                ]),
+                "sourceImage": .object(["type": .string("string")]),
+                "referenceImages": .object([
+                    "type": .string("array"),
+                    "items": .object(["type": .string("string")]),
+                    "maxItems": .number(16)
+                ]),
+                "seed": .object(["type": .string("integer")])
+            ]),
+            "required": .array([.string("prompt")])
+        ]),
         "artifacts.widget.generate": .object([
             "type": .string("object"),
             "properties": .object([

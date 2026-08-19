@@ -20,6 +20,28 @@ export interface JsonResponse<TData> {
   data: TData | null;
 }
 
+export async function requestBlob(path: string, signal?: AbortSignal): Promise<Blob | null> {
+  const headers = new Headers();
+  const dashboardToken = getDashboardAuthToken();
+  if (isProtectedDashboardRequest(path) && dashboardToken) {
+    headers.set("authorization", `Bearer ${dashboardToken}`);
+  }
+  try {
+    const response = await fetch(buildApiURL(path), { method: "GET", headers, signal });
+    markNetworkConnected();
+    if (response.status === 401) {
+      invalidateDashboardAuthToken();
+    }
+    if (!response.ok) {
+      return null;
+    }
+    return await response.blob();
+  } catch {
+    emitNetworkError();
+    return null;
+  }
+}
+
 export const API_BASE_OVERRIDE_STORAGE_KEY = "sloppy_api_base_override";
 const DEFAULT_API_BASE = "http://localhost:25101";
 const API_BASE_QUERY_PARAMETER = "apiBase";

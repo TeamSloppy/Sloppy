@@ -9,6 +9,11 @@ struct ProvidersAPIRouter: APIRouter {
     }
 
     func configure(on router: CoreRouterRegistrar) {
+        router.get("/v1/providers/image-generation/status", metadata: RouteMetadata(summary: "Image generation status", description: "Returns image generation configuration, credentials status, and supported models", tags: ["Providers"])) { _ in
+            let status = await service.imageGenerationStatus()
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: status)
+        }
+
         router.get("/v1/providers/openai/status", metadata: RouteMetadata(summary: "OpenAI status", description: "Returns the current status of the OpenAI provider", tags: ["Providers"])) { _ in
             let status = await service.openAIProviderStatus()
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: status)

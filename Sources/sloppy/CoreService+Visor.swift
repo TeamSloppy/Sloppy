@@ -24,7 +24,20 @@ extension CoreService {
 
     public func deleteArtifact(id: String) async -> Bool {
         await waitForStartup()
-        return await store.deleteArtifact(id: id)
+        let record = await store.persistedArtifact(id: id)
+        let deleted = await store.deleteArtifact(id: id)
+        if deleted, record?.kind == "image" {
+            ImageArtifactService.deleteBundle(id: id, workspaceRootURL: workspaceRootURL)
+        }
+        return deleted
+    }
+
+    public func getImageArtifactFile(id: String) async -> (data: Data, mediaType: String)? {
+        await waitForStartup()
+        guard let record = await store.persistedArtifact(id: id) else {
+            return nil
+        }
+        return ImageArtifactService.file(record: record, workspaceRootURL: workspaceRootURL)
     }
 
     public func generateWidgetArtifact(_ request: WidgetArtifactGenerateRequest) async throws -> WidgetArtifactGenerateResponse {
@@ -229,7 +242,8 @@ extension CoreService {
             mediaType: record.mediaType,
             createdAt: record.createdAt,
             previewText: record.previewText,
-            widget: widget
+            widget: widget,
+            image: ImageArtifactService.metadata(from: record)
         )
     }
 

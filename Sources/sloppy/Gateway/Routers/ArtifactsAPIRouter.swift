@@ -113,6 +113,14 @@ struct ArtifactsAPIRouter: APIRouter {
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
         }
 
+        router.get("/v1/artifacts/:artifactId/file", metadata: RouteMetadata(summary: "Get artifact file", description: "Returns the binary content of an image artifact", tags: ["Artifacts"])) { request in
+            let artifactId = request.pathParam("artifactId") ?? ""
+            guard let response = await service.getImageArtifactFile(id: artifactId) else {
+                return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.artifactNotFound])
+            }
+            return CoreRouterResponse(status: HTTPStatus.ok, body: response.data, contentType: response.mediaType)
+        }
+
         router.get("/v1/artifacts/:artifactId/widget", metadata: RouteMetadata(summary: "Get widget artifact", description: "Returns renderable widget HTML and fixed dimensions", tags: ["Artifacts"])) { request in
             let artifactId = request.pathParam("artifactId") ?? ""
             guard let response = await service.getWidgetArtifact(id: artifactId) else {

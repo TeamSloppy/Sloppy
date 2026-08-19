@@ -14,7 +14,7 @@ struct ToolRegistryTests {
     @Test("Built-in and MCP tools are registered")
     func allToolsRegistered() {
         let expectedIDs: Set<String> = [
-            "files.read", "files.edit", "files.write", "artifacts.widget.generate",
+            "files.read", "files.edit", "files.write", "images.generate", "artifacts.widget.generate",
             "runtime.exec", "runtime.process",
             "computer.click", "computer.type", "computer.key", "computer.screenshot",
             "browser.open", "browser.navigate", "browser.click", "browser.type",
@@ -85,6 +85,7 @@ struct ToolRegistryTests {
         #expect(ToolCatalog.knownToolIDs.contains("debug.read_logs"))
         #expect(ToolCatalog.knownToolIDs.contains("session.complete"))
         #expect(ToolCatalog.knownToolIDs.contains("artifacts.widget.generate"))
+        #expect(ToolCatalog.knownToolIDs.contains("images.generate"))
     }
 
     @Test("ToolCatalog schema advertises project.current arguments")

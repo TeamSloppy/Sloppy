@@ -126,6 +126,19 @@ struct TransparentWindowSourceTests {
         #expect(overlay.contains("state.openRecentChat(chat)"))
     }
 
+    @Test("desktop overlay creates an agent task in the selected project")
+    func desktopOverlayCreatesAgentTaskInSelectedProject() throws {
+        let overlay = try source("Sources/SloppyClient/Overlays/SloppyDesktopOverlay.swift")
+
+        #expect(overlay.contains("Picker("))
+        #expect(overlay.contains("New task for agent…"))
+        #expect(overlay.contains("state.setProjects(projects.map"))
+        #expect(overlay.contains("apiClient.createProjectTask("))
+        #expect(overlay.contains("status: \"ready\""))
+        #expect(overlay.contains("actorId: project.actorID"))
+        #expect(overlay.contains("state.submitTask()"))
+    }
+
     @Test("desktop overlay ignores transient hover exits caused by panel resizing")
     func desktopOverlayIgnoresTransientHoverExits() throws {
         let overlay = try source("Sources/SloppyClient/Overlays/SloppyDesktopOverlay.swift")
@@ -141,7 +154,8 @@ struct TransparentWindowSourceTests {
         let overlay = try source("Sources/SloppyClient/Overlays/SloppyDesktopOverlay.swift")
 
         #expect(overlay.contains("state.selectedRecentChatID == nil"))
-        #expect(overlay.contains("guard state.toolApproval == nil, state.selectedRecentChatID == nil else { return }"))
+        #expect(overlay.contains("!state.hasTaskDraft"))
+        #expect(overlay.contains("!isTaskComposerFocused"))
     }
 
     @Test("desktop overlay uses compact panel dimensions")

@@ -29,114 +29,136 @@ enum ConfigSection: String, CaseIterable, Hashable {
         case .rawConfig: "Raw Config"
         }
     }
+
+    var iconName: String {
+        switch self {
+        case .providers: "sparkles"
+        case .searchTools: "magnifyingglass"
+        case .channels: "message"
+        case .plugins: "puzzlepiece.extension"
+        case .nodeHost: "network"
+        case .visor: "eye"
+        case .acp: "cpu"
+        case .proxy: "lock.shield"
+        case .gitSync: "arrow.triangle.2.circlepath"
+        case .rawConfig: "doc.text"
+        }
+    }
+
+    var group: ConfigSectionGroup {
+        switch self {
+        case .providers, .searchTools:
+            .modelsAndTools
+        case .channels, .plugins:
+            .integrations
+        case .nodeHost, .visor, .acp, .proxy, .gitSync:
+            .runtime
+        case .rawConfig:
+            .advanced
+        }
+    }
+}
+
+enum ConfigSectionGroup: String, CaseIterable {
+    case modelsAndTools
+    case integrations
+    case runtime
+    case advanced
+
+    var title: String {
+        switch self {
+        case .modelsAndTools: "Models & Tools"
+        case .integrations: "Integrations"
+        case .runtime: "Runtime"
+        case .advanced: "Advanced"
+        }
+    }
 }
 
 struct ServerConfigListView: View {
     let config: SloppyConfig
     let onSave: (SloppyConfig) -> Void
 
-    @State private var selectedSection: ConfigSection? = nil
+    @State private var selectedSection: ConfigSection? = .providers
     @Environment(\.userInterfaceIdiom) private var idiom
-    @Environment(\.theme) private var theme
 
     var body: some View {
-        let c = theme.colors
-        let sp = theme.spacing
-
-        return VStack(alignment: .leading, spacing: sp.m) {
-            SectionHeader("Sloppy Config", accentColor: c.accentCyan)
-                .padding(.horizontal, sp.m)
-
+        Group {
             if idiom == .phone {
                 phoneLayout
             } else {
                 desktopLayout
             }
         }
+        .navigationTitle("Sloppy Config")
     }
 
     private var phoneLayout: some View {
-        let c = theme.colors
-        let sp = theme.spacing
-        let bo = theme.borders
-
-        return NavigationStack {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(ConfigSection.allCases, id: \.self) { section in
-                    NavigationLink(value: section) {
-                        configRow(section)
+        NavigationStack {
+            List {
+                ForEach(ConfigSectionGroup.allCases, id: \.self) { group in
+                    Section(group.title) {
+                        ForEach(sections(in: group), id: \.self) { section in
+                            NavigationLink(value: section) {
+                                Label(section.title, systemImage: section.iconName)
+                            }
+                        }
                     }
                 }
             }
-            .background(c.surface)
-            .border(c.border, lineWidth: bo.thin)
-            .padding(.horizontal, sp.m)
+            #if os(macOS)
+            .listStyle(.inset)
+            #else
+            .listStyle(.insetGrouped)
+            #endif
             .navigationDestination(for: ConfigSection.self) { section in
-                configDetailView(section)
+                configForm(section)
+                    .navigationTitle(section.title)
             }
         }
     }
 
     private var desktopLayout: some View {
-        let c = theme.colors
-        let sp = theme.spacing
-        let bo = theme.borders
-        let ty = theme.typography
-
-        return HStack(alignment: .top, spacing: 0) {
-            VStack(alignment: .leading, spacing: 0) {
-                ForEach(ConfigSection.allCases, id: \.self) { section in
-                    Button(action: { selectedSection = section }) {
-                        configRow(section)
+        NavigationSplitView {
+            List(selection: $selectedSection) {
+                ForEach(ConfigSectionGroup.allCases, id: \.self) { group in
+                    Section(group.title) {
+                        ForEach(sections(in: group), id: \.self) { section in
+                            Label(section.title, systemImage: section.iconName)
+                                .tag(section)
+                        }
                     }
-                    .background(selectedSection == section ? c.surfaceRaised : Color.clear)
                 }
             }
-            .frame(width: 200)
-            .background(c.surface)
-            .border(c.border, lineWidth: bo.thin)
-
-            Color.clear.frame(width: bo.thin).background(c.border)
-
+            .listStyle(.sidebar)
+            .navigationSplitViewColumnWidth(min: 220, ideal: 260, max: 320)
+        } detail: {
             if let section = selectedSection {
-                ScrollView {
-                    configDetailView(section)
-                        .padding(sp.m)
-                }
+                configForm(section)
+                    .navigationTitle(section.title)
             } else {
-                VStack {
-                    Spacer()
-                    Text("SELECT A SECTION")
-                        .font(.system(size: ty.caption))
-                        .foregroundColor(c.textMuted)
-                    Spacer()
-                }
+                ContentUnavailableView(
+                    "Select a Section",
+                    systemImage: "sidebar.left",
+                    description: Text("Choose a configuration category in the sidebar.")
+                )
             }
         }
-        .background(c.surface)
-        .border(c.border, lineWidth: bo.thin)
-        .padding(.horizontal, sp.m)
     }
 
-    private func configRow(_ section: ConfigSection) -> some View {
-        let c = theme.colors
-        let sp = theme.spacing
-        let bo = theme.borders
-        let ty = theme.typography
-
-        return HStack {
-            Text(section.title.uppercased())
-                .font(.system(size: ty.caption))
-                .foregroundColor(selectedSection == section ? c.textPrimary : c.textSecondary)
-            Spacer()
-            Text(">")
-                .font(.system(size: ty.caption))
-                .foregroundColor(c.textMuted)
+    private func configForm(_ section: ConfigSection) -> some View {
+        Form {
+            Section {
+                configDetailView(section)
+            }
         }
-        .padding(.horizontal, sp.m)
-        .padding(.vertical, sp.s)
-        .background(Color.clear)
-        .border(c.border, lineWidth: bo.thin)
+        .formStyle(.grouped)
+        .scrollContentBackground(.hidden)
+        .background(.clear)
+    }
+
+    private func sections(in group: ConfigSectionGroup) -> [ConfigSection] {
+        ConfigSection.allCases.filter { $0.group == group }
     }
 
     @ViewBuilder

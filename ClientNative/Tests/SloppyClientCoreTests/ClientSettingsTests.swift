@@ -51,6 +51,25 @@ struct ClientSettingsTests {
         UserDefaults.standard.removeObject(forKey: "client_project_order_ids")
     }
 
+    @Test("persists the last project mode section per project")
+    func persistsProjectModeSections() {
+        UserDefaults.standard.removeObject(forKey: "client_project_mode_sections")
+
+        let initial = ClientSettings()
+        #expect(initial.projectModeSections.isEmpty)
+
+        initial.projectModeSections = [
+            "project-a": "workspaces",
+            "project-b": "chats",
+        ]
+
+        let restored = ClientSettings()
+        #expect(restored.projectModeSections["project-a"] == "workspaces")
+        #expect(restored.projectModeSections["project-b"] == "chats")
+
+        UserDefaults.standard.removeObject(forKey: "client_project_mode_sections")
+    }
+
     @Test("persists the last active project")
     func persistsLastActiveProject() {
         UserDefaults.standard.removeObject(forKey: "client_last_project_id")

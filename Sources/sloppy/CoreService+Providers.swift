@@ -5,6 +5,31 @@ import Protocols
 // MARK: - Providers, OAuth, GitHub
 
 extension CoreService {
+    public func imageGenerationStatus() -> ImageGenerationStatusResponse {
+        let config = currentConfig.imageGeneration
+        let environmentName = config.provider == .openAI ? "OPENAI_API_KEY" : "FAL_KEY"
+        let hasEnvironmentKey = !(ProcessInfo.processInfo.environment[environmentName] ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .isEmpty
+        let configuredCredential = ImageGenerationCredentialResolver.resolve(
+            provider: config.provider,
+            config: config,
+            models: currentConfig.models,
+            environmentOverrides: [:],
+            processEnvironment: [:]
+        )
+        let hasConfiguredKey = !configuredCredential.apiKey.isEmpty
+        return ImageGenerationStatusResponse(
+            enabled: config.enabled,
+            provider: config.provider.rawValue,
+            model: config.model,
+            hasEnvironmentKey: hasEnvironmentKey,
+            hasConfiguredKey: hasConfiguredKey,
+            hasAnyKey: hasEnvironmentKey || hasConfiguredKey,
+            models: ImageGenerationCatalog.models.map(\.apiOption)
+        )
+    }
+
     public func probeACPTarget(request: ACPTargetProbeRequest) async throws -> ACPTargetProbeResponse {
         try await acpSessionManager.probeTarget(request.target)
     }

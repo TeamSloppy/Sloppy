@@ -10,6 +10,7 @@ private enum CanvasWorkspaceLibraryLayout: String {
 @MainActor
 struct CanvasWorkspaceLibraryView: View {
     let viewModel: CanvasWorkspaceViewModel
+    var allowsProjectSelection = true
 
     @State private var searchText = ""
     @State private var isCreateSheetPresented = false
@@ -71,7 +72,9 @@ struct CanvasWorkspaceLibraryView: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
-                projectPicker
+                if allowsProjectSelection {
+                    projectPicker
+                }
 
                 if viewModel.isResolving, !viewModel.workspaces.isEmpty {
                     ProgressView()

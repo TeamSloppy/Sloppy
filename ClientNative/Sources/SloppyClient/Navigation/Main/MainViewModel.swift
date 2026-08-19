@@ -51,6 +51,7 @@ final class MainViewModel {
     var selectedTabID: WorkspaceTab.ID?
     var desktopSplitState: DesktopTabSplitState?
     var tabStates: [WorkspaceTab.ID: WorkspaceTabState] = [:]
+    var projectModeStates: [String: ProjectKanbanTabState] = [:]
     var terminalSessions: [WorkspaceTab.ID: WorkspaceTerminalSession] = [:]
     var terminalHosts: [WorkspaceTab.ID: WorkspaceTerminalHosting] = [:]
     var chatViewModel: ChatScreenViewModel
@@ -199,16 +200,7 @@ final class MainViewModel {
     }
 
     func selectProject(_ project: APIProjectRecord) {
-        selectAppSection(.projects)
-        updateSelectedSidebarItem(.project(project.id))
-        dismissMobileSidebar()
-        routePrimaryChat(
-            .project(
-                projectId: project.id,
-                projectName: project.name,
-                agentId: project.actors?.first
-            )
-        )
+        openProjectKanbanTab(project: project)
     }
 
     func openProjectKanbanTab(project: APIProjectRecord) {
@@ -217,10 +209,8 @@ final class MainViewModel {
         dismissMobileSidebar()
         let key = WorkspaceTabKey.projectKanban(project.id)
 
-        let kanbanState = makeProjectKanbanTabState()
-        Task { @MainActor in
-            await kanbanState.viewModel.load(projectId: project.id)
-        }
+        let kanbanState = projectModeState(for: project)
+        activateProjectModeSection(kanbanState.selectedSection, project: project, state: kanbanState)
         let tab = WorkspaceTab(
             key: key,
             kind: .projectKanban,
@@ -779,9 +769,66 @@ final class MainViewModel {
         return ChatTabState(viewModel: viewModel)
     }
 
-    func makeProjectKanbanTabState() -> ProjectKanbanTabState {
-        let apiClient = SloppyAPIClient(baseURL: baseURL)
-        return ProjectKanbanTabState(viewModel: ProjectKanbanViewModel(apiClient: apiClient))
+    func selectProjectModeSection(_ section: ProjectModeSection, project: APIProjectRecord) {
+        let state = projectModeState(for: project)
+        guard state.selectedSection != section else { return }
+
+        state.selectedSection = section
+        settings.projectModeSections[project.id] = section.rawValue
+        activateProjectModeSection(section, project: project, state: state)
+    }
+
+    private func projectModeState(for project: APIProjectRecord) -> ProjectKanbanTabState {
+        if let state = projectModeStates[project.id] {
+            return state
+        }
+
+        let chatState = makeChatTabState()
+        chatNavigationSerial += 1
+        applyNavigationRequestOnNextTurn(
+            ChatNavigationRequest(
+                id: chatNavigationSerial,
+                context: .project(
+                    projectId: project.id,
+                    projectName: project.name,
+                    agentId: project.actors?.first
+                )
+            ),
+            to: chatState.viewModel,
+            loadInitialData: true
+        )
+
+        let selectedSection = settings.projectModeSections[project.id]
+            .flatMap(ProjectModeSection.init(rawValue:)) ?? .kanban
+        let state = ProjectKanbanTabState(
+            viewModel: ProjectKanbanViewModel(apiClient: SloppyAPIClient(baseURL: baseURL)),
+            workspaceViewModel: CanvasWorkspaceViewModel(baseURL: baseURL),
+            chatViewModel: chatState.viewModel,
+            selectedSection: selectedSection
+        )
+        projectModeStates[project.id] = state
+        return state
+    }
+
+    private func activateProjectModeSection(
+        _ section: ProjectModeSection,
+        project: APIProjectRecord,
+        state: ProjectKanbanTabState
+    ) {
+        switch section {
+        case .kanban:
+            Task { await state.viewModel.load(projectId: project.id) }
+        case .workspaces:
+            Task {
+                await state.workspaceViewModel.resolve(
+                    workspaceID: nil,
+                    projectID: project.id,
+                    projectName: project.name
+                )
+            }
+        case .chats:
+            break
+        }
     }
 
     func makeWorkspaceFilesTabState() -> WorkspaceFilesTabState {

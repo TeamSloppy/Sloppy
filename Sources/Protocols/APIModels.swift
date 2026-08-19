@@ -196,6 +196,20 @@ public struct ArtifactWidgetMetadata: Codable, Sendable, Equatable {
     }
 }
 
+public struct ArtifactImageMetadata: Codable, Sendable, Equatable {
+    public var width: Int?
+    public var height: Int?
+    public var fileName: String
+    public var contentUrl: String
+
+    public init(width: Int? = nil, height: Int? = nil, fileName: String, contentUrl: String) {
+        self.width = width
+        self.height = height
+        self.fileName = fileName
+        self.contentUrl = contentUrl
+    }
+}
+
 public struct ArtifactRecord: Codable, Sendable, Equatable {
     public var id: String
     public var title: String
@@ -204,6 +218,7 @@ public struct ArtifactRecord: Codable, Sendable, Equatable {
     public var createdAt: Date
     public var previewText: String?
     public var widget: ArtifactWidgetMetadata?
+    public var image: ArtifactImageMetadata?
 
     public init(
         id: String,
@@ -212,7 +227,8 @@ public struct ArtifactRecord: Codable, Sendable, Equatable {
         mediaType: String,
         createdAt: Date,
         previewText: String? = nil,
-        widget: ArtifactWidgetMetadata? = nil
+        widget: ArtifactWidgetMetadata? = nil,
+        image: ArtifactImageMetadata? = nil
     ) {
         self.id = id
         self.title = title
@@ -221,6 +237,7 @@ public struct ArtifactRecord: Codable, Sendable, Equatable {
         self.createdAt = createdAt
         self.previewText = previewText
         self.widget = widget
+        self.image = image
     }
 }
 
@@ -5977,6 +5994,50 @@ public struct SearchToolsStatusResponse: Codable, Sendable {
         self.activeProvider = activeProvider
         self.brave = brave
         self.perplexity = perplexity
+    }
+}
+
+public struct ImageGenerationModelOption: Codable, Sendable, Equatable {
+    public var id: String
+    public var title: String
+    public var provider: String
+    public var supportsEditing: Bool
+    public var maxReferenceImages: Int
+
+    public init(id: String, title: String, provider: String, supportsEditing: Bool, maxReferenceImages: Int) {
+        self.id = id
+        self.title = title
+        self.provider = provider
+        self.supportsEditing = supportsEditing
+        self.maxReferenceImages = maxReferenceImages
+    }
+}
+
+public struct ImageGenerationStatusResponse: Codable, Sendable, Equatable {
+    public var enabled: Bool
+    public var provider: String
+    public var model: String
+    public var hasEnvironmentKey: Bool
+    public var hasConfiguredKey: Bool
+    public var hasAnyKey: Bool
+    public var models: [ImageGenerationModelOption]
+
+    public init(
+        enabled: Bool,
+        provider: String,
+        model: String,
+        hasEnvironmentKey: Bool,
+        hasConfiguredKey: Bool,
+        hasAnyKey: Bool,
+        models: [ImageGenerationModelOption]
+    ) {
+        self.enabled = enabled
+        self.provider = provider
+        self.model = model
+        self.hasEnvironmentKey = hasEnvironmentKey
+        self.hasConfiguredKey = hasConfiguredKey
+        self.hasAnyKey = hasAnyKey
+        self.models = models
     }
 }
 
