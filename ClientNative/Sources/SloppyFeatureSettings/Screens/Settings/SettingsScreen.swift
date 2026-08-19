@@ -327,7 +327,7 @@ public struct SettingsScreen: View {
             MeshSettingsSection(settings: settings)
         case .providers:
             configBackedSection { config in
-                ProvidersSection(config: config, onSave: saveConfig)
+                ProvidersSection(config: config, apiClient: api, onSave: saveConfig)
             }
         case .searchTools:
             configBackedSection { config in

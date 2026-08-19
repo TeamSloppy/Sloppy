@@ -552,6 +552,7 @@
 .auth-user-actions {
   justify-content: flex-end;
   gap: 6px;
+  flex-wrap: wrap;
 }
 
 .auth-text-button {
@@ -701,6 +702,64 @@
   color: var(--muted);
   text-align: center;
   font-size: 0.76rem;
+}
+
+.auth-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  padding: 20px;
+  display: grid;
+  place-items: center;
+  background: rgb(0 0 0 / 72%);
+  backdrop-filter: blur(4px);
+}
+
+.auth-dialog {
+  width: min(100%, 460px);
+  padding: 20px;
+  display: grid;
+  gap: 16px;
+  border: 1px solid color-mix(in srgb, var(--accent) 48%, var(--line));
+  background: var(--surface);
+  box-shadow: 0 24px 80px rgb(0 0 0 / 55%);
+}
+
+.auth-dialog-header,
+.auth-dialog-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.auth-dialog-header {
+  justify-content: space-between;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.auth-dialog-header h4 {
+  margin: 5px 0 0;
+  color: var(--text);
+  font-size: 1rem;
+}
+
+.auth-dialog label {
+  display: grid;
+  gap: 7px;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+}
+
+.auth-dialog-actions {
+  justify-content: flex-end;
+  padding-top: 4px;
+}
+
+.auth-dialog button:disabled {
+  cursor: wait;
+  opacity: 0.6;
 }
 
 @media (max-width: 1100px) {
@@ -1161,6 +1220,93 @@
 
 /* UI / Appearance editor */
 
+.ui-theme-section {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 8px;
+}
+
+.ui-field-label {
+  color: var(--muted);
+  font-size: 0.85rem;
+}
+
+.ui-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.ui-theme-card {
+  min-height: 116px;
+  padding: 10px;
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr) 22px;
+  align-items: center;
+  gap: 12px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+}
+
+.ui-theme-card:hover {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+  background: var(--surface-2);
+}
+
+.ui-theme-card.active {
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent) 8%, var(--surface));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 18%, transparent) inset;
+}
+
+.ui-theme-preview {
+  height: 76px;
+  display: flex;
+  gap: 3px;
+  padding: 6px;
+  overflow: hidden;
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+
+.ui-theme-preview > span {
+  min-width: 0;
+  border-radius: max(2px, calc(var(--radius-sm) - 3px));
+}
+
+.ui-theme-card-copy {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.ui-theme-card-copy strong {
+  color: var(--text);
+  font-size: 0.95rem;
+}
+
+.ui-theme-card-copy > span {
+  color: var(--muted);
+  font-size: 0.78rem;
+  line-height: 1.45;
+}
+
+.ui-theme-check {
+  color: var(--accent);
+  opacity: 0;
+  transform: scale(0.75);
+  transition: opacity 160ms ease, transform 160ms var(--motion-ease-snap);
+}
+
+.ui-theme-card.active .ui-theme-check {
+  opacity: 1;
+  transform: scale(1);
+  font-variation-settings: "FILL" 1, "wght" 400, "GRAD" 0, "opsz" 20;
+}
+
 .ui-accent-row {
   display: flex;
   align-items: center;
@@ -1220,6 +1366,12 @@
 .ui-preset-swatch.active {
   border-color: var(--text);
   box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--text);
+}
+
+@media (max-width: 760px) {
+  .ui-theme-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* Voice Mode editor */

@@ -5833,6 +5833,16 @@ public struct AuthRecoveryCodesResponse: Codable, Sendable, Equatable {
     }
 }
 
+public struct AuthPasswordChangeRequest: Codable, Sendable, Equatable {
+    public var currentPassword: String
+    public var newPassword: String
+
+    public init(currentPassword: String, newPassword: String) {
+        self.currentPassword = currentPassword
+        self.newPassword = newPassword
+    }
+}
+
 public struct AuthPasswordResetRequest: Codable, Sendable, Equatable {
     public var login: String
     public var resetToken: String?

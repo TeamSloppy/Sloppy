@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useState } from "react";
-import { setDashboardAuthToken } from "../../../shared/api/dashboardAuth";
+import { isDashboardAuthTokenPersisted, setDashboardAuthToken } from "../../../shared/api/dashboardAuth";
 import { requestJson } from "../../../shared/api/httpClient";
 
 function AuthIcon({ name }: { name: string }) {
@@ -9,6 +9,7 @@ function AuthIcon({ name }: { name: string }) {
 export function AuthUsersEditor() {
   const [identityAuthChallenge, setIdentityAuthChallenge] = useState<Record<string, any> | null>(null);
   const [identityAuthStatus, setIdentityAuthStatus] = useState("");
+  const [currentIdentityUser, setCurrentIdentityUser] = useState<Record<string, any> | null>(null);
   const [identityUsers, setIdentityUsers] = useState<Record<string, any>[]>([]);
   const [identityUsersStatus, setIdentityUsersStatus] = useState("");
   const [inviteRole, setInviteRole] = useState("user");
@@ -21,6 +22,11 @@ export function AuthUsersEditor() {
   const [recoveryStatus, setRecoveryStatus] = useState("");
   const [passwordResetToken, setPasswordResetToken] = useState("");
   const [passwordResetStatus, setPasswordResetStatus] = useState("");
+  const [passwordChangeUser, setPasswordChangeUser] = useState<{ login: string; name: string } | null>(null);
+  const [currentPassword, setCurrentPassword] = useState("");
+  const [newPassword, setNewPassword] = useState("");
+  const [passwordChangeStatus, setPasswordChangeStatus] = useState("");
+  const [passwordChangeWorking, setPasswordChangeWorking] = useState(false);
   const [applicationTokens, setApplicationTokens] = useState<Record<string, any>[]>([]);
   const [applicationTokenName, setApplicationTokenName] = useState("Sloppy Safari");
   const [createdApplicationToken, setCreatedApplicationToken] = useState("");
@@ -47,6 +53,11 @@ export function AuthUsersEditor() {
     setIdentityUsersStatus("");
   }, []);
 
+  const loadCurrentIdentityUser = useCallback(async () => {
+    const response = await requestJson<Record<string, any>>({ path: "/v1/auth/me" });
+    setCurrentIdentityUser(response.ok && response.data ? response.data : null);
+  }, []);
+
   const loadApplicationTokens = useCallback(async () => {
     const response = await requestJson<Record<string, any>[]>({ path: "/v1/auth/application-tokens" });
     if (!response.ok || !Array.isArray(response.data)) {
@@ -63,6 +74,7 @@ export function AuthUsersEditor() {
     loadAuthChallenge().then((challenge) => {
       if (cancelled) return;
       if (challenge?.mode === "login_password" && !Boolean(challenge?.bootstrapRequired)) {
+        void loadCurrentIdentityUser();
         void loadIdentityUsers();
         void loadApplicationTokens();
       }
@@ -70,7 +82,18 @@ export function AuthUsersEditor() {
     return () => {
       cancelled = true;
     };
-  }, [loadApplicationTokens, loadAuthChallenge, loadIdentityUsers]);
+  }, [loadApplicationTokens, loadAuthChallenge, loadCurrentIdentityUser, loadIdentityUsers]);
+
+  useEffect(() => {
+    if (!passwordChangeUser) return;
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === "Escape" && !passwordChangeWorking) {
+        setPasswordChangeUser(null);
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [passwordChangeUser, passwordChangeWorking]);
 
   const enableLoginPasswordAuth = useCallback(async () => {
     const confirmed = window.confirm(
@@ -183,6 +206,42 @@ export function AuthUsersEditor() {
     setPasswordResetToken(token);
     setPasswordResetStatus(`Password reset token created for @${login}.`);
   }, []);
+
+  const openPasswordChangeDialog = useCallback((login: string, name: string) => {
+    setPasswordChangeUser({ login, name });
+    setCurrentPassword("");
+    setNewPassword("");
+    setPasswordChangeStatus("");
+  }, []);
+
+  const changePassword = useCallback(async () => {
+    if (!passwordChangeUser || !currentPassword || !newPassword) {
+      setPasswordChangeStatus("Enter both your current and new password.");
+      return;
+    }
+    setPasswordChangeWorking(true);
+    setPasswordChangeStatus("Changing password...");
+    const response = await requestJson<Record<string, any>, Record<string, any>>({
+      path: "/v1/auth/password",
+      method: "POST",
+      body: {
+        currentPassword,
+        newPassword
+      }
+    });
+    const accessToken = typeof response.data?.accessToken === "string" ? response.data.accessToken.trim() : "";
+    if (!response.ok || !accessToken) {
+      setPasswordChangeWorking(false);
+      setPasswordChangeStatus("Password change failed. Check your current password and try again.");
+      return;
+    }
+    setDashboardAuthToken(accessToken, { persist: isDashboardAuthTokenPersisted() });
+    setPasswordChangeWorking(false);
+    setPasswordChangeUser(null);
+    setCurrentPassword("");
+    setNewPassword("");
+    setIdentityUsersStatus(`Password changed for @${passwordChangeUser.login}.`);
+  }, [currentPassword, newPassword, passwordChangeUser]);
 
   const createApplicationToken = useCallback(async () => {
     const name = applicationTokenName.trim();
@@ -340,14 +399,16 @@ export function AuthUsersEditor() {
             <div className="auth-user-list">
               {identityUsers.map((user) => {
                 const login = String(user.login || "");
+                const name = String(user.name || login);
                 const role = String(user.role || "user");
                 const status = String(user.status || "active");
+                const isCurrentUser = login === String(currentIdentityUser?.login || "");
                 return (
                   <article key={login} className={`auth-user-row ${status === "active" ? "" : "is-disabled"}`}>
                     <div className="auth-user-identity">
                       <span className="auth-user-avatar"><AuthIcon name="person" /></span>
                       <span>
-                        <strong>{String(user.name || login)}</strong>
+                        <strong>{name}</strong>
                         <span>@{login}</span>
                       </span>
                     </div>
@@ -373,12 +434,21 @@ export function AuthUsersEditor() {
                       </button>
                     </div>
                     <div className="auth-user-actions">
+                      {isCurrentUser ? (
+                        <button
+                          type="button"
+                          className="auth-text-button"
+                          onClick={() => openPasswordChangeDialog(login, name)}
+                        >
+                          <AuthIcon name="password" /> Change password
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         className="auth-text-button"
                         onClick={() => void createPasswordResetToken(login)}
                       >
-                        <AuthIcon name="key" /> Reset password
+                        <AuthIcon name="key" /> Generate reset token
                       </button>
                       <button
                         type="button"
@@ -398,6 +468,85 @@ export function AuthUsersEditor() {
             </div>
             {passwordResetStatus ? <p className="auth-inline-status" role="status">{passwordResetStatus}</p> : null}
           </section>
+
+          {passwordChangeUser ? (
+            <div
+              className="auth-dialog-backdrop"
+              role="presentation"
+              onMouseDown={() => {
+                if (!passwordChangeWorking) setPasswordChangeUser(null);
+              }}
+            >
+              <form
+                className="auth-dialog"
+                role="dialog"
+                aria-modal="true"
+                aria-labelledby="auth-change-password-title"
+                onMouseDown={(event) => event.stopPropagation()}
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void changePassword();
+                }}
+              >
+                <header className="auth-dialog-header">
+                  <span>
+                    <span className="auth-users-eyebrow">@{passwordChangeUser.login}</span>
+                    <h4 id="auth-change-password-title">Change password for {passwordChangeUser.name}</h4>
+                  </span>
+                  <button
+                    type="button"
+                    className="auth-icon-button"
+                    aria-label="Close password dialog"
+                    disabled={passwordChangeWorking}
+                    onClick={() => setPasswordChangeUser(null)}
+                  >
+                    <AuthIcon name="close" />
+                  </button>
+                </header>
+                <label>
+                  Current password
+                  <input
+                    autoFocus
+                    type="password"
+                    autoComplete="current-password"
+                    value={currentPassword}
+                    onChange={(event) => {
+                      setCurrentPassword(event.target.value);
+                      if (passwordChangeStatus) setPasswordChangeStatus("");
+                    }}
+                  />
+                </label>
+                <label>
+                  New password
+                  <input
+                    type="password"
+                    autoComplete="new-password"
+                    value={newPassword}
+                    onChange={(event) => {
+                      setNewPassword(event.target.value);
+                      if (passwordChangeStatus) setPasswordChangeStatus("");
+                    }}
+                  />
+                </label>
+                {passwordChangeStatus ? (
+                  <p className="auth-inline-status" role="status">{passwordChangeStatus}</p>
+                ) : null}
+                <footer className="auth-dialog-actions">
+                  <button
+                    type="button"
+                    className="auth-button"
+                    disabled={passwordChangeWorking}
+                    onClick={() => setPasswordChangeUser(null)}
+                  >
+                    Cancel
+                  </button>
+                  <button type="submit" className="auth-button is-primary" disabled={passwordChangeWorking}>
+                    {passwordChangeWorking ? "Changing..." : "Change password"}
+                  </button>
+                </footer>
+              </form>
+            </div>
+          ) : null}
 
           {passwordResetToken ? (
             <section className="auth-secret-banner" aria-labelledby="auth-reset-token-title">

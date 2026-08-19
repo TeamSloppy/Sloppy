@@ -77,10 +77,21 @@ enum ConfigSectionGroup: String, CaseIterable {
 
 struct ServerConfigListView: View {
     let config: SloppyConfig
+    let apiClient: SloppyAPIClient
     let onSave: (SloppyConfig) -> Void
 
     @State private var selectedSection: ConfigSection? = .providers
     @Environment(\.userInterfaceIdiom) private var idiom
+
+    init(
+        config: SloppyConfig,
+        apiClient: SloppyAPIClient = SloppyAPIClient(),
+        onSave: @escaping (SloppyConfig) -> Void
+    ) {
+        self.config = config
+        self.apiClient = apiClient
+        self.onSave = onSave
+    }
 
     var body: some View {
         Group {
@@ -165,7 +176,7 @@ struct ServerConfigListView: View {
     private func configDetailView(_ section: ConfigSection) -> some View {
         switch section {
         case .providers:
-            ProvidersSection(config: config, onSave: onSave)
+            ProvidersSection(config: config, apiClient: apiClient, onSave: onSave)
         case .searchTools:
             SearchToolsSection(config: config, onSave: onSave)
         case .channels:

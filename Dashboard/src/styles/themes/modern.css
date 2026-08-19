@@ -1,0 +1,187 @@
+/* Modern theme: token overrides plus a deliberately small compatibility layer. */
+:root[data-theme="modern"] {
+  --bg: #0b0d12;
+  --surface: #11141b;
+  --surface-2: #171a22;
+  --surface-3: #1d212b;
+  --line: rgba(226, 232, 255, 0.1);
+  --line-strong: color-mix(in srgb, var(--accent) 56%, white 8%);
+  --text: #f3f5fb;
+  --muted: #9299aa;
+  --accent-color: #8b9dff;
+  --accent-opacity-bg: #8b9dff42;
+  --accent: var(--accent-color);
+  --success: #66d9a6;
+  --warn: #f6c76a;
+  --danger: #ff7f96;
+  --radius: 8px;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --control-radius: 8px;
+  --font-ui: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-mono: "SFMono-Regular", "SF Mono", "Fira Code", monospace;
+  --surface-shadow: 0 14px 42px rgba(0, 0, 0, 0.22), 0 1px 0 rgba(255, 255, 255, 0.025) inset;
+  --surface-shadow-hover: 0 18px 52px rgba(0, 0, 0, 0.3), 0 1px 0 rgba(255, 255, 255, 0.035) inset;
+  --body-noise-opacity: 0.012;
+  --body-grid-opacity: 0;
+  --motion-ease-brutalist: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --motion-ease-snap: cubic-bezier(0.2, 0.8, 0.2, 1);
+  --motion-duration-fast: 160ms;
+  --motion-duration-normal: 240ms;
+  --motion-duration-slow: 420ms;
+  --shadow-brutalist: var(--surface-shadow);
+  --shadow-brutalist-danger: 0 14px 38px color-mix(in srgb, var(--danger) 16%, transparent);
+  --shadow-brutalist-sm: 0 8px 24px rgba(0, 0, 0, 0.2);
+}
+
+:root[data-theme="modern"] body {
+  background:
+    radial-gradient(circle at 82% -10%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 34rem),
+    radial-gradient(circle at 18% 110%, rgba(76, 108, 186, 0.08), transparent 42rem),
+    var(--bg);
+  letter-spacing: -0.008em;
+}
+
+:root[data-theme="modern"] body::before {
+  display: none;
+}
+
+:root[data-theme="modern"] .onboarding-loading-shell {
+  background:
+    radial-gradient(circle at 18% 8%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 34%),
+    radial-gradient(circle at 86% 92%, rgba(76, 108, 186, 0.08), transparent 36%),
+    var(--bg);
+}
+
+:root[data-theme="modern"] .onboarding-loading-card {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: var(--surface-shadow-hover);
+  backdrop-filter: blur(20px) saturate(115%);
+}
+
+:root[data-theme="modern"] .onboarding-loading-label {
+  color: var(--muted);
+}
+
+:root[data-theme="modern"] .onboarding-loading-input {
+  border-color: var(--line);
+  background: var(--surface-2);
+  box-shadow: 0 1px 0 rgba(255, 255, 255, 0.025) inset;
+}
+
+:root[data-theme="modern"] .onboarding-loading-input:focus {
+  border-color: color-mix(in srgb, var(--accent) 70%, white 5%);
+  box-shadow: 0 0 0 3px color-mix(in srgb, var(--accent) 14%, transparent);
+}
+
+:root[data-theme="modern"] .onboarding-loading-hint {
+  color: var(--muted);
+}
+
+:root[data-theme="modern"] :where(code, pre, kbd, samp, .ui-hex-input, .terminal-drawer) {
+  font-family: var(--font-mono);
+}
+
+:root[data-theme="modern"] :where(
+  button,
+  input,
+  textarea,
+  select,
+  .panel,
+  .project-card,
+  .project-listing-item,
+  .task-card,
+  .entry-list-item,
+  .entry-editor-card,
+  .entry-editor-block,
+  .settings-side,
+  .settings-main,
+  .settings-nav-item,
+  .provider-model-option,
+  .agent-content-shell,
+  .agents-index,
+  .log-item,
+  .feed-item
+) {
+  border-radius: var(--radius-md);
+}
+
+:root[data-theme="modern"] :where(
+  .panel,
+  .project-card,
+  .project-listing-item,
+  .task-card,
+  .entry-editor-card,
+  .settings-main,
+  .provider-model-option,
+  .agent-content-shell,
+  .agents-index,
+  .log-item,
+  .feed-item
+) {
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 94%, transparent);
+  box-shadow: var(--surface-shadow);
+}
+
+:root[data-theme="modern"] :where(button, .sidebar-item, .settings-nav-item) {
+  transition:
+    color var(--motion-duration-fast) ease,
+    background var(--motion-duration-fast) ease,
+    border-color var(--motion-duration-fast) ease,
+    box-shadow var(--motion-duration-fast) ease,
+    transform var(--motion-duration-fast) var(--motion-ease-snap);
+}
+
+:root[data-theme="modern"] :where(button:hover, .sidebar-item:hover, .settings-nav-item:hover) {
+  background: color-mix(in srgb, var(--surface-3) 84%, var(--accent) 4%);
+}
+
+:root[data-theme="modern"] .sidebar {
+  margin: 10px 0 10px 10px;
+  height: calc(100vh - 20px);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-lg);
+  background: color-mix(in srgb, var(--surface) 92%, transparent);
+  box-shadow: var(--surface-shadow);
+  backdrop-filter: blur(18px) saturate(120%);
+}
+
+:root[data-theme="modern"] .sidebar-item.active {
+  border-color: color-mix(in srgb, var(--accent) 32%, var(--line));
+  border-left-width: 1px;
+  background: color-mix(in srgb, var(--accent) 11%, var(--surface-2));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent) 5%, transparent) inset;
+}
+
+:root[data-theme="modern"] .settings-side {
+  border: 1px solid var(--line);
+  background: color-mix(in srgb, var(--surface) 80%, transparent);
+}
+
+:root[data-theme="modern"] .settings-nav-item.active {
+  border-color: color-mix(in srgb, var(--accent) 28%, var(--line));
+  background: color-mix(in srgb, var(--accent) 9%, var(--surface-3));
+}
+
+:root[data-theme="modern"] :where(.hover-brutalist, .hover-levitate):hover:not(:disabled) {
+  transform: translateY(-1px) !important;
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--line)) !important;
+  box-shadow: var(--surface-shadow-hover) !important;
+}
+
+:root[data-theme="modern"] .motion-hard-cut {
+  animation-name: motion-slide-up;
+}
+
+@media (max-width: 1000px) {
+  :root[data-theme="modern"] .sidebar {
+    margin: 0;
+    height: 100vh;
+    border-width: 0 1px 0 0;
+    border-radius: 0;
+  }
+}

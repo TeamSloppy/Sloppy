@@ -13,6 +13,8 @@ enum CoreIdentityAuthError: Error, Sendable {
     case bootstrapAlreadyCompleted
     case bootstrapRequired
     case invalidCredentials
+    case invalidCurrentPassword
+    case invalidNewPassword
     case invalidInvite
     case invalidRole
     case inviteExpired
@@ -26,7 +28,7 @@ enum CoreIdentityAuthError: Error, Sendable {
 }
 
 actor CoreIdentityAuthService {
-    static let accessTokenLifetimeSeconds = 900
+    static let accessTokenLifetimeSeconds = 5 * 24 * 60 * 60
     static let refreshTokenLifetimeSeconds = 604_800
     static let applicationTokenLifetimeSeconds = 31_536_000
     static let maximumDevicePairingLifetimeSeconds = 300
@@ -311,6 +313,27 @@ actor CoreIdentityAuthService {
         usersByID[stored.profile.id] = stored
         saveState()
         return AuthRecoveryCodesResponse(codes: codes)
+    }
+
+    func changePassword(_ request: AuthPasswordChangeRequest, actor: AuthenticatedUserContext) throws -> AuthSessionResponse {
+        guard enabled,
+              var stored = usersByID[actor.user.id],
+              stored.profile.status == .active else {
+            throw CoreIdentityAuthError.invalidCredentials
+        }
+        guard !request.newPassword.isEmpty else {
+            throw CoreIdentityAuthError.invalidNewPassword
+        }
+        guard PasswordHash.verify(password: request.currentPassword, hash: stored.passwordHash) else {
+            throw CoreIdentityAuthError.invalidCurrentPassword
+        }
+
+        stored.passwordHash = PasswordHash.make(for: request.newPassword, iterations: passwordHashIterations)
+        usersByID[stored.profile.id] = stored
+        accessTokens = accessTokens.filter { $0.value.userID != stored.profile.id }
+        refreshTokens = refreshTokens.filter { $0.value.userID != stored.profile.id }
+        saveState()
+        return makeSession(for: stored.profile)
     }
 
     func createPasswordResetToken(login: String, actor: AuthenticatedUserContext) throws -> AuthAdminPasswordResetResponse {

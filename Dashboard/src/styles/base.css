@@ -10,7 +10,7 @@ body,
 
 body {
   margin: 0;
-  font-family: "Fira Code", monospace;
+  font-family: var(--font-ui);
   color: var(--text);
   background: var(--bg);
   position: relative;
@@ -23,7 +23,7 @@ body::after {
   pointer-events: none;
   z-index: 9999;
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noiseFilter'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noiseFilter)'/%3E%3C/svg%3E");
-  opacity: 0.05;
+  opacity: var(--body-noise-opacity);
   mix-blend-mode: overlay;
 }
 
@@ -40,7 +40,7 @@ body::before {
     rgba(0, 0, 0, 0.12) 2px,
     rgba(0, 0, 0, 0.12) 4px
   );
-  opacity: 0.35;
+  opacity: var(--body-grid-opacity);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -66,14 +66,14 @@ select {
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--text);
-  border-radius: 0;
+  border-radius: var(--control-radius);
   padding: 10px;
   font: inherit;
 }
 
 button {
   border: 1px solid var(--line);
-  border-radius: 0;
+  border-radius: var(--control-radius);
   padding: 9px 12px;
   background: var(--surface);
   color: var(--text);
@@ -111,7 +111,7 @@ button:active:not(:disabled) {
 .feed-item,
 .task-card {
   border: 1px solid var(--line);
-  border-radius: 0;
+  border-radius: var(--radius-md);
   padding: 8px;
   background: var(--surface-3);
 }
@@ -131,7 +131,7 @@ button:active:not(:disabled) {
 pre {
   margin-top: 8px;
   padding: 10px;
-  border-radius: 0;
+  border-radius: var(--radius-md);
   max-height: 200px;
   overflow: auto;
   white-space: pre-wrap;
@@ -156,4 +156,3 @@ pre {
   border-radius: 0;
   box-shadow: none;
 }
-

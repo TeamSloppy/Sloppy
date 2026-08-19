@@ -807,6 +807,7 @@ private struct ComposerOptionsMenuView: View {
                 )
             }
             .menuStyle(.borderlessButton)
+            .padding(.horizontal, theme.spacing.m)
             .disabled(!supportsReasoningEffort)
 
             if !agents.isEmpty {
@@ -828,6 +829,7 @@ private struct ComposerOptionsMenuView: View {
                     )
                 }
                 .menuStyle(.borderlessButton)
+                .padding(.horizontal, theme.spacing.m)
             }
 
             Button {
@@ -1057,49 +1059,66 @@ struct ChatTextField: View {
         let ty = theme.typography
         let fieldInk = c.textPrimary
 
-        return TextField(
-            "Ask \(agentDisplayName)",
-            text: $draft.text,
-            selection: $draft.selection,
-            axis: .vertical
-        )
-        .lineLimit(1...6)
-        .scrollIndicators(.visible, axes: .vertical)
-        .font(.system(size: ty.body))
-        .foregroundColor(fieldInk)
-        .accentColor(.white)
-        .focused($isTextFieldFocused)
-        .submitLabel(.send)
-        .onKeyPress(.upArrow) {
-            viewModel.moveComposerSuggestionSelection(.previous) ? .handled : .ignored
-        }
-        .onKeyPress(.downArrow) {
-            viewModel.moveComposerSuggestionSelection(.next) ? .handled : .ignored
-        }
-        .onKeyPress(.return, phases: .down) { keyPress in
-            if keyPress.modifiers.contains(.shift) {
-                insertNewlineAtSelection()
-                return .handled
+        return ZStack(alignment: .leading) {
+            if !draft.text.isEmpty {
+                Text(highlightedDraftText(
+                    primaryColor: fieldInk,
+                    commandColor: c.accentCyan,
+                    mentionColor: c.accent,
+                    tagColor: c.accentAcid
+                ))
+                .lineLimit(1...6)
+                .font(.system(size: ty.body))
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
             }
-            return viewModel.applySelectedComposerSuggestion() ? .handled : .ignored
-        }
-        .onSubmit {
-            submit()
-            isTextFieldFocused = false
-        }
-        #if os(macOS)
-        .background {
-            MacAttachmentPasteMonitor(isEnabled: isTextFieldFocused) {
-                pasteAttachmentsFromSystemPasteboard()
+
+            TextField(
+                "",
+                text: $draft.text,
+                selection: $draft.selection,
+                prompt: Text("Ask \(agentDisplayName)").foregroundColor(c.textMuted),
+                axis: .vertical
+            )
+            .lineLimit(1...6)
+            .scrollIndicators(.visible, axes: .vertical)
+            .font(.system(size: ty.body))
+            .foregroundColor(.clear)
+            .accentColor(.white)
+            .focused($isTextFieldFocused)
+            .submitLabel(.send)
+            .onKeyPress(.upArrow) {
+                viewModel.moveComposerSuggestionSelection(.previous) ? .handled : .ignored
             }
-        }
-        #endif
-        .sloppyAttachmentPasteCommand { providers in
-            viewModel.attachItemProviders(providers)
+            .onKeyPress(.downArrow) {
+                viewModel.moveComposerSuggestionSelection(.next) ? .handled : .ignored
+            }
+            .onKeyPress(.return, phases: .down) { keyPress in
+                if keyPress.modifiers.contains(.shift) {
+                    insertNewlineAtSelection()
+                    return .handled
+                }
+                return viewModel.applySelectedComposerSuggestion() ? .handled : .ignored
+            }
+            .onSubmit {
+                submit()
+                isTextFieldFocused = false
+            }
+            #if os(macOS)
+            .background {
+                MacAttachmentPasteMonitor(isEnabled: isTextFieldFocused) {
+                    pasteAttachmentsFromSystemPasteboard()
+                }
+            }
+            #endif
+            .sloppyAttachmentPasteCommand { providers in
+                viewModel.attachItemProviders(providers)
+            }
+            .textFieldStyle(.plain)
         }
         .padding(.horizontal, Constants.fieldHorizontalPadding)
         .padding(.vertical, sp.s)
-        .textFieldStyle(.plain)
         .frame(
             minWidth: 0, maxWidth: .infinity, minHeight: Constants.fieldHeight,
             alignment: .leading
@@ -1126,6 +1145,32 @@ struct ChatTextField: View {
                 cursorOffset: composerCursorOffset
             )
         }
+    }
+
+    private func highlightedDraftText(
+        primaryColor: Color,
+        commandColor: Color,
+        mentionColor: Color,
+        tagColor: Color
+    ) -> AttributedString {
+        var result = AttributedString(draft.text)
+        result.foregroundColor = primaryColor
+
+        for token in ChatComposerToken.parseAll(in: draft.text) {
+            let lowerOffset = draft.text.distance(from: draft.text.startIndex, to: token.range.lowerBound)
+            let upperOffset = draft.text.distance(from: draft.text.startIndex, to: token.range.upperBound)
+            let lowerBound = result.index(result.startIndex, offsetByCharacters: lowerOffset)
+            let upperBound = result.index(result.startIndex, offsetByCharacters: upperOffset)
+            let color: Color = switch token.kind {
+            case .command: commandColor
+            case .mention: mentionColor
+            case .tag: tagColor
+            }
+            result[lowerBound..<upperBound].foregroundColor = color
+            result[lowerBound..<upperBound].font = .system(size: theme.typography.body, weight: .semibold)
+        }
+
+        return result
     }
 
     private func insertNewlineAtSelection() {

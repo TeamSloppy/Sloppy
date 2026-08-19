@@ -391,6 +391,18 @@ public actor SloppyAPIClient {
         try await config.fetchAvailableModels()
     }
 
+    public func fetchProviderModels(
+        providerId: String,
+        apiKey: String? = nil,
+        apiUrl: String? = nil
+    ) async throws -> [ChatModelOption] {
+        try await config.fetchProviderModels(
+            providerId: providerId,
+            apiKey: apiKey,
+            apiUrl: apiUrl
+        )
+    }
+
     public func updateConfig(_ config: SloppyConfig) async throws -> SloppyConfig {
         try await self.config.updateConfig(config)
     }

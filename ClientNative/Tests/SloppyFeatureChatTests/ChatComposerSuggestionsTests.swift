@@ -79,6 +79,24 @@ struct ChatComposerSuggestionsTests {
         ) == 8)
     }
 
+    @Test("finds every supported token for composer highlighting")
+    func findsAllHighlightedTokens() {
+        let text = "Run /review with @game_studio for #ui next"
+        let tokens = ChatComposerToken.parseAll(in: text)
+
+        #expect(tokens.map(\.kind) == [.command, .mention, .tag])
+        #expect(tokens.map { String(text[$0.range]) } == ["/review", "@game_studio", "#ui"])
+    }
+
+    @Test("only highlights triggers at token boundaries")
+    func ignoresEmbeddedTriggers() {
+        let text = "mail@example.com https://example.com plain#tag @"
+        let tokens = ChatComposerToken.parseAll(in: text)
+
+        #expect(tokens.map(\.kind) == [.mention])
+        #expect(tokens.map { String(text[$0.range]) } == ["@"])
+    }
+
     @Test("selection moves with arrow directions and stays within bounds")
     func movesSelection() throws {
         let suggestions = [

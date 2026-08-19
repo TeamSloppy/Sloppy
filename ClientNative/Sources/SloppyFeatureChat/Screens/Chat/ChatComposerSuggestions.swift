@@ -78,7 +78,7 @@ struct ChatComposerQuery: Equatable, Sendable {
             .map { text.index(after: $0) } ?? text.startIndex
         guard tokenStart < cursor else { return nil }
         let trigger = text[tokenStart]
-        guard trigger == "/" || trigger == "@" || trigger == "#" else { return nil }
+        guard ChatComposerTokenKind(rawValue: trigger) != nil else { return nil }
         let termStart = text.index(after: tokenStart)
         let term = String(text[termStart..<cursor])
         guard !term.contains(where: { $0.isWhitespace }) else { return nil }
@@ -94,6 +94,41 @@ struct ChatComposerQuery: Equatable, Sendable {
         var result = text
         result.replaceSubrange(range, with: replacement)
         return (result, prefixCount + replacement.count)
+    }
+}
+
+enum ChatComposerTokenKind: Character, Equatable, Sendable {
+    case command = "/"
+    case mention = "@"
+    case tag = "#"
+}
+
+struct ChatComposerToken: Equatable, Sendable {
+    var kind: ChatComposerTokenKind
+    var range: Range<String.Index>
+
+    static func parseAll(in text: String) -> [ChatComposerToken] {
+        var tokens: [ChatComposerToken] = []
+        var cursor = text.startIndex
+
+        while cursor < text.endIndex {
+            while cursor < text.endIndex, text[cursor].isWhitespace {
+                cursor = text.index(after: cursor)
+            }
+            guard cursor < text.endIndex else { break }
+
+            let tokenStart = cursor
+            while cursor < text.endIndex, !text[cursor].isWhitespace {
+                cursor = text.index(after: cursor)
+            }
+
+            guard let kind = ChatComposerTokenKind(rawValue: text[tokenStart]) else {
+                continue
+            }
+            tokens.append(ChatComposerToken(kind: kind, range: tokenStart..<cursor))
+        }
+
+        return tokens
     }
 }
 

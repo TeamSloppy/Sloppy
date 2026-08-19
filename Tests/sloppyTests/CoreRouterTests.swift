@@ -1661,7 +1661,7 @@ func authChallengeRouteReturnsLoginPasswordMode() async throws {
     #expect(payload.mode == .loginPassword)
     #expect(payload.bootstrapRequired == true)
     #expect(payload.passkeySupported == false)
-    #expect(payload.accessTokenExpiresInSeconds > 0)
+    #expect(payload.accessTokenExpiresInSeconds == 5 * 24 * 60 * 60)
     #expect(payload.refreshTokenExpiresInSeconds > 0)
 }
 
@@ -1886,6 +1886,85 @@ func identityAuthAdminCanListAndUpdateUsers() async throws {
         body: try encoder.encode(AuthLoginRequest(login: "member", password: "member-pass"))
     )
     #expect(disabledLogin.status == 401)
+}
+
+@Test
+func identityAuthUserCanChangeOwnPassword() async throws {
+    let service = CoreService(config: .test, identityPasswordHashIterations: 1)
+    await service.setIdentityAuthEnabled(true)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let bootstrap = await router.handle(
+        method: "POST",
+        path: "/v1/auth/bootstrap",
+        body: try encoder.encode(AuthBootstrapAdminRequest(login: "admin", password: "admin-pass", name: "Admin"))
+    )
+    let originalSession = try decoder.decode(AuthSessionResponse.self, from: bootstrap.body)
+    let authorization = ["Authorization": "Bearer \(originalSession.accessToken)"]
+
+    let rejected = await router.handle(
+        method: "POST",
+        path: "/v1/auth/password",
+        body: try encoder.encode(AuthPasswordChangeRequest(
+            currentPassword: "wrong-password",
+            newPassword: "new-admin-pass"
+        )),
+        headers: authorization
+    )
+    #expect(rejected.status == 400)
+
+    let stillAuthenticated = await router.handle(
+        method: "GET",
+        path: "/v1/auth/me",
+        body: nil,
+        headers: authorization
+    )
+    #expect(stillAuthenticated.status == 200)
+
+    let changed = await router.handle(
+        method: "POST",
+        path: "/v1/auth/password",
+        body: try encoder.encode(AuthPasswordChangeRequest(
+            currentPassword: "admin-pass",
+            newPassword: "new-admin-pass"
+        )),
+        headers: authorization
+    )
+    #expect(changed.status == 200)
+    let replacementSession = try decoder.decode(AuthSessionResponse.self, from: changed.body)
+
+    let revokedSession = await router.handle(
+        method: "GET",
+        path: "/v1/auth/me",
+        body: nil,
+        headers: authorization
+    )
+    #expect(revokedSession.status == 401)
+
+    let oldPasswordLogin = await router.handle(
+        method: "POST",
+        path: "/v1/auth/login",
+        body: try encoder.encode(AuthLoginRequest(login: "admin", password: "admin-pass"))
+    )
+    #expect(oldPasswordLogin.status == 401)
+
+    let newPasswordLogin = await router.handle(
+        method: "POST",
+        path: "/v1/auth/login",
+        body: try encoder.encode(AuthLoginRequest(login: "admin", password: "new-admin-pass"))
+    )
+    #expect(newPasswordLogin.status == 200)
+
+    let replacementSessionRequest = await router.handle(
+        method: "GET",
+        path: "/v1/auth/me",
+        body: nil,
+        headers: ["Authorization": "Bearer \(replacementSession.accessToken)"]
+    )
+    #expect(replacementSessionRequest.status == 200)
 }
 
 @Test

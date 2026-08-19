@@ -39,6 +39,19 @@ struct ChatComposerRenderingTests {
         #expect(!source.contains(".focusable()"))
     }
 
+    @Test("composer visually distinguishes command mention and tag tokens")
+    func composerHighlightsTokens() throws {
+        let source = try chatComposerSource
+
+        #expect(source.contains("ChatComposerToken.parseAll(in: draft.text)"))
+        #expect(source.contains("case .command: commandColor"))
+        #expect(source.contains("case .mention: mentionColor"))
+        #expect(source.contains("case .tag: tagColor"))
+        #expect(source.contains("commandColor: c.accentCyan"))
+        #expect(source.contains("mentionColor: c.accent"))
+        #expect(source.contains("tagColor: c.accentAcid"))
+    }
+
     @Test("mobile composer action buttons are circular")
     func mobileComposerActionButtonsAreCircular() throws {
         let source = try chatComposerSource
@@ -198,7 +211,8 @@ struct ChatComposerRenderingTests {
         #expect(source.contains(".onKeyPress(.return, phases: .down) { keyPress in"))
         #expect(source.contains("keyPress.modifiers.contains(.shift)"))
         #expect(source.contains("selection: $draft.selection"))
-        #expect(source.contains("insertNewlineAtSelection()\n                return .handled"))
+        #expect(source.contains("insertNewlineAtSelection()"))
+        #expect(source.contains("return .handled"))
         #expect(source.contains("draft.text.replaceSubrange(replacementRange, with: \"\\n\")"))
         #expect(source.contains("TextSelection(insertionPoint: insertionPoint)"))
         #expect(source.contains("@State private var composerCursorOffset: Int?"))

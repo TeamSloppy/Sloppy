@@ -1,8 +1,14 @@
 import React, { useCallback, useEffect, useState } from "react";
 import { loadHoverSoundPreference, persistHoverSoundPreference } from "../../../shared/ui/hoverSound";
-
-const ACCENT_STORAGE_KEY = "sloppy_accent_color";
-const DEFAULT_ACCENT = "#ccff00";
+import {
+  applyDashboardAccent,
+  DASHBOARD_ACCENT_STORAGE_KEY,
+  DASHBOARD_THEMES,
+  type DashboardThemeId,
+  loadDashboardTheme,
+  persistDashboardTheme,
+  resolveDashboardAccent
+} from "../../../shared/ui/dashboardTheme";
 
 const PRESET_COLORS = [
   "#ccff00",
@@ -30,31 +36,15 @@ function isValidHex(value: string): boolean {
   return /^#([0-9a-fA-F]{3}){1,2}$/.test(value);
 }
 
-function hexToOpacity(hex: string, alpha: string): string {
-  return hex + alpha;
-}
-
-function applyAccentColor(color: string) {
-  document.documentElement.style.setProperty("--accent-color", color);
-  document.documentElement.style.setProperty("--accent-opacity-bg", hexToOpacity(color, "97"));
-}
-
-function loadStoredAccent(): string {
-  const stored = localStorage.getItem(ACCENT_STORAGE_KEY);
-  if (stored && isValidHex(stored)) {
-    return stored;
-  }
-  return DEFAULT_ACCENT;
-}
-
 interface UIEditorProps {
   draftConfig: Record<string, any>;
   mutateDraft: (mutator: (draft: Record<string, any>) => void) => void;
 }
 
 export function UIEditor({ draftConfig, mutateDraft }: UIEditorProps) {
-  const [accentColor, setAccentColor] = useState(loadStoredAccent);
-  const [hexInput, setHexInput] = useState(loadStoredAccent);
+  const [selectedTheme, setSelectedTheme] = useState<DashboardThemeId>(loadDashboardTheme);
+  const [accentColor, setAccentColor] = useState(() => resolveDashboardAccent(loadDashboardTheme()));
+  const [hexInput, setHexInput] = useState(() => resolveDashboardAccent(loadDashboardTheme()));
   const [hoverSoundsEnabled, setHoverSoundsEnabled] = useState(loadHoverSoundPreference);
   const dashboardAuthEnabled = Boolean(draftConfig?.ui?.dashboardAuth?.enabled);
   const dashboardAuthToken = String(draftConfig?.ui?.dashboardAuth?.token || "");
@@ -80,8 +70,30 @@ export function UIEditor({ draftConfig, mutateDraft }: UIEditorProps) {
     }
     setAccentColor(normalized);
     setHexInput(normalized);
-    localStorage.setItem(ACCENT_STORAGE_KEY, normalized);
-    applyAccentColor(normalized);
+    try {
+      localStorage.setItem(DASHBOARD_ACCENT_STORAGE_KEY, normalized);
+    } catch {
+      // Keep the color active for the current page session.
+    }
+    applyDashboardAccent(normalized);
+  }, []);
+
+  const handleThemeChange = useCallback((themeId: DashboardThemeId) => {
+    setSelectedTheme(themeId);
+    persistDashboardTheme(themeId);
+
+    let hasCustomAccent = false;
+    try {
+      hasCustomAccent = Boolean(localStorage.getItem(DASHBOARD_ACCENT_STORAGE_KEY));
+    } catch {
+      // Storage is optional; use the selected theme's resolved accent.
+    }
+    if (!hasCustomAccent) {
+      const nextAccent = resolveDashboardAccent(themeId);
+      setAccentColor(nextAccent);
+      setHexInput(nextAccent);
+      applyDashboardAccent(nextAccent);
+    }
   }, []);
 
   const handlePickerChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -106,22 +118,59 @@ export function UIEditor({ draftConfig, mutateDraft }: UIEditorProps) {
   }, [hexInput, accentColor]);
 
   const handleReset = useCallback(() => {
-    commitColor(DEFAULT_ACCENT);
-    localStorage.removeItem(ACCENT_STORAGE_KEY);
-  }, [commitColor]);
+    try {
+      localStorage.removeItem(DASHBOARD_ACCENT_STORAGE_KEY);
+    } catch {
+      // Keep the reset value active for the current page session.
+    }
+    const defaultAccent = resolveDashboardAccent(selectedTheme);
+    setAccentColor(defaultAccent);
+    setHexInput(defaultAccent);
+    applyDashboardAccent(defaultAccent);
+  }, [selectedTheme]);
 
   useEffect(() => {
-    applyAccentColor(accentColor);
+    applyDashboardAccent(accentColor);
   }, []);
 
   return (
     <section className="entry-editor-card">
       <h3>Appearance</h3>
       <p className="placeholder-text">
-        Customize the dashboard accent color. This setting is saved locally in your browser.
+        Choose a visual theme and accent color. Appearance settings are saved locally in this browser.
       </p>
 
       <div className="entry-form-grid">
+        <div className="ui-theme-section">
+          <span className="ui-field-label" id="dashboard-theme-label">Theme</span>
+          <div className="ui-theme-grid" role="radiogroup" aria-labelledby="dashboard-theme-label">
+            {DASHBOARD_THEMES.map((theme) => (
+              <button
+                key={theme.id}
+                type="button"
+                role="radio"
+                aria-checked={selectedTheme === theme.id}
+                className={`ui-theme-card${selectedTheme === theme.id ? " active" : ""}`}
+                onClick={() => handleThemeChange(theme.id)}
+              >
+                <span className="ui-theme-preview" aria-hidden="true">
+                  {theme.preview.map((color, index) => (
+                    <span key={color} style={{ backgroundColor: color, flex: index === 0 ? 1.5 : 1 }} />
+                  ))}
+                </span>
+                <span className="ui-theme-card-copy">
+                  <strong>{theme.name}</strong>
+                  <span>{theme.description}</span>
+                </span>
+                <span className="material-symbols-rounded ui-theme-check" aria-hidden="true">check_circle</span>
+              </button>
+            ))}
+          </div>
+          <span className="entry-form-hint">
+            Themes are CSS token layers. Changing a theme applies immediately without reloading.
+          </span>
+        </div>
+
         <label style={{ gridColumn: "1 / -1" }}>
           Accent Color
           <div className="ui-accent-row">
@@ -130,6 +179,7 @@ export function UIEditor({ draftConfig, mutateDraft }: UIEditorProps) {
               className="ui-color-picker"
               value={accentColor}
               onChange={handlePickerChange}
+              aria-label="Choose accent color"
             />
             <input
               type="text"
@@ -160,6 +210,8 @@ export function UIEditor({ draftConfig, mutateDraft }: UIEditorProps) {
                 style={{ backgroundColor: color }}
                 onClick={() => commitColor(color)}
                 title={color}
+                aria-label={`Use ${color} as the accent color`}
+                aria-pressed={accentColor === color}
               />
             ))}
           </div>

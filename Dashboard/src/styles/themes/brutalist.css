@@ -1,0 +1,17 @@
+/*
+ * The original Sloppy theme. Its core values live in root.css as safe fallbacks,
+ * while this selector makes the theme boundary explicit for future variants.
+ */
+:root[data-theme="brutalist"] {
+  --radius: 0px;
+  --radius-sm: 0px;
+  --radius-md: 0px;
+  --radius-lg: 0px;
+  --control-radius: 0px;
+  --font-ui: "Fira Code", monospace;
+  --font-mono: "Fira Code", monospace;
+  --surface-shadow: none;
+  --surface-shadow-hover: none;
+  --body-noise-opacity: 0.05;
+  --body-grid-opacity: 0.35;
+}

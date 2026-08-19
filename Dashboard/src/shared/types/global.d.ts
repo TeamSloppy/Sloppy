@@ -2,6 +2,7 @@ declare global {
   interface SloppyClientConfig {
     apiBase?: string;
     accentColor?: string;
+    theme?: "brutalist" | "modern";
   }
 
   interface Window {

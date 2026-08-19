@@ -1,4 +1,5 @@
 {
   "apiBase": "http://localhost:25101",
-  "accentColor": "#7fff00"
+  "accentColor": "#8b9dff",
+  "theme": "modern"
 }

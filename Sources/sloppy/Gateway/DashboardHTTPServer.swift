@@ -13,6 +13,7 @@ private enum DashboardHTTPStatus {
 struct DashboardClientConfig: Codable, Equatable, Sendable {
     var apiBase: String?
     var accentColor: String?
+    var theme: String?
 }
 
 struct DashboardContentResolver: Sendable {

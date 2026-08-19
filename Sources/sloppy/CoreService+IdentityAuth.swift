@@ -57,6 +57,10 @@ extension CoreService {
         try await identityAuthService.generateRecoveryCodes(actor: actor)
     }
 
+    func changeIdentityPassword(_ request: AuthPasswordChangeRequest, actor: AuthenticatedUserContext) async throws -> AuthSessionResponse {
+        try await identityAuthService.changePassword(request, actor: actor)
+    }
+
     func createIdentityPasswordResetToken(login: String, actor: AuthenticatedUserContext) async throws -> AuthAdminPasswordResetResponse {
         try await identityAuthService.createPasswordResetToken(login: login, actor: actor)
     }

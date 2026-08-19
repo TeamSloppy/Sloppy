@@ -181,6 +181,23 @@ struct AuthAPIRouter: APIRouter {
             }
         }
 
+        router.post("/v1/auth/password", metadata: RouteMetadata(summary: "Change password", description: "Changes the authenticated user's password after verifying the current password", tags: ["Auth"])) { request in
+            guard let actor = await CoreRouter.identityActor(for: request, service: service) else {
+                return CoreRouter.json(status: HTTPStatus.unauthorized, payload: ["error": ErrorCode.unauthorized])
+            }
+            guard let payload = request.decode(AuthPasswordChangeRequest.self) else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            do {
+                return CoreRouter.encodable(
+                    status: HTTPStatus.ok,
+                    payload: try await service.changeIdentityPassword(payload, actor: actor)
+                )
+            } catch {
+                return authErrorResponse(error)
+            }
+        }
+
         router.get("/v1/auth/application-tokens", metadata: RouteMetadata(summary: "List application tokens", description: "Lists long-lived application tokens owned by the authenticated user", tags: ["Auth"])) { request in
             guard let actor = await CoreRouter.identityActor(for: request, service: service) else {
                 return CoreRouter.json(status: HTTPStatus.unauthorized, payload: ["error": ErrorCode.unauthorized])
@@ -276,6 +293,10 @@ private func authErrorResponse(_ error: Error) -> CoreRouterResponse {
         return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "invalid_role"])
     case CoreIdentityAuthError.invalidApplicationTokenName:
         return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "invalid_application_token_name"])
+    case CoreIdentityAuthError.invalidCurrentPassword:
+        return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "invalid_current_password"])
+    case CoreIdentityAuthError.invalidNewPassword:
+        return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "invalid_new_password"])
     case CoreIdentityAuthError.applicationTokenNotFound:
         return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": "application_token_not_found"])
     case CoreIdentityAuthError.invalidCredentials,

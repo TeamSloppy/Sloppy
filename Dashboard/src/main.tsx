@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import { App } from "./App";
 import { markMaterialSymbolsReady } from "./app/iconFont";
 import { ErrorBoundary } from "./components/ErrorBoundary/ErrorBoundary";
+import { initializeDashboardAppearance } from "./shared/ui/dashboardTheme";
 import "./styles/index.css";
 
 const rootElement = document.getElementById("root");
@@ -31,26 +32,9 @@ async function loadClientConfig() {
   };
 }
 
-function applyAccentColor() {
-  const storedAccentColor = localStorage.getItem("sloppy_accent_color");
-  const resolvedAccentColor = storedAccentColor || window.__SLOPPY_CONFIG__?.accentColor;
-  if (
-    typeof resolvedAccentColor !== "string" ||
-    resolvedAccentColor.trim().length === 0 ||
-    typeof window.CSS === "undefined" ||
-    !window.CSS.supports("color", resolvedAccentColor.trim())
-  ) {
-    return;
-  }
-
-  const color = resolvedAccentColor.trim();
-  document.documentElement.style.setProperty("--accent-color", color);
-  document.documentElement.style.setProperty("--accent-opacity-bg", color + "97");
-}
-
 async function bootstrap() {
   await loadClientConfig();
-  applyAccentColor();
+  initializeDashboardAppearance();
   void markMaterialSymbolsReady();
 
   createRoot(rootElement).render(

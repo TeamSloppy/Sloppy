@@ -482,6 +482,35 @@ public actor ConfigService {
         try await http.get("/v1/providers/models")
     }
 
+    public func fetchProviderModels(
+        providerId: String,
+        apiKey: String? = nil,
+        apiUrl: String? = nil
+    ) async throws -> [ChatModelOption] {
+        switch providerId {
+        case "openai-api", "openai-oauth":
+            let response: ProviderModelsResponse = try await http.post(
+                "/v1/providers/openai/models",
+                body: OpenAIProviderModelsPayload(
+                    authMethod: providerId == "openai-oauth" ? "deeplink" : "api_key",
+                    apiKey: apiKey,
+                    apiUrl: apiUrl
+                )
+            )
+            return response.models
+        default:
+            let response: ProviderModelsResponse = try await http.post(
+                "/v1/providers/probe",
+                body: ProviderProbePayload(
+                    providerId: providerId,
+                    apiKey: apiKey,
+                    apiUrl: apiUrl
+                )
+            )
+            return response.models
+        }
+    }
+
     public func updateConfig(_ config: SloppyConfig) async throws -> SloppyConfig {
         try await http.put("/v1/config", body: config)
     }
@@ -495,4 +524,20 @@ public actor ConfigService {
     public func deleteAccessUser(_ userId: String) async throws {
         try await http.delete("/v1/channel-approvals/users/\(BackendHTTPClient.encodePathSegment(userId))")
     }
+}
+
+private struct OpenAIProviderModelsPayload: Encodable {
+    var authMethod: String
+    var apiKey: String?
+    var apiUrl: String?
+}
+
+private struct ProviderProbePayload: Encodable {
+    var providerId: String
+    var apiKey: String?
+    var apiUrl: String?
+}
+
+private struct ProviderModelsResponse: Decodable {
+    var models: [ChatModelOption]
 }
