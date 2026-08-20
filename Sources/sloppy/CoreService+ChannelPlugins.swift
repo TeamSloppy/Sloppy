@@ -166,7 +166,7 @@ extension CoreService {
                 ) else {
                     throw ChannelPluginError.invalidPayload
                 }
-                registerTaskSyncProvider(loaded.provider)
+                registerTaskSyncProvider(loaded.provider, manifest: loaded.manifest)
             }
 
             let now = Date()

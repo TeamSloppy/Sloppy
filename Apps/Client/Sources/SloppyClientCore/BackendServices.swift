@@ -118,6 +118,83 @@ public actor ProjectService {
     }
 }
 
+public actor TaskSyncService {
+    private let http: BackendHTTPClient
+
+    public init(http: BackendHTTPClient) {
+        self.http = http
+    }
+
+    public func providers() async throws -> [APITaskSyncProviderDescriptor] {
+        try await http.get("/v1/task-sync/providers")
+    }
+
+    public func settings(projectId: String) async throws -> APIProjectTaskSyncSettings {
+        try await http.get("/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/task-sync")
+    }
+
+    public func tokenStatus(projectId: String, providerId: String) async throws -> APIProjectTaskSyncTokenStatus {
+        try await http.get(
+            "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/task-sync/token?providerId=\(BackendHTTPClient.encodeQueryValue(providerId))"
+        )
+    }
+
+    public func setToken(projectId: String, providerId: String, token: String) async throws -> APIProjectTaskSyncTokenStatus {
+        struct Payload: Encodable { var token: String }
+        return try await http.post(
+            "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/task-sync/token?providerId=\(BackendHTTPClient.encodeQueryValue(providerId))",
+            body: Payload(token: token)
+        )
+    }
+
+    public func discover(projectId: String, request: APIProjectTaskSyncDiscoverRequest) async throws -> APIProjectTaskSyncDiscoveryResponse {
+        try await http.post(
+            "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/task-sync/discover",
+            body: request
+        )
+    }
+
+    public func link(projectId: String, request: APIProjectTaskSyncLinkRequest) async throws -> APIProjectTaskSyncResponse {
+        try await http.post(
+            "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/task-sync/link",
+            body: request
+        )
+    }
+
+    public func unlink(projectId: String) async throws -> APIProjectTaskSyncResponse {
+        struct Empty: Encodable {}
+        return try await http.post(
+            "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/task-sync/unlink",
+            body: Empty()
+        )
+    }
+
+    public func syncNow(projectId: String) async throws -> APIProjectTaskSyncNowResponse {
+        struct Empty: Encodable {}
+        return try await http.post(
+            "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/task-sync/sync-now",
+            body: Empty()
+        )
+    }
+
+    public func comments(projectId: String, taskId: String) async throws -> [APITaskComment] {
+        try await http.get(
+            "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/tasks/\(BackendHTTPClient.encodePathSegment(taskId))/comments"
+        )
+    }
+
+    public func addComment(projectId: String, taskId: String, content: String) async throws -> APITaskComment {
+        struct Payload: Encodable {
+            var content: String
+            var authorActorId: String = "user"
+        }
+        return try await http.post(
+            "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/tasks/\(BackendHTTPClient.encodePathSegment(taskId))/comments",
+            body: Payload(content: content)
+        )
+    }
+}
+
 public actor AgentService {
     private let http: BackendHTTPClient
 

@@ -94,6 +94,7 @@ export const fetchProjectWorkflowRun = coreApi.fetchProjectWorkflowRun;
 export const fetchProjectWorkflowActions = coreApi.fetchProjectWorkflowActions;
 export const resolveProjectWorkflowAction = coreApi.resolveProjectWorkflowAction;
 export const fetchSourceControlProviders = coreApi.fetchSourceControlProviders;
+export const fetchTaskSyncProviders = coreApi.fetchTaskSyncProviders;
 export const fetchProjectTaskSync = coreApi.fetchProjectTaskSync;
 export const updateProjectTaskSync = coreApi.updateProjectTaskSync;
 export const discoverProjectTaskSync = coreApi.discoverProjectTaskSync;

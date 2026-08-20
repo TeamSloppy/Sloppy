@@ -64,6 +64,7 @@ public struct APIProjectRecord: Codable, Sendable, Identifiable {
     public var tasks: [APIProjectTask]?
     public var actors: [String]?
     public var teams: [String]?
+    public var taskSyncSettings: APIProjectTaskSyncSettings?
 
     public init(
         id: String,
@@ -72,7 +73,8 @@ public struct APIProjectRecord: Codable, Sendable, Identifiable {
         channels: [APIProjectChannel]? = nil,
         tasks: [APIProjectTask]? = nil,
         actors: [String]? = nil,
-        teams: [String]? = nil
+        teams: [String]? = nil,
+        taskSyncSettings: APIProjectTaskSyncSettings? = nil
     ) {
         self.id = id
         self.name = name
@@ -81,6 +83,7 @@ public struct APIProjectRecord: Codable, Sendable, Identifiable {
         self.tasks = tasks
         self.actors = actors
         self.teams = teams
+        self.taskSyncSettings = taskSyncSettings
     }
 }
 
@@ -102,13 +105,28 @@ public struct APIProjectTask: Codable, Sendable, Identifiable {
     public var status: String
     public var priority: String?
     public var actorId: String?
+    public var description: String?
+    public var externalMetadata: APITaskExternalMetadata?
+    public var tags: [String]?
 
-    public init(id: String, title: String, status: String, priority: String? = nil, actorId: String? = nil) {
+    public init(
+        id: String,
+        title: String,
+        status: String,
+        priority: String? = nil,
+        actorId: String? = nil,
+        description: String? = nil,
+        externalMetadata: APITaskExternalMetadata? = nil,
+        tags: [String]? = nil
+    ) {
         self.id = id
         self.title = title
         self.status = status
         self.priority = priority
         self.actorId = actorId
+        self.description = description
+        self.externalMetadata = externalMetadata
+        self.tags = tags
     }
 }
 

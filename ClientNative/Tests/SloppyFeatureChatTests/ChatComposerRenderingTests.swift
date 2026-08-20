@@ -29,11 +29,26 @@ struct ChatComposerRenderingTests {
         }
     }
 
+    private var nativeComposerSource: String {
+        get throws {
+            let packageRoot = URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+            let sourceURL = packageRoot
+                .appendingPathComponent("Sources")
+                .appendingPathComponent("SloppyFeatureChat/Screens/Chat/Views/ChatNativeTextEditor.swift")
+            return try String(contentsOf: sourceURL, encoding: .utf8)
+        }
+    }
+
     @Test("composer text field uses white caret")
     func composerTextFieldUsesWhiteCaret() throws {
         let source = try chatComposerSource
+        let nativeSource = try nativeComposerSource
 
-        #expect(source.contains(".accentColor(.white)"))
+        #expect(nativeSource.contains("textView.tintColor = .white"))
+        #expect(nativeSource.contains("textView.insertionPointColor = .white"))
         #expect(source.contains(".pointerStyle(.horizontalText)"))
         #expect(source.contains(".contentShape(Rectangle())"))
         #expect(!source.contains(".focusable()"))
@@ -42,14 +57,18 @@ struct ChatComposerRenderingTests {
     @Test("composer visually distinguishes command mention and tag tokens")
     func composerHighlightsTokens() throws {
         let source = try chatComposerSource
+        let nativeSource = try nativeComposerSource
 
-        #expect(source.contains("ChatComposerToken.parseAll(in: draft.text)"))
-        #expect(source.contains("case .command: commandColor"))
-        #expect(source.contains("case .mention: mentionColor"))
-        #expect(source.contains("case .tag: tagColor"))
+        #expect(nativeSource.contains("ChatComposerToken.parseAll(in: text)"))
+        #expect(nativeSource.contains("case .command: style.commandColor"))
+        #expect(nativeSource.contains("case .mention: style.mentionColor"))
+        #expect(nativeSource.contains("case .tag: style.tagColor"))
         #expect(source.contains("commandColor: c.accentCyan"))
         #expect(source.contains("mentionColor: c.accent"))
         #expect(source.contains("tagColor: c.accentAcid"))
+        #expect(nativeSource.contains("textStorage.setAttributes("))
+        #expect(!source.contains("text: attributedDraftBinding("))
+        #expect(!source.contains("AttributedTextSelection"))
     }
 
     @Test("mobile composer action buttons are circular")
@@ -139,11 +158,15 @@ struct ChatComposerRenderingTests {
     @Test("composer text fields are focusable and can be blurred externally")
     func composerTextFieldsAreFocusableAndCanBeBlurredExternally() throws {
         let source = try chatComposerSource
+        let nativeSource = try nativeComposerSource
 
-        #expect(source.contains("@FocusState private var isTextFieldFocused: Bool"))
-        #expect(source.contains(".focused($isTextFieldFocused)"))
+        #expect(source.contains("@State private var isTextFieldFocused = false"))
+        #expect(source.contains("isFocused: $isTextFieldFocused"))
         #expect(source.contains(".onChange(of: viewModel.composerFocusResetToken)"))
         #expect(source.contains("isTextFieldFocused = false"))
+        #expect(nativeSource.contains("textViewDidBeginEditing"))
+        #expect(nativeSource.contains("textDidBeginEditing"))
+        #expect(nativeSource.contains("synchronizeFocus"))
     }
 
     @Test("composer submit delegates clearing to the view model send path")
@@ -167,17 +190,16 @@ struct ChatComposerRenderingTests {
     @Test("composer renders removable attachments and accepts clipboard files")
     func composerRendersAttachmentsAndAcceptsPaste() throws {
         let source = try chatComposerSource
+        let nativeSource = try nativeComposerSource
 
         #expect(source.contains("private struct ChatComposerAttachmentStrip"))
         #expect(source.contains("viewModel.composerAttachments"))
         #expect(source.contains("remove: viewModel.removeComposerAttachment"))
-        #expect(source.contains("onPasteCommand(of: [.fileURL, .image]"))
-        #expect(source.contains("viewModel.attachItemProviders(providers)"))
-        #expect(source.contains("MacAttachmentPasteMonitor(isEnabled: isTextFieldFocused)"))
-        #expect(source.contains("NSEvent.addLocalMonitorForEvents(matching: .keyDown)"))
-        #expect(source.contains("Self.isStandardPasteShortcut(event)"))
-        #expect(source.contains("event.keyCode == 9"))
-        #expect(source.contains("NSEvent.removeMonitor(eventMonitor)"))
+        #expect(source.contains("pasteItemProviders: viewModel.attachItemProviders"))
+        #expect(nativeSource.contains("override func paste(_ sender: Any?)"))
+        #expect(nativeSource.contains("UIPasteboard.general.itemProviders"))
+        #expect(nativeSource.contains("onPasteItemProviders?(providers)"))
+        #expect(nativeSource.contains("onPasteAttachment?()"))
         #expect(source.contains("NSPasteboard.general"))
         #expect(source.contains("pasteboard.data(forType: .png)"))
         #expect(source.contains("NSImage(pasteboard: pasteboard)"))
@@ -198,34 +220,42 @@ struct ChatComposerRenderingTests {
 
     @Test("composer text fields submit on enter")
     func composerTextFieldsSubmitOnEnter() throws {
-        let source = try chatComposerSource
+        let nativeSource = try nativeComposerSource
 
-        #expect(source.contains(".submitLabel(.send)"))
-        #expect(source.contains(".onSubmit {"))
+        #expect(nativeSource.contains("textView.returnKeyType = .send"))
+        #expect(nativeSource.contains("shouldChangeTextIn range: NSRange"))
+        #expect(nativeSource.contains("onSubmit?()"))
     }
 
     @Test("shift return inserts a newline without submitting")
     func shiftReturnInsertsNewlineWithoutSubmitting() throws {
-        let source = try chatComposerSource
+        let nativeSource = try nativeComposerSource
 
-        #expect(source.contains(".onKeyPress(.return, phases: .down) { keyPress in"))
-        #expect(source.contains("keyPress.modifiers.contains(.shift)"))
-        #expect(source.contains("selection: $draft.selection"))
-        #expect(source.contains("insertNewlineAtSelection()"))
-        #expect(source.contains("return .handled"))
-        #expect(source.contains("draft.text.replaceSubrange(replacementRange, with: \"\\n\")"))
-        #expect(source.contains("TextSelection(insertionPoint: insertionPoint)"))
-        #expect(source.contains("@State private var composerCursorOffset: Int?"))
-        #expect(source.contains("ChatComposerTextEdit.cursorOffsetAfterEdit("))
-        #expect(!source.contains(".onChange(of: draft.selection)"))
+        #expect(nativeSource.contains("override func pressesBegan"))
+        #expect(nativeSource.contains("key.modifierFlags.contains(.shift)"))
+        #expect(nativeSource.contains("isInsertingModifiedNewline = true"))
+        #expect(nativeSource.contains("override func keyDown(with event: NSEvent)"))
+        #expect(nativeSource.contains("event.modifierFlags.contains(.shift)"))
+        #expect(nativeSource.contains("insertText(\"\\n\""))
+        #expect(nativeSource.contains("ChatComposerNativeSelection.textSelection("))
     }
 
     @Test("composer wraps long text without reserving its maximum height")
     func composerTextFieldWrapsLongTextWithoutInflating() throws {
         let source = try chatComposerSource
+        let nativeSource = try nativeComposerSource
 
-        #expect(source.contains("axis: .vertical"))
-        #expect(source.contains(".lineLimit(1...6)"))
+        #expect(!source.contains("text: attributedDraftBinding("))
+        #expect(source.contains("UIKitChatComposerTextEditor("))
+        #expect(source.contains("AppKitChatComposerTextEditor("))
+        #expect(source.contains("Constants.editorContentHorizontalInset"))
+        #expect(source.contains("static let editorContentHorizontalInset: CGFloat = 8"))
+        #expect(source.contains("static let editorContentVerticalInset: CGFloat = 7"))
+        #expect(source.contains(".frame(height: editorHeight)"))
+        #expect(source.contains("static let maximumVisibleLines = 6"))
+        #expect(nativeSource.contains("sizeThatFits("))
+        #expect(nativeSource.contains("layoutManager.usedRect(for: textContainer)"))
+        #expect(source.contains(".frame(minHeight: currentPanelHeight, alignment: .bottom)"))
         #expect(!source.contains("maximumPanelHeight"))
         #expect(source.contains("private static let panelRadius: CGFloat = panelHeight / 2"))
         #expect(source.contains("static let fieldHorizontalPadding: CGFloat = fieldHeight / 2"))
@@ -237,14 +267,13 @@ struct ChatComposerRenderingTests {
     @Test("long composer text stays bounded and scrolls vertically")
     func longComposerTextStaysBoundedAndScrollable() throws {
         let source = try chatComposerSource
-        let fieldStart = try #require(source.range(of: "struct ChatTextField: View"))
-        let dictationStart = try #require(source.range(of: "private struct DictationComposerBar"))
-        let fieldSource = source[fieldStart.lowerBound..<dictationStart.lowerBound]
+        let nativeSource = try nativeComposerSource
 
-        #expect(!fieldSource.contains(".containerRelativeFrame(.horizontal)"))
-        #expect(fieldSource.contains(".scrollIndicators(.visible, axes: .vertical)"))
-        #expect(fieldSource.contains(".clipped()"))
-        #expect(fieldSource.contains(".layoutPriority(1)"))
+        #expect(source.contains(".clipped()"))
+        #expect(source.contains(".layoutPriority(1)"))
+        #expect(nativeSource.contains("textView.isScrollEnabled = shouldScroll"))
+        #expect(nativeSource.contains("scrollView.hasVerticalScroller = shouldScroll"))
+        #expect(nativeSource.contains("maximumVisibleLines"))
     }
 
     @Test("composer draft is observable so trailing action reacts while typing")
@@ -257,6 +286,7 @@ struct ChatComposerRenderingTests {
         #expect(source.contains("ChatTextField("))
         #expect(source.contains("draft: draft,"))
         #expect(source.contains("text: $draft.text"))
+        #expect(source.contains("selection: $draft.selection"))
     }
 
     @Test("composer command suggestions use a full-size panel")

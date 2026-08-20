@@ -3,6 +3,7 @@ import Foundation
 import FoundationNetworking
 #endif
 import Protocols
+import PluginSDK
 import Logging
 import Testing
 @testable import sloppy
@@ -237,6 +238,98 @@ func taskSyncHMACMatchesKnownVector() {
         secret: "key",
         signatureHeader: "sha256=\(digest)"
     ))
+}
+
+@Test
+func genericTaskSyncImportsExternalMetadataAndComments() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let createdAt = Date(timeIntervalSince1970: 1_700_000_000)
+    let metadata = TaskExternalMetadata(
+        providerId: "startrek",
+        externalIssueId: "42",
+        externalIssueURL: "https://st.yandex-team.ru/TEST-42",
+        externalIssueKey: "TEST-42",
+        externalCommentId: nil,
+        externalStatus: TaskExternalStatus(key: "inProgress", display: "В работе", type: "inProgress"),
+        externalAssignee: "User",
+        externalPriority: "High",
+        externalVersion: 7,
+        externalUpdatedAt: createdAt,
+        origin: "startrek",
+        syncState: "synced",
+        lastSyncedAt: createdAt
+    )
+    let commentMetadata = TaskExternalMetadata(
+        providerId: "startrek",
+        externalIssueId: "42",
+        externalIssueURL: "https://st.yandex-team.ru/TEST-42",
+        externalIssueKey: "TEST-42",
+        externalCommentId: "comment-1",
+        origin: "startrek",
+        syncState: "synced"
+    )
+    let provider = FixedTaskSyncProvider(tasks: [
+        TaskSyncExternalTask(
+            title: "External task",
+            description: "Description",
+            status: "in_progress",
+            metadata: metadata,
+            tags: ["startrek"],
+            priority: "high",
+            comments: [
+                TaskSyncExternalComment(
+                    body: "External comment",
+                    author: "User",
+                    metadata: commentMetadata,
+                    createdAt: createdAt,
+                    version: 1
+                )
+            ]
+        )
+    ])
+    await service.registerTaskSyncProvider(provider)
+    _ = try await service.createProject(ProjectCreateRequest(id: "startrek-sync", name: "StartTrack"))
+    _ = try await service.updateTaskSyncSettings(
+        projectID: "startrek-sync",
+        request: ProjectTaskSyncSettingsUpdateRequest(enabled: true, providerId: "startrek")
+    )
+
+    let result = try await service.syncTaskSyncNow(projectID: "startrek-sync")
+    #expect(result.imported == 1)
+    let project = try await service.getProject(id: "startrek-sync")
+    let task = try #require(project.tasks.first)
+    #expect(task.externalMetadata?.externalIssueKey == "TEST-42")
+    #expect(task.externalMetadata?.externalStatus?.display == "В работе")
+    #expect(task.priority == "high")
+    let comments = await service.listTaskComments(projectID: project.id, taskID: task.id)
+    #expect(comments.count == 1)
+    #expect(comments[0].sourceAuthor == "User")
+    #expect(comments[0].createdAt == createdAt)
+}
+
+private struct FixedTaskSyncProvider: TaskSyncProvider {
+    let id = "startrek"
+    let tasks: [TaskSyncExternalTask]
+
+    func parseProjectURL(_ rawURL: String) throws -> TaskSyncProjectDescriptor {
+        TaskSyncProjectDescriptor(providerId: id, projectURL: rawURL)
+    }
+
+    func resolveProject(url: String, token: String?, defaultRepo: String?) async throws -> TaskSyncProjectDescriptor {
+        TaskSyncProjectDescriptor(providerId: id, projectURL: url, title: "StartTrack")
+    }
+
+    func importTasks(settings: ProjectTaskSyncSettings, token: String?) async throws -> [TaskSyncExternalTask] {
+        tasks
+    }
+
+    func createOrUpdateTask(_ task: ProjectTask, settings: ProjectTaskSyncSettings, token: String?) async throws -> TaskExternalMetadata {
+        task.externalMetadata ?? TaskExternalMetadata(providerId: id)
+    }
+
+    func mirrorComment(_ comment: TaskComment, task: ProjectTask, settings: ProjectTaskSyncSettings, token: String?) async throws -> TaskExternalMetadata {
+        TaskExternalMetadata(providerId: id, externalCommentId: "mirrored", origin: "sloppy")
+    }
 }
 
 @Test

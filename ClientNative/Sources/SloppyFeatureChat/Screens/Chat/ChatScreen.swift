@@ -409,9 +409,11 @@ private struct ChatChrome: View {
     }
 
     private var composerScrollInset: CGFloat {
-        ChatComposerView.panelHeight(for: idiom)
-            + (viewModel.composerAttachments.isEmpty ? 0 : ChatComposerView.attachmentStripHeight + theme.spacing.s)
-            + composerScrollGap
+        let fallbackHeight = ChatComposerView.panelHeight(for: idiom)
+            + (viewModel.composerAttachments.isEmpty
+                ? 0
+                : ChatComposerView.attachmentStripHeight + theme.spacing.s)
+        return (viewModel.composerPanelHeight ?? fallbackHeight) + composerScrollGap
     }
 
     private var composerBottomInset: CGFloat {
@@ -596,6 +598,7 @@ private struct ChatTranscriptRegion: View {
             isRunActive: isRunActive,
             runStatusLabel: runStatusLabel,
             runStatusDetails: runStatusDetails,
+            workingTreeSourceControl: viewModel.workingTreeSourceControl,
             inputRequest: viewModel.activeInputRequest,
             isSubmittingInputResponse: viewModel.isSubmittingInputResponse,
             inputRequestErrorMessage: viewModel.inputRequestErrorMessage,
@@ -733,6 +736,9 @@ public struct ChatComposerOverlay: View {
             viewModel: viewModel,
             tabActions: tabActions
         )
+        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
+            viewModel.updateComposerPanelHeight(height)
+        }
         .overlay {
             if isAttachmentDropTargeted {
                 RoundedRectangle(cornerRadius: 20)
@@ -755,6 +761,7 @@ private struct ChatTranscriptPane: View {
     let isRunActive: Bool
     let runStatusLabel: String
     let runStatusDetails: String?
+    let workingTreeSourceControl: ProjectWorkingTreeSourceControlResponse?
     let inputRequest: ChatPlanInputRequest?
     let isSubmittingInputResponse: Bool
     let inputRequestErrorMessage: String?
@@ -823,6 +830,13 @@ private struct ChatTranscriptPane: View {
                     .frame(width: contentWidth)
                     .padding(.top, transcript.hasEarlierMessages ? 0 : messagesTopInset)
 
+                    if let workingTreeSourceControl {
+                        ChatChangeSummaryView(sourceControl: workingTreeSourceControl)
+                            .frame(width: contentWidth)
+                            .padding(.top, theme.spacing.m)
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                    }
+
                     if showsThinkingIndicator {
                         ChatThinkingIndicator(label: runStatusLabel, details: runStatusDetails)
                             .frame(width: contentWidth)
@@ -890,8 +904,16 @@ private struct ChatTranscriptPane: View {
 
                 scrollToBottom(using: proxy, animated: false)
             }
+            .onChange(of: composerScrollInset) { _, _ in
+                guard !isUserScrolling, isNearBottom else { return }
+                scrollToBottom(using: proxy, animated: false)
+            }
             .onChange(of: showsThinkingIndicator) { _, isVisible in
                 guard isVisible, isNearBottom, !isUserScrolling else { return }
+                scrollToBottom(using: proxy)
+            }
+            .onChange(of: workingTreeSourceControl?.diff) { _, diff in
+                guard diff != nil, isNearBottom, !isUserScrolling else { return }
                 scrollToBottom(using: proxy)
             }
             .onChange(of: inputRequest?.id) { _, requestID in
@@ -911,6 +933,10 @@ private struct ChatTranscriptPane: View {
             .animation(
                 reduceMotion ? nil : .easeOut(duration: 0.18),
                 value: inputRequest?.id
+            )
+            .animation(
+                reduceMotion ? nil : .easeOut(duration: 0.18),
+                value: workingTreeSourceControl?.diff
             )
         }
     }

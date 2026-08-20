@@ -68,7 +68,25 @@ struct NodePluginRuntime: Sendable {
     ) async throws -> T {
         let result = try await callJSON(method, params: params)
         let data = try JSONEncoder().encode(result)
-        return try JSONDecoder().decode(type, from: data)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .custom { decoder in
+            let container = try decoder.singleValueContainer()
+            if let seconds = try? container.decode(Double.self) {
+                return Date(timeIntervalSinceReferenceDate: seconds)
+            }
+            let value = try container.decode(String.self)
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            if let date = formatter.date(from: value) {
+                return date
+            }
+            formatter.formatOptions = [.withInternetDateTime]
+            if let date = formatter.date(from: value) {
+                return date
+            }
+            throw DecodingError.dataCorruptedError(in: container, debugDescription: "Invalid ISO-8601 date: \(value)")
+        }
+        return try decoder.decode(type, from: data)
     }
 
     func callJSON(_ method: String, params: [String: JSONValue] = [:]) async throws -> JSONValue {

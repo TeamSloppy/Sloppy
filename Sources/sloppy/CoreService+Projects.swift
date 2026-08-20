@@ -1223,6 +1223,10 @@ extension CoreService {
                 task.claimedAgentId = nil
             }
         }
+        if task.externalMetadata?.providerId != nil {
+            task.externalMetadata?.origin = "sloppy"
+            task.externalMetadata?.syncState = "pending"
+        }
         let actorChanged = request.actorId != nil && oldTask.actorId != task.actorId
         let teamChanged = request.teamId != nil && oldTask.teamId != task.teamId
         let statusChangedToReady = request.status != nil && task.status == ProjectTaskStatus.ready.rawValue
@@ -1242,9 +1246,7 @@ extension CoreService {
             currentTask: task
         )
         await kanbanEventService.push(KanbanEvent(type: .taskUpdated, projectId: normalizedProject, task: task))
-        if changedBy != "github" {
-            await syncOutboundTaskIfNeeded(projectID: normalizedProject, taskID: task.id)
-        }
+        await syncOutboundTaskIfNeeded(projectID: normalizedProject, taskID: task.id)
 
         await recordTaskFieldChanges(
             projectID: normalizedProject,

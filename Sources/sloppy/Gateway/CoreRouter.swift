@@ -438,12 +438,15 @@ public actor CoreRouter {
                 body: body,
                 remoteAddress: remoteAddress
             )
+            let allowsUnauthenticatedLocalPluginInstall = Self.allowsUnauthenticatedLocalPluginInstall(request)
             if await service.identityAuthEnabled() {
                 let isEnterprisePublicRoute = await service.isEnterprisePublicIdentityRoute(
                     method: request.method.rawValue,
                     path: "/" + request.segments.joined(separator: "/")
                 )
-                if !Self.isPublicIdentityRoute(request) && !isEnterprisePublicRoute {
+                if !Self.isPublicIdentityRoute(request)
+                    && !isEnterprisePublicRoute
+                    && !allowsUnauthenticatedLocalPluginInstall {
                     guard let actor = await Self.identityActor(for: request, service: service) else {
                         return Self.json(status: HTTPStatus.unauthorized, payload: ["error": ErrorCode.unauthorized])
                     }
@@ -485,7 +488,9 @@ public actor CoreRouter {
                 let requiresDashboardAuthorization = await shouldRequireDashboardAuthorization(for: request)
                 let hasValidDashboardAuthorization = await service
                     .validateDashboardAuthorizationHeader(request.header("authorization"))
-                if requiresDashboardAuthorization && !hasValidDashboardAuthorization {
+                if requiresDashboardAuthorization
+                    && !hasValidDashboardAuthorization
+                    && !allowsUnauthenticatedLocalPluginInstall {
                     return Self.json(status: HTTPStatus.unauthorized, payload: ["error": ErrorCode.unauthorized])
                 }
             }
@@ -670,6 +675,22 @@ public actor CoreRouter {
             return request.segments != ["v1", "node", "mesh", "invites", "accept"]
         }
         return false
+    }
+
+    private static func allowsUnauthenticatedLocalPluginInstall(_ request: HTTPRequest) -> Bool {
+        guard request.method == .post,
+              request.segments == ["v1", "plugins", "install"]
+        else {
+            return false
+        }
+
+        let rawAddress = request.remoteAddress?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .lowercased() ?? ""
+        let normalizedAddress = rawAddress
+            .trimmingCharacters(in: CharacterSet(charactersIn: "[]"))
+            .replacingOccurrences(of: "::ffff:", with: "")
+        return normalizedAddress == "127.0.0.1" || normalizedAddress == "::1"
     }
 
     private static func defaultWebSocketRoutes(service: CoreService) -> [WebSocketRouteDefinition] {

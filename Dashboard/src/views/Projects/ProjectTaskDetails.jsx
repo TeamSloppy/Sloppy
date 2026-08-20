@@ -65,7 +65,8 @@ function LinkedMarkdown({ children, project, openTaskDetails }) {
                             </button>
                         );
                     }
-                    return <a href={href} {...props}>{linkChildren}</a>;
+                    const external = /^https?:\/\//i.test(rawHref);
+                    return <a href={href} target={external ? "_blank" : undefined} rel={external ? "noreferrer" : undefined} {...props}>{linkChildren}</a>;
                 }
             }}
         >
@@ -632,8 +633,8 @@ function CommentsTab({ project, task, createModalActors, agentDirectory, openTas
                                 <div className="td-comment-header">
                                     <CommentAvatar comment={comment} author={author} agentDirectory={agentDirectory} />
                                     <span className="td-comment-author">{authorLabel}</span>
-                                    {comment.externalMetadata?.origin === "github" && (
-                                        <span className="td-comment-agent-badge">GitHub{comment.sourceAuthor ? `: ${comment.sourceAuthor}` : ""}</span>
+                                    {comment.externalMetadata?.origin && comment.externalMetadata.origin !== "sloppy" && (
+                                        <span className="td-comment-agent-badge">{comment.externalMetadata.providerId || "External"}{comment.sourceAuthor ? `: ${comment.sourceAuthor}` : ""}</span>
                                     )}
                                     {comment.isAgentReply && (
                                         <span className="td-comment-agent-badge">Agent reply</span>
@@ -651,14 +652,16 @@ function CommentsTab({ project, task, createModalActors, agentDirectory, openTas
                                         <span>{formatRelativeTime(comment.createdAt)}</span>
                                         <span className="td-comment-time-absolute">{formatAbsoluteDateTime(comment.createdAt)}</span>
                                     </time>
-                                    <button
-                                        type="button"
-                                        className="td-comment-delete-btn"
-                                        onClick={() => handleDelete(comment.id)}
-                                        aria-label="Delete comment"
-                                    >
-                                        <span className="material-symbols-rounded">delete</span>
-                                    </button>
+                                    {!comment.externalMetadata?.origin ? (
+                                        <button
+                                            type="button"
+                                            className="td-comment-delete-btn"
+                                            onClick={() => handleDelete(comment.id)}
+                                            aria-label="Delete comment"
+                                        >
+                                            <span className="material-symbols-rounded">delete</span>
+                                        </button>
+                                    ) : null}
                                 </div>
                                 <div className="td-comment-body markdown-body">
                                     <LinkedMarkdown project={project} openTaskDetails={openTaskDetails}>{comment.content}</LinkedMarkdown>
@@ -1378,10 +1381,10 @@ export function TaskDetailView({
         : editDraft.teamId
             ? `team:${editDraft.teamId}`
             : "";
-    const githubIssueURL = task.externalMetadata?.externalIssueURL || "";
-    const githubIssueLabel = task.externalMetadata?.externalIssueNumber
-        ? `GitHub #${task.externalMetadata.externalIssueNumber}`
-        : "Open GitHub Issue";
+    const externalIssueURL = task.externalMetadata?.externalIssueURL || "";
+    const externalProviderLabel = task.externalMetadata?.providerId === "startrek" ? "StartTrack" : "GitHub";
+    const externalIssueLabel = task.externalMetadata?.externalIssueKey
+        || (task.externalMetadata?.externalIssueNumber ? `${externalProviderLabel} #${task.externalMetadata.externalIssueNumber}` : `Open ${externalProviderLabel}`);
     const attachments = Array.isArray(task.attachments) ? task.attachments : [];
     const parentTask = task.parentTaskId
         ? project.tasks.find((candidate) => String(candidate.id || "").trim() === String(task.parentTaskId || "").trim())
@@ -1762,18 +1765,39 @@ export function TaskDetailView({
                         </div>
                     )}
 
-                    {githubIssueURL ? (
+                    {externalIssueURL ? (
                         <div className="td-prop-row">
-                            <span className="td-prop-label">GitHub</span>
+                            <span className="td-prop-label">{externalProviderLabel}</span>
                             <a
                                 className="td-prop-value"
-                                href={githubIssueURL}
+                                href={externalIssueURL}
                                 target="_blank"
                                 rel="noreferrer"
                             >
                                 <span className="material-symbols-rounded td-prop-value-icon">open_in_new</span>
-                                <span>{githubIssueLabel}</span>
+                                <span>{externalIssueLabel}</span>
                             </a>
+                        </div>
+                    ) : null}
+
+                    {task.externalMetadata?.externalStatus?.display ? (
+                        <div className="td-prop-row">
+                            <span className="td-prop-label">External status</span>
+                            <span className="td-prop-value td-prop-value--static">{task.externalMetadata.externalStatus.display}</span>
+                        </div>
+                    ) : null}
+
+                    {task.externalMetadata?.externalAssignee ? (
+                        <div className="td-prop-row">
+                            <span className="td-prop-label">External assignee</span>
+                            <span className="td-prop-value td-prop-value--static">{task.externalMetadata.externalAssignee}</span>
+                        </div>
+                    ) : null}
+
+                    {task.externalMetadata?.externalPriority ? (
+                        <div className="td-prop-row">
+                            <span className="td-prop-label">External priority</span>
+                            <span className="td-prop-value td-prop-value--static">{task.externalMetadata.externalPriority}</span>
                         </div>
                     ) : null}
                 </div>
@@ -1831,14 +1855,14 @@ export function TaskDetailView({
                         >
                             <span className="material-symbols-rounded" aria-hidden="true">content_copy</span>
                         </button>
-                        {githubIssueURL ? (
+                        {externalIssueURL ? (
                             <a
                                 className="td-toolbar-action"
-                                href={githubIssueURL}
+                                href={externalIssueURL}
                                 target="_blank"
                                 rel="noreferrer"
-                                aria-label={githubIssueLabel}
-                                title={githubIssueLabel}
+                                aria-label={externalIssueLabel}
+                                title={externalIssueLabel}
                             >
                                 <span className="material-symbols-rounded" aria-hidden="true">link</span>
                             </a>

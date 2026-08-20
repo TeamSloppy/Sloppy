@@ -1084,7 +1084,7 @@ export function ProjectTasksTab({
                                                             {Array.isArray(task.tags) && task.tags.length > 4 ? (
                                                                 <span className="project-task-tag-badge">+{task.tags.length - 4}</span>
                                                             ) : null}
-                                                            {task.externalMetadata?.providerId === "github" ? (
+                                                            {task.externalMetadata?.providerId ? (
                                                                 task.externalMetadata.externalIssueURL ? (
                                                                     <a
                                                                         className="project-task-assignee-badge"
@@ -1096,16 +1096,23 @@ export function ProjectTasksTab({
                                                                         <span className="material-symbols-rounded" aria-hidden="true">
                                                                             open_in_new
                                                                         </span>
-                                                                        GitHub #{task.externalMetadata.externalIssueNumber || ""}
+                                                                        {task.externalMetadata.externalIssueKey
+                                                                            || (task.externalMetadata.externalIssueNumber ? `#${task.externalMetadata.externalIssueNumber}` : task.externalMetadata.providerId)}
                                                                     </a>
                                                                 ) : (
                                                                     <span className="project-task-assignee-badge">
                                                                         <span className="material-symbols-rounded" aria-hidden="true">
                                                                             sync
                                                                         </span>
-                                                                        GitHub
+                                                                        {task.externalMetadata.providerId}
                                                                     </span>
                                                                 )
+                                                            ) : null}
+                                                            {task.externalMetadata?.externalStatus?.display ? (
+                                                                <span className="project-task-assignee-badge">
+                                                                    <span className="material-symbols-rounded" aria-hidden="true">swap_horiz</span>
+                                                                    {task.externalMetadata.externalStatus.display}
+                                                                </span>
                                                             ) : null}
                                                             {task.externalMetadata?.syncState ? (
                                                                 <span className="project-task-assignee-badge">

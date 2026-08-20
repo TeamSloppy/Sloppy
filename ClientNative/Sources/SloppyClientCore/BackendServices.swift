@@ -249,10 +249,30 @@ public actor ProjectService {
         )
     }
 
+    public func searchProjectFiles(
+        projectId: String,
+        query: String,
+        limit: Int = 50
+    ) async throws -> [ProjectFileSearchEntry] {
+        let resolvedLimit = max(1, min(limit, 100))
+        return try await http.get(
+            "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/files/search"
+                + "?q=\(BackendHTTPClient.encodeQueryValue(query))&limit=\(resolvedLimit)"
+        )
+    }
+
     public func fetchProjectFileContent(projectId: String, path: String) async throws -> ProjectFileContentResponse {
         let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
         return try await http.get(
             "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/files/content?path=\(BackendHTTPClient.encodeQueryValue(trimmedPath))"
+        )
+    }
+
+    public func fetchProjectWorkingTreeSourceControl(
+        projectId: String
+    ) async throws -> ProjectWorkingTreeSourceControlResponse {
+        try await http.get(
+            "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/source-control/working-tree"
         )
     }
 }

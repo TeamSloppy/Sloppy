@@ -9,6 +9,11 @@ struct ProjectsAPIRouter: APIRouter {
     }
 
     func configure(on router: CoreRouterRegistrar) {
+        router.get("/v1/task-sync/providers", metadata: RouteMetadata(summary: "List task sync providers", description: "Returns registered external task providers", tags: ["Projects"])) { _ in
+            let providers = await service.listTaskSyncProviders()
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: providers)
+        }
+
         router.get("/v1/projects", metadata: RouteMetadata(summary: "List projects", description: "Returns a list of all active projects", tags: ["Projects"])) { request in
             if request.queryParam("summary") == "true" {
                 let projects = await service.listProjectSummaries()

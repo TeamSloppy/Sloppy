@@ -38,10 +38,16 @@ extension CoreService {
             _ = try getAgentSession(agentID: agentID, sessionID: existingSessionID)
             sessionID = existingSessionID
         } else {
-            let hostTitle = URL(string: pageURL)?.host ?? "Safari"
+            let source = request.source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+            let isObsidian = source == "obsidian_plugin" || source == "obsidian_chat"
+            let contextTitle = isObsidian
+                ? request.page.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+                : URL(string: pageURL)?.host
+            let titlePrefix = isObsidian ? "Obsidian" : "Safari"
+            let sessionTitle = (contextTitle?.isEmpty == false ? contextTitle : nil) ?? titlePrefix
             let created = try await createAgentSession(
                 agentID: agentID,
-                request: AgentSessionCreateRequest(title: "Safari: \(hostTitle)")
+                request: AgentSessionCreateRequest(title: "\(titlePrefix): \(sessionTitle)")
             )
             sessionID = created.id
         }
@@ -51,6 +57,7 @@ extension CoreService {
         }
 
         let message = Self.browserContextPrompt(
+            source: request.source,
             page: request.page,
             selection: selectionText,
             browser: request.browser,
@@ -92,14 +99,18 @@ extension CoreService {
     }
 
     static func browserContextPrompt(
+        source: String = "safari_extension",
         page: BrowserContextPage,
         selection: String,
         browser: BrowserContextBrowser? = nil,
         context: BrowserContextMessageContext? = nil,
         prompt: String
     ) -> String {
+        let normalizedSource = source.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let isObsidianChat = normalizedSource == "obsidian_chat"
+        let isObsidian = normalizedSource == "obsidian_plugin" || isObsidianChat
         var lines: [String] = [
-            "Source: Safari Extension",
+            isObsidianChat ? "Source: Obsidian Chat" : isObsidian ? "Source: Obsidian Plugin" : "Source: Safari Extension",
             "URL: \(page.url)"
         ]
         if let title = page.title?.trimmingCharacters(in: .whitespacesAndNewlines), !title.isEmpty {
@@ -112,11 +123,20 @@ extension CoreService {
             lines.append("Requested task reference: #\(taskReference)")
         }
         lines.append("")
-        lines.append("Selected text:")
+        lines.append(isObsidianChat ? "Vault search context:" : "Selected text:")
         lines.append(selection)
-        lines.append("")
-        lines.append("Safari tools:")
-        lines.append("Use `safari.dom_snapshot` only when live page details are needed. Use `safari.click`, `safari.type`, and other `safari.*` tools for the user's current Safari tab; do not use `browser.*` for this Safari page.")
+        if !isObsidian {
+            lines.append("")
+            lines.append("Safari tools:")
+            lines.append("Use `safari.dom_snapshot` only when live page details are needed. Use `safari.click`, `safari.type`, and other `safari.*` tools for the user's current Safari tab; do not use `browser.*` for this Safari page.")
+            if let pageSnapshot = browser?.pageSnapshot,
+               let data = try? JSONEncoder().encode(pageSnapshot),
+               let snapshotJSON = String(data: data, encoding: .utf8) {
+                lines.append("")
+                lines.append("Safari page snapshot:")
+                lines.append(snapshotJSON)
+            }
+        }
         if let projectReference = context?.projectReference?.trimmingCharacters(in: .whitespacesAndNewlines), !projectReference.isEmpty {
             lines.append("Use `project.list` to resolve the project named `\(projectReference)` before answering, and use that project context in your work.")
         }

@@ -1,6 +1,9 @@
 import Foundation
 import PluginSDK
 import Protocols
+#if canImport(Security)
+import Security
+#endif
 
 extension CoreService {
     func taskSyncProvider(id requestedId: String?) -> (any TaskSyncProvider)? {
@@ -11,8 +14,21 @@ extension CoreService {
         return taskSyncProviders[providerId]
     }
 
-    func registerTaskSyncProvider(_ provider: any TaskSyncProvider) {
+    func registerTaskSyncProvider(_ provider: any TaskSyncProvider, manifest: PluginManifest? = nil) {
         taskSyncProviders[provider.id] = provider
+        let sourceKinds = manifest?.config["sourceKinds"]?.asArray?
+            .compactMap(\.asString)
+            .compactMap(ProjectTaskSyncSourceKind.init(rawValue:)) ?? []
+        taskSyncProviderDescriptors[provider.id] = TaskSyncProviderDescriptor(
+            id: provider.id,
+            displayName: manifest?.config["displayName"]?.asString ?? provider.id,
+            sourceKinds: sourceKinds,
+            capabilities: manifest?.config["capabilities"]?.asArray?.compactMap(\.asString) ?? []
+        )
+    }
+
+    public func listTaskSyncProviders() -> [TaskSyncProviderDescriptor] {
+        taskSyncProviderDescriptors.values.sorted { $0.displayName < $1.displayName }
     }
 
     public enum TaskSyncError: LocalizedError {
@@ -35,7 +51,7 @@ extension CoreService {
             case .unsupportedProvider:
                 return "Unsupported task sync provider."
             case .tokenMissing:
-                return "GitHub token missing."
+                return "Task sync token missing."
             case .manualRepositoryRequired:
                 return "GitHub repository could not be inferred. Provide a repository URL or owner/repo."
             case .signatureInvalid:
@@ -62,6 +78,7 @@ extension CoreService {
         if request.projectURL != nil { settings.projectURL = trimmedOrNil(request.projectURL) }
         if request.projectNodeId != nil { settings.projectNodeId = trimmedOrNil(request.projectNodeId) }
         if request.defaultRepo != nil { settings.defaultRepo = trimmedOrNil(request.defaultRepo) }
+        if let source = request.source { settings.source = normalizedTaskSyncSource(source) }
         if let tokenMode = request.tokenMode { settings.tokenMode = tokenMode }
         if let mappings = request.statusMappings { settings.statusMappings = normalizedStatusMappings(mappings) }
         if let mappings = request.inboundStatusMappings { settings.inboundStatusMappings = normalizedStatusMappings(mappings) }
@@ -79,11 +96,35 @@ extension CoreService {
         projectID: String,
         request: ProjectTaskSyncDiscoverRequest
     ) async throws -> ProjectTaskSyncDiscoveryResponse {
-        guard request.providerId == "github" else { throw TaskSyncError.unsupportedProvider }
         let project = try await taskSyncProject(projectID)
         let tokenMode = request.tokenMode ?? project.taskSyncSettings.tokenMode
         let token = resolvedTaskSyncToken(projectID: project.id, providerId: request.providerId, tokenMode: tokenMode)
         guard token != nil else { throw TaskSyncError.tokenMissing }
+        if request.providerId != "github" {
+            guard let provider = taskSyncProvider(id: request.providerId),
+                  let source = request.source,
+                  !source.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            else { throw TaskSyncError.invalidPayload }
+            let descriptor = try await provider.resolveProject(
+                url: source.value,
+                token: token,
+                defaultRepo: source.kind.rawValue
+            )
+            let linked = ProjectTaskSyncLinkedProject(
+                title: descriptor.title ?? source.displayName ?? request.providerId,
+                projectURL: descriptor.projectURL,
+                projectNodeId: descriptor.projectNodeId,
+                tag: "\(request.providerId):source",
+                statusOptions: descriptor.statusOptions
+            )
+            return ProjectTaskSyncDiscoveryResponse(
+                providerId: request.providerId,
+                repositoryURL: descriptor.projectURL,
+                repositorySlug: descriptor.projectNodeId,
+                projects: [linked],
+                statusOptions: descriptor.statusOptions
+            )
+        }
         guard let repo = try resolvedGitHubRepository(for: project, manualRepositoryURL: request.repositoryURL) else {
             return ProjectTaskSyncDiscoveryResponse(
                 manualRepositoryRequired: true,
@@ -106,7 +147,9 @@ extension CoreService {
         projectID: String,
         request: ProjectTaskSyncLinkRequest
     ) async throws -> ProjectTaskSyncResponse {
-        guard request.providerId == "github" else { throw TaskSyncError.unsupportedProvider }
+        if request.providerId != "github" {
+            return try await linkGenericTaskSync(projectID: projectID, request: request)
+        }
         var project = try await taskSyncProject(projectID)
         let tokenMode = request.tokenMode ?? .inherit
         let provider = GitHubProjectTaskSyncProvider()
@@ -180,6 +223,57 @@ extension CoreService {
         return ProjectTaskSyncResponse(project: project, settings: project.taskSyncSettings)
     }
 
+    private func linkGenericTaskSync(
+        projectID: String,
+        request: ProjectTaskSyncLinkRequest
+    ) async throws -> ProjectTaskSyncResponse {
+        var project = try await taskSyncProject(projectID)
+        guard let provider = taskSyncProvider(id: request.providerId),
+              let rawSource = request.source,
+              !rawSource.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else { throw TaskSyncError.unsupportedProvider }
+        let tokenMode = request.tokenMode ?? .override
+        let token = resolvedTaskSyncToken(projectID: project.id, providerId: request.providerId, tokenMode: tokenMode)
+        guard token != nil else { throw TaskSyncError.tokenMissing }
+        let descriptor = try await provider.resolveProject(
+            url: rawSource.value,
+            token: token,
+            defaultRepo: rawSource.kind.rawValue
+        )
+        let source = ProjectTaskSyncSource(
+            kind: rawSource.kind,
+            value: rawSource.value.trimmingCharacters(in: .whitespacesAndNewlines),
+            displayName: descriptor.title ?? rawSource.displayName,
+            url: descriptor.projectURL
+        )
+        let linked = ProjectTaskSyncLinkedProject(
+            title: descriptor.title ?? request.providerId,
+            projectURL: descriptor.projectURL,
+            projectNodeId: descriptor.projectNodeId,
+            tag: "\(request.providerId):source",
+            statusOptions: descriptor.statusOptions
+        )
+        var schedule = request.syncSchedule ?? ProjectTaskSyncSchedule(enabled: true, intervalMinutes: 5)
+        schedule.intervalMinutes = max(1, schedule.intervalMinutes)
+        project.taskSyncSettings = ProjectTaskSyncSettings(
+            enabled: true,
+            providerId: request.providerId,
+            projectURL: descriptor.projectURL,
+            projectNodeId: descriptor.projectNodeId,
+            source: source,
+            tokenMode: tokenMode,
+            statusMappings: normalizedStatusMappings(request.statusMappings ?? [:]),
+            inboundStatusMappings: normalizedStatusMappings(request.inboundStatusMappings ?? [:]),
+            linkedProjects: [linked],
+            syncSchedule: schedule,
+            health: ProjectTaskSyncHealth(status: "linked", message: "Linked \(linked.title).", checkedAt: Date())
+        )
+        project.updatedAt = Date()
+        await store.saveProject(project)
+        await kanbanEventService.push(KanbanEvent(type: .projectUpdated, projectId: project.id))
+        return ProjectTaskSyncResponse(project: project, settings: project.taskSyncSettings)
+    }
+
     public func unlinkTaskSync(projectID: String) async throws -> ProjectTaskSyncResponse {
         var project = try await taskSyncProject(projectID)
         let providerId = project.taskSyncSettings.providerId ?? "github"
@@ -192,9 +286,9 @@ extension CoreService {
         return ProjectTaskSyncResponse(project: project, settings: project.taskSyncSettings)
     }
 
-    public func syncTaskSyncNow(projectID: String) async throws -> ProjectTaskSyncNowResponse {
+    public func syncTaskSyncNow(projectID: String, full: Bool = true) async throws -> ProjectTaskSyncNowResponse {
         var project = try await taskSyncProject(projectID)
-        let settings = project.taskSyncSettings
+        var settings = project.taskSyncSettings
         guard settings.enabled,
               let providerId = settings.providerId,
               let provider = taskSyncProvider(id: providerId)
@@ -203,33 +297,58 @@ extension CoreService {
         }
         let token = resolvedTaskSyncToken(projectID: project.id, providerId: providerId, tokenMode: settings.tokenMode)
         do {
+            if full {
+                settings.syncSchedule.lastRunAt = nil
+            }
             let imported = try await provider.importTasks(settings: settings, token: token)
             var importedCount = 0
             var updatedCount = 0
+            var seenExternalKeys = Set<String>()
             for external in imported {
+                if let identity = taskSyncIdentity(external.metadata) {
+                    seenExternalKeys.insert(identity)
+                }
                 if let index = project.tasks.firstIndex(where: { taskSyncTask($0, matches: external.metadata) }) {
                     project.tasks[index].title = external.title
                     project.tasks[index].description = external.description
                     if let status = external.status {
                         project.tasks[index].status = status
                     }
+                    if let priority = external.priority, ["low", "medium", "high"].contains(priority) {
+                        project.tasks[index].priority = priority
+                    }
                     project.tasks[index].externalMetadata = external.metadata
                     project.tasks[index].tags = mergedTaskSyncTags(existing: project.tasks[index].tags, incoming: external.tags)
+                    project.tasks[index].isArchived = false
                     project.tasks[index].updatedAt = Date()
+                    mergeImportedTaskSyncComments(external.comments, projectID: project.id, taskID: project.tasks[index].id)
                     updatedCount += 1
                 } else {
-                    project.tasks.append(ProjectTask(
+                    let task = ProjectTask(
                         id: nextProjectTaskID(for: project),
                         title: external.title,
                         description: external.description,
-                        priority: "medium",
+                        priority: external.priority.flatMap { ["low", "medium", "high"].contains($0) ? $0 : nil } ?? "medium",
                         status: external.status ?? ProjectTaskStatus.backlog.rawValue,
                         externalMetadata: external.metadata,
                         tags: external.tags,
                         createdAt: Date(),
                         updatedAt: Date()
-                    ))
+                    )
+                    project.tasks.append(task)
+                    mergeImportedTaskSyncComments(external.comments, projectID: project.id, taskID: task.id)
                     importedCount += 1
+                }
+            }
+            if providerId == "startrek" {
+                for index in project.tasks.indices {
+                    guard project.tasks[index].externalMetadata?.providerId == providerId,
+                          let identity = taskSyncIdentity(project.tasks[index].externalMetadata),
+                          !seenExternalKeys.contains(identity)
+                    else { continue }
+                    project.tasks[index].isArchived = true
+                    project.tasks[index].externalMetadata?.syncState = "out_of_scope"
+                    project.tasks[index].updatedAt = Date()
                 }
             }
             project.taskSyncSettings.syncSchedule.lastRunAt = Date()
@@ -238,7 +357,11 @@ extension CoreService {
             await store.saveProject(project)
             return ProjectTaskSyncNowResponse(imported: importedCount, updated: updatedCount)
         } catch {
-            project.taskSyncSettings.health = ProjectTaskSyncHealth(status: "error", message: error.localizedDescription, checkedAt: Date())
+            project.taskSyncSettings.health = ProjectTaskSyncHealth(
+                status: isTaskSyncConflict(error) ? "conflict" : "error",
+                message: error.localizedDescription,
+                checkedAt: Date()
+            )
             project.updatedAt = Date()
             await store.saveProject(project)
             return ProjectTaskSyncNowResponse(message: error.localizedDescription)
@@ -263,7 +386,7 @@ extension CoreService {
 
     func runScheduledTaskSync(projectID: String) async {
         do {
-            _ = try await syncTaskSyncNow(projectID: projectID)
+            _ = try await syncTaskSyncNow(projectID: projectID, full: false)
         } catch {
             logger.warning("task_sync.scheduled_failed", metadata: ["project_id": .string(projectID), "error": .string(error.localizedDescription)])
         }
@@ -365,7 +488,11 @@ extension CoreService {
             project.updatedAt = Date()
             await store.saveProject(project)
         } catch {
-            project.taskSyncSettings.health = ProjectTaskSyncHealth(status: "error", message: error.localizedDescription, checkedAt: Date())
+            project.taskSyncSettings.health = ProjectTaskSyncHealth(
+                status: isTaskSyncConflict(error) ? "conflict" : "error",
+                message: error.localizedDescription,
+                checkedAt: Date()
+            )
             project.updatedAt = Date()
             await store.saveProject(project)
         }
@@ -419,12 +546,30 @@ extension CoreService {
     }
 
     private func saveOverrideToken(_ token: String, projectID: String, providerId: String) throws {
+        if providerId == "startrek" {
+            #if canImport(Security)
+            try saveTaskSyncKeychainToken(token, projectID: projectID, providerId: providerId)
+            return
+            #else
+            throw NSError(
+                domain: "Sloppy.TaskSync",
+                code: 1,
+                userInfo: [NSLocalizedDescriptionKey: "Persistent StartTrack OAuth storage is unavailable on this platform. Set STARTREK_TOKEN instead."]
+            )
+            #endif
+        }
         let url = overrideTokenURL(projectID: projectID, providerId: providerId)
         try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
         try Data(token.utf8).write(to: url, options: .atomic)
     }
 
     private func clearOverrideToken(projectID: String, providerId: String) throws {
+        if providerId == "startrek" {
+            #if canImport(Security)
+            try deleteTaskSyncKeychainToken(projectID: projectID, providerId: providerId)
+            #endif
+            return
+        }
         let url = overrideTokenURL(projectID: projectID, providerId: providerId)
         if FileManager.default.fileExists(atPath: url.path) {
             try FileManager.default.removeItem(at: url)
@@ -432,6 +577,13 @@ extension CoreService {
     }
 
     private func overrideToken(projectID: String, providerId: String) -> String? {
+        if providerId == "startrek" {
+            #if canImport(Security)
+            return taskSyncKeychainToken(projectID: projectID, providerId: providerId)
+            #else
+            return nil
+            #endif
+        }
         let url = overrideTokenURL(projectID: projectID, providerId: providerId)
         guard let data = try? Data(contentsOf: url) else { return nil }
         let token = String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
@@ -445,8 +597,59 @@ extension CoreService {
         if providerId == "github" {
             return githubAuthService.currentToken()
         }
+        if providerId == "startrek" {
+            let token = ProcessInfo.processInfo.environment["STARTREK_TOKEN"] ?? ""
+            return token.isEmpty ? nil : token
+        }
         return nil
     }
+
+    private func isTaskSyncConflict(_ error: Error) -> Bool {
+        if case NodePluginRuntimeError.pluginError(let code, _) = error,
+           code == "conflict" {
+            return true
+        }
+        return error.localizedDescription.lowercased().contains("conflict")
+    }
+
+    #if canImport(Security)
+    private func taskSyncKeychainQuery(projectID: String, providerId: String) -> [String: Any] {
+        [
+            kSecClass as String: kSecClassGenericPassword,
+            kSecAttrService as String: "sloppy.task-sync",
+            kSecAttrAccount as String: "\(providerId):\(projectID)",
+        ]
+    }
+
+    private func saveTaskSyncKeychainToken(_ token: String, projectID: String, providerId: String) throws {
+        let query = taskSyncKeychainQuery(projectID: projectID, providerId: providerId)
+        SecItemDelete(query as CFDictionary)
+        var value = query
+        value[kSecValueData as String] = Data(token.utf8)
+        let status = SecItemAdd(value as CFDictionary, nil)
+        guard status == errSecSuccess else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+        }
+    }
+
+    private func taskSyncKeychainToken(projectID: String, providerId: String) -> String? {
+        var query = taskSyncKeychainQuery(projectID: projectID, providerId: providerId)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        var result: CFTypeRef?
+        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
+              let data = result as? Data
+        else { return nil }
+        return String(data: data, encoding: .utf8)
+    }
+
+    private func deleteTaskSyncKeychainToken(projectID: String, providerId: String) throws {
+        let status = SecItemDelete(taskSyncKeychainQuery(projectID: projectID, providerId: providerId) as CFDictionary)
+        guard status == errSecSuccess || status == errSecItemNotFound else {
+            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
+        }
+    }
+    #endif
 
     private func saveWebhookSecret(_ secret: String, projectID: String, providerId: String) throws {
         let url = webhookSecretURL(projectID: projectID, providerId: providerId)
@@ -521,6 +724,15 @@ extension CoreService {
         )
     }
 
+    private func normalizedTaskSyncSource(_ source: ProjectTaskSyncSource) -> ProjectTaskSyncSource {
+        ProjectTaskSyncSource(
+            kind: source.kind,
+            value: source.value.trimmingCharacters(in: .whitespacesAndNewlines),
+            displayName: trimmedOrNil(source.displayName),
+            url: trimmedOrNil(source.url)
+        )
+    }
+
     private func mergedTaskSyncTags(existing: [String], incoming: [String]) -> [String] {
         let preserved = existing.filter { !$0.lowercased().hasPrefix("gh:") && $0 != "github" }
         return Array(Set(preserved + incoming)).sorted()
@@ -553,9 +765,56 @@ extension CoreService {
 
     private func taskSyncTask(_ task: ProjectTask, matches metadata: TaskExternalMetadata) -> Bool {
         guard let existing = task.externalMetadata else { return false }
-        return existing.externalIssueId == metadata.externalIssueId
+        guard existing.providerId == nil || metadata.providerId == nil || existing.providerId == metadata.providerId else {
+            return false
+        }
+        return (existing.externalIssueKey != nil && existing.externalIssueKey == metadata.externalIssueKey)
+            || existing.externalIssueId == metadata.externalIssueId
             || existing.externalIssueURL == metadata.externalIssueURL
             || (existing.externalIssueNumber != nil && existing.externalIssueNumber == metadata.externalIssueNumber)
+    }
+
+    private func taskSyncIdentity(_ metadata: TaskExternalMetadata?) -> String? {
+        guard let metadata else { return nil }
+        return metadata.externalIssueKey ?? metadata.externalIssueId ?? metadata.externalIssueURL
+            ?? metadata.externalIssueNumber.map(String.init)
+    }
+
+    private func mergeImportedTaskSyncComments(
+        _ imported: [TaskSyncExternalComment],
+        projectID: String,
+        taskID: String
+    ) {
+        guard !imported.isEmpty else { return }
+        var comments = (try? JSONDecoder().decode(
+            [TaskComment].self,
+            from: Data(contentsOf: taskCommentsFileURL(projectID: projectID, taskID: taskID))
+        )) ?? []
+        for external in imported {
+            let externalID = external.metadata.externalCommentId
+            if let index = comments.firstIndex(where: {
+                externalID != nil && $0.externalMetadata?.externalCommentId == externalID
+            }) {
+                comments[index].content = external.body
+                comments[index].sourceAuthor = external.author
+                comments[index].externalMetadata = external.metadata
+                if let createdAt = external.createdAt {
+                    comments[index].createdAt = createdAt
+                }
+            } else {
+                comments.append(TaskComment(
+                    id: UUID().uuidString,
+                    taskId: taskID,
+                    content: external.body,
+                    authorActorId: external.metadata.providerId ?? "external",
+                    externalMetadata: external.metadata,
+                    sourceAuthor: external.author,
+                    createdAt: external.createdAt ?? Date()
+                ))
+            }
+        }
+        comments.sort { $0.createdAt < $1.createdAt }
+        saveTaskComments(comments, projectID: projectID, taskID: taskID)
     }
 
     private func applyGitHubWebhook(

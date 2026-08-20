@@ -5,6 +5,7 @@ import {
     deleteMeshSharedProject,
     fetchMeshState,
     fetchSourceControlProviders,
+    fetchTaskSyncProviders,
     fetchProjectTaskSync,
     discoverProjectTaskSync,
     linkProjectTaskSync,
@@ -393,6 +394,7 @@ function cloneTaskSyncDraft(project) {
         projectURL: settings.projectURL || "",
         projectNodeId: settings.projectNodeId || "",
         defaultRepo: settings.defaultRepo || "",
+        source: settings.source || { kind: "query", value: "", displayName: "", url: "" },
         tokenMode: settings.tokenMode || "inherit",
         statusMappings: { ...(settings.statusMappings || {}) },
         inboundStatusMappings: { ...(settings.inboundStatusMappings || settings.statusMappings || {}) },
@@ -439,6 +441,9 @@ export function ProjectSettingsTab({
     const [taskSyncBusy, setTaskSyncBusy] = useState(false);
     const [taskSyncDiscovery, setTaskSyncDiscovery] = useState(null);
     const [sourceControlProviders, setSourceControlProviders] = useState([DEFAULT_SOURCE_CONTROL_PROVIDER]);
+    const [taskSyncProviders, setTaskSyncProviders] = useState([
+        { id: "github", displayName: "GitHub Projects", sourceKinds: [], capabilities: [] }
+    ]);
     const [debugWorktreeOpen, setDebugWorktreeOpen] = useState(false);
     const [debugWorktreeName, setDebugWorktreeName] = useState("");
     const [debugWorktreeStatus, setDebugWorktreeStatus] = useState("");
@@ -489,10 +494,9 @@ export function ProjectSettingsTab({
     useEffect(() => {
         let cancelled = false;
         async function loadTaskSync() {
-            const [settings, tokenStatus] = await Promise.all([
-                fetchProjectTaskSync(project.id),
-                fetchProjectTaskSyncToken(project.id, "github")
-            ]);
+            const settings = await fetchProjectTaskSync(project.id);
+            const providerId = settings?.providerId || "github";
+            const tokenStatus = await fetchProjectTaskSyncToken(project.id, providerId);
             if (cancelled) return;
             if (settings) setTaskSyncDraft((prev) => ({ ...prev, ...cloneTaskSyncDraft({ taskSyncSettings: settings }) }));
             if (tokenStatus) setTaskSyncTokenStatus(tokenStatus);
@@ -500,6 +504,15 @@ export function ProjectSettingsTab({
         loadTaskSync();
         return () => { cancelled = true; };
     }, [project.id, project.updatedAt]);
+
+    useEffect(() => {
+        let cancelled = false;
+        fetchTaskSyncProviders().then((providers) => {
+            if (cancelled || !Array.isArray(providers) || providers.length === 0) return;
+            setTaskSyncProviders(providers);
+        });
+        return () => { cancelled = true; };
+    }, []);
 
     useEffect(() => {
         let cancelled = false;
@@ -1973,14 +1986,25 @@ export function ProjectSettingsTab({
         Object.keys(taskSyncDraft.inboundStatusMappings || {}).forEach((option) => {
             if (option) options.add(option);
         });
+        (project?.tasks || []).forEach((task) => {
+            const status = task?.externalMetadata?.externalStatus;
+            if (status?.display) options.add(String(status.display));
+            else if (status?.key) options.add(String(status.key));
+        });
         return Array.from(options).sort((a, b) => a.localeCompare(b));
-    }, [taskSyncDiscovery, taskSyncDraft.linkedProjects, taskSyncDraft.inboundStatusMappings]);
+    }, [taskSyncDiscovery, taskSyncDraft.linkedProjects, taskSyncDraft.inboundStatusMappings, project?.tasks]);
 
     async function discoverTaskSyncProjects() {
+        const providerId = taskSyncDraft.providerId || "github";
+        const isStartrek = providerId === "startrek";
         const result = await runTaskSyncAction(() => discoverProjectTaskSync(project.id, {
-            providerId: "github",
-            repositoryURL: taskSyncDraft.repositoryURL.trim() || null,
-            tokenMode: taskSyncDraft.tokenMode
+            providerId,
+            repositoryURL: isStartrek ? null : taskSyncDraft.repositoryURL.trim() || null,
+            tokenMode: taskSyncDraft.tokenMode,
+            source: isStartrek ? {
+                kind: taskSyncDraft.source?.kind || "query",
+                value: String(taskSyncDraft.source?.value || "").trim()
+            } : null
         }));
         setTaskSyncDiscovery(result || null);
         if (result) {
@@ -1998,9 +2022,9 @@ export function ProjectSettingsTab({
                     }
                 }
             });
-            setStatusText(result.manualRepositoryRequired ? "Repository URL required" : "GitHub Projects discovered");
+            setStatusText(result.manualRepositoryRequired ? "Repository URL required" : `${isStartrek ? "StartTrack source" : "GitHub Projects"} discovered`);
         } else {
-            setStatusText("GitHub Projects discovery failed");
+            setStatusText(`${isStartrek ? "StartTrack" : "GitHub Projects"} discovery failed`);
         }
     }
 
@@ -2009,16 +2033,35 @@ export function ProjectSettingsTab({
         const webhook = taskSyncDraft.webhook || {};
         const linkedProjects = Array.isArray(taskSyncDraft.linkedProjects) ? taskSyncDraft.linkedProjects : [];
         const manualRepositoryRequired = Boolean(taskSyncDiscovery?.manualRepositoryRequired);
+        const providerId = taskSyncDraft.providerId || "github";
+        const isStartrek = providerId === "startrek";
+        const providerName = taskSyncProviders.find((provider) => provider.id === providerId)?.displayName || providerId;
         return (
             <section className="entry-editor-card">
-                <h3>GitHub Projects</h3>
+                <h3>{providerName}</h3>
+                <div className="task-sync-token-options" style={{ marginBottom: 16 }}>
+                    {taskSyncProviders.map((provider) => (
+                        <button
+                            key={provider.id}
+                            type="button"
+                            className={`task-sync-token-option ${provider.id === providerId ? "active" : ""}`}
+                            onClick={async () => {
+                                mutateTaskSync((draft) => { draft.providerId = provider.id; });
+                                setTaskSyncDiscovery(null);
+                                setTaskSyncTokenStatus(await fetchProjectTaskSyncToken(project.id, provider.id));
+                            }}
+                        >
+                            <strong>{provider.displayName || provider.id}</strong>
+                        </button>
+                    ))}
+                </div>
                 <div className="review-toggle-row">
                     <div className="review-toggle-label">
                         <span className="material-symbols-rounded review-toggle-icon">sync_alt</span>
                         <div>
                             <strong>Issue-backed task sync</strong>
                             <p className="review-toggle-desc">
-                                Sloppy tasks link to GitHub issues and Project items. GitHub-origin comments stay read-only for agents.
+                                Sloppy tasks link to external issues. Imported comments stay read-only; human comments can mirror back.
                             </p>
                         </div>
                     </div>
@@ -2033,15 +2076,41 @@ export function ProjectSettingsTab({
                 </div>
 
                 <div className="entry-form-grid task-sync-form-grid" style={{ marginTop: 16 }}>
-                    <label style={{ gridColumn: "1 / -1" }}>
-                        Repository
-                        <input
-                            type="text"
-                            placeholder={manualRepositoryRequired ? "https://github.com/org/repo" : "Auto-detected from project git remote"}
-                            value={taskSyncDraft.repositoryURL || taskSyncDraft.repositorySlug}
-                            onChange={(e) => mutateTaskSync((d) => { d.repositoryURL = e.target.value; })}
-                        />
-                    </label>
+                    {isStartrek ? (
+                        <>
+                            <div className="task-sync-token-options" style={{ gridColumn: "1 / -1" }}>
+                                {["queue", "query", "saved_filter"].map((kind) => (
+                                    <button
+                                        key={kind}
+                                        type="button"
+                                        className={`task-sync-token-option ${taskSyncDraft.source?.kind === kind ? "active" : ""}`}
+                                        onClick={() => mutateTaskSync((d) => { d.source = { ...(d.source || {}), kind }; })}
+                                    >
+                                        <strong>{kind.replace("_", " ")}</strong>
+                                    </button>
+                                ))}
+                            </div>
+                            <label style={{ gridColumn: "1 / -1" }}>
+                                Queue, Tracker query, or saved filter
+                                <input
+                                    type="text"
+                                    placeholder={'Assignee: me() Resolution: empty() "Sort by": Updated DESC'}
+                                    value={taskSyncDraft.source?.value || ""}
+                                    onChange={(e) => mutateTaskSync((d) => { d.source = { ...(d.source || {}), value: e.target.value }; })}
+                                />
+                            </label>
+                        </>
+                    ) : (
+                        <label style={{ gridColumn: "1 / -1" }}>
+                            Repository
+                            <input
+                                type="text"
+                                placeholder={manualRepositoryRequired ? "https://github.com/org/repo" : "Auto-detected from project git remote"}
+                                value={taskSyncDraft.repositoryURL || taskSyncDraft.repositorySlug}
+                                onChange={(e) => mutateTaskSync((d) => { d.repositoryURL = e.target.value; })}
+                            />
+                        </label>
+                    )}
                     <label className="task-sync-default-repo-field">
                         Sync interval
                         <input
@@ -2085,9 +2154,9 @@ export function ProjectSettingsTab({
                         </div>
                     </div>
                     <div className="task-sync-linked-projects">
-                        <span className="task-sync-field-label">Detected GitHub Projects</span>
+                        <span className="task-sync-field-label">Detected source</span>
                         {linkedProjects.length === 0 ? (
-                            <p className="placeholder-text">No GitHub Projects detected yet.</p>
+                                <p className="placeholder-text">No external source detected yet.</p>
                         ) : (
                             <div className="task-sync-project-list">
                                 {linkedProjects.map((p) => (
@@ -2110,20 +2179,22 @@ export function ProjectSettingsTab({
                         <span className="task-sync-field-label">Status mappings</span>
                         <div className="task-sync-status-list">
                             {taskSyncStatusOptions.length === 0 ? (
-                                <p className="placeholder-text">Discover projects to load GitHub Status columns.</p>
+                                <p className="placeholder-text">Discover the source to load external statuses.</p>
                             ) : taskSyncStatusOptions.map((option) => {
                                 const key = String(option || "").trim().toLowerCase();
                                 return (
                                 <label key={key} className="task-sync-status-row">
                                     <span className="task-sync-status-name">
                                         <strong>{option}</strong>
-                                        <code>GitHub Status</code>
+                                        <code>{isStartrek ? "StartTrack status" : "GitHub Status"}</code>
                                     </span>
                                     <SloppyStatusDropdown
                                         value={taskSyncDraft.inboundStatusMappings?.[key] || ""}
                                         onChange={(status) => mutateTaskSync((d) => {
                                             d.inboundStatusMappings = d.inboundStatusMappings || {};
+                                            d.statusMappings = d.statusMappings || {};
                                             d.inboundStatusMappings[key] = status;
+                                            d.statusMappings[status] = key;
                                         })}
                                     />
                                 </label>
@@ -2148,9 +2219,13 @@ export function ProjectSettingsTab({
                         disabled={taskSyncBusy}
                         onClick={async () => {
                             const result = await runTaskSyncAction(() => linkProjectTaskSync(project.id, {
-                                providerId: "github",
-                                repositoryURL: taskSyncDraft.repositoryURL.trim() || taskSyncDraft.repositorySlug.trim() || null,
-                                defaultRepo: taskSyncDraft.defaultRepo.trim() || taskSyncDraft.repositorySlug.trim() || null,
+                                providerId,
+                                repositoryURL: isStartrek ? null : taskSyncDraft.repositoryURL.trim() || taskSyncDraft.repositorySlug.trim() || null,
+                                defaultRepo: isStartrek ? null : taskSyncDraft.defaultRepo.trim() || taskSyncDraft.repositorySlug.trim() || null,
+                                source: isStartrek ? {
+                                    kind: taskSyncDraft.source?.kind || "query",
+                                    value: String(taskSyncDraft.source?.value || "").trim()
+                                } : null,
                                 tokenMode: taskSyncDraft.tokenMode,
                                 inboundStatusMappings: sanitizedStatusMappings(taskSyncDraft.inboundStatusMappings),
                                 statusMappings: sanitizedStatusMappings(taskSyncDraft.statusMappings),
@@ -2194,7 +2269,7 @@ export function ProjectSettingsTab({
                         Override token
                         <input
                             type="password"
-                            placeholder={taskSyncTokenStatus?.maskedToken || "GitHub token"}
+                            placeholder={taskSyncTokenStatus?.maskedToken || `${providerName} token`}
                             value={taskSyncToken}
                             onChange={(e) => setTaskSyncToken(e.target.value)}
                         />
@@ -2206,9 +2281,10 @@ export function ProjectSettingsTab({
                         className="hover-levitate"
                         disabled={taskSyncBusy || !taskSyncToken.trim()}
                         onClick={async () => {
-                            const result = await setProjectTaskSyncToken(project.id, { token: taskSyncToken.trim() }, "github");
+                            const result = await setProjectTaskSyncToken(project.id, { token: taskSyncToken.trim() }, providerId);
                             setTaskSyncToken("");
                             setTaskSyncTokenStatus(result || null);
+                            if (result) mutateTaskSync((draft) => { draft.tokenMode = "override"; });
                             setStatusText(result ? "Override token saved" : "Token save failed");
                         }}
                     >
@@ -2219,7 +2295,7 @@ export function ProjectSettingsTab({
                         className="danger hover-levitate"
                         disabled={taskSyncBusy || !taskSyncTokenStatus?.hasOverrideToken}
                         onClick={async () => {
-                            const result = await clearProjectTaskSyncToken(project.id, "github");
+                            const result = await clearProjectTaskSyncToken(project.id, providerId);
                             setTaskSyncTokenStatus(result || null);
                             setStatusText(result ? "Override token cleared" : "Token clear failed");
                         }}

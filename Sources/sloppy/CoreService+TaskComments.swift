@@ -145,6 +145,9 @@ extension CoreService {
 
     public func deleteTaskComment(projectID: String, taskID: String, commentID: String) async -> Bool {
         var comments = await listTaskComments(projectID: projectID, taskID: taskID)
+        if comments.first(where: { $0.id == commentID })?.externalMetadata?.origin != nil {
+            return false
+        }
         let before = comments.count
         comments.removeAll { $0.id == commentID }
         if comments.count == before { return false }

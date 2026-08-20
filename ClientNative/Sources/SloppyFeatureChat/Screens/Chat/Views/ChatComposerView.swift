@@ -13,7 +13,13 @@ import UIKit
 @Observable
 @MainActor
 public final class ChatComposerDraft {
-    public var text: String
+    public var text: String {
+        didSet {
+            if text != oldValue {
+                selection = nil
+            }
+        }
+    }
     public var selection: TextSelection?
     
     public init(text: String = "", selection: TextSelection? = nil) {
@@ -116,7 +122,11 @@ public struct ChatComposerView: View {
                     #endif
                 }
             }
+            #if os(macOS)
+            .frame(minHeight: currentPanelHeight, alignment: .bottom)
+            #else
             .frame(height: currentPanelHeight, alignment: .bottom)
+            #endif
         }
         .environment(viewModel)
         .padding(.horizontal, sp.s)
@@ -1044,8 +1054,9 @@ struct ChatTextField: View {
     let submit: @MainActor () -> Void
     var onFocusChanged: @MainActor (Bool) -> Void = { _ in }
 
-    @FocusState private var isTextFieldFocused: Bool
+    @State private var isTextFieldFocused = false
     @State private var composerCursorOffset: Int?
+    @State private var editorHeight = Constants.editorMinimumHeight
     @Environment(\.theme) private var theme
     @Environment(ChatScreenViewModel.self) private var viewModel
 
@@ -1059,138 +1070,114 @@ struct ChatTextField: View {
         let ty = theme.typography
         let fieldInk = c.textPrimary
 
-        return ZStack(alignment: .leading) {
-            if !draft.text.isEmpty {
-                Text(highlightedDraftText(
-                    primaryColor: fieldInk,
-                    commandColor: c.accentCyan,
-                    mentionColor: c.accent,
-                    tagColor: c.accentAcid
-                ))
-                .lineLimit(1...6)
-                .font(.system(size: ty.body))
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .allowsHitTesting(false)
-                .accessibilityHidden(true)
-            }
-
-            TextField(
-                "",
-                text: $draft.text,
-                selection: $draft.selection,
-                prompt: Text("Ask \(agentDisplayName)").foregroundColor(c.textMuted),
-                axis: .vertical
+        return nativeTextEditor(
+            fontSize: ty.body,
+            primaryColor: fieldInk,
+            placeholderColor: c.textMuted,
+            commandColor: c.accentCyan,
+            mentionColor: c.accent,
+            tagColor: c.accentAcid
+        )
+            .frame(height: editorHeight)
+            .padding(.horizontal, Constants.fieldHorizontalPadding)
+            .padding(.vertical, sp.s)
+            .frame(
+                minWidth: 0, maxWidth: .infinity, minHeight: Constants.fieldHeight,
+                alignment: .leading
             )
-            .lineLimit(1...6)
-            .scrollIndicators(.visible, axes: .vertical)
-            .font(.system(size: ty.body))
-            .foregroundColor(.clear)
-            .accentColor(.white)
-            .focused($isTextFieldFocused)
-            .submitLabel(.send)
-            .onKeyPress(.upArrow) {
-                viewModel.moveComposerSuggestionSelection(.previous) ? .handled : .ignored
-            }
-            .onKeyPress(.downArrow) {
-                viewModel.moveComposerSuggestionSelection(.next) ? .handled : .ignored
-            }
-            .onKeyPress(.return, phases: .down) { keyPress in
-                if keyPress.modifiers.contains(.shift) {
-                    insertNewlineAtSelection()
-                    return .handled
-                }
-                return viewModel.applySelectedComposerSuggestion() ? .handled : .ignored
-            }
-            .onSubmit {
-                submit()
+            .contentShape(Rectangle())
+            #if os(macOS)
+            .pointerStyle(.horizontalText)
+            #endif
+            .clipped()
+            .layoutPriority(1)
+            .onChange(of: viewModel.composerFocusResetToken) { _, _ in
                 isTextFieldFocused = false
             }
-            #if os(macOS)
-            .background {
-                MacAttachmentPasteMonitor(isEnabled: isTextFieldFocused) {
-                    pasteAttachmentsFromSystemPasteboard()
-                }
+            .onChange(of: isTextFieldFocused) { _, isFocused in
+                onFocusChanged(isFocused)
             }
-            #endif
-            .sloppyAttachmentPasteCommand { providers in
-                viewModel.attachItemProviders(providers)
+            .onChange(of: draft.text) { oldValue, newValue in
+                let cursorOffset = composerCursorOffset
+                    ?? ChatComposerTextEdit.cursorOffsetAfterEdit(
+                        from: oldValue,
+                        to: newValue
+                    )
+                composerCursorOffset = nil
+                viewModel.updateComposerSuggestions(
+                    for: newValue,
+                    cursorOffset: cursorOffset
+                )
             }
-            .textFieldStyle(.plain)
-        }
-        .padding(.horizontal, Constants.fieldHorizontalPadding)
-        .padding(.vertical, sp.s)
-        .frame(
-            minWidth: 0, maxWidth: .infinity, minHeight: Constants.fieldHeight,
-            alignment: .leading
-        )
-        .contentShape(Rectangle())
-        #if os(macOS)
-        .pointerStyle(.horizontalText)
-        #endif
-        .clipped()
-        .layoutPriority(1)
-        .onChange(of: viewModel.composerFocusResetToken) { _, _ in
-            isTextFieldFocused = false
-        }
-        .onChange(of: isTextFieldFocused) { _, isFocused in
-            onFocusChanged(isFocused)
-        }
-        .onChange(of: draft.text) { oldValue, newValue in
-            composerCursorOffset = ChatComposerTextEdit.cursorOffsetAfterEdit(
-                from: oldValue,
-                to: newValue
-            )
-            viewModel.updateComposerSuggestions(
-                for: newValue,
-                cursorOffset: composerCursorOffset
-            )
-        }
     }
 
-    private func highlightedDraftText(
+    @ViewBuilder
+    private func nativeTextEditor(
+        fontSize: CGFloat,
         primaryColor: Color,
+        placeholderColor: Color,
         commandColor: Color,
         mentionColor: Color,
         tagColor: Color
-    ) -> AttributedString {
-        var result = AttributedString(draft.text)
-        result.foregroundColor = primaryColor
-
-        for token in ChatComposerToken.parseAll(in: draft.text) {
-            let lowerOffset = draft.text.distance(from: draft.text.startIndex, to: token.range.lowerBound)
-            let upperOffset = draft.text.distance(from: draft.text.startIndex, to: token.range.upperBound)
-            let lowerBound = result.index(result.startIndex, offsetByCharacters: lowerOffset)
-            let upperBound = result.index(result.startIndex, offsetByCharacters: upperOffset)
-            let color: Color = switch token.kind {
-            case .command: commandColor
-            case .mention: mentionColor
-            case .tag: tagColor
-            }
-            result[lowerBound..<upperBound].foregroundColor = color
-            result[lowerBound..<upperBound].font = .system(size: theme.typography.body, weight: .semibold)
-        }
-
-        return result
+    ) -> some View {
+        #if os(macOS)
+        AppKitChatComposerTextEditor(
+            text: $draft.text,
+            selection: $draft.selection,
+            isFocused: $isTextFieldFocused,
+            measuredHeight: $editorHeight,
+            placeholder: "Ask \(agentDisplayName)",
+            fontSize: fontSize,
+            primaryColor: primaryColor,
+            placeholderColor: placeholderColor,
+            commandColor: commandColor,
+            mentionColor: mentionColor,
+            tagColor: tagColor,
+            maximumVisibleLines: Constants.maximumVisibleLines,
+            textContainerInset: CGSize(
+                width: Constants.editorContentHorizontalInset,
+                height: Constants.editorContentVerticalInset
+            ),
+            lineFragmentPadding: Constants.editorNativeTextContainerInset,
+            cursorOffsetChanged: { composerCursorOffset = $0 },
+            moveSuggestionSelection: viewModel.moveComposerSuggestionSelection,
+            applySelectedSuggestion: viewModel.applySelectedComposerSuggestion,
+            submit: submitAndDismiss,
+            pasteAttachment: pasteAttachmentsFromSystemPasteboard
+        )
+        #else
+        UIKitChatComposerTextEditor(
+            text: $draft.text,
+            selection: $draft.selection,
+            isFocused: $isTextFieldFocused,
+            measuredHeight: $editorHeight,
+            placeholder: "Ask \(agentDisplayName)",
+            fontSize: fontSize,
+            primaryColor: primaryColor,
+            placeholderColor: placeholderColor,
+            commandColor: commandColor,
+            mentionColor: mentionColor,
+            tagColor: tagColor,
+            maximumVisibleLines: Constants.maximumVisibleLines,
+            textContainerInset: EdgeInsets(
+                top: Constants.editorContentVerticalInset,
+                leading: Constants.editorContentHorizontalInset,
+                bottom: Constants.editorContentVerticalInset,
+                trailing: Constants.editorContentHorizontalInset
+            ),
+            lineFragmentPadding: Constants.editorNativeTextContainerInset,
+            cursorOffsetChanged: { composerCursorOffset = $0 },
+            moveSuggestionSelection: viewModel.moveComposerSuggestionSelection,
+            applySelectedSuggestion: viewModel.applySelectedComposerSuggestion,
+            submit: submitAndDismiss,
+            pasteItemProviders: viewModel.attachItemProviders
+        )
+        #endif
     }
 
-    private func insertNewlineAtSelection() {
-        let replacementRange: Range<String.Index>
-        if let selection = draft.selection, case .selection(let range) = selection.indices {
-            replacementRange = range
-        } else {
-            replacementRange = draft.text.endIndex..<draft.text.endIndex
-        }
-
-        let insertionOffset = draft.text.distance(
-            from: draft.text.startIndex,
-            to: replacementRange.lowerBound
-        )
-        draft.text.replaceSubrange(replacementRange, with: "\n")
-        let insertionPoint = draft.text.index(
-            draft.text.startIndex,
-            offsetBy: insertionOffset + 1
-        )
-        draft.selection = TextSelection(insertionPoint: insertionPoint)
+    private func submitAndDismiss() {
+        submit()
+        isTextFieldFocused = false
     }
 
     #if os(macOS)
@@ -1233,97 +1220,6 @@ struct ChatTextField: View {
         return true
     }
     #endif
-}
-
-#if os(macOS)
-private struct MacAttachmentPasteMonitor: NSViewRepresentable {
-    let isEnabled: Bool
-    let pasteAttachment: @MainActor () -> Bool
-
-    func makeCoordinator() -> Coordinator {
-        Coordinator(
-            isEnabled: isEnabled,
-            pasteAttachment: pasteAttachment
-        )
-    }
-
-    func makeNSView(context: Context) -> NSView {
-        context.coordinator.startMonitoring()
-        return NSView(frame: .zero)
-    }
-
-    func updateNSView(_ nsView: NSView, context: Context) {
-        context.coordinator.isEnabled = isEnabled
-        context.coordinator.pasteAttachment = pasteAttachment
-    }
-
-    static func dismantleNSView(_ nsView: NSView, coordinator: Coordinator) {
-        coordinator.stopMonitoring()
-    }
-
-    @MainActor
-    final class Coordinator {
-        var isEnabled: Bool
-        var pasteAttachment: @MainActor () -> Bool
-        private var eventMonitor: Any?
-
-        init(
-            isEnabled: Bool,
-            pasteAttachment: @escaping @MainActor () -> Bool
-        ) {
-            self.isEnabled = isEnabled
-            self.pasteAttachment = pasteAttachment
-        }
-
-        func startMonitoring() {
-            guard eventMonitor == nil else { return }
-
-            eventMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-                guard let self,
-                      self.isEnabled,
-                      Self.isStandardPasteShortcut(event),
-                      self.pasteAttachment() else {
-                    return event
-                }
-                return nil
-            }
-        }
-
-        func stopMonitoring() {
-            if let eventMonitor {
-                NSEvent.removeMonitor(eventMonitor)
-                self.eventMonitor = nil
-            }
-        }
-
-        private static func isStandardPasteShortcut(_ event: NSEvent) -> Bool {
-            let relevantModifiers = event.modifierFlags.intersection([
-                .command,
-                .control,
-                .option,
-                .shift,
-            ])
-            return relevantModifiers == .command
-                && (
-                    event.keyCode == 9
-                        || event.charactersIgnoringModifiers?.lowercased() == "v"
-                )
-        }
-    }
-}
-#endif
-
-private extension View {
-    @ViewBuilder
-    func sloppyAttachmentPasteCommand(
-        perform action: @escaping ([NSItemProvider]) -> Void
-    ) -> some View {
-        #if os(macOS)
-        self.onPasteCommand(of: [.fileURL, .image], perform: action)
-        #else
-        self
-        #endif
-    }
 }
 
 private struct ChatComposerAttachmentStrip: View {
@@ -1900,5 +1796,10 @@ struct CustomMenuButtonStyle: MenuStyle {
 private enum Constants {
     static let fieldHeight: CGFloat = 48
     static let fieldHorizontalPadding: CGFloat = fieldHeight / 2
+    static let editorMinimumHeight: CGFloat = 31
+    static let editorContentHorizontalInset: CGFloat = 8
+    static let editorNativeTextContainerInset: CGFloat = 5
+    static let editorContentVerticalInset: CGFloat = 7
+    static let maximumVisibleLines = 6
     static let modelPickerRowHeight: CGFloat = 30
 }

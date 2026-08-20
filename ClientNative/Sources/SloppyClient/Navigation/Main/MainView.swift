@@ -347,6 +347,16 @@ struct MainView: View {
                     viewModel.requestChatScrollToEnd(for: newValue)
                 }
             }
+            .onChange(of: activeChatViewModel?.workingTreeSourceControl?.diff) { _, diff in
+                guard diff != nil,
+                      let activeChatViewModel,
+                      let sourceControl = activeChatViewModel.workingTreeSourceControl,
+                      activeChatViewModel.activeProjectIdForWorkspacePanel
+                        == viewModel.workspacePanelViewModel.context?.projectId else {
+                    return
+                }
+                viewModel.workspacePanelViewModel.synchronizeSourceControl(sourceControl)
+            }
             .onChange(of: viewModel.selectedAppSection) { _, _ in
                 mainContentModeRawValue = isCanvasWorkspaceSelected
                     ? MainContentMode.workspace.rawValue
@@ -422,6 +432,12 @@ struct MainView: View {
         Menu {
             Section("Workspace") {
                 Button {
+                    openWorkspacePanel(mode: .environment)
+                } label: {
+                    Label("Environment", systemImage: workspacePanelMenuImage(for: .environment))
+                }
+
+                Button {
                     openWorkspacePanel(mode: .webBrowser)
                 } label: {
                     Label("Browser", systemImage: workspacePanelMenuImage(for: .webBrowser))
@@ -457,6 +473,8 @@ struct MainView: View {
 
     private var workspacePanelModeSystemImage: String {
         switch viewModel.workspacePanelViewModel.mode {
+        case .environment:
+            "slider.horizontal.3"
         case .webBrowser:
             "safari"
         case .files:
@@ -467,6 +485,8 @@ struct MainView: View {
     private func workspacePanelMenuImage(for mode: WorkspacePanelMode) -> String {
         let baseImage: String
         switch mode {
+        case .environment:
+            baseImage = "slider.horizontal.3"
         case .webBrowser:
             baseImage = "safari"
         case .files:
@@ -1230,7 +1250,8 @@ struct MainView: View {
             return AnyView(
                 WorkspacePanelView(
                     viewModel: workspaceState.viewModel,
-                    context: WorkspacePanelContext(projectId: context.projectId, projectName: context.projectName)
+                    context: WorkspacePanelContext(projectId: context.projectId, projectName: context.projectName),
+                    onOpenTerminal: { viewModel.toggleTerminalForSelectedTab() }
                 )
             )
         }
@@ -1690,7 +1711,8 @@ struct MainView: View {
         if let workspaceContext = viewModel.workspaceContext {
             WorkspacePanelView(
                 viewModel: viewModel.workspacePanelViewModel,
-                context: workspaceContext
+                context: workspaceContext,
+                onOpenTerminal: { viewModel.toggleTerminalForSelectedTab() }
             )
         } else {
             WorkspaceUnavailableView()

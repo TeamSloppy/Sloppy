@@ -24,7 +24,7 @@ public struct ProjectsScreen: View {
             .onAppear { loadProjects() }
             .navigate(for: String.self) { projectId in
                 if let project = projects.first(where: { $0.id == projectId }) {
-                    ProjectDetailView(project: project)
+                    ProjectDetailView(project: project, apiClient: apiClient)
                 }
             }
         }

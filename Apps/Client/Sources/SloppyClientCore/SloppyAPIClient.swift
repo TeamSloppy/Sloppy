@@ -13,6 +13,7 @@ public actor SloppyAPIClient {
     private let sessions: SessionService
     private let config: ConfigService
     private let auth: AuthService
+    private let taskSync: TaskSyncService
 
     public init(
         baseURL: URL = URL(string: "http://localhost:25101")!,
@@ -28,6 +29,7 @@ public actor SloppyAPIClient {
         self.sessions = SessionService(http: http)
         self.config = ConfigService(http: http)
         self.auth = AuthService(http: http)
+        self.taskSync = TaskSyncService(http: http)
     }
 
     public func setAuthToken(_ token: String) async {
@@ -84,6 +86,48 @@ public actor SloppyAPIClient {
             activeTasks: active,
             completedTasks: completed
         )
+    }
+
+    // MARK: - Task sync
+
+    public func fetchTaskSyncProviders() async throws -> [APITaskSyncProviderDescriptor] {
+        try await taskSync.providers()
+    }
+
+    public func fetchTaskSyncSettings(projectId: String) async throws -> APIProjectTaskSyncSettings {
+        try await taskSync.settings(projectId: projectId)
+    }
+
+    public func fetchTaskSyncTokenStatus(projectId: String, providerId: String = "startrek") async throws -> APIProjectTaskSyncTokenStatus {
+        try await taskSync.tokenStatus(projectId: projectId, providerId: providerId)
+    }
+
+    public func setTaskSyncToken(projectId: String, providerId: String = "startrek", token: String) async throws -> APIProjectTaskSyncTokenStatus {
+        try await taskSync.setToken(projectId: projectId, providerId: providerId, token: token)
+    }
+
+    public func discoverTaskSync(projectId: String, request: APIProjectTaskSyncDiscoverRequest) async throws -> APIProjectTaskSyncDiscoveryResponse {
+        try await taskSync.discover(projectId: projectId, request: request)
+    }
+
+    public func linkTaskSync(projectId: String, request: APIProjectTaskSyncLinkRequest) async throws -> APIProjectTaskSyncResponse {
+        try await taskSync.link(projectId: projectId, request: request)
+    }
+
+    public func unlinkTaskSync(projectId: String) async throws -> APIProjectTaskSyncResponse {
+        try await taskSync.unlink(projectId: projectId)
+    }
+
+    public func syncTasksNow(projectId: String) async throws -> APIProjectTaskSyncNowResponse {
+        try await taskSync.syncNow(projectId: projectId)
+    }
+
+    public func fetchTaskComments(projectId: String, taskId: String) async throws -> [APITaskComment] {
+        try await taskSync.comments(projectId: projectId, taskId: taskId)
+    }
+
+    public func addTaskComment(projectId: String, taskId: String, content: String) async throws -> APITaskComment {
+        try await taskSync.addComment(projectId: projectId, taskId: taskId, content: content)
     }
 
     // MARK: - Session REST API

@@ -167,6 +167,40 @@ struct NodePluginV2Tests {
         #expect(worktree.worktreePath == "/tmp/repo/.sloppy-worktrees/task-1")
         #expect(worktree.branchName == "sloppy/task-1")
     }
+
+    @Test
+    func runtimeDecodesISO8601DatesFromNodePlugins() async throws {
+        guard nodeIsAvailableForV2Tests() else { return }
+        let root = try makePluginFixture(
+            manifest: """
+            {
+              "name": "date-v2",
+              "runtime": "nodejs",
+              "apiVersion": "2026-05-plugins-v2",
+              "entrypoint": "index.js"
+            }
+            """,
+            script: """
+            let input = "";
+            process.stdin.on("data", chunk => input += chunk);
+            process.stdin.on("end", () => {
+              const request = JSON.parse(input.trim());
+              process.stdout.write(JSON.stringify({ id: request.id, result: { date: "2026-08-20T10:00:00.000Z" } }) + "\\n");
+            });
+            """,
+            directoryName: "date-v2"
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+        let pluginDir = root.appendingPathComponent("date-v2", isDirectory: true)
+        let manifest = try #require(PluginLoader().loadManifest(at: pluginDir))
+        let value = try await NodePluginRuntime(manifest: manifest, pluginDirectory: pluginDir)
+            .call("date", as: NodeDateValue.self)
+        #expect(value.date == ISO8601DateFormatter().date(from: "2026-08-20T10:00:00Z"))
+    }
+}
+
+private struct NodeDateValue: Decodable {
+    var date: Date
 }
 
 private func makePluginFixture(

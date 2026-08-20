@@ -78,6 +78,16 @@ struct ChatScreenRenderingTests {
         #expect(source.contains("Spacer(minLength: bottomClearance)"))
     }
 
+    @Test("composer reports its growing height to transcript clearance")
+    func composerReportsGrowingHeightToTranscriptClearance() throws {
+        let source = try chatScreenSource
+
+        #expect(source.contains("viewModel.composerPanelHeight ?? fallbackHeight"))
+        #expect(source.contains(".onGeometryChange(for: CGFloat.self, of: { $0.size.height })"))
+        #expect(source.contains("viewModel.updateComposerPanelHeight(height)"))
+        #expect(source.contains(".onChange(of: composerScrollInset)"))
+    }
+
     @Test("empty task draft surfaces the active context to the user")
     func emptyTaskDraftSurfacesTheActiveContextToTheUser() throws {
         let source = try chatScreenSource

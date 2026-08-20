@@ -8,6 +8,7 @@ struct WorkspacePanelContext: Equatable, Sendable {
 }
 
 enum WorkspacePanelMode: Equatable {
+    case environment
     case files
     case webBrowser
 }
@@ -44,7 +45,7 @@ final class WorkspacePanelViewModel {
     }
 
     let apiClient: SloppyAPIClient
-    var mode: WorkspacePanelMode = .files
+    var mode: WorkspacePanelMode = .environment
     var webViewModel: WorkspaceWebViewModel
     var isToolsMenuPresented = false
     private(set) var context: WorkspacePanelContext?
@@ -55,6 +56,10 @@ final class WorkspacePanelViewModel {
     private(set) var rootLoadError: String?
     private(set) var fileLoadError: String?
     private(set) var actionStatus: String?
+    private(set) var project: APIProjectRecord?
+    private(set) var sourceControl: ProjectWorkingTreeSourceControlResponse?
+    private(set) var isLoadingEnvironment = false
+    private(set) var environmentLoadError: String?
 
     init(apiClient: SloppyAPIClient) {
         self.apiClient = apiClient
@@ -64,7 +69,40 @@ final class WorkspacePanelViewModel {
     func activate(context: WorkspacePanelContext) {
         guard self.context != context else { return }
         self.context = context
-        Task { await refresh() }
+        Task {
+            await refreshEnvironment()
+            if mode == .files {
+                await refresh()
+            }
+        }
+    }
+
+    func refreshEnvironment() async {
+        guard let context else { return }
+        let expectedContext = context
+
+        isLoadingEnvironment = true
+        environmentLoadError = nil
+
+        async let sourceControlResult = try? apiClient.fetchProjectWorkingTreeSourceControl(
+            projectId: context.projectId
+        )
+        async let projectResult = try? apiClient.fetchProject(id: context.projectId)
+        let (nextSourceControl, nextProject) = await (sourceControlResult, projectResult)
+
+        guard self.context == expectedContext else { return }
+        sourceControl = nextSourceControl
+        project = nextProject
+        if nextSourceControl == nil {
+            environmentLoadError = "Could not load source-control information."
+        }
+        isLoadingEnvironment = false
+    }
+
+    func synchronizeSourceControl(_ sourceControl: ProjectWorkingTreeSourceControlResponse) {
+        self.sourceControl = sourceControl
+        environmentLoadError = nil
+        isLoadingEnvironment = false
     }
 
     func refresh() async {
@@ -130,7 +168,18 @@ final class WorkspacePanelViewModel {
     }
 
     func switchMode(_ mode: WorkspacePanelMode) {
+        guard self.mode != mode else { return }
         self.mode = mode
+        switch mode {
+        case .environment:
+            Task { await refreshEnvironment() }
+        case .files:
+            if rootEntries.isEmpty {
+                Task { await refresh() }
+            }
+        case .webBrowser:
+            break
+        }
     }
 
     func toggleToolsMenu() {

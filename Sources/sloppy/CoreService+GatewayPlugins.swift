@@ -56,7 +56,7 @@ extension CoreService {
             cacheRootURL: pluginCacheRootURL
         )
         for loaded in taskSyncPlugins {
-            registerTaskSyncProvider(loaded.provider)
+            registerTaskSyncProvider(loaded.provider, manifest: loaded.manifest)
             logger.info("External task-sync provider \(loaded.provider.id) registered.")
         }
 

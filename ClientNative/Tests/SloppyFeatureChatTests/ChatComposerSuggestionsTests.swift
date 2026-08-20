@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import SloppyFeatureChat
 
@@ -137,5 +138,23 @@ struct ChatComposerSuggestionsTests {
         #expect(selection.selectedID == nil)
         let didMove = selection.move(.next, in: [])
         #expect(!didMove)
+    }
+
+    @Test("file suggestions use the server search and are not hidden behind skills")
+    func searchesProjectFilesBeforeSkills() throws {
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let source = try String(
+            contentsOf: packageRoot.appendingPathComponent(
+                "Sources/SloppyFeatureChat/Screens/Chat/ChatScreenViewModel.swift"
+            ),
+            encoding: .utf8
+        )
+
+        #expect(source.contains("apiClient.searchProjectFiles("))
+        #expect(source.contains("return Array(((await files) + skillItems).prefix(12))"))
+        #expect(source.contains("loadProjectFilesByWalking(matching: query, projectId: projectId)"))
     }
 }

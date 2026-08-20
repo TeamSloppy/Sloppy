@@ -5,6 +5,50 @@ public enum TaskSyncTokenMode: String, Codable, Sendable, Equatable {
     case override
 }
 
+public enum ProjectTaskSyncSourceKind: String, Codable, Sendable, Equatable, CaseIterable {
+    case queue
+    case query
+    case savedFilter = "saved_filter"
+}
+
+public struct ProjectTaskSyncSource: Codable, Sendable, Equatable {
+    public var kind: ProjectTaskSyncSourceKind
+    public var value: String
+    public var displayName: String?
+    public var url: String?
+
+    public init(
+        kind: ProjectTaskSyncSourceKind,
+        value: String,
+        displayName: String? = nil,
+        url: String? = nil
+    ) {
+        self.kind = kind
+        self.value = value
+        self.displayName = displayName
+        self.url = url
+    }
+}
+
+public struct TaskSyncProviderDescriptor: Codable, Sendable, Equatable {
+    public var id: String
+    public var displayName: String
+    public var sourceKinds: [ProjectTaskSyncSourceKind]
+    public var capabilities: [String]
+
+    public init(
+        id: String,
+        displayName: String,
+        sourceKinds: [ProjectTaskSyncSourceKind] = [],
+        capabilities: [String] = []
+    ) {
+        self.id = id
+        self.displayName = displayName
+        self.sourceKinds = sourceKinds
+        self.capabilities = capabilities
+    }
+}
+
 public struct ProjectTaskSyncWebhookState: Codable, Sendable, Equatable {
     public var enabled: Bool
     public var webhookURL: String?
@@ -84,6 +128,7 @@ public struct ProjectTaskSyncSettings: Codable, Sendable, Equatable {
     public var projectURL: String?
     public var projectNodeId: String?
     public var defaultRepo: String?
+    public var source: ProjectTaskSyncSource?
     public var tokenMode: TaskSyncTokenMode
     public var statusMappings: [String: String]
     public var inboundStatusMappings: [String: String]
@@ -100,6 +145,7 @@ public struct ProjectTaskSyncSettings: Codable, Sendable, Equatable {
         case projectURL
         case projectNodeId
         case defaultRepo
+        case source
         case tokenMode
         case statusMappings
         case inboundStatusMappings
@@ -117,6 +163,7 @@ public struct ProjectTaskSyncSettings: Codable, Sendable, Equatable {
         projectURL: String? = nil,
         projectNodeId: String? = nil,
         defaultRepo: String? = nil,
+        source: ProjectTaskSyncSource? = nil,
         tokenMode: TaskSyncTokenMode = .inherit,
         statusMappings: [String: String] = [:],
         inboundStatusMappings: [String: String] = [:],
@@ -132,6 +179,7 @@ public struct ProjectTaskSyncSettings: Codable, Sendable, Equatable {
         self.projectURL = projectURL
         self.projectNodeId = projectNodeId
         self.defaultRepo = defaultRepo
+        self.source = source
         self.tokenMode = tokenMode
         self.statusMappings = statusMappings
         self.inboundStatusMappings = inboundStatusMappings
@@ -150,6 +198,7 @@ public struct ProjectTaskSyncSettings: Codable, Sendable, Equatable {
         projectURL = try container.decodeIfPresent(String.self, forKey: .projectURL)
         projectNodeId = try container.decodeIfPresent(String.self, forKey: .projectNodeId)
         defaultRepo = try container.decodeIfPresent(String.self, forKey: .defaultRepo)
+        source = try container.decodeIfPresent(ProjectTaskSyncSource.self, forKey: .source)
         tokenMode = try container.decodeIfPresent(TaskSyncTokenMode.self, forKey: .tokenMode) ?? .inherit
         statusMappings = try container.decodeIfPresent([String: String].self, forKey: .statusMappings) ?? [:]
         inboundStatusMappings = try container.decodeIfPresent([String: String].self, forKey: .inboundStatusMappings) ?? [:]
@@ -157,6 +206,18 @@ public struct ProjectTaskSyncSettings: Codable, Sendable, Equatable {
         syncSchedule = try container.decodeIfPresent(ProjectTaskSyncSchedule.self, forKey: .syncSchedule) ?? .init()
         webhook = try container.decodeIfPresent(ProjectTaskSyncWebhookState.self, forKey: .webhook) ?? .init()
         health = try container.decodeIfPresent(ProjectTaskSyncHealth.self, forKey: .health) ?? .init()
+    }
+}
+
+public struct TaskExternalStatus: Codable, Sendable, Equatable {
+    public var key: String
+    public var display: String
+    public var type: String?
+
+    public init(key: String, display: String, type: String? = nil) {
+        self.key = key
+        self.display = display
+        self.type = type
     }
 }
 
@@ -192,7 +253,13 @@ public struct TaskExternalMetadata: Codable, Sendable, Equatable {
     public var externalIssueId: String?
     public var externalIssueNumber: Int?
     public var externalIssueURL: String?
+    public var externalIssueKey: String?
     public var externalCommentId: String?
+    public var externalStatus: TaskExternalStatus?
+    public var externalAssignee: String?
+    public var externalPriority: String?
+    public var externalVersion: Int?
+    public var externalUpdatedAt: Date?
     public var origin: String?
     public var syncState: String?
     public var lastSyncedAt: Date?
@@ -205,7 +272,13 @@ public struct TaskExternalMetadata: Codable, Sendable, Equatable {
         case externalIssueId
         case externalIssueNumber
         case externalIssueURL
+        case externalIssueKey
         case externalCommentId
+        case externalStatus
+        case externalAssignee
+        case externalPriority
+        case externalVersion
+        case externalUpdatedAt
         case origin
         case syncState
         case lastSyncedAt
@@ -219,7 +292,13 @@ public struct TaskExternalMetadata: Codable, Sendable, Equatable {
         externalIssueId: String? = nil,
         externalIssueNumber: Int? = nil,
         externalIssueURL: String? = nil,
+        externalIssueKey: String? = nil,
         externalCommentId: String? = nil,
+        externalStatus: TaskExternalStatus? = nil,
+        externalAssignee: String? = nil,
+        externalPriority: String? = nil,
+        externalVersion: Int? = nil,
+        externalUpdatedAt: Date? = nil,
         origin: String? = nil,
         syncState: String? = nil,
         lastSyncedAt: Date? = nil,
@@ -231,7 +310,13 @@ public struct TaskExternalMetadata: Codable, Sendable, Equatable {
         self.externalIssueId = externalIssueId
         self.externalIssueNumber = externalIssueNumber
         self.externalIssueURL = externalIssueURL
+        self.externalIssueKey = externalIssueKey
         self.externalCommentId = externalCommentId
+        self.externalStatus = externalStatus
+        self.externalAssignee = externalAssignee
+        self.externalPriority = externalPriority
+        self.externalVersion = externalVersion
+        self.externalUpdatedAt = externalUpdatedAt
         self.origin = origin
         self.syncState = syncState
         self.lastSyncedAt = lastSyncedAt
@@ -246,7 +331,13 @@ public struct TaskExternalMetadata: Codable, Sendable, Equatable {
         externalIssueId = try container.decodeIfPresent(String.self, forKey: .externalIssueId)
         externalIssueNumber = try container.decodeIfPresent(Int.self, forKey: .externalIssueNumber)
         externalIssueURL = try container.decodeIfPresent(String.self, forKey: .externalIssueURL)
+        externalIssueKey = try container.decodeIfPresent(String.self, forKey: .externalIssueKey)
         externalCommentId = try container.decodeIfPresent(String.self, forKey: .externalCommentId)
+        externalStatus = try container.decodeIfPresent(TaskExternalStatus.self, forKey: .externalStatus)
+        externalAssignee = try container.decodeIfPresent(String.self, forKey: .externalAssignee)
+        externalPriority = try container.decodeIfPresent(String.self, forKey: .externalPriority)
+        externalVersion = try container.decodeIfPresent(Int.self, forKey: .externalVersion)
+        externalUpdatedAt = try container.decodeIfPresent(Date.self, forKey: .externalUpdatedAt)
         origin = try container.decodeIfPresent(String.self, forKey: .origin)
         syncState = try container.decodeIfPresent(String.self, forKey: .syncState)
         lastSyncedAt = try container.decodeIfPresent(Date.self, forKey: .lastSyncedAt)
@@ -262,6 +353,7 @@ public struct ProjectTaskSyncSettingsUpdateRequest: Codable, Sendable {
     public var projectURL: String?
     public var projectNodeId: String?
     public var defaultRepo: String?
+    public var source: ProjectTaskSyncSource?
     public var tokenMode: TaskSyncTokenMode?
     public var statusMappings: [String: String]?
     public var inboundStatusMappings: [String: String]?
@@ -276,6 +368,7 @@ public struct ProjectTaskSyncSettingsUpdateRequest: Codable, Sendable {
         projectURL: String? = nil,
         projectNodeId: String? = nil,
         defaultRepo: String? = nil,
+        source: ProjectTaskSyncSource? = nil,
         tokenMode: TaskSyncTokenMode? = nil,
         statusMappings: [String: String]? = nil,
         inboundStatusMappings: [String: String]? = nil,
@@ -289,6 +382,7 @@ public struct ProjectTaskSyncSettingsUpdateRequest: Codable, Sendable {
         self.projectURL = projectURL
         self.projectNodeId = projectNodeId
         self.defaultRepo = defaultRepo
+        self.source = source
         self.tokenMode = tokenMode
         self.statusMappings = statusMappings
         self.inboundStatusMappings = inboundStatusMappings
@@ -301,15 +395,18 @@ public struct ProjectTaskSyncDiscoverRequest: Codable, Sendable {
     public var providerId: String
     public var repositoryURL: String?
     public var tokenMode: TaskSyncTokenMode?
+    public var source: ProjectTaskSyncSource?
 
     public init(
         providerId: String = "github",
         repositoryURL: String? = nil,
-        tokenMode: TaskSyncTokenMode? = nil
+        tokenMode: TaskSyncTokenMode? = nil,
+        source: ProjectTaskSyncSource? = nil
     ) {
         self.providerId = providerId
         self.repositoryURL = repositoryURL
         self.tokenMode = tokenMode
+        self.source = source
     }
 }
 
@@ -322,6 +419,7 @@ public struct ProjectTaskSyncLinkRequest: Codable, Sendable {
     public var statusMappings: [String: String]?
     public var inboundStatusMappings: [String: String]?
     public var syncSchedule: ProjectTaskSyncSchedule?
+    public var source: ProjectTaskSyncSource?
 
     public init(
         providerId: String = "github",
@@ -331,7 +429,8 @@ public struct ProjectTaskSyncLinkRequest: Codable, Sendable {
         tokenMode: TaskSyncTokenMode? = nil,
         statusMappings: [String: String]? = nil,
         inboundStatusMappings: [String: String]? = nil,
-        syncSchedule: ProjectTaskSyncSchedule? = nil
+        syncSchedule: ProjectTaskSyncSchedule? = nil,
+        source: ProjectTaskSyncSource? = nil
     ) {
         self.providerId = providerId
         self.repositoryURL = repositoryURL
@@ -341,6 +440,7 @@ public struct ProjectTaskSyncLinkRequest: Codable, Sendable {
         self.statusMappings = statusMappings
         self.inboundStatusMappings = inboundStatusMappings
         self.syncSchedule = syncSchedule
+        self.source = source
     }
 }
 

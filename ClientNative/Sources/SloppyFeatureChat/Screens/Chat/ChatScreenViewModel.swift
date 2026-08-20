@@ -285,10 +285,12 @@ public final class ChatScreenViewModel {
     public private(set) var isSubmittingInputResponse = false
     public private(set) var inputRequestErrorMessage: String?
     public private(set) var activeRunStatus: ChatRunStatusEvent?
+    public private(set) var workingTreeSourceControl: ProjectWorkingTreeSourceControlResponse?
     public private(set) var didLoadInitialData = false
     public private(set) var transcriptScrollToEndRequest = 0
     private(set) var providerSettingsRecoveryMessageIDs: Set<String> = []
     public private(set) var composerFocusResetToken = 0
+    public private(set) var composerPanelHeight: CGFloat?
     private(set) var composerSuggestions: [ChatComposerSuggestion] = []
     private(set) var composerSuggestionSelection = ChatComposerSuggestionSelection()
     public let transcript = ChatTranscriptState()
@@ -307,6 +309,12 @@ public final class ChatScreenViewModel {
 
     public var isShowingDictationComposer: Bool {
         dictationPhase != .idle
+    }
+
+    func updateComposerPanelHeight(_ height: CGFloat) {
+        guard height.isFinite, height > 0 else { return }
+        guard composerPanelHeight.map({ abs($0 - height) > 0.5 }) ?? true else { return }
+        composerPanelHeight = height
     }
 
     public var activeProjectIdForWorkspacePanel: String? {
@@ -400,6 +408,7 @@ public final class ChatScreenViewModel {
     @ObservationIgnored private let dictationRecorder = DictationRecorder()
     @ObservationIgnored private var dictationMeterTask: Task<Void, Never>?
     @ObservationIgnored private var suggestionTask: Task<Void, Never>?
+    @ObservationIgnored private var workingTreeSourceControlTask: Task<Void, Never>?
     @ObservationIgnored private var composerSuggestionCursorOffset: Int?
     @ObservationIgnored private var composerSuggestionRequestID: UInt = 0
 
@@ -497,9 +506,9 @@ public final class ChatScreenViewModel {
             return filterCommands(response?.commands ?? [], query: query.term, skillsOnly: false)
         case "@":
             async let commands = try? await apiClient.fetchChatSlashCommands(agentId: agentId)
-            async let files = loadProjectFiles(projectId: activeProjectId)
+            async let files = loadProjectFiles(matching: query.term, projectId: activeProjectId)
             let skillItems = filterCommands((await commands)?.commands ?? [], query: query.term, skillsOnly: true)
-            return Array((skillItems + (await files).filter { matches(query.term, in: $0.title) }).prefix(12))
+            return Array(((await files) + skillItems).prefix(12))
         case "#":
             guard let projectId = activeProjectId,
                   let project = try? await apiClient.fetchProject(id: projectId) else { return [] }
@@ -539,25 +548,61 @@ public final class ChatScreenViewModel {
             }
     }
 
-    private func loadProjectFiles(projectId: String?) async -> [ChatComposerSuggestion] {
+    private func loadProjectFiles(
+        matching query: String,
+        projectId: String?
+    ) async -> [ChatComposerSuggestion] {
         guard let projectId else { return [] }
+
+        do {
+            return try await apiClient.searchProjectFiles(
+                projectId: projectId,
+                query: query,
+                limit: 50
+            )
+            .filter { $0.type == .file }
+            .map { projectFileSuggestion(path: $0.path) }
+        } catch let error as APIError where error.statusCode == 404 {
+            return await loadProjectFilesByWalking(matching: query, projectId: projectId)
+        } catch {
+            return []
+        }
+    }
+
+    private func loadProjectFilesByWalking(
+        matching query: String,
+        projectId: String
+    ) async -> [ChatComposerSuggestion] {
         var pending = [""]
         var results: [ChatComposerSuggestion] = []
-        while let directory = pending.popLast(), results.count < 200, !Task.isCancelled {
+        var visitedDirectoryCount = 0
+        while let directory = pending.popLast(),
+              results.count < 12,
+              visitedDirectoryCount < 500,
+              !Task.isCancelled {
+            visitedDirectoryCount += 1
             guard let entries = try? await apiClient.fetchProjectFiles(projectId: projectId, path: directory) else { continue }
             for entry in entries {
                 let path = directory.isEmpty ? entry.name : "\(directory)/\(entry.name)"
                 if entry.type == .directory {
                     pending.append(path)
-                } else {
-                    results.append(ChatComposerSuggestion(
-                        id: "file:\(path)", kind: .file, title: path,
-                        subtitle: "Project file", insertion: "@\(path)"
-                    ))
+                } else if matches(query, in: path) {
+                    results.append(projectFileSuggestion(path: path))
+                    if results.count == 12 { break }
                 }
             }
         }
         return results
+    }
+
+    private func projectFileSuggestion(path: String) -> ChatComposerSuggestion {
+        ChatComposerSuggestion(
+            id: "file:\(path)",
+            kind: .file,
+            title: path,
+            subtitle: "Project file",
+            insertion: "@\(path)"
+        )
     }
 
     private func matches(_ query: String, in value: String) -> Bool {
@@ -1316,6 +1361,7 @@ public final class ChatScreenViewModel {
         isSubmittingInputResponse = false
         inputRequestErrorMessage = nil
         activeRunStatus = nil
+        clearWorkingTreeSourceControl()
         if let manager {
             Task { await manager.disconnect() }
         }
@@ -1377,6 +1423,8 @@ public final class ChatScreenViewModel {
         transcript.reconcile(with: detail.messages)
         if let runStatus = detail.latestRunStatus {
             handleRunStatus(runStatus, sessionId: detail.summary.id)
+        } else {
+            refreshWorkingTreeSourceControl()
         }
         let previousInputRequestID = activeInputRequest?.id
         activeInputRequest = detail.pendingInputRequest
@@ -1424,6 +1472,7 @@ public final class ChatScreenViewModel {
             activeRunStatus = nil
             flushPendingStreamingAssistantText()
             streamingTurnTracker.clear(sessionId: sessionId)
+            refreshWorkingTreeSourceControl()
         case .heartbeat:
             break
         }
@@ -1551,6 +1600,7 @@ public final class ChatScreenViewModel {
     private func handleRunStatus(_ status: ChatRunStatusEvent, sessionId: String) {
         if status.stage.isWorking {
             _ = ensureActiveStreamingAssistantTurn(for: sessionId)
+            clearWorkingTreeSourceControl()
         }
         activeRunStatus = status
         if status.stage == .interrupted,
@@ -1576,12 +1626,38 @@ public final class ChatScreenViewModel {
             let completedMessageId = streamingTurnTracker.completeNextTurn(for: sessionId)
             isAwaitingAgentResponse = false
             isStopping = false
+            refreshWorkingTreeSourceControl()
             if status.stage == .done, let completedMessageId {
                 scheduleResponseCompletionNotification(
                     sessionId: sessionId,
                     messageId: completedMessageId
                 )
             }
+        }
+    }
+
+    private func clearWorkingTreeSourceControl() {
+        workingTreeSourceControlTask?.cancel()
+        workingTreeSourceControlTask = nil
+        workingTreeSourceControl = nil
+    }
+
+    private func refreshWorkingTreeSourceControl() {
+        workingTreeSourceControlTask?.cancel()
+        guard let projectId = activeProjectId,
+              let sessionId = selectedSessionId else {
+            workingTreeSourceControl = nil
+            return
+        }
+
+        workingTreeSourceControlTask = Task { @MainActor in
+            let response = try? await apiClient.fetchProjectWorkingTreeSourceControl(projectId: projectId)
+            guard !Task.isCancelled,
+                  activeProjectId == projectId,
+                  selectedSessionId == sessionId else {
+                return
+            }
+            workingTreeSourceControl = response?.hasChanges == true ? response : nil
         }
     }
 
@@ -1775,6 +1851,7 @@ public final class ChatScreenViewModel {
         let attachments = composerAttachments
         guard !content.isEmpty || !attachments.isEmpty else { return }
         sendErrorMessage = nil
+        clearWorkingTreeSourceControl()
         clearActiveComposerDraft()
         dismissComposerFocus()
         isSending = true
@@ -1870,6 +1947,7 @@ public final class ChatScreenViewModel {
         }
 
         isSubmittingInputResponse = true
+        clearWorkingTreeSourceControl()
         inputRequestErrorMessage = nil
         if status == .answered {
             _ = ensureActiveStreamingAssistantTurn(for: sessionId)

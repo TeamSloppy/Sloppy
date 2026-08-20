@@ -196,6 +196,7 @@ export interface CoreApi {
   fetchProjectWorkflowActions: (projectId: string) => Promise<AnyRecord[] | null>;
   resolveProjectWorkflowAction: (projectId: string, actionId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchSourceControlProviders: () => Promise<AnyRecord[] | null>;
+  fetchTaskSyncProviders: () => Promise<AnyRecord[] | null>;
   fetchProjectTaskSync: (projectId: string) => Promise<AnyRecord | null>;
   updateProjectTaskSync: (projectId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   discoverProjectTaskSync: (projectId: string, payload?: AnyRecord) => Promise<AnyRecord | null>;
@@ -1682,6 +1683,14 @@ export function createCoreApi(): CoreApi {
       if (!response.ok || !Array.isArray(response.data)) {
         return null;
       }
+      return response.data;
+    },
+
+    fetchTaskSyncProviders: async () => {
+      const response = await requestJson<AnyRecord[]>({
+        path: "/v1/task-sync/providers"
+      });
+      if (!response.ok || !Array.isArray(response.data)) return null;
       return response.data;
     },
 

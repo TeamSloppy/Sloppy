@@ -5,8 +5,19 @@ import SloppyClientUI
 struct WorkspacePanelView: View {
     let viewModel: WorkspacePanelViewModel
     let context: WorkspacePanelContext
+    let onOpenTerminal: (@MainActor () -> Void)?
 
     @Environment(\.theme) private var theme
+
+    init(
+        viewModel: WorkspacePanelViewModel,
+        context: WorkspacePanelContext,
+        onOpenTerminal: (@MainActor () -> Void)? = nil
+    ) {
+        self.viewModel = viewModel
+        self.context = context
+        self.onOpenTerminal = onOpenTerminal
+    }
 
     var body: some View {
         let c = theme.colors
@@ -15,13 +26,13 @@ struct WorkspacePanelView: View {
 
         VStack(alignment: .leading, spacing: 0) {
             HStack(spacing: sp.s) {
-                Image(systemName: viewModel.mode == .files ? "folder" : "safari")
+                Image(systemName: modeSystemImage)
                     .font(.system(size: ty.body, weight: .semibold))
                     .foregroundStyle(c.textPrimary)
                     .frame(width: 18)
 
                 VStack(alignment: .leading, spacing: 1) {
-                    Text(viewModel.mode == .files ? "Files" : "Browser")
+                    Text(modeTitle)
                         .font(.system(size: ty.body, weight: .semibold))
                         .foregroundColor(c.textPrimary)
                     Text(context.projectName)
@@ -40,6 +51,13 @@ struct WorkspacePanelView: View {
                     }
                     .buttonStyle(.plain)
                     .help("Refresh files")
+                } else if viewModel.mode == .environment {
+                    Button(action: { Task { await viewModel.refreshEnvironment() } }) {
+                        Icons.symbol(.refresh, size: ty.body)
+                            .foregroundColor(c.textSecondary)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Refresh environment")
                 }
             }
             .padding(sp.m)
@@ -47,6 +65,11 @@ struct WorkspacePanelView: View {
             Divider()
 
             switch viewModel.mode {
+            case .environment:
+                WorkspaceEnvironmentPanelView(
+                    viewModel: viewModel,
+                    onOpenTerminal: onOpenTerminal
+                )
             case .files:
                 filesPane
             case .webBrowser:
@@ -69,6 +92,28 @@ struct WorkspacePanelView: View {
             .keyboardShortcut("t", modifiers: [.command])
             .opacity(0.001)
             .allowsHitTesting(false)
+        }
+    }
+
+    private var modeTitle: String {
+        switch viewModel.mode {
+        case .environment:
+            "Environment"
+        case .files:
+            "Files"
+        case .webBrowser:
+            "Browser"
+        }
+    }
+
+    private var modeSystemImage: String {
+        switch viewModel.mode {
+        case .environment:
+            "slider.horizontal.3"
+        case .files:
+            "folder"
+        case .webBrowser:
+            "safari"
         }
     }
 

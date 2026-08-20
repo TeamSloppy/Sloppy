@@ -188,8 +188,22 @@ public actor SloppyAPIClient {
         try await projects.fetchProjectFiles(projectId: projectId, path: path)
     }
 
+    public func searchProjectFiles(
+        projectId: String,
+        query: String,
+        limit: Int = 50
+    ) async throws -> [ProjectFileSearchEntry] {
+        try await projects.searchProjectFiles(projectId: projectId, query: query, limit: limit)
+    }
+
     public func fetchProjectFileContent(projectId: String, path: String) async throws -> ProjectFileContentResponse {
         try await projects.fetchProjectFileContent(projectId: projectId, path: path)
+    }
+
+    public func fetchProjectWorkingTreeSourceControl(
+        projectId: String
+    ) async throws -> ProjectWorkingTreeSourceControlResponse {
+        try await projects.fetchProjectWorkingTreeSourceControl(projectId: projectId)
     }
 
     public func fetchAgents() async throws -> [APIAgentRecord] {

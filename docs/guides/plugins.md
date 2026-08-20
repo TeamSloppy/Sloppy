@@ -346,10 +346,11 @@ Install it through the API:
 
 ```bash
 curl -X POST http://localhost:25101/v1/plugins/install \
-  -H 'Authorization: Bearer dev-token' \
   -H 'Content-Type: application/json' \
   -d '{"sourceUrl":"https://github.com/example/my-platform-plugin.git"}'
 ```
+
+Loopback requests to this install endpoint do not require operator authorization. Requests from other machines remain protected and must include the configured bearer token or identity session.
 
 Or through the CLI:
 

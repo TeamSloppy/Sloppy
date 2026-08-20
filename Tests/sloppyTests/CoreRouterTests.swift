@@ -5027,6 +5027,36 @@ func browserContextMessageEndpointCreatesSessionAndPostsTypedContext() async thr
 }
 
 @Test
+func browserContextPromptRecognizesObsidianSourceWithoutSafariToolInstructions() {
+    let prompt = CoreService.browserContextPrompt(
+        source: "obsidian_plugin",
+        page: BrowserContextPage(
+            url: "obsidian://open?vault=Notes&file=Projects%2FSloppy.md",
+            title: "Sloppy"
+        ),
+        selection: "Important selected text.",
+        prompt: "Explain the selection"
+    )
+
+    #expect(prompt.contains("Source: Obsidian Plugin"))
+    #expect(prompt.contains("Title: Sloppy"))
+    #expect(prompt.contains("Important selected text."))
+    #expect(prompt.contains("Explain the selection"))
+    #expect(!prompt.contains("Safari tools:"))
+    #expect(!prompt.contains("safari.dom_snapshot"))
+
+    let chatPrompt = CoreService.browserContextPrompt(
+        source: "obsidian_chat",
+        page: BrowserContextPage(url: "obsidian://open?vault=Notes", title: "Notes"),
+        selection: "Note: Projects/Sloppy.md\n\nLocal vault context",
+        prompt: "What should I do next?"
+    )
+    #expect(chatPrompt.contains("Source: Obsidian Chat"))
+    #expect(chatPrompt.contains("Vault search context:"))
+    #expect(!chatPrompt.contains("Safari tools:"))
+}
+
+@Test
 func browserContextMessageEndpointAllowsEmptySelection() async throws {
     let service = CoreService(config: .test)
     let router = CoreRouter(service: service)
@@ -5239,6 +5269,55 @@ func channelPluginInstallInvalidPayloadExplainsRequiredFields() async throws {
     #expect(error.message?.contains("plugin.json") == true)
     #expect(error.message?.contains("localDirectory") == true)
     #expect(error.message?.contains("Bool") == true)
+}
+
+@Test
+func channelPluginInstallAllowsUnauthenticatedLoopbackRequestWithDashboardAuth() async throws {
+    var config = CoreConfig.test
+    config.ui.dashboardAuth.enabled = true
+    config.ui.dashboardAuth.token = "dashboard-secret"
+    let router = CoreRouter(service: CoreService(config: config))
+    let body = try JSONEncoder().encode(ChannelPluginInstallRequest(sourceUrl: ""))
+
+    let localResponse = await router.handle(
+        method: "POST",
+        path: "/v1/plugins/install",
+        body: body,
+        remoteAddress: "127.0.0.1"
+    )
+    #expect(localResponse.status == 400)
+
+    let remoteResponse = await router.handle(
+        method: "POST",
+        path: "/v1/plugins/install",
+        body: body,
+        remoteAddress: "192.0.2.10"
+    )
+    #expect(remoteResponse.status == 401)
+}
+
+@Test
+func channelPluginInstallAllowsUnauthenticatedLoopbackRequestWithIdentityAuth() async throws {
+    let service = CoreService(config: .test)
+    await service.setIdentityAuthEnabled(true)
+    let router = CoreRouter(service: service)
+    let body = try JSONEncoder().encode(ChannelPluginInstallRequest(sourceUrl: ""))
+
+    let localResponse = await router.handle(
+        method: "POST",
+        path: "/v1/plugins/install",
+        body: body,
+        remoteAddress: "::1"
+    )
+    #expect(localResponse.status == 400)
+
+    let remoteResponse = await router.handle(
+        method: "POST",
+        path: "/v1/plugins/install",
+        body: body,
+        remoteAddress: "192.0.2.10"
+    )
+    #expect(remoteResponse.status == 401)
 }
 
 @Test

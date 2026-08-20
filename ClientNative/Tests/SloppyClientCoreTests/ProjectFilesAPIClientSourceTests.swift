@@ -15,16 +15,19 @@ struct ProjectFilesAPIClientSourceTests {
         return try String(contentsOf: fileURL, encoding: .utf8)
     }
 
-    @Test("client exposes project file list and content helpers")
+    @Test("client exposes project file list, search, and content helpers")
     func clientExposesProjectFileHelpers() throws {
         let apiClient = try source(named: "SloppyAPIClient.swift")
         let services = try source(named: "BackendServices.swift")
 
         #expect(apiClient.contains("fetchProjectFiles(projectId: String, path: String = \"\")"))
+        #expect(apiClient.contains("searchProjectFiles("))
         #expect(apiClient.contains("fetchProjectFileContent(projectId: String, path: String)"))
         #expect(services.contains("public func fetchProjectFiles(projectId: String, path: String = \"\") async throws -> [ProjectFileEntry]"))
+        #expect(services.contains("public func searchProjectFiles("))
         #expect(services.contains("public func fetchProjectFileContent(projectId: String, path: String) async throws -> ProjectFileContentResponse"))
         #expect(services.contains("\"/v1/projects/\\(BackendHTTPClient.encodePathSegment(projectId))/files"))
+        #expect(services.contains("/files/search"))
         #expect(services.contains("\"/v1/projects/\\(BackendHTTPClient.encodePathSegment(projectId))/files/content?path="))
     }
 }

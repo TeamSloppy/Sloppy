@@ -233,6 +233,7 @@ public actor CoreService {
     let gitWorktreeService: GitWorktreeService
     var sourceControlProviders: [String: any SourceControlProvider]
     var taskSyncProviders: [String: any TaskSyncProvider]
+    var taskSyncProviderDescriptors: [String: TaskSyncProviderDescriptor]
     let workspaceGitSyncService: WorkspaceGitSyncService
     let logger: Logger
     let configPath: String
@@ -475,6 +476,13 @@ public actor CoreService {
         self.sourceControlProviders = [gitSourceControlProvider.id: gitSourceControlProvider]
         let githubTaskSyncProvider = GitHubProjectTaskSyncProvider()
         self.taskSyncProviders = [githubTaskSyncProvider.id: githubTaskSyncProvider]
+        self.taskSyncProviderDescriptors = [
+            githubTaskSyncProvider.id: TaskSyncProviderDescriptor(
+                id: githubTaskSyncProvider.id,
+                displayName: "GitHub Projects",
+                capabilities: ["pull_tasks", "push_task_fields", "push_comments", "webhook"]
+            )
+        ]
         self.workspaceGitSyncService = WorkspaceGitSyncService()
         self.sessionGoalController = AgentSessionGoalController()
         let orchestratorCatalogStore = AgentCatalogFileStore(agentsRootURL: self.agentsRootURL)

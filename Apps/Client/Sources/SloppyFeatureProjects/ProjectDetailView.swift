@@ -6,18 +6,21 @@ enum ProjectDetailTab: String, CaseIterable, Hashable {
     case info
     case tasks
     case channels
+    case sync
 
     var title: String {
         switch self {
         case .info: "INFO"
         case .tasks: "TASKS"
         case .channels: "CHANNELS"
+        case .sync: "SYNC"
         }
     }
 }
 
 struct ProjectDetailView: View {
     let project: APIProjectRecord
+    let apiClient: SloppyAPIClient
 
     @Environment(\.theme) private var theme
     @State private var selectedTab: ProjectDetailTab = .info
@@ -27,9 +30,15 @@ struct ProjectDetailView: View {
             Tab(ProjectDetailTab.info.title, value: ProjectDetailTab.info) { tabContent(.info) }
             Tab(ProjectDetailTab.tasks.title, value: ProjectDetailTab.tasks) { tabContent(.tasks) }
             Tab(ProjectDetailTab.channels.title, value: ProjectDetailTab.channels) { tabContent(.channels) }
+            Tab(ProjectDetailTab.sync.title, value: ProjectDetailTab.sync) { tabContent(.sync) }
         }
         .navigationTitle(project.name.uppercased())
         .navigationTitlePosition(.leading)
+        .navigate(for: ProjectTaskRoute.self) { route in
+            if let task = project.tasks?.first(where: { $0.id == route.taskId }) {
+                ProjectTaskDetailView(projectId: project.id, task: task, apiClient: apiClient)
+            }
+        }
     }
 
     @ViewBuilder
@@ -41,6 +50,8 @@ struct ProjectDetailView: View {
             projectTasksTab
         case .channels:
             projectChannelsTab
+        case .sync:
+            ProjectTaskSyncView(projectId: project.id, apiClient: apiClient)
         }
     }
 
@@ -77,23 +88,29 @@ struct ProjectDetailView: View {
                     EmptyStateView("No tasks")
                 } else {
                     ForEach(tasks) { task in
-                        HStack(spacing: sp.m) {
-                            VStack(alignment: .leading, spacing: sp.xs) {
-                                Text(task.title)
-                                    .font(.system(size: ty.body))
-                                    .foregroundColor(c.textPrimary)
-                                if let priority = task.priority {
-                                    Text(priority.uppercased())
-                                        .font(.system(size: ty.micro))
-                                        .foregroundColor(c.textMuted)
+                        NavigationLink(value: ProjectTaskRoute(taskId: task.id)) {
+                            HStack(spacing: sp.m) {
+                                VStack(alignment: .leading, spacing: sp.xs) {
+                                    Text(task.title)
+                                        .font(.system(size: ty.body))
+                                        .foregroundColor(c.textPrimary)
+                                    if let external = task.externalMetadata?.externalStatus?.display {
+                                        Text("ST: \(external)")
+                                            .font(.system(size: ty.micro))
+                                            .foregroundColor(c.accent)
+                                    } else if let priority = task.priority {
+                                        Text(priority.uppercased())
+                                            .font(.system(size: ty.micro))
+                                            .foregroundColor(c.textMuted)
+                                    }
                                 }
+                                Spacer()
+                                StatusBadge.forTaskStatus(task.status)
                             }
-                            Spacer()
-                            StatusBadge.forTaskStatus(task.status)
+                            .padding(sp.m)
+                            .background(c.surface)
+                            .border(c.border, lineWidth: bo.thin)
                         }
-                        .padding(sp.m)
-                        .background(c.surface)
-                        .border(c.border, lineWidth: bo.thin)
                     }
                 }
             }
@@ -134,4 +151,8 @@ struct ProjectDetailView: View {
             .padding(sp.l)
         }
     }
+}
+
+struct ProjectTaskRoute: Hashable {
+    let taskId: String
 }
