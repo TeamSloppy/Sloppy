@@ -22,12 +22,14 @@ struct AuthAPIClientSourceTests {
 
         #expect(apiClient.contains("fetchAuthChallenge() async throws -> AuthChallenge"))
         #expect(apiClient.contains("loginIdentityUser(login: String, password: String) async throws -> AuthSession"))
+        #expect(apiClient.contains("redeemDevicePairing(token: String) async throws -> AuthSession"))
         #expect(apiClient.contains("hasStoredAuthSession() async -> Bool"))
         #expect(apiClient.contains("public func logout() async"))
         #expect(services.contains("public struct AuthChallenge"))
         #expect(services.contains("public struct AuthSession"))
         #expect(services.contains("\"/v1/auth/challenge\""))
         #expect(services.contains("\"/v1/auth/login\""))
+        #expect(services.contains("\"/v1/auth/device-pairing/redeem\""))
     }
 
     @Test("root app exposes logout and reacts to invalidated authentication")

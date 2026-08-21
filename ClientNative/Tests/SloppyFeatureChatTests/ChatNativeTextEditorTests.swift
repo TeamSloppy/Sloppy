@@ -3,6 +3,10 @@ import SwiftUI
 import Testing
 @testable import SloppyFeatureChat
 
+#if os(macOS)
+import AppKit
+#endif
+
 @Suite("Native chat composer editor")
 @MainActor
 struct ChatNativeTextEditorTests {
@@ -46,4 +50,18 @@ struct ChatNativeTextEditorTests {
 
         #expect(draft.selection == nil)
     }
+
+    #if os(macOS)
+    @Test("AppKit placeholder passes clicks through to the native editor")
+    func appKitPlaceholderDoesNotInterceptFocus() {
+        let textView = ComposerNSTextView(
+            frame: NSRect(x: 0, y: 0, width: 480, height: 48),
+            textContainer: nil
+        )
+        textView.placeholder = "Ask Sloppy"
+
+        #expect(textView.placeholderLabel.hitTest(NSPoint(x: 2, y: 2)) == nil)
+        #expect(textView.acceptsFirstResponder)
+    }
+    #endif
 }

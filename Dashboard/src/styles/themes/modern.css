@@ -81,6 +81,16 @@
   color: var(--muted);
 }
 
+:root[data-theme="modern"] .onboarding-loading-server {
+  border-color: var(--line);
+  border-radius: var(--radius-sm);
+  background: var(--surface-2);
+}
+
+:root[data-theme="modern"] .onboarding-loading-server-label {
+  color: var(--muted);
+}
+
 :root[data-theme="modern"] :where(code, pre, kbd, samp, .ui-hex-input, .terminal-drawer) {
   font-family: var(--font-mono);
 }

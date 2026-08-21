@@ -132,6 +132,9 @@ public final class ChatTranscriptState {
     private var visibleStartIndex = 0
 
     public private(set) var messages: [ChatMessage] = []
+    private(set) var entries: [ChatTranscriptEntry] = []
+    private(set) var renderRevision: UInt = 0
+    private(set) var identityRevision: UInt = 0
 
     var isEmpty: Bool {
         allMessages.isEmpty
@@ -183,6 +186,9 @@ public final class ChatTranscriptState {
         allMessages = []
         visibleStartIndex = 0
         messages = []
+        entries = []
+        renderRevision &+= 1
+        identityRevision &+= 1
     }
 
     func append(_ message: ChatMessage) {
@@ -247,13 +253,26 @@ public final class ChatTranscriptState {
 
     private func refreshVisibleMessages() {
         guard !allMessages.isEmpty else {
+            let hadEntries = !entries.isEmpty
             messages = []
+            entries = []
             visibleStartIndex = 0
+            renderRevision &+= 1
+            if hadEntries {
+                identityRevision &+= 1
+            }
             return
         }
 
         visibleStartIndex = max(0, min(visibleStartIndex, allMessages.count - 1))
-        messages = Array(allMessages[visibleStartIndex...])
+        let visibleMessages = Array(allMessages[visibleStartIndex...])
+        let nextEntries = ChatTranscriptGrouping.entries(from: visibleMessages)
+        if entries.map(\.id) != nextEntries.map(\.id) {
+            identityRevision &+= 1
+        }
+        messages = visibleMessages
+        entries = nextEntries
+        renderRevision &+= 1
     }
 }
 
@@ -285,6 +304,8 @@ public final class ChatScreenViewModel {
     public private(set) var isSubmittingInputResponse = false
     public private(set) var inputRequestErrorMessage: String?
     public private(set) var activeRunStatus: ChatRunStatusEvent?
+    private(set) var computerUseActivity: ChatComputerUseActivity?
+    private(set) var isComputerUsePreviewHidden = false
     public private(set) var workingTreeSourceControl: ProjectWorkingTreeSourceControlResponse?
     public private(set) var didLoadInitialData = false
     public private(set) var transcriptScrollToEndRequest = 0
@@ -352,6 +373,10 @@ public final class ChatScreenViewModel {
 
     public var activeRunStatusDetails: String? {
         activeRunStatus?.details?.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func hideComputerUsePreview() {
+        isComputerUsePreviewHidden = true
     }
 
     public var activeSessionTitle: String {
@@ -1361,6 +1386,8 @@ public final class ChatScreenViewModel {
         isSubmittingInputResponse = false
         inputRequestErrorMessage = nil
         activeRunStatus = nil
+        computerUseActivity = nil
+        isComputerUsePreviewHidden = false
         clearWorkingTreeSourceControl()
         if let manager {
             Task { await manager.disconnect() }
@@ -1449,6 +1476,7 @@ public final class ChatScreenViewModel {
                 scheduleStreamingAssistantText(text, sessionId: sessionId, mode: .append)
             } else if let msg = update.message {
                 upsertMessage(msg, sessionId: sessionId)
+                updateComputerUseActivity(from: msg)
             }
             if let runStatus = update.streamEvent?.runStatus {
                 handleRunStatus(runStatus, sessionId: sessionId)
@@ -1505,6 +1533,17 @@ public final class ChatScreenViewModel {
             message,
             before: currentStreamingAssistantMessageId(for: sessionId)
         )
+    }
+
+    private func updateComputerUseActivity(from message: ChatMessage) {
+        let previousActivity = computerUseActivity
+        computerUseActivity = ChatComputerUseEventReducer.reduce(
+            current: computerUseActivity,
+            message: message
+        )
+        if previousActivity == nil, computerUseActivity != nil {
+            isComputerUsePreviewHidden = false
+        }
     }
 
     private enum StreamingTextUpdateMode {
@@ -1626,6 +1665,11 @@ public final class ChatScreenViewModel {
             let completedMessageId = streamingTurnTracker.completeNextTurn(for: sessionId)
             isAwaitingAgentResponse = false
             isStopping = false
+            if let activity = computerUseActivity, activity.phase == .active {
+                computerUseActivity = activity.finishing(
+                    failed: status.stage == .interrupted
+                )
+            }
             refreshWorkingTreeSourceControl()
             if status.stage == .done, let completedMessageId {
                 scheduleResponseCompletionNotification(
@@ -1686,6 +1730,10 @@ public final class ChatScreenViewModel {
     @discardableResult
     private func beginStreamingAssistantTurn(for sessionId: String) -> String {
         flushPendingStreamingAssistantText()
+        if computerUseActivity?.phase != .active {
+            computerUseActivity = nil
+            isComputerUsePreviewHidden = false
+        }
         let messageId = "streaming-assistant-\(sessionId)-\(UUID().uuidString.lowercased())"
         streamingTurnTracker.begin(sessionId: sessionId, messageId: messageId)
         return messageId

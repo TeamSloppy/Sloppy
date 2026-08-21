@@ -34,9 +34,9 @@ import { ChannelSessionView } from "./views/ChannelSessionView";
 import { RuntimeOverviewView } from "./views/RuntimeOverviewView";
 import {
   DASHBOARD_AUTH_INVALIDATED_EVENT,
+  getDashboardAuthRememberPreference,
   getDashboardAuthToken,
-  hasStoredDashboardAuthToken,
-  isDashboardAuthTokenPersisted,
+  setDashboardAuthRememberPreference,
   setDashboardAuthToken
 } from "./shared/api/dashboardAuth";
 import {
@@ -665,6 +665,7 @@ export function App() {
   });
   const [apiBaseInput, setApiBaseInput] = useState(() => getStoredApiBaseOverride() || resolveApiBase());
   const [apiBaseError, setApiBaseError] = useState("");
+  const [isApiBaseEditorOpen, setIsApiBaseEditorOpen] = useState(false);
   const [bootAttempt, setBootAttempt] = useState(0);
   const [autoStartTutorialAfterOnboarding, setAutoStartTutorialAfterOnboarding] = useState(false);
   const [dashboardTokenInput, setDashboardTokenInput] = useState("");
@@ -675,7 +676,7 @@ export function App() {
   const [identityRecoverySecretInput, setIdentityRecoverySecretInput] = useState("");
   const [identityAuthFormMode, setIdentityAuthFormMode] = useState<"login" | "reset">("login");
   const [authChallenge, setAuthChallenge] = useState<AnyRecord | null>(null);
-  const [rememberDashboardToken, setRememberDashboardToken] = useState(() => hasStoredDashboardAuthToken());
+  const [rememberDashboardToken, setRememberDashboardToken] = useState(getDashboardAuthRememberPreference);
   const [authState, setAuthState] = useState<{
     status: "checking" | "required" | "authenticated";
     error: string;
@@ -685,6 +686,10 @@ export function App() {
   });
 
   useEffect(() => {
+    if (isApiBaseEditorOpen) {
+      return;
+    }
+
     let isCancelled = false;
 
     async function runBootstrap() {
@@ -718,7 +723,7 @@ export function App() {
                 retryBootstrap();
                 return;
               }
-              setRememberDashboardToken(isDashboardAuthTokenPersisted());
+              setRememberDashboardToken(getDashboardAuthRememberPreference());
               setAuthState({
                 status: "required",
                 error: "Saved login session is no longer valid."
@@ -749,7 +754,7 @@ export function App() {
                 retryBootstrap();
                 return;
               }
-              setRememberDashboardToken(isDashboardAuthTokenPersisted());
+              setRememberDashboardToken(getDashboardAuthRememberPreference());
               setAuthState({
                 status: "required",
                 error: "Saved dashboard token is no longer valid."
@@ -782,10 +787,10 @@ export function App() {
               return;
             }
             if (validation) {
-              setRememberDashboardToken(isDashboardAuthTokenPersisted());
+              setRememberDashboardToken(getDashboardAuthRememberPreference());
               setAuthState({ status: "authenticated", error: "" });
             } else {
-              setRememberDashboardToken(isDashboardAuthTokenPersisted());
+              setRememberDashboardToken(getDashboardAuthRememberPreference());
               setAuthState({
                 status: "required",
                 error: "Saved dashboard token is no longer valid."
@@ -820,14 +825,14 @@ export function App() {
     return () => {
       isCancelled = true;
     };
-  }, [dependencies, bootAttempt]);
+  }, [dependencies, bootAttempt, isApiBaseEditorOpen]);
 
   useEffect(() => {
     function handleDashboardAuthInvalidated() {
       if (!isDashboardAuthRequired(bootState.config as AnyRecord | null)) {
         return;
       }
-      setRememberDashboardToken(isDashboardAuthTokenPersisted());
+      setRememberDashboardToken(getDashboardAuthRememberPreference());
       setAuthState({
         status: "required",
         error: "Dashboard token is invalid or expired."
@@ -872,7 +877,20 @@ export function App() {
       return;
     }
 
+    setIsApiBaseEditorOpen(false);
     retryBootstrap();
+  }
+
+  function openApiBaseEditor() {
+    setApiBaseInput(resolveApiBase());
+    setApiBaseError("");
+    setIsApiBaseEditorOpen(true);
+  }
+
+  function closeApiBaseEditor() {
+    setApiBaseInput(resolveApiBase());
+    setApiBaseError("");
+    setIsApiBaseEditorOpen(false);
   }
 
   async function handleDashboardAuthSubmit() {
@@ -1204,7 +1222,11 @@ export function App() {
               <input
                 type="checkbox"
                 checked={rememberDashboardToken}
-                onChange={(event) => setRememberDashboardToken(event.target.checked)}
+                onChange={(event) => {
+                  const remember = event.target.checked;
+                  setRememberDashboardToken(remember);
+                  setDashboardAuthRememberPreference(remember);
+                }}
               />
               <span className="agent-tools-switch-track" />
             </span>
@@ -1244,12 +1266,88 @@ export function App() {
     );
   }
 
+  if (bootState.isLoading && isApiBaseEditorOpen) {
+    return (
+      <div className="onboarding-loading-shell">
+        <div className="onboarding-loading-card">
+          <span className="onboarding-loading-kicker">Sloppy init</span>
+          <strong>Change server</strong>
+          <div className="onboarding-loading-form">
+            <label className="onboarding-loading-label" htmlFor="sloppy-api-base-loading">
+              Core API URL
+            </label>
+            <input
+              id="sloppy-api-base-loading"
+              className="onboarding-loading-input"
+              type="text"
+              inputMode="url"
+              autoCapitalize="off"
+              autoCorrect="off"
+              spellCheck={false}
+              autoFocus
+              placeholder="192.168.1.50:25101"
+              value={apiBaseInput}
+              onChange={(event) => {
+                setApiBaseInput(event.target.value);
+                if (apiBaseError) {
+                  setApiBaseError("");
+                }
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") {
+                  event.preventDefault();
+                  handleApiBaseConnect();
+                }
+                if (event.key === "Escape") {
+                  closeApiBaseEditor();
+                }
+              }}
+            />
+            <span className="onboarding-loading-hint">
+              Enter `ip:port` or a full `http://` / `https://` URL for `sloppy-core`.
+            </span>
+            {apiBaseError ? <span className="onboarding-loading-error">{apiBaseError}</span> : null}
+          </div>
+          <div className="onboarding-loading-actions">
+            <button
+              type="button"
+              className="onboarding-ghost-button"
+              onClick={closeApiBaseEditor}
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              className="onboarding-primary-button"
+              onClick={handleApiBaseConnect}
+            >
+              Connect
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   if (bootState.isLoading) {
     return (
       <div className="onboarding-loading-shell">
         <div className="onboarding-loading-card">
           <span className="onboarding-loading-kicker">Sloppy init</span>
           <strong>Loading runtime config...</strong>
+          <div className="onboarding-loading-server">
+            <span className="onboarding-loading-server-label">Connecting to</span>
+            <code className="onboarding-loading-server-url" title={resolveApiBase()}>
+              {resolveApiBase()}
+            </code>
+            <button
+              type="button"
+              className="onboarding-ghost-button onboarding-loading-server-action"
+              onClick={openApiBaseEditor}
+            >
+              Change server
+            </button>
+          </div>
           <LoadingSkeleton label="Preparing dashboard…" variant="panel" rows={3} />
         </div>
       </div>
@@ -1349,7 +1447,7 @@ export function App() {
         coreApi={dependencies.coreApi}
         initialConfig={bootState.config}
         onAuthenticated={() => {
-          setRememberDashboardToken(isDashboardAuthTokenPersisted());
+          setRememberDashboardToken(getDashboardAuthRememberPreference());
           setAuthState({ status: "authenticated", error: "" });
         }}
         onCompleted={(config) => {
@@ -1406,7 +1504,7 @@ export function App() {
           autoStartTutorialAfterOnboarding={autoStartTutorialAfterOnboarding}
           onRuntimeConfigUpdated={(nextConfig) => {
             if (isDashboardAuthRequired(nextConfig as AnyRecord)) {
-              setRememberDashboardToken(isDashboardAuthTokenPersisted());
+              setRememberDashboardToken(getDashboardAuthRememberPreference());
               setAuthState({
                 status: getDashboardAuthToken() ? "authenticated" : "required",
                 error: ""

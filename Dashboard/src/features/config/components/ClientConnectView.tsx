@@ -44,7 +44,7 @@ export function ClientConnectView({ listenPort }: ClientConnectViewProps) {
     const response = await requestJson<DevicePairingRecord, { clientName: string; ttlSeconds: number }>({
       path: "/v1/auth/device-pairing",
       method: "POST",
-      body: { clientName: "Sloppy Rokid", ttlSeconds: 120 },
+      body: { clientName: "Sloppy Client", ttlSeconds: 120 },
       signal
     });
     if (signal?.aborted) return;
@@ -96,7 +96,7 @@ export function ClientConnectView({ listenPort }: ClientConnectViewProps) {
     <section className="entry-editor-card">
       <h3>Connect Sloppy Client</h3>
       <p className="placeholder-text">
-        Scan this short-lived QR code with Sloppy Rokid. The glasses will connect as the
+        Scan this short-lived QR code with Sloppy Client. The app will connect as the
         Dashboard user shown below; no password is placed in the QR code.
       </p>
 
@@ -150,7 +150,7 @@ export function ClientConnectView({ listenPort }: ClientConnectViewProps) {
                 autoComplete="off"
               />
               <span className="entry-form-hint">
-                Use a LAN address or Tailscale hostname reachable from the glasses. Never use localhost for a physical device.
+                Use a LAN address or Tailscale hostname reachable from the client device. Never use localhost for a physical device.
               </span>
             </label>
 

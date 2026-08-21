@@ -50,6 +50,7 @@ export const fetchVoiceCapabilities = coreApi.fetchVoiceCapabilities;
 export const updateRuntimeConfig = coreApi.updateRuntimeConfig;
 export const runWorkspaceGitSync = coreApi.runWorkspaceGitSync;
 export const fetchSystemLogs = coreApi.fetchSystemLogs;
+export const fetchRuntimePerformance = coreApi.fetchRuntimePerformance;
 export const createIssueReport = coreApi.createIssueReport;
 export const selectDirectory = coreApi.selectDirectory;
 export const selectDirectories = coreApi.selectDirectories;

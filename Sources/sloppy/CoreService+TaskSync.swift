@@ -35,6 +35,7 @@ extension CoreService {
         case invalidProjectID
         case invalidPayload
         case projectNotFound
+        case notConfigured
         case unsupportedProvider
         case tokenMissing
         case manualRepositoryRequired
@@ -48,6 +49,8 @@ extension CoreService {
                 return "Invalid task sync payload."
             case .projectNotFound:
                 return "Project not found."
+            case .notConfigured:
+                return "Task sync is not linked for this project. Configure a provider and source first."
             case .unsupportedProvider:
                 return "Unsupported task sync provider."
             case .tokenMissing:
@@ -289,10 +292,10 @@ extension CoreService {
     public func syncTaskSyncNow(projectID: String, full: Bool = true) async throws -> ProjectTaskSyncNowResponse {
         var project = try await taskSyncProject(projectID)
         var settings = project.taskSyncSettings
-        guard settings.enabled,
-              let providerId = settings.providerId,
-              let provider = taskSyncProvider(id: providerId)
-        else {
+        guard settings.enabled, let providerId = settings.providerId else {
+            throw TaskSyncError.notConfigured
+        }
+        guard let provider = taskSyncProvider(id: providerId) else {
             throw TaskSyncError.unsupportedProvider
         }
         let token = resolvedTaskSyncToken(projectID: project.id, providerId: providerId, tokenMode: settings.tokenMode)

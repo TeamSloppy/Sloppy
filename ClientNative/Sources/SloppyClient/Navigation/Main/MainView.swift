@@ -41,6 +41,14 @@ struct MainView: View {
         var cornerRadius: CGFloat
     }
 
+    private enum WorkspaceSidePanelDestination: Equatable {
+        case picker
+        case review
+        case browser
+        case files
+        case sideChat
+    }
+
     #if os(macOS)
     private enum ToolbarSearchResult: Identifiable {
         case chat(ChatSessionSummary)
@@ -124,6 +132,8 @@ struct MainView: View {
     @State private var mobileTabsOverviewProgress: CGFloat = 0
     @State private var isMobileTabsOverviewGestureActive = false
     @State private var isWorkspacePanelPresented = false
+    @State private var workspaceSidePanelDestination = WorkspaceSidePanelDestination.picker
+    @State private var sideChatViewModel: ChatScreenViewModel?
     @State private var toolbarSearchText = ""
     @State private var isToolbarSearchResultsPresented = false
     @State private var canvasWorkspaceViewModel: CanvasWorkspaceViewModel
@@ -212,9 +222,6 @@ struct MainView: View {
                 MainLoadingView()
             }
         }
-            .overlay(alignment: .bottom) {
-                workspaceTerminalOverlay
-            }
             .onAppear {
                 if viewModel.tabs.isEmpty {
                     viewModel.createBlankChatTab(select: true)
@@ -222,6 +229,9 @@ struct MainView: View {
                 viewModel.chatViewModel.loadInitialData()
                 Task {
                     await viewModel.loadProjects()
+                }
+                Task {
+                    await viewModel.loadCurrentAccount()
                 }
                 handleMenuBarQuickAction(menuBarQuickActionRequest)
                 handleDeepLink(deepLinkRequest)
@@ -319,7 +329,7 @@ struct MainView: View {
                         if idiom != .phone,
                            !isCanvasWorkspaceSelected,
                            viewModel.selectedAppSection != .artifacts {
-                            workspacePanelMenu
+                            workspaceSidePanelButton
                         }
                     }
                 }
@@ -395,7 +405,7 @@ struct MainView: View {
             if isWorkspacePanelPresented {
                 Divider()
 
-                workspaceScreen()
+                workspaceSidePanel
                     .frame(width: 380)
                     .frame(maxHeight: .infinity)
                     .background(theme.colors.surface)
@@ -412,94 +422,125 @@ struct MainView: View {
     }
 
     @ViewBuilder
-    private var workspaceTerminalOverlay: some View {
+    private func workspaceBottomPanelOverlay(maximumHeight: CGFloat) -> some View {
         if let selectedTabID = viewModel.selectedTabID,
            let terminalState = viewModel.tabStates[selectedTabID]?.terminalState,
            terminalState.isPresented {
-            WorkspaceTerminalDrawerView(
-                height: terminalState.height,
-                canStartSession: viewModel.terminalSessions[selectedTabID] != nil,
-                onHeightChange: { terminalState.height = $0 }
+            WorkspaceBottomPanelDrawerView(
+                height: min(terminalState.height, maximumHeight),
+                maximumHeight: maximumHeight,
+                selectedPanel: terminalState.selectedPanel,
+                onSelectPanel: { panel in
+                    viewModel.openBottomPanel(panel)
+                    switch panel {
+                    case .review:
+                        viewModel.workspacePanelViewModel.switchMode(.environment)
+                    case .browser:
+                        viewModel.workspacePanelViewModel.switchMode(.webBrowser)
+                    case .files:
+                        viewModel.workspacePanelViewModel.switchMode(.files)
+                    case .terminal:
+                        break
+                    }
+                },
+                onClose: viewModel.closeTerminalForSelectedTab,
+                onHeightChange: {
+                    terminalState.height = min(max($0, 180), maximumHeight)
+                }
             ) {
-                viewModel.makeTerminalHostView(for: selectedTabID)
+                workspaceBottomPanelContent(
+                    selectedPanel: terminalState.selectedPanel,
+                    selectedTabID: selectedTabID
+                )
             }
             .transition(.move(edge: .bottom).combined(with: .opacity))
             .zIndex(20)
         }
     }
 
-    private var workspacePanelMenu: some View {
-        Menu {
-            Section("Workspace") {
-                Button {
-                    openWorkspacePanel(mode: .environment)
-                } label: {
-                    Label("Environment", systemImage: workspacePanelMenuImage(for: .environment))
-                }
-
-                Button {
-                    openWorkspacePanel(mode: .webBrowser)
-                } label: {
-                    Label("Browser", systemImage: workspacePanelMenuImage(for: .webBrowser))
-                }
-
-                Button {
-                    openWorkspacePanel(mode: .files)
-                } label: {
-                    Label("Files", systemImage: workspacePanelMenuImage(for: .files))
-                }
+    @ViewBuilder
+    private func workspaceBottomPanelContent(
+        selectedPanel: WorkspaceBottomPanelKind,
+        selectedTabID: WorkspaceTab.ID
+    ) -> some View {
+        switch selectedPanel {
+        case .terminal:
+            if viewModel.terminalSessions[selectedTabID] != nil {
+                viewModel.makeTerminalHostView(for: selectedTabID)
+            } else {
+                WorkspaceBottomPanelUnavailableView(
+                    title: "Project directory unavailable",
+                    detail: "Open the terminal from a project-backed tab to start a shell."
+                )
             }
-
-            if isWorkspacePanelPresented {
-                Divider()
-
-                Button("Hide Workspace", systemImage: "sidebar.right") {
-                    isWorkspacePanelPresented = false
-                }
+        case .review, .browser, .files:
+            if let workspaceContext = viewModel.workspaceContext {
+                WorkspacePanelView(
+                    viewModel: viewModel.workspacePanelViewModel,
+                    context: workspaceContext,
+                    onOpenTerminal: { viewModel.openBottomPanel(.terminal) },
+                    showsHeader: false
+                )
+            } else {
+                WorkspaceBottomPanelUnavailableView(
+                    title: "Project unavailable",
+                    detail: "Open a project-backed tab to use \(selectedPanel.title.lowercased())."
+                )
             }
-        } label: {
-            Image(
-                systemName: isWorkspacePanelPresented
-                    ? workspacePanelModeSystemImage
-                    : "sidebar.right"
-            )
         }
-        .menuStyle(.button)
+    }
+
+    private var workspaceSidePanelButton: some View {
+        Button(action: toggleWorkspaceSidePanelPicker) {
+            Image(systemName: "sidebar.right")
+        }
         .buttonStyle(.plain)
-        .disabled(viewModel.workspaceContext == nil)
-        .help(isWorkspacePanelPresented ? "Workspace options" : "Open Workspace")
-        .accessibilityLabel("Workspace")
-    }
-
-    private var workspacePanelModeSystemImage: String {
-        switch viewModel.workspacePanelViewModel.mode {
-        case .environment:
-            "slider.horizontal.3"
-        case .webBrowser:
-            "safari"
-        case .files:
-            "folder"
-        }
-    }
-
-    private func workspacePanelMenuImage(for mode: WorkspacePanelMode) -> String {
-        let baseImage: String
-        switch mode {
-        case .environment:
-            baseImage = "slider.horizontal.3"
-        case .webBrowser:
-            baseImage = "safari"
-        case .files:
-            baseImage = "folder"
-        }
-        return isWorkspacePanelPresented && viewModel.workspacePanelViewModel.mode == mode
-            ? "\(baseImage).fill"
-            : baseImage
+        .help(isWorkspacePanelPresented ? "Show panel picker" : "Open side panel")
+        .accessibilityLabel("Side panel")
     }
 
     private func openWorkspacePanel(mode: WorkspacePanelMode) {
         viewModel.workspacePanelViewModel.switchMode(mode)
+        switch mode {
+        case .environment:
+            workspaceSidePanelDestination = .review
+        case .webBrowser:
+            workspaceSidePanelDestination = .browser
+        case .files:
+            workspaceSidePanelDestination = .files
+        }
         isWorkspacePanelPresented = true
+    }
+
+    private func toggleWorkspaceSidePanelPicker() {
+        if !isWorkspacePanelPresented {
+            workspaceSidePanelDestination = .picker
+            isWorkspacePanelPresented = true
+        } else if workspaceSidePanelDestination == .picker {
+            isWorkspacePanelPresented = false
+        } else {
+            workspaceSidePanelDestination = .picker
+        }
+    }
+
+    private func selectWorkspaceSidePanelItem(_ item: WorkspaceSidePanelItem) {
+        switch item {
+        case .review:
+            openWorkspacePanel(mode: .environment)
+        case .terminal:
+            viewModel.openBottomPanel(.terminal)
+            isWorkspacePanelPresented = false
+        case .browser:
+            openWorkspacePanel(mode: .webBrowser)
+        case .files:
+            openWorkspacePanel(mode: .files)
+        case .sideChat:
+            if sideChatViewModel == nil {
+                sideChatViewModel = viewModel.makeChatTabState().viewModel
+            }
+            workspaceSidePanelDestination = .sideChat
+            isWorkspacePanelPresented = true
+        }
     }
 
     #if os(macOS)
@@ -938,6 +979,16 @@ struct MainView: View {
             }
         }
         .navigationSplitViewColumnWidth(min: 600, ideal: 940)
+        #if os(macOS)
+        .overlay(alignment: .bottom) {
+            GeometryReader { proxy in
+                workspaceBottomPanelOverlay(
+                    maximumHeight: max(180, proxy.size.height - 120)
+                )
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
+            }
+        }
+        #endif
     }
 
     private var mainModeContent: some View {
@@ -1706,14 +1757,74 @@ struct MainView: View {
         )
     }
 
+    private var workspaceSidePanel: some View {
+        VStack(spacing: 0) {
+            workspaceScreen()
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            Divider()
+
+            HStack {
+                Spacer(minLength: 0)
+
+                Button {
+                    isWorkspacePanelPresented = false
+                } label: {
+                    Image(systemName: "xmark")
+                        .font(.system(size: theme.typography.body))
+                        .foregroundStyle(.secondary)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help("Close side panel")
+            }
+            .padding(.horizontal, theme.spacing.s)
+            .frame(height: 44)
+        }
+    }
+
     @ViewBuilder
     private func workspaceScreen() -> some View {
-        if let workspaceContext = viewModel.workspaceContext {
-            WorkspacePanelView(
-                viewModel: viewModel.workspacePanelViewModel,
-                context: workspaceContext,
-                onOpenTerminal: { viewModel.toggleTerminalForSelectedTab() }
+        switch workspaceSidePanelDestination {
+        case .picker:
+            WorkspaceSidePanelPickerView(
+                hasProject: viewModel.workspaceContext != nil,
+                onSelect: selectWorkspaceSidePanelItem
             )
+        case .review, .browser, .files:
+            if let workspaceContext = viewModel.workspaceContext {
+                WorkspacePanelView(
+                    viewModel: viewModel.workspacePanelViewModel,
+                    context: workspaceContext,
+                    onOpenTerminal: { viewModel.openBottomPanel(.terminal) }
+                )
+            } else {
+                WorkspaceUnavailableView()
+            }
+        case .sideChat:
+            workspaceSideChat
+        }
+    }
+
+    @ViewBuilder
+    private var workspaceSideChat: some View {
+        if let sideChatViewModel {
+            ZStack(alignment: .bottom) {
+                ChatScreen(
+                    viewModel: sideChatViewModel,
+                    showsContextToolbar: false,
+                    showsNavigationToolbar: false
+                )
+
+                ChatComposerOverlay(
+                    viewModel: sideChatViewModel,
+                    contentWidth: 340,
+                    composerBottomInset: theme.spacing.m,
+                    tabs: [],
+                    tabActions: nil
+                )
+            }
         } else {
             WorkspaceUnavailableView()
         }

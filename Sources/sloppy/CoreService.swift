@@ -273,8 +273,12 @@ public actor CoreService {
     var sessionToolUsageLimitBypass: Set<String> = []
     /// Autonomous worker sessions allowed to use already-scoped project permissions without interactive tool approval.
     var sessionToolApprovalBypass: Set<String> = []
+    /// Interactive ACP sessions that require approval for Sloppy's risky tool set.
+    var sessionToolApprovalRequired: Set<String> = []
     /// Tool approvals granted for the lifetime of an agent session/channel, keyed by agent and session scope.
     var toolApprovalSessionAllowances: [String: Set<ToolApprovalGrant>] = [:]
+    /// Optional interactive surface for approvals created by an embedded protocol client such as ACP.
+    var toolApprovalPresenter: (@Sendable (ToolApprovalRecord) async -> ToolApprovalPresentationDecision?)?
     /// Prevents overlapping memory checkpoints per agent/session pair.
     var memoryCheckpointLocks: Set<String> = []
     /// Background sessions started by TUI `/bg`; owned by CoreService so screen teardown does not cancel them.

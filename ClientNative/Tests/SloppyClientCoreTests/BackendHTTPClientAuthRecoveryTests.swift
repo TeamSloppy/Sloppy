@@ -250,6 +250,44 @@ struct BackendHTTPClientAuthRecoveryTests {
         #expect(await store.session(for: baseURL) == nil)
     }
 
+    @Test("device pairing exchanges a one-time token and installs the returned session")
+    func redeemsDevicePairing() async throws {
+        let baseURL = try #require(URL(string: "https://pairing.sloppy.test"))
+        let store = AuthSessionStore(persistence: .memory)
+        let returnedSession = AuthSession(
+            accessToken: "paired-access",
+            refreshToken: "paired-refresh"
+        )
+
+        StubURLProtocol.install { request in
+            guard request.url?.path == "/v1/auth/device-pairing/redeem",
+                  request.httpMethod == "POST",
+                  String(data: request.httpBody ?? Data(), encoding: .utf8)?.contains("slp_pair_once") == true else {
+                return try Self.response(for: request, status: 400, body: Data())
+            }
+            let encoder = JSONEncoder()
+            encoder.dateEncodingStrategy = .iso8601
+            return try Self.response(
+                for: request,
+                status: 200,
+                body: encoder.encode(returnedSession)
+            )
+        }
+        defer { StubURLProtocol.reset() }
+
+        let client = SloppyAPIClient(
+            baseURL: baseURL,
+            session: Self.makeSession(),
+            authSessionStore: store
+        )
+
+        let session = try await client.redeemDevicePairing(token: "slp_pair_once")
+
+        #expect(session == returnedSession)
+        #expect(await client.currentAccessToken() == "paired-access")
+        #expect(await store.session(for: baseURL) == returnedSession)
+    }
+
     private static func makeSession() -> URLSession {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]

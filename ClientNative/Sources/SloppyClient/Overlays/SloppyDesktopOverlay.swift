@@ -343,7 +343,7 @@ private final class SloppyNotchPanel: NSPanel {
 private struct SloppyDesktopNotchView: View {
     static let collapsedSize = CGSize(width: 164, height: 32)
     static let expandedSize = CGSize(width: 340, height: 148)
-    static let wideWidth: CGFloat = 520
+    static let wideWidth: CGFloat = 480
 
     static func size(for state: SloppyDesktopOverlayState) -> CGSize {
         guard state.isExpanded else {

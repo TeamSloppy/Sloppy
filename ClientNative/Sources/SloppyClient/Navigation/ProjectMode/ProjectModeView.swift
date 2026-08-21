@@ -25,39 +25,9 @@ struct ProjectModeView: View {
 
     private var projectModeChrome: some View {
         ZStack {
-            HStack(spacing: 2) {
-                ForEach(ProjectModeSection.allCases) { section in
-                    Button {
-                        onSelectSection(section)
-                    } label: {
-                        Label(section.title, systemImage: section.systemImage)
-                            .font(.system(size: theme.typography.caption, weight: .semibold))
-                            .lineLimit(1)
-                            .padding(.horizontal, 14)
-                            .frame(minHeight: 32)
-                            .contentShape(Capsule())
-                            .background {
-                                if state.selectedSection == section {
-                                    Capsule()
-                                        .fill(theme.colors.surfaceRaised)
-                                        .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
-                                }
-                            }
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(
-                        state.selectedSection == section
-                            ? theme.colors.textPrimary
-                            : theme.colors.textSecondary
-                    )
-                    .accessibilityIdentifier("project-mode-\(section.rawValue)")
-                }
-            }
-            .padding(3)
-            .background(.regularMaterial, in: Capsule())
-            .overlay {
-                Capsule()
-                    .stroke(theme.colors.border.opacity(0.7), lineWidth: theme.borders.thin)
+            ViewThatFits(in: .horizontal) {
+                projectModePicker(showsTitles: true)
+                projectModePicker(showsTitles: false)
             }
 
             if state.selectedSection == .workspaces,
@@ -85,6 +55,53 @@ struct ProjectModeView: View {
         }
     }
 
+    private func projectModePicker(showsTitles: Bool) -> some View {
+        HStack(spacing: 2) {
+            ForEach(ProjectModeSection.allCases) { section in
+                Button {
+                    onSelectSection(section)
+                } label: {
+                    projectModeLabel(section, showsTitle: showsTitles)
+                        .font(.system(size: theme.typography.caption, weight: .semibold))
+                        .lineLimit(1)
+                        .padding(.horizontal, showsTitles ? 14 : 12)
+                        .frame(minHeight: 32)
+                        .contentShape(Capsule())
+                        .background {
+                            if state.selectedSection == section {
+                                Capsule()
+                                    .fill(theme.colors.surfaceRaised)
+                                    .shadow(color: .black.opacity(0.2), radius: 4, y: 2)
+                            }
+                        }
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(
+                    state.selectedSection == section
+                        ? theme.colors.textPrimary
+                        : theme.colors.textSecondary
+                )
+                .accessibilityIdentifier("project-mode-\(section.rawValue)")
+            }
+        }
+        .padding(3)
+        .background(.regularMaterial, in: Capsule())
+        .overlay {
+            Capsule()
+                .stroke(theme.colors.border.opacity(0.7), lineWidth: theme.borders.thin)
+        }
+    }
+
+    @ViewBuilder
+    private func projectModeLabel(_ section: ProjectModeSection, showsTitle: Bool) -> some View {
+        if showsTitle {
+            Label(section.title, systemImage: section.systemImage)
+        } else {
+            Label(section.title, systemImage: section.systemImage)
+                .labelStyle(.iconOnly)
+        }
+    }
+
     private var projectContent: some View {
         ZStack {
             ProjectKanbanView(
@@ -100,6 +117,13 @@ struct ProjectModeView: View {
                 allowsProjectSelection: false
             )
             .projectModeVisibility(state.selectedSection == .workspaces)
+
+            ProjectAutomationView(
+                viewModel: state.automationViewModel,
+                projectId: project.id,
+                projectName: project.name
+            )
+            .projectModeVisibility(state.selectedSection == .automation)
 
             ChatScreen(
                 viewModel: state.chatViewModel,

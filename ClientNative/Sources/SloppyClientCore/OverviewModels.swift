@@ -74,6 +74,8 @@ public struct APIProjectRecord: Codable, Sendable, Identifiable {
     public var tasks: [APIProjectTask]?
     public var actors: [String]?
     public var teams: [String]?
+    public var isFavorite: Bool
+    public var isArchived: Bool
 
     public var projectRootPath: String? {
         directoryPaths.first ?? worktreeRootPath ?? repoPath
@@ -127,7 +129,9 @@ public struct APIProjectRecord: Codable, Sendable, Identifiable {
         channels: [APIProjectChannel]? = nil,
         tasks: [APIProjectTask]? = nil,
         actors: [String]? = nil,
-        teams: [String]? = nil
+        teams: [String]? = nil,
+        isFavorite: Bool = false,
+        isArchived: Bool = false
     ) {
         self.id = id
         self.name = name
@@ -141,11 +145,13 @@ public struct APIProjectRecord: Codable, Sendable, Identifiable {
         self.tasks = tasks
         self.actors = actors
         self.teams = teams
+        self.isFavorite = isFavorite
+        self.isArchived = isArchived
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, description, icon, kind, directoryPaths, repoPath, worktreeRootPath
-        case channels, tasks, actors, teams
+        case channels, tasks, actors, teams, isFavorite, isArchived
     }
 
     public init(from decoder: Decoder) throws {
@@ -162,6 +168,8 @@ public struct APIProjectRecord: Codable, Sendable, Identifiable {
         tasks = try container.decodeIfPresent([APIProjectTask].self, forKey: .tasks)
         actors = try container.decodeIfPresent([String].self, forKey: .actors)
         teams = try container.decodeIfPresent([String].self, forKey: .teams)
+        isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
+        isArchived = try container.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
     }
 }
 
@@ -208,17 +216,23 @@ public struct APIProjectUpdateRequest: Codable, Sendable, Equatable {
     public var description: String?
     public var kind: APIProjectKind?
     public var directoryPaths: [String]?
+    public var isFavorite: Bool?
+    public var isArchived: Bool?
 
     public init(
         name: String? = nil,
         description: String? = nil,
         kind: APIProjectKind? = nil,
-        directoryPaths: [String]? = nil
+        directoryPaths: [String]? = nil,
+        isFavorite: Bool? = nil,
+        isArchived: Bool? = nil
     ) {
         self.name = name
         self.description = description
         self.kind = kind
         self.directoryPaths = directoryPaths
+        self.isFavorite = isFavorite
+        self.isArchived = isArchived
     }
 }
 
@@ -244,6 +258,14 @@ public struct APIProjectTaskCreateRequest: Codable, Sendable, Equatable {
         self.status = status
         self.actorId = actorId
         self.tags = tags
+    }
+}
+
+public struct APIProjectTaskUpdateRequest: Codable, Sendable, Equatable {
+    public var status: String?
+
+    public init(status: String? = nil) {
+        self.status = status
     }
 }
 
@@ -347,6 +369,16 @@ public enum ProjectKanbanColumnID: String, CaseIterable, Hashable, Sendable {
         case .needsReview: "Needs Review"
         case .done: "Done"
         case .other: "Other"
+        }
+    }
+
+    public var taskStatus: String {
+        switch self {
+        case .todo: "ready"
+        case .inProgress: "in_progress"
+        case .needsReview: "needs_review"
+        case .done: "done"
+        case .other: "blocked"
         }
     }
 }

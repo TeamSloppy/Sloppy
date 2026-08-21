@@ -42,21 +42,28 @@ extension RuntimeSystem {
         }
 
         let tracker = StreamActivityTracker()
+        let responseStartedAt = Date()
 
         do {
             try Task.checkCancellation()
 
-            let session = try await getOrCreateSession(
+            async let preparedSession = getOrCreateSession(
                 channelId: channelId,
                 activeModel: activeModel,
                 modelProvider: modelProvider,
                 includeTools: toolInvoker != nil
             )
+            async let recalledUserMessage = userMessageWithAutoRecalledMemory(
+                channelId: channelId,
+                userMessage: userMessage
+            )
+            let (session, modelUserMessage) = try await (preparedSession, recalledUserMessage)
 
             if let invoker = toolInvoker {
                 let observingHandler: @Sendable (ToolInvocationRequest) async -> ToolInvocationResult = { request in
                     await self.logNativeToolCallDecoded(channelId: channelId, model: activeModel, request: request)
-                    await tracker.toolStarted()
+                    let toolCallID = request.argumentDiagnostics?.toolCallId ?? UUID().uuidString
+                    await tracker.toolStarted(id: toolCallID)
                     if let observationHandler {
                         await observationHandler(.toolCall(request))
                     }
@@ -64,7 +71,7 @@ extension RuntimeSystem {
                     if let observationHandler {
                         await observationHandler(.toolResult(result))
                     }
-                    await tracker.toolFinished(result: result)
+                    await tracker.toolFinished(id: toolCallID, result: result)
                     return result
                 }
                 session.toolExecutionDelegate = makeToolExecutionDelegate(
@@ -80,10 +87,6 @@ extension RuntimeSystem {
             let options = modelProvider.generationOptions(for: activeModel, maxTokens: 1024, reasoningEffort: reasoningEffort)
             let transcriptSize = session.transcript.count
             let streamMode = toolInvoker != nil ? "native_tool_stream" : "respond_stream"
-            let modelUserMessage = await userMessageWithAutoRecalledMemory(
-                channelId: channelId,
-                userMessage: userMessage
-            )
             contextLedgerByChannel[channelId] = await makeContextLedgerSnapshot(
                 channelId: channelId,
                 userMessage: modelUserMessage,
@@ -123,8 +126,7 @@ extension RuntimeSystem {
                     }
                     group.addTask { @Sendable [tracker] in
                         for try await snapshot in responseStream {
-                            await tracker.touchChunk()
-                            await tracker.update(content: snapshot.content)
+                            await tracker.recordChunk(content: snapshot.content)
                             if let onResponseChunk {
                                 let shouldContinue = await onResponseChunk(snapshot.content)
                                 if !shouldContinue {
@@ -191,7 +193,8 @@ extension RuntimeSystem {
                     if let invoker = toolInvoker {
                         let observingHandler: @Sendable (ToolInvocationRequest) async -> ToolInvocationResult = { request in
                             await self.logNativeToolCallDecoded(channelId: channelId, model: activeModel, request: request)
-                            await tracker.toolStarted()
+                            let toolCallID = request.argumentDiagnostics?.toolCallId ?? UUID().uuidString
+                            await tracker.toolStarted(id: toolCallID)
                             if let observationHandler {
                                 await observationHandler(.toolCall(request))
                             }
@@ -199,7 +202,7 @@ extension RuntimeSystem {
                             if let observationHandler {
                                 await observationHandler(.toolResult(result))
                             }
-                            await tracker.toolFinished(result: result)
+                            await tracker.toolFinished(id: toolCallID, result: result)
                             return result
                         }
                         freshSession.toolExecutionDelegate = makeToolExecutionDelegate(
@@ -612,6 +615,11 @@ extension RuntimeSystem {
             }
 
             await channels.appendSystemMessage(channelId: channelId, content: latest)
+            await performanceTelemetry.record(await tracker.performanceSample(
+                channelId: channelId,
+                model: activeModel,
+                streamStartedAt: responseStartedAt
+            ))
             await nativeLoopOutcomeHandler?(await tracker.nativeLoopOutcome(
                 maxToolRounds: nativeLoopConfig.maxToolRounds,
                 finishedNaturally: true,

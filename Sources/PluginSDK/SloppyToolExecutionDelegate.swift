@@ -9,6 +9,18 @@ import Protocols
 /// to `[String: JSONValue]`, invokes the tool via the provided handler, and returns the
 /// encoded result as structured output back to the session.
 public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
+    private actor PreparedDecisionStore {
+        private var decisions: [String: ToolExecutionDecision] = [:]
+
+        func replace(with prepared: [(String, ToolExecutionDecision)]) {
+            decisions = Dictionary(prepared, uniquingKeysWith: { _, latest in latest })
+        }
+
+        func take(for toolCallID: String) -> ToolExecutionDecision? {
+            decisions.removeValue(forKey: toolCallID)
+        }
+    }
+
     public struct ArgumentDiagnostic: Sendable, Equatable {
         public var toolCallId: String?
         public var toolName: String
@@ -45,6 +57,7 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
     private let generatedToolCallsHandler: (@Sendable ([Transcript.ToolCall]) async -> Void)?
     private let toolCallDecisionOverride: (@Sendable (Transcript.ToolCall) async -> ToolExecutionDecision?)?
     private let argumentDiagnosticsHandler: (@Sendable (ArgumentDiagnostic) async -> Void)?
+    private let preparedDecisionStore = PreparedDecisionStore()
 
     public init(
         toolNameMap: [String: String] = [:],
@@ -62,12 +75,42 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
 
     public func didGenerateToolCalls(_ toolCalls: [Transcript.ToolCall], in session: LanguageModelSession) async {
         await generatedToolCallsHandler?(toolCalls)
+        guard toolCalls.count > 1 else {
+            return
+        }
+
+        let prepared = await withTaskGroup(
+            of: (String, ToolExecutionDecision).self,
+            returning: [(String, ToolExecutionDecision)].self
+        ) { group in
+            for toolCall in toolCalls {
+                group.addTask {
+                    let decision = await resolveDecision(for: toolCall)
+                    return (toolCall.id, decision)
+                }
+            }
+
+            var results: [(String, ToolExecutionDecision)] = []
+            results.reserveCapacity(toolCalls.count)
+            for await result in group {
+                results.append(result)
+            }
+            return results
+        }
+        await preparedDecisionStore.replace(with: prepared)
     }
 
     public func toolCallDecision(
         for toolCall: Transcript.ToolCall,
         in session: LanguageModelSession
     ) async -> ToolExecutionDecision {
+        if let prepared = await preparedDecisionStore.take(for: toolCall.id) {
+            return prepared
+        }
+        return await resolveDecision(for: toolCall)
+    }
+
+    private func resolveDecision(for toolCall: Transcript.ToolCall) async -> ToolExecutionDecision {
         if let override = await toolCallDecisionOverride?(toolCall) {
             return override
         }

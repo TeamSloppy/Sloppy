@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { fetchActorsBoard, fetchAgents, fetchProjects, fetchAgentSessions, fetchChannelSessions } from "../api";
+import { fetchActorsBoard, fetchAgents, fetchProjects, fetchAgentSessions, fetchChannelSessions, fetchRuntimePerformance } from "../api";
 import { gatewayBindingChannelId } from "../shared/channelGatewayScope";
 import { Breadcrumbs } from "../components/Breadcrumbs/Breadcrumbs";
 import { LoadingSkeleton } from "../components/LoadingSkeleton";
@@ -1026,6 +1026,109 @@ function ClosedTasksSection({ projects }) {
   );
 }
 
+function formatTelemetryMs(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return "—";
+  return numeric >= 1000 ? `${(numeric / 1000).toFixed(1)}s` : `${Math.round(numeric)}ms`;
+}
+
+function TelemetryLineChart({ title, subtitle, samples, valueKey, secondaryKey, unit = "ms" }) {
+  const width = 640;
+  const height = 144;
+  const padding = 14;
+  const values = samples.flatMap((sample) => [Number(sample?.[valueKey]), Number(sample?.[secondaryKey])])
+    .filter(Number.isFinite);
+  const maxValue = Math.max(...values, 1);
+  const pointsFor = (key) => samples.map((sample, index) => {
+    const x = padding + (index / Math.max(1, samples.length - 1)) * (width - padding * 2);
+    const raw = Number(sample?.[key]);
+    const value = Number.isFinite(raw) ? raw : 0;
+    const y = height - padding - (value / maxValue) * (height - padding * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(" ");
+
+  return (
+    <article className="performance-chart-card">
+      <div className="performance-chart-heading">
+        <div>
+          <h3>{title}</h3>
+          <p>{subtitle}</p>
+        </div>
+        <span>{unit === "x" ? `${maxValue.toFixed(0)}x peak` : formatTelemetryMs(maxValue)}</span>
+      </div>
+      {samples.length > 0 ? (
+        <svg className="performance-chart" viewBox={`0 0 ${width} ${height}`} role="img" aria-label={title} preserveAspectRatio="none">
+          <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding} className="performance-chart-axis" />
+          {secondaryKey && <polyline points={pointsFor(secondaryKey)} className="performance-chart-line secondary" />}
+          <polyline points={pointsFor(valueKey)} className="performance-chart-line primary" />
+        </svg>
+      ) : (
+        <div className="performance-chart-empty">Telemetry appears after the next model response.</div>
+      )}
+    </article>
+  );
+}
+
+function PerformanceTelemetrySection() {
+  const [snapshot, setSnapshot] = useState(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    async function refresh() {
+      const next = await fetchRuntimePerformance(60).catch(() => null);
+      if (!cancelled && next) setSnapshot(next);
+    }
+    refresh();
+    const timer = window.setInterval(refresh, 5000);
+    return () => {
+      cancelled = true;
+      window.clearInterval(timer);
+    };
+  }, []);
+
+  const samples = Array.isArray(snapshot?.samples) ? snapshot.samples : [];
+  const summary = snapshot?.summary || {};
+  return (
+    <section className="overview-section performance-telemetry-section">
+      <div className="overview-section-header">
+        <h2><span className="material-symbols-rounded">monitoring</span>Runtime performance</h2>
+        <span className="overview-section-period">Live · 5s refresh · {samples.length} runs</span>
+      </div>
+      <div className="performance-kpi-grid">
+        <div><span>TTFT avg / p95</span><strong>{formatTelemetryMs(summary.averageTimeToFirstTokenMs)} / {formatTelemetryMs(summary.p95TimeToFirstTokenMs)}</strong></div>
+        <div><span>Delta interval</span><strong>{formatTelemetryMs(summary.averageDeltaIntervalMs)}</strong></div>
+        <div><span>Generation</span><strong>{formatTelemetryMs(summary.averageGenerationDurationMs)}</strong></div>
+        <div><span>Text throughput</span><strong>{Number(summary.averageCharactersPerSecond || 0).toFixed(0)} char/s</strong></div>
+        <div><span>Tool calls</span><strong>{Number(summary.totalToolCalls || 0)}</strong></div>
+        <div><span>Peak tool parallelism</span><strong>{Number(summary.peakParallelToolCalls || 0)}x</strong></div>
+      </div>
+      <div className="performance-chart-grid">
+        <TelemetryLineChart
+          title="Response latency"
+          subtitle="TTFT (bright) and full generation (muted)"
+          samples={samples}
+          valueKey="timeToFirstTokenMs"
+          secondaryKey="generationDurationMs"
+        />
+        <TelemetryLineChart
+          title="Delta cadence"
+          subtitle="Average (bright) and worst inter-delta gap (muted)"
+          samples={samples}
+          valueKey="averageDeltaIntervalMs"
+          secondaryKey="maxDeltaIntervalMs"
+        />
+        <TelemetryLineChart
+          title="Tool parallelism"
+          subtitle="Concurrent tool calls observed in each run"
+          samples={samples}
+          valueKey="maxParallelToolCalls"
+          unit="x"
+        />
+      </div>
+    </section>
+  );
+}
+
 // ─── Main View ────────────────────────────────────────────────────────────────
 
 export function RuntimeOverviewView({ workers, events, onNavigateToProject, onNavigateToChannelSession, onNavigateToBots, onNavigateToAgent }) {
@@ -1088,6 +1191,8 @@ export function RuntimeOverviewView({ workers, events, onNavigateToProject, onNa
         <LoadingSkeleton label="Loading runtime overview…" variant="page" rows={4} />
       ) : (
         <>
+          <PerformanceTelemetrySection />
+
           <ActiveChannelsSection
             agents={agents}
             sessions={sessions}

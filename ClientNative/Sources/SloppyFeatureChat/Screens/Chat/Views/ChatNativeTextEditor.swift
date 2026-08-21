@@ -869,7 +869,7 @@ final class ComposerNSScrollView: NSScrollView {
 
 @MainActor
 final class ComposerNSTextView: NSTextView {
-    let placeholderLabel = NSTextField(labelWithString: "")
+    let placeholderLabel = ComposerPlaceholderLabel(labelWithString: "")
     var placeholder: String? {
         didSet {
             placeholderLabel.stringValue = placeholder ?? ""
@@ -898,6 +898,11 @@ final class ComposerNSTextView: NSTextView {
         super.layout()
         layoutPlaceholder()
         onLayout?()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        window?.makeFirstResponder(self)
+        super.mouseDown(with: event)
     }
 
     override func keyDown(with event: NSEvent) {
@@ -1012,6 +1017,13 @@ final class ComposerNSTextView: NSTextView {
             location: location,
             length: min(max(range.length, 0), length - location)
         )
+    }
+}
+
+@MainActor
+final class ComposerPlaceholderLabel: NSTextField {
+    override func hitTest(_ point: NSPoint) -> NSView? {
+        nil
     }
 }
 #endif

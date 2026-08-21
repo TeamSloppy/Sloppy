@@ -165,6 +165,28 @@ public final class ProjectKanbanViewModel {
         apply(project: project)
     }
 
+    public func moveTask(
+        id taskID: String,
+        to columnID: ProjectKanbanColumnID,
+        projectId: String
+    ) async {
+        guard let task = tasks.first(where: { $0.id == taskID }),
+              task.normalizedKanbanColumnID != columnID else {
+            return
+        }
+
+        do {
+            let project = try await apiClient.updateProjectTask(
+                projectId: projectId,
+                taskId: taskID,
+                request: APIProjectTaskUpdateRequest(status: columnID.taskStatus)
+            )
+            apply(project: project)
+        } catch {
+            errorMessage = "Could not update task status."
+        }
+    }
+
     public func columns(matching filters: ProjectKanbanFilters) -> [ProjectKanbanColumn] {
         Self.buildColumns(from: tasks, filters: filters)
     }

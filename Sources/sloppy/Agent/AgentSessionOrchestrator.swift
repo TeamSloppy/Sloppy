@@ -36,6 +36,73 @@ private actor LastTokenUsageBox {
     }
 }
 
+private actor ACPRunPerformanceTracker {
+    private let startedAt = Date()
+    private var firstChunkAt: Date?
+    private var previousChunkAt: Date?
+    private var intervalTotalMs = 0
+    private var intervalCount = 0
+    private var worstIntervalMs = 0
+    private var chunks = 0
+    private var latestContent = ""
+    private var toolCalls = 0
+    private var activeToolCalls = 0
+    private var peakToolCalls = 0
+    private var failedToolCalls = 0
+
+    func recordChunk(snapshot: String) {
+        let now = Date()
+        if firstChunkAt == nil {
+            firstChunkAt = now
+        }
+        if let previousChunkAt {
+            let interval = max(0, Int((now.timeIntervalSince(previousChunkAt) * 1000).rounded()))
+            intervalTotalMs += interval
+            intervalCount += 1
+            worstIntervalMs = max(worstIntervalMs, interval)
+        }
+        previousChunkAt = now
+        latestContent = snapshot
+        chunks += 1
+    }
+
+    func record(event: AgentSessionEvent) {
+        if event.type == .toolCall {
+            toolCalls += 1
+            activeToolCalls += 1
+            peakToolCalls = max(peakToolCalls, activeToolCalls)
+        } else if event.type == .toolResult {
+            activeToolCalls = max(0, activeToolCalls - 1)
+            if event.toolResult?.ok == false {
+                failedToolCalls += 1
+            }
+        }
+    }
+
+    func sample(channelId: String, model: String) -> RuntimePerformanceSample {
+        let finishedAt = Date()
+        let durationMs = max(0, Int((finishedAt.timeIntervalSince(startedAt) * 1000).rounded()))
+        return RuntimePerformanceSample(
+            channelId: channelId,
+            model: model,
+            timeToFirstTokenMs: firstChunkAt.map { max(0, Int(($0.timeIntervalSince(startedAt) * 1000).rounded())) },
+            generationDurationMs: durationMs,
+            outputCharacters: latestContent.count,
+            streamChunks: chunks,
+            averageDeltaIntervalMs: intervalCount > 0
+                ? Int((Double(intervalTotalMs) / Double(intervalCount)).rounded())
+                : nil,
+            maxDeltaIntervalMs: intervalCount > 0 ? worstIntervalMs : nil,
+            charactersPerSecond: Double(latestContent.count) / max(0.001, Double(durationMs) / 1000),
+            toolCallCount: toolCalls,
+            toolBatchCount: toolCalls > 0 ? 1 : 0,
+            maxParallelToolCalls: peakToolCalls,
+            averageToolDurationMs: nil,
+            failedToolCalls: failedToolCalls
+        )
+    }
+}
+
 actor AgentSessionOrchestrator {
     private static let sessionContextBootstrapMarker = "[agent_session_context_bootstrap_v1]"
     typealias ToolInvoker = @Sendable (String, String, ToolInvocationRequest, AgentChatMode?) async -> ToolInvocationResult
@@ -429,6 +496,8 @@ actor AgentSessionOrchestrator {
                 throw OrchestratorError.storageFailure
             }
             do {
+                let performanceTracker = ACPRunPerformanceTracker()
+                let performanceChannelID = self.sessionChannelID(agentID: agentID, sessionID: sessionID)
                 let blocks = makeACPContentBlocks(
                     agentID: agentID,
                     sessionID: sessionID,
@@ -448,6 +517,7 @@ actor AgentSessionOrchestrator {
                     chatMode: requestMode,
                     onChunk: { [weak self] partialText in
                         guard let self else { return }
+                        await performanceTracker.recordChunk(snapshot: partialText)
                         _ = await self.handleSessionResponseChunk(
                             agentID: agentID,
                             sessionID: sessionID,
@@ -457,9 +527,14 @@ actor AgentSessionOrchestrator {
                     },
                     onEvent: { [weak self] event in
                         guard let self else { return }
+                        await performanceTracker.record(event: event)
                         await self.appendEventsSafely(agentID: agentID, sessionID: sessionID, events: [event])
                     }
                 )
+                await runtime.performanceTelemetry.record(await performanceTracker.sample(
+                    channelId: performanceChannelID,
+                    model: "acp:\(agentConfig.runtime.acp?.targetId ?? "unknown")"
+                ))
                 runtimeOutcome = SessionRuntimeOutcome(
                     assistantText: result.assistantText.isEmpty && result.stopReason != .cancelled
                         ? "Done."

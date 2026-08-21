@@ -4,7 +4,18 @@ import Protocols
 
 // MARK: - Tool Approvals
 
+enum ToolApprovalPresentationDecision: Sendable, Equatable {
+    case approve(ToolApprovalDecisionScope)
+    case reject
+}
+
 extension CoreService: ToolApprovalBridge {
+    func setToolApprovalPresenter(
+        _ presenter: (@Sendable (ToolApprovalRecord) async -> ToolApprovalPresentationDecision?)?
+    ) {
+        toolApprovalPresenter = presenter
+    }
+
     public func listPendingToolApprovals() async -> [ToolApprovalRecord] {
         await toolApprovalService.listPending()
     }
@@ -49,6 +60,7 @@ extension CoreService: ToolApprovalBridge {
         channelID: String?,
         topicID: String?,
         request: ToolInvocationRequest,
+        toolCallID: String? = nil,
         requireApproval: Bool
     ) async -> ToolApprovalWaitResult? {
         guard requireApproval, requiresHumanApproval(toolID: request.tool, arguments: request.arguments) else {
@@ -70,6 +82,7 @@ extension CoreService: ToolApprovalBridge {
             displaySessionId: displaySessionID,
             channelId: channelID,
             topicId: topicID,
+            toolCallId: toolCallID,
             request: request,
             approvalKind: .riskyTool
         )
@@ -88,6 +101,7 @@ extension CoreService: ToolApprovalBridge {
             )
         }
         _ = await channelDelivery.presentToolApproval(record)
+        await resolveToolApprovalThroughPresenter(record)
         let result = await toolApprovalService.waitForDecision(id: record.id)
         if case .timedOut(let timedOut) = result {
             _ = await channelDelivery.updateToolApproval(timedOut)
@@ -244,11 +258,26 @@ extension CoreService: ToolApprovalBridge {
             )
         }
         _ = await channelDelivery.presentToolApproval(record)
+        await resolveToolApprovalThroughPresenter(record)
         let result = await toolApprovalService.waitForDecision(id: record.id)
         if case .timedOut(let timedOut) = result {
             _ = await channelDelivery.updateToolApproval(timedOut)
         }
         return result
+    }
+
+    private func resolveToolApprovalThroughPresenter(_ record: ToolApprovalRecord) async {
+        guard let toolApprovalPresenter,
+              let decision = await toolApprovalPresenter(record)
+        else {
+            return
+        }
+        switch decision {
+        case .approve(let scope):
+            _ = await approveToolApproval(id: record.id, decidedBy: "acp", scope: scope)
+        case .reject:
+            _ = await rejectToolApproval(id: record.id, decidedBy: "acp")
+        }
     }
 
     func applyApprovalGrants(
@@ -322,6 +351,17 @@ extension CoreService: ToolApprovalBridge {
             sessionToolApprovalBypass.insert(sessionID)
         } else {
             sessionToolApprovalBypass.remove(sessionID)
+        }
+    }
+
+    func setSessionToolApprovalRequired(sessionID: String, enabled: Bool) {
+        guard let sessionID = normalizedSessionID(sessionID) else {
+            return
+        }
+        if enabled {
+            sessionToolApprovalRequired.insert(sessionID)
+        } else {
+            sessionToolApprovalRequired.remove(sessionID)
         }
     }
 

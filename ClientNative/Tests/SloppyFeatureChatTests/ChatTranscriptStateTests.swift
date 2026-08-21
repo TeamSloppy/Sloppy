@@ -64,6 +64,9 @@ struct ChatTranscriptStateTests {
         #expect(transcript.messages.last?.id == "msg-149")
         #expect(transcript.hasEarlierMessages == true)
         #expect(transcript.hiddenMessageCount == 86)
+        #expect(transcript.entries.count == 64)
+        #expect(transcript.renderRevision > 0)
+        #expect(transcript.identityRevision > 0)
     }
 
     @Test("append keeps the recent window and newer messages visible")
@@ -98,11 +101,16 @@ struct ChatTranscriptStateTests {
         let transcript = ChatTranscriptState()
 
         transcript.appendStreamingAssistantText("Hello", messageId: "streaming-assistant-session")
+        let identityRevision = transcript.identityRevision
+        let renderRevision = transcript.renderRevision
         transcript.appendStreamingAssistantText(", world", messageId: "streaming-assistant-session")
 
         #expect(transcript.messages.count == 1)
         #expect(transcript.messages.first?.role == .assistant)
         #expect(transcript.messages.first?.textContent == "Hello, world")
+        #expect(transcript.identityRevision == identityRevision)
+        #expect(transcript.renderRevision > renderRevision)
+        #expect(transcript.entries.first?.id == "message:streaming-assistant-session")
     }
 
     @Test("history reconciliation preserves optimistic and streamed messages")

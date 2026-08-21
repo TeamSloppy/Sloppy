@@ -2036,6 +2036,7 @@ export function ProjectSettingsTab({
         const providerId = taskSyncDraft.providerId || "github";
         const isStartrek = providerId === "startrek";
         const providerName = taskSyncProviders.find((provider) => provider.id === providerId)?.displayName || providerId;
+        const taskSyncLinked = Boolean(taskSyncDraft.enabled && providerId && linkedProjects.length > 0);
         return (
             <section className="entry-editor-card">
                 <h3>{providerName}</h3>
@@ -2242,7 +2243,8 @@ export function ProjectSettingsTab({
                     <button
                         type="button"
                         className="hover-levitate"
-                        disabled={taskSyncBusy}
+                        disabled={taskSyncBusy || !taskSyncLinked}
+                        title={taskSyncLinked ? "Run a full task sync" : "Link and save the external source first"}
                         onClick={async () => {
                             const result = await runTaskSyncAction(() => syncProjectTasksNow(project.id));
                             setStatusText(result ? "Manual sync finished" : "Manual sync failed");

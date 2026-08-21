@@ -176,6 +176,16 @@ public actor AuthService {
         )
     }
 
+    public func redeemDevicePairing(token: String) async throws -> AuthSession {
+        struct Payload: Encodable {
+            var token: String
+        }
+        return try await http.post(
+            "/v1/auth/device-pairing/redeem",
+            body: Payload(token: token.trimmingCharacters(in: .whitespacesAndNewlines))
+        )
+    }
+
     public func fetchCurrentUser() async throws -> AuthUserProfile {
         try await http.get("/v1/auth/me")
     }
@@ -225,12 +235,35 @@ public actor ProjectService {
         )
     }
 
+    public func deleteProject(id: String) async throws {
+        try await http.delete("/v1/projects/\(BackendHTTPClient.encodePathSegment(id))")
+    }
+
+    public func createPermanentWorktree(projectId: String, taskId: String) async throws -> ProjectWorktreeRecord {
+        let response: ProjectWorktreeCreateResponse = try await http.post(
+            "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/source-control/worktrees",
+            body: ProjectWorktreeCreateRequest(taskId: taskId)
+        )
+        return response.worktree
+    }
+
     public func createTask(
         projectId: String,
         request: APIProjectTaskCreateRequest
     ) async throws -> APIProjectRecord {
         try await http.post(
             "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/tasks",
+            body: request
+        )
+    }
+
+    public func updateTask(
+        projectId: String,
+        taskId: String,
+        request: APIProjectTaskUpdateRequest
+    ) async throws -> APIProjectRecord {
+        try await http.patch(
+            "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/tasks/\(BackendHTTPClient.encodePathSegment(taskId))",
             body: request
         )
     }

@@ -50,6 +50,16 @@
                ReferencedContainer = "container:">
             </BuildableReference>
          </TestableReference>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "SloppyFeatureProjectsTests"
+               BuildableName = "SloppyFeatureProjectsTests"
+               BlueprintName = "SloppyFeatureProjectsTests"
+               ReferencedContainer = "container:">
+            </BuildableReference>
+         </TestableReference>
       </Testables>
    </TestAction>
    <LaunchAction

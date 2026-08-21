@@ -19,6 +19,8 @@ struct WorkspaceTerminalLifecycleSourceTests {
         #expect(viewModel.contains("var terminalSessions: [WorkspaceTab.ID: WorkspaceTerminalSession] = [:]"))
         #expect(viewModel.contains("func toggleTerminalForSelectedTab()"))
         #expect(viewModel.contains("func openTerminalForSelectedTab()"))
+        #expect(viewModel.contains("terminalState.selectedPanel == .terminal"))
+        #expect(viewModel.contains("func openBottomPanel(_ panel: WorkspaceBottomPanelKind)"))
         #expect(viewModel.contains("func closeTerminalForSelectedTab()"))
         #expect(viewModel.contains("func ensureTerminalSessionStarted(for tabID: WorkspaceTab.ID)"))
     }

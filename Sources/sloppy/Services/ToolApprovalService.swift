@@ -19,6 +19,7 @@ actor ToolApprovalService {
     private let eventBus: EventBus
     private let notificationService: NotificationService
     private var pending: [String: PendingApproval] = [:]
+    private var resolvedBeforeWait: [String: ToolApprovalRecord] = [:]
     private let isoFormatter = ISO8601DateFormatter()
 
     init(eventBus: EventBus, notificationService: NotificationService) {
@@ -39,6 +40,7 @@ actor ToolApprovalService {
         displaySessionId: String? = nil,
         channelId: String?,
         topicId: String?,
+        toolCallId: String? = nil,
         request: ToolInvocationRequest,
         approvalKind: ToolApprovalKind? = nil,
         grants: [ToolApprovalGrant] = [],
@@ -53,6 +55,7 @@ actor ToolApprovalService {
             displaySessionId: displaySessionId,
             channelId: channelId,
             topicId: topicId,
+            toolCallId: toolCallId,
             tool: request.tool,
             arguments: request.arguments,
             grants: grants,
@@ -71,6 +74,9 @@ actor ToolApprovalService {
     func waitForDecision(id: String, timeoutSeconds: TimeInterval = ToolApprovalService.defaultTimeoutSeconds) async -> ToolApprovalWaitResult {
         if let existing = pending[id]?.record, existing.status != .pending {
             return waitResult(for: existing)
+        }
+        if let resolved = resolvedBeforeWait.removeValue(forKey: id) {
+            return waitResult(for: resolved)
         }
 
         let timeoutNanoseconds = UInt64(max(0.1, timeoutSeconds) * 1_000_000_000)
@@ -124,6 +130,14 @@ actor ToolApprovalService {
 
         let result = waitResult(for: entry.record)
         let continuations = entry.continuations
+        if continuations.isEmpty {
+            resolvedBeforeWait[id] = entry.record
+            if resolvedBeforeWait.count > 256,
+               let oldestID = resolvedBeforeWait.min(by: { $0.value.updatedAt < $1.value.updatedAt })?.key
+            {
+                resolvedBeforeWait.removeValue(forKey: oldestID)
+            }
+        }
         pending[id]?.continuations.removeAll()
         if status != .pending {
             pending.removeValue(forKey: id)
@@ -173,6 +187,7 @@ actor ToolApprovalService {
         if let displaySessionId = record.displaySessionId { payload["displaySessionId"] = .string(displaySessionId) }
         if let channelId = record.channelId { payload["channelId"] = .string(channelId) }
         if let topicId = record.topicId { payload["topicId"] = .string(topicId) }
+        if let toolCallId = record.toolCallId { payload["toolCallId"] = .string(toolCallId) }
         if let reason = record.reason { payload["reason"] = .string(reason) }
         if let requestedBy = record.requestedBy { payload["requestedBy"] = .string(requestedBy) }
         if let decidedBy = record.decidedBy { payload["decidedBy"] = .string(decidedBy) }

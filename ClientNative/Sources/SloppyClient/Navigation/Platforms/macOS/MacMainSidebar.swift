@@ -1,4 +1,5 @@
 #if os(macOS)
+import Foundation
 import SloppyClientUI
 import SwiftUI
 
@@ -18,9 +19,19 @@ struct PlatformMainSidebar: View {
         }
         .refreshable { await viewModel.refreshContent() }
         .safeAreaInset(edge: .bottom) {
-            HStack {
+            HStack(spacing: theme.spacing.s) {
+                Text(accountInitials)
+                    .font(.system(size: theme.typography.micro, weight: .semibold))
+                    .foregroundColor(theme.colors.textPrimary)
+                    .frame(width: 32, height: 32)
+                    .background(theme.colors.accent, in: Circle())
 
-                Spacer()
+                Text(accountDisplayName)
+                    .font(.system(size: theme.typography.body, weight: .medium))
+                    .foregroundColor(theme.colors.textPrimary)
+                    .lineLimit(1)
+
+                Spacer(minLength: theme.spacing.s)
 
                 Button {
                     viewModel.onOpenSettings(.general)
@@ -28,20 +39,42 @@ struct PlatformMainSidebar: View {
                     Image(systemName: "gearshape")
                         .font(.system(size: theme.typography.heading))
                 }
+                .accessibilityLabel("Open settings")
             }
             .buttonStyle(.borderless)
-            .padding()
-            .frame(maxWidth: .infinity)
-            .frame(height: 56)
-            .background(
-                LinearGradient(colors: [
-                    Color.black.opacity(0.01),
-                    Color.black.opacity(0.1),
-                    Color.black.opacity(0.1),
-                ], startPoint: .top, endPoint: .bottom)
-                .blur(radius: 4)
-            )
+            .padding(.horizontal, theme.spacing.m)
+            .frame(maxWidth: .infinity, minHeight: 64)
+            .background(theme.colors.surfaceRaised.ignoresSafeArea(edges: .bottom))
+            .overlay(alignment: .top) {
+                Rectangle()
+                    .fill(theme.colors.borderBold)
+                    .frame(height: theme.borders.thin)
+            }
         }
+    }
+
+    private var accountDisplayName: String {
+        let profileName = viewModel.currentAuthUser?.name
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let profileName, !profileName.isEmpty {
+            return profileName
+        }
+
+        let login = viewModel.currentAuthUser?.login
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        if let login, !login.isEmpty {
+            return login
+        }
+
+        let localName = NSFullUserName().trimmingCharacters(in: .whitespacesAndNewlines)
+        return localName.isEmpty ? NSUserName() : localName
+    }
+
+    private var accountInitials: String {
+        let words = accountDisplayName.split(whereSeparator: \Character.isWhitespace)
+        let initials = words.prefix(2).compactMap(\.first)
+        guard !initials.isEmpty else { return "?" }
+        return String(initials).uppercased()
     }
 }
 

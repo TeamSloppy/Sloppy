@@ -105,6 +105,12 @@ struct SystemAPIRouter: APIRouter {
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: status)
         }
 
+        router.get("/v1/system/performance", metadata: RouteMetadata(summary: "Get runtime performance telemetry", description: "Returns recent model streaming and tool execution latency samples", tags: ["System"])) { request in
+            let requestedLimit = request.queryParam("limit").flatMap(Int.init) ?? 60
+            let snapshot = await service.runtimePerformanceSnapshot(limit: max(1, min(requestedLimit, 240)))
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: snapshot)
+        }
+
         router.get("/v1/channel/slash-commands", metadata: RouteMetadata(summary: "List channel slash commands", description: "Returns the same command metadata as Telegram/Discord channel plugins (ChannelCommandHandler)", tags: ["System"])) { _ in
             let items: [ChannelSlashCommandItem] = ChannelCommandHandler.commands.map { cmd in
                 ChannelSlashCommandItem(name: cmd.name, description: cmd.description, argument: cmd.argument)

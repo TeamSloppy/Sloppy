@@ -8,8 +8,10 @@ struct AuthenticationScreen: View {
     let challenge: AuthChallenge
     let initialMessage: String?
     let onAuthenticated: (URL) -> Void
+    let onScannedCode: (URL) -> Void
     let onChooseServer: () -> Void
 
+    @State private var authenticationMethod: AuthenticationMethod
     @State private var login = ""
     @State private var password = ""
     @State private var token = ""
@@ -17,8 +19,39 @@ struct AuthenticationScreen: View {
     @State private var errorMessage: String?
     @Environment(\.theme) private var theme
 
-    private var usesIdentityLogin: Bool {
-        challenge.mode == "login_password"
+    private enum AuthenticationMethod: String, CaseIterable, Identifiable {
+        case loginPassword
+        case qrCode
+        case dashboardToken
+
+        var id: String { rawValue }
+
+        var title: String {
+            switch self {
+            case .loginPassword: "Login"
+            case .qrCode: "QR"
+            case .dashboardToken: "Token"
+            }
+        }
+    }
+
+    init(
+        baseURL: URL,
+        challenge: AuthChallenge,
+        initialMessage: String?,
+        onAuthenticated: @escaping (URL) -> Void,
+        onScannedCode: @escaping (URL) -> Void,
+        onChooseServer: @escaping () -> Void
+    ) {
+        self.baseURL = baseURL
+        self.challenge = challenge
+        self.initialMessage = initialMessage
+        self.onAuthenticated = onAuthenticated
+        self.onScannedCode = onScannedCode
+        self.onChooseServer = onChooseServer
+        self._authenticationMethod = State(
+            initialValue: challenge.mode == "login_password" ? .loginPassword : .dashboardToken
+        )
     }
 
     var body: some View {
@@ -38,7 +71,7 @@ struct AuthenticationScreen: View {
                         .frame(width: 40, height: 40)
                         .foregroundColor(c.textMuted)
 
-                    Text(usesIdentityLogin ? "Sign in to Sloppy" : "Authenticate with Sloppy")
+                    Text("Sign in to Sloppy")
                         .font(.system(size: ty.title, weight: .semibold))
                         .foregroundColor(c.textPrimary)
 
@@ -57,20 +90,16 @@ struct AuthenticationScreen: View {
                             .regular.tint(c.statusWarning.opacity(0.15)),
                             in: RoundedRectangle(cornerRadius: 16, style: .continuous)
                         )
-                } else if usesIdentityLogin {
-                    VStack(spacing: sp.m) {
-                        authenticationField("Login", text: $login)
-                            .textContentType(.username)
-                        secureAuthenticationField("Password", text: $password)
-                            .textContentType(.password)
-                    }
                 } else {
-                    VStack(alignment: .leading, spacing: sp.s) {
-                        secureAuthenticationField("Dashboard access token", text: $token)
-                        Text("This server uses dashboard token authentication. Enter the token configured for this Sloppy Core.")
-                            .font(.system(size: ty.caption))
-                            .foregroundColor(c.textMuted)
+                    Picker("Authentication method", selection: $authenticationMethod) {
+                        ForEach(AuthenticationMethod.allCases) { method in
+                            Text(method.title).tag(method)
+                        }
                     }
+                    .pickerStyle(.segmented)
+                    .accessibilityIdentifier("authentication.method")
+
+                    authenticationMethodContent
                 }
 
                 if let message = errorMessage ?? initialMessage {
@@ -79,25 +108,27 @@ struct AuthenticationScreen: View {
                         .foregroundColor(errorMessage == nil ? c.textSecondary : c.statusBlocked)
                 }
 
-                Button {
-                    submit()
-                } label: {
-                    HStack {
-                        if isSubmitting {
-                            ProgressView()
-                                .controlSize(.small)
+                if authenticationMethod != .qrCode || challenge.bootstrapRequired {
+                    Button {
+                        submit()
+                    } label: {
+                        HStack {
+                            if isSubmitting {
+                                ProgressView()
+                                    .controlSize(.small)
+                            }
+                            Text(isSubmitting ? "SIGNING IN…" : "SIGN IN")
+                                .font(.system(size: ty.body, weight: .semibold))
                         }
-                        Text(isSubmitting ? "SIGNING IN…" : "SIGN IN")
-                            .font(.system(size: ty.body, weight: .semibold))
+                        .foregroundColor(c.background)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, sp.m)
                     }
-                    .foregroundColor(c.background)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, sp.m)
+                    .buttonStyle(.plain)
+                    .backportGlassEffect(.regular.interactive().tint(c.accentCyan), in: .capsule)
+                    .disabled(!canSubmit)
+                    .keyboardShortcut(.defaultAction)
                 }
-                .buttonStyle(.plain)
-                .backportGlassEffect(.regular.interactive().tint(c.accentCyan), in: .capsule)
-                .disabled(!canSubmit)
-                .keyboardShortcut(.defaultAction)
 
                 Button("Choose another server", action: onChooseServer)
                     .buttonStyle(.plain)
@@ -106,7 +137,8 @@ struct AuthenticationScreen: View {
                     .frame(maxWidth: .infinity)
             }
             .padding(sp.xxl)
-            .frame(width: 420)
+            .frame(maxWidth: 420)
+            .padding(.horizontal, sp.m)
             .backportGlassEffect(
                 .regular,
                 in: RoundedRectangle(cornerRadius: 28, style: .continuous)
@@ -120,10 +152,54 @@ struct AuthenticationScreen: View {
 
     private var canSubmit: Bool {
         guard !isSubmitting, !challenge.bootstrapRequired else { return false }
-        if usesIdentityLogin {
+        switch authenticationMethod {
+        case .loginPassword:
             return !login.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !password.isEmpty
+        case .dashboardToken:
+            return !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        case .qrCode:
+            return false
         }
-        return !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    @ViewBuilder
+    private var authenticationMethodContent: some View {
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+
+        switch authenticationMethod {
+        case .loginPassword:
+            VStack(spacing: sp.m) {
+                authenticationField("Login", text: $login)
+                    .textContentType(.username)
+                    .accessibilityIdentifier("authentication.login")
+                secureAuthenticationField("Password", text: $password)
+                    .textContentType(.password)
+                    .accessibilityIdentifier("authentication.password")
+            }
+        case .qrCode:
+            VStack(alignment: .leading, spacing: sp.m) {
+                Text("In Dashboard, open Settings → Connect Client and scan the short-lived code. It signs in as the Dashboard user without putting a password in the QR code.")
+                    .font(.system(size: ty.caption))
+                    .foregroundColor(c.textSecondary)
+                #if os(iOS)
+                QRCodeScannerButton(onScannedCode: onScannedCode)
+                #else
+                Text("Scan the code with an iPhone or iPad running Sloppy, or open the temporary pairing link on this device.")
+                    .font(.system(size: ty.caption))
+                    .foregroundColor(c.textMuted)
+                #endif
+            }
+        case .dashboardToken:
+            VStack(alignment: .leading, spacing: sp.s) {
+                secureAuthenticationField("Dashboard access token", text: $token)
+                    .accessibilityIdentifier("authentication.dashboardToken")
+                Text("Use the legacy dashboard token configured for this Sloppy Core.")
+                    .font(.system(size: ty.caption))
+                    .foregroundColor(c.textMuted)
+            }
+        }
     }
 
     private func authenticationField(_ title: String, text: Binding<String>) -> some View {
@@ -150,9 +226,10 @@ struct AuthenticationScreen: View {
         Task { @MainActor in
             let apiClient = SloppyAPIClient(baseURL: baseURL)
             do {
-                if usesIdentityLogin {
+                switch authenticationMethod {
+                case .loginPassword:
                     _ = try await apiClient.loginIdentityUser(login: login, password: password)
-                } else {
+                case .dashboardToken:
                     await apiClient.installStaticAuthToken(token)
                     do {
                         try await apiClient.validateCurrentAuthToken()
@@ -160,6 +237,8 @@ struct AuthenticationScreen: View {
                         await apiClient.logout()
                         throw error
                     }
+                case .qrCode:
+                    return
                 }
                 password = ""
                 token = ""

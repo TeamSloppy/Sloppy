@@ -6,6 +6,7 @@ import SloppyClientUI
 struct ConnectionSetupView: View {
     let settings: ClientSettings
     let onConnected: (URL) -> Void
+    let onScannedCode: (URL) -> Void
 
     @State private var hostDraft: String = ""
     @State private var portDraft: String = "25101"
@@ -184,6 +185,10 @@ struct ConnectionSetupView: View {
                     Text("Open the Sloppy Dashboard in a browser and navigate to \nSettings > Connect Client to display a QR code. Scan it with your device camera to connect automatically.")
                         .font(.system(size: ty.caption))
                         .foregroundColor(c.textSecondary)
+                    #if os(iOS)
+                    QRCodeScannerButton(onScannedCode: onScannedCode)
+                        .padding(.top, sp.s)
+                    #endif
                 }
                 .padding(sp.m)
             }
@@ -232,7 +237,13 @@ struct ConnectionSetupView: View {
             let ok = await HealthService(baseURL: url).isHealthy()
             isConnecting = false
             if ok {
-                let server = SavedServer(label: "Discovered", host: url.host ?? "", port: url.port ?? 25101, isAutoDiscovered: true)
+                let server = SavedServer(
+                    label: "Discovered",
+                    scheme: url.scheme ?? "http",
+                    host: url.host ?? "",
+                    port: url.port ?? 25101,
+                    isAutoDiscovered: true
+                )
                 settings.useServer(server)
                 onConnected(url)
             } else {
@@ -251,7 +262,12 @@ struct ConnectionSetupView: View {
             let ok = await HealthService(baseURL: url).isHealthy()
             isConnecting = false
             if ok {
-                let server = SavedServer(label: "Sloppy @ \(address.host)", host: address.host, port: address.port)
+                let server = SavedServer(
+                    label: "Sloppy @ \(address.host)",
+                    scheme: address.scheme,
+                    host: address.host,
+                    port: address.port
+                )
                 settings.useServer(server)
                 onConnected(url)
             } else {
@@ -264,6 +280,7 @@ struct ConnectionSetupView: View {
 #Preview {
     ConnectionSetupView(
         settings: ClientSettings(),
-        onConnected: { _ in }
+        onConnected: { _ in },
+        onScannedCode: { _ in }
     )
 }

@@ -12,6 +12,10 @@ struct AuthenticationScreenSourceTests {
         #expect(source.contains(".foregroundColor(c.textMuted)"))
         #expect(source.contains(".textContentType(.username)"))
         #expect(source.contains(".textContentType(.password)"))
+        #expect(source.contains("case loginPassword"))
+        #expect(source.contains("case qrCode"))
+        #expect(source.contains("case dashboardToken"))
+        #expect(source.contains("QRCodeScannerButton(onScannedCode: onScannedCode)"))
     }
 
     private var authenticationScreenURL: URL {

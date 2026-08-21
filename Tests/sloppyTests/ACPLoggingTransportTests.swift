@@ -118,3 +118,88 @@ func acpLoggingTransportLogsInboundAndOutboundMethodFrames() async throws {
             && record.metadata["id"] == "1"
     })
 }
+
+@Test
+func acpServerRoutingTransportHandlesSessionConfigRequests() async throws {
+    let inner = FakeACPTransport()
+    let transport = ACPServerRequestRoutingTransport(wrapping: inner)
+    await transport.setConfigOptionHandler { request in
+        #expect(request.configId.value == "mode")
+        return SetSessionConfigOptionResponse(configOptions: [])
+    }
+    await transport.start()
+
+    let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+    let paramsData = try encoder.encode(
+        SetSessionConfigOptionRequest(
+            sessionId: SessionId("session-1"),
+            configId: SessionConfigId("mode"),
+            value: SessionConfigValueId("plan")
+        )
+    )
+    let params = try decoder.decode(AnyCodable.self, from: paramsData)
+    let request = JSONRPCRequest(
+        id: .number(7),
+        method: "session/set_config_option",
+        params: params
+    )
+    await inner.emit(try encoder.encode(request))
+
+    for _ in 0..<100 {
+        if !(await inner.sent.isEmpty) { break }
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    let responseData = try #require(await inner.sent.first)
+    let response = try decoder.decode(JSONRPCResponse.self, from: responseData)
+
+    #expect(response.id == .number(7))
+    #expect(response.error == nil)
+    #expect(response.result != nil)
+    await transport.close()
+}
+
+@Test
+func acpServerRoutingTransportRoundTripsPermissionRequests() async throws {
+    let inner = FakeACPTransport()
+    let transport = ACPServerRequestRoutingTransport(wrapping: inner)
+    await transport.start()
+    let permissionTask = Task {
+        try await transport.requestPermission(
+            ACPServerPermissionRequest(
+                sessionId: SessionId("session-1"),
+                toolCall: .init(
+                    toolCallId: "call-1",
+                    title: "runtime.exec",
+                    kind: "execute",
+                    status: "pending",
+                    rawInput: AnyCodable(["command": "/bin/echo"])
+                ),
+                options: [
+                    PermissionOption(kind: "allow_once", name: "Allow Once", optionId: "allow_once")
+                ]
+            )
+        )
+    }
+
+    for _ in 0..<100 {
+        if !(await inner.sent.isEmpty) { break }
+        try await Task.sleep(for: .milliseconds(5))
+    }
+    let requestData = try #require(await inner.sent.first)
+    let decoder = JSONDecoder()
+    let encoder = JSONEncoder()
+    let request = try decoder.decode(JSONRPCRequest.self, from: requestData)
+    #expect(request.method == "session/request_permission")
+    let paramsData = try encoder.encode(try #require(request.params))
+    let params = try decoder.decode(ACPServerPermissionRequest.self, from: paramsData)
+    #expect(params.toolCall.status == "pending")
+
+    let outcome = RequestPermissionResponse(outcome: PermissionOutcome(optionId: "allow_once"))
+    let result = try decoder.decode(AnyCodable.self, from: encoder.encode(outcome))
+    await inner.emit(try encoder.encode(JSONRPCResponse(id: request.id, result: result, error: nil)))
+    let response = try await permissionTask.value
+
+    #expect(response.outcome.optionId == "allow_once")
+    await transport.close()
+}

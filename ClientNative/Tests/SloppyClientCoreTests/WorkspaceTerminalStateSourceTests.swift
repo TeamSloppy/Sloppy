@@ -21,6 +21,8 @@ struct WorkspaceTerminalStateSourceTests {
         #expect(mainTabs.contains("final class WorkspaceTerminalState"))
         #expect(mainTabs.contains("var isPresented: Bool"))
         #expect(mainTabs.contains("var height: CGFloat"))
+        #expect(mainTabs.contains("enum WorkspaceBottomPanelKind"))
+        #expect(mainTabs.contains("var selectedPanel: WorkspaceBottomPanelKind"))
         #expect(mainTabs.contains("var sessionID: UUID"))
         #expect(mainTabs.contains("let terminalState: WorkspaceTerminalState"))
     }

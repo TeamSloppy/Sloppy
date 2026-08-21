@@ -370,6 +370,22 @@ private struct ChatChrome: View {
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+#if os(macOS)
+        .overlay(alignment: .bottomTrailing) {
+            if let activity = viewModel.computerUseActivity,
+               !viewModel.isComputerUsePreviewHidden {
+                ChatComputerUsePictureInPictureView(
+                    activity: activity,
+                    onHide: viewModel.hideComputerUsePreview
+                )
+                .padding(.trailing, theme.spacing.l)
+                .padding(.bottom, composerScrollInset + theme.spacing.m)
+                .transition(.move(edge: .trailing).combined(with: .opacity))
+            }
+        }
+        .animation(.snappy(duration: 0.24), value: viewModel.computerUseActivity)
+        .animation(.snappy(duration: 0.2), value: viewModel.isComputerUsePreviewHidden)
+#endif
 //        .overlay(alignment: .topLeading) {
 //            if idiom != .phone {
 //                ChatSessionContextBar(viewModel: viewModel)
@@ -771,207 +787,185 @@ private struct ChatTranscriptPane: View {
     let onOpenProviderSettings: @MainActor () -> Void
 
     @Environment(\.theme) private var theme
+    @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isNearBottom = true
-    @State private var isUserScrolling = false
-
-    private let bottomAnchorId = "chat-transcript-bottom"
-    private let bottomThreshold: CGFloat = 44
-
     var body: some View {
-        let entries = ChatTranscriptGrouping.entries(from: transcript.messages)
+        ChatNativeTranscriptView(
+            items: nativeItems,
+            contentWidth: contentWidth,
+            topInset: transcript.hasEarlierMessages ? 0 : messagesTopInset,
+            bottomInset: composerScrollInset,
+            scrollToEndRequest: scrollToEndRequest,
+            renderRevision: nativeRenderRevision,
+            reduceMotion: reduceMotion,
+            renderer: renderNativeItem
+        )
+    }
+
+    private var nativeItems: [ChatTranscriptNativeItem] {
         let activeRunMessageIDs = ChatActiveRunMessages.messageIDs(
             in: transcript.messages,
             isRunActive: isRunActive
         )
+        var items: [ChatTranscriptNativeItem] = []
 
-        ScrollViewReader { proxy in
-            ScrollView {
-                LazyVStack(spacing: 0) {
-                    if transcript.hasEarlierMessages {
-                        revealEarlierButton
-                            .padding(.top, messagesTopInset)
-                            .padding(.bottom, theme.spacing.m)
-                    }
-
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(entries.enumerated()), id: \.element.id) { index, entry in
-                            switch entry {
-                            case .message(let message):
-                                ChatBubbleView(
-                                    message: message,
-                                    isActivelyWorking: activeRunMessageIDs.contains(message.id),
-                                    onOpenProviderSettings: providerSettingsRecoveryMessageIDs.contains(message.id)
-                                        ? onOpenProviderSettings
-                                        : nil
-                                )
-                                .frame(minWidth: 0, maxWidth: .infinity)
-                                .transition(.opacity)
-                            case .systemGroup(let messages):
-                                ChatSystemMessageGroupView(
-                                    messages: messages,
-                                    activeRunMessageIDs: activeRunMessageIDs
-                                )
-                                    .frame(minWidth: 0, maxWidth: .infinity)
-                                    .transition(.opacity)
-                            }
-
-                            if index < entries.index(before: entries.endIndex) {
-                                Spacer(minLength: 0)
-                                    .frame(
-                                        height: ChatTranscriptGrouping.usesCompactSpacing(
-                                            between: entry,
-                                            and: entries[index + 1]
-                                        ) ? theme.spacing.s : theme.spacing.xl
-                                    )
-                            }
-                        }
-                    }
-                    .frame(width: contentWidth)
-                    .padding(.top, transcript.hasEarlierMessages ? 0 : messagesTopInset)
-
-                    if let workingTreeSourceControl {
-                        ChatChangeSummaryView(sourceControl: workingTreeSourceControl)
-                            .frame(width: contentWidth)
-                            .padding(.top, theme.spacing.m)
-                            .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
-
-                    if showsThinkingIndicator {
-                        ChatThinkingIndicator(label: runStatusLabel, details: runStatusDetails)
-                            .frame(width: contentWidth)
-                            .padding(.top, theme.spacing.s)
-                            .transition(.opacity)
-                    }
-
-                    if let inputRequest {
-                        ChatInputRequestView(
-                            request: inputRequest,
-                            isSubmitting: isSubmittingInputResponse,
-                            errorMessage: inputRequestErrorMessage,
-                            onSubmit: onSubmitInputResponse,
-                            onCancel: onCancelInputRequest
-                        )
-                        .id(inputRequest.id)
-                        .frame(width: contentWidth)
-                        .padding(.top, theme.spacing.m)
-                        .transition(.move(edge: .bottom).combined(with: .opacity))
-                    }
-
-                    Color.clear
-                        .frame(height: composerScrollInset)
-                        .id(bottomAnchorId)
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
-            .defaultScrollAnchor(.bottom)
-            .defaultScrollAnchor(.top, for: .alignment)
-            .onScrollPhaseChange { _, newPhase, context in
-                switch newPhase {
-                case .tracking, .interacting, .decelerating:
-                    isUserScrolling = true
-                    isNearBottom = isGeometryNearBottom(context.geometry)
-                case .idle:
-                    if isUserScrolling {
-                        isNearBottom = isGeometryNearBottom(context.geometry)
-                    }
-                    isUserScrolling = false
-                case .animating:
-                    isUserScrolling = false
-                }
-            }
-            .onChange(of: scrollToEndRequest, initial: true) { _, _ in
-                isNearBottom = true
-                isUserScrolling = false
-                scrollToBottom(using: proxy, animated: false)
-            }
-            .onChange(of: transcript.messages.count) { oldCount, newCount in
-                guard newCount > oldCount,
-                      !isUserScrolling,
-                      oldCount == 0 || isNearBottom else {
-                    return
-                }
-
-                scrollToBottom(using: proxy)
-            }
-            .onChange(of: latestAssistantMessageLayoutKey) { _, _ in
-                guard isNearBottom,
-                      !isUserScrolling,
-                      let lastMessage = transcript.lastMessage,
-                      lastMessage.role == .assistant else {
-                    return
-                }
-
-                scrollToBottom(using: proxy, animated: false)
-            }
-            .onChange(of: composerScrollInset) { _, _ in
-                guard !isUserScrolling, isNearBottom else { return }
-                scrollToBottom(using: proxy, animated: false)
-            }
-            .onChange(of: showsThinkingIndicator) { _, isVisible in
-                guard isVisible, isNearBottom, !isUserScrolling else { return }
-                scrollToBottom(using: proxy)
-            }
-            .onChange(of: workingTreeSourceControl?.diff) { _, diff in
-                guard diff != nil, isNearBottom, !isUserScrolling else { return }
-                scrollToBottom(using: proxy)
-            }
-            .onChange(of: inputRequest?.id) { _, requestID in
-                guard requestID != nil else { return }
-                isNearBottom = true
-                isUserScrolling = false
-                scrollToBottom(using: proxy)
-            }
-            .animation(
-                reduceMotion ? nil : .easeOut(duration: 0.18),
-                value: transcript.messages.map(\.id)
-            )
-            .animation(
-                reduceMotion ? nil : .easeOut(duration: 0.18),
-                value: showsThinkingIndicator
-            )
-            .animation(
-                reduceMotion ? nil : .easeOut(duration: 0.18),
-                value: inputRequest?.id
-            )
-            .animation(
-                reduceMotion ? nil : .easeOut(duration: 0.18),
-                value: workingTreeSourceControl?.diff
-            )
+        if transcript.hasEarlierMessages {
+            items.append(ChatTranscriptNativeItem(
+                id: "reveal-earlier",
+                content: .revealEarlier(count: min(64, transcript.hiddenMessageCount))
+            ))
         }
-    }
 
-    private func scrollToBottom(using proxy: ScrollViewProxy, animated: Bool = true) {
-        Task { @MainActor in
-            await Task.yield()
-            if reduceMotion || !animated {
-                proxy.scrollTo(bottomAnchorId, anchor: .bottom)
+        for (index, entry) in transcript.entries.enumerated() {
+            let bottomSpacing: CGFloat
+            if index < transcript.entries.index(before: transcript.entries.endIndex) {
+                bottomSpacing = ChatTranscriptGrouping.usesCompactSpacing(
+                    between: entry,
+                    and: transcript.entries[index + 1]
+                ) ? theme.spacing.s : theme.spacing.xl
             } else {
-                withAnimation(.easeOut(duration: 0.16)) {
-                    proxy.scrollTo(bottomAnchorId, anchor: .bottom)
-                }
+                bottomSpacing = 0
             }
+
+            let entryMessageIDs: Set<ChatMessage.ID>
+            switch entry {
+            case .message(let message):
+                entryMessageIDs = activeRunMessageIDs.contains(message.id) ? [message.id] : []
+            case .systemGroup(let messages):
+                entryMessageIDs = Set(messages.map(\.id)).intersection(activeRunMessageIDs)
+            }
+            items.append(ChatTranscriptNativeItem(
+                id: "entry:\(entry.id)",
+                content: .entry(
+                    entry,
+                    bottomSpacing: bottomSpacing,
+                    activeMessageIDs: entryMessageIDs,
+                    providerRecoveryMessageIDs: entryProviderRecoveryMessageIDs(entry)
+                )
+            ))
+        }
+
+        if let workingTreeSourceControl {
+            items.append(ChatTranscriptNativeItem(
+                id: "change-summary",
+                content: .changeSummary(workingTreeSourceControl)
+            ))
+        }
+        if showsThinkingIndicator {
+            items.append(ChatTranscriptNativeItem(
+                id: "thinking-indicator",
+                content: .thinking(label: runStatusLabel, details: runStatusDetails)
+            ))
+        }
+        if let inputRequest {
+            items.append(ChatTranscriptNativeItem(
+                id: "input-request:\(inputRequest.id)",
+                content: .inputRequest(
+                    request: inputRequest,
+                    isSubmitting: isSubmittingInputResponse,
+                    errorMessage: inputRequestErrorMessage
+                )
+            ))
+        }
+        return items
+    }
+
+    private var nativeRenderRevision: UInt {
+        var hasher = Hasher()
+        hasher.combine(transcript.renderRevision)
+        hasher.combine(isRunActive)
+        hasher.combine(showsThinkingIndicator)
+        hasher.combine(runStatusLabel)
+        hasher.combine(runStatusDetails)
+        hasher.combine(workingTreeSourceControl?.diff)
+        hasher.combine(inputRequest?.id)
+        hasher.combine(isSubmittingInputResponse)
+        hasher.combine(inputRequestErrorMessage)
+        return UInt(bitPattern: hasher.finalize())
+    }
+
+    private func renderNativeItem(_ item: ChatTranscriptNativeItem) -> AnyView {
+        let rendered: AnyView
+        switch item.content {
+        case .revealEarlier(let count):
+            rendered = AnyView(
+                revealEarlierButton(count: count)
+                    .padding(.top, messagesTopInset)
+                    .padding(.bottom, theme.spacing.m)
+            )
+        case .entry(
+            let entry,
+            let bottomSpacing,
+            let activeRunMessageIDs,
+            let recoveryMessageIDs
+        ):
+            switch entry {
+            case .message(let message):
+                rendered = AnyView(
+                    ChatBubbleView(
+                        message: message,
+                        isActivelyWorking: activeRunMessageIDs.contains(message.id),
+                        onOpenProviderSettings: recoveryMessageIDs.contains(message.id)
+                            ? onOpenProviderSettings
+                            : nil
+                    )
+                    .frame(minWidth: 0, maxWidth: .infinity)
+                    .padding(.bottom, bottomSpacing)
+                )
+            case .systemGroup(let messages):
+                rendered = AnyView(
+                    ChatSystemMessageGroupView(
+                        messages: messages,
+                        activeRunMessageIDs: activeRunMessageIDs
+                    )
+                    .frame(minWidth: 0, maxWidth: .infinity)
+                    .padding(.bottom, bottomSpacing)
+                )
+            }
+        case .changeSummary(let sourceControl):
+            rendered = AnyView(
+                ChatChangeSummaryView(sourceControl: sourceControl)
+                    .padding(.top, theme.spacing.m)
+            )
+        case .thinking(let label, let details):
+            rendered = AnyView(
+                ChatThinkingIndicator(label: label, details: details)
+                    .padding(.top, theme.spacing.s)
+            )
+        case .inputRequest(let request, let isSubmitting, let errorMessage):
+            rendered = AnyView(
+                ChatInputRequestView(
+                    request: request,
+                    isSubmitting: isSubmitting,
+                    errorMessage: errorMessage,
+                    onSubmit: onSubmitInputResponse,
+                    onCancel: onCancelInputRequest
+                )
+                .padding(.top, theme.spacing.m)
+            )
+        }
+        return AnyView(
+            rendered
+                .environment(\.theme, theme)
+                .environment(\.userInterfaceIdiom, idiom)
+        )
+    }
+
+    private func entryProviderRecoveryMessageIDs(
+        _ entry: ChatTranscriptEntry
+    ) -> Set<ChatMessage.ID> {
+        switch entry {
+        case .message(let message):
+            return providerSettingsRecoveryMessageIDs.contains(message.id) ? [message.id] : []
+        case .systemGroup(let messages):
+            return Set(messages.map(\.id)).intersection(providerSettingsRecoveryMessageIDs)
         }
     }
 
-    private func isGeometryNearBottom(_ geometry: ScrollGeometry) -> Bool {
-        geometry.contentSize.height <= geometry.containerSize.height
-            || geometry.visibleRect.maxY >= geometry.contentSize.height - bottomThreshold
-    }
-
-    private var latestAssistantMessageLayoutKey: String {
-        guard let message = transcript.lastMessage,
-              message.role == .assistant else {
-            return ""
-        }
-        return "\(message.id):\(message.textContent.count)"
-    }
-
-    private var revealEarlierButton: some View {
+    private func revealEarlierButton(count: Int) -> some View {
         let c = theme.colors
         let sp = theme.spacing
         let ty = theme.typography
-        let count = min(64, transcript.hiddenMessageCount)
 
         return HStack {
             Spacer(minLength: 0)

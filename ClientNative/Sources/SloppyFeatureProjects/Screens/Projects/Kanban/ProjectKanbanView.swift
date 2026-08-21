@@ -42,6 +42,7 @@ public struct ProjectKanbanView: View {
                     message: errorMessage,
                     icon: "exclamationmark.triangle"
                 )
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if viewModel.columns.allSatisfy({ $0.items.isEmpty }) {
                 emptyProjectState
             } else if filteredColumns.allSatisfy({ $0.items.isEmpty }) {
@@ -367,6 +368,7 @@ public struct ProjectKanbanView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
                 .buttonStyle(.plain)
+                .draggable(card.id)
             }
 
             Spacer(minLength: 0)
@@ -376,5 +378,12 @@ public struct ProjectKanbanView: View {
         .padding(theme.spacing.m)
         .background(theme.colors.surfaceRaised.opacity(0.82 as CGFloat))
         .clipShape(RoundedRectangle(cornerRadius: 22))
+        .dropDestination(for: String.self) { taskIDs, _ in
+            guard let taskID = taskIDs.first else { return false }
+            Task {
+                await viewModel.moveTask(id: taskID, to: column.id, projectId: projectId)
+            }
+            return true
+        }
     }
 }

@@ -101,6 +101,46 @@ public struct PersistedArtifactRecord: Sendable, Equatable {
     }
 }
 
+public struct PersistedPublishedSiteRecord: Sendable, Equatable {
+    public var id: String
+    public var slug: String
+    public var title: String
+    public var visibility: PublishedSiteVisibility
+    public var ownerId: String
+    public var projectId: String?
+    public var entryFile: String
+    public var bundlePath: String
+    public var revision: Int
+    public var createdAt: Date
+    public var updatedAt: Date
+
+    public init(
+        id: String,
+        slug: String,
+        title: String,
+        visibility: PublishedSiteVisibility,
+        ownerId: String,
+        projectId: String? = nil,
+        entryFile: String,
+        bundlePath: String,
+        revision: Int,
+        createdAt: Date,
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.slug = slug
+        self.title = title
+        self.visibility = visibility
+        self.ownerId = ownerId
+        self.projectId = projectId
+        self.entryFile = entryFile
+        self.bundlePath = bundlePath
+        self.revision = revision
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
 public struct PersistedEventCursor: Sendable, Equatable {
     public var createdAt: Date
     public var eventId: String
@@ -400,6 +440,21 @@ public protocol PersistenceStore: Sendable {
 
     /// Returns artifact content by identifier when available.
     func artifactContent(id: String) async -> String?
+
+    /// Lists published site metadata ordered by update time.
+    func listPublishedSites() async -> [PersistedPublishedSiteRecord]
+
+    /// Returns published site metadata by identifier.
+    func publishedSite(id: String) async -> PersistedPublishedSiteRecord?
+
+    /// Returns published site metadata by public slug.
+    func publishedSite(slug: String) async -> PersistedPublishedSiteRecord?
+
+    /// Creates or replaces published site metadata.
+    func savePublishedSite(_ site: PersistedPublishedSiteRecord) async
+
+    /// Removes published site metadata by identifier.
+    func deletePublishedSite(id: String) async -> Bool
 
     /// Lists recent memory bulletins from persistence.
     func listBulletins() async -> [MemoryBulletin]

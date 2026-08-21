@@ -53,6 +53,31 @@ struct OverviewModelsTests {
         #expect(project.directoryPaths.isEmpty)
         #expect(project.projectRootPath == "/tmp/legacy")
         #expect(project.semanticIconName == "folder")
+        #expect(!project.isFavorite)
+        #expect(!project.isArchived)
+    }
+
+    @Test("project favorite state and update request use Core wire keys")
+    func projectFavoriteCoding() throws {
+        let record = APIProjectRecord(
+            id: "favorite",
+            name: "Favorite",
+            isFavorite: true,
+            isArchived: true
+        )
+        let decoded = try JSONDecoder().decode(
+            APIProjectRecord.self,
+            from: JSONEncoder().encode(record)
+        )
+        #expect(decoded.isFavorite)
+        #expect(decoded.isArchived)
+
+        let update = APIProjectUpdateRequest(isFavorite: false, isArchived: true)
+        let object = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(update)) as? [String: Any]
+        )
+        #expect(object["isFavorite"] as? Bool == false)
+        #expect(object["isArchived"] as? Bool == true)
     }
 
     @Test("workspace projects preserve roots and use workspace icon")

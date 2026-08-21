@@ -94,6 +94,32 @@ public struct ProjectWorkingTreeSourceControlResponse: Codable, Sendable, Equata
     }
 }
 
+public struct ProjectWorktreeCreateRequest: Codable, Sendable, Equatable {
+    public var taskId: String
+
+    public init(taskId: String) {
+        self.taskId = taskId
+    }
+}
+
+public struct ProjectWorktreeRecord: Codable, Sendable, Equatable {
+    public var worktreePath: String
+    public var branchName: String
+
+    public init(worktreePath: String, branchName: String) {
+        self.worktreePath = worktreePath
+        self.branchName = branchName
+    }
+}
+
+public struct ProjectWorktreeCreateResponse: Codable, Sendable, Equatable {
+    public var worktree: ProjectWorktreeRecord
+
+    public init(worktree: ProjectWorktreeRecord) {
+        self.worktree = worktree
+    }
+}
+
 public enum ProjectSourceControlDiffParser {
     public static func fileChanges(in diff: String) -> [ProjectSourceControlFileChange] {
         var changes: [ProjectSourceControlFileChange] = []

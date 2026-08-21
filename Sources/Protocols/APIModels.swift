@@ -295,6 +295,103 @@ public struct WidgetArtifactContentResponse: Codable, Sendable, Equatable {
     }
 }
 
+// MARK: - Published Sites
+
+public enum PublishedSiteVisibility: String, Codable, Sendable, Equatable, CaseIterable {
+    case `private`
+    case `public`
+}
+
+public struct PublishedSiteRecord: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var slug: String
+    public var title: String
+    public var visibility: PublishedSiteVisibility
+    public var ownerId: String
+    public var projectId: String?
+    public var entryFile: String
+    public var revision: Int
+    public var path: String
+    public var createdAt: Date
+    public var updatedAt: Date
+
+    public init(
+        id: String,
+        slug: String,
+        title: String,
+        visibility: PublishedSiteVisibility = .private,
+        ownerId: String,
+        projectId: String? = nil,
+        entryFile: String = "index.html",
+        revision: Int = 1,
+        path: String,
+        createdAt: Date = Date(),
+        updatedAt: Date = Date()
+    ) {
+        self.id = id
+        self.slug = slug
+        self.title = title
+        self.visibility = visibility
+        self.ownerId = ownerId
+        self.projectId = projectId
+        self.entryFile = entryFile
+        self.revision = revision
+        self.path = path
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct PublishedSiteListResponse: Codable, Sendable, Equatable {
+    public var sites: [PublishedSiteRecord]
+
+    public init(sites: [PublishedSiteRecord]) {
+        self.sites = sites
+    }
+}
+
+public struct PublishedSiteDetailResponse: Codable, Sendable, Equatable {
+    public var site: PublishedSiteRecord
+
+    public init(site: PublishedSiteRecord) {
+        self.site = site
+    }
+}
+
+public struct PublishedSiteUpdateRequest: Codable, Sendable, Equatable {
+    public var title: String?
+    public var slug: String?
+    public var visibility: PublishedSiteVisibility?
+
+    public init(
+        title: String? = nil,
+        slug: String? = nil,
+        visibility: PublishedSiteVisibility? = nil
+    ) {
+        self.title = title
+        self.slug = slug
+        self.visibility = visibility
+    }
+}
+
+public struct PublishedSiteDeleteResponse: Codable, Sendable, Equatable {
+    public var deleted: Bool
+
+    public init(deleted: Bool) {
+        self.deleted = deleted
+    }
+}
+
+public struct PublishedSiteLaunchResponse: Codable, Sendable, Equatable {
+    public var url: String
+    public var expiresAt: Date?
+
+    public init(url: String, expiresAt: Date? = nil) {
+        self.url = url
+        self.expiresAt = expiresAt
+    }
+}
+
 public struct BoardCanvasViewport: Codable, Sendable, Equatable {
     public var x: Double
     public var y: Double
@@ -3940,6 +4037,7 @@ public struct ToolApprovalRecord: Codable, Sendable, Equatable, Identifiable {
     public var displaySessionId: String?
     public var channelId: String?
     public var topicId: String?
+    public var toolCallId: String?
     public var tool: String
     public var arguments: [String: JSONValue]
     public var grants: [ToolApprovalGrant]
@@ -3959,6 +4057,7 @@ public struct ToolApprovalRecord: Codable, Sendable, Equatable, Identifiable {
         case displaySessionId
         case channelId
         case topicId
+        case toolCallId
         case tool
         case arguments
         case grants
@@ -3979,6 +4078,7 @@ public struct ToolApprovalRecord: Codable, Sendable, Equatable, Identifiable {
         displaySessionId: String? = nil,
         channelId: String? = nil,
         topicId: String? = nil,
+        toolCallId: String? = nil,
         tool: String,
         arguments: [String: JSONValue] = [:],
         grants: [ToolApprovalGrant] = [],
@@ -3997,6 +4097,7 @@ public struct ToolApprovalRecord: Codable, Sendable, Equatable, Identifiable {
         self.displaySessionId = displaySessionId
         self.channelId = channelId
         self.topicId = topicId
+        self.toolCallId = toolCallId
         self.tool = tool
         self.arguments = arguments
         self.grants = grants
@@ -4018,6 +4119,7 @@ public struct ToolApprovalRecord: Codable, Sendable, Equatable, Identifiable {
         self.displaySessionId = try container.decodeIfPresent(String.self, forKey: .displaySessionId)
         self.channelId = try container.decodeIfPresent(String.self, forKey: .channelId)
         self.topicId = try container.decodeIfPresent(String.self, forKey: .topicId)
+        self.toolCallId = try container.decodeIfPresent(String.self, forKey: .toolCallId)
         self.tool = try container.decode(String.self, forKey: .tool)
         self.arguments = try container.decodeIfPresent([String: JSONValue].self, forKey: .arguments) ?? [:]
         self.grants = try container.decodeIfPresent([ToolApprovalGrant].self, forKey: .grants) ?? []

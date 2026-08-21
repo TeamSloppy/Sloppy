@@ -70,6 +70,38 @@
   color: #ff6f91;
 }
 
+.onboarding-loading-server {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 4px 12px;
+  align-items: center;
+  padding: 12px 14px;
+  border: 1px solid rgba(204, 255, 0, 0.18);
+  background: rgba(204, 255, 0, 0.035);
+}
+
+.onboarding-loading-server-label {
+  grid-column: 1;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  color: #9ca395;
+}
+
+.onboarding-loading-server-url {
+  grid-column: 1 / -1;
+  grid-row: 2;
+  min-width: 0;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.onboarding-loading-server-action {
+  grid-column: 2;
+  grid-row: 1;
+  padding: 9px 12px;
+}
+
 .onboarding-loading-actions {
   display: flex;
   gap: 12px;

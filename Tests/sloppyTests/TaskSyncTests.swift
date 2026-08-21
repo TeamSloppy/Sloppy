@@ -307,6 +307,22 @@ func genericTaskSyncImportsExternalMetadataAndComments() async throws {
     #expect(comments[0].createdAt == createdAt)
 }
 
+@Test
+func taskSyncNowRejectsUnlinkedProjectWithSpecificError() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    _ = try await service.createProject(ProjectCreateRequest(id: "unlinked-sync", name: "Unlinked"))
+
+    do {
+        _ = try await service.syncTaskSyncNow(projectID: "unlinked-sync")
+        Issue.record("Expected task sync to reject an unlinked project")
+    } catch let error as CoreService.TaskSyncError {
+        guard case .notConfigured = error else {
+            Issue.record("Expected notConfigured, got \(error)")
+            return
+        }
+    }
+}
+
 private struct FixedTaskSyncProvider: TaskSyncProvider {
     let id = "startrek"
     let tasks: [TaskSyncExternalTask]

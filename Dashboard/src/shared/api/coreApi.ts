@@ -152,6 +152,7 @@ export interface CoreApi {
   updateRuntimeConfig: (config: AnyRecord) => Promise<AnyRecord>;
   runWorkspaceGitSync: () => Promise<AnyRecord | null>;
   fetchSystemLogs: () => Promise<AnyRecord | null>;
+  fetchRuntimePerformance: (limit?: number) => Promise<AnyRecord | null>;
   createIssueReport: (payload?: { logLimit?: number }) => Promise<AnyRecord | null>;
   selectDirectory: () => Promise<AnyRecord | null>;
   selectDirectories: () => Promise<AnyRecord | null>;
@@ -1234,6 +1235,17 @@ export function createCoreApi(): CoreApi {
     fetchSystemLogs: async () => {
       const response = await requestJson<AnyRecord>({
         path: "/v1/logs"
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    fetchRuntimePerformance: async (limit = 60) => {
+      const safeLimit = Math.max(1, Math.min(240, Math.round(limit)));
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/system/performance?limit=${safeLimit}`
       });
       if (!response.ok) {
         return null;

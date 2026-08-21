@@ -24,7 +24,8 @@ struct MainSidebarProjectSessionsTests {
         let chatViewModelSource = try sourceFile("Sources/SloppyFeatureChat/Screens/Chat/ChatScreenViewModel.swift")
 
         #expect(source.contains("ChatSidebarSections.build("))
-        #expect(source.contains("sessions: viewModel.chatViewModel.sessionCatalog"))
+        #expect(source.contains("sessions: viewModel.sidebarSessionCatalog"))
+        #expect(mainViewModelSource.contains("!settings.isSessionArchived($0.id)"))
         #expect(mainViewModelSource.contains("loadsGlobalSessionCatalog: true"))
         #expect(mainViewModelSource.contains("onSessionSummaryChange: { [weak self] summary in"))
         #expect(mainViewModelSource.contains("self?.chatViewModel.mergeSessionSummary(summary)"))
@@ -38,10 +39,13 @@ struct MainSidebarProjectSessionsTests {
     @Test("project list reveals additional projects in pages")
     func projectListRevealsAdditionalProjectsInPages() throws {
         let source = try source
+        let mainViewModelSource = try sourceFile("Sources/SloppyClient/Navigation/Main/MainViewModel.swift")
 
         #expect(source.contains("sections.projectGroups.prefix(viewModel.visibleProjectCount)"))
         #expect(source.contains("Button(\"Show more project\")"))
         #expect(source.contains("viewModel.showMoreProjects()"))
+        #expect(mainViewModelSource.contains("var visibleProjectCount = 6"))
+        #expect(mainViewModelSource.contains("visibleProjectCount += 6"))
     }
 
     @Test("sidebar can display chats and projects as cards")

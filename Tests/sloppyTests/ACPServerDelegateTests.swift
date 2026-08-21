@@ -12,6 +12,14 @@ private actor ACPServerUpdateRecorder {
     }
 }
 
+private actor ACPServerPermissionRecorder {
+    private(set) var requests: [ACPServerPermissionRequest] = []
+
+    func append(_ request: ACPServerPermissionRequest) {
+        requests.append(request)
+    }
+}
+
 private func makeACPServerService() async throws -> CoreService {
     var config = CoreConfig.test
     config.acp.server = .init(enabled: true, agentId: "dev", cwd: nil)
@@ -166,9 +174,84 @@ func sloppyACPServerCreatesAndListsSessionsForConfiguredAgent() async throws {
     #expect(created.modes == nil)
     #expect(created.models?.currentModelId == "mock:test-model")
     #expect(created.models?.availableModels.map(\.modelId).contains("mock:test-model") == true)
+    #expect(created.configOptions?.map(\.id.value) == ["mode", "model"])
     #expect(listed.sessions.map(\SessionInfo.sessionId).contains(created.sessionId))
     #expect(listed.nextCursor == nil)
     #expect(await recorder.updates.count == 1)
+}
+
+@Test
+func sloppyACPServerUpdatesSessionConfigOptions() async throws {
+    let service = try await makeACPServerService()
+    let recorder = ACPServerUpdateRecorder()
+    let delegate = SloppyACPServerDelegate(
+        service: service,
+        agentID: "dev",
+        defaultCwd: "/tmp",
+        sendUpdate: { sessionId, update in await recorder.append(sessionId: sessionId, update: update) }
+    )
+
+    let created = try await delegate.handleNewSession(NewSessionRequest(cwd: "/tmp"))
+    let response = try await delegate.handleSetSessionConfigOption(
+        SetSessionConfigOptionRequest(
+            sessionId: created.sessionId,
+            configId: SloppyACPServerDelegate.modeConfigID,
+            value: SessionConfigValueId(AgentChatMode.plan.rawValue)
+        )
+    )
+    let mode = try #require(response.configOptions.first(where: { $0.id == SloppyACPServerDelegate.modeConfigID }))
+    guard case .select(let select) = mode.kind else {
+        Issue.record("Expected mode to be a select config option")
+        return
+    }
+
+    #expect(select.currentValue.value == AgentChatMode.plan.rawValue)
+    #expect(response.configOptions.map(\.id.value) == ["mode", "model"])
+}
+
+@Test
+func sloppyACPServerRequestsRiskyToolPermissionFromClient() async throws {
+    let service = try await makeACPServerService()
+    let updates = ACPServerUpdateRecorder()
+    let permissions = ACPServerPermissionRecorder()
+    let delegate = SloppyACPServerDelegate(
+        service: service,
+        agentID: "dev",
+        defaultCwd: "/tmp",
+        requestPermission: { request in
+            await permissions.append(request)
+            return RequestPermissionResponse(outcome: PermissionOutcome(optionId: "allow_once"))
+        },
+        sendUpdate: { sessionId, update in await updates.append(sessionId: sessionId, update: update) }
+    )
+    await service.setToolApprovalPresenter { [weak delegate] record in
+        guard let delegate else { return nil }
+        return await delegate.presentToolApproval(record)
+    }
+    let created = try await delegate.handleNewSession(NewSessionRequest(cwd: "/tmp"))
+
+    let result = await service.invokeToolFromRuntime(
+        agentID: "dev",
+        sessionID: created.sessionId.value,
+        request: ToolInvocationRequest(
+            tool: "runtime.exec",
+            arguments: [
+                "command": .string("/bin/echo"),
+                "arguments": .array([.string("approved")]),
+            ]
+        ),
+        recordSessionEvents: true
+    )
+    let request = try #require(await permissions.requests.first)
+
+    #expect(result.error?.code != "tool_approval_rejected")
+    #expect(result.error?.code != "tool_approval_timeout")
+    #expect(request.sessionId == created.sessionId)
+    #expect(request.toolCall.title == "runtime.exec")
+    #expect(request.toolCall.kind == ToolKind.execute.rawValue)
+    #expect(request.toolCall.status == ToolStatus.pending.rawValue)
+    #expect(request.options.map(\.kind) == ["allow_once", "allow_always", "reject_once"])
+    #expect(await service.listPendingToolApprovals().isEmpty)
 }
 
 @Test

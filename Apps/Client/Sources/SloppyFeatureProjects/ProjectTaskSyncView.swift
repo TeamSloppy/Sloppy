@@ -18,6 +18,7 @@ struct ProjectTaskSyncView: View {
     @State private var health = "unknown"
     @State private var message = ""
     @State private var isBusy = false
+    @State private var isLinked = false
 
     var body: some View {
         let c = theme.colors
@@ -66,6 +67,7 @@ struct ProjectTaskSyncView: View {
                     Button("DISCOVER") { discover() }
                     Button("LINK / SAVE") { link() }
                     Button("SYNC NOW") { syncNow() }
+                        .disabled(isBusy || !isLinked)
                     Button("UNLINK") { unlink() }
                 }
                 .disabled(isBusy)
@@ -115,6 +117,7 @@ struct ProjectTaskSyncView: View {
             outboundMappings = mappingText(settings.statusMappings)
             health = settings.health.status
             message = settings.health.message ?? ""
+            isLinked = settings.enabled && settings.providerId != nil
         }
     }
 
@@ -154,6 +157,7 @@ struct ProjectTaskSyncView: View {
             )
             health = response.settings.health.status
             message = response.settings.health.message ?? "Linked"
+            isLinked = true
         }
     }
 
@@ -170,6 +174,7 @@ struct ProjectTaskSyncView: View {
             let result = try await apiClient.unlinkTaskSync(projectId: projectId)
             health = result.settings.health.status
             message = "Unlinked"
+            isLinked = false
         }
     }
 

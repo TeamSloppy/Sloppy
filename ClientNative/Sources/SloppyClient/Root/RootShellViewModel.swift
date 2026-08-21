@@ -17,6 +17,7 @@ enum AppState: Equatable {
     case splash
     case connectionSetup
     case authentication(URL, AuthChallenge, String?)
+    case pairing(URL)
     case chat(URL)
     case settings(ClientSettingsDestination)
 }
@@ -71,6 +72,11 @@ final class RootShellViewModel {
     }
 
     func handleDeepLink(_ url: URL) {
+        if let pairing = DevicePairingLink.parse(url) {
+            redeemDevicePairing(pairing)
+            return
+        }
+
         guard let deepLink = DeepLink.parse(url) else { return }
 
         if case .connect = deepLink,
@@ -231,7 +237,7 @@ final class RootShellViewModel {
 
     private var currentBaseURL: URL {
         switch appState {
-        case .authentication(let url, _, _), .chat(let url):
+        case .authentication(let url, _, _), .pairing(let url), .chat(let url):
             return url
         case .splash, .connectionSetup, .settings:
             return settings.baseURL
@@ -363,6 +369,53 @@ final class RootShellViewModel {
             ]
         )
         appState = .authentication(baseURL, challenge, nil)
+    }
+
+    private func redeemDevicePairing(_ pairing: DevicePairingLink) {
+        let baseURL = pairing.serverURL
+        stopConnectedServices()
+        appState = .pairing(baseURL)
+        logger.info(
+            "app.authentication.device-pairing-started",
+            metadata: ["server": .string(Self.serverDescription(baseURL))]
+        )
+
+        Task { @MainActor in
+            let apiClient = SloppyAPIClient(baseURL: baseURL)
+            do {
+                _ = try await apiClient.redeemDevicePairing(token: pairing.token)
+                if let host = baseURL.host {
+                    settings.useServer(
+                        SavedServer(
+                            label: pairing.label ?? "Sloppy @ \(host)",
+                            scheme: baseURL.scheme ?? "http",
+                            host: host,
+                            port: baseURL.port ?? 25101
+                        )
+                    )
+                }
+                logger.info(
+                    "app.authentication.device-pairing-succeeded",
+                    metadata: ["server": .string(Self.serverDescription(baseURL))]
+                )
+                startConnected(url: baseURL)
+            } catch {
+                logger.warning(
+                    "app.authentication.device-pairing-failed",
+                    metadata: [
+                        "error": .string(Self.errorDescription(error)),
+                        "server": .string(Self.serverDescription(baseURL)),
+                    ]
+                )
+                let challenge = (try? await apiClient.fetchConnectionAuthChallenge())
+                    ?? AuthChallenge(mode: "login_password", bootstrapRequired: false)
+                appState = .authentication(
+                    baseURL,
+                    challenge,
+                    "Could not use this QR code. It may have expired or already been used. Generate a new code in Dashboard."
+                )
+            }
+        }
     }
 
     private nonisolated static func serverDescription(_ url: URL) -> String {

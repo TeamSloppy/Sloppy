@@ -11,7 +11,7 @@ struct SidebarRecentsList: View {
 
     private var sections: ChatSidebarSections {
         ChatSidebarSections.build(
-            sessions: viewModel.chatViewModel.sessionCatalog,
+            sessions: viewModel.sidebarSessionCatalog,
             projects: viewModel.projects,
             pinnedSessionIds: viewModel.chatViewModel.pinnedSessionIds,
             mode: viewModel.chatSidebarMode,
@@ -62,6 +62,12 @@ struct SidebarRecentsList: View {
             content
 
             if let status = viewModel.chatViewModel.sessionActionStatus {
+                Text(status)
+                    .font(.system(size: theme.typography.micro))
+                    .foregroundColor(theme.colors.textMuted)
+                    .padding(.horizontal, theme.spacing.m)
+            }
+            if let status = viewModel.projectActionStatus {
                 Text(status)
                     .font(.system(size: theme.typography.micro))
                     .foregroundColor(theme.colors.textMuted)
@@ -264,11 +270,7 @@ private struct SidebarProjectGroupView: View {
             }
             .onHover { isHovered = $0 }
             .animation(.easeInOut(duration: 0.15), value: isHovered)
-            .contextMenu {
-                Button("Edit Project") {
-                    viewModel.presentProjectEditor(group.project)
-                }
-            }
+            .projectContextMenu(viewModel: viewModel, project: group.project)
 
             if !isCollapsed {
                 ForEach(sessions) {

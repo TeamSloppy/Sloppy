@@ -370,6 +370,11 @@ struct ProjectsAPIRouter: APIRouter {
             do {
                 let response = try await service.syncTaskSyncNow(projectID: projectId)
                 return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch CoreService.TaskSyncError.notConfigured {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: [
+                    "error": "task_sync_not_configured",
+                    "message": "Task sync is not linked. Save a provider and source before running Sync Now."
+                ])
             } catch {
                 return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "task_sync_failed", "message": error.localizedDescription])
             }

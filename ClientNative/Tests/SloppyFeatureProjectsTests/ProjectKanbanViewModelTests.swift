@@ -81,4 +81,13 @@ struct ProjectKanbanViewModelTests {
         #expect(columns.map(\.id) == [.needsReview])
         #expect(columns.first?.items.map(\.id) == ["TASK-3"])
     }
+
+    @Test("Kanban columns map to statuses accepted by the project task API")
+    func kanbanColumnStatuses() {
+        #expect(ProjectKanbanColumnID.todo.taskStatus == "ready")
+        #expect(ProjectKanbanColumnID.inProgress.taskStatus == "in_progress")
+        #expect(ProjectKanbanColumnID.needsReview.taskStatus == "needs_review")
+        #expect(ProjectKanbanColumnID.done.taskStatus == "done")
+        #expect(ProjectKanbanColumnID.other.taskStatus == "blocked")
+    }
 }

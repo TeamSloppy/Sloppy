@@ -54,17 +54,29 @@ struct ACPServeCommand: AsyncParsableCommand {
                 wrapping: stdioTransport,
                 logger: Logger.sloppy(label: "sloppy.acp.server.stdio")
             )
-            let acpAgent = ACP.Agent(transport: transport)
+            let routingTransport = ACPServerRequestRoutingTransport(wrapping: transport)
+            let acpAgent = ACP.Agent(transport: routingTransport)
             let delegate = SloppyACPServerDelegate(
                 service: service,
                 agentID: resolvedAgent,
                 defaultCwd: resolvedCwd,
+                requestPermission: { request in
+                    try await routingTransport.requestPermission(request)
+                },
                 sendUpdate: { sessionID, update in
                     try await acpAgent.sendUpdate(sessionId: sessionID, update: update)
                 }
             )
+            await routingTransport.setConfigOptionHandler { request in
+                try await delegate.handleSetSessionConfigOption(request)
+            }
+            await service.setToolApprovalPresenter { [weak delegate] record in
+                guard let delegate else { return nil }
+                return await delegate.presentToolApproval(record)
+            }
             await acpAgent.setDelegate(delegate)
             await stdioTransport.start()
+            await routingTransport.start()
             await acpAgent.start()
         } catch let exit as ExitCode {
             throw exit

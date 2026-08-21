@@ -19,7 +19,8 @@ struct ChatChangeSummarySourceTests {
             "Sources", "SloppyFeatureChat", "Screens", "Chat", "Views", "ChatChangeSummaryView.swift"
         )
 
-        #expect(screen.contains("ChatChangeSummaryView(sourceControl: workingTreeSourceControl)"))
+        #expect(screen.contains("content: .changeSummary(workingTreeSourceControl)"))
+        #expect(screen.contains("ChatChangeSummaryView(sourceControl: sourceControl)"))
         #expect(summary.contains("Text(\"Review\")"))
         #expect(summary.contains("sourceControl.linesAdded"))
         #expect(summary.contains("sourceControl.linesDeleted"))

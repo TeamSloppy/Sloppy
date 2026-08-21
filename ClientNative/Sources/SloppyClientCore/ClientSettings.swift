@@ -7,6 +7,7 @@ public final class ClientSettings {
     private enum Keys {
         static let serverHost = "client_server_host"
         static let serverPort = "client_server_port"
+        static let serverScheme = "client_server_scheme"
         static let accentColorHex = "client_accent_color_hex"
         static let colorScheme = "client_color_scheme"
         static let chatSidebarMode = "client_chat_sidebar_mode"
@@ -17,6 +18,7 @@ public final class ClientSettings {
         static let lastProjectId = "client_last_project_id"
         static let lastSessionId = "client_last_session_id"
         static let pinnedSessionIds = "client_pinned_session_ids"
+        static let archivedSessionIds = "client_archived_session_ids"
         static let savedServers = "client_saved_servers"
         static let meshTargetNodeId = "client_mesh_target_node_id"
     }
@@ -27,6 +29,10 @@ public final class ClientSettings {
 
     public var serverPort: Int {
         didSet { UserDefaults.standard.set(serverPort, forKey: Keys.serverPort) }
+    }
+
+    public var serverScheme: String {
+        didSet { UserDefaults.standard.set(serverScheme, forKey: Keys.serverScheme) }
     }
 
     public var accentColorHex: String {
@@ -71,6 +77,12 @@ public final class ClientSettings {
         }
     }
 
+    public var archivedSessionIds: Set<String> {
+        didSet {
+            UserDefaults.standard.set(Array(archivedSessionIds).sorted(), forKey: Keys.archivedSessionIds)
+        }
+    }
+
     public var meshTargetNodeId: String? {
         didSet {
             UserDefaults.standard.set(meshTargetNodeId, forKey: Keys.meshTargetNodeId)
@@ -86,18 +98,20 @@ public final class ClientSettings {
     }
 
     public var baseURL: URL {
-        ServerAddress.parse(host: serverHost, port: String(serverPort))?.baseURL
-            ?? ServerAddress(host: "localhost").baseURL
+        ServerAddress(scheme: serverScheme, host: serverHost, port: serverPort).baseURL
     }
 
     public var activeServer: SavedServer? {
-        savedServers.first { $0.host == serverHost && $0.port == serverPort }
+        savedServers.first {
+            $0.scheme == serverScheme && $0.host == serverHost && $0.port == serverPort
+        }
     }
 
     public init() {
         let defaults = UserDefaults.standard
         serverHost = defaults.string(forKey: Keys.serverHost) ?? "localhost"
         serverPort = defaults.integer(forKey: Keys.serverPort).nonZero ?? 25101
+        serverScheme = defaults.string(forKey: Keys.serverScheme) == "https" ? "https" : "http"
         accentColorHex = defaults.string(forKey: Keys.accentColorHex) ?? "#FF2D6F"
         colorScheme = defaults
             .string(forKey: Keys.colorScheme)
@@ -114,6 +128,7 @@ public final class ClientSettings {
         lastProjectId = defaults.string(forKey: Keys.lastProjectId)
         lastSessionId = defaults.string(forKey: Keys.lastSessionId)
         pinnedSessionIds = Set(defaults.stringArray(forKey: Keys.pinnedSessionIds) ?? [])
+        archivedSessionIds = Set(defaults.stringArray(forKey: Keys.archivedSessionIds) ?? [])
 
         if let data = defaults.data(forKey: Keys.savedServers),
            let servers = try? JSONDecoder().decode([SavedServer].self, from: data) {
@@ -126,6 +141,7 @@ public final class ClientSettings {
     }
 
     public func useServer(_ server: SavedServer) {
+        serverScheme = server.scheme
         serverHost = server.host
         serverPort = server.port
         if !savedServers.contains(where: { $0.id == server.id }) {
@@ -142,6 +158,19 @@ public final class ClientSettings {
             pinnedSessionIds.insert(sessionId)
         } else {
             pinnedSessionIds.remove(sessionId)
+        }
+    }
+
+    public func isSessionArchived(_ sessionId: String) -> Bool {
+        archivedSessionIds.contains(sessionId)
+    }
+
+    public func setSessionArchived(_ sessionId: String, isArchived: Bool) {
+        if isArchived {
+            archivedSessionIds.insert(sessionId)
+            pinnedSessionIds.remove(sessionId)
+        } else {
+            archivedSessionIds.remove(sessionId)
         }
     }
 }

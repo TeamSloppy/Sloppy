@@ -36,6 +36,8 @@
 		<key>NSAllowsArbitraryLoads</key>
 		<true/>
 	</dict>
+	<key>NSCameraUsageDescription</key>
+	<string>Sloppy scans one-time QR codes from your Sloppy Dashboard to connect this device securely.</string>
 	<key>NSLocalNetworkUsageDescription</key>
 	<string>Sloppy discovers Sloppy Core on your Wi-Fi and connects over the local network.</string>
 	<key>NSMicrophoneUsageDescription</key>

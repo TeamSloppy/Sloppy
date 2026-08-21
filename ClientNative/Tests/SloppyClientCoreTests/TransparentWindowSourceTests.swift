@@ -164,6 +164,6 @@ struct TransparentWindowSourceTests {
 
         #expect(overlay.contains("collapsedSize = CGSize(width: 164, height: 32)"))
         #expect(overlay.contains("expandedSize = CGSize(width: 340, height: 148)"))
-        #expect(overlay.contains("wideWidth: CGFloat = 520"))
+        #expect(overlay.contains("wideWidth: CGFloat = 480"))
     }
 }

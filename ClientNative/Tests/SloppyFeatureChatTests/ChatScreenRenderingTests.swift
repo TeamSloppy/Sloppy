@@ -29,6 +29,20 @@ struct ChatScreenRenderingTests {
         }
     }
 
+    private var nativeTranscriptSource: String {
+        get throws {
+            let packageRoot = URL(fileURLWithPath: #filePath)
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+                .deletingLastPathComponent()
+            return try String(
+                contentsOf: packageRoot
+                    .appendingPathComponent("Sources/SloppyFeatureChat/Screens/Chat/Views/ChatNativeTranscriptView.swift"),
+                encoding: .utf8
+            )
+        }
+    }
+
     @Test("root chat content delegates rendering to chat chrome and loads initial data on appear")
     func rootChatContentDelegatesRenderingToChatChrome() throws {
         let source = try chatScreenSource
@@ -81,11 +95,15 @@ struct ChatScreenRenderingTests {
     @Test("composer reports its growing height to transcript clearance")
     func composerReportsGrowingHeightToTranscriptClearance() throws {
         let source = try chatScreenSource
+        let nativeSource = try nativeTranscriptSource
 
         #expect(source.contains("viewModel.composerPanelHeight ?? fallbackHeight"))
         #expect(source.contains(".onGeometryChange(for: CGFloat.self, of: { $0.size.height })"))
         #expect(source.contains("viewModel.updateComposerPanelHeight(height)"))
-        #expect(source.contains(".onChange(of: composerScrollInset)"))
+        #expect(source.contains("bottomInset: composerScrollInset"))
+        #expect(nativeSource.contains("bottomInsetChanged"))
+        #expect(nativeSource.contains("collectionView.contentInset"))
+        #expect(nativeSource.contains("scrollView.contentInsets"))
     }
 
     @Test("empty task draft surfaces the active context to the user")
@@ -172,47 +190,47 @@ struct ChatScreenRenderingTests {
     @Test("chat only follows new messages while the transcript is near the bottom")
     func chatOnlyFollowsNewMessagesNearBottom() throws {
         let source = try chatScreenSource
+        let nativeSource = try nativeTranscriptSource
 
-        #expect(source.contains("@State private var isNearBottom = true"))
-        #expect(!source.contains(".onScrollGeometryChange"))
-        #expect(source.contains(".onScrollPhaseChange"))
-        #expect(source.contains("!isUserScrolling"))
-        #expect(source.contains("geometry.visibleRect.maxY >= geometry.contentSize.height - bottomThreshold"))
-        #expect(source.contains("oldCount == 0 || isNearBottom"))
-        #expect(source.contains("guard isNearBottom,"))
-        #expect(source.contains("proxy.scrollTo(bottomAnchorId, anchor: .bottom)"))
-        #expect(source.contains("scrollToBottom(using: proxy, animated: false)"))
+        #expect(source.contains("ChatNativeTranscriptView("))
+        #expect(nativeSource.contains("let wasNearBottom = isNearBottom"))
+        #expect(nativeSource.contains("contentBottom - 44"))
+        #expect(nativeSource.contains("visibleBottom >= contentHeight - 44"))
+        #expect(nativeSource.contains("wasNearBottom && (contentChanged || bottomInsetChanged)"))
+        #expect(nativeSource.contains("didPrependItems"))
+        #expect(nativeSource.contains("oldOffset.y + delta"))
     }
 
     @Test("opening a chat always starts at the end of the transcript")
     func openingChatStartsAtTranscriptEnd() throws {
         let source = try chatScreenSource
+        let nativeSource = try nativeTranscriptSource
 
         #expect(source.contains("scrollToEndRequest: viewModel.transcriptScrollToEndRequest"))
-        #expect(source.contains(".defaultScrollAnchor(.bottom)"))
-        #expect(source.contains(".onChange(of: scrollToEndRequest, initial: true)"))
-        #expect(source.contains("scrollToBottom(using: proxy, animated: false)"))
+        #expect(source.contains("scrollToEndRequest: scrollToEndRequest"))
+        #expect(nativeSource.contains("previousScrollRequest != parent.scrollToEndRequest"))
+        #expect(nativeSource.contains("scrollToBottom"))
     }
 
     @Test("short chats align their first message to the top")
     func shortChatsAlignFirstMessageToTop() throws {
         let source = try chatScreenSource
 
-        #expect(source.contains(".defaultScrollAnchor(.top, for: .alignment)"))
+        #expect(source.contains("topInset: transcript.hasEarlierMessages ? 0 : messagesTopInset"))
     }
 
     @Test("chat groups system activity and shows a shimmering thinking state")
     func chatGroupsSystemActivityAndShowsThinkingState() throws {
         let source = try chatScreenSource
 
-        #expect(source.contains("ChatTranscriptGrouping.entries(from: transcript.messages)"))
+        #expect(source.contains("for (index, entry) in transcript.entries.enumerated()"))
         #expect(source.contains("ChatSystemMessageGroupView("))
         #expect(source.contains("activeRunMessageIDs: activeRunMessageIDs"))
-        #expect(source.contains("ChatThinkingIndicator(label: runStatusLabel, details: runStatusDetails)"))
+        #expect(source.contains("ChatThinkingIndicator(label: label, details: details)"))
         #expect(source.contains("viewModel.isAwaitingAgentResponse"))
         #expect(source.contains("ChatActiveRunMessages.messageIDs"))
         #expect(source.contains("activeRunMessageIDs.contains(message.id)"))
-        #expect(source.contains(".onChange(of: showsThinkingIndicator)"))
+        #expect(source.contains("content: .thinking(label: runStatusLabel, details: runStatusDetails)"))
     }
 
     @Test("transcript does not intercept text-selection gestures")

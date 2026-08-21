@@ -30,7 +30,19 @@ struct WorkspaceTerminalMacHostSourceTests {
         #expect(host.contains("import SwiftTerm"))
         #expect(host.contains("LocalProcessTerminalView"))
         #expect(host.contains("currentDirectory: session.workingDirectory.path"))
+        #expect(!host.contains("terminalView.process.terminate()"))
+        #expect(host.contains("static func dismantleNSView"))
+        #expect(host.contains("nsView.terminate()"))
         #expect(viewModel.contains("func makeTerminalHostView(for tabID: WorkspaceTab.ID) -> AnyView"))
         #expect(mainView.contains("viewModel.makeTerminalHostView(for: selectedTabID)"))
+    }
+
+    @Test("mac app disables sandbox for the local PTY shell")
+    func macAppDisablesSandboxForLocalPTY() throws {
+        let project = try source("project.yml")
+        let entitlements = try source("SupportingFiles", "macOS", "SloppyClient.entitlements")
+
+        #expect(!project.contains("com.apple.security.app-sandbox: true"))
+        #expect(!entitlements.contains("com.apple.security.app-sandbox"))
     }
 }

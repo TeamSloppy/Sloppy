@@ -1,4 +1,5 @@
 export const DASHBOARD_AUTH_TOKEN_STORAGE_KEY = "sloppy_dashboard_auth_token";
+export const DASHBOARD_AUTH_REMEMBER_STORAGE_KEY = "sloppy_dashboard_auth_remember";
 export const DASHBOARD_AUTH_INVALIDATED_EVENT = "sloppy-dashboard-auth-invalidated";
 
 let inMemoryDashboardAuthToken = loadStoredDashboardAuthToken();
@@ -29,6 +30,22 @@ export function hasStoredDashboardAuthToken() {
 
 export function isDashboardAuthTokenPersisted() {
   return hasStoredDashboardAuthToken();
+}
+
+export function getDashboardAuthRememberPreference() {
+  try {
+    return window.localStorage.getItem(DASHBOARD_AUTH_REMEMBER_STORAGE_KEY) !== "false";
+  } catch {
+    return true;
+  }
+}
+
+export function setDashboardAuthRememberPreference(remember: boolean) {
+  try {
+    window.localStorage.setItem(DASHBOARD_AUTH_REMEMBER_STORAGE_KEY, String(remember));
+  } catch {
+    // Ignore localStorage failures and keep the current in-memory UI state.
+  }
 }
 
 export function setDashboardAuthToken(token: string, options?: { persist?: boolean }) {

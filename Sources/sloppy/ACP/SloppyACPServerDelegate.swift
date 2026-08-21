@@ -6,12 +6,14 @@ import Protocols
 
 final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
     typealias UpdateSender = @Sendable (SessionId, SessionUpdate) async throws -> Void
+    typealias PermissionRequester = @Sendable (ACPServerPermissionRequest) async throws -> RequestPermissionResponse
 
     enum ServerError: Error, LocalizedError {
         case disabled
         case missingAgent
         case invalidSession
         case invalidPrompt
+        case invalidConfigOption
 
         var errorDescription: String? {
             switch self {
@@ -23,6 +25,8 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
                 return "ACP session does not map to a Sloppy agent session."
             case .invalidPrompt:
                 return "ACP prompt did not contain supported text content."
+            case .invalidConfigOption:
+                return "ACP session configuration option is invalid."
             }
         }
     }
@@ -33,18 +37,22 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
     private let sendUpdate: UpdateSender
     private let isoFormatter = ISO8601DateFormatter()
     private let logger: Logging.Logger
+    private let sessionConfiguration = ACPServerSessionConfiguration()
+    private let requestPermission: PermissionRequester?
 
     init(
         service: CoreService,
         agentID: String,
         defaultCwd: String?,
         logger: Logging.Logger? = nil,
+        requestPermission: PermissionRequester? = nil,
         sendUpdate: @escaping UpdateSender
     ) {
         self.service = service
         self.agentID = agentID
         self.defaultCwd = defaultCwd
         self.logger = logger ?? .sloppy(label: "sloppy.acp.server.delegate")
+        self.requestPermission = requestPermission
         self.sendUpdate = sendUpdate
     }
 
@@ -124,6 +132,7 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
                 request: AgentSessionCreateRequest(title: title, projectId: project?.id)
             )
             try await applyWorkingDirectory(request.cwd, sessionID: summary.id)
+            await service.setSessionToolApprovalRequired(sessionID: summary.id, enabled: true)
             try await sendUpdate(
                 SessionId(summary.id),
                 .sessionInfoUpdate(
@@ -136,7 +145,8 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
             let response = NewSessionResponse(
                 sessionId: SessionId(summary.id),
                 modes: nil,
-                models: try await modelsInfo()
+                models: try await modelsInfo(),
+                configOptions: try await configOptions(sessionID: summary.id)
             )
 
             logger.info(
@@ -196,6 +206,7 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
                 }
             }
 
+            let sessionOptions = try await sessionOptions(sessionID: sessionID)
             let response = try await service.postAgentSessionMessage(
                 agentID: agentID,
                 sessionID: sessionID,
@@ -203,7 +214,9 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
                     userId: "acp",
                     content: prompt.content,
                     attachments: prompt.attachments,
-                    mode: .defaultMode
+                    reasoningEffort: sessionOptions.reasoningEffort,
+                    selectedModel: sessionOptions.modelID,
+                    mode: sessionOptions.mode
                 )
             )
             streamTask.cancel()
@@ -325,6 +338,113 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
         }
     }
 
+    func handleSetSessionConfigOption(
+        _ request: SetSessionConfigOptionRequest
+    ) async throws -> SetSessionConfigOptionResponse {
+        try await validateReady()
+        let sessionID = request.sessionId.value
+        _ = try await service.getAgentSession(agentID: agentID, sessionID: sessionID)
+        let config = try await service.getAgentConfig(agentID: agentID)
+        let defaults = Self.defaultSessionOptions(config: config)
+
+        switch request.value {
+        case .boolean:
+            throw ServerError.invalidConfigOption
+        case .select(let selectedValue):
+            let value = selectedValue.value
+            if request.configId == Self.modeConfigID {
+                guard let mode = AgentChatMode(rawValue: value) else {
+                    throw ServerError.invalidConfigOption
+                }
+                _ = await sessionConfiguration.update(sessionID: sessionID, defaults: defaults) {
+                    $0.mode = mode
+                }
+            } else if request.configId == Self.modelConfigID {
+                guard Self.modelIDs(from: config.availableModels).contains(value) else {
+                    throw ServerError.invalidConfigOption
+                }
+                _ = await sessionConfiguration.update(sessionID: sessionID, defaults: defaults) {
+                    $0.modelID = value
+                    if !Self.modelSupportsReasoning(value, models: config.availableModels) {
+                        $0.reasoningEffort = nil
+                    } else if $0.reasoningEffort == nil {
+                        $0.reasoningEffort = config.reasoningEffort ?? .medium
+                    }
+                }
+            } else if request.configId == Self.reasoningEffortConfigID {
+                guard let effort = ReasoningEffort(rawValue: value) else {
+                    throw ServerError.invalidConfigOption
+                }
+                let current = await sessionConfiguration.values(sessionID: sessionID, defaults: defaults)
+                guard let modelID = current.modelID,
+                      Self.modelSupportsReasoning(modelID, models: config.availableModels)
+                else {
+                    throw ServerError.invalidConfigOption
+                }
+                _ = await sessionConfiguration.update(sessionID: sessionID, defaults: defaults) {
+                    $0.reasoningEffort = effort
+                }
+            } else {
+                throw ServerError.invalidConfigOption
+            }
+        }
+
+        return SetSessionConfigOptionResponse(
+            configOptions: try await configOptions(sessionID: sessionID)
+        )
+    }
+
+    func presentToolApproval(
+        _ record: ToolApprovalRecord
+    ) async -> ToolApprovalPresentationDecision? {
+        guard record.agentId == agentID, let requestPermission else {
+            return nil
+        }
+        let candidates = [record.displaySessionId, record.sessionId].compactMap { $0 }
+        var sessionID: String?
+        for candidate in candidates where await sessionConfiguration.contains(sessionID: candidate) {
+            sessionID = candidate
+            break
+        }
+        guard let sessionID else {
+            return nil
+        }
+
+        let request = ACPServerPermissionRequest(
+            sessionId: SessionId(sessionID),
+            toolCall: ACPServerPermissionRequest.ToolCall(
+                toolCallId: record.toolCallId ?? record.id,
+                title: record.tool,
+                kind: Self.toolKind(for: record.tool).rawValue,
+                status: ToolStatus.pending.rawValue,
+                rawInput: Self.permissionRawInput(record.arguments)
+            ),
+            options: [
+                PermissionOption(kind: "allow_once", name: "Allow Once", optionId: "allow_once"),
+                PermissionOption(kind: "allow_always", name: "Allow for Session", optionId: "allow_session"),
+                PermissionOption(kind: "reject_once", name: "Reject", optionId: "reject"),
+            ]
+        )
+        do {
+            let response = try await requestPermission(request)
+            guard response.outcome.outcome == "selected",
+                  let optionID = response.outcome.optionId
+            else {
+                return .reject
+            }
+            switch optionID {
+            case "allow_once":
+                return .approve(.once)
+            case "allow_session":
+                return .approve(.session)
+            default:
+                return .reject
+            }
+        } catch {
+            return .reject
+        }
+    }
+
     func handleLoadSession(_ request: LoadSessionRequest) async throws -> LoadSessionResponse {
         logger.info(
             "handle.request.loadSession",
@@ -337,6 +457,10 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
             try await validateReady()
             let detail = try await service.getAgentSession(
                 agentID: agentID, sessionID: request.sessionId.value)
+            await service.setSessionToolApprovalRequired(
+                sessionID: request.sessionId.value,
+                enabled: true
+            )
             if let cwd = request.cwd {
                 try await applyWorkingDirectory(cwd, sessionID: detail.summary.id)
             }
@@ -353,7 +477,8 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
             let response = LoadSessionResponse(
                 sessionId: request.sessionId,
                 modes: nil,
-                models: try await modelsInfo()
+                models: try await modelsInfo(),
+                configOptions: try await configOptions(sessionID: request.sessionId.value)
             )
 
             logger.info(
@@ -490,6 +615,133 @@ extension SloppyACPServerDelegate {
         return ModelsInfo(currentModelId: current, availableModels: models)
     }
 
+    private func sessionOptions(
+        sessionID: String
+    ) async throws -> ACPServerSessionConfiguration.Values {
+        let config = try await service.getAgentConfig(agentID: agentID)
+        return await sessionConfiguration.values(
+            sessionID: sessionID,
+            defaults: Self.defaultSessionOptions(config: config)
+        )
+    }
+
+    private func configOptions(sessionID: String) async throws -> [SessionConfigOption] {
+        let config = try await service.getAgentConfig(agentID: agentID)
+        let values = await sessionConfiguration.values(
+            sessionID: sessionID,
+            defaults: Self.defaultSessionOptions(config: config)
+        )
+        var options = [Self.modeConfigOption(current: values.mode)]
+
+        let models = Self.modelInfo(from: config.availableModels)
+        if let currentModelID = values.modelID, !models.isEmpty {
+            options.append(Self.modelConfigOption(current: currentModelID, models: models))
+            if Self.modelSupportsReasoning(currentModelID, models: config.availableModels),
+               let reasoningEffort = values.reasoningEffort
+            {
+                options.append(Self.reasoningEffortConfigOption(current: reasoningEffort))
+            }
+        }
+        return options
+    }
+
+    private static func defaultSessionOptions(
+        config: AgentConfigDetail
+    ) -> ACPServerSessionConfiguration.Values {
+        let selected = config.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let modelID = selected?.isEmpty == false ? selected : config.availableModels.first?.id
+        let supportsReasoning = modelID.map {
+            modelSupportsReasoning($0, models: config.availableModels)
+        } ?? false
+        return ACPServerSessionConfiguration.Values(
+            mode: .defaultMode,
+            modelID: modelID,
+            reasoningEffort: supportsReasoning ? (config.reasoningEffort ?? .medium) : nil
+        )
+    }
+
+    private static func modeConfigOption(current: AgentChatMode) -> SessionConfigOption {
+        let descriptions: [AgentChatMode: String] = [
+            .auto: "Let Sloppy choose the best workflow for the request.",
+            .ask: "Answer and inspect without making implementation changes.",
+            .build: "Implement requested changes.",
+            .plan: "Plan the work before implementation.",
+            .debug: "Investigate and diagnose runtime behavior.",
+        ]
+        let names: [AgentChatMode: String] = [
+            .auto: "Auto",
+            .ask: "Ask",
+            .build: "Build",
+            .plan: "Plan",
+            .debug: "Debug",
+        ]
+        return SessionConfigOption(
+            id: modeConfigID,
+            name: "Mode",
+            description: "How Sloppy handles subsequent turns",
+            category: "collaboration_mode",
+            kind: .select(
+                SessionConfigSelect(
+                    currentValue: SessionConfigValueId(current.rawValue),
+                    options: .ungrouped(
+                        AgentChatMode.allCases.map { mode in
+                            SessionConfigSelectOption(
+                                value: SessionConfigValueId(mode.rawValue),
+                                name: names[mode] ?? mode.rawValue,
+                                description: descriptions[mode]
+                            )
+                        }
+                    )
+                )
+            )
+        )
+    }
+
+    private static func modelConfigOption(current: String, models: [ModelInfo]) -> SessionConfigOption {
+        SessionConfigOption(
+            id: modelConfigID,
+            name: "Model",
+            description: "Model Sloppy uses for the session",
+            category: "model",
+            kind: .select(
+                SessionConfigSelect(
+                    currentValue: SessionConfigValueId(current),
+                    options: .ungrouped(
+                        models.map { model in
+                            SessionConfigSelectOption(
+                                value: SessionConfigValueId(model.modelId),
+                                name: model.name,
+                                description: model.description
+                            )
+                        }
+                    )
+                )
+            )
+        )
+    }
+
+    private static func reasoningEffortConfigOption(current: ReasoningEffort) -> SessionConfigOption {
+        SessionConfigOption(
+            id: reasoningEffortConfigID,
+            name: "Reasoning effort",
+            description: "How much reasoning effort the model should use",
+            category: "thought_level",
+            kind: .select(
+                SessionConfigSelect(
+                    currentValue: SessionConfigValueId(current.rawValue),
+                    options: .ungrouped(
+                        ReasoningEffort.allCases.map { effort in
+                            SessionConfigSelectOption(
+                                value: SessionConfigValueId(effort.rawValue),
+                                name: effort.rawValue.capitalized
+                            )
+                        }
+                    )
+                )
+            )
+        )
+    }
+
     private static func modelInfo(from models: [ProviderModelOption]) -> [ModelInfo] {
         models.map { model in
             ModelInfo(
@@ -502,6 +754,15 @@ extension SloppyACPServerDelegate {
 
     private static func modelIDs(from models: [ProviderModelOption]) -> Set<String> {
         Set(models.map(\.id))
+    }
+
+    private static func modelSupportsReasoning(
+        _ modelID: String,
+        models: [ProviderModelOption]
+    ) -> Bool {
+        models.first(where: { $0.id == modelID })?.capabilities.contains(where: {
+            $0.caseInsensitiveCompare("reasoning") == .orderedSame
+        }) == true
     }
 
     private static func modelDescription(_ model: ProviderModelOption) -> String? {
@@ -784,6 +1045,15 @@ extension SloppyACPServerDelegate {
             return ""
         }
         return text
+    }
+
+    private static func permissionRawInput(_ arguments: [String: JSONValue]) -> AnyCodable {
+        guard let data = try? JSONEncoder().encode(arguments),
+              let value = try? JSONDecoder().decode(AnyCodable.self, from: data)
+        else {
+            return AnyCodable([String: any Sendable]())
+        }
+        return value
     }
 
     private static func toolResultText(_ result: AgentToolResultEvent) -> String {

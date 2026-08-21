@@ -12,8 +12,8 @@ struct WorkspaceTerminalDrawerSourceTests {
         return try String(contentsOf: url, encoding: .utf8)
     }
 
-    @Test("main view registers cmd j and mounts a root terminal overlay")
-    func mainViewRegistersCmdJAndMountsRootTerminalOverlay() throws {
+    @Test("main view registers cmd j and mounts the bottom panel in the detail column")
+    func mainViewRegistersCmdJAndMountsDetailBottomPanel() throws {
         let app = try source("Sources", "SloppyClient", "App", "SloppyClientApp.swift")
         let mainView = try source("Sources", "SloppyClient", "Navigation", "Main", "MainView.swift")
 
@@ -22,21 +22,26 @@ struct WorkspaceTerminalDrawerSourceTests {
         #expect(mainView.contains(".keyboardShortcut(\"j\", modifiers: [.command])"))
         #expect(mainView.contains(".focusedSceneValue("))
         #expect(mainView.contains("viewModel.toggleTerminalForSelectedTab()"))
-        #expect(mainView.contains("private var workspaceTerminalOverlay: some View"))
+        #expect(mainView.contains("private func workspaceBottomPanelOverlay(maximumHeight: CGFloat)"))
         #expect(mainView.contains(".overlay(alignment: .bottom)"))
-        #expect(mainView.contains("WorkspaceTerminalDrawerView"))
+        #expect(mainView.contains("WorkspaceBottomPanelDrawerView"))
+        #expect(mainView.contains("workspaceBottomPanelOverlay("))
+        #expect(mainView.contains("private func contentArea()"))
     }
 
-    @Test("terminal drawer limits its stable resize handle to touch platforms")
-    func terminalDrawerLimitsItsStableResizeHandleToTouchPlatforms() throws {
+    @Test("bottom panel has an observable drag resize handle and panel picker")
+    func bottomPanelHasObservableResizeHandleAndPicker() throws {
         let drawer = try source("Sources", "SloppyClient", "Workspace", "Terminal", "WorkspaceTerminalDrawerView.swift")
+        let state = try source("Sources", "SloppyClient", "Navigation", "Main", "MainTabs.swift")
 
-        #expect(drawer.contains("#if os(iOS) || os(visionOS)"))
-        #expect(drawer.contains("Capsule()"))
+        #expect(drawer.contains("struct WorkspaceBottomPanelDrawerView"))
         #expect(drawer.contains("DragGesture"))
         #expect(drawer.contains("let startHeight = dragStartHeight ?? height"))
         #expect(drawer.contains("startHeight - value.translation.height"))
         #expect(drawer.contains("dragStartHeight = nil"))
-        #expect(drawer.contains("Project directory unavailable"))
+        #expect(drawer.contains("ForEach(WorkspaceBottomPanelKind.allCases)"))
+        #expect(drawer.contains("NSCursor.resizeUpDown"))
+        #expect(state.contains("@Observable\n@MainActor\nfinal class WorkspaceTerminalState"))
+        #expect(state.contains("var selectedPanel: WorkspaceBottomPanelKind"))
     }
 }

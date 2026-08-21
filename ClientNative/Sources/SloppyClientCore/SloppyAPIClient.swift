@@ -77,6 +77,12 @@ public actor SloppyAPIClient {
         return session
     }
 
+    public func redeemDevicePairing(token: String) async throws -> AuthSession {
+        let session = try await auth.redeemDevicePairing(token: token)
+        await http.installAuthSession(session)
+        return session
+    }
+
     public func fetchCurrentAuthUser() async throws -> AuthUserProfile {
         try await auth.fetchCurrentUser()
     }
@@ -173,11 +179,69 @@ public actor SloppyAPIClient {
         try await projects.updateProject(id: id, request: request)
     }
 
+    public func deleteProject(id: String) async throws {
+        try await projects.deleteProject(id: id)
+    }
+
+    public func createPermanentWorktree(projectId: String, taskId: String) async throws -> ProjectWorktreeRecord {
+        try await projects.createPermanentWorktree(projectId: projectId, taskId: taskId)
+    }
+
     public func createProjectTask(
         projectId: String,
         request: APIProjectTaskCreateRequest
     ) async throws -> APIProjectRecord {
         try await projects.createTask(projectId: projectId, request: request)
+    }
+
+    public func updateProjectTask(
+        projectId: String,
+        taskId: String,
+        request: APIProjectTaskUpdateRequest
+    ) async throws -> APIProjectRecord {
+        try await projects.updateTask(projectId: projectId, taskId: taskId, request: request)
+    }
+
+    public func fetchProjectAutomations(projectId: String) async throws -> [ProjectAutomationDefinition] {
+        try await http.get(
+            "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/automations"
+        )
+    }
+
+    public func createProjectAutomation(
+        projectId: String,
+        request: ProjectAutomationDefinitionUpsertRequest
+    ) async throws -> ProjectAutomationDefinition {
+        try await http.post(
+            "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/automations",
+            body: request
+        )
+    }
+
+    public func fetchProjectAutomationWorkflows(
+        projectId: String
+    ) async throws -> [ProjectAutomationWorkflowSummary] {
+        try await http.get(
+            "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/workflows"
+        )
+    }
+
+    public func fetchProjectAutomationRuns(projectId: String) async throws -> [ProjectAutomationRun] {
+        try await http.get(
+            "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/automation-runs"
+        )
+    }
+
+    public func runProjectAutomation(
+        projectId: String,
+        automationId: String,
+        request: ProjectAutomationManualRunRequest = ProjectAutomationManualRunRequest()
+    ) async throws -> ProjectAutomationRunDetail {
+        try await http.post(
+            "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/automations/"
+                + "\(BackendHTTPClient.encodePathSegment(automationId))/run",
+            body: request
+        )
     }
 
     public func fetchTaskComments(projectId: String, taskId: String) async throws -> [TaskComment] {

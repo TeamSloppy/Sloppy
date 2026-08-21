@@ -25,7 +25,6 @@ struct WorkspaceTerminalMacHostView: NSViewRepresentable {
 
     func makeNSView(context: Context) -> LocalProcessTerminalView {
         let terminalView = LocalProcessTerminalView(frame: .zero)
-        terminalView.process.terminate()
         let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
         let execName = "-" + URL(fileURLWithPath: shell).lastPathComponent
         terminalView.startProcess(
@@ -42,6 +41,11 @@ struct WorkspaceTerminalMacHostView: NSViewRepresentable {
 
     func updateNSView(_ nsView: LocalProcessTerminalView, context: Context) {
         context.coordinator.terminalView = nsView
+    }
+
+    static func dismantleNSView(_ nsView: LocalProcessTerminalView, coordinator: WorkspaceTerminalMacHostController) {
+        nsView.terminate()
+        coordinator.terminalView = nil
     }
 }
 #endif

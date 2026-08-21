@@ -28,6 +28,7 @@ public actor InMemoryPersistenceStore: PersistenceStore {
     private var bulletins: [MemoryBulletin] = []
     private var artifacts: [String: String] = [:]
     private var artifactRecords: [String: PersistedArtifactRecord] = [:]
+    private var publishedSites: [String: PersistedPublishedSiteRecord] = [:]
     private var channels: [String: PersistedChannelRecord] = [:]
     private var tasks: [String: PersistedTaskRecord] = [:]
     private var projects: [String: ProjectRecord] = [:]
@@ -410,6 +411,26 @@ public actor InMemoryPersistenceStore: PersistenceStore {
 
     public func artifactContent(id: String) async -> String? {
         artifactRecords[id]?.content ?? artifacts[id]
+    }
+
+    public func listPublishedSites() async -> [PersistedPublishedSiteRecord] {
+        publishedSites.values.sorted { $0.updatedAt > $1.updatedAt }
+    }
+
+    public func publishedSite(id: String) async -> PersistedPublishedSiteRecord? {
+        publishedSites[id]
+    }
+
+    public func publishedSite(slug: String) async -> PersistedPublishedSiteRecord? {
+        publishedSites.values.first { $0.slug == slug }
+    }
+
+    public func savePublishedSite(_ site: PersistedPublishedSiteRecord) async {
+        publishedSites[site.id] = site
+    }
+
+    public func deletePublishedSite(id: String) async -> Bool {
+        publishedSites.removeValue(forKey: id) != nil
     }
 
     public func listBulletins() async -> [MemoryBulletin] {

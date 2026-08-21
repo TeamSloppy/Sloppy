@@ -20,7 +20,8 @@ struct WorkspaceEnvironmentPanelSourceTests {
         #expect(panelViewModel.contains("case environment"))
         #expect(panelViewModel.contains("var mode: WorkspacePanelMode = .environment"))
         #expect(mainView.contains("openWorkspacePanel(mode: .environment)"))
-        #expect(mainView.contains("Label(\"Environment\", systemImage: workspacePanelMenuImage"))
+        #expect(mainView.contains("case .review:"))
+        #expect(mainView.contains("WorkspaceSidePanelPickerView("))
         #expect(panelView.contains("WorkspaceEnvironmentPanelView("))
     }
 
@@ -60,7 +61,7 @@ struct WorkspaceEnvironmentPanelSourceTests {
             "Sources/SloppyClient/Workspace/Panel/WorkspaceEnvironmentPanelView.swift"
         )
 
-        #expect(mainView.contains("onOpenTerminal: { viewModel.toggleTerminalForSelectedTab() }"))
+        #expect(mainView.contains("onOpenTerminal: { viewModel.openBottomPanel(.terminal) }"))
         #expect(environmentView.contains("onOpenTerminal?()"))
         #expect(environmentView.contains("Open project terminal"))
     }

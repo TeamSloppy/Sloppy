@@ -143,6 +143,7 @@ public struct BranchExecutionResult: Sendable, Equatable {
 
 public actor RuntimeSystem {
     public nonisolated let eventBus: EventBus
+    public nonisolated let performanceTelemetry: RuntimePerformanceTelemetry
     static let toolRoundLimitMessage = "Agent reached the tool turn limit before producing a final answer."
     static let defaultModelReconnectDelays: [Duration] = [
         .seconds(5),
@@ -216,6 +217,7 @@ public actor RuntimeSystem {
         let bus = EventBus()
         let memory = memoryStore ?? InMemoryMemoryStore()
         eventBus = bus
+        performanceTelemetry = RuntimePerformanceTelemetry()
         self.memoryStore = memory
         self.preResponseMemoryLimit = max(0, preResponseMemoryLimit)
         self.modelReconnectDelays = modelReconnectDelays ?? Self.defaultModelReconnectDelays
@@ -246,6 +248,10 @@ public actor RuntimeSystem {
         logger = .runtime(label: "sloppy.runtime.model")
         self.modelProvider = modelProvider
         self.defaultModel = defaultModel ?? modelProvider?.supportedModels.first
+    }
+
+    public func performanceSnapshot(limit: Int = 60) async -> RuntimePerformanceSnapshot {
+        await performanceTelemetry.snapshot(limit: limit)
     }
 
     /// Hot-swaps worker executor backend for subsequent worker operations.

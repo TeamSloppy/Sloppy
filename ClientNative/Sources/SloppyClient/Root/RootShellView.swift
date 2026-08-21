@@ -94,9 +94,13 @@ private struct RootShellContent: View {
                 }
 
             case .connectionSetup:
-                ConnectionSetupView(settings: rootViewModel.settings) { url in
-                    rootViewModel.connect(to: url)
-                }
+                ConnectionSetupView(
+                    settings: rootViewModel.settings,
+                    onConnected: { url in
+                        rootViewModel.connect(to: url)
+                    },
+                    onScannedCode: rootViewModel.handleDeepLink
+                )
 
             case .authentication(let url, let challenge, let message):
                 AuthenticationScreen(
@@ -106,10 +110,14 @@ private struct RootShellContent: View {
                     onAuthenticated: { authenticatedURL in
                         rootViewModel.startConnected(url: authenticatedURL)
                     },
+                    onScannedCode: rootViewModel.handleDeepLink,
                     onChooseServer: {
                         rootViewModel.appState = .connectionSetup
                     }
                 )
+
+            case .pairing:
+                MainLoadingView()
 
             case .chat(let url):
                 MainView(

@@ -84,4 +84,26 @@ struct ClientSettingsTests {
 
         UserDefaults.standard.removeObject(forKey: "client_last_project_id")
     }
+
+    @Test("archives sessions persistently and removes them from pinned chats")
+    func persistsArchivedSessions() {
+        UserDefaults.standard.removeObject(forKey: "client_archived_session_ids")
+        UserDefaults.standard.removeObject(forKey: "client_pinned_session_ids")
+
+        let initial = ClientSettings()
+        initial.setSessionPinned("session-1", isPinned: true)
+        initial.setSessionArchived("session-1", isArchived: true)
+
+        #expect(initial.isSessionArchived("session-1"))
+        #expect(!initial.isSessionPinned("session-1"))
+
+        let restored = ClientSettings()
+        #expect(restored.isSessionArchived("session-1"))
+
+        restored.setSessionArchived("session-1", isArchived: false)
+        #expect(!restored.isSessionArchived("session-1"))
+
+        UserDefaults.standard.removeObject(forKey: "client_archived_session_ids")
+        UserDefaults.standard.removeObject(forKey: "client_pinned_session_ids")
+    }
 }

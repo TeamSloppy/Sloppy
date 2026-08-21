@@ -44,6 +44,23 @@ CREATE TABLE IF NOT EXISTS artifacts (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS published_sites (
+    id TEXT PRIMARY KEY,
+    slug TEXT NOT NULL UNIQUE,
+    title TEXT NOT NULL,
+    visibility TEXT NOT NULL,
+    owner_id TEXT NOT NULL,
+    project_id TEXT,
+    entry_file TEXT NOT NULL,
+    bundle_path TEXT NOT NULL,
+    revision INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_published_sites_owner_updated
+    ON published_sites(owner_id, updated_at DESC);
+
 CREATE TABLE IF NOT EXISTS workspaces (
     id TEXT PRIMARY KEY,
     title TEXT NOT NULL,

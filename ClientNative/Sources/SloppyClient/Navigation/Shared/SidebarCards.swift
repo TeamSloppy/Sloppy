@@ -155,14 +155,7 @@ struct SidebarProjectCard: View {
         } isTargeted: {
             isDropTarget = $0
         }
-        .contextMenu {
-            Button("New Chat") {
-                viewModel.showNewProjectChat(project: group.project)
-            }
-            Button("Edit Project") {
-                viewModel.presentProjectEditor(group.project)
-            }
-        }
+        .projectContextMenu(viewModel: viewModel, project: group.project)
     }
 }
 

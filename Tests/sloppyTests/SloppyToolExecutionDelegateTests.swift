@@ -176,6 +176,31 @@ struct SloppyToolExecutionDelegateTests {
         #expect(try #require(await capture.value) == ["files.read", "files.write"])
     }
 
+    @Test("Tool calls from one provider batch execute concurrently")
+    func toolCallsFromOneBatchExecuteConcurrently() async throws {
+        let concurrency = ToolConcurrencyCapture()
+        let delegate = SloppyToolExecutionDelegate(toolCallHandler: { request in
+            await concurrency.started(tool: request.tool)
+            try? await Task.sleep(for: .milliseconds(75))
+            await concurrency.finished()
+            return ToolInvocationResult(tool: request.tool, ok: true)
+        })
+        let session = makeFakeSession()
+        let calls = [
+            Transcript.ToolCall(id: "call-a", toolName: "files.read", arguments: GeneratedContent(properties: [:])),
+            Transcript.ToolCall(id: "call-b", toolName: "web.search", arguments: GeneratedContent(properties: [:])),
+            Transcript.ToolCall(id: "call-c", toolName: "project.current", arguments: GeneratedContent(properties: [:])),
+        ]
+
+        await delegate.didGenerateToolCalls(calls, in: session)
+        for call in calls {
+            _ = await delegate.toolCallDecision(for: call, in: session)
+        }
+
+        #expect(await concurrency.maximumActive == 3)
+        #expect(await concurrency.tools == Set(["files.read", "web.search", "project.current"]))
+    }
+
     @Test("Tool decision override can stop before invocation")
     func toolDecisionOverrideCanStopBeforeInvocation() async throws {
         let capture = RequestCapture()
@@ -255,6 +280,22 @@ private actor ArgumentDiagnosticCapture {
     private var stored: SloppyToolExecutionDelegate.ArgumentDiagnostic?
     var value: SloppyToolExecutionDelegate.ArgumentDiagnostic? { stored }
     func store(_ diagnostic: SloppyToolExecutionDelegate.ArgumentDiagnostic) { stored = diagnostic }
+}
+
+private actor ToolConcurrencyCapture {
+    private var active = 0
+    private(set) var maximumActive = 0
+    private(set) var tools: Set<String> = []
+
+    func started(tool: String) {
+        active += 1
+        maximumActive = max(maximumActive, active)
+        tools.insert(tool)
+    }
+
+    func finished() {
+        active = max(0, active - 1)
+    }
 }
 
 private struct NamedTool: Tool {

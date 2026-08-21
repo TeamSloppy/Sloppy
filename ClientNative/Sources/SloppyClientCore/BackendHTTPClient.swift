@@ -326,6 +326,7 @@ public actor BackendHTTPClient {
              "/v1/auth/login",
              "/v1/auth/refresh",
              "/v1/auth/bootstrap",
+             "/v1/auth/device-pairing/redeem",
              "/v1/auth/register",
              "/v1/auth/password-reset",
              "/v1/dashboard/auth/validate":

@@ -755,6 +755,12 @@ func routerRegistersRoutesAcrossDomainsOnInitialization() async throws {
     #expect(healthPayload.status == "ok")
     #expect(healthPayload.pid == ProcessInfo.processInfo.processIdentifier)
 
+    let performanceResponse = await router.handle(method: "GET", path: "/v1/system/performance?limit=12", body: nil)
+    #expect(performanceResponse.status == 200)
+    let performancePayload = try JSONSerialization.jsonObject(with: performanceResponse.body) as? [String: Any]
+    #expect(performancePayload?["samples"] is [Any])
+    #expect(performancePayload?["summary"] is [String: Any])
+
     let channelStateResponse = await router.handle(method: "GET", path: "/v1/channels/general/state", body: nil)
     #expect(channelStateResponse.status == 200)
 

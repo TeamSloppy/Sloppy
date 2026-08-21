@@ -49,9 +49,9 @@ import { imageArtifactFromToolResult } from "../imageArtifactTimeline";
 
 const INLINE_ATTACHMENT_MAX_BYTES = 2 * 1024 * 1024;
 const ACTIVE_RUN_STATUS_REFRESH_AFTER_MS = 30 * 1000;
-const STREAM_TYPING_INTERVAL_MS = 32;
-const STREAM_TYPING_CHARS_PER_SECOND = 90;
-const STREAM_TYPING_MAX_CATCHUP_MS = 850;
+const STREAM_TYPING_INTERVAL_MS = 16;
+const STREAM_TYPING_CHARS_PER_SECOND = 480;
+const STREAM_TYPING_MAX_CATCHUP_MS = 120;
 const TASK_TAG_PATTERN = /#([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)/g;
 /** e.g. `ID: ADAWEBSITE-5` */
 const TASK_ID_LABEL_PATTERN = /\bID\s*:\s*([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)/gi;
@@ -3905,21 +3905,11 @@ function useTypingInterpolation() {
   }, [stop]);
 
   const push = useCallback((value) => {
-    const next = String(value || "");
-    if (!next) {
-      setImmediate("");
-      return;
-    }
-
-    const displayed = displayedRef.current;
-    if (!next.startsWith(displayed) || next.length <= displayed.length) {
-      setImmediate(next);
-      return;
-    }
-
-    targetRef.current = next;
+    const delta = String(value || "");
+    if (!delta) return;
+    targetRef.current += delta;
     start();
-  }, [setImmediate, start]);
+  }, [start]);
 
   useEffect(() => stop, [stop]);
 

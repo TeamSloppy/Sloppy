@@ -8,6 +8,9 @@
 import Observation
 import Foundation
 import SwiftUI
+#if os(macOS)
+import AppKit
+#endif
 import SloppyClientCore
 import SloppyClientUI
 import SloppyFeatureChat
@@ -40,7 +43,7 @@ final class MainViewModel {
     var didLoadProjects = false
     var collapsedProjectIds: Set<String> = []
     var expandedTaskLists: Set<String> = []
-    var visibleProjectCount = 5
+    var visibleProjectCount = 6
     var selectedAppSection: MainAppSection = .chats
     var selectedSidebarItem: MainSidebarSelection? = nil
     var isSidebarCollapsed = false
@@ -57,6 +60,8 @@ final class MainViewModel {
     var chatViewModel: ChatScreenViewModel
     var workspacePanelViewModel: WorkspacePanelViewModel
     var chatNavigationSerial = 0
+    var projectActionStatus: String?
+    var currentAuthUser: AuthUserProfile?
     let apiClient: SloppyAPIClient
 
     var sidebarWidth: CGFloat {
@@ -102,6 +107,10 @@ final class MainViewModel {
             return nil
         }
         return tabStates[selectedTabID]?.chatState?.viewModel.selectedSessionId
+    }
+
+    var sidebarSessionCatalog: [ChatSessionSummary] {
+        chatViewModel.sessionCatalog.filter { !settings.isSessionArchived($0.id) }
     }
 
     var chatSidebarMode: ChatSidebarListMode {
@@ -180,6 +189,34 @@ final class MainViewModel {
         chatViewModel.copyDebugSessionFileLink(session)
     }
 
+    func hasVisibleChats(in project: APIProjectRecord) -> Bool {
+        chatViewModel.sessionCatalog.contains {
+            $0.projectId == project.id && !settings.isSessionArchived($0.id)
+        }
+    }
+
+    func hasArchivedChats(in project: APIProjectRecord) -> Bool {
+        chatViewModel.sessionCatalog.contains {
+            $0.projectId == project.id && settings.isSessionArchived($0.id)
+        }
+    }
+
+    func toggleProjectChatsArchived(_ project: APIProjectRecord) {
+        let projectSessions = chatViewModel.sessionCatalog.filter { $0.projectId == project.id }
+        guard !projectSessions.isEmpty else {
+            projectActionStatus = "No chats to archive in \(project.name)"
+            return
+        }
+
+        let shouldArchive = projectSessions.contains { !settings.isSessionArchived($0.id) }
+        for session in projectSessions {
+            settings.setSessionArchived(session.id, isArchived: shouldArchive)
+        }
+        projectActionStatus = shouldArchive
+            ? "Archived chats in \(project.name)"
+            : "Restored chats in \(project.name)"
+    }
+
     func openSessionChatTab(_ session: ChatSessionSummary) {
         selectAppSection(.chats)
         updateSelectedSidebarItem(.chats)
@@ -237,6 +274,85 @@ final class MainViewModel {
     func presentProjectEditor(_ project: APIProjectRecord) {
         projectBeingEdited = project
         isProjectEditorPresented = true
+    }
+
+    func toggleProjectPinned(_ project: APIProjectRecord) {
+        Task {
+            do {
+                let updated = try await apiClient.updateProject(
+                    id: project.id,
+                    request: APIProjectUpdateRequest(isFavorite: !project.isFavorite)
+                )
+                replaceProject(updated)
+                prioritizeFavoriteProjects()
+                projectActionStatus = updated.isFavorite
+                    ? "Pinned \(updated.name)"
+                    : "Unpinned \(updated.name)"
+            } catch {
+                projectActionStatus = "Could not update \(project.name): \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func revealProjectInFinder(_ project: APIProjectRecord) {
+        #if os(macOS)
+        guard let path = project.projectRootPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !path.isEmpty else {
+            projectActionStatus = "No local folder configured for \(project.name)"
+            return
+        }
+        NSWorkspace.shared.activateFileViewerSelecting([
+            URL(fileURLWithPath: path, isDirectory: true)
+        ])
+        #else
+        projectActionStatus = "Reveal in Finder is only available on macOS"
+        #endif
+    }
+
+    func createPermanentWorktree(for project: APIProjectRecord) {
+        let worktreeID = "permanent-\(UUID().uuidString.lowercased())"
+        Task {
+            do {
+                let worktree = try await apiClient.createPermanentWorktree(
+                    projectId: project.id,
+                    taskId: worktreeID
+                )
+                projectActionStatus = "Created worktree \(worktree.branchName)"
+                #if os(macOS)
+                NSWorkspace.shared.activateFileViewerSelecting([
+                    URL(fileURLWithPath: worktree.worktreePath, isDirectory: true)
+                ])
+                #endif
+            } catch {
+                projectActionStatus = "Could not create worktree: \(error.localizedDescription)"
+            }
+        }
+    }
+
+    func removeProject(_ project: APIProjectRecord) {
+        Task {
+            do {
+                try await apiClient.deleteProject(id: project.id)
+                let tabIDs = tabs.filter { tabBelongsToProject($0, projectID: project.id) }.map(\.id)
+                for tabID in tabIDs {
+                    closeTab(tabID)
+                }
+                projects.removeAll { $0.id == project.id }
+                collapsedProjectIds.remove(project.id)
+                expandedTaskLists.remove(project.id)
+                projectModeStates.removeValue(forKey: project.id)
+                settings.projectModeSections.removeValue(forKey: project.id)
+                persistProjectOrder()
+                await cacheStore.cacheProjects(projects)
+                if selectedSidebarItem == .project(project.id) {
+                    selectedSidebarItem = .chats
+                    selectedAppSection = .chats
+                }
+                projectActionStatus = "Removed \(project.name)"
+            } catch {
+                projectActionStatus = "Could not remove \(project.name): \(error.localizedDescription)"
+            }
+        }
     }
 
     func didSaveProject(_ project: APIProjectRecord) {
@@ -392,7 +508,7 @@ final class MainViewModel {
     }
 
     func showMoreProjects() {
-        visibleProjectCount += 5
+        visibleProjectCount += 6
     }
 
     @discardableResult
@@ -419,11 +535,16 @@ final class MainViewModel {
 
     func refreshContent() async {
         await loadProjects(force: true)
+        await loadCurrentAccount()
         if chatViewModel.selectedAgent == nil {
             chatViewModel.loadInitialData()
         } else {
             await chatViewModel.refreshCurrentContext()
         }
+    }
+
+    func loadCurrentAccount() async {
+        currentAuthUser = await AuthSessionStore.shared.session(for: baseURL)?.user
     }
 
     func requestChatScrollToEnd(for tabID: WorkspaceTab.ID) {
@@ -438,7 +559,7 @@ final class MainViewModel {
         if !force {
             projects = reconcileProjectOrder(await cacheStore.loadProjects())
             didLoadProjects = true
-            visibleProjectCount = 5
+            visibleProjectCount = 6
         }
 
         defer {
@@ -453,7 +574,7 @@ final class MainViewModel {
         } catch {
             // The cached project snapshot remains available while offline.
         }
-        visibleProjectCount = 5
+        visibleProjectCount = 6
     }
 
     private func reconcileProjectOrder(_ availableProjects: [APIProjectRecord]) -> [APIProjectRecord] {
@@ -462,12 +583,42 @@ final class MainViewModel {
         let savedIDSet = Set(savedIDs)
         let newProjects = availableProjects.filter { !savedIDSet.contains($0.id) }
         let orderedProjects = newProjects + savedIDs.compactMap { projectsByID[$0] }
-        settings.projectOrderIDs = orderedProjects.map(\.id)
-        return orderedProjects
+        let prioritizedProjects = orderedProjects.filter(\.isFavorite) + orderedProjects.filter { !$0.isFavorite }
+        settings.projectOrderIDs = prioritizedProjects.map(\.id)
+        return prioritizedProjects
     }
 
     private func persistProjectOrder() {
         settings.projectOrderIDs = projects.map(\.id)
+    }
+
+    private func replaceProject(_ project: APIProjectRecord) {
+        guard let index = projects.firstIndex(where: { $0.id == project.id }) else {
+            projects.append(project)
+            return
+        }
+        projects[index] = project
+    }
+
+    private func prioritizeFavoriteProjects() {
+        projects = projects.filter(\.isFavorite) + projects.filter { !$0.isFavorite }
+        persistProjectOrder()
+        Task { await cacheStore.cacheProjects(projects) }
+    }
+
+    private func tabBelongsToProject(_ tab: WorkspaceTab, projectID: String) -> Bool {
+        switch tab.payload {
+        case .projectKanban(let context):
+            return context.projectId == projectID
+        case .workspaceFiles(let context):
+            return context.projectId == projectID
+        case .chatTask(let tabProjectID, _, _, _, _, _):
+            return tabProjectID == projectID
+        case .taskDetail(let context):
+            return context.projectId == projectID
+        case .chatSession:
+            return tabStates[tab.id]?.chatState?.viewModel.activeProjectIdForWorkspacePanel == projectID
+        }
     }
 
     func selectAppSection(_ section: MainAppSection) {
@@ -641,7 +792,8 @@ final class MainViewModel {
             return
         }
 
-        if terminalState.isPresented {
+        if terminalState.isPresented,
+           terminalState.selectedPanel == .terminal {
             closeTerminalForSelectedTab()
         } else {
             openTerminalForSelectedTab()
@@ -649,13 +801,20 @@ final class MainViewModel {
     }
 
     func openTerminalForSelectedTab() {
+        openBottomPanel(.terminal)
+    }
+
+    func openBottomPanel(_ panel: WorkspaceBottomPanelKind) {
         guard let selectedTabID,
               let terminalState = tabStates[selectedTabID]?.terminalState else {
             return
         }
 
+        terminalState.selectedPanel = panel
         terminalState.isPresented = true
-        ensureTerminalSessionStarted(for: selectedTabID)
+        if panel == .terminal {
+            ensureTerminalSessionStarted(for: selectedTabID)
+        }
     }
 
     func closeTerminalForSelectedTab() {
@@ -803,6 +962,9 @@ final class MainViewModel {
         let state = ProjectKanbanTabState(
             viewModel: ProjectKanbanViewModel(apiClient: SloppyAPIClient(baseURL: baseURL)),
             workspaceViewModel: CanvasWorkspaceViewModel(baseURL: baseURL),
+            automationViewModel: ProjectAutomationViewModel(
+                apiClient: SloppyAPIClient(baseURL: baseURL)
+            ),
             chatViewModel: chatState.viewModel,
             selectedSection: selectedSection
         )
@@ -826,6 +988,8 @@ final class MainViewModel {
                     projectName: project.name
                 )
             }
+        case .automation:
+            Task { await state.automationViewModel.load(projectId: project.id) }
         case .chats:
             break
         }
@@ -891,7 +1055,7 @@ final class MainViewModel {
 
     func terminalWorkingDirectory(for tabID: WorkspaceTab.ID) -> URL {
         resolveWorkingDirectory(for: tabID)
-            ?? URL(fileURLWithPath: NSHomeDirectory(), isDirectory: true)
+            ?? FileManager.default.homeDirectoryForCurrentUser
     }
 
     private func updateSelectedSidebarItem(_ selection: MainSidebarSelection) {

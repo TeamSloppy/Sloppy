@@ -119,6 +119,20 @@
                ReferencedContainer = "container:">
             </BuildableReference>
          </BuildActionEntry>
+         <BuildActionEntry
+            buildForTesting = "YES"
+            buildForRunning = "YES"
+            buildForProfiling = "YES"
+            buildForArchiving = "YES"
+            buildForAnalyzing = "YES">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "SloppyLiveActivity"
+               BuildableName = "SloppyLiveActivity"
+               BlueprintName = "SloppyLiveActivity"
+               ReferencedContainer = "container:">
+            </BuildableReference>
+         </BuildActionEntry>
       </BuildActionEntries>
    </BuildAction>
    <TestAction
@@ -145,6 +159,16 @@
                BlueprintIdentifier = "SloppyFeatureChatTests"
                BuildableName = "SloppyFeatureChatTests"
                BlueprintName = "SloppyFeatureChatTests"
+               ReferencedContainer = "container:">
+            </BuildableReference>
+         </TestableReference>
+         <TestableReference
+            skipped = "NO">
+            <BuildableReference
+               BuildableIdentifier = "primary"
+               BlueprintIdentifier = "SloppyFeatureProjectsTests"
+               BuildableName = "SloppyFeatureProjectsTests"
+               BlueprintName = "SloppyFeatureProjectsTests"
                ReferencedContainer = "container:">
             </BuildableReference>
          </TestableReference>
