@@ -17,6 +17,7 @@ let package = Package(
         .library(name: "SloppyFeatureAgents", targets: ["SloppyFeatureAgents"]),
         .library(name: "SloppyFeatureSettings", targets: ["SloppyFeatureSettings"]),
         .library(name: "SloppyFeatureChat", targets: ["SloppyFeatureChat"]),
+        .library(name: "SloppyFeatureSites", targets: ["SloppyFeatureSites"]),
         .library(name: "SloppyLiveActivity", targets: ["SloppyLiveActivity"])
     ],
     dependencies: [
@@ -86,6 +87,14 @@ let package = Package(
             path: "Sources/SloppyFeatureChat"
         ),
         .target(
+            name: "SloppyFeatureSites",
+            dependencies: [
+                "SloppyClientCore",
+                "SloppyClientUI"
+            ],
+            path: "Sources/SloppyFeatureSites"
+        ),
+        .target(
             name: "SloppyLiveActivity",
             dependencies: [
                 "SloppyClientCore"
@@ -102,6 +111,7 @@ let package = Package(
                 "SloppyFeatureAgents",
                 "SloppyFeatureSettings",
                 "SloppyFeatureChat",
+                "SloppyFeatureSites",
                 "SloppyLiveActivity",
                 .product(name: "Logging", package: "swift-log"),
                 .product(name: "SwiftTerm", package: "SwiftTerm")
@@ -125,6 +135,11 @@ let package = Package(
             name: "SloppyFeatureProjectsTests",
             dependencies: ["SloppyClientCore", "SloppyFeatureProjects"],
             path: "Tests/SloppyFeatureProjectsTests"
+        ),
+        .testTarget(
+            name: "SloppyFeatureSitesTests",
+            dependencies: ["SloppyClientCore", "SloppyFeatureSites"],
+            path: "Tests/SloppyFeatureSitesTests"
         ),
         .systemLibrary(
             name: "CSQLite3",

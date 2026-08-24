@@ -297,6 +297,7 @@ public actor CoreService {
     let toolApprovalService: ToolApprovalService
     let dashboardTerminalService: DashboardTerminalService
     let identityAuthService: CoreIdentityAuthService
+    let siteBrowserSessionService: SiteBrowserSessionService
     let enterpriseModules: [any EnterpriseModule]
     let channelStreamCancelRegistry: ChannelStreamCancelRegistry
     nonisolated let nodeMeshStore: NodeMeshStore
@@ -560,12 +561,14 @@ public actor CoreService {
                 .appendingPathComponent(".sloppy", isDirectory: true)
                 .appendingPathComponent("auth-state.json")
         )
+        self.siteBrowserSessionService = SiteBrowserSessionService()
         self.channelStreamCancelRegistry = ChannelStreamCancelRegistry()
         self.currentConfig = config
         let toolExecution = self.toolExecution
         toolExecution.projectService = self
         toolExecution.configService = self
         toolExecution.skillsService = self
+        toolExecution.siteService = self
         toolExecution.applyAgentMarkdown = { [weak self] agentID, userID, field, markdown in
             guard let self else {
                 throw AgentConfigError.storageFailure

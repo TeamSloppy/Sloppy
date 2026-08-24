@@ -1080,6 +1080,7 @@ extension CoreService {
         toolExecution.projectService = self
         toolExecution.configService = self
         toolExecution.skillsService = self
+        toolExecution.siteService = self
         toolExecution.applyAgentMarkdown = { [weak self] agentID, userID, field, markdown in
             guard let self else {
                 throw AgentConfigError.storageFailure

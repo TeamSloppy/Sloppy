@@ -147,6 +147,19 @@ public struct AuthSession: Codable, Sendable, Equatable {
     }
 }
 
+public struct AuthRecoveryCodes: Codable, Sendable, Equatable {
+    public var codes: [String]
+}
+
+public struct AuthApplicationToken: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var name: String
+    public var token: String?
+    public var tokenPrefix: String
+    public var createdAt: Date
+    public var expiresAt: Date
+}
+
 public struct DashboardAuthStatus: Codable, Sendable, Equatable {
     public var enabled: Bool
 }
@@ -176,6 +189,45 @@ public actor AuthService {
         )
     }
 
+    public func bootstrapIdentityAdmin(login: String, password: String, name: String) async throws -> AuthSession {
+        struct Payload: Encodable {
+            var login: String
+            var password: String
+            var name: String
+        }
+        return try await http.post(
+            "/v1/auth/bootstrap",
+            body: Payload(
+                login: login.trimmingCharacters(in: .whitespacesAndNewlines),
+                password: password,
+                name: name.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        )
+    }
+
+    public func registerIdentityUser(
+        inviteToken: String,
+        login: String,
+        password: String,
+        name: String
+    ) async throws -> AuthSession {
+        struct Payload: Encodable {
+            var inviteToken: String
+            var login: String
+            var password: String
+            var name: String
+        }
+        return try await http.post(
+            "/v1/auth/register",
+            body: Payload(
+                inviteToken: inviteToken.trimmingCharacters(in: .whitespacesAndNewlines),
+                login: login.trimmingCharacters(in: .whitespacesAndNewlines),
+                password: password,
+                name: name.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        )
+    }
+
     public func redeemDevicePairing(token: String) async throws -> AuthSession {
         struct Payload: Encodable {
             var token: String
@@ -188,6 +240,56 @@ public actor AuthService {
 
     public func fetchCurrentUser() async throws -> AuthUserProfile {
         try await http.get("/v1/auth/me")
+    }
+
+    public func updateCurrentUser(
+        name: String,
+        avatar: String,
+        description: String
+    ) async throws -> AuthUserProfile {
+        struct Payload: Encodable {
+            var name: String
+            var avatar: String
+            var description: String
+        }
+        return try await http.patch(
+            "/v1/auth/me",
+            body: Payload(name: name, avatar: avatar, description: description)
+        )
+    }
+
+    public func changeIdentityPassword(currentPassword: String, newPassword: String) async throws -> AuthSession {
+        struct Payload: Encodable {
+            var currentPassword: String
+            var newPassword: String
+        }
+        return try await http.post(
+            "/v1/auth/password",
+            body: Payload(currentPassword: currentPassword, newPassword: newPassword)
+        )
+    }
+
+    public func generateIdentityRecoveryCodes() async throws -> AuthRecoveryCodes {
+        struct EmptyPayload: Encodable {}
+        return try await http.post("/v1/auth/recovery-codes", body: EmptyPayload())
+    }
+
+    public func fetchIdentityApplicationTokens() async throws -> [AuthApplicationToken] {
+        try await http.get("/v1/auth/application-tokens")
+    }
+
+    public func createIdentityApplicationToken(name: String) async throws -> AuthApplicationToken {
+        struct Payload: Encodable { var name: String }
+        return try await http.post(
+            "/v1/auth/application-tokens",
+            body: Payload(name: name.trimmingCharacters(in: .whitespacesAndNewlines))
+        )
+    }
+
+    public func revokeIdentityApplicationToken(id: String) async throws {
+        try await http.delete(
+            "/v1/auth/application-tokens/\(BackendHTTPClient.encodePathSegment(id))"
+        )
     }
 
     public func fetchDashboardAuthStatus() async throws -> DashboardAuthStatus {

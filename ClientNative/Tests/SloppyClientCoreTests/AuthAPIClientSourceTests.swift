@@ -22,6 +22,12 @@ struct AuthAPIClientSourceTests {
 
         #expect(apiClient.contains("fetchAuthChallenge() async throws -> AuthChallenge"))
         #expect(apiClient.contains("loginIdentityUser(login: String, password: String) async throws -> AuthSession"))
+        #expect(apiClient.contains("bootstrapIdentityAdmin(login: String, password: String, name: String) async throws -> AuthSession"))
+        #expect(apiClient.contains("registerIdentityUser("))
+        #expect(apiClient.contains("updateCurrentAuthUser("))
+        #expect(apiClient.contains("changeIdentityPassword(currentPassword: String, newPassword: String) async throws -> AuthSession"))
+        #expect(apiClient.contains("generateIdentityRecoveryCodes() async throws -> AuthRecoveryCodes"))
+        #expect(apiClient.contains("fetchIdentityApplicationTokens() async throws -> [AuthApplicationToken]"))
         #expect(apiClient.contains("redeemDevicePairing(token: String) async throws -> AuthSession"))
         #expect(apiClient.contains("hasStoredAuthSession() async -> Bool"))
         #expect(apiClient.contains("public func logout() async"))
@@ -29,6 +35,11 @@ struct AuthAPIClientSourceTests {
         #expect(services.contains("public struct AuthSession"))
         #expect(services.contains("\"/v1/auth/challenge\""))
         #expect(services.contains("\"/v1/auth/login\""))
+        #expect(services.contains("\"/v1/auth/bootstrap\""))
+        #expect(services.contains("\"/v1/auth/register\""))
+        #expect(services.contains("\"/v1/auth/password\""))
+        #expect(services.contains("\"/v1/auth/recovery-codes\""))
+        #expect(services.contains("\"/v1/auth/application-tokens\""))
         #expect(services.contains("\"/v1/auth/device-pairing/redeem\""))
     }
 

@@ -11,13 +11,17 @@ struct PlatformMainSidebar: View {
     @Environment(\.theme) private var theme
 
     var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 12) {
-                MacSidebarPrimaryActions(viewModel: viewModel)
-                SidebarRecentsList(viewModel: viewModel)
+        VStack(alignment: .leading, spacing: 12) {
+            MacSidebarPrimaryActions(viewModel: viewModel)
+
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 12) {
+                    SidebarRecentsList(viewModel: viewModel)
+                }
             }
+            .frame(maxHeight: .infinity)
+            .refreshable { await viewModel.refreshContent() }
         }
-        .refreshable { await viewModel.refreshContent() }
         .safeAreaInset(edge: .bottom) {
             HStack(spacing: theme.spacing.s) {
                 Text(accountInitials)
@@ -34,7 +38,7 @@ struct PlatformMainSidebar: View {
                 Spacer(minLength: theme.spacing.s)
 
                 Button {
-                    viewModel.onOpenSettings(.general)
+                    viewModel.onOpenSettings(.account)
                 } label: {
                     Image(systemName: "gearshape")
                         .font(.system(size: theme.typography.heading))
@@ -92,6 +96,14 @@ private struct MacSidebarPrimaryActions: View {
                 isSelected: false,
                 navigationValue: .chats,
                 action: viewModel.selectNewChat
+            )
+
+            SidebarNavigationRow(
+                icon: .language,
+                title: "Sites",
+                isSelected: viewModel.selectedAppSection == .sites,
+                navigationValue: .sites,
+                action: viewModel.selectSites
             )
 
             SidebarNavigationRow(

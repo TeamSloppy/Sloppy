@@ -1,5 +1,6 @@
 #if os(visionOS)
 import SloppyFeatureAgents
+import SloppyFeatureSites
 import SwiftUI
 
 @MainActor
@@ -15,6 +16,12 @@ struct PlatformMainSidebar: View {
             }
             Tab("Chats", systemImage: "message", value: MainAppSection.chats) {
                 ScrollView { SidebarRecentsList(viewModel: viewModel) }
+            }
+            Tab("Sites", systemImage: "globe", value: MainAppSection.sites) {
+                SitesScreen(
+                    apiClient: viewModel.apiClient,
+                    onCreate: viewModel.createSiteFromChat
+                )
             }
             Tab("Workspace", systemImage: "square.grid.2x2", value: MainAppSection.workspace) {
                 Color.clear

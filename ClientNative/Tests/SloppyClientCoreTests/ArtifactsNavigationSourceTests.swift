@@ -35,6 +35,15 @@ struct ArtifactsNavigationSourceTests {
         #expect(!screen.contains("Артефакт"))
     }
 
+    @Test("artifacts list keeps the shared chat background visible")
+    func artifactsListUsesTransparentBackground() throws {
+        let screen = try source("Sources/SloppyClient/ArtifactLibrary/ArtifactsScreen.swift")
+
+        #expect(!screen.contains(".background(theme.colors.background)"))
+        #expect(screen.contains(".scrollContentBackground(.hidden)"))
+        #expect(screen.contains(".listRowBackground(Color.clear)"))
+    }
+
     @Test("main navigation presents the artifacts list")
     func mainNavigationPresentsArtifactsList() throws {
         let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")

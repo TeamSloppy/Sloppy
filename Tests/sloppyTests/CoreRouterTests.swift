@@ -1775,6 +1775,65 @@ func identityAuthEnforcesTokenAuthAndAdminRoleBoundaries() async throws {
 }
 
 @Test
+func identityAuthUserCanUpdateOwnProfileWithoutAdminPrivileges() async throws {
+    let service = CoreService(config: .test, identityPasswordHashIterations: 1)
+    await service.setIdentityAuthEnabled(true)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+
+    let adminSession = try decoder.decode(AuthSessionResponse.self, from: (await router.handle(
+        method: "POST",
+        path: "/v1/auth/bootstrap",
+        body: try encoder.encode(AuthBootstrapAdminRequest(login: "admin", password: "admin-pass", name: "Admin"))
+    )).body)
+    let invite = try decoder.decode(AuthInviteRecord.self, from: (await router.handle(
+        method: "POST",
+        path: "/v1/auth/invites",
+        body: try encoder.encode(AuthInviteCreateRequest(role: .user, ttlSeconds: 600)),
+        headers: ["Authorization": "Bearer \(adminSession.accessToken)"]
+    )).body)
+    let userSession = try decoder.decode(AuthSessionResponse.self, from: (await router.handle(
+        method: "POST",
+        path: "/v1/auth/register",
+        body: try encoder.encode(AuthRegisterRequest(
+            inviteToken: try #require(invite.token),
+            login: "member",
+            password: "member-pass",
+            name: "Member"
+        ))
+    )).body)
+
+    let update = await router.handle(
+        method: "PATCH",
+        path: "/v1/auth/me",
+        body: try encoder.encode(AuthUserUpdateRequest(
+            name: "New Name",
+            avatar: "https://example.com/avatar.png",
+            description: "Updated profile"
+        )),
+        headers: ["Authorization": "Bearer \(userSession.accessToken)"]
+    )
+    #expect(update.status == 200)
+    let updated = try decoder.decode(AuthUserProfile.self, from: update.body)
+    #expect(updated.login == "member")
+    #expect(updated.name == "New Name")
+    #expect(updated.avatar == "https://example.com/avatar.png")
+    #expect(updated.description == "Updated profile")
+    #expect(updated.role == .user)
+    #expect(updated.status == .active)
+
+    let forbiddenEscalation = await router.handle(
+        method: "PATCH",
+        path: "/v1/auth/me",
+        body: try encoder.encode(AuthUserUpdateRequest(role: .admin)),
+        headers: ["Authorization": "Bearer \(userSession.accessToken)"]
+    )
+    #expect(forbiddenEscalation.status == 403)
+}
+
+@Test
 func identityAuthRequiresAdminForMeshAdminRoutes() async throws {
     let service = CoreService(config: .test, identityPasswordHashIterations: 1)
     await service.setIdentityAuthEnabled(true)

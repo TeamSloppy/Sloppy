@@ -18,6 +18,7 @@ enum SettingsScreenSectionGroup: String, CaseIterable, Hashable {
 }
 
 enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
+    case account
     case client
     case backend
     case mesh
@@ -47,6 +48,7 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
 
     var title: String {
         switch self {
+        case .account: "Account"
         case .client: "General"
         case .backend: "Sloppy Backend"
         case .mesh: "Mesh"
@@ -76,6 +78,7 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
 
     var subtitle: String {
         switch self {
+        case .account: "Profile, password, recovery codes, application tokens, and sign out."
         case .client: "Connection, appearance, accent, and desktop behavior."
         case .backend: "Install or update the local Sloppy backend from GitHub Releases."
         case .mesh: "Mesh invite and target node selection."
@@ -105,6 +108,8 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
 
     var searchTerms: [String] {
         switch self {
+        case .account:
+            ["account", "profile", "name", "login", "password", "recovery", "token", "sign out"]
         case .client:
             ["general", "connection", "appearance", "accent", "desktop", "window"]
         case .backend:
@@ -158,7 +163,7 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
 
     var group: SettingsScreenSectionGroup {
         switch self {
-        case .client, .backend, .mesh:
+        case .account, .client, .backend, .mesh:
             .client
         case .providers, .searchTools, .channels, .plugins, .nodeHost, .visor, .acp, .proxy, .gitSync, .rawConfig:
             .config
@@ -176,6 +181,7 @@ public struct SettingsScreen: View {
 
     private let settings: ClientSettings
     private let onDismiss: (() -> Void)?
+    private let onLogout: (@MainActor () -> Void)?
 
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
@@ -185,13 +191,24 @@ public struct SettingsScreen: View {
     public init(
         settings: ClientSettings? = nil,
         initialDestination: ClientSettingsDestination = .general,
-        onDismiss: (() -> Void)? = nil
+        onDismiss: (() -> Void)? = nil,
+        onLogout: (@MainActor () -> Void)? = nil
     ) {
         self.settings = settings ?? ClientSettings()
         self.onDismiss = onDismiss
+        self.onLogout = onLogout
         self.api = SloppyAPIClient(baseURL: (settings ?? ClientSettings()).baseURL)
+        let initialSection: SettingsScreenSection
+        switch initialDestination {
+        case .account:
+            initialSection = .account
+        case .general:
+            initialSection = .client
+        case .providers:
+            initialSection = .providers
+        }
         self._selectedSection = State(
-            initialValue: initialDestination == .providers ? .providers : .client
+            initialValue: initialSection
         )
     }
 
@@ -203,7 +220,16 @@ public struct SettingsScreen: View {
                 desktopShell
             }
         }
-        .onAppear { loadConfig() }
+        .onAppear {
+            if selectedSection != .account {
+                loadConfig()
+            }
+        }
+        .onChange(of: selectedSection) { _, section in
+            if section != .account, config == nil {
+                loadConfig()
+            }
+        }
     }
 
     private var phoneLayout: some View {
@@ -301,7 +327,7 @@ public struct SettingsScreen: View {
             Text(selectedSection.subtitle)
                 .font(.system(size: ty.body))
                 .foregroundColor(c.textMuted)
-            if selectedSection != .backend {
+            if selectedSection != .backend, selectedSection != .account {
                 Text(statusText)
                     .font(.system(size: ty.caption))
                     .foregroundColor(c.textMuted)
@@ -312,6 +338,8 @@ public struct SettingsScreen: View {
     @ViewBuilder
     private func detailContent(for section: SettingsScreenSection) -> some View {
         switch selectedSection {
+        case .account:
+            AccountSettingsSection(apiClient: api, onLogout: onLogout ?? {})
         case .client:
             ClientSettingsSection(settings: settings)
             #if os(macOS)
@@ -492,6 +520,7 @@ public struct SettingsScreen: View {
 private extension SettingsScreenSection {
     var iconName: String {
         switch self {
+        case .account: "person.crop.circle"
         case .client: "gearshape"
         case .backend: "shippingbox.and.arrow.backward"
         case .mesh: "point.3.connected.trianglepath.dotted"

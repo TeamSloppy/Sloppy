@@ -118,8 +118,8 @@ struct MainTabsSourceTests {
         #expect(mainView.contains("proxy.scrollTo(selectionID, anchor: .center)"))
     }
 
-    @Test("macOS toolbar search relies on material without an extra outline")
-    func macOSToolbarSearchHasNoExtraOutline() throws {
+    @Test("macOS toolbar search has no custom background")
+    func macOSToolbarSearchHasNoCustomBackground() throws {
         let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
         let searchFieldStart = try #require(mainView.range(
             of: "private var toolbarSearchField: some View"
@@ -130,7 +130,7 @@ struct MainTabsSourceTests {
         ))
         let searchField = mainView[searchFieldStart.lowerBound..<searchFieldEnd.lowerBound]
 
-        #expect(searchField.contains(".background(.regularMaterial, in: Capsule())"))
+        #expect(!searchField.contains(".background("))
         #expect(!searchField.contains(".stroke("))
     }
 

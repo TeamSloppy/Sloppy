@@ -19,6 +19,7 @@ public actor SQLiteStore: PersistenceStore {
     private var fallbackEvents: [EventEnvelope] = []
     private var fallbackBulletins: [MemoryBulletin] = []
     private var fallbackArtifacts: [String: PersistedArtifactRecord] = [:]
+    private var fallbackPublishedSites: [String: PersistedPublishedSiteRecord] = [:]
     private var fallbackChannels: [String: PersistedChannelRecord] = [:]
     private var fallbackTasks: [String: PersistedTaskRecord] = [:]
     private var fallbackProjects: [String: ProjectRecord] = [:]
@@ -1442,6 +1443,151 @@ public actor SQLiteStore: PersistenceStore {
         return removedFallback
 #endif
     }
+
+    public func listPublishedSites() async -> [PersistedPublishedSiteRecord] {
+#if canImport(CSQLite3)
+        guard let db else {
+            return fallbackPublishedSites.values.sorted { $0.updatedAt > $1.updatedAt }
+        }
+        let sql = """
+            SELECT id, slug, title, visibility, owner_id, project_id, entry_file,
+                   bundle_path, revision, created_at, updated_at
+            FROM published_sites
+            ORDER BY updated_at DESC;
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            return fallbackPublishedSites.values.sorted { $0.updatedAt > $1.updatedAt }
+        }
+        defer { sqlite3_finalize(statement) }
+        var sites: [PersistedPublishedSiteRecord] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let site = persistedPublishedSite(from: statement) {
+                sites.append(site)
+            }
+        }
+        return sites.isEmpty && !fallbackPublishedSites.isEmpty
+            ? fallbackPublishedSites.values.sorted { $0.updatedAt > $1.updatedAt }
+            : sites
+#else
+        return fallbackPublishedSites.values.sorted { $0.updatedAt > $1.updatedAt }
+#endif
+    }
+
+    public func publishedSite(id: String) async -> PersistedPublishedSiteRecord? {
+        await loadPublishedSite(column: "id", value: id) ?? fallbackPublishedSites[id]
+    }
+
+    public func publishedSite(slug: String) async -> PersistedPublishedSiteRecord? {
+        await loadPublishedSite(column: "slug", value: slug)
+            ?? fallbackPublishedSites.values.first { $0.slug == slug }
+    }
+
+    public func savePublishedSite(_ site: PersistedPublishedSiteRecord) async {
+        fallbackPublishedSites[site.id] = site
+#if canImport(CSQLite3)
+        guard let db else { return }
+        let sql = """
+            INSERT INTO published_sites(
+                id, slug, title, visibility, owner_id, project_id, entry_file,
+                bundle_path, revision, created_at, updated_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT(id) DO UPDATE SET
+                slug = excluded.slug,
+                title = excluded.title,
+                visibility = excluded.visibility,
+                owner_id = excluded.owner_id,
+                project_id = excluded.project_id,
+                entry_file = excluded.entry_file,
+                bundle_path = excluded.bundle_path,
+                revision = excluded.revision,
+                updated_at = excluded.updated_at;
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(statement) }
+        bindText(site.id, at: 1, statement: statement)
+        bindText(site.slug, at: 2, statement: statement)
+        bindText(site.title, at: 3, statement: statement)
+        bindText(site.visibility.rawValue, at: 4, statement: statement)
+        bindText(site.ownerId, at: 5, statement: statement)
+        bindOptionalText(site.projectId, at: 6, statement: statement)
+        bindText(site.entryFile, at: 7, statement: statement)
+        bindText(site.bundlePath, at: 8, statement: statement)
+        sqlite3_bind_int64(statement, 9, Int64(site.revision))
+        bindText(isoFormatter.string(from: site.createdAt), at: 10, statement: statement)
+        bindText(isoFormatter.string(from: site.updatedAt), at: 11, statement: statement)
+        _ = sqlite3_step(statement)
+#endif
+    }
+
+    public func deletePublishedSite(id: String) async -> Bool {
+        let removedFallback = fallbackPublishedSites.removeValue(forKey: id) != nil
+#if canImport(CSQLite3)
+        guard let db else { return removedFallback }
+        let sql = "DELETE FROM published_sites WHERE id = ?;"
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            return removedFallback
+        }
+        defer { sqlite3_finalize(statement) }
+        bindText(id, at: 1, statement: statement)
+        guard sqlite3_step(statement) == SQLITE_DONE else { return removedFallback }
+        return sqlite3_changes(db) > 0 || removedFallback
+#else
+        return removedFallback
+#endif
+    }
+
+    private func loadPublishedSite(column: String, value: String) async -> PersistedPublishedSiteRecord? {
+#if canImport(CSQLite3)
+        guard let db, column == "id" || column == "slug" else { return nil }
+        let sql = """
+            SELECT id, slug, title, visibility, owner_id, project_id, entry_file,
+                   bundle_path, revision, created_at, updated_at
+            FROM published_sites
+            WHERE \(column) = ?
+            LIMIT 1;
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(statement) }
+        bindText(value, at: 1, statement: statement)
+        guard sqlite3_step(statement) == SQLITE_ROW else { return nil }
+        return persistedPublishedSite(from: statement)
+#else
+        return nil
+#endif
+    }
+
+#if canImport(CSQLite3)
+    private func persistedPublishedSite(from statement: OpaquePointer?) -> PersistedPublishedSiteRecord? {
+        guard let id = optionalText(statement: statement, index: 0),
+              let slug = optionalText(statement: statement, index: 1),
+              let title = optionalText(statement: statement, index: 2),
+              let rawVisibility = optionalText(statement: statement, index: 3),
+              let visibility = PublishedSiteVisibility(rawValue: rawVisibility),
+              let ownerId = optionalText(statement: statement, index: 4),
+              let entryFile = optionalText(statement: statement, index: 6),
+              let bundlePath = optionalText(statement: statement, index: 7),
+              let createdRaw = optionalText(statement: statement, index: 9),
+              let updatedRaw = optionalText(statement: statement, index: 10)
+        else { return nil }
+        return PersistedPublishedSiteRecord(
+            id: id,
+            slug: slug,
+            title: title,
+            visibility: visibility,
+            ownerId: ownerId,
+            projectId: optionalText(statement: statement, index: 5),
+            entryFile: entryFile,
+            bundlePath: bundlePath,
+            revision: Int(sqlite3_column_int64(statement, 8)),
+            createdAt: isoFormatter.date(from: createdRaw) ?? Date(),
+            updatedAt: isoFormatter.date(from: updatedRaw) ?? Date()
+        )
+    }
+#endif
 
     public func listInitiatives(projectID: String) async -> [InitiativeRecord] {
 #if canImport(CSQLite3)

@@ -23,6 +23,7 @@ final class ToolExecutionService: @unchecked Sendable {
     var projectService: (any ProjectToolService)?
     var configService: (any RuntimeConfigToolService)?
     var skillsService: (any SkillsToolService)?
+    var siteService: (any SiteToolService)?
     /// `(agentID, userID, field, markdown)` — used to build per-invocation `ToolContext.applyAgentMarkdown`.
     var applyAgentMarkdown: ((String, String?, AgentMarkdownDocumentField, String) async throws -> Void)?
     var delegateSubagent: (@Sendable (String, String, String, String?, [String]?, String?, String?) async -> String?)?
@@ -152,6 +153,7 @@ final class ToolExecutionService: @unchecked Sendable {
         return ToolContext(
             agentID: agentID,
             sessionID: sessionID,
+            userID: userID,
             sharedMemoryEnabled: sharedMemoryEnabled,
             channelID: channelID,
             policy: policy,
@@ -174,6 +176,7 @@ final class ToolExecutionService: @unchecked Sendable {
             projectService: projectService,
             configService: configService,
             skillsService: skillsService,
+            siteService: siteService,
             lspManager: lspManager,
             browserService: browserService,
             safariBridgeService: safariBridgeService,

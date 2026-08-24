@@ -13,6 +13,7 @@ public struct OpenAPIInfo: Encodable {
 
 public struct OpenAPIPathItem: Encodable {
     public var get: OpenAPIOperation?
+    public var head: OpenAPIOperation?
     public var post: OpenAPIOperation?
     public var put: OpenAPIOperation?
     public var patch: OpenAPIOperation?
@@ -21,6 +22,7 @@ public struct OpenAPIPathItem: Encodable {
     public mutating func setOperation(_ operation: OpenAPIOperation, for method: HTTPRouteMethod) {
         switch method {
         case .get: get = operation
+        case .head: head = operation
         case .post: post = operation
         case .put: put = operation
         case .patch: patch = operation

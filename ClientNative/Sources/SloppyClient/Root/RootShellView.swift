@@ -143,6 +143,9 @@ private struct RootShellContent: View {
                     initialDestination: destination,
                     onDismiss: {
                         rootViewModel.startConnected(url: rootViewModel.settings.baseURL)
+                    },
+                    onLogout: {
+                        rootViewModel.logout()
                     }
                 )
             }

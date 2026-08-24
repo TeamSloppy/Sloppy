@@ -111,7 +111,6 @@ struct ArtifactsScreen: View {
             Divider()
             content
         }
-        .background(theme.colors.background)
         .searchable(text: $searchText, prompt: "Search artifacts")
         .task(id: catalogVersion) {
             await viewModel.load(sessions: sessions)
@@ -179,6 +178,7 @@ struct ArtifactsScreen: View {
                 .accessibilityHint("Open source chat")
             }
             .listStyle(.inset)
+            .scrollContentBackground(.hidden)
             .refreshable {
                 await viewModel.load(sessions: sessions)
             }

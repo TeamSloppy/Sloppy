@@ -224,6 +224,9 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
 
         let keepAlive = requestHead.isKeepAlive
         var headers = defaultHeaders(contentType: response.contentType, contentLength: response.body.count)
+        for (name, value) in response.headers {
+            headers.replaceOrAdd(name: name, value: value)
+        }
         headers.replaceOrAdd(name: "connection", value: keepAlive ? "keep-alive" : "close")
 
         let head = HTTPResponseHead(
@@ -234,9 +237,11 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
 
         context.write(wrapOutboundOut(.head(head)), promise: nil)
 
-        var buffer = context.channel.allocator.buffer(capacity: response.body.count)
-        buffer.writeBytes(response.body)
-        context.write(wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
+        if requestHead.method != .HEAD {
+            var buffer = context.channel.allocator.buffer(capacity: response.body.count)
+            buffer.writeBytes(response.body)
+            context.write(wrapOutboundOut(.body(.byteBuffer(buffer))), promise: nil)
+        }
         context.writeAndFlush(wrapOutboundOut(.end(nil))).whenComplete { _ in
             guard !keepAlive else {
                 return
@@ -432,7 +437,7 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
             headers.add(name: "content-length", value: "\(contentLength)")
         }
         headers.add(name: "access-control-allow-origin", value: "*")
-        headers.add(name: "access-control-allow-methods", value: "GET,POST,PUT,PATCH,DELETE,OPTIONS")
+        headers.add(name: "access-control-allow-methods", value: "GET,HEAD,POST,PUT,PATCH,DELETE,OPTIONS")
         headers.add(name: "access-control-allow-headers", value: "content-type,authorization,last-event-id")
         headers.add(name: "access-control-max-age", value: "600")
         return headers

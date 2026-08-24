@@ -9,17 +9,20 @@ public struct CoreRouterResponse: Sendable {
     public var status: Int
     public var body: Data
     public var contentType: String
+    public var headers: [String: String]
     public var sseStream: AsyncStream<CoreRouterServerSentEvent>?
 
     public init(
         status: Int,
         body: Data,
         contentType: String = "application/json",
+        headers: [String: String] = [:],
         sseStream: AsyncStream<CoreRouterServerSentEvent>? = nil
     ) {
         self.status = status
         self.body = body
         self.contentType = contentType
+        self.headers = headers
         self.sseStream = sseStream
     }
 }
@@ -38,6 +41,7 @@ public struct CoreRouterServerSentEvent: Sendable {
 
 public enum HTTPRouteMethod: String, Sendable {
     case get = "GET"
+    case head = "HEAD"
     case post = "POST"
     case put = "PUT"
     case patch = "PATCH"
@@ -148,6 +152,8 @@ enum CoreRouterConstants {
 enum HTTPStatus {
     static let ok = 200
     static let created = 201
+    static let seeOther = 303
+    static let temporaryRedirect = 307
     static let badRequest = 400
     static let unauthorized = 401
     static let forbidden = 403
@@ -254,6 +260,7 @@ struct WorkerCancelResponse: Encodable {
 public enum RoutePathSegment: Equatable {
     case literal(String)
     case parameter(String)
+    case catchAll(String)
 }
 
 public struct RouteDefinition {
@@ -274,12 +281,15 @@ public struct RouteDefinition {
     }
 
     public func match(pathSegments: [String]) -> [String: String]? {
-        guard segments.count == pathSegments.count else {
-            return nil
-        }
-
         var params: [String: String] = [:]
-        for (pattern, value) in zip(segments, pathSegments) {
+        var pathIndex = 0
+        for pattern in segments {
+            if case .catchAll(let key) = pattern {
+                params[key] = pathSegments.dropFirst(pathIndex).joined(separator: "/")
+                return params
+            }
+            guard pathIndex < pathSegments.count else { return nil }
+            let value = pathSegments[pathIndex]
             switch pattern {
             case .literal(let literal):
                 guard literal == value else {
@@ -287,9 +297,12 @@ public struct RouteDefinition {
                 }
             case .parameter(let key):
                 params[key] = value
+            case .catchAll:
+                break
             }
+            pathIndex += 1
         }
-        return params
+        return pathIndex == pathSegments.count ? params : nil
     }
 }
 
@@ -321,6 +334,8 @@ private struct WebSocketRouteDefinition {
                 }
             case .parameter(let key):
                 params[key] = value
+            case .catchAll:
+                return nil
             }
         }
         return params
@@ -351,6 +366,10 @@ public actor CoreRouter {
 
     public func get(_ path: String, metadata: RouteMetadata? = nil, callback: @escaping (HTTPRequest) async -> CoreRouterResponse) {
         register(path: path, method: .get, metadata: metadata, callback: callback)
+    }
+
+    public func head(_ path: String, metadata: RouteMetadata? = nil, callback: @escaping (HTTPRequest) async -> CoreRouterResponse) {
+        register(path: path, method: .head, metadata: metadata, callback: callback)
     }
 
     public func post(_ path: String, metadata: RouteMetadata? = nil, callback: @escaping (HTTPRequest) async -> CoreRouterResponse) {
@@ -1498,6 +1517,9 @@ public actor CoreRouter {
 
 private func parseRoutePath(_ path: String) -> [RoutePathSegment] {
     splitPath(path).map { segment in
+        if segment.hasPrefix("*"), segment.count > 1 {
+            return .catchAll(String(segment.dropFirst()))
+        }
         if segment.hasPrefix(":"), segment.count > 1 {
             return .parameter(String(segment.dropFirst()))
         }

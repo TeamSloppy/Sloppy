@@ -274,9 +274,11 @@ struct CanvasWorkspaceLibraryView: View {
             ) {
                 viewModel.openWorkspace(workspace)
             }
+            .listRowBackground(Color.clear)
             .accessibilityIdentifier("canvas-workspace-\(workspace.id)")
         }
         .listStyle(.plain)
+        .scrollContentBackground(.hidden)
     }
 
     private var workspaceCards: some View {

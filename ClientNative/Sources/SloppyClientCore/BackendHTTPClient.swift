@@ -115,6 +115,10 @@ public actor BackendHTTPClient {
         await authSessionStore.saveStaticToken(authToken, for: baseURL)
     }
 
+    public func updateAuthSessionUser(_ user: AuthUserProfile) async {
+        await authSessionStore.updateUser(user, for: baseURL)
+    }
+
     public func clearAuthSession() async {
         authToken = ""
         await authSessionStore.clear(for: baseURL)

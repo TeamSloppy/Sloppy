@@ -5,6 +5,8 @@ import SwiftUI
 @MainActor
 struct SidebarRecentsList: View {
     let viewModel: MainViewModel
+    var showsHeaderControls = true
+    var sectionTitle: String? = nil
 
     @Environment(\.theme) private var theme
     @AppStorage("client_chat_sidebar_layout_mode") private var layoutMode = SidebarLayoutMode.list
@@ -31,9 +33,9 @@ struct SidebarRecentsList: View {
             }
 
             HStack {
-                SidebarSectionTitle(title: viewModel.chatSidebarMode.title)
+                SidebarSectionTitle(title: sectionTitle ?? viewModel.chatSidebarMode.title)
                 Spacer()
-                if viewModel.chatSidebarMode == .projects {
+                if showsHeaderControls, viewModel.chatSidebarMode == .projects {
                     Button {
                         viewModel.presentProjectCreator()
                     } label: {
@@ -43,19 +45,21 @@ struct SidebarRecentsList: View {
                     .accessibilityLabel("New project")
                     .help("New project")
                 }
-                if !viewModel.chatViewModel.sessionCatalog.isEmpty {
+                if showsHeaderControls, !viewModel.chatViewModel.sessionCatalog.isEmpty {
                     SidebarListModeMenu(viewModel: viewModel)
                 }
-                Button {
-                    withAnimation(.easeInOut(duration: 0.2)) {
-                        layoutMode = layoutMode == .list ? .cards : .list
+                if showsHeaderControls {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            layoutMode = layoutMode == .list ? .cards : .list
+                        }
+                    } label: {
+                        Image(systemName: layoutMode == .list ? "rectangle.grid.2x2" : "list.bullet")
                     }
-                } label: {
-                    Image(systemName: layoutMode == .list ? "rectangle.grid.2x2" : "list.bullet")
+                    .buttonStyle(.plain)
+                    .accessibilityLabel(layoutMode == .list ? "Show as cards" : "Show as list")
+                    .help(layoutMode == .list ? "Card view" : "List view")
                 }
-                .buttonStyle(.plain)
-                .accessibilityLabel(layoutMode == .list ? "Show as cards" : "Show as list")
-                .help(layoutMode == .list ? "Card view" : "List view")
             }
             .padding(.trailing, theme.spacing.m)
 
@@ -153,7 +157,7 @@ struct SidebarRecentsList: View {
     }
 }
 
-private enum SidebarLayoutMode: String {
+enum SidebarLayoutMode: String {
     case list
     case cards
 }

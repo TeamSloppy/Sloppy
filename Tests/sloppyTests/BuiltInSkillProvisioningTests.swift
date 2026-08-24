@@ -30,6 +30,7 @@ func coreServiceCreateAgentInstallsBuiltInTaskSpecSkill() async throws {
         BuiltInSkillCatalog.taskSpecWriterID,
         BuiltInSkillCatalog.workflowID,
         BuiltInSkillCatalog.deepResearchID,
+        BuiltInSkillCatalog.sitePublishingID,
         "bundled/caveman",
         "bundled/grill-me",
         "bundled/tdd",
@@ -130,15 +131,18 @@ func builtInSkillsBackfillIsIdempotentForExistingAgents() throws {
         BuiltInSkillCatalog.kanbanTaskManagerID,
         BuiltInSkillCatalog.taskSpecWriterID,
         BuiltInSkillCatalog.workflowID,
-        BuiltInSkillCatalog.deepResearchID
+        BuiltInSkillCatalog.deepResearchID,
+        BuiltInSkillCatalog.sitePublishingID
     ])))
     #expect(installed.filter {
         $0.owner == "sloppy"
             && $0.id != BuiltInSkillCatalog.workflowID
             && $0.id != BuiltInSkillCatalog.deepResearchID
+            && $0.id != BuiltInSkillCatalog.sitePublishingID
     }.allSatisfy { $0.userInvocable == false })
     #expect(installed.first { $0.id == BuiltInSkillCatalog.workflowID }?.userInvocable == true)
     #expect(installed.first { $0.id == BuiltInSkillCatalog.deepResearchID }?.userInvocable == true)
+    #expect(installed.first { $0.id == BuiltInSkillCatalog.sitePublishingID }?.userInvocable == true)
     #expect(FileManager.default.fileExists(atPath: agentsRootURL
         .appendingPathComponent("existing-agent", isDirectory: true)
         .appendingPathComponent("skills", isDirectory: true)

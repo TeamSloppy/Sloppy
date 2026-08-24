@@ -54,6 +54,7 @@ struct SettingsShellSourceTests {
         let sourceText = try source("Sources/SloppyFeatureSettings/Screens/Settings/SettingsScreen.swift")
 
         #expect(sourceText.contains("enum SettingsScreenSection"))
+        #expect(sourceText.contains("case account"))
         #expect(sourceText.contains("case providers"))
         #expect(sourceText.contains("case searchTools"))
         #expect(sourceText.contains("case channels"))
@@ -82,6 +83,7 @@ struct SettingsShellSourceTests {
         let sourceText = try source("Sources/SloppyFeatureSettings/Screens/Settings/SettingsScreen.swift")
 
         #expect(sourceText.contains("switch selectedSection"))
+        #expect(sourceText.contains("AccountSettingsSection("))
         #expect(sourceText.contains("ClientSettingsSection("))
         #expect(sourceText.contains("MeshSettingsSection("))
         #expect(sourceText.contains("ProvidersSection("))
@@ -103,5 +105,24 @@ struct SettingsShellSourceTests {
         #expect(sourceText.contains("ConnectClientSection("))
         #expect(sourceText.contains("ApprovalsSection("))
         #expect(sourceText.contains("UnsupportedSettingsSectionView("))
+    }
+
+    @Test("account settings expose profile and security management")
+    func accountSettingsExposeProfileAndSecurityManagement() throws {
+        let account = try source(
+            "Sources/SloppyFeatureSettings/Screens/Settings/Sections/AccountSettingsSection.swift"
+        )
+        let sidebar = try source(
+            "Sources/SloppyClient/Navigation/Platforms/macOS/MacMainSidebar.swift"
+        )
+
+        #expect(account.contains("Save Profile"))
+        #expect(account.contains("Change Password"))
+        #expect(account.contains("Generate Recovery Codes"))
+        #expect(account.contains("Application Tokens"))
+        #expect(account.contains("Sign Out"))
+        #expect(sidebar.contains("viewModel.onOpenSettings(.account)"))
+        #expect(sidebar.contains("NSFullUserName()"))
+        #expect(sidebar.contains("NSUserName()"))
     }
 }

@@ -12,8 +12,12 @@ struct AuthenticationScreen: View {
     let onChooseServer: () -> Void
 
     @State private var authenticationMethod: AuthenticationMethod
+    @State private var isCreatingAccount: Bool
+    @State private var name = ""
     @State private var login = ""
     @State private var password = ""
+    @State private var confirmedPassword = ""
+    @State private var inviteToken = ""
     @State private var token = ""
     @State private var isSubmitting = false
     @State private var errorMessage: String?
@@ -52,6 +56,7 @@ struct AuthenticationScreen: View {
         self._authenticationMethod = State(
             initialValue: challenge.mode == "login_password" ? .loginPassword : .dashboardToken
         )
+        self._isCreatingAccount = State(initialValue: challenge.bootstrapRequired)
     }
 
     var body: some View {
@@ -71,7 +76,7 @@ struct AuthenticationScreen: View {
                         .frame(width: 40, height: 40)
                         .foregroundColor(c.textMuted)
 
-                    Text("Sign in to Sloppy")
+                    Text(isCreatingAccount || challenge.bootstrapRequired ? "Create Sloppy account" : "Sign in to Sloppy")
                         .font(.system(size: ty.title, weight: .semibold))
                         .foregroundColor(c.textPrimary)
 
@@ -81,7 +86,7 @@ struct AuthenticationScreen: View {
                 }
 
                 if challenge.bootstrapRequired {
-                    Text("The first administrator must be created in the Sloppy Dashboard before this client can sign in.")
+                    Text("Create the first Admin account for this Sloppy Core.")
                         .font(.system(size: ty.caption))
                         .foregroundColor(c.statusWarning)
                         .padding(sp.m)
@@ -90,6 +95,7 @@ struct AuthenticationScreen: View {
                             .regular.tint(c.statusWarning.opacity(0.15)),
                             in: RoundedRectangle(cornerRadius: 16, style: .continuous)
                         )
+                    identityCredentialsContent
                 } else {
                     Picker("Authentication method", selection: $authenticationMethod) {
                         ForEach(AuthenticationMethod.allCases) { method in
@@ -117,7 +123,7 @@ struct AuthenticationScreen: View {
                                 ProgressView()
                                     .controlSize(.small)
                             }
-                            Text(isSubmitting ? "SIGNING IN…" : "SIGN IN")
+                            Text(submitButtonTitle)
                                 .font(.system(size: ty.body, weight: .semibold))
                         }
                         .foregroundColor(c.background)
@@ -151,10 +157,19 @@ struct AuthenticationScreen: View {
     }
 
     private var canSubmit: Bool {
-        guard !isSubmitting, !challenge.bootstrapRequired else { return false }
+        guard !isSubmitting else { return false }
         switch authenticationMethod {
         case .loginPassword:
-            return !login.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !password.isEmpty
+            let hasCredentials = !login.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && !password.isEmpty
+            guard isCreatingAccount || challenge.bootstrapRequired else {
+                return hasCredentials
+            }
+            return hasCredentials
+                && !name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+                && password == confirmedPassword
+                && (challenge.bootstrapRequired
+                    || !inviteToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
         case .dashboardToken:
             return !token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         case .qrCode:
@@ -170,14 +185,7 @@ struct AuthenticationScreen: View {
 
         switch authenticationMethod {
         case .loginPassword:
-            VStack(spacing: sp.m) {
-                authenticationField("Login", text: $login)
-                    .textContentType(.username)
-                    .accessibilityIdentifier("authentication.login")
-                secureAuthenticationField("Password", text: $password)
-                    .textContentType(.password)
-                    .accessibilityIdentifier("authentication.password")
-            }
+            identityCredentialsContent
         case .qrCode:
             VStack(alignment: .leading, spacing: sp.m) {
                 Text("In Dashboard, open Settings → Connect Client and scan the short-lived code. It signs in as the Dashboard user without putting a password in the QR code.")
@@ -200,6 +208,55 @@ struct AuthenticationScreen: View {
                     .foregroundColor(c.textMuted)
             }
         }
+    }
+
+    private var identityCredentialsContent: some View {
+        VStack(spacing: theme.spacing.m) {
+            if isCreatingAccount || challenge.bootstrapRequired {
+                authenticationField("Name", text: $name)
+                    .textContentType(.name)
+                    .accessibilityIdentifier("authentication.name")
+            }
+
+            authenticationField("Login", text: $login)
+                .textContentType(.username)
+                .accessibilityIdentifier("authentication.login")
+
+            secureAuthenticationField("Password", text: $password)
+                .textContentType(.password)
+                .accessibilityIdentifier("authentication.password")
+
+            if isCreatingAccount || challenge.bootstrapRequired {
+                secureAuthenticationField("Confirm password", text: $confirmedPassword)
+                    .textContentType(.newPassword)
+                    .accessibilityIdentifier("authentication.confirmPassword")
+
+                if !challenge.bootstrapRequired {
+                    secureAuthenticationField("Invite token", text: $inviteToken)
+                        .accessibilityIdentifier("authentication.inviteToken")
+                }
+            }
+
+            if !challenge.bootstrapRequired {
+                Button(isCreatingAccount ? "Already have an account? Sign in" : "Create account with invite") {
+                    isCreatingAccount.toggle()
+                    password = ""
+                    confirmedPassword = ""
+                    errorMessage = nil
+                }
+                .buttonStyle(.plain)
+                .font(.system(size: theme.typography.caption))
+                .foregroundColor(theme.colors.accentCyan)
+                .frame(maxWidth: .infinity)
+            }
+        }
+    }
+
+    private var submitButtonTitle: String {
+        if isSubmitting {
+            return isCreatingAccount || challenge.bootstrapRequired ? "CREATING ACCOUNT…" : "SIGNING IN…"
+        }
+        return isCreatingAccount || challenge.bootstrapRequired ? "CREATE ACCOUNT" : "SIGN IN"
     }
 
     private func authenticationField(_ title: String, text: Binding<String>) -> some View {
@@ -228,7 +285,22 @@ struct AuthenticationScreen: View {
             do {
                 switch authenticationMethod {
                 case .loginPassword:
-                    _ = try await apiClient.loginIdentityUser(login: login, password: password)
+                    if challenge.bootstrapRequired {
+                        _ = try await apiClient.bootstrapIdentityAdmin(
+                            login: login,
+                            password: password,
+                            name: name
+                        )
+                    } else if isCreatingAccount {
+                        _ = try await apiClient.registerIdentityUser(
+                            inviteToken: inviteToken,
+                            login: login,
+                            password: password,
+                            name: name
+                        )
+                    } else {
+                        _ = try await apiClient.loginIdentityUser(login: login, password: password)
+                    }
                 case .dashboardToken:
                     await apiClient.installStaticAuthToken(token)
                     do {
@@ -241,12 +313,16 @@ struct AuthenticationScreen: View {
                     return
                 }
                 password = ""
+                confirmedPassword = ""
+                inviteToken = ""
                 token = ""
                 isSubmitting = false
                 onAuthenticated(baseURL)
             } catch {
                 isSubmitting = false
-                errorMessage = "Could not sign in. Check your credentials and try again."
+                errorMessage = isCreatingAccount || challenge.bootstrapRequired
+                    ? "Could not create the account. Check the name, invite, login, and password."
+                    : "Could not sign in. Check your credentials and try again."
             }
         }
     }

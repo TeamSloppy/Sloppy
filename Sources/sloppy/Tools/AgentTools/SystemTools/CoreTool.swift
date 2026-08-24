@@ -36,6 +36,7 @@ extension CoreTool {
 struct ToolContext: @unchecked Sendable {
     let agentID: String
     let sessionID: String
+    let userID: String?
     let sharedMemoryEnabled: Bool
     let channelID: String?
     let policy: AgentToolsPolicy
@@ -60,6 +61,7 @@ struct ToolContext: @unchecked Sendable {
     let projectService: (any ProjectToolService)?
     let configService: (any RuntimeConfigToolService)?
     let skillsService: (any SkillsToolService)?
+    let siteService: (any SiteToolService)?
     let lspManager: LSPServerManager?
     /// When set, updates `USER.md` / `MEMORY.md` through the same validation path as the HTTP API.
     let applyAgentMarkdown: ((AgentMarkdownDocumentField, String) async throws -> Void)?
@@ -69,6 +71,7 @@ struct ToolContext: @unchecked Sendable {
     init(
         agentID: String,
         sessionID: String,
+        userID: String? = nil,
         sharedMemoryEnabled: Bool = true,
         channelID: String? = nil,
         policy: AgentToolsPolicy,
@@ -91,6 +94,7 @@ struct ToolContext: @unchecked Sendable {
         projectService: (any ProjectToolService)?,
         configService: (any RuntimeConfigToolService)?,
         skillsService: (any SkillsToolService)?,
+        siteService: (any SiteToolService)? = nil,
         lspManager: LSPServerManager?,
         browserService: BrowserCDPService? = nil,
         safariBridgeService: SafariBridgeService? = nil,
@@ -99,6 +103,7 @@ struct ToolContext: @unchecked Sendable {
     ) {
         self.agentID = agentID
         self.sessionID = sessionID
+        self.userID = userID?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.sharedMemoryEnabled = sharedMemoryEnabled
         self.channelID = channelID?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.policy = policy
@@ -124,10 +129,31 @@ struct ToolContext: @unchecked Sendable {
         self.projectService = projectService
         self.configService = configService
         self.skillsService = skillsService
+        self.siteService = siteService
         self.lspManager = lspManager
         self.applyAgentMarkdown = applyAgentMarkdown
         self.delegateSubagent = delegateSubagent
     }
+}
+
+protocol SiteToolService: Sendable {
+    func listPublishedSites(principal: SiteAccessPrincipal) async -> PublishedSiteListResponse
+    func publishSite(
+        sourceURL: URL,
+        siteID: String?,
+        slug: String,
+        title: String,
+        visibility: PublishedSiteVisibility,
+        ownerID: String,
+        projectID: String?,
+        entryFile: String
+    ) async throws -> PublishedSiteRecord
+    func updatePublishedSite(
+        id: String,
+        request: PublishedSiteUpdateRequest,
+        principal: SiteAccessPrincipal
+    ) async throws -> PublishedSiteRecord
+    func deletePublishedSite(id: String, principal: SiteAccessPrincipal) async throws
 }
 
 // MARK: - ProjectToolService

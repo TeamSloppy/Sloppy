@@ -130,7 +130,6 @@ struct CanvasWorkspaceEditorView: View {
         }
         .scrollIndicators(.hidden)
         .scrollDisabled(inputTool != .select)
-        .background(Color.secondary.opacity(0.055))
     }
 
     private var canvasContent: some View {

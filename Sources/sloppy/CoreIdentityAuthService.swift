@@ -259,6 +259,32 @@ actor CoreIdentityAuthService {
         return profile
     }
 
+    func updateCurrentUser(
+        request: AuthUserUpdateRequest,
+        actor: AuthenticatedUserContext
+    ) throws -> AuthUserProfile {
+        guard var stored = usersByID[actor.user.id],
+              stored.profile.status == .active else {
+            throw CoreIdentityAuthError.invalidCredentials
+        }
+        guard request.role == nil, request.status == nil else {
+            throw CoreIdentityAuthError.forbidden
+        }
+
+        if let name = request.name {
+            stored.profile.name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let avatar = request.avatar {
+            stored.profile.avatar = avatar.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let description = request.description {
+            stored.profile.description = description.trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        usersByID[stored.profile.id] = stored
+        saveState()
+        return stored.profile
+    }
+
     func register(_ request: AuthRegisterRequest) throws -> AuthSessionResponse {
         guard enabled else {
             throw CoreIdentityAuthError.disabled

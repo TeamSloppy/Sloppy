@@ -16,6 +16,7 @@ public enum MaterialSymbol: String, CaseIterable, Sendable {
     case folderOpen
     case keyboardCommandKey
     case keyboardReturn
+    case language
     case menu
     case moreHoriz
     case microphone
@@ -49,6 +50,7 @@ public enum MaterialSymbol: String, CaseIterable, Sendable {
         case .folderOpen: "folder.fill"
         case .keyboardCommandKey: "command"
         case .keyboardReturn: "return"
+        case .language: "globe"
         case .menu: "line.3.horizontal"
         case .moreHoriz: "ellipsis"
         case .microphone: "mic.fill"

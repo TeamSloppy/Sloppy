@@ -40,6 +40,23 @@ struct AuthAPIRouter: APIRouter {
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: actor.user)
         }
 
+        router.patch("/v1/auth/me", metadata: RouteMetadata(summary: "Update current identity user", description: "Updates the authenticated user's profile fields", tags: ["Auth"])) { request in
+            guard let actor = await CoreRouter.identityActor(for: request, service: service) else {
+                return CoreRouter.json(status: HTTPStatus.unauthorized, payload: ["error": ErrorCode.unauthorized])
+            }
+            guard let payload = request.decode(AuthUserUpdateRequest.self) else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            do {
+                return CoreRouter.encodable(
+                    status: HTTPStatus.ok,
+                    payload: try await service.updateCurrentIdentityUser(request: payload, actor: actor)
+                )
+            } catch {
+                return authErrorResponse(error)
+            }
+        }
+
         router.post("/v1/auth/bootstrap", metadata: RouteMetadata(summary: "Bootstrap first admin", description: "Creates the first Admin account for login/password auth", tags: ["Auth"])) { request in
             guard let payload = request.decode(AuthBootstrapAdminRequest.self) else {
                 return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])

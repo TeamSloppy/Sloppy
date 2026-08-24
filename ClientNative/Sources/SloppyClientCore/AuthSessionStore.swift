@@ -48,6 +48,15 @@ public actor AuthSessionStore {
         persist(session, forKey: key)
     }
 
+    public func updateUser(_ user: AuthUserProfile, for baseURL: URL) {
+        let key = Self.serverKey(for: baseURL)
+        loadSessionIfNeeded(forKey: key)
+        guard var session = sessions[key] else { return }
+        session.user = user
+        sessions[key] = session
+        persist(session, forKey: key)
+    }
+
     public func saveStaticToken(_ token: String, for baseURL: URL) {
         let normalized = token.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !normalized.isEmpty else {

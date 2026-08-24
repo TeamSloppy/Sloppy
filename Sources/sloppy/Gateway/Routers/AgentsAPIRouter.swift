@@ -470,9 +470,17 @@ struct AgentsAPIRouter: APIRouter {
             let agentId = request.pathParam("agentId") ?? ""
             let sessionId = request.pathParam("sessionId") ?? ""
             guard let body = request.body,
-                  let payload = CoreRouter.decode(body, as: AgentSessionPostMessageRequest.self)
+                  var payload = CoreRouter.decode(body, as: AgentSessionPostMessageRequest.self)
             else {
                 return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+
+            let identityEnabled = await service.identityAuthEnabled()
+            if identityEnabled,
+               let actor = await CoreRouter.identityActor(for: request, service: service) {
+                payload.userId = actor.user.id
+            } else if !identityEnabled {
+                payload.userId = "local"
             }
 
             do {

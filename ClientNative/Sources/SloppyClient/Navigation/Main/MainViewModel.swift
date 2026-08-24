@@ -19,6 +19,7 @@ import SloppyFeatureProjects
 enum MainAppSection: String, CaseIterable, Hashable {
     case scheduled
     case artifacts
+    case sites
     case projects
     case agents
     case chats
@@ -639,6 +640,21 @@ final class MainViewModel {
         selectAppSection(.artifacts)
     }
 
+    func selectSites() {
+        selectedSidebarItem = .sites
+        selectAppSection(.sites)
+    }
+
+    func createSiteFromChat() {
+        selectNewChat()
+        guard let selectedTabID,
+              let chatViewModel = tabStates[selectedTabID]?.chatState?.viewModel
+        else { return }
+        chatViewModel.useStarterPrompt(
+            "Help me build this project as a static website and publish it with Sloppy Sites. Keep it private unless I explicitly choose public access."
+        )
+    }
+
     func selectWorkspace() {
         selectedSidebarItem = nil
         selectAppSection(.workspace)
@@ -1054,8 +1070,14 @@ final class MainViewModel {
     }
 
     func terminalWorkingDirectory(for tabID: WorkspaceTab.ID) -> URL {
-        resolveWorkingDirectory(for: tabID)
-            ?? FileManager.default.homeDirectoryForCurrentUser
+        let fallback = {
+            #if os(macOS)
+            return FileManager.default.homeDirectoryForCurrentUser
+            #else
+            return URL.applicationDirectory 
+            #endif
+        }()
+        return resolveWorkingDirectory(for: tabID) ?? fallback
     }
 
     private func updateSelectedSidebarItem(_ selection: MainSidebarSelection) {

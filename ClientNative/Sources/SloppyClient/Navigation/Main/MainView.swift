@@ -12,6 +12,7 @@ import SloppyFeatureAgents
 import SloppyFeatureChat
 import SloppyFeatureProjects
 import SloppyFeatureSettings
+import SloppyFeatureSites
 
 #if canImport(UIKit)
 private typealias MobileTabsSnapshotImage = UIImage
@@ -314,6 +315,7 @@ struct MainView: View {
                         #if !os(macOS)
                         if !isCanvasWorkspaceSelected,
                            viewModel.selectedAppSection != .artifacts,
+                           viewModel.selectedAppSection != .sites,
                            let activeChatViewModel {
                             ChatContextToolbarMenu(
                                 selectedAgent: activeChatViewModel.selectedAgent,
@@ -328,7 +330,8 @@ struct MainView: View {
 
                         if idiom != .phone,
                            !isCanvasWorkspaceSelected,
-                           viewModel.selectedAppSection != .artifacts {
+                           viewModel.selectedAppSection != .artifacts,
+                           viewModel.selectedAppSection != .sites {
                             workspaceSidePanelButton
                         }
                     }
@@ -493,8 +496,10 @@ struct MainView: View {
     private var workspaceSidePanelButton: some View {
         Button(action: toggleWorkspaceSidePanelPicker) {
             Image(systemName: "sidebar.right")
+                .frame(width: 24, height: 24)
         }
-        .buttonStyle(.plain)
+        .buttonStyle(.glass)
+        .buttonBorderShape(.circle)
         .help(isWorkspacePanelPresented ? "Show panel picker" : "Open side panel")
         .accessibilityLabel("Side panel")
     }
@@ -579,7 +584,6 @@ struct MainView: View {
         }
         .padding(.horizontal, 12)
         .frame(minWidth: 280, idealWidth: 420, maxWidth: 560, minHeight: 30)
-        .background(.regularMaterial, in: Capsule())
         .onChange(of: toolbarSearchText) { _, text in
             isToolbarSearchResultsPresented = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             toolbarSearchSelectionID = toolbarSearchResults.first?.id
@@ -967,6 +971,11 @@ struct MainView: View {
         Group {
             if viewModel.selectedAppSection == .scheduled {
                 ScheduledTasksScreen(apiClient: viewModel.apiClient)
+            } else if viewModel.selectedAppSection == .sites {
+                SitesScreen(
+                    apiClient: viewModel.apiClient,
+                    onCreate: viewModel.createSiteFromChat
+                )
             } else if viewModel.selectedAppSection == .artifacts {
                 ArtifactsScreen(
                     apiClient: viewModel.apiClient,

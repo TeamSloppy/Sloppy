@@ -38,6 +38,24 @@ struct MainViewWorkspacePanelSourceTests {
         #expect(mainView.contains("showsNavigationToolbar: idiom == .phone"))
     }
 
+    @Test("desktop side panel toolbar button is circular")
+    func desktopSidePanelToolbarButtonIsCircular() throws {
+        let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
+        let buttonStart = try #require(mainView.range(
+            of: "private var workspaceSidePanelButton: some View"
+        ))
+        let buttonEnd = try #require(mainView.range(
+            of: "private func openWorkspacePanel(mode: WorkspacePanelMode)",
+            range: buttonStart.upperBound..<mainView.endIndex
+        ))
+        let button = mainView[buttonStart.lowerBound..<buttonEnd.lowerBound]
+
+        #expect(button.contains(".frame(width: 24, height: 24)"))
+        #expect(button.contains(".buttonStyle(.glass)"))
+        #expect(button.contains(".buttonBorderShape(.circle)"))
+        #expect(!button.contains(".buttonStyle(.plain)"))
+    }
+
     @Test("side panel opens a codex-style picker with working destinations")
     func sidePanelOpensCodexStylePicker() throws {
         let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")

@@ -21,6 +21,7 @@ enum BuiltInSkillCatalog {
     static let modeAutoID = "sloppy/mode-auto"
     static let workflowID = "sloppy/workflow"
     static let deepResearchID = "sloppy/deep-research"
+    static let sitePublishingID = "sloppy/site-publishing"
 
     static func all() -> [BuiltInSkillDefinition] {
         [
@@ -32,7 +33,8 @@ enum BuiltInSkillCatalog {
             kanbanTaskManager(),
             taskSpecWriter(),
             workflow(),
-            deepResearch()
+            deepResearch(),
+            sitePublishing()
         ] + bundledResourceSkills()
     }
 
@@ -133,6 +135,41 @@ enum BuiltInSkillCatalog {
             ],
             files: [
                 "SKILL.md": loadDeepResearchMarkdown()
+            ]
+        )
+    }
+
+    static func sitePublishing() -> BuiltInSkillDefinition {
+        BuiltInSkillDefinition(
+            owner: "sloppy",
+            repo: "site-publishing",
+            name: "site-publishing",
+            description: "Publishes and manages validated static website builds through Sloppy Sites.",
+            userInvocable: true,
+            allowedTools: [
+                "files.list",
+                "files.read",
+                "runtime.exec",
+                "sites.list",
+                "sites.publish",
+                "sites.update",
+                "sites.delete",
+            ],
+            files: [
+                "SKILL.md": loadSkillMarkdown(
+                    repo: "site-publishing",
+                    fallback: """
+                    ---
+                    name: site-publishing
+                    description: Publish and manage a completed static website through Sloppy Sites.
+                    userInvocable: true
+                    ---
+
+                    # Site Publishing
+
+                    Publish only completed static build output. Ask before publishing, default to private, and require explicit confirmation before public visibility or deletion.
+                    """
+                )
             ]
         )
     }
@@ -309,7 +346,7 @@ enum BuiltInSkillCatalog {
     }
 
     private static func bundledResourceSkills(in root: URL) -> [BuiltInSkillDefinition] {
-        let builtInRepos = Set(["task-spec-writer", "kanban-task-manager", "workflow", "deep-research"] + AgentChatMode.allCases.map { modeSkillRepo(for: $0) })
+        let builtInRepos = Set(["task-spec-writer", "kanban-task-manager", "workflow", "deep-research", "site-publishing"] + AgentChatMode.allCases.map { modeSkillRepo(for: $0) })
         guard let children = try? FileManager.default.contentsOfDirectory(
             at: root,
             includingPropertiesForKeys: [.isDirectoryKey],

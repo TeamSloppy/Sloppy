@@ -53,6 +53,13 @@ extension CoreService {
         try await identityAuthService.updateUser(login: login, request: request, actor: actor)
     }
 
+    func updateCurrentIdentityUser(
+        request: AuthUserUpdateRequest,
+        actor: AuthenticatedUserContext
+    ) async throws -> AuthUserProfile {
+        try await identityAuthService.updateCurrentUser(request: request, actor: actor)
+    }
+
     func generateIdentityRecoveryCodes(actor: AuthenticatedUserContext) async throws -> AuthRecoveryCodesResponse {
         try await identityAuthService.generateRecoveryCodes(actor: actor)
     }

@@ -15,6 +15,7 @@ public actor SloppyAPIClient {
     private let config: ConfigService
     private let auth: AuthService
     private let voice: VoiceService
+    private let sites: SiteService
     private let logger: Logger
 
     public init(
@@ -40,6 +41,7 @@ public actor SloppyAPIClient {
         self.config = ConfigService(http: http)
         self.auth = AuthService(http: http)
         self.voice = VoiceService(http: http)
+        self.sites = SiteService(http: http)
         self.logger = logger
     }
 
@@ -77,6 +79,28 @@ public actor SloppyAPIClient {
         return session
     }
 
+    public func bootstrapIdentityAdmin(login: String, password: String, name: String) async throws -> AuthSession {
+        let session = try await auth.bootstrapIdentityAdmin(login: login, password: password, name: name)
+        await http.installAuthSession(session)
+        return session
+    }
+
+    public func registerIdentityUser(
+        inviteToken: String,
+        login: String,
+        password: String,
+        name: String
+    ) async throws -> AuthSession {
+        let session = try await auth.registerIdentityUser(
+            inviteToken: inviteToken,
+            login: login,
+            password: password,
+            name: name
+        )
+        await http.installAuthSession(session)
+        return session
+    }
+
     public func redeemDevicePairing(token: String) async throws -> AuthSession {
         let session = try await auth.redeemDevicePairing(token: token)
         await http.installAuthSession(session)
@@ -85,6 +109,45 @@ public actor SloppyAPIClient {
 
     public func fetchCurrentAuthUser() async throws -> AuthUserProfile {
         try await auth.fetchCurrentUser()
+    }
+
+    public func updateCurrentAuthUser(
+        name: String,
+        avatar: String,
+        description: String
+    ) async throws -> AuthUserProfile {
+        let user = try await auth.updateCurrentUser(
+            name: name,
+            avatar: avatar,
+            description: description
+        )
+        await http.updateAuthSessionUser(user)
+        return user
+    }
+
+    public func changeIdentityPassword(currentPassword: String, newPassword: String) async throws -> AuthSession {
+        let session = try await auth.changeIdentityPassword(
+            currentPassword: currentPassword,
+            newPassword: newPassword
+        )
+        await http.installAuthSession(session)
+        return session
+    }
+
+    public func generateIdentityRecoveryCodes() async throws -> AuthRecoveryCodes {
+        try await auth.generateIdentityRecoveryCodes()
+    }
+
+    public func fetchIdentityApplicationTokens() async throws -> [AuthApplicationToken] {
+        try await auth.fetchIdentityApplicationTokens()
+    }
+
+    public func createIdentityApplicationToken(name: String) async throws -> AuthApplicationToken {
+        try await auth.createIdentityApplicationToken(name: name)
+    }
+
+    public func revokeIdentityApplicationToken(id: String) async throws {
+        try await auth.revokeIdentityApplicationToken(id: id)
     }
 
     public func fetchDashboardAuthStatus() async throws -> DashboardAuthStatus {
@@ -109,6 +172,29 @@ public actor SloppyAPIClient {
 
     public func logout() async {
         await http.clearAuthSession()
+    }
+
+    public func fetchPublishedSites() async throws -> [PublishedSiteRecord] {
+        try await sites.list()
+    }
+
+    public func updatePublishedSite(
+        id: String,
+        request: PublishedSiteUpdateRequest
+    ) async throws -> PublishedSiteRecord {
+        try await sites.update(id: id, request: request)
+    }
+
+    public func deletePublishedSite(id: String) async throws {
+        try await sites.delete(id: id)
+    }
+
+    public func createPublishedSiteLaunch(id: String) async throws -> URL {
+        let response = try await sites.launch(id: id)
+        guard let url = URL(string: response.url, relativeTo: baseURL)?.absoluteURL else {
+            throw APIError.invalidResponse
+        }
+        return url
     }
 
     private nonisolated static func serverDescription(_ url: URL) -> String {

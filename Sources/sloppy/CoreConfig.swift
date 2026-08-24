@@ -161,6 +161,22 @@ public struct CoreConfig: Codable, Sendable {
         }
     }
 
+    public struct Sites: Codable, Sendable, Equatable {
+        public static let defaultMaximumFileCount = 10_000
+        public static let defaultMaximumBundleBytes: Int64 = 100 * 1024 * 1024
+
+        public var maximumFileCount: Int
+        public var maximumBundleBytes: Int64
+
+        public init(
+            maximumFileCount: Int = Self.defaultMaximumFileCount,
+            maximumBundleBytes: Int64 = Self.defaultMaximumBundleBytes
+        ) {
+            self.maximumFileCount = max(1, maximumFileCount)
+            self.maximumBundleBytes = max(1, maximumBundleBytes)
+        }
+    }
+
     public struct CoffeeMode: Codable, Sendable, Equatable {
         public var enabled: Bool
         public var preventDisplaySleep: Bool
@@ -1922,6 +1938,7 @@ public struct CoreConfig: Codable, Sendable {
 
     public var listen: Listen
     public var workspace: Workspace
+    public var sites: Sites
     public var auth: Auth
     public var onboarding: Onboarding
     public var tui: TUI
@@ -1960,6 +1977,7 @@ public struct CoreConfig: Codable, Sendable {
     public init(
         listen: Listen,
         workspace: Workspace,
+        sites: Sites = Sites(),
         auth: Auth,
         onboarding: Onboarding = Onboarding(),
         tui: TUI = TUI(),
@@ -1996,6 +2014,7 @@ public struct CoreConfig: Codable, Sendable {
     ) {
         self.listen = listen
         self.workspace = workspace
+        self.sites = sites
         self.auth = auth
         self.onboarding = onboarding
         self.tui = tui
@@ -2125,6 +2144,7 @@ public struct CoreConfig: Codable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case listen
         case workspace
+        case sites
         case auth
         case onboarding
         case tui
@@ -2165,6 +2185,7 @@ public struct CoreConfig: Codable, Sendable {
 
         listen = try container.decode(Listen.self, forKey: .listen)
         workspace = try container.decodeIfPresent(Workspace.self, forKey: .workspace) ?? .init()
+        sites = try container.decodeIfPresent(Sites.self, forKey: .sites) ?? .init()
         auth = try container.decode(Auth.self, forKey: .auth)
         onboarding = try container.decodeIfPresent(Onboarding.self, forKey: .onboarding) ?? .init()
         tui = try container.decodeIfPresent(TUI.self, forKey: .tui) ?? .init()
@@ -2207,6 +2228,7 @@ public struct CoreConfig: Codable, Sendable {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(listen, forKey: .listen)
         try container.encode(workspace, forKey: .workspace)
+        try container.encode(sites, forKey: .sites)
         try container.encode(auth, forKey: .auth)
         try container.encode(onboarding, forKey: .onboarding)
         try container.encode(tui, forKey: .tui)

@@ -14,6 +14,10 @@ final class CoreRouterRegistrar {
         register(path: path, method: .get, metadata: metadata, callback: callback)
     }
 
+    func head(_ path: String, metadata: RouteMetadata? = nil, callback: @escaping (HTTPRequest) async -> CoreRouterResponse) {
+        register(path: path, method: .head, metadata: metadata, callback: callback)
+    }
+
     func post(_ path: String, metadata: RouteMetadata? = nil, callback: @escaping (HTTPRequest) async -> CoreRouterResponse) {
         register(path: path, method: .post, metadata: metadata, callback: callback)
     }

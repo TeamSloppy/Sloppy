@@ -44,6 +44,8 @@ targets:
         product: SloppyFeatureAgents
       - package: SloppyClient
         product: SloppyFeatureSettings
+      - package: SloppyClient
+        product: SloppyFeatureSites
       - package: SloppyComputerControl
         product: SloppyComputerControl
       - package: SwiftTerm
@@ -103,6 +105,8 @@ targets:
         product: SloppyFeatureAgents
       - package: SloppyClient
         product: SloppyFeatureSettings
+      - package: SloppyClient
+        product: SloppyFeatureSites
       - package: SloppyClient
         product: SloppyLiveActivity
       - target: SloppyLiveActivityExtension
@@ -166,6 +170,8 @@ targets:
         product: SloppyFeatureAgents
       - package: SloppyClient
         product: SloppyFeatureSettings
+      - package: SloppyClient
+        product: SloppyFeatureSites
       - package: SloppyClient
         product: SloppyLiveActivity
       - target: SloppyLiveActivityExtension
@@ -260,6 +266,8 @@ targets:
         product: SloppyFeatureAgents
       - package: SloppyClient
         product: SloppyFeatureSettings
+      - package: SloppyClient
+        product: SloppyFeatureSites
     info:
       path: SupportingFiles/visionOS/Info.plist
       properties:
