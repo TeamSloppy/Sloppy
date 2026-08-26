@@ -89,7 +89,7 @@ private struct RootShellContent: View {
                     case .connected(let url):
                         rootViewModel.connect(to: url)
                     case .needsSetup:
-                        rootViewModel.appState = .connectionSetup
+                        rootViewModel.showConnectionSetup()
                     }
                 }
 
@@ -112,7 +112,7 @@ private struct RootShellContent: View {
                     },
                     onScannedCode: rootViewModel.handleDeepLink,
                     onChooseServer: {
-                        rootViewModel.appState = .connectionSetup
+                        rootViewModel.showConnectionSetup()
                     }
                 )
 
@@ -129,7 +129,7 @@ private struct RootShellContent: View {
                         rootViewModel.appState = .settings(destination)
                     },
                     onOpenWorkspace: {
-                        rootViewModel.appState = .connectionSetup
+                        rootViewModel.showConnectionSetup()
                     },
                     menuBarQuickActionRequest: rootViewModel.menuBarQuickActionRequest,
                     onConsumeMenuBarQuickAction: rootViewModel.consumeMenuBarAction,

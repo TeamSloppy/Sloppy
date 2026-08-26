@@ -29,3 +29,9 @@ Improve the existing debug session in a hypothesis-driven loop.
 - If the logs make the root cause clear, implement the smallest fix, then repeat the loop: update or remove instrumentation as needed, ask the user to reproduce, and compare the new logs.
 - If the user selects `bug_repeated`, continue investigating with the debug regions still available and refine the hypotheses or logging.
 - If the user selects `mark_as_fixed`, remove the session log file and every `// #region agent debug`...`// #endregion` block you added before finishing.
+
+## Completion
+
+- Successful verification tools return a `verificationEvidence.id`. Preserve IDs from build, test, run, or screenshot tools and pass them to `session.complete` as `verificationEvidenceIds`; lint/typecheck evidence is supplemental.
+- Do not end the turn with only a final text response. Call `session.complete` with `status`, `summary`, `verificationEvidenceIds`, optional user-facing `verification`, and any `limitations`.
+- Use `status=completed` only after the diagnosis or fix is verified. Use `status=blocked` with limitations when investigation cannot continue, or `status=waiting_input` when reproduction or a user decision is required.

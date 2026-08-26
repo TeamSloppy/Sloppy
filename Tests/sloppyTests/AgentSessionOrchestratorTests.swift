@@ -255,7 +255,12 @@ private struct ToolCallingLanguageModel: LanguageModel {
                     id: UUID().uuidString,
                     toolName: toolName,
                     arguments: toolArguments[toolName] ?? (toolName == "session.complete"
-                        ? GeneratedContent(properties: ["summary": "Completion summary from tool"])
+                        ? GeneratedContent(properties: [
+                            "status": "completed",
+                            "summary": "Completion summary from tool",
+                            "verification": ["Focused tests passed"],
+                            "verificationEvidenceIds": ["verification-1"],
+                        ])
                         : (toolName == "agent_delegate.finish"
                             ? GeneratedContent(properties: [
                                 "status": "completed",
@@ -506,9 +511,10 @@ func agentSessionOneShotBuildCommandOverridesAskMode() async throws {
     )
 
     let prompts = await provider.requestedPromptsSnapshot()
-    #expect(prompts.last?.contains("[Sloppy runtime mode]\nmode: build") == true)
-    #expect(prompts.last?.contains("[User request]\nFix the router") == true)
-    #expect(prompts.last?.contains("[User request]\n/build") == false)
+    let executionPrompt = prompts.first(where: { $0.contains("[User request]\nFix the router") }) ?? ""
+    #expect(executionPrompt.contains("[Sloppy runtime mode]\nmode: build"))
+    #expect(executionPrompt.contains("[User request]\nFix the router"))
+    #expect(!executionPrompt.contains("[User request]\n/build"))
 }
 
 @Test
@@ -982,7 +988,7 @@ func agentSessionTreatsPlainAssistantAnswerWithoutToolsAsDone() async throws {
 }
 
 @Test
-func agentSessionTreatsToollessAssistantTextAsDoneWithoutSemanticSignal() async throws {
+func agentSessionRetriesAndMarksToollessDebugTurnIncompleteWithoutCompletionEvidence() async throws {
     let availableModels = [
         ProviderModelOption(id: "openai-api:gpt-5.4-mini", title: "openai-api:gpt-5.4-mini", capabilities: ["tools"])
     ]
@@ -1019,13 +1025,14 @@ func agentSessionTreatsToollessAssistantTextAsDoneWithoutSemanticSignal() async 
     )
 
     let finalStatus = try #require(response.appendedEvents.last(where: { $0.type == .runStatus })?.runStatus)
-    #expect(finalStatus.stage == .done)
-    #expect(finalStatus.label == "Done")
-    #expect(finalStatus.details == "Response is ready.")
+    #expect(finalStatus.stage == .interrupted)
+    #expect(finalStatus.label == "Incomplete")
+    #expect(finalStatus.details?.contains("session.complete") == true)
+    #expect(await provider.requestCount() == 3)
 }
 
 @Test
-func agentSessionTreatsToolDrivenTurnWithoutExplicitCompletionAsDoneAfterFinalAnswer() async throws {
+func agentSessionRetriesAndMarksToolDrivenDebugTurnIncompleteWithoutExplicitCompletion() async throws {
     let availableModels = [
         ProviderModelOption(id: "openai-api:gpt-5.4-mini", title: "openai-api:gpt-5.4-mini", capabilities: ["tools"])
     ]
@@ -1063,8 +1070,8 @@ func agentSessionTreatsToolDrivenTurnWithoutExplicitCompletionAsDoneAfterFinalAn
     )
 
     let finalStatus = try #require(response.appendedEvents.last(where: { $0.type == .runStatus })?.runStatus)
-    #expect(finalStatus.stage == .done)
-    #expect(finalStatus.label == "Done")
+    #expect(finalStatus.stage == .interrupted)
+    #expect(finalStatus.label == "Incomplete")
 
     let assistantTexts = response.appendedEvents.compactMap { event -> String? in
         guard event.type == .message, event.message?.role == .assistant else {
@@ -1076,7 +1083,7 @@ func agentSessionTreatsToolDrivenTurnWithoutExplicitCompletionAsDoneAfterFinalAn
 
     let verificationStore = AgentSessionFileStore(agentsRootURL: agentsRootURL)
     let detail = try verificationStore.loadSession(agentID: agentID, sessionID: session.id)
-    #expect(detail.events.filter { $0.toolCall?.tool == "files.list" }.count == 1)
+    #expect(detail.events.filter { $0.toolCall?.tool == "files.list" }.count == 2)
 }
 
 @Test
@@ -1092,8 +1099,15 @@ func agentSessionTreatsToolDrivenTurnWithExplicitCompletionAsDone() async throws
     )
     let provider = ToolCallingModelProvider(
         models: availableModels.map(\.id),
-        toolNames: ["files.list", "session.complete"],
-        finalText: "Inspected the files and finished the handoff."
+        toolNames: ["runtime.exec", "session.complete"],
+        toolArguments: [
+            "runtime.exec": GeneratedContent(properties: [
+                "command": "swift",
+                "arguments": ["test", "--filter", "ParserTests"],
+                "cwd": "/workspace",
+            ])
+        ],
+        finalText: "Ran the focused tests and finished the handoff."
     )
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
     let orchestrator = AgentSessionOrchestrator(
@@ -1102,7 +1116,18 @@ func agentSessionTreatsToolDrivenTurnWithExplicitCompletionAsDone() async throws
         agentCatalogStore: catalogStore,
         availableModels: availableModels,
         toolInvoker: { _, _, request, _ in
-            ToolInvocationResult(tool: request.tool, ok: true, data: .object(["count": .number(1)]))
+            ToolInvocationResult(
+                tool: request.tool,
+                ok: true,
+                data: .object([
+                    "command": .string("swift"),
+                    "arguments": .array([.string("test"), .string("--filter"), .string("ParserTests")]),
+                    "exitCode": .number(0),
+                    "timedOut": .bool(false),
+                    "stdout": .string("Test run passed"),
+                    "stderr": .string(""),
+                ])
+            )
         }
     )
 
@@ -1127,17 +1152,201 @@ func agentSessionTreatsToolDrivenTurnWithExplicitCompletionAsDone() async throws
         }
         return event.message?.segments.compactMap(\.text).joined(separator: "\n")
     }
-    #expect(assistantTexts.last == "Inspected the files and finished the handoff.")
+    #expect(assistantTexts.last == "Ran the focused tests and finished the handoff.")
 
     let verificationStore = AgentSessionFileStore(agentsRootURL: agentsRootURL)
     let detail = try verificationStore.loadSession(agentID: agentID, sessionID: session.id)
-    #expect(detail.events.contains { $0.toolCall?.tool == "files.list" })
+    #expect(detail.events.contains { $0.toolCall?.tool == "runtime.exec" })
     #expect(detail.events.contains { $0.toolCall?.tool == "session.complete" })
     #expect(detail.events.contains { $0.toolResult?.tool == "session.complete" && $0.toolResult?.ok == true })
     #expect(detail.events.contains {
         $0.toolResult?.tool == "session.complete" &&
             $0.toolResult?.data?.asObject?["summary"]?.asString == "Completion summary from tool"
     })
+    #expect(detail.events.contains {
+        $0.toolResult?.tool == "session.complete" &&
+            $0.toolResult?.data?.asObject?["status"]?.asString == "completed" &&
+            $0.toolResult?.data?.asObject?["verification"]?.asArray?.compactMap(\.asString) == ["Focused tests passed"] &&
+            $0.toolResult?.data?.asObject?["verificationEvidenceIds"]?.asArray?.compactMap(\.asString) == ["verification-1"]
+    })
+    let evidence = try #require(detail.events.compactMap(\.toolResult).first(where: {
+        $0.tool == "runtime.exec"
+    })?.data?.asObject?["verificationEvidence"]?.asObject)
+    #expect(evidence["id"]?.asString == "verification-1")
+    #expect(evidence["kind"]?.asString == "test")
+    #expect(evidence["command"]?.asString == "swift")
+    #expect(evidence["exitCode"]?.asInt == 0)
+}
+
+@Test
+func agentSessionRejectsCompletedDebugOutcomeWithoutVerificationEvidence() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai-api:gpt-5.4-mini", title: "openai-api:gpt-5.4-mini", capabilities: ["tools"])
+    ]
+    let agentID = "completion-without-evidence-agent"
+    let (catalogStore, sessionStore, agentsRootURL) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: "openai-api:gpt-5.4-mini",
+        availableModels: availableModels
+    )
+    let provider = ToolCallingModelProvider(
+        models: availableModels.map(\.id),
+        toolNames: ["session.complete"],
+        toolArguments: [
+            "session.complete": GeneratedContent(properties: [
+                "status": "completed",
+                "summary": "Claimed completion without checks",
+                "verification": ["Focused tests passed"],
+            ])
+        ]
+    )
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels
+    )
+
+    let session = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest())
+    let response = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(
+            userId: "dashboard",
+            content: "Fix and verify the parser",
+            mode: .debug
+        )
+    )
+
+    let finalStatus = try #require(response.appendedEvents.last(where: { $0.type == .runStatus })?.runStatus)
+    #expect(finalStatus.stage == .interrupted)
+    #expect(finalStatus.label == "Incomplete")
+
+    let detail = try AgentSessionFileStore(agentsRootURL: agentsRootURL)
+        .loadSession(agentID: agentID, sessionID: session.id)
+    let completionResults = detail.events.compactMap(\.toolResult).filter { $0.tool == "session.complete" }
+    #expect(completionResults.count == 2)
+    #expect(completionResults.allSatisfy { result in
+        result.ok == false && result.error?.code == "completion_verification_required"
+    })
+}
+
+@Test
+func agentSessionRejectsEvidenceIdFromNonVerificationCommand() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai-api:gpt-5.4-mini", title: "openai-api:gpt-5.4-mini", capabilities: ["tools"])
+    ]
+    let agentID = "unverified-command-evidence-agent"
+    let (catalogStore, sessionStore, agentsRootURL) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: "openai-api:gpt-5.4-mini",
+        availableModels: availableModels
+    )
+    let provider = ToolCallingModelProvider(
+        models: availableModels.map(\.id),
+        toolNames: ["runtime.exec", "session.complete"],
+        toolArguments: [
+            "runtime.exec": GeneratedContent(properties: [
+                "command": "git",
+                "arguments": ["status", "--short"],
+            ])
+        ]
+    )
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels,
+        toolInvoker: { _, _, request, _ in
+            ToolInvocationResult(
+                tool: request.tool,
+                ok: true,
+                data: .object([
+                    "command": .string("git"),
+                    "arguments": .array([.string("status"), .string("--short")]),
+                    "exitCode": .number(0),
+                    "timedOut": .bool(false),
+                    "stdout": .string(""),
+                    "stderr": .string(""),
+                ])
+            )
+        }
+    )
+
+    let session = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest())
+    let response = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(
+            userId: "dashboard",
+            content: "Inspect and verify the parser",
+            mode: .debug
+        )
+    )
+
+    let finalStatus = try #require(response.appendedEvents.last(where: { $0.type == .runStatus })?.runStatus)
+    #expect(finalStatus.stage == .interrupted)
+    #expect(finalStatus.label == "Incomplete")
+
+    let detail = try AgentSessionFileStore(agentsRootURL: agentsRootURL)
+        .loadSession(agentID: agentID, sessionID: session.id)
+    let completionResults = detail.events.compactMap(\.toolResult).filter { $0.tool == "session.complete" }
+    #expect(completionResults.count == 2)
+    #expect(completionResults.allSatisfy { result in
+        result.ok == false && result.error?.code == "completion_verification_not_found"
+    })
+    #expect(detail.events.allSatisfy {
+        $0.toolResult?.data?.asObject?["verificationEvidence"] == nil
+    })
+}
+
+@Test
+func agentSessionSurfacesTypedBlockedDebugOutcome() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "openai-api:gpt-5.4-mini", title: "openai-api:gpt-5.4-mini", capabilities: ["tools"])
+    ]
+    let agentID = "blocked-completion-agent"
+    let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: "openai-api:gpt-5.4-mini",
+        availableModels: availableModels
+    )
+    let provider = ToolCallingModelProvider(
+        models: availableModels.map(\.id),
+        toolNames: ["session.complete"],
+        toolArguments: [
+            "session.complete": GeneratedContent(properties: [
+                "status": "blocked",
+                "summary": "The reproduction environment is unavailable.",
+                "limitations": ["Required simulator is not installed"],
+            ])
+        ]
+    )
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels
+    )
+
+    let session = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest())
+    let response = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(
+            userId: "dashboard",
+            content: "Reproduce the UI crash",
+            mode: .debug
+        )
+    )
+
+    let finalStatus = try #require(response.appendedEvents.last(where: { $0.type == .runStatus })?.runStatus)
+    #expect(finalStatus.stage == .interrupted)
+    #expect(finalStatus.label == "Blocked")
+    #expect(finalStatus.details == "The reproduction environment is unavailable.")
 }
 
 @Test
@@ -1231,8 +1440,8 @@ func tuiAgentSessionDoesNotEnforceNativeToolRoundLimit() async throws {
     )
 
     let finalStatus = try #require(response.appendedEvents.last(where: { $0.type == .runStatus })?.runStatus)
-    #expect(finalStatus.stage == .done)
-    #expect(finalStatus.label == "Done")
+    #expect(finalStatus.stage == .interrupted)
+    #expect(finalStatus.label == "Incomplete")
 
     let verificationStore = AgentSessionFileStore(agentsRootURL: agentsRootURL)
     let detail = try verificationStore.loadSession(agentID: agentID, sessionID: session.id)
@@ -1541,7 +1750,9 @@ func agentSessionOrchestratorAppendsFriendReminderToRuntimeUserMessage() async t
         )
     )
 
-    let prompt = await provider.requestedPromptsSnapshot().last ?? ""
+    let prompt = await provider.requestedPromptsSnapshot().first(where: {
+        $0.contains("[User request]\nДа, исправь это как можно скорее")
+    }) ?? ""
     #expect(prompt.contains("[User request]\nДа, исправь это как можно скорее"))
     #expect(prompt.contains("#[FRIEND_REMINDER.md]\n- Do not use mcps\n- always run git pull"))
 }

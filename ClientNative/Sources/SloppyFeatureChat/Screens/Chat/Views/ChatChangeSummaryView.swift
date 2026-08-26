@@ -108,6 +108,51 @@ struct ChatChangeSummaryView: View {
     }
 }
 
+struct ChatComposerChangeSummaryView: View {
+    let sourceControl: ProjectWorkingTreeSourceControlResponse
+
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        let title = Self.title(fileCount: sourceControl.fileChanges.count)
+
+        return HStack(spacing: theme.spacing.xs) {
+            Text(title)
+                .foregroundColor(theme.colors.textSecondary)
+
+            Text("+\(sourceControl.linesAdded)")
+                .foregroundColor(theme.colors.statusDone)
+
+            Text("-\(sourceControl.linesDeleted)")
+                .foregroundColor(theme.colors.statusBlocked)
+        }
+        .font(.system(size: theme.typography.body, weight: .medium))
+        .padding(.horizontal, theme.spacing.m)
+        .padding(.vertical, theme.spacing.s)
+        .background(theme.colors.surfaceRaised.opacity(0.82 as CGFloat))
+        .clipShape(Capsule())
+        .overlay {
+            Capsule()
+                .stroke(
+                    theme.colors.borderBold.opacity(0.8 as CGFloat),
+                    lineWidth: theme.borders.thin
+                )
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            "\(title), "
+                + "\(sourceControl.linesAdded) additions, "
+                + "\(sourceControl.linesDeleted) deletions"
+        )
+        .accessibilityIdentifier("chat.composer.change-summary")
+    }
+
+    static func title(fileCount: Int) -> String {
+        guard fileCount > 0 else { return "Files changed" }
+        return "\(fileCount) \(fileCount == 1 ? "file" : "files") changed"
+    }
+}
+
 #Preview {
     ChatChangeSummaryView(
         sourceControl: ProjectWorkingTreeSourceControlResponse(

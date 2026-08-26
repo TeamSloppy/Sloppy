@@ -120,7 +120,7 @@ struct BrowserScreenshotTool: CoreTool {
     let title = "Capture browser screenshot"
     let status = "preview"
     let name = "browser.screenshot"
-    let description = "Capture a PNG screenshot of a browser page using CDP."
+    let description = "Capture a PNG screenshot of a browser page using CDP and return `verificationEvidence.id` for `session.complete`."
 
     var parameters: GenerationSchema {
         .objectSchema([

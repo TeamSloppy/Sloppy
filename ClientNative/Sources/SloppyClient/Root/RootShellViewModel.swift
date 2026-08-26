@@ -156,6 +156,11 @@ final class RootShellViewModel {
         }
     }
 
+    func showConnectionSetup() {
+        stopConnectedServices()
+        appState = .connectionSetup
+    }
+
     func observeAuthenticationRequirements() async {
         let notifications = NotificationCenter.default.sloppyNotifications(
             named: AuthSessionNotifications.authenticationRequired
@@ -164,6 +169,13 @@ final class RootShellViewModel {
             guard !Task.isCancelled,
                   let rawURL = notification.rawValue.userInfo?[AuthSessionNotifications.baseURLUserInfoKey] as? String,
                   let baseURL = URL(string: rawURL) else {
+                continue
+            }
+            guard acceptsAuthenticationRequirement(for: baseURL) else {
+                logger.info(
+                    "app.authentication.requirement-ignored",
+                    metadata: ["server": .string(Self.serverDescription(baseURL))]
+                )
                 continue
             }
             logger.warning(
@@ -249,12 +261,14 @@ final class RootShellViewModel {
            currentURL == baseURL {
             return
         }
+        guard acceptsAuthenticationRequirement(for: baseURL) else { return }
         stopConnectedServices()
         let apiClient = SloppyAPIClient(baseURL: baseURL)
         let challenge: AuthChallenge
         do {
             challenge = try await apiClient.fetchConnectionAuthChallenge()
         } catch {
+            guard acceptsAuthenticationRequirement(for: baseURL) else { return }
             logger.error(
                 "app.authentication.challenge-failed",
                 metadata: [
@@ -262,7 +276,14 @@ final class RootShellViewModel {
                     "server": .string(Self.serverDescription(baseURL)),
                 ]
             )
-            appState = .connectionSetup
+            showConnectionSetup()
+            return
+        }
+        guard acceptsAuthenticationRequirement(for: baseURL) else {
+            logger.info(
+                "app.authentication.requirement-ignored",
+                metadata: ["server": .string(Self.serverDescription(baseURL))]
+            )
             return
         }
         if challenge.mode != "login_password",
@@ -279,6 +300,17 @@ final class RootShellViewModel {
             ]
         )
         appState = .authentication(baseURL, challenge, message)
+    }
+
+    private func acceptsAuthenticationRequirement(for baseURL: URL) -> Bool {
+        switch appState {
+        case .authentication(let activeURL, _, _), .chat(let activeURL):
+            return activeURL == baseURL
+        case .settings:
+            return settings.baseURL == baseURL
+        case .splash, .connectionSetup, .pairing:
+            return false
+        }
     }
 
     private func resolveConnection(to baseURL: URL) async {
@@ -301,7 +333,7 @@ final class RootShellViewModel {
                     "server": .string(Self.serverDescription(baseURL)),
                 ]
             )
-            appState = .connectionSetup
+            showConnectionSetup()
             return
         }
 

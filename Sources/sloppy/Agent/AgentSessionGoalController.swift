@@ -88,6 +88,25 @@ actor AgentSessionGoalController {
             )
         }
 
+        if let completion = successfulSessionCompletion(in: events) {
+            switch completion.status {
+            case "waiting_input":
+                return AgentSessionGoalEvaluation(
+                    status: .waitingInput,
+                    reason: completion.summary ?? "The agent needs user input to continue.",
+                    shouldContinue: false
+                )
+            case "blocked":
+                return AgentSessionGoalEvaluation(
+                    status: .blocked,
+                    reason: completion.summary ?? "The agent reported a blocker.",
+                    shouldContinue: false
+                )
+            default:
+                break
+            }
+        }
+
         if let interrupted = events.last(where: { $0.runStatus?.stage == .interrupted })?.runStatus {
             return AgentSessionGoalEvaluation(
                 status: .blocked,
@@ -96,7 +115,9 @@ actor AgentSessionGoalController {
             )
         }
 
-        if hasSuccessfulSessionCompletion(in: events) {
+        if let completion = successfulSessionCompletion(in: events),
+           completion.status == "completed" || completion.completed
+        {
             return AgentSessionGoalEvaluation(
                 status: .completed,
                 reason: "The agent explicitly completed the goal with `session.complete`.",
@@ -120,17 +141,24 @@ actor AgentSessionGoalController {
         )
     }
 
-    private func hasSuccessfulSessionCompletion(in events: [AgentSessionEvent]) -> Bool {
-        events.contains { event in
+    private func successfulSessionCompletion(
+        in events: [AgentSessionEvent]
+    ) -> (status: String?, completed: Bool, summary: String?)? {
+        events.lazy.compactMap { event -> (String?, Bool, String?)? in
             guard event.type == .toolResult,
                   let result = event.toolResult,
                   result.tool == SessionCompleteTool.toolName,
-                  result.ok
+                  result.ok,
+                  let data = result.data?.asObject
             else {
-                return false
+                return nil
             }
-            return result.data?.asObject?["completed"]?.asBool == true
-        }
+            return (
+                data["status"]?.asString,
+                data["completed"]?.asBool == true,
+                data["summary"]?.asString
+            )
+        }.last
     }
 
     private func update(

@@ -52,12 +52,23 @@ struct ChatNativeTextEditorTests {
     }
 
     #if os(macOS)
+    @Test("AppKit editor creates a writable TextKit stack")
+    func appKitEditorAcceptsTextInput() throws {
+        let textView = AppKitChatComposerTextEditor.makeTextView()
+
+        _ = try #require(textView.textStorage)
+        _ = try #require(textView.layoutManager)
+        _ = try #require(textView.textContainer)
+
+        textView.insertText("Hello", replacementRange: NSRange(location: 0, length: 0))
+
+        #expect(textView.string == "Hello")
+    }
+
     @Test("AppKit placeholder passes clicks through to the native editor")
     func appKitPlaceholderDoesNotInterceptFocus() {
-        let textView = ComposerNSTextView(
-            frame: NSRect(x: 0, y: 0, width: 480, height: 48),
-            textContainer: nil
-        )
+        let textView = AppKitChatComposerTextEditor.makeTextView()
+        textView.frame = NSRect(x: 0, y: 0, width: 480, height: 48)
         textView.placeholder = "Ask Sloppy"
 
         #expect(textView.placeholderLabel.hitTest(NSPoint(x: 2, y: 2)) == nil)

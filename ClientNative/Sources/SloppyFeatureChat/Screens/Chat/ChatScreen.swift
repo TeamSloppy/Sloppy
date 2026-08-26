@@ -746,23 +746,39 @@ public struct ChatComposerOverlay: View {
 
     @ViewBuilder
     private var composerBar: some View {
-        ChatComposerView(
-            draft: viewModel.composerDraft,
-            tabs: tabs,
-            viewModel: viewModel,
-            tabActions: tabActions
-        )
+        VStack(spacing: theme.spacing.s) {
+            #if os(macOS)
+            if let sourceControl = viewModel.workingTreeSourceControl {
+                ChatComposerChangeSummaryView(sourceControl: sourceControl)
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+            #endif
+
+            ChatComposerView(
+                draft: viewModel.composerDraft,
+                tabs: tabs,
+                viewModel: viewModel,
+                tabActions: tabActions
+            )
+            .overlay {
+                if isAttachmentDropTargeted {
+                    RoundedRectangle(cornerRadius: 20)
+                        .stroke(
+                            theme.colors.accentCyan,
+                            style: StrokeStyle(lineWidth: 2, dash: [7, 5])
+                        )
+                        .padding(.horizontal, theme.spacing.s)
+                        .allowsHitTesting(false)
+                }
+            }
+        }
         .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
             viewModel.updateComposerPanelHeight(height)
         }
-        .overlay {
-            if isAttachmentDropTargeted {
-                RoundedRectangle(cornerRadius: 20)
-                    .stroke(theme.colors.accentCyan, style: StrokeStyle(lineWidth: 2, dash: [7, 5]))
-                    .padding(.horizontal, theme.spacing.s)
-                    .allowsHitTesting(false)
-            }
-        }
+        .animation(
+            .easeInOut(duration: 0.18),
+            value: viewModel.workingTreeSourceControl?.diff
+        )
     }
 }
 

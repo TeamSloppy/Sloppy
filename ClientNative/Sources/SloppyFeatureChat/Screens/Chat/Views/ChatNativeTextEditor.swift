@@ -574,7 +574,7 @@ struct AppKitChatComposerTextEditor: NSViewRepresentable {
 
     func makeNSView(context: Context) -> ComposerNSScrollView {
         let scrollView = ComposerNSScrollView()
-        let textView = ComposerNSTextView(frame: .zero, textContainer: nil)
+        let textView = Self.makeTextView()
         context.coordinator.scrollView = scrollView
         context.coordinator.textView = textView
         textView.delegate = context.coordinator
@@ -606,6 +606,18 @@ struct AppKitChatComposerTextEditor: NSViewRepresentable {
         )
         context.coordinator.updateHeight()
         return scrollView
+    }
+
+    static func makeTextView() -> ComposerNSTextView {
+        // NSTextView(frame:textContainer:) does not create a TextKit stack when
+        // passed nil. Build the stack explicitly so keyboard input has storage
+        // and layout objects to update.
+        let textStorage = NSTextStorage()
+        let layoutManager = NSLayoutManager()
+        let textContainer = NSTextContainer()
+        textStorage.addLayoutManager(layoutManager)
+        layoutManager.addTextContainer(textContainer)
+        return ComposerNSTextView(frame: .zero, textContainer: textContainer)
     }
 
     func updateNSView(_ scrollView: ComposerNSScrollView, context: Context) {

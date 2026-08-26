@@ -61,9 +61,25 @@ enum ToolCatalog {
         "session.complete": .object([
             "type": .string("object"),
             "properties": .object([
-                "summary": .object(["type": .string("string")])
+                "status": .object([
+                    "type": .string("string"),
+                    "enum": .array([.string("completed"), .string("blocked"), .string("waiting_input")])
+                ]),
+                "summary": .object(["type": .string("string")]),
+                "verification": .object([
+                    "type": .string("array"),
+                    "items": .object(["type": .string("string")])
+                ]),
+                "verificationEvidenceIds": .object([
+                    "type": .string("array"),
+                    "items": .object(["type": .string("string")])
+                ]),
+                "limitations": .object([
+                    "type": .string("array"),
+                    "items": .object(["type": .string("string")])
+                ])
             ]),
-            "required": .array([.string("summary")])
+            "required": .array([.string("status"), .string("summary")])
         ]),
         "files.list": .object([
             "type": .string("object"),

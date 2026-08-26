@@ -96,6 +96,19 @@ struct ToolRegistryTests {
         #expect(properties.keys.contains("topicId"))
     }
 
+    @Test("session.complete schema requires a typed outcome")
+    func sessionCompleteSchemaRequiresTypedOutcome() throws {
+        let schema = try #require(ToolCatalog.parameterSchemas["session.complete"]?.asObject)
+        let properties = try #require(schema["properties"]?.asObject)
+        let status = try #require(properties["status"]?.asObject)
+
+        #expect(schema["required"]?.asArray?.compactMap(\.asString) == ["status", "summary"])
+        #expect(status["enum"]?.asArray?.compactMap(\.asString) == ["completed", "blocked", "waiting_input"])
+        #expect(properties["verification"]?.asObject?["type"]?.asString == "array")
+        #expect(properties["verificationEvidenceIds"]?.asObject?["type"]?.asString == "array")
+        #expect(properties["limitations"]?.asObject?["type"]?.asString == "array")
+    }
+
     @Test("allTools returns unique tools with valid names and parameters")
     func allToolsAreUniqueAndWellFormed() {
         let tools = registry.allTools

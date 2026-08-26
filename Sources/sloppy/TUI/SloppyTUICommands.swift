@@ -272,7 +272,7 @@ enum SloppyTUIGoalPromptFormatter {
 
         Work autonomously toward this objective until it is complete, blocked by something external, or requires user input. Prefer measurable verification such as tests, builds, lint, or exact command output when the objective provides it. If the goal is broad, make the smallest concrete plan needed and then execute it.
 
-        Before handing back, verify the objective. When it is truly complete, blocked, or waiting for user input, call `session.complete` with a concise summary and the evidence you used. Do not stop with only a promise to continue.
+        Before handing back, verify the objective. Successful verification tools return `verificationEvidence.id`; pass those IDs to `session.complete` as `verificationEvidenceIds` together with `status`, a concise `summary`, and any `limitations`. Do not stop with only a promise to continue.
         """
     }
 
@@ -283,7 +283,7 @@ enum SloppyTUIGoalPromptFormatter {
         \(goal.objective)
 
         Attempt \(goal.attemptCount + 1) of \(goal.maxAttempts).
-        Continue from the current session state. If the objective is now verified complete, blocked, or waiting for user input, call `session.complete` with the result and evidence. Otherwise take the next concrete step toward the goal.
+        Continue from the current session state. If the objective is now verified complete, pass IDs returned as `verificationEvidence.id` to `session.complete` as `verificationEvidenceIds` together with `status`, `summary`, and any `limitations`. Otherwise take the next concrete step toward the goal.
         """
     }
 }

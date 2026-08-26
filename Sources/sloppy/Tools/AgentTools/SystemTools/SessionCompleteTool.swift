@@ -9,15 +9,38 @@ struct SessionCompleteTool: CoreTool {
     let title = "Complete session turn"
     let status = "fully_functional"
     let name = SessionCompleteTool.toolName
-    let description = "Explicitly mark the current tool-driven session turn complete after the requested work is finished, blocked, or ready for user input."
+    let description = "Finish the active session turn with a typed outcome. Completed Build and Debug turns must reference verification evidence IDs returned by successful tools in the current turn."
 
     var parameters: GenerationSchema {
         .objectSchema([
             .init(
+                name: "status",
+                description: "Terminal outcome: completed, blocked, or waiting_input.",
+                schema: DynamicGenerationSchema(type: String.self)
+            ),
+            .init(
                 name: "summary",
                 description: "Brief user-visible completion, blocker, or handoff summary.",
                 schema: DynamicGenerationSchema(type: String.self)
-            )
+            ),
+            .init(
+                name: "verification",
+                description: "Optional user-facing descriptions of checks performed and their results.",
+                schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)),
+                isOptional: true
+            ),
+            .init(
+                name: "verificationEvidenceIds",
+                description: "Evidence IDs returned by successful runtime.exec, runtime.process start, browser.screenshot, or computer.screenshot calls in the current turn. Required for completed Build and Debug turns.",
+                schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)),
+                isOptional: true
+            ),
+            .init(
+                name: "limitations",
+                description: "Known blockers, skipped checks, or environment limitations. Required when status is blocked.",
+                schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)),
+                isOptional: true
+            ),
         ])
     }
 

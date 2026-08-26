@@ -7,7 +7,7 @@ struct RuntimeProcessTool: CoreTool {
     let title = "Manage process"
     let status = "fully_functional"
     let name = "runtime.process"
-    let description = "Manage long-lived background session processes. Use this only when a process must stay alive across steps; for one-shot commands use `runtime.exec`. Supported actions: start, status, stop, list."
+    let description = "Manage long-lived background session processes. A successful start returns `verificationEvidence.id` for `session.complete`. Use this only when a process must stay alive across steps; for one-shot commands use `runtime.exec`. Supported actions: start, status, stop, list."
 
     var parameters: GenerationSchema {
         .objectSchema([

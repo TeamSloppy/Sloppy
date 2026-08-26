@@ -609,6 +609,7 @@ enum BuiltInSkillCatalog {
             For desktop UI changes, launch or focus the app when practical, capture the screen or relevant window state, exercise the changed interaction, and inspect screenshots for regressions.
             If browser, display, app launch, credentials, or test data are unavailable, state the limitation and perform the strongest remaining validation.
             Do not fabricate visual observations, screenshots, clicks, or results.
+            Successful build, test, or run tools return `verificationEvidence.id`; pass those IDs to `session.complete` as `verificationEvidenceIds` with a typed status, summary, and any limitations. Build turns cannot succeed from final text, model-written evidence, lint alone, or screenshots alone.
             Ask only when a blocking requirement is ambiguous.
             """
         case .plan:
@@ -641,6 +642,7 @@ enum BuiltInSkillCatalog {
             Improve the existing debug session in a hypothesis-driven loop.
             Add focused diagnostic logging or instrumentation, wrap temporary blocks with `// #region agent debug` and `// #endregion`, and write NDJSON logs under `.sloppy/debug/debug-<shortSessionId>.log`.
             Use `planning.request_input` to pause for Proceed, Bug is repeated, or Mark as fixed, then use logs to classify hypotheses as CONFIRMED, REJECTED, or INCONCLUSIVE.
+            Successful build, test, run, or screenshot tools return `verificationEvidence.id`; pass those IDs to `session.complete` as `verificationEvidenceIds` with a typed status, summary, and any limitations. Debug turns cannot succeed from final text or model-written evidence alone.
             """
         case .auto:
             return """

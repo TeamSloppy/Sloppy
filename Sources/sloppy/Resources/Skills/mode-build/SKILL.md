@@ -56,4 +56,7 @@ Implement the requested change by writing code, editing files, and running the s
 
 - Run the smallest relevant verification first.
 - When working on a project, before ending your response always build the project to verify the changes. If something goes wrong, fix it and build the project again.
+- Successful verification tools return a `verificationEvidence.id`. Preserve IDs from build, test, or run commands and pass them to `session.complete` as `verificationEvidenceIds`; lint/typecheck evidence may be supplemental but is not sufficient alone.
+- Do not end the turn with only a final text response. Call `session.complete` with `status`, `summary`, `verificationEvidenceIds`, optional user-facing `verification`, and any `limitations`.
+- Use `status=completed` only after the required checks pass. Use `status=blocked` with limitations when the work cannot be completed, or `status=waiting_input` when a user decision is required.
 - Ask only when a blocking requirement is ambiguous.

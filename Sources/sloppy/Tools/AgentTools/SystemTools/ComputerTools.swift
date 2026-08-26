@@ -84,7 +84,7 @@ struct ComputerScreenshotTool: CoreTool {
     let title = "Take screenshot"
     let status = "preview"
     let name = "computer.screenshot"
-    let description = "Capture the primary display with the local SloppyNode executor and return the image file path."
+    let description = "Capture the primary display with the local SloppyNode executor, return the image file path, and return `verificationEvidence.id` for `session.complete`."
 
     var parameters: GenerationSchema {
         .objectSchema([

@@ -40,6 +40,7 @@ func goalControllerCompletesWhenSessionCompleteToolSucceeds() async {
         events: [
             toolResultEvent(tool: "session.complete", ok: true, data: .object([
                 "completed": .bool(true),
+                "status": .string("completed"),
                 "summary": .string("verified")
             ])),
         ],
@@ -49,6 +50,29 @@ func goalControllerCompletesWhenSessionCompleteToolSucceeds() async {
     #expect(evaluation?.status == .completed)
     #expect(evaluation?.shouldContinue == false)
     #expect(await controller.goal(agentID: "agent", sessionID: "session")?.status == .completed)
+}
+
+@Test
+func goalControllerWaitsForTypedSessionCompletionInput() async {
+    let controller = AgentSessionGoalController()
+    _ = await controller.start(agentID: "agent", sessionID: "session", objective: "ship", now: Date(timeIntervalSince1970: 10))
+
+    let evaluation = await controller.evaluateTurn(
+        agentID: "agent",
+        sessionID: "session",
+        events: [
+            toolResultEvent(tool: "session.complete", ok: true, data: .object([
+                "completed": .bool(false),
+                "status": .string("waiting_input"),
+                "summary": .string("Choose the migration strategy")
+            ])),
+        ],
+        now: Date(timeIntervalSince1970: 20)
+    )
+
+    #expect(evaluation?.status == .waitingInput)
+    #expect(evaluation?.reason == "Choose the migration strategy")
+    #expect(evaluation?.shouldContinue == false)
 }
 
 @Test

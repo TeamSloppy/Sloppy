@@ -124,7 +124,9 @@ public struct SitesScreen: View {
                     .padding(.bottom, 10)
             }
             content
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .searchable(text: $searchText, prompt: "Search sites")
         .task { await viewModel.load() }
         .refreshable { await viewModel.load() }
