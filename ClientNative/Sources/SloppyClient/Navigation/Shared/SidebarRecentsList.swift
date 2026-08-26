@@ -94,7 +94,7 @@ struct SidebarRecentsList: View {
                 ForEach(sections.dayGroups) { group in
                     SidebarSectionTitle(title: daySectionTitle(for: group.day))
                         .padding(.top, theme.spacing.s)
-                    ForEach(group.sessions) { session in
+                    ForEach(group.sessions, id: \.storageID) { session in
                         SidebarSessionItem(viewModel: viewModel, session: session)
                     }
                 }
@@ -131,7 +131,7 @@ struct SidebarRecentsList: View {
 
     private func sessionCardGrid(_ sessions: [ChatSessionSummary]) -> some View {
         LazyVGrid(columns: cardColumns, alignment: .leading, spacing: theme.spacing.s) {
-            ForEach(sessions) { session in
+            ForEach(sessions, id: \.storageID) { session in
                 SidebarSessionCard(viewModel: viewModel, session: session)
             }
         }
@@ -171,10 +171,13 @@ private struct SidebarSessionItem: View {
     var body: some View {
         SidebarSessionRow(
             session: session,
-            projectName: viewModel.projects.first { $0.id == session.projectId }?.name,
+            projectName: viewModel.projects.first {
+                $0.id == session.projectId && $0.sourceInstanceID == session.sourceInstanceID
+            }?.name,
+            instanceName: viewModel.instanceTitle(for: session.sourceInstanceID),
             showsProjectName: showsProjectName,
-            isPinned: viewModel.chatViewModel.pinnedSessionIds.contains(session.id),
-            isSelected: viewModel.selectedChatSessionID == session.id,
+            isPinned: viewModel.settings.isSessionPinned(session.storageID),
+            isSelected: viewModel.selectedChatStorageID == session.storageID,
             onOpen: { viewModel.openSessionChatTab(session) },
             onTogglePin: { viewModel.togglePinChatSession(session) },
             onCopyDebugLink: { viewModel.copyDebugSessionFileLink(session) },
@@ -214,6 +217,15 @@ private struct SidebarProjectGroupView: View {
                             .font(.system(size: theme.typography.body))
                             .foregroundColor(isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
                             .lineLimit(1)
+                        if let instanceName = viewModel.instanceTitle(for: group.project.sourceInstanceID) {
+                            Text(instanceName)
+                                .font(.system(size: theme.typography.micro, weight: .semibold))
+                                .foregroundColor(theme.colors.textMuted)
+                                .padding(.horizontal, 6)
+                                .padding(.vertical, 2)
+                                .background(theme.colors.surfaceRaised, in: Capsule())
+                                .lineLimit(1)
+                        }
                         Spacer(minLength: 0)
                     }
                     .contentShape(Rectangle())
@@ -277,7 +289,7 @@ private struct SidebarProjectGroupView: View {
             .projectContextMenu(viewModel: viewModel, project: group.project)
 
             if !isCollapsed {
-                ForEach(sessions) {
+                ForEach(sessions, id: \.storageID) {
                     SidebarSessionItem(viewModel: viewModel, session: $0, showsProjectName: false)
                 }
 

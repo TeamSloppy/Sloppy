@@ -5,12 +5,69 @@ import Testing
 
 @Suite("NodeMeshClient")
 struct NodeMeshClientTests {
+    @Test("sensitive mesh payload is opaque to relay and authenticated end to end")
+    func sensitivePayloadIsSealedEndToEnd() throws {
+        let sender = NodeIdentityGenerator.makeIdentity(
+            name: "Work",
+            roles: ["client"],
+            capabilities: ["sloppy.core.remote"]
+        )
+        let recipient = NodeIdentityGenerator.makeIdentity(
+            name: "Home",
+            roles: ["worker"],
+            capabilities: ["sloppy.core.remote"]
+        )
+        let envelope = MeshEnvelope(
+            id: "e2e_core_request",
+            type: .rpcRequest,
+            from: sender.nodeId,
+            to: recipient.nodeId,
+            payload: .object([
+                "method": .string("core.http"),
+                "params": .object([
+                    "path": .string("/v1/projects"),
+                    "headers": .object(["authorization": .string("Bearer secret")]),
+                ]),
+            ])
+        )
+        let recipientRecord = MeshNodeRecord(
+            id: recipient.nodeId,
+            name: recipient.name,
+            publicKey: recipient.publicKey,
+            roles: recipient.roles,
+            capabilities: recipient.capabilities,
+            encryptionPublicKey: recipient.encryptionPublicKey,
+            encryptionKeySignature: recipient.encryptionKeySignature
+        )
+
+        let sealed = try NodeMeshPayloadCrypto.seal(
+            envelope.payload,
+            envelope: envelope,
+            sender: sender,
+            recipient: recipientRecord
+        )
+
+        #expect(sealed.asObject?["method"] == .string("core.http"))
+        #expect(sealed.asObject?["params"] == nil)
+        #expect(String(describing: sealed).contains("Bearer secret") == false)
+        let opened = try NodeMeshPayloadCrypto.open(
+            sealed,
+            envelope: envelope,
+            recipient: recipient,
+            senderSigningPublicKey: sender.publicKey
+        )
+        #expect(opened == envelope.payload)
+    }
+
     @Test("relay URL resolves to mesh websocket endpoint")
     func relayURLResolvesToMeshWebSocketEndpoint() throws {
         #expect(try NodeMeshClient.resolveRelayWebSocketURL("https://sloppy.example.com").absoluteString == "wss://sloppy.example.com/v1/node/mesh/ws")
         #expect(try NodeMeshClient.resolveRelayWebSocketURL("http://127.0.0.1:8787/").absoluteString == "ws://127.0.0.1:8787/v1/node/mesh/ws")
-        #expect(try NodeMeshClient.resolveRelayWebSocketURL("ws://relay.local/custom").absoluteString == "ws://relay.local/custom")
+        #expect(try NodeMeshClient.resolveRelayWebSocketURL("ws://localhost:8787/custom").absoluteString == "ws://localhost:8787/custom")
         #expect(try NodeMeshClient.resolveRelayWebSocketURL("wss://relay.local/custom").absoluteString == "wss://relay.local/custom")
+        #expect(throws: NodeMeshClientError.insecureRelayURL("ws://relay.local/custom")) {
+            try NodeMeshClient.resolveRelayWebSocketURL("ws://relay.local/custom")
+        }
     }
 
     @Test("hello envelope includes identity roles and capabilities")
@@ -582,6 +639,35 @@ struct NodeMeshClientTests {
         #expect(response.payload.asObject?["projectId"] == .string("sp_missing"))
         #expect(response.payload.asObject?["status"] == .string("blocked"))
         #expect(response.payload.asObject?["summary"] == .string("Shared project is not configured on this node."))
+    }
+
+    @Test("stream manager delivers chunks and a clean remote close")
+    func streamManagerDeliversChunksAndClose() async throws {
+        let manager = NodeMeshStreamManager()
+        let stream = await manager.register(streamID: "stream-1")
+        var iterator = stream.messages.makeAsyncIterator()
+
+        #expect(await manager.receive(MeshEnvelope(
+            type: .streamChunk,
+            from: "node_home",
+            to: "node_work",
+            payload: .object([
+                "streamId": .string("stream-1"),
+                "data": .object(["type": .string("output"), "data": .string("hello")]),
+            ])
+        )))
+        #expect(try await iterator.next()?.asObject?["data"] == .string("hello"))
+
+        #expect(await manager.receive(MeshEnvelope(
+            type: .streamClose,
+            from: "node_home",
+            to: "node_work",
+            payload: .object([
+                "streamId": .string("stream-1"),
+                "ok": .bool(true),
+            ])
+        )))
+        #expect(try await iterator.next() == nil)
     }
 
     private func authChallengeEnvelope(for identity: NodeIdentity, nonce: String) throws -> MeshEnvelope {

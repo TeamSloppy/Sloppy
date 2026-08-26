@@ -8,6 +8,61 @@ import Testing
 
 @Suite("Backend HTTP auth recovery", .serialized)
 struct BackendHTTPClientAuthRecoveryTests {
+    @Test("Relay endpoint wraps a Core request and decodes the remote response")
+    func routesRequestThroughSelectedMeshNode() async throws {
+        let coordinatorURL = try #require(URL(string: "https://relay.sloppy.test"))
+        let store = AuthSessionStore(persistence: .memory)
+        await store.save(
+            AuthSession(
+                accessToken: "relay-access",
+                refreshToken: "relay-refresh",
+                user: AuthUserProfile(
+                    id: "owner-1",
+                    login: "owner",
+                    name: "Owner",
+                    avatar: nil,
+                    description: nil,
+                    role: "owner",
+                    status: "active"
+                )
+            ),
+            for: coordinatorURL
+        )
+
+        StubURLProtocol.install { request in
+            #expect(request.url?.path == "/v1/node/mesh/nodes/home mac/core")
+            #expect(request.httpMethod == "POST")
+            #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer relay-access")
+            let body = try #require(Self.bodyData(from: request))
+            let object = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            #expect(object["method"] as? String == "GET")
+            #expect(object["path"] as? String == "/v1/projects?archived=false")
+            let headers = try #require(object["headers"] as? [String: String])
+            #expect(headers["x-sloppy-user-context"] == "owner-1")
+
+            let remoteBody = Data(#"[{"id":"project-1"}]"#.utf8)
+            let proxyBody = try JSONSerialization.data(withJSONObject: [
+                "status": 200,
+                "contentType": "application/json",
+                "bodyBase64": remoteBody.base64EncodedString(),
+            ])
+            return try Self.response(for: request, status: 200, body: proxyBody)
+        }
+        defer { StubURLProtocol.reset() }
+
+        let client = BackendHTTPClient(
+            endpoint: .relay(
+                coordinatorBaseURL: coordinatorURL,
+                targetNodeID: "home mac"
+            ),
+            session: Self.makeSession(),
+            authSessionStore: store
+        )
+        let data = try await client.getData("/v1/projects?archived=false")
+
+        #expect(String(decoding: data, as: UTF8.self) == #"[{"id":"project-1"}]"#)
+    }
+
     @Test("401 auth challenge falls back to dashboard token authentication")
     func resolvesProtectedChallengeAsLegacyTokenAuth() async throws {
         let baseURL = try #require(URL(string: "https://token-auth.sloppy.test"))
@@ -262,7 +317,7 @@ struct BackendHTTPClientAuthRecoveryTests {
         StubURLProtocol.install { request in
             guard request.url?.path == "/v1/auth/device-pairing/redeem",
                   request.httpMethod == "POST",
-                  String(data: request.httpBody ?? Data(), encoding: .utf8)?.contains("slp_pair_once") == true else {
+                  Self.bodyData(from: request).flatMap({ String(data: $0, encoding: .utf8) })?.contains("slp_pair_once") == true else {
                 return try Self.response(for: request, status: 400, body: Data())
             }
             let encoder = JSONEncoder()
@@ -292,6 +347,22 @@ struct BackendHTTPClientAuthRecoveryTests {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [StubURLProtocol.self]
         return URLSession(configuration: configuration)
+    }
+
+    private static func bodyData(from request: URLRequest) -> Data? {
+        if let body = request.httpBody { return body }
+        guard let stream = request.httpBodyStream else { return nil }
+        stream.open()
+        defer { stream.close() }
+        var data = Data()
+        let bufferSize = 4_096
+        var buffer = [UInt8](repeating: 0, count: bufferSize)
+        while stream.hasBytesAvailable {
+            let count = stream.read(&buffer, maxLength: bufferSize)
+            guard count > 0 else { break }
+            data.append(buffer, count: count)
+        }
+        return data
     }
 
     private static func response(

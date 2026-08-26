@@ -1092,6 +1092,7 @@ extension CoreService {
             originType: request.originType,
             originChannelId: request.originChannelId,
             actorId: try normalizeOptionalTaskActorID(request.actorId),
+            executionNodeId: request.executionNodeId.flatMap(normalizedEntityID),
             teamId: try normalizeOptionalTaskTeamID(request.teamId),
             parentTaskId: normalizeOptionalTaskID(request.parentTaskId),
             createdBy: normalizeOptionalTaskAuthor(request.changedBy),
@@ -1183,6 +1184,9 @@ extension CoreService {
             task.actorId = try normalizeOptionalTaskActorID(request.actorId)
             task.claimedActorId = nil
             task.claimedAgentId = nil
+        }
+        if request.executionNodeId != nil {
+            task.executionNodeId = request.executionNodeId.flatMap(normalizedEntityID)
         }
         if request.teamId != nil {
             task.teamId = try normalizeOptionalTaskTeamID(request.teamId)

@@ -11,6 +11,7 @@ struct ProjectKanbanViewModelTests {
             status: "in_progress",
             priority: "high",
             actorId: "agent:core",
+            executionNodeId: "node_work",
             description: "Add controls to the board",
             tags: ["frontend", "release"]
         ),
@@ -89,5 +90,17 @@ struct ProjectKanbanViewModelTests {
         #expect(ProjectKanbanColumnID.needsReview.taskStatus == "needs_review")
         #expect(ProjectKanbanColumnID.done.taskStatus == "done")
         #expect(ProjectKanbanColumnID.other.taskStatus == "blocked")
+    }
+
+    @Test("Kanban cards keep the execution instance separate from the actor")
+    func cardsKeepExecutionInstanceSeparateFromActor() throws {
+        let card = try #require(
+            ProjectKanbanViewModel.buildColumns(from: tasks)
+                .flatMap(\.items)
+                .first { $0.id == "TASK-1" }
+        )
+
+        #expect(card.actorID == "agent:core")
+        #expect(card.executionNodeID == "node_work")
     }
 }

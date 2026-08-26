@@ -50,6 +50,20 @@ extension CoreService {
             return
         }
 
+        if let executionNodeId = task.executionNodeId,
+           let localNodeId = try? nodeConfigStore.load().identity.nodeId,
+           executionNodeId != localNodeId {
+            appendTaskLifecycleLog(
+                projectID: project.id,
+                taskID: task.id,
+                stage: "remote_instance_assigned",
+                channelID: resolveExecutionChannelID(project: project, task: task),
+                workerID: nil,
+                message: "Local execution skipped because this task is assigned to mesh node \(executionNodeId)."
+            )
+            return
+        }
+
         if let waitingMessage = taskDependencyWaitingMessage(project: project, task: task) {
             await returnReadyTaskToBacklogForDependencies(
                 project: project,

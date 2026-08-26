@@ -172,27 +172,32 @@ public struct ChatComposerView: View {
                 .padding(.top, theme.spacing.s)
             }
 
-            HStack(spacing: 0) {
+            HStack(alignment: .bottom, spacing: 0) {
                 ChatTextField(
                     draft: draft,
                     submit: submit
                 )
 
-                ComposerOptionsMenuView(
-                    selectedModelId: viewModel.selectedModelId,
-                    models: viewModel.availableModels,
-                    selectedEffort: viewModel.selectedReasoningEffort,
-                    supportsReasoningEffort: selectedModelSupportsReasoningEffort,
-                    selectedAgent: viewModel.selectedAgent,
-                    agents: viewModel.agents,
-                    onSelectModel: viewModel.pickModel,
-                    onSelectEffort: viewModel.pickReasoningEffort,
-                    onSelectAgent: viewModel.pickAgent,
-                    onRefreshModels: viewModel.refreshAvailableModels,
-                    onEditModels: { viewModel.openSettings(.providers) }
-                )
+                HStack(spacing: theme.spacing.s) {
+                    ComposerContextUsageView(usage: viewModel.contextUsage)
+
+                    ComposerOptionsMenuView(
+                        selectedModelId: viewModel.selectedModelId,
+                        models: viewModel.availableModels,
+                        selectedEffort: viewModel.selectedReasoningEffort,
+                        supportsReasoningEffort: selectedModelSupportsReasoningEffort,
+                        selectedAgent: viewModel.selectedAgent,
+                        agents: viewModel.agents,
+                        onSelectModel: viewModel.pickModel,
+                        onSelectEffort: viewModel.pickReasoningEffort,
+                        onSelectAgent: viewModel.pickAgent,
+                        onRefreshModels: viewModel.refreshAvailableModels,
+                        onEditModels: { viewModel.openSettings(.providers) }
+                    )
+                }
                 .fixedSize(horizontal: true, vertical: false)
                 .padding(.trailing, theme.spacing.s)
+                .padding(.bottom, theme.spacing.s)
             }
         }
         .clipShape(RoundedRectangle(cornerRadius: Self.panelRadius, style: .continuous))
@@ -638,6 +643,82 @@ public struct ChatContextToolbarMenu: View {
     }
 }
 
+private struct ComposerContextUsageView: View {
+    let usage: ChatContextUsage?
+
+    @State private var isDetailsPresented = false
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        ProgressView(value: usage?.fraction ?? 0, total: 1)
+            .progressViewStyle(.circular)
+            .controlSize(.small)
+            .tint(progressColor)
+            .frame(width: 20, height: 20)
+            .contentShape(Circle())
+            .onHover { isHovering in
+                isDetailsPresented = isHovering && usage != nil
+            }
+            .popover(isPresented: $isDetailsPresented, arrowEdge: .bottom) {
+                if let usage {
+                    contextDetails(usage)
+                }
+            }
+            .accessibilityLabel("Context usage")
+            .accessibilityValue(accessibilityValue)
+            .accessibilityIdentifier("chat.composer.context-usage")
+    }
+
+    private var progressColor: Color {
+        guard let usage else { return theme.colors.statusNeutral }
+        if usage.fraction >= 0.9 {
+            return theme.colors.statusBlocked
+        }
+        if usage.fraction >= 0.75 {
+            return theme.colors.statusWarning
+        }
+        return theme.colors.textSecondary
+    }
+
+    private var accessibilityValue: String {
+        guard let usage else { return "Unavailable" }
+        return "\(usage.percentage) percent, \(usage.usedTokens) of \(usage.limitTokens) tokens"
+    }
+
+    private func contextDetails(_ usage: ChatContextUsage) -> some View {
+        VStack(alignment: .leading, spacing: theme.spacing.s) {
+            Text("Context usage")
+                .font(.system(size: theme.typography.body, weight: .semibold))
+                .foregroundColor(theme.colors.textPrimary)
+
+            Text("\(usage.percentage)%")
+                .font(.system(size: theme.typography.title, weight: .semibold, design: .rounded))
+                .foregroundColor(progressColor)
+                .monospacedDigit()
+
+            Grid(alignment: .leading, horizontalSpacing: theme.spacing.l, verticalSpacing: theme.spacing.xs) {
+                GridRow {
+                    Text("Used")
+                        .foregroundColor(theme.colors.textMuted)
+                    Text(usage.usedTokens.formatted(.number.grouping(.automatic)))
+                        .foregroundColor(theme.colors.textPrimary)
+                        .monospacedDigit()
+                }
+                GridRow {
+                    Text("Limit")
+                        .foregroundColor(theme.colors.textMuted)
+                    Text(usage.limitTokens.formatted(.number.grouping(.automatic)))
+                        .foregroundColor(theme.colors.textPrimary)
+                        .monospacedDigit()
+                }
+            }
+            .font(.system(size: theme.typography.caption))
+        }
+        .padding(theme.spacing.m)
+        .frame(minWidth: 180, alignment: .leading)
+    }
+}
+
 private struct ComposerOptionsMenuView: View {
     let selectedModelId: String
     let models: [ChatModelOption]
@@ -677,10 +758,6 @@ private struct ComposerOptionsMenuView: View {
             }
             .padding(.horizontal, theme.spacing.s)
             .frame(height: Constants.modelPickerRowHeight)
-            .background(
-                theme.colors.surfaceRaised.opacity(0.72 as CGFloat),
-                in: RoundedRectangle(cornerRadius: 7, style: .continuous)
-            )
         }
         .buttonStyle(.plain)
         .help("Model · \(selectedModelId)")
@@ -813,11 +890,14 @@ private struct ComposerOptionsMenuView: View {
             } label: {
                 pickerActionLabel(
                     "Reasoning: \(selectedEffort.title)",
-                    systemImage: "gauge.with.dots.needle.50percent"
+                    systemImage: "gauge.with.dots.needle.50percent",
+                    showsMenuIndicator: true
                 )
             }
-            .menuStyle(.borderlessButton)
-            .padding(.horizontal, theme.spacing.m)
+            .menuIndicator(.hidden)
+            .menuStyle(.button)
+            .buttonStyle(.plain)
+            .frame(maxWidth: .infinity, alignment: .leading)
             .disabled(!supportsReasoningEffort)
 
             if !agents.isEmpty {
@@ -835,11 +915,14 @@ private struct ComposerOptionsMenuView: View {
                 } label: {
                     pickerActionLabel(
                         "Agent: \(selectedAgent?.displayName ?? "Agent")",
-                        systemImage: "person"
+                        systemImage: "person",
+                        showsMenuIndicator: true
                     )
                 }
-                .menuStyle(.borderlessButton)
-                .padding(.horizontal, theme.spacing.m)
+                .menuIndicator(.hidden)
+                .menuStyle(.button)
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             Button {
@@ -868,12 +951,25 @@ private struct ComposerOptionsMenuView: View {
         .padding(.vertical, theme.spacing.xs)
     }
 
-    private func pickerActionLabel(_ title: String, systemImage: String) -> some View {
-        Label(title, systemImage: systemImage)
-            .foregroundColor(theme.colors.textSecondary)
-            .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
-            .padding(.horizontal, theme.spacing.m)
-            .contentShape(Rectangle())
+    private func pickerActionLabel(
+        _ title: String,
+        systemImage: String,
+        showsMenuIndicator: Bool = false
+    ) -> some View {
+        HStack(spacing: theme.spacing.s) {
+            Image(systemName: systemImage)
+                .frame(width: 20)
+            Text(title)
+            if showsMenuIndicator {
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 11, weight: .semibold))
+            }
+            Spacer(minLength: 0)
+        }
+        .foregroundColor(theme.colors.textSecondary)
+        .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+        .padding(.horizontal, theme.spacing.m)
+        .contentShape(Rectangle())
     }
 
     private func providerTitle(for modelID: String) -> String {

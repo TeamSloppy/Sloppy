@@ -58,9 +58,9 @@ struct MainView: View {
         var id: String {
             switch self {
             case .chat(let session):
-                "chat:\(session.id)"
+                "chat:\(session.storageID)"
             case .project(let project):
-                "project:\(project.id)"
+                "project:\(project.storageID)"
             }
         }
     }
@@ -185,7 +185,7 @@ struct MainView: View {
     }
 
     init(
-        baseURL: URL,
+        endpoint: SloppyInstanceEndpoint,
         settings: ClientSettings,
         connectionMonitor: ConnectionMonitor,
         rootSafeAreaInsets: EdgeInsets = EdgeInsets(),
@@ -202,11 +202,14 @@ struct MainView: View {
         self.deepLinkRequest = deepLinkRequest
         self.onConsumeDeepLink = onConsumeDeepLink
         _canvasWorkspaceViewModel = State(
-            initialValue: CanvasWorkspaceViewModel(baseURL: baseURL)
+            initialValue: CanvasWorkspaceViewModel(
+                baseURL: endpoint.coordinatorBaseURL,
+                apiClient: SloppyAPIClient(endpoint: endpoint)
+            )
         )
         _viewModel = State(
             initialValue: MainViewModel(
-                baseURL: baseURL,
+                endpoint: endpoint,
                 settings: settings,
                 connectionMonitor: connectionMonitor,
                 onOpenSettings: onOpenSettings,
@@ -232,6 +235,9 @@ struct MainView: View {
                     await viewModel.loadProjects()
                 }
                 Task {
+                    await viewModel.loadAggregatedChatCatalogIfNeeded()
+                }
+                Task {
                     await viewModel.loadCurrentAccount()
                 }
                 handleMenuBarQuickAction(menuBarQuickActionRequest)
@@ -250,7 +256,7 @@ struct MainView: View {
             .background {
                 Group {
                     Button("") {
-                        viewModel.createBlankChatTab()
+                        viewModel.selectNewChat()
                     }
                     .keyboardShortcut("t", modifiers: [.command])
                     .opacity(0.001)
@@ -344,10 +350,43 @@ struct MainView: View {
             #endif
             .sheet(isPresented: $viewModel.isProjectEditorPresented) {
                 ProjectEditorSheet(
-                    baseURL: viewModel.baseURL,
+                    endpoint: viewModel.projectEditorEndpoint,
                     project: viewModel.projectBeingEdited,
                     onSaved: viewModel.didSaveProject
                 )
+            }
+            .sheet(isPresented: $viewModel.isNewChatInstancePickerPresented) {
+                NavigationStack {
+                    List(viewModel.settings.discoveredInstances) { instance in
+                        Button {
+                            viewModel.selectNewChat(on: instance)
+                        } label: {
+                            HStack(spacing: 12) {
+                                Image(systemName: instance.isLocal ? "desktopcomputer" : "network")
+                                    .foregroundStyle(.secondary)
+                                VStack(alignment: .leading, spacing: 2) {
+                                    Text(instance.displayName)
+                                    Text(instance.isLocal ? "Local" : "Via Relay")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Circle()
+                                    .fill(instance.status == .online ? Color.green : Color.secondary)
+                                    .frame(width: 8, height: 8)
+                            }
+                        }
+                    }
+                    .navigationTitle("New Chat")
+                    .toolbar {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Cancel") {
+                                viewModel.isNewChatInstancePickerPresented = false
+                            }
+                        }
+                    }
+                }
+                .frame(minWidth: 360, minHeight: 280)
             }
             .onChange(of: viewModel.selectedTabID) { oldValue, newValue in
                 if let oldValue,
@@ -805,7 +844,7 @@ struct MainView: View {
                     viewModel.closeTab(tabID)
                 },
                 onCreate: {
-                    viewModel.createBlankChatTab()
+                    viewModel.selectNewChat()
                 },
                 onDismiss: {
                     viewModel.dismissVisionTabsOverview()
@@ -926,7 +965,7 @@ struct MainView: View {
                                 },
                                 onCreate: {
                                     withAnimation(.spring(response: 0.42, dampingFraction: 0.86)) {
-                                        viewModel.createBlankChatTab()
+                                        viewModel.selectNewChat()
                                         viewModel.dismissMobileTabsOverview()
                                     }
                                     clearMobileTabsHeroState()
@@ -1233,7 +1272,7 @@ struct MainView: View {
                     detail: "Kanban tab state is unavailable."
                 )
             }
-            let project = viewModel.projects.first { $0.id == context.projectId }
+            let project = viewModel.project(for: tab.id, localProjectID: context.projectId)
                 ?? APIProjectRecord(
                     id: context.projectId,
                     name: context.projectName,
@@ -1277,7 +1316,7 @@ struct MainView: View {
                     projectId: context.projectId,
                     taskId: context.taskId,
                     onClose: {
-                        let project = viewModel.projects.first { $0.id == context.projectId }
+                        let project = viewModel.project(for: tab.id, localProjectID: context.projectId)
                             ?? APIProjectRecord(
                                 id: context.projectId,
                                 name: context.projectName,
@@ -1286,11 +1325,13 @@ struct MainView: View {
                         viewModel.openProjectKanbanTab(project: project)
                     },
                     onOpenChat: { task in
-                        let project = APIProjectRecord(
-                            id: context.projectId,
-                            name: context.projectName,
-                            tasks: [task]
-                        )
+                        var project = viewModel.project(for: tab.id, localProjectID: context.projectId)
+                            ?? APIProjectRecord(
+                                id: context.projectId,
+                                name: context.projectName,
+                                tasks: [task]
+                            )
+                        project.tasks = [task]
                         viewModel.openTaskChatTab(
                             project: project,
                             task: task,
@@ -1353,7 +1394,7 @@ struct MainView: View {
 
     private func createMobileTabAnimated() {
         withAnimation(.spring(response: 0.36, dampingFraction: 0.9)) {
-            viewModel.createBlankChatTab()
+            viewModel.selectNewChat()
         }
     }
 
@@ -1985,7 +2026,7 @@ fileprivate let chatContentWidth: CGFloat = 840
 
 #Preview {
     MainView(
-        baseURL: .debugURL,
+        endpoint: .direct(baseURL: .debugURL),
         settings: ClientSettings(),
         connectionMonitor: ConnectionMonitor(baseURL: .debugURL),
         onOpenSettings: { _ in },

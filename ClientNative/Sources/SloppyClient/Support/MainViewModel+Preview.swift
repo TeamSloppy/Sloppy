@@ -4,7 +4,7 @@ import SloppyClientCore
 extension MainViewModel {
     static func preview() -> MainViewModel {
         MainViewModel(
-            baseURL: .debugURL,
+            endpoint: .direct(baseURL: .debugURL),
             settings: ClientSettings(),
             connectionMonitor: ConnectionMonitor(baseURL: .debugURL),
             onOpenSettings: { _ in },

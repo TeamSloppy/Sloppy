@@ -31,6 +31,7 @@ enum MainAppSection: String, CaseIterable, Hashable {
 @MainActor
 final class MainViewModel {
     let baseURL: URL
+    let endpoint: SloppyInstanceEndpoint
     let settings: ClientSettings
     let connectionMonitor: ConnectionMonitor
     let onOpenSettings: @MainActor (ClientSettingsDestination) -> Void
@@ -40,6 +41,7 @@ final class MainViewModel {
     var projects: [APIProjectRecord] = []
     var isLoadingProjects = false
     var isProjectEditorPresented = false
+    var isNewChatInstancePickerPresented = false
     var projectBeingEdited: APIProjectRecord?
     var didLoadProjects = false
     var collapsedProjectIds: Set<String> = []
@@ -58,10 +60,12 @@ final class MainViewModel {
     var projectModeStates: [String: ProjectKanbanTabState] = [:]
     var terminalSessions: [WorkspaceTab.ID: WorkspaceTerminalSession] = [:]
     var terminalHosts: [WorkspaceTab.ID: WorkspaceTerminalHosting] = [:]
+    var tabEndpoints: [WorkspaceTab.ID: SloppyInstanceEndpoint] = [:]
     var chatViewModel: ChatScreenViewModel
     var workspacePanelViewModel: WorkspacePanelViewModel
     var chatNavigationSerial = 0
     var projectActionStatus: String?
+    private var pendingNewChatStarterPrompt: String?
     var currentAuthUser: AuthUserProfile?
     let apiClient: SloppyAPIClient
 
@@ -110,8 +114,24 @@ final class MainViewModel {
         return tabStates[selectedTabID]?.chatState?.viewModel.selectedSessionId
     }
 
+    var selectedChatStorageID: String? {
+        guard let selectedTabID,
+              let sessionID = tabStates[selectedTabID]?.chatState?.viewModel.selectedSessionId else {
+            return nil
+        }
+        let tabEndpoint = tabEndpoints[selectedTabID] ?? endpoint
+        return chatViewModel.sessionCatalog.first {
+            $0.id == sessionID
+                && ($0.sourceInstanceID.flatMap(endpoint(for:)) ?? endpoint) == tabEndpoint
+        }?.storageID ?? sessionID
+    }
+
+    var projectEditorEndpoint: SloppyInstanceEndpoint {
+        projectBeingEdited?.sourceInstanceID.flatMap(endpoint(for:)) ?? endpoint
+    }
+
     var sidebarSessionCatalog: [ChatSessionSummary] {
-        chatViewModel.sessionCatalog.filter { !settings.isSessionArchived($0.id) }
+        chatViewModel.sessionCatalog.filter { !settings.isSessionArchived($0.storageID) }
     }
 
     var chatSidebarMode: ChatSidebarListMode {
@@ -120,15 +140,16 @@ final class MainViewModel {
     }
 
     init(
-        baseURL: URL,
+        endpoint: SloppyInstanceEndpoint,
         settings: ClientSettings,
         connectionMonitor: ConnectionMonitor,
         cacheStore: ClientCacheStore = ClientCacheStore(),
         onOpenSettings: @Sendable @escaping @MainActor (ClientSettingsDestination) -> Void,
         onOpenWorkspace: @escaping @MainActor () -> Void
     ) {
-        let apiClient = SloppyAPIClient(baseURL: baseURL)
-        self.baseURL = baseURL
+        let apiClient = SloppyAPIClient(endpoint: endpoint)
+        self.endpoint = endpoint
+        self.baseURL = endpoint.coordinatorBaseURL
         self.settings = settings
         self.connectionMonitor = connectionMonitor
         self.cacheStore = cacheStore
@@ -153,6 +174,30 @@ final class MainViewModel {
         }()
     }
 
+    var selectedInstanceTitle: String {
+        switch settings.instanceSelection {
+        case .all:
+            return "All"
+        case .instance(let id):
+            return settings.discoveredInstances.first(where: { $0.id == id })?.displayName ?? id
+        }
+    }
+
+    var selectedInstance: SloppyInstance? {
+        settings.selectedInstance
+    }
+
+    func instanceTitle(for sourceInstanceID: String?) -> String? {
+        guard settings.instanceSelection == .all,
+              let sourceInstanceID else { return nil }
+        return settings.discoveredInstances.first { $0.id == sourceInstanceID }?.displayName
+            ?? sourceInstanceID
+    }
+
+    func selectInstance(_ selection: SloppyInstanceSelection) {
+        settings.instanceSelection = selection
+    }
+
     func openMobileSidebar() {
         isSidebarCollapsed = false
         columnVisibility = .all
@@ -168,7 +213,19 @@ final class MainViewModel {
         selectAppSection(.chats)
         updateSelectedSidebarItem(.chats)
         dismissMobileSidebar()
-        showBlankChatInSelectedTab()
+        if settings.instanceSelection == .all,
+           settings.discoveredInstances.count > 1 {
+            isNewChatInstancePickerPresented = true
+        } else {
+            showBlankChatInSelectedTab(endpoint: endpoint)
+            applyPendingNewChatStarterPrompt()
+        }
+    }
+
+    func selectNewChat(on instance: SloppyInstance) {
+        isNewChatInstancePickerPresented = false
+        showBlankChatInSelectedTab(endpoint: instance.endpoint)
+        applyPendingNewChatStarterPrompt()
     }
 
     func selectChatSession(_ session: ChatSessionSummary) {
@@ -179,11 +236,28 @@ final class MainViewModel {
     }
 
     func deleteChatSession(_ session: ChatSessionSummary) {
-        chatViewModel.deleteSession(session)
+        guard let instanceID = session.sourceInstanceID,
+              let sourceEndpoint = endpoint(for: instanceID),
+              sourceEndpoint != endpoint else {
+            chatViewModel.deleteSession(session)
+            return
+        }
+        Task {
+            do {
+                try await SloppyAPIClient(endpoint: sourceEndpoint).deleteAgentSession(
+                    agentId: session.agentId,
+                    sessionId: session.id
+                )
+                chatViewModel.removeSessionFromCatalog(session)
+            } catch {
+                projectActionStatus = "Could not delete remote chat: \(error.localizedDescription)"
+            }
+        }
     }
 
     func togglePinChatSession(_ session: ChatSessionSummary) {
-        chatViewModel.toggleSessionPinned(session)
+        let nextPinned = !settings.isSessionPinned(session.storageID)
+        settings.setSessionPinned(session.storageID, isPinned: nextPinned)
     }
 
     func copyDebugSessionFileLink(_ session: ChatSessionSummary) {
@@ -192,26 +266,32 @@ final class MainViewModel {
 
     func hasVisibleChats(in project: APIProjectRecord) -> Bool {
         chatViewModel.sessionCatalog.contains {
-            $0.projectId == project.id && !settings.isSessionArchived($0.id)
+            $0.projectId == project.id
+                && $0.sourceInstanceID == project.sourceInstanceID
+                && !settings.isSessionArchived($0.storageID)
         }
     }
 
     func hasArchivedChats(in project: APIProjectRecord) -> Bool {
         chatViewModel.sessionCatalog.contains {
-            $0.projectId == project.id && settings.isSessionArchived($0.id)
+            $0.projectId == project.id
+                && $0.sourceInstanceID == project.sourceInstanceID
+                && settings.isSessionArchived($0.storageID)
         }
     }
 
     func toggleProjectChatsArchived(_ project: APIProjectRecord) {
-        let projectSessions = chatViewModel.sessionCatalog.filter { $0.projectId == project.id }
+        let projectSessions = chatViewModel.sessionCatalog.filter {
+            $0.projectId == project.id && $0.sourceInstanceID == project.sourceInstanceID
+        }
         guard !projectSessions.isEmpty else {
             projectActionStatus = "No chats to archive in \(project.name)"
             return
         }
 
-        let shouldArchive = projectSessions.contains { !settings.isSessionArchived($0.id) }
+        let shouldArchive = projectSessions.contains { !settings.isSessionArchived($0.storageID) }
         for session in projectSessions {
-            settings.setSessionArchived(session.id, isArchived: shouldArchive)
+            settings.setSessionArchived(session.storageID, isArchived: shouldArchive)
         }
         projectActionStatus = shouldArchive
             ? "Archived chats in \(project.name)"
@@ -223,17 +303,19 @@ final class MainViewModel {
         updateSelectedSidebarItem(.chats)
         dismissMobileSidebar()
 
-        let chatState = makeChatTabState()
+        let sourceEndpoint = session.sourceInstanceID.flatMap(endpoint(for:)) ?? endpoint
+        let chatState = makeChatTabState(endpoint: sourceEndpoint)
         chatState.viewModel.openSessionFromSummary(session)
         let tab = WorkspaceTab(
-            key: .chatSession(session.id),
+            key: .chatSession(session.storageID),
             kind: .chat,
             title: session.title,
             payload: .chatSession(sessionID: session.id, title: session.title)
         )
         showInSelectedTab(
             tab,
-            state: WorkspaceTabState(contentState: .chat(chatState))
+            state: WorkspaceTabState(contentState: .chat(chatState)),
+            endpoint: sourceEndpoint
         )
     }
 
@@ -243,9 +325,9 @@ final class MainViewModel {
 
     func openProjectKanbanTab(project: APIProjectRecord) {
         selectAppSection(.projects)
-        updateSelectedSidebarItem(.project(project.id))
+        updateSelectedSidebarItem(.project(scopedProjectID(project)))
         dismissMobileSidebar()
-        let key = WorkspaceTabKey.projectKanban(project.id)
+        let key = WorkspaceTabKey.projectKanban(scopedProjectID(project))
 
         let kanbanState = projectModeState(for: project)
         activateProjectModeSection(kanbanState.selectedSection, project: project, state: kanbanState)
@@ -263,7 +345,8 @@ final class MainViewModel {
         )
         showInSelectedTab(
             tab,
-            state: WorkspaceTabState(contentState: .projectKanban(kanbanState))
+            state: WorkspaceTabState(contentState: .projectKanban(kanbanState)),
+            endpoint: project.sourceInstanceID.flatMap(endpoint(for:)) ?? endpoint
         )
     }
 
@@ -280,10 +363,12 @@ final class MainViewModel {
     func toggleProjectPinned(_ project: APIProjectRecord) {
         Task {
             do {
-                let updated = try await apiClient.updateProject(
+                let client = apiClient(for: project)
+                var updated = try await client.updateProject(
                     id: project.id,
                     request: APIProjectUpdateRequest(isFavorite: !project.isFavorite)
                 )
+                updated.sourceInstanceID = project.sourceInstanceID
                 replaceProject(updated)
                 prioritizeFavoriteProjects()
                 projectActionStatus = updated.isFavorite
@@ -314,7 +399,7 @@ final class MainViewModel {
         let worktreeID = "permanent-\(UUID().uuidString.lowercased())"
         Task {
             do {
-                let worktree = try await apiClient.createPermanentWorktree(
+                let worktree = try await apiClient(for: project).createPermanentWorktree(
                     projectId: project.id,
                     taskId: worktreeID
                 )
@@ -333,19 +418,24 @@ final class MainViewModel {
     func removeProject(_ project: APIProjectRecord) {
         Task {
             do {
-                try await apiClient.deleteProject(id: project.id)
-                let tabIDs = tabs.filter { tabBelongsToProject($0, projectID: project.id) }.map(\.id)
+                try await apiClient(for: project).deleteProject(id: project.id)
+                let scopedID = scopedProjectID(project)
+                let projectEndpoint = project.sourceInstanceID.flatMap(endpoint(for:)) ?? endpoint
+                let tabIDs = tabs.filter {
+                    $0.key == .projectKanban(scopedID)
+                        || (tabEndpoints[$0.id] == projectEndpoint && tabBelongsToProject($0, projectID: project.id))
+                }.map(\.id)
                 for tabID in tabIDs {
                     closeTab(tabID)
                 }
-                projects.removeAll { $0.id == project.id }
-                collapsedProjectIds.remove(project.id)
-                expandedTaskLists.remove(project.id)
-                projectModeStates.removeValue(forKey: project.id)
-                settings.projectModeSections.removeValue(forKey: project.id)
+                projects.removeAll { scopedProjectID($0) == scopedID }
+                collapsedProjectIds.remove(scopedID)
+                expandedTaskLists.remove(scopedID)
+                projectModeStates.removeValue(forKey: scopedID)
+                settings.projectModeSections.removeValue(forKey: scopedID)
                 persistProjectOrder()
                 await cacheStore.cacheProjects(projects)
-                if selectedSidebarItem == .project(project.id) {
+                if selectedSidebarItem == .project(scopedID) {
                     selectedSidebarItem = .chats
                     selectedAppSection = .chats
                 }
@@ -357,7 +447,7 @@ final class MainViewModel {
     }
 
     func didSaveProject(_ project: APIProjectRecord) {
-        if let index = projects.firstIndex(where: { $0.id == project.id }) {
+        if let index = projects.firstIndex(where: { scopedProjectID($0) == scopedProjectID(project) }) {
             projects[index] = project
             persistProjectOrder()
             openProjectKanbanTab(project: project)
@@ -375,7 +465,8 @@ final class MainViewModel {
         updateSelectedSidebarItem(.project(project.id))
         dismissMobileSidebar()
 
-        let chatState = makeChatTabState()
+        let projectEndpoint = project.sourceInstanceID.flatMap(endpoint(for:)) ?? endpoint
+        let chatState = makeChatTabState(endpoint: projectEndpoint)
         chatNavigationSerial += 1
         applyNavigationRequestOnNextTurn(
             ChatNavigationRequest(
@@ -400,7 +491,8 @@ final class MainViewModel {
         )
         showInSelectedTab(
             tab,
-            state: WorkspaceTabState(contentState: .chat(chatState))
+            state: WorkspaceTabState(contentState: .chat(chatState)),
+            endpoint: projectEndpoint
         )
     }
 
@@ -428,9 +520,10 @@ final class MainViewModel {
         selectAppSection(.projects)
         updateSelectedSidebarItem(.task(projectId: project.id, taskId: task.id))
         dismissMobileSidebar()
-        let key = WorkspaceTabKey.chatTask(projectId: project.id, taskId: task.id)
+        let projectEndpoint = project.sourceInstanceID.flatMap(endpoint(for:)) ?? endpoint
+        let key = WorkspaceTabKey.chatTask(projectId: project.storageID, taskId: task.id)
 
-        let chatState = makeChatTabState()
+        let chatState = makeChatTabState(endpoint: projectEndpoint)
         applyNavigationRequestOnNextTurn(
             ChatNavigationRequest(
                 id: Int.random(in: Int.min ... Int.max),
@@ -460,7 +553,8 @@ final class MainViewModel {
         )
         showInSelectedTab(
             tab,
-            state: WorkspaceTabState(contentState: .chat(chatState))
+            state: WorkspaceTabState(contentState: .chat(chatState)),
+            endpoint: projectEndpoint
         )
     }
 
@@ -468,9 +562,10 @@ final class MainViewModel {
         selectAppSection(.projects)
         updateSelectedSidebarItem(.task(projectId: project.id, taskId: task.id))
         dismissMobileSidebar()
-        let key = WorkspaceTabKey.taskDetail(projectId: project.id, taskId: task.id)
+        let projectEndpoint = project.sourceInstanceID.flatMap(endpoint(for:)) ?? endpoint
+        let key = WorkspaceTabKey.taskDetail(projectId: project.storageID, taskId: task.id)
 
-        let detailState = makeTaskDetailTabState()
+        let detailState = makeTaskDetailTabState(endpoint: projectEndpoint)
         let tab = WorkspaceTab(
             key: key,
             kind: .taskDetail,
@@ -488,7 +583,8 @@ final class MainViewModel {
         )
         showInSelectedTab(
             tab,
-            state: WorkspaceTabState(contentState: .taskDetail(detailState))
+            state: WorkspaceTabState(contentState: .taskDetail(detailState)),
+            endpoint: projectEndpoint
         )
     }
 
@@ -515,13 +611,13 @@ final class MainViewModel {
     @discardableResult
     func moveProject(_ projectID: String, relativeTo targetProjectID: String) -> Bool {
         guard projectID != targetProjectID,
-              let sourceIndex = projects.firstIndex(where: { $0.id == projectID }),
-              let targetIndex = projects.firstIndex(where: { $0.id == targetProjectID }) else {
+              let sourceIndex = projects.firstIndex(where: { scopedProjectID($0) == projectID }),
+              let targetIndex = projects.firstIndex(where: { scopedProjectID($0) == targetProjectID }) else {
             return false
         }
 
         let project = projects.remove(at: sourceIndex)
-        guard let remainingTargetIndex = projects.firstIndex(where: { $0.id == targetProjectID }) else {
+        guard let remainingTargetIndex = projects.firstIndex(where: { scopedProjectID($0) == targetProjectID }) else {
             projects.insert(project, at: sourceIndex)
             return false
         }
@@ -542,6 +638,7 @@ final class MainViewModel {
         } else {
             await chatViewModel.refreshCurrentContext()
         }
+        await loadAggregatedChatCatalogIfNeeded()
     }
 
     func loadCurrentAccount() async {
@@ -569,7 +666,7 @@ final class MainViewModel {
         }
 
         do {
-            let list = try await apiClient.fetchProjects()
+            let list = try await fetchProjectsForCurrentSelection()
             projects = reconcileProjectOrder(list)
             await cacheStore.cacheProjects(projects)
         } catch {
@@ -578,23 +675,109 @@ final class MainViewModel {
         visibleProjectCount = 6
     }
 
+    func loadAggregatedChatCatalogIfNeeded() async {
+        let catalogInstances: [SloppyInstance]
+        switch settings.instanceSelection {
+        case .all:
+            catalogInstances = settings.discoveredInstances
+        case .instance(let instanceID):
+            catalogInstances = settings.discoveredInstances.filter { $0.id == instanceID }
+        }
+        guard !catalogInstances.isEmpty else { return }
+
+        let batches = await withTaskGroup(of: [ChatSessionSummary].self) { group in
+            for instance in catalogInstances {
+                group.addTask {
+                    let client = SloppyAPIClient(endpoint: instance.endpoint)
+                    guard let agents = try? await client.fetchAgents() else { return [] }
+                    var summaries: [ChatSessionSummary] = []
+                    for agent in agents {
+                        guard let sessions = try? await client.fetchAgentSessions(agentId: agent.id) else {
+                            continue
+                        }
+                        summaries += sessions.map { session in
+                            var tagged = session
+                            tagged.sourceInstanceID = instance.id
+                            return tagged
+                        }
+                    }
+                    return summaries
+                }
+            }
+
+            var result: [[ChatSessionSummary]] = []
+            for await batch in group { result.append(batch) }
+            return result
+        }
+        chatViewModel.installAggregatedSessionCatalog(ChatSessionCatalog.merge(batches))
+    }
+
+    private func fetchProjectsForCurrentSelection() async throws -> [APIProjectRecord] {
+        guard settings.instanceSelection == .all,
+              settings.discoveredInstances.count > 1 else {
+            return try await apiClient.fetchProjects()
+        }
+
+        return await withTaskGroup(of: [APIProjectRecord].self) { group in
+            for instance in settings.discoveredInstances {
+                group.addTask {
+                    let client = SloppyAPIClient(endpoint: instance.endpoint)
+                    guard let projects = try? await client.fetchProjects() else { return [] }
+                    return projects.map { project in
+                        var tagged = project
+                        tagged.sourceInstanceID = instance.id
+                        return tagged
+                    }
+                }
+            }
+            var result: [APIProjectRecord] = []
+            for await projects in group { result += projects }
+            return result
+        }
+    }
+
+    private func endpoint(for instanceID: String) -> SloppyInstanceEndpoint? {
+        settings.discoveredInstances.first(where: { $0.id == instanceID })?.endpoint
+    }
+
+    private func apiClient(for project: APIProjectRecord) -> SloppyAPIClient {
+        guard let instanceID = project.sourceInstanceID,
+              let sourceEndpoint = endpoint(for: instanceID) else {
+            return apiClient
+        }
+        return SloppyAPIClient(endpoint: sourceEndpoint)
+    }
+
+    func project(for tabID: WorkspaceTab.ID, localProjectID: String) -> APIProjectRecord? {
+        let sourceEndpoint = tabEndpoints[tabID] ?? endpoint
+        return projects.first { project in
+            guard project.id == localProjectID else { return false }
+            let projectEndpoint = project.sourceInstanceID.flatMap(endpoint(for:)) ?? endpoint
+            return projectEndpoint == sourceEndpoint
+        }
+    }
+
+    private func scopedProjectID(_ project: APIProjectRecord) -> String {
+        project.storageID
+    }
+
     private func reconcileProjectOrder(_ availableProjects: [APIProjectRecord]) -> [APIProjectRecord] {
-        let projectsByID = Dictionary(uniqueKeysWithValues: availableProjects.map { ($0.id, $0) })
+        let projectsByID = Dictionary(uniqueKeysWithValues: availableProjects.map { (scopedProjectID($0), $0) })
         let savedIDs = settings.projectOrderIDs.filter { projectsByID[$0] != nil }
         let savedIDSet = Set(savedIDs)
-        let newProjects = availableProjects.filter { !savedIDSet.contains($0.id) }
+        let newProjects = availableProjects.filter { !savedIDSet.contains(scopedProjectID($0)) }
         let orderedProjects = newProjects + savedIDs.compactMap { projectsByID[$0] }
         let prioritizedProjects = orderedProjects.filter(\.isFavorite) + orderedProjects.filter { !$0.isFavorite }
-        settings.projectOrderIDs = prioritizedProjects.map(\.id)
+        settings.projectOrderIDs = prioritizedProjects.map(scopedProjectID)
         return prioritizedProjects
     }
 
     private func persistProjectOrder() {
-        settings.projectOrderIDs = projects.map(\.id)
+        settings.projectOrderIDs = projects.map(scopedProjectID)
     }
 
     private func replaceProject(_ project: APIProjectRecord) {
-        guard let index = projects.firstIndex(where: { $0.id == project.id }) else {
+        guard let index = projects.firstIndex(where: { scopedProjectID($0) == scopedProjectID(project) }) else {
             projects.append(project)
             return
         }
@@ -646,13 +829,18 @@ final class MainViewModel {
     }
 
     func createSiteFromChat() {
+        pendingNewChatStarterPrompt = "Help me build this project as a static website and publish it with Sloppy Sites. Keep it private unless I explicitly choose public access."
         selectNewChat()
-        guard let selectedTabID,
-              let chatViewModel = tabStates[selectedTabID]?.chatState?.viewModel
-        else { return }
-        chatViewModel.useStarterPrompt(
-            "Help me build this project as a static website and publish it with Sloppy Sites. Keep it private unless I explicitly choose public access."
-        )
+    }
+
+    private func applyPendingNewChatStarterPrompt() {
+        guard let prompt = pendingNewChatStarterPrompt,
+              let selectedTabID,
+              let chatViewModel = tabStates[selectedTabID]?.chatState?.viewModel else {
+            return
+        }
+        pendingNewChatStarterPrompt = nil
+        chatViewModel.useStarterPrompt(prompt)
     }
 
     func selectWorkspace() {
@@ -717,8 +905,9 @@ final class MainViewModel {
         }
     }
 
-    func showBlankChatInSelectedTab() {
-        let chatState = makeChatTabState()
+    func showBlankChatInSelectedTab(endpoint: SloppyInstanceEndpoint? = nil) {
+        let sourceEndpoint = endpoint ?? self.endpoint
+        let chatState = makeChatTabState(endpoint: sourceEndpoint)
         let draftID = "draft-\(UUID().uuidString)"
         let tab = WorkspaceTab(
             key: .chatSession(draftID),
@@ -728,7 +917,8 @@ final class MainViewModel {
         )
         showInSelectedTab(
             tab,
-            state: WorkspaceTabState(contentState: .chat(chatState))
+            state: WorkspaceTabState(contentState: .chat(chatState)),
+            endpoint: sourceEndpoint
         )
     }
 
@@ -751,9 +941,14 @@ final class MainViewModel {
         }
 
         let title = chatViewModel.activeSessionTitle
+        let sourceInstanceID = (tabEndpoints[tabID] ?? endpoint).targetNodeID
+            ?? settings.discoveredInstances.first(where: { $0.endpoint == (tabEndpoints[tabID] ?? endpoint) })?.id
+        let storageSessionID = sourceInstanceID.map {
+            InstanceScopedID(instanceID: $0, localID: sessionID).description
+        } ?? sessionID
         tabs[index] = WorkspaceTab(
             id: tabs[index].id,
-            key: .chatSession(sessionID),
+            key: .chatSession(storageSessionID),
             kind: .chat,
             title: title,
             payload: .chatSession(sessionID: sessionID, title: title)
@@ -850,9 +1045,22 @@ final class MainViewModel {
 
         let workingDirectory = terminalWorkingDirectory(for: tabID)
         terminalState.workingDirectory = workingDirectory
+        let remoteConfiguration: WorkspaceTerminalSession.RemoteConfiguration?
+        let tabEndpoint = tabEndpoints[tabID] ?? endpoint
+        if case .relay(let coordinatorBaseURL, let targetNodeID) = tabEndpoint {
+            remoteConfiguration = WorkspaceTerminalSession.RemoteConfiguration(
+                apiClient: apiClient,
+                coordinatorBaseURL: coordinatorBaseURL,
+                targetNodeID: targetNodeID,
+                projectID: projectID(for: tabID)
+            )
+        } else {
+            remoteConfiguration = nil
+        }
         let session = WorkspaceTerminalSession(
             id: terminalState.sessionID,
-            workingDirectory: workingDirectory
+            workingDirectory: workingDirectory,
+            remoteConfiguration: remoteConfiguration
         )
         session.startIfNeeded()
         terminalSessions[tabID] = session
@@ -870,6 +1078,14 @@ final class MainViewModel {
         }
 
         #if os(macOS)
+        if session.remoteConfiguration != nil {
+            return AnyView(
+                WorkspaceRemoteTerminalMacHostView(session: session) { host in
+                    self.registerTerminalHost(host, for: tabID)
+                    host.focus()
+                }
+            )
+        }
         return AnyView(
             WorkspaceTerminalMacHostView(session: session) { host in
                 self.registerTerminalHost(host, for: tabID)
@@ -891,6 +1107,7 @@ final class MainViewModel {
         terminalSessions[tabID]?.terminate()
         terminalSessions.removeValue(forKey: tabID)
         terminalHosts.removeValue(forKey: tabID)
+        tabEndpoints.removeValue(forKey: tabID)
 
         let splitStateBeforeClose = desktopSplitState
         let wasSelected = selectedTabID == tabID
@@ -927,16 +1144,22 @@ final class MainViewModel {
         selectedTabID = tabs[nextIndex].id
     }
 
-    func makeChatTabState() -> ChatTabState {
-        let apiClient = SloppyAPIClient(baseURL: baseURL)
+    func makeChatTabState(endpoint: SloppyInstanceEndpoint? = nil) -> ChatTabState {
+        let resolvedEndpoint = endpoint ?? self.endpoint
+        let sourceInstanceID = settings.discoveredInstances.first(where: { $0.endpoint == resolvedEndpoint })?.id
+        let apiClient = SloppyAPIClient(endpoint: resolvedEndpoint)
         let viewModel = ChatScreenViewModel(
             apiClient: apiClient,
-            cacheStore: cacheStore,
+            cacheStore: resolvedEndpoint == self.endpoint
+                ? cacheStore
+                : ClientCacheStore(namespace: resolvedEndpoint.cacheNamespace),
             settings: settings,
             connectionMonitor: connectionMonitor,
             restoresLastSession: false,
             onSessionSummaryChange: { [weak self] summary in
-                self?.chatViewModel.mergeSessionSummary(summary)
+                var tagged = summary
+                tagged.sourceInstanceID = sourceInstanceID
+                self?.chatViewModel.mergeSessionSummary(tagged)
             },
             onOpenSettings: { destination in self.onOpenSettings(destination) }
         )
@@ -949,16 +1172,18 @@ final class MainViewModel {
         guard state.selectedSection != section else { return }
 
         state.selectedSection = section
-        settings.projectModeSections[project.id] = section.rawValue
+        settings.projectModeSections[scopedProjectID(project)] = section.rawValue
         activateProjectModeSection(section, project: project, state: state)
     }
 
     private func projectModeState(for project: APIProjectRecord) -> ProjectKanbanTabState {
-        if let state = projectModeStates[project.id] {
+        let projectStateID = scopedProjectID(project)
+        if let state = projectModeStates[projectStateID] {
             return state
         }
 
-        let chatState = makeChatTabState()
+        let projectEndpoint = project.sourceInstanceID.flatMap(endpoint(for:)) ?? endpoint
+        let chatState = makeChatTabState(endpoint: projectEndpoint)
         chatNavigationSerial += 1
         applyNavigationRequestOnNextTurn(
             ChatNavigationRequest(
@@ -973,18 +1198,25 @@ final class MainViewModel {
             loadInitialData: true
         )
 
-        let selectedSection = settings.projectModeSections[project.id]
+        let selectedSection = settings.projectModeSections[projectStateID]
             .flatMap(ProjectModeSection.init(rawValue:)) ?? .kanban
         let state = ProjectKanbanTabState(
-            viewModel: ProjectKanbanViewModel(apiClient: SloppyAPIClient(baseURL: baseURL)),
-            workspaceViewModel: CanvasWorkspaceViewModel(baseURL: baseURL),
+            viewModel: ProjectKanbanViewModel(
+                apiClient: SloppyAPIClient(endpoint: projectEndpoint),
+                availableInstances: settings.discoveredInstances,
+                preferredExecutionNodeID: project.sourceInstanceID ?? settings.instanceSelection.instanceID
+            ),
+            workspaceViewModel: CanvasWorkspaceViewModel(
+                baseURL: baseURL,
+                apiClient: SloppyAPIClient(endpoint: projectEndpoint)
+            ),
             automationViewModel: ProjectAutomationViewModel(
-                apiClient: SloppyAPIClient(baseURL: baseURL)
+                apiClient: SloppyAPIClient(endpoint: projectEndpoint)
             ),
             chatViewModel: chatState.viewModel,
             selectedSection: selectedSection
         )
-        projectModeStates[project.id] = state
+        projectModeStates[projectStateID] = state
         return state
     }
 
@@ -1011,13 +1243,13 @@ final class MainViewModel {
         }
     }
 
-    func makeWorkspaceFilesTabState() -> WorkspaceFilesTabState {
-        let apiClient = SloppyAPIClient(baseURL: baseURL)
+    func makeWorkspaceFilesTabState(endpoint: SloppyInstanceEndpoint? = nil) -> WorkspaceFilesTabState {
+        let apiClient = SloppyAPIClient(endpoint: endpoint ?? self.endpoint)
         return WorkspaceFilesTabState(viewModel: WorkspacePanelViewModel(apiClient: apiClient))
     }
 
-    func makeTaskDetailTabState() -> TaskDetailTabState {
-        let apiClient = SloppyAPIClient(baseURL: baseURL)
+    func makeTaskDetailTabState(endpoint: SloppyInstanceEndpoint? = nil) -> TaskDetailTabState {
+        let apiClient = SloppyAPIClient(endpoint: endpoint ?? self.endpoint)
         return TaskDetailTabState(viewModel: TaskDetailViewModel(apiClient: apiClient))
     }
 
@@ -1026,8 +1258,13 @@ final class MainViewModel {
             return
         }
 
-        let key = WorkspaceTabKey.workspaceFiles(context.projectId)
-        let workspaceState = makeWorkspaceFilesTabState()
+        let sourceEndpoint = selectedTabID.flatMap { tabEndpoints[$0] } ?? endpoint
+        let sourceInstanceID = settings.discoveredInstances.first(where: { $0.endpoint == sourceEndpoint })?.id
+        let scopedProjectID = sourceInstanceID.map {
+            InstanceScopedID(instanceID: $0, localID: context.projectId).description
+        } ?? context.projectId
+        let key = WorkspaceTabKey.workspaceFiles(scopedProjectID)
+        let workspaceState = makeWorkspaceFilesTabState(endpoint: sourceEndpoint)
         let tab = WorkspaceTab(
             key: key,
             kind: .workspaceFiles,
@@ -1036,7 +1273,8 @@ final class MainViewModel {
         )
         showInSelectedTab(
             tab,
-            state: WorkspaceTabState(contentState: .workspaceFiles(workspaceState))
+            state: WorkspaceTabState(contentState: .workspaceFiles(workspaceState)),
+            endpoint: sourceEndpoint
         )
     }
 
@@ -1080,6 +1318,22 @@ final class MainViewModel {
         return resolveWorkingDirectory(for: tabID) ?? fallback
     }
 
+    private func projectID(for tabID: WorkspaceTab.ID) -> String? {
+        guard let tab = tabs.first(where: { $0.id == tabID }) else { return nil }
+        switch tab.payload {
+        case .projectKanban(let context):
+            return context.projectId
+        case .workspaceFiles(let context):
+            return context.projectId
+        case .chatTask(let projectId, _, _, _, _, _):
+            return projectId
+        case .taskDetail(let context):
+            return context.projectId
+        case .chatSession:
+            return tabStates[tabID]?.chatState?.viewModel.activeProjectIdForWorkspacePanel
+        }
+    }
+
     private func updateSelectedSidebarItem(_ selection: MainSidebarSelection) {
         guard selectedSidebarItem != selection else {
             return
@@ -1109,11 +1363,18 @@ final class MainViewModel {
         }
     }
 
-    private func showInSelectedTab(_ tab: WorkspaceTab, state: WorkspaceTabState) {
+    private func showInSelectedTab(
+        _ tab: WorkspaceTab,
+        state: WorkspaceTabState,
+        endpoint sourceEndpoint: SloppyInstanceEndpoint? = nil
+    ) {
         guard let selectedTabID,
               let index = tabs.firstIndex(where: { $0.id == selectedTabID }) else {
             tabs.append(tab)
             tabStates[tab.id] = state
+            if let sourceEndpoint {
+                tabEndpoints[tab.id] = sourceEndpoint
+            }
             self.selectedTabID = tab.id
             return
         }
@@ -1122,6 +1383,11 @@ final class MainViewModel {
         terminalSessions[selectedTabID]?.terminate()
         terminalSessions.removeValue(forKey: selectedTabID)
         terminalHosts.removeValue(forKey: selectedTabID)
+        if let sourceEndpoint {
+            tabEndpoints[selectedTabID] = sourceEndpoint
+        } else {
+            tabEndpoints.removeValue(forKey: selectedTabID)
+        }
 
         tabs[index] = WorkspaceTab(
             id: selectedTabID,

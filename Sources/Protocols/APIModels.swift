@@ -991,6 +991,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
     public var originType: TaskOriginType?
     public var originChannelId: String?
     public var actorId: String?
+    public var executionNodeId: String?
     public var teamId: String?
     public var claimedActorId: String?
     public var claimedAgentId: String?
@@ -1027,6 +1028,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         case originType
         case originChannelId
         case actorId
+        case executionNodeId
         case teamId
         case claimedActorId
         case claimedAgentId
@@ -1063,6 +1065,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         originType: TaskOriginType? = nil,
         originChannelId: String? = nil,
         actorId: String? = nil,
+        executionNodeId: String? = nil,
         teamId: String? = nil,
         claimedActorId: String? = nil,
         claimedAgentId: String? = nil,
@@ -1097,6 +1100,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         self.originType = originType
         self.originChannelId = originChannelId
         self.actorId = actorId
+        self.executionNodeId = executionNodeId
         self.teamId = teamId
         self.claimedActorId = claimedActorId
         self.claimedAgentId = claimedAgentId
@@ -1134,6 +1138,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         originType = try container.decodeIfPresent(TaskOriginType.self, forKey: .originType)
         originChannelId = try container.decodeIfPresent(String.self, forKey: .originChannelId)
         actorId = try container.decodeIfPresent(String.self, forKey: .actorId)
+        executionNodeId = try container.decodeIfPresent(String.self, forKey: .executionNodeId)
         teamId = try container.decodeIfPresent(String.self, forKey: .teamId)
         claimedActorId = try container.decodeIfPresent(String.self, forKey: .claimedActorId)
         claimedAgentId = try container.decodeIfPresent(String.self, forKey: .claimedAgentId)
@@ -2047,6 +2052,7 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
     public var originType: TaskOriginType?
     public var originChannelId: String?
     public var actorId: String?
+    public var executionNodeId: String?
     public var teamId: String?
     public var parentTaskId: String?
     public var dependsOnTaskIds: [String]?
@@ -2066,6 +2072,7 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
         originType: TaskOriginType? = nil,
         originChannelId: String? = nil,
         actorId: String? = nil,
+        executionNodeId: String? = nil,
         teamId: String? = nil,
         parentTaskId: String? = nil,
         dependsOnTaskIds: [String]? = nil,
@@ -2084,6 +2091,7 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
         self.originType = originType
         self.originChannelId = originChannelId
         self.actorId = actorId
+        self.executionNodeId = executionNodeId
         self.teamId = teamId
         self.parentTaskId = parentTaskId
         self.dependsOnTaskIds = dependsOnTaskIds
@@ -2105,6 +2113,7 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
     public var kind: ProjectTaskKind?
     public var loopModeOverride: ProjectLoopMode?
     public var actorId: String?
+    public var executionNodeId: String?
     public var teamId: String?
     public var parentTaskId: String?
     public var dependsOnTaskIds: [String]?
@@ -2125,6 +2134,7 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
         kind: ProjectTaskKind? = nil,
         loopModeOverride: ProjectLoopMode? = nil,
         actorId: String? = nil,
+        executionNodeId: String? = nil,
         teamId: String? = nil,
         parentTaskId: String? = nil,
         dependsOnTaskIds: [String]? = nil,
@@ -2144,6 +2154,7 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
         self.kind = kind
         self.loopModeOverride = loopModeOverride
         self.actorId = actorId
+        self.executionNodeId = executionNodeId
         self.teamId = teamId
         self.parentTaskId = parentTaskId
         self.dependsOnTaskIds = dependsOnTaskIds

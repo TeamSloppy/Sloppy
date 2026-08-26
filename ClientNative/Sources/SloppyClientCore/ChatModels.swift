@@ -306,6 +306,7 @@ public struct ChatSessionSummary: Codable, Sendable, Equatable, Identifiable {
     public var kind: String
     public var projectId: String?
     public var workspaceId: String?
+    public var sourceInstanceID: String?
 
     public init(
         id: String,
@@ -315,7 +316,8 @@ public struct ChatSessionSummary: Codable, Sendable, Equatable, Identifiable {
         updatedAt: Date = Date(),
         kind: String = "chat",
         projectId: String? = nil,
-        workspaceId: String? = nil
+        workspaceId: String? = nil,
+        sourceInstanceID: String? = nil
     ) {
         self.id = id
         self.agentId = agentId
@@ -325,20 +327,30 @@ public struct ChatSessionSummary: Codable, Sendable, Equatable, Identifiable {
         self.kind = kind
         self.projectId = projectId
         self.workspaceId = workspaceId
+        self.sourceInstanceID = sourceInstanceID
+    }
+
+    public var storageID: String {
+        guard let sourceInstanceID else { return id }
+        return InstanceScopedID(instanceID: sourceInstanceID, localID: id).description
     }
 }
 
 public enum ChatSessionCatalog {
     public static func merge(_ batches: [[ChatSessionSummary]]) -> [ChatSessionSummary] {
-        var sessionsByID: [String: ChatSessionSummary] = [:]
+        var sessionsByID: [InstanceScopedID: ChatSessionSummary] = [:]
 
         for session in batches.joined() where session.kind != "heartbeat" {
-            guard let existing = sessionsByID[session.id] else {
-                sessionsByID[session.id] = session
+            let key = InstanceScopedID(
+                instanceID: session.sourceInstanceID ?? "direct",
+                localID: session.id
+            )
+            guard let existing = sessionsByID[key] else {
+                sessionsByID[key] = session
                 continue
             }
             if session.updatedAt > existing.updatedAt {
-                sessionsByID[session.id] = session
+                sessionsByID[key] = session
             }
         }
 
@@ -447,6 +459,57 @@ public struct ChatModelOption: Codable, Sendable, Equatable, Identifiable {
 
     public var supportsReasoningEffort: Bool {
         capabilities.contains { $0.caseInsensitiveCompare("reasoning") == .orderedSame }
+    }
+
+    public var contextWindowTokens: Int? {
+        guard let contextWindow else { return nil }
+
+        let normalized = contextWindow
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+            .uppercased()
+            .replacingOccurrences(of: "_", with: "")
+            .replacingOccurrences(of: ",", with: "")
+        guard !normalized.isEmpty else { return nil }
+
+        let multiplier: Double
+        let numericText: Substring
+        switch normalized.last {
+        case "K":
+            multiplier = 1_000
+            numericText = normalized.dropLast()
+        case "M":
+            multiplier = 1_000_000
+            numericText = normalized.dropLast()
+        case "B":
+            multiplier = 1_000_000_000
+            numericText = normalized.dropLast()
+        default:
+            multiplier = 1
+            numericText = Substring(normalized)
+        }
+
+        guard let value = Double(numericText), value.isFinite, value > 0 else { return nil }
+        let tokens = value * multiplier
+        guard tokens <= Double(Int.max) else { return nil }
+        return Int(tokens)
+    }
+}
+
+public struct ChatContextUsage: Sendable, Equatable {
+    public var usedTokens: Int
+    public var limitTokens: Int
+
+    public init(usedTokens: Int, limitTokens: Int) {
+        self.usedTokens = max(0, usedTokens)
+        self.limitTokens = max(1, limitTokens)
+    }
+
+    public var fraction: Double {
+        min(1, Double(usedTokens) / Double(limitTokens))
+    }
+
+    public var percentage: Int {
+        Int((fraction * 100).rounded())
     }
 }
 
@@ -583,6 +646,7 @@ public struct ChatRunStatusEvent: Codable, Sendable, Equatable {
     public var label: String
     public var details: String?
     public var expandedText: String?
+    public var tokenUsage: ChatTokenUsage?
     public var createdAt: Date?
 
     public init(
@@ -590,13 +654,58 @@ public struct ChatRunStatusEvent: Codable, Sendable, Equatable {
         label: String,
         details: String? = nil,
         expandedText: String? = nil,
+        tokenUsage: ChatTokenUsage? = nil,
         createdAt: Date? = nil
     ) {
         self.stage = stage
         self.label = label
         self.details = details
         self.expandedText = expandedText
+        self.tokenUsage = tokenUsage
         self.createdAt = createdAt
+    }
+}
+
+public struct ChatTokenUsage: Codable, Sendable, Equatable {
+    public var prompt: Int
+    public var completion: Int
+    public var cachedInput: Int
+    public var cacheCreationInput: Int
+    public var reasoning: Int
+
+    public init(
+        prompt: Int,
+        completion: Int,
+        cachedInput: Int = 0,
+        cacheCreationInput: Int = 0,
+        reasoning: Int = 0
+    ) {
+        self.prompt = prompt
+        self.completion = completion
+        self.cachedInput = cachedInput
+        self.cacheCreationInput = cacheCreationInput
+        self.reasoning = reasoning
+    }
+
+    public var total: Int {
+        max(0, prompt) + max(0, completion)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case prompt
+        case completion
+        case cachedInput
+        case cacheCreationInput
+        case reasoning
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        prompt = try container.decode(Int.self, forKey: .prompt)
+        completion = try container.decode(Int.self, forKey: .completion)
+        cachedInput = try container.decodeIfPresent(Int.self, forKey: .cachedInput) ?? 0
+        cacheCreationInput = try container.decodeIfPresent(Int.self, forKey: .cacheCreationInput) ?? 0
+        reasoning = try container.decodeIfPresent(Int.self, forKey: .reasoning) ?? 0
     }
 }
 

@@ -32,6 +32,20 @@ extension CoreService {
         return validateDashboardAuthToken(token)
     }
 
+    func validateClientAuthorizationHeader(_ headerValue: String?) async -> Bool {
+        if await identityAuthEnabled() {
+            return await authenticateIdentityAccessToken(Self.extractBearerToken(from: headerValue)) != nil
+        }
+        return validateDashboardAuthorizationHeader(headerValue)
+    }
+
+    func validateClientAuthToken(_ token: String?) async -> Bool {
+        if await identityAuthEnabled() {
+            return await authenticateIdentityAccessToken(token) != nil
+        }
+        return validateDashboardAuthToken(token)
+    }
+
     func validateDashboardAuthToken(_ token: String?) -> Bool {
         let status = dashboardAuthStatus()
         guard status.enabled else {

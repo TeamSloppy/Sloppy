@@ -6,6 +6,7 @@ import Logging
 
 public actor SessionSocketManager {
     private let baseURL: URL
+    private let endpoint: SloppyInstanceEndpoint
     private let agentId: String
     private let sessionId: String
     private let logger: Logger
@@ -23,7 +24,22 @@ public actor SessionSocketManager {
         sessionId: String,
         logger: Logger = Logger(label: "sloppy.session-socket")
     ) {
-        self.baseURL = baseURL
+        self.init(
+            endpoint: .direct(baseURL: baseURL),
+            agentId: agentId,
+            sessionId: sessionId,
+            logger: logger
+        )
+    }
+
+    public init(
+        endpoint: SloppyInstanceEndpoint,
+        agentId: String,
+        sessionId: String,
+        logger: Logger = Logger(label: "sloppy.session-socket")
+    ) {
+        self.endpoint = endpoint
+        self.baseURL = endpoint.coordinatorBaseURL
         self.agentId = agentId
         self.sessionId = sessionId
         self.logger = logger
@@ -44,7 +60,7 @@ public actor SessionSocketManager {
         self.decoder = decoder
     }
 
-    public func connect() -> AsyncStream<ChatStreamUpdate> {
+    public func connect() async -> AsyncStream<ChatStreamUpdate> {
         disposed = false
         reconnectDelay = 1.0
         socketAttempt = 0
@@ -54,7 +70,7 @@ public actor SessionSocketManager {
                 Task { await self?.disconnect() }
             }
         }
-        openSocket()
+        await openSocket()
         return stream
     }
 
@@ -67,20 +83,20 @@ public actor SessionSocketManager {
         continuation = nil
     }
 
-    private func openSocket() {
+    private func openSocket() async {
         guard !disposed else { return }
 
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
         components?.scheme = baseURL.scheme == "https" ? "wss" : "ws"
-        components?.percentEncodedPath = [
-            "",
-            "v1",
-            "agents",
-            Self.encodePathSegment(agentId),
-            "sessions",
-            Self.encodePathSegment(sessionId),
-            "ws"
-        ].joined(separator: "/")
+        var pathComponents = ["", "v1"]
+        if case .relay(_, let targetNodeID) = endpoint {
+            pathComponents += ["node", "mesh", "nodes", Self.encodePathSegment(targetNodeID)]
+        }
+        pathComponents += [
+            "agents", Self.encodePathSegment(agentId),
+            "sessions", Self.encodePathSegment(sessionId), "ws",
+        ]
+        components?.percentEncodedPath = pathComponents.joined(separator: "/")
         guard let wsURL = components?.url else {
             logger.error("Could not build session socket URL from \(baseURL.absoluteString) for agent=\(agentId) session=\(sessionId)")
             return
@@ -88,7 +104,12 @@ public actor SessionSocketManager {
 
         socketAttempt += 1
         logger.info("Opening session socket attempt \(socketAttempt): \(wsURL.absoluteString)")
-        let wsTask = URLSession.shared.webSocketTask(with: wsURL)
+        var request = URLRequest(url: wsURL)
+        if let token = await AuthSessionStore.shared.session(for: baseURL)?.accessToken,
+           !token.isEmpty {
+            request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        }
+        let wsTask = URLSession.shared.webSocketTask(with: request)
         self.task = wsTask
         wsTask.resume()
 
@@ -128,7 +149,7 @@ public actor SessionSocketManager {
                 // Signal caller to resync via REST
                 continuation?.yield(ChatStreamUpdate(kind: .sessionReady, cursor: 0))
                 if !disposed {
-                    openSocket()
+                    await openSocket()
                 }
                 return
             }

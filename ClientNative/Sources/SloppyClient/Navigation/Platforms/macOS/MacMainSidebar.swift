@@ -1,5 +1,6 @@
 #if os(macOS)
 import Foundation
+import SloppyClientCore
 import SloppyClientUI
 import SwiftUI
 
@@ -24,16 +25,64 @@ struct PlatformMainSidebar: View {
         }
         .safeAreaInset(edge: .bottom) {
             HStack(spacing: theme.spacing.s) {
-                Text(accountInitials)
-                    .font(.system(size: theme.typography.micro, weight: .semibold))
-                    .foregroundColor(theme.colors.textPrimary)
-                    .frame(width: 32, height: 32)
-                    .background(theme.colors.accent, in: Circle())
+                Menu {
+                    Button {
+                        viewModel.selectInstance(.all)
+                    } label: {
+                        instanceMenuLabel(
+                            title: "All",
+                            systemImage: "square.stack.3d.up",
+                            isSelected: viewModel.settings.instanceSelection == .all
+                        )
+                    }
 
-                Text(accountDisplayName)
-                    .font(.system(size: theme.typography.body, weight: .medium))
-                    .foregroundColor(theme.colors.textPrimary)
-                    .lineLimit(1)
+                    Divider()
+
+                    ForEach(viewModel.settings.discoveredInstances) { instance in
+                        Button {
+                            viewModel.selectInstance(.instance(instance.id))
+                        } label: {
+                            instanceMenuLabel(
+                                title: instance.displayName,
+                                systemImage: instance.isLocal ? "desktopcomputer" : "network",
+                                isSelected: viewModel.settings.instanceSelection == .instance(instance.id)
+                            )
+                        }
+                    }
+
+                    Divider()
+
+                    Button("Manage Instances…") {
+                        viewModel.onOpenSettings(.general)
+                    }
+                } label: {
+                    HStack(spacing: theme.spacing.s) {
+                        Image(systemName: selectedInstanceSystemImage)
+                            .font(.system(size: theme.typography.body, weight: .semibold))
+                            .foregroundColor(theme.colors.textPrimary)
+                            .frame(width: 32, height: 32)
+                            .background(theme.colors.accent, in: Circle())
+
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(viewModel.selectedInstanceTitle)
+                                .font(.system(size: theme.typography.body, weight: .medium))
+                                .foregroundColor(theme.colors.textPrimary)
+                                .lineLimit(1)
+
+                            Text(selectedInstanceSubtitle)
+                                .font(.system(size: theme.typography.micro))
+                                .foregroundColor(theme.colors.textMuted)
+                                .lineLimit(1)
+                        }
+
+                        Image(systemName: "chevron.up.chevron.down")
+                            .font(.system(size: theme.typography.micro, weight: .semibold))
+                            .foregroundColor(theme.colors.textMuted)
+                    }
+                    .contentShape(Rectangle())
+                }
+                .menuStyle(.borderlessButton)
+                .fixedSize(horizontal: false, vertical: true)
 
                 Spacer(minLength: theme.spacing.s)
 
@@ -57,28 +106,28 @@ struct PlatformMainSidebar: View {
         }
     }
 
-    private var accountDisplayName: String {
-        let profileName = viewModel.currentAuthUser?.name
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if let profileName, !profileName.isEmpty {
-            return profileName
+    private var selectedInstanceSystemImage: String {
+        guard let instance = viewModel.selectedInstance else {
+            return "square.stack.3d.up"
         }
-
-        let login = viewModel.currentAuthUser?.login
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        if let login, !login.isEmpty {
-            return login
-        }
-
-        let localName = NSFullUserName().trimmingCharacters(in: .whitespacesAndNewlines)
-        return localName.isEmpty ? NSUserName() : localName
+        return instance.isLocal ? "desktopcomputer" : "network"
     }
 
-    private var accountInitials: String {
-        let words = accountDisplayName.split(whereSeparator: \Character.isWhitespace)
-        let initials = words.prefix(2).compactMap(\.first)
-        guard !initials.isEmpty else { return "?" }
-        return String(initials).uppercased()
+    private var selectedInstanceSubtitle: String {
+        guard let instance = viewModel.selectedInstance else {
+            let count = viewModel.settings.discoveredInstances.count
+            return "\(count) \(count == 1 ? "instance" : "instances")"
+        }
+        if instance.isLocal { return "Local" }
+        return instance.status == .online ? "Relay · Online" : "Relay · Offline"
+    }
+
+    private func instanceMenuLabel(title: String, systemImage: String, isSelected: Bool) -> some View {
+        Label {
+            Text(title)
+        } icon: {
+            Image(systemName: isSelected ? "checkmark" : systemImage)
+        }
     }
 }
 

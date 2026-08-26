@@ -76,6 +76,12 @@ public struct APIProjectRecord: Codable, Sendable, Identifiable {
     public var teams: [String]?
     public var isFavorite: Bool
     public var isArchived: Bool
+    public var sourceInstanceID: String?
+
+    public var storageID: String {
+        guard let sourceInstanceID else { return id }
+        return InstanceScopedID(instanceID: sourceInstanceID, localID: id).description
+    }
 
     public var projectRootPath: String? {
         directoryPaths.first ?? worktreeRootPath ?? repoPath
@@ -131,7 +137,8 @@ public struct APIProjectRecord: Codable, Sendable, Identifiable {
         actors: [String]? = nil,
         teams: [String]? = nil,
         isFavorite: Bool = false,
-        isArchived: Bool = false
+        isArchived: Bool = false,
+        sourceInstanceID: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -147,11 +154,12 @@ public struct APIProjectRecord: Codable, Sendable, Identifiable {
         self.teams = teams
         self.isFavorite = isFavorite
         self.isArchived = isArchived
+        self.sourceInstanceID = sourceInstanceID
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, description, icon, kind, directoryPaths, repoPath, worktreeRootPath
-        case channels, tasks, actors, teams, isFavorite, isArchived
+        case channels, tasks, actors, teams, isFavorite, isArchived, sourceInstanceID
     }
 
     public init(from decoder: Decoder) throws {
@@ -170,6 +178,7 @@ public struct APIProjectRecord: Codable, Sendable, Identifiable {
         teams = try container.decodeIfPresent([String].self, forKey: .teams)
         isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
         isArchived = try container.decodeIfPresent(Bool.self, forKey: .isArchived) ?? false
+        sourceInstanceID = try container.decodeIfPresent(String.self, forKey: .sourceInstanceID)
     }
 }
 
@@ -242,6 +251,7 @@ public struct APIProjectTaskCreateRequest: Codable, Sendable, Equatable {
     public var priority: String
     public var status: String?
     public var actorId: String?
+    public var executionNodeId: String?
     public var tags: [String]?
 
     public init(
@@ -250,6 +260,7 @@ public struct APIProjectTaskCreateRequest: Codable, Sendable, Equatable {
         priority: String = "medium",
         status: String? = nil,
         actorId: String? = nil,
+        executionNodeId: String? = nil,
         tags: [String]? = nil
     ) {
         self.title = title
@@ -257,15 +268,18 @@ public struct APIProjectTaskCreateRequest: Codable, Sendable, Equatable {
         self.priority = priority
         self.status = status
         self.actorId = actorId
+        self.executionNodeId = executionNodeId
         self.tags = tags
     }
 }
 
 public struct APIProjectTaskUpdateRequest: Codable, Sendable, Equatable {
     public var status: String?
+    public var executionNodeId: String?
 
-    public init(status: String? = nil) {
+    public init(status: String? = nil, executionNodeId: String? = nil) {
         self.status = status
+        self.executionNodeId = executionNodeId
     }
 }
 
@@ -287,6 +301,7 @@ public struct APIProjectTask: Codable, Sendable, Identifiable {
     public var status: String
     public var priority: String?
     public var actorId: String?
+    public var executionNodeId: String?
     public var description: String?
     public var claimedActorId: String?
     public var claimedAgentId: String?
@@ -301,6 +316,7 @@ public struct APIProjectTask: Codable, Sendable, Identifiable {
         status: String,
         priority: String? = nil,
         actorId: String? = nil,
+        executionNodeId: String? = nil,
         description: String? = nil,
         claimedActorId: String? = nil,
         claimedAgentId: String? = nil,
@@ -314,6 +330,7 @@ public struct APIProjectTask: Codable, Sendable, Identifiable {
         self.status = status
         self.priority = priority
         self.actorId = actorId
+        self.executionNodeId = executionNodeId
         self.description = description
         self.claimedActorId = claimedActorId
         self.claimedAgentId = claimedAgentId

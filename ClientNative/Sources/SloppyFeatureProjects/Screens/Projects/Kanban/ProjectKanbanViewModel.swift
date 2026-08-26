@@ -8,6 +8,7 @@ public struct ProjectKanbanCard: Identifiable, Equatable, Sendable {
     public let status: String
     public let priority: String?
     public let actorID: String?
+    public let executionNodeID: String?
     public let description: String?
     public let tags: [String]
 
@@ -17,6 +18,7 @@ public struct ProjectKanbanCard: Identifiable, Equatable, Sendable {
         status: String,
         priority: String?,
         actorID: String?,
+        executionNodeID: String? = nil,
         description: String? = nil,
         tags: [String] = []
     ) {
@@ -25,6 +27,7 @@ public struct ProjectKanbanCard: Identifiable, Equatable, Sendable {
         self.status = status
         self.priority = priority
         self.actorID = actorID
+        self.executionNodeID = executionNodeID
         self.description = description
         self.tags = tags
     }
@@ -130,14 +133,25 @@ public final class ProjectKanbanViewModel {
     public private(set) var projectName: String = ""
     public private(set) var columns: [ProjectKanbanColumn] = []
     public private(set) var availableActors: [ProjectKanbanActorOption] = []
+    public let availableInstances: [SloppyInstance]
+    public let preferredExecutionNodeID: String
     public private(set) var isLoading = false
     public private(set) var errorMessage: String?
 
     @ObservationIgnored private let apiClient: SloppyAPIClient
     @ObservationIgnored private var tasks: [APIProjectTask] = []
 
-    public init(apiClient: SloppyAPIClient) {
+    public init(
+        apiClient: SloppyAPIClient,
+        availableInstances: [SloppyInstance] = [],
+        preferredExecutionNodeID: String? = nil
+    ) {
         self.apiClient = apiClient
+        self.availableInstances = availableInstances
+        self.preferredExecutionNodeID = preferredExecutionNodeID
+            ?? availableInstances.first(where: \.isLocal)?.id
+            ?? availableInstances.first?.id
+            ?? ""
     }
 
     public func load(projectId: String) async {
@@ -187,6 +201,23 @@ public final class ProjectKanbanViewModel {
         }
     }
 
+    public func assignTask(
+        id taskID: String,
+        to executionNodeID: String,
+        projectId: String
+    ) async {
+        do {
+            let project = try await apiClient.updateProjectTask(
+                projectId: projectId,
+                taskId: taskID,
+                request: APIProjectTaskUpdateRequest(executionNodeId: executionNodeID)
+            )
+            apply(project: project)
+        } catch {
+            errorMessage = "Could not change the task instance."
+        }
+    }
+
     public func columns(matching filters: ProjectKanbanFilters) -> [ProjectKanbanColumn] {
         Self.buildColumns(from: tasks, filters: filters)
     }
@@ -196,6 +227,10 @@ public final class ProjectKanbanViewModel {
             return filter.title
         }
         return availableActors.first(where: { $0.id == actorID })?.title ?? actorID
+    }
+
+    public func instanceTitle(for nodeID: String) -> String {
+        availableInstances.first(where: { $0.id == nodeID })?.displayName ?? nodeID
     }
 
     nonisolated static func buildColumns(
@@ -222,6 +257,7 @@ public final class ProjectKanbanViewModel {
                     status: $0.status,
                     priority: $0.priority,
                     actorID: $0.actorId,
+                    executionNodeID: $0.executionNodeId,
                     description: $0.description,
                     tags: $0.tags ?? []
                 )

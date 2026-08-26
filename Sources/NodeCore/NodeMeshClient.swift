@@ -9,6 +9,8 @@ public enum NodeMeshClientError: LocalizedError, Equatable {
     case invalidRelayURL(String)
     case unsupportedRelayScheme(String)
     case missingRelayURL
+    case relayNotConnected
+    case insecureRelayURL(String)
 
     public var errorDescription: String? {
         switch self {
@@ -18,6 +20,10 @@ public enum NodeMeshClientError: LocalizedError, Equatable {
             "Unsupported relay URL scheme: \(scheme)"
         case .missingRelayURL:
             "Mesh relay URL is required."
+        case .relayNotConnected:
+            "Mesh relay connection is not ready."
+        case .insecureRelayURL(let value):
+            "External mesh relays must use TLS (https/wss): \(value)"
         }
     }
 }
@@ -36,6 +42,13 @@ public actor NodeMeshClient {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
     private var isRelayAuthenticated: Bool
+    private var isRunLoopActive = false
+    private let rpcManager = NodeMeshRPCManager()
+    private let streamManager = NodeMeshStreamManager()
+    private var seenEncryptedEnvelopeIDs: Set<String> = []
+    #if !os(Linux)
+    private var activeWebSocketTask: URLSessionWebSocketTask?
+    #endif
 
     public init(
         config: NodeConfig,
@@ -67,12 +80,19 @@ public actor NodeMeshClient {
 
         switch scheme {
         case "http":
+            guard Self.isLoopbackHost(components.host) else {
+                throw NodeMeshClientError.insecureRelayURL(relayURL)
+            }
             components.scheme = "ws"
             components.path = "/v1/node/mesh/ws"
         case "https":
             components.scheme = "wss"
             components.path = "/v1/node/mesh/ws"
-        case "ws", "wss":
+        case "ws":
+            guard Self.isLoopbackHost(components.host) else {
+                throw NodeMeshClientError.insecureRelayURL(relayURL)
+            }
+        case "wss":
             break
         default:
             throw NodeMeshClientError.unsupportedRelayScheme(scheme)
@@ -84,6 +104,11 @@ public actor NodeMeshClient {
         return url
     }
 
+    private static func isLoopbackHost(_ host: String?) -> Bool {
+        guard let host = host?.lowercased() else { return false }
+        return host == "localhost" || host == "127.0.0.1" || host == "::1"
+    }
+
     public static func makeHelloEnvelope(identity: NodeIdentity) -> MeshEnvelope {
         MeshEnvelope(
             type: .nodeHello,
@@ -91,6 +116,8 @@ public actor NodeMeshClient {
             payload: .object([
                 "name": .string(identity.name),
                 "publicKey": .string(identity.publicKey),
+                "encryptionPublicKey": identity.encryptionPublicKey.map(JSONValue.string) ?? .null,
+                "encryptionKeySignature": identity.encryptionKeySignature.map(JSONValue.string) ?? .null,
                 "roles": .array(identity.roles.map(JSONValue.string)),
                 "capabilities": .array(identity.capabilities.map(JSONValue.string)),
             ])
@@ -493,6 +520,8 @@ public actor NodeMeshClient {
             return
         }
         let url = try Self.resolveRelayWebSocketURL(configuredRelayURL)
+        isRunLoopActive = true
+        defer { isRunLoopActive = false }
 
         while !Task.isCancelled {
             do {
@@ -512,6 +541,33 @@ public actor NodeMeshClient {
         params: JSONValue = .object([:]),
         timeout: TimeInterval = 30
     ) async throws -> MeshEnvelope {
+        #if !os(Linux)
+        if isRunLoopActive && (activeWebSocketTask == nil || !isRelayAuthenticated) {
+            let deadline = Date().addingTimeInterval(min(5, max(0.25, timeout)))
+            while Date() < deadline && (activeWebSocketTask == nil || !isRelayAuthenticated) {
+                try Task.checkCancellation()
+                try await Task.sleep(nanoseconds: 50_000_000)
+            }
+        }
+        if let activeWebSocketTask, isRelayAuthenticated {
+            let request = Self.makeRPCRequestEnvelope(
+                identity: config.identity,
+                to: targetNodeId,
+                method: method,
+                params: params
+            )
+            return try await rpcManager.send(request, timeout: timeout) { [weak self] outbound in
+                guard let self else {
+                    throw CancellationError()
+                }
+                try await self.send(outbound, over: activeWebSocketTask)
+            }
+        }
+        if isRunLoopActive {
+            throw NodeMeshClientError.relayNotConnected
+        }
+        #endif
+
         let configuredRelayURL = relayURL ?? config.relayURL
         guard let configuredRelayURL, !configuredRelayURL.isEmpty else {
             throw NodeMeshClientError.missingRelayURL
@@ -536,13 +592,94 @@ public actor NodeMeshClient {
         }
     }
 
+    public func openStream(
+        to targetNodeID: String,
+        kind: String,
+        params: JSONValue = .object([:])
+    ) async throws -> NodeMeshStream {
+        #if os(Linux)
+        throw NodeMeshClientError.unsupportedRelayScheme("linux-urlsession-websocket")
+        #else
+        guard let activeWebSocketTask, isRelayAuthenticated else {
+            throw NodeMeshStreamError.relayNotConnected
+        }
+        let streamID = UUID().uuidString.lowercased()
+        let stream = await streamManager.register(streamID: streamID)
+        let envelope = MeshEnvelope(
+            type: .streamOpen,
+            from: config.identity.nodeId,
+            to: targetNodeID,
+            payload: .object([
+                "streamId": .string(streamID),
+                "kind": .string(kind),
+                "params": params,
+            ])
+        )
+        do {
+            try await send(envelope, over: activeWebSocketTask)
+            return stream
+        } catch {
+            await streamManager.fail(streamID: streamID, error: error)
+            throw error
+        }
+        #endif
+    }
+
+    public func sendStreamChunk(
+        streamID: String,
+        to targetNodeID: String,
+        data: JSONValue
+    ) async throws {
+        try await sendConnectedEnvelope(
+            MeshEnvelope(
+                type: .streamChunk,
+                from: config.identity.nodeId,
+                to: targetNodeID,
+                payload: .object([
+                    "streamId": .string(streamID),
+                    "data": data,
+                ])
+            )
+        )
+    }
+
+    public func closeStream(
+        streamID: String,
+        to targetNodeID: String,
+        ok: Bool = true,
+        message: String? = nil
+    ) async throws {
+        try await sendConnectedEnvelope(
+            MeshEnvelope(
+                type: .streamClose,
+                from: config.identity.nodeId,
+                to: targetNodeID,
+                payload: .object([
+                    "streamId": .string(streamID),
+                    "ok": .bool(ok),
+                    "message": message.map(JSONValue.string) ?? .null,
+                ])
+            )
+        )
+        await streamManager.finish(streamID: streamID)
+    }
+
     private func runConnection(url: URL) async throws {
         #if os(Linux)
         throw NodeMeshClientError.unsupportedRelayScheme("linux-urlsession-websocket")
         #else
         let task = URLSession.shared.webSocketTask(with: url)
         task.resume()
-        defer { task.cancel(with: .goingAway, reason: nil) }
+        activeWebSocketTask = task
+        isRelayAuthenticated = false
+        defer {
+            if activeWebSocketTask === task {
+                activeWebSocketTask = nil
+                isRelayAuthenticated = false
+            }
+            task.cancel(with: .goingAway, reason: nil)
+            Task { await streamManager.failAll(NodeMeshStreamError.relayNotConnected) }
+        }
 
         var sentHello = false
         var heartbeatTask: Task<Void, Error>?
@@ -553,7 +690,14 @@ public actor NodeMeshClient {
             guard let text = Self.text(from: message), let data = text.data(using: .utf8) else {
                 continue
             }
-            let envelope = try decoder.decode(MeshEnvelope.self, from: data)
+            let wireEnvelope = try decoder.decode(MeshEnvelope.self, from: data)
+            let envelope = try prepareInbound(wireEnvelope)
+            if await rpcManager.receive(envelope) {
+                continue
+            }
+            if await streamManager.receive(envelope) {
+                continue
+            }
             let responseEnvelopes = await responses(to: envelope)
             for responseEnvelope in responseEnvelopes {
                 try await send(responseEnvelope, over: task)
@@ -592,7 +736,8 @@ public actor NodeMeshClient {
             guard let text = Self.text(from: message), let data = text.data(using: .utf8) else {
                 continue
             }
-            let envelope = try decoder.decode(MeshEnvelope.self, from: data)
+            let wireEnvelope = try decoder.decode(MeshEnvelope.self, from: data)
+            let envelope = try prepareInbound(wireEnvelope)
             let responseEnvelopes = await responses(to: envelope)
             for responseEnvelope in responseEnvelopes {
                 try await send(responseEnvelope, over: task)
@@ -619,12 +764,85 @@ public actor NodeMeshClient {
     }
 
     #if !os(Linux)
+    private func sendConnectedEnvelope(_ envelope: MeshEnvelope) async throws {
+        guard let activeWebSocketTask, isRelayAuthenticated else {
+            throw NodeMeshStreamError.relayNotConnected
+        }
+        try await send(envelope, over: activeWebSocketTask)
+    }
+
     private func send(_ envelope: MeshEnvelope, over task: URLSessionWebSocketTask) async throws {
-        let data = try encoder.encode(envelope)
+        let outbound = try prepareOutbound(envelope)
+        let data = try encoder.encode(outbound)
         guard let text = String(data: data, encoding: .utf8) else {
             return
         }
         try await task.send(.string(text))
+    }
+
+    private func prepareOutbound(_ envelope: MeshEnvelope) throws -> MeshEnvelope {
+        guard requiresPayloadEncryption(envelope), !NodeMeshPayloadCrypto.isSealed(envelope.payload) else {
+            return envelope
+        }
+        guard let target = envelope.to,
+              let recipient = try meshStore?.listNodes().first(where: { $0.id == target })
+        else {
+            throw NodeMeshPayloadCryptoError.missingKey(envelope.to ?? "unknown")
+        }
+        var sealed = envelope
+        sealed.payload = try NodeMeshPayloadCrypto.seal(
+            envelope.payload,
+            envelope: envelope,
+            sender: config.identity,
+            recipient: recipient
+        )
+        return sealed
+    }
+
+    private func prepareInbound(_ envelope: MeshEnvelope) throws -> MeshEnvelope {
+        guard NodeMeshPayloadCrypto.isSealed(envelope.payload) else {
+            if requiresPayloadEncryption(envelope), envelope.from != "relay" {
+                throw NodeMeshPayloadCryptoError.invalidPayload
+            }
+            return envelope
+        }
+        guard !seenEncryptedEnvelopeIDs.contains(envelope.id) else {
+            throw NodeMeshPayloadCryptoError.invalidPayload
+        }
+        guard var sender = try meshStore?.listNodes().first(where: { $0.id == envelope.from }) else {
+            throw NodeMeshPayloadCryptoError.missingKey(envelope.from)
+        }
+        var opened = envelope
+        opened.payload = try NodeMeshPayloadCrypto.open(
+            envelope.payload,
+            envelope: envelope,
+            recipient: config.identity,
+            senderSigningPublicKey: sender.publicKey
+        )
+        if let object = envelope.payload.asObject,
+           let encryptionPublicKey = object["senderEncryptionPublicKey"]?.asString,
+           let encryptionKeySignature = object["senderEncryptionKeySignature"]?.asString {
+            sender.encryptionPublicKey = encryptionPublicKey
+            sender.encryptionKeySignature = encryptionKeySignature
+            _ = try? meshStore?.upsertNodeRecord(sender, auditAction: "node.encryption-key.sync")
+        }
+        seenEncryptedEnvelopeIDs.insert(envelope.id)
+        if seenEncryptedEnvelopeIDs.count > 10_000 {
+            seenEncryptedEnvelopeIDs.removeAll(keepingCapacity: true)
+            seenEncryptedEnvelopeIDs.insert(envelope.id)
+        }
+        return opened
+    }
+
+    private func requiresPayloadEncryption(_ envelope: MeshEnvelope) -> Bool {
+        switch envelope.type {
+        case .streamOpen, .streamChunk, .streamClose:
+            return true
+        case .rpcRequest, .rpcResponse:
+            return envelope.payload.asObject?["method"]?.asString == "core.http"
+        default:
+            return false
+        }
     }
 
     private static func text(from message: URLSessionWebSocketTask.Message) -> String? {

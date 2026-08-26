@@ -42,13 +42,23 @@ struct ProjectTaskCreateSheet: View {
     @State private var status = TaskStatus.backlog
     @State private var priority = TaskPriority.medium
     @State private var actorID = ""
+    @State private var executionNodeID: String
     @State private var tags = ""
     @State private var isSaving = false
     @State private var errorMessage: String?
     @FocusState private var isTitleFocused: Bool
 
     private var canCreate: Bool {
-        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isSaving
+        !title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            && !executionNodeID.isEmpty
+            && !isSaving
+    }
+
+    init(viewModel: ProjectKanbanViewModel, projectId: String, projectName: String) {
+        self.viewModel = viewModel
+        self.projectId = projectId
+        self.projectName = projectName
+        _executionNodeID = State(initialValue: viewModel.preferredExecutionNodeID)
     }
 
     var body: some View {
@@ -79,6 +89,12 @@ struct ProjectTaskCreateSheet: View {
                         Text("Unassigned").tag("")
                         ForEach(viewModel.availableActors) { actor in
                             Text(actor.title).tag(actor.id)
+                        }
+                    }
+
+                    Picker("Runs on", selection: $executionNodeID) {
+                        ForEach(viewModel.availableInstances) { instance in
+                            Text(instance.displayName).tag(instance.id)
                         }
                     }
                 }
@@ -153,6 +169,7 @@ struct ProjectTaskCreateSheet: View {
                         priority: priority.rawValue,
                         status: status.rawValue,
                         actorId: actorID.isEmpty ? nil : actorID,
+                        executionNodeId: executionNodeID,
                         tags: parsedTags.isEmpty ? nil : parsedTags
                     )
                 )

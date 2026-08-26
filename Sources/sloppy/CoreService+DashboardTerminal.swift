@@ -1,6 +1,6 @@
 import Foundation
 
-struct DashboardTerminalClientMessage: Decodable {
+struct DashboardTerminalClientMessage: Codable {
     let type: String
     let token: String?
     let projectId: String?
@@ -10,7 +10,7 @@ struct DashboardTerminalClientMessage: Decodable {
     let data: String?
 }
 
-struct DashboardTerminalServerMessage: Encodable {
+struct DashboardTerminalServerMessage: Codable {
     let type: String
     let sessionId: String?
     let cwd: String?
@@ -80,12 +80,15 @@ extension CoreService {
         cwd: String?,
         cols: Int,
         rows: Int,
-        remoteAddress: String?
+        remoteAddress: String?,
+        allowTrustedMesh: Bool = false
     ) async throws -> DashboardTerminalSessionDescriptor {
         guard currentConfig.ui.dashboardTerminal.enabled else {
             throw DashboardTerminalError.disabled
         }
-        if currentConfig.ui.dashboardTerminal.localOnly, !isLoopbackAddress(remoteAddress) {
+        if currentConfig.ui.dashboardTerminal.localOnly,
+           !allowTrustedMesh,
+           !isLoopbackAddress(remoteAddress) {
             throw DashboardTerminalError.remoteAccessDenied
         }
 

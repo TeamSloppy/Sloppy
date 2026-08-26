@@ -21,6 +21,7 @@ public final class ClientSettings {
         static let archivedSessionIds = "client_archived_session_ids"
         static let savedServers = "client_saved_servers"
         static let meshTargetNodeId = "client_mesh_target_node_id"
+        static let instanceSelection = "client_instance_selection"
     }
 
     public var serverHost: String {
@@ -97,6 +98,16 @@ public final class ClientSettings {
         }
     }
 
+    public var instanceSelection: SloppyInstanceSelection {
+        didSet {
+            if let data = try? JSONEncoder().encode(instanceSelection) {
+                UserDefaults.standard.set(data, forKey: Keys.instanceSelection)
+            }
+        }
+    }
+
+    public var discoveredInstances: [SloppyInstance] = []
+
     public var baseURL: URL {
         ServerAddress(scheme: serverScheme, host: serverHost, port: serverPort).baseURL
     }
@@ -138,6 +149,12 @@ public final class ClientSettings {
         }
 
         meshTargetNodeId = defaults.string(forKey: Keys.meshTargetNodeId)
+        if let data = defaults.data(forKey: Keys.instanceSelection),
+           let selection = try? JSONDecoder().decode(SloppyInstanceSelection.self, from: data) {
+            instanceSelection = selection
+        } else {
+            instanceSelection = .all
+        }
     }
 
     public func useServer(_ server: SavedServer) {
@@ -147,6 +164,40 @@ public final class ClientSettings {
         if !savedServers.contains(where: { $0.id == server.id }) {
             savedServers.append(server)
         }
+    }
+
+    public func installMeshTopology(_ topology: ClientMeshTopology, coordinatorBaseURL: URL) {
+        discoveredInstances = topology.instances(coordinatorBaseURL: coordinatorBaseURL)
+        if case .instance(let selectedID) = instanceSelection,
+           !discoveredInstances.contains(where: { $0.id == selectedID }) {
+            instanceSelection = .all
+        }
+    }
+
+    public func installLocalInstance(baseURL: URL, name: String? = nil) {
+        let instance = SloppyInstance(
+            id: "local:\(baseURL.absoluteString)",
+            name: name ?? baseURL.host ?? "Local Sloppy",
+            endpoint: .direct(baseURL: baseURL),
+            status: .online,
+            isLocal: true
+        )
+        discoveredInstances = [instance]
+    }
+
+    public var selectedInstance: SloppyInstance? {
+        guard case .instance(let id) = instanceSelection else { return nil }
+        return discoveredInstances.first { $0.id == id }
+    }
+
+    public var activeInstanceEndpoint: SloppyInstanceEndpoint {
+        selectedInstance?.endpoint
+            ?? discoveredInstances.first(where: \.isLocal)?.endpoint
+            ?? .direct(baseURL: baseURL)
+    }
+
+    public var instanceDirectoryKey: String {
+        instanceSelection.instanceID ?? "all"
     }
 
     public func isSessionPinned(_ sessionId: String) -> Bool {

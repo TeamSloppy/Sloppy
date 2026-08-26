@@ -6,6 +6,7 @@ import Logging
 
 public actor SloppyAPIClient {
     public nonisolated let baseURL: URL
+    public nonisolated let endpoint: SloppyInstanceEndpoint
 
     private let http: BackendHTTPClient
     private let projects: ProjectService
@@ -25,9 +26,26 @@ public actor SloppyAPIClient {
         authSessionStore: AuthSessionStore = .shared,
         logger: Logger = Logger(label: "sloppy.api-client")
     ) {
-        self.baseURL = baseURL
+        self.init(
+            endpoint: .direct(baseURL: baseURL),
+            authToken: authToken,
+            session: session,
+            authSessionStore: authSessionStore,
+            logger: logger
+        )
+    }
+
+    public init(
+        endpoint: SloppyInstanceEndpoint,
+        authToken: String = "",
+        session: URLSession = .shared,
+        authSessionStore: AuthSessionStore = .shared,
+        logger: Logger = Logger(label: "sloppy.api-client")
+    ) {
+        self.endpoint = endpoint
+        self.baseURL = endpoint.coordinatorBaseURL
         let http = BackendHTTPClient(
-            baseURL: baseURL,
+            endpoint: endpoint,
             authToken: authToken,
             session: session,
             authSessionStore: authSessionStore,
@@ -47,6 +65,10 @@ public actor SloppyAPIClient {
 
     public func setAuthToken(_ token: String) async {
         await http.setAuthToken(token)
+    }
+
+    public func currentAccessToken() async -> String? {
+        await http.currentAccessToken()
     }
 
     public func fetchAuthChallenge() async throws -> AuthChallenge {
@@ -164,10 +186,6 @@ public actor SloppyAPIClient {
 
     public func hasStoredAuthSession() async -> Bool {
         await http.hasStoredAuthSession()
-    }
-
-    public func currentAccessToken() async -> String? {
-        await http.currentAccessToken()
     }
 
     public func logout() async {
@@ -479,6 +497,10 @@ public actor SloppyAPIClient {
 
     public func fetchMeshNodes() async throws -> [MeshNodeRecord] {
         try await mesh.listNodes()
+    }
+
+    public func fetchMeshTopology() async throws -> ClientMeshTopology {
+        try await http.get("/v1/node/mesh")
     }
 
     public func acceptMeshInvite(

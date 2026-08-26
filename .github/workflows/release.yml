@@ -126,7 +126,8 @@ jobs:
 
   build-macos:
     name: Build (macOS)
-    runs-on: macos-latest
+    # Swift 6.2.1 cannot import Xcode 26 WebKit interfaces on macos-latest.
+    runs-on: macos-15
 
     permissions:
       contents: read

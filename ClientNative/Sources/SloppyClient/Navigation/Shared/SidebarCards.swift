@@ -11,10 +11,12 @@ struct SidebarSessionCard: View {
 
     private var title: String { session.title.isEmpty ? "Chat" : session.title }
     private var projectName: String {
-        viewModel.projects.first { $0.id == session.projectId }?.name ?? "No project"
+        viewModel.projects.first {
+            $0.id == session.projectId && $0.sourceInstanceID == session.sourceInstanceID
+        }?.name ?? "No project"
     }
-    private var isPinned: Bool { viewModel.chatViewModel.pinnedSessionIds.contains(session.id) }
-    private var isSelected: Bool { viewModel.selectedChatSessionID == session.id }
+    private var isPinned: Bool { viewModel.settings.isSessionPinned(session.storageID) }
+    private var isSelected: Bool { viewModel.selectedChatStorageID == session.storageID }
 
     var body: some View {
         primaryAction
@@ -69,6 +71,10 @@ struct SidebarSessionCard: View {
                 Label(projectName, systemImage: "folder")
                     .lineLimit(1)
                 Text("\(session.messageCount) messages")
+                if let instanceName = viewModel.instanceTitle(for: session.sourceInstanceID) {
+                    Label(instanceName, systemImage: "desktopcomputer")
+                        .lineLimit(1)
+                }
             }
             .font(.system(size: theme.typography.caption))
             .foregroundColor(theme.colors.textSecondary)
@@ -119,6 +125,13 @@ struct SidebarProjectCard: View {
                     .foregroundColor(theme.colors.textPrimary)
                     .multilineTextAlignment(.leading)
                     .lineLimit(3)
+
+                if let instanceName = viewModel.instanceTitle(for: group.project.sourceInstanceID) {
+                    Label(instanceName, systemImage: "desktopcomputer")
+                        .font(.system(size: theme.typography.caption))
+                        .foregroundColor(theme.colors.textMuted)
+                        .lineLimit(1)
+                }
 
                 Text(projectDescription)
                     .font(.system(size: theme.typography.caption))

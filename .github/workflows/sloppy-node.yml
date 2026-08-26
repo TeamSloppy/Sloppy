@@ -26,7 +26,8 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - macos-latest
+          # Keep the SDK compatible with Swift 6.2.1 installed below.
+          - macos-15
           - windows-latest
 
     steps:

@@ -288,6 +288,7 @@ public final class ChatScreenViewModel {
     public private(set) var availableModels: [ChatModelOption] = []
     public private(set) var selectedModelId: String = ""
     public private(set) var selectedReasoningEffort: ChatReasoningEffort = .default
+    public private(set) var contextTokenUsage: ChatTokenUsage?
     public internal(set) var sessions: [ChatSessionSummary] = []
     public private(set) var sessionCatalog: [ChatSessionSummary] = []
     public var selectedSessionId: String?
@@ -351,6 +352,17 @@ public final class ChatScreenViewModel {
 
     public var shouldShowStopButton: Bool {
         isAwaitingAgentResponse || isStopping
+    }
+
+    public var contextUsage: ChatContextUsage? {
+        guard let model = availableModels.first(where: { $0.id == selectedModelId }),
+              let limitTokens = model.contextWindowTokens else {
+            return nil
+        }
+        return ChatContextUsage(
+            usedTokens: contextTokenUsage?.total ?? 0,
+            limitTokens: limitTokens
+        )
     }
 
     public var canSubmitMessage: Bool {
@@ -650,6 +662,16 @@ public final class ChatScreenViewModel {
         }
     }
 
+    public func installAggregatedSessionCatalog(_ sessions: [ChatSessionSummary]) {
+        sessionLoadGeneration += 1
+        isLoadingSessions = false
+        sessionCatalog = sortSessions(ChatSessionCatalog.merge([sessions]))
+    }
+
+    public func removeSessionFromCatalog(_ session: ChatSessionSummary) {
+        sessionCatalog.removeAll { $0.storageID == session.storageID }
+    }
+
     public func loadSessions(for agent: APIAgentRecord, projectId: String? = nil) async {
         sessionLoadGeneration += 1
         let generation = sessionLoadGeneration
@@ -934,9 +956,9 @@ public final class ChatScreenViewModel {
         Task { @MainActor in
             do {
                 try await apiClient.deleteAgentSession(agentId: session.agentId, sessionId: session.id)
-                settings.setSessionPinned(session.id, isPinned: false)
-                sessions.removeAll { $0.id == session.id }
-                sessionCatalog.removeAll { $0.id == session.id }
+                settings.setSessionPinned(session.storageID, isPinned: false)
+                sessions.removeAll { $0.storageID == session.storageID }
+                sessionCatalog.removeAll { $0.storageID == session.storageID }
 
                 if selectedSessionId == session.id {
                     disconnectCurrentSession()
@@ -957,8 +979,8 @@ public final class ChatScreenViewModel {
 
 
     public func toggleSessionPinned(_ session: ChatSessionSummary) {
-        let nextPinned = !settings.isSessionPinned(session.id)
-        settings.setSessionPinned(session.id, isPinned: nextPinned)
+        let nextPinned = !settings.isSessionPinned(session.storageID)
+        settings.setSessionPinned(session.storageID, isPinned: nextPinned)
         sessions = sortSessions(sessions)
         sessionCatalog = sortSessions(sessionCatalog)
         showSessionStatus(nextPinned ? "Pinned \(displayTitle(for: session))" : "Unpinned \(displayTitle(for: session))")
@@ -1386,6 +1408,7 @@ public final class ChatScreenViewModel {
         isSubmittingInputResponse = false
         inputRequestErrorMessage = nil
         activeRunStatus = nil
+        contextTokenUsage = nil
         computerUseActivity = nil
         isComputerUsePreviewHidden = false
         clearWorkingTreeSourceControl()
@@ -1407,7 +1430,7 @@ public final class ChatScreenViewModel {
             applyHydratedSession(cached)
         }
 
-        let manager = SessionSocketManager(baseURL: apiClient.baseURL, agentId: agentId, sessionId: sessionId)
+        let manager = SessionSocketManager(endpoint: apiClient.endpoint, agentId: agentId, sessionId: sessionId)
         socketManager = manager
         // Start the socket before yielding back to callers that may immediately
         // POST a prompt into a newly-created session.
@@ -1637,6 +1660,9 @@ public final class ChatScreenViewModel {
     }
 
     private func handleRunStatus(_ status: ChatRunStatusEvent, sessionId: String) {
+        if let tokenUsage = status.tokenUsage {
+            contextTokenUsage = tokenUsage
+        }
         if status.stage.isWorking {
             _ = ensureActiveStreamingAssistantTurn(for: sessionId)
             clearWorkingTreeSourceControl()
@@ -1762,8 +1788,8 @@ public final class ChatScreenViewModel {
 
     private func sortSessions(_ sessions: [ChatSessionSummary]) -> [ChatSessionSummary] {
         sessions.sorted { lhs, rhs in
-            let lhsPinned = settings.isSessionPinned(lhs.id)
-            let rhsPinned = settings.isSessionPinned(rhs.id)
+            let lhsPinned = settings.isSessionPinned(lhs.storageID)
+            let rhsPinned = settings.isSessionPinned(rhs.storageID)
             if lhsPinned != rhsPinned {
                 return lhsPinned
             }
@@ -1772,11 +1798,11 @@ public final class ChatScreenViewModel {
     }
 
     private func upsertSessionSummary(_ summary: ChatSessionSummary) {
-        sessions.removeAll { $0.id == summary.id }
+        sessions.removeAll { $0.storageID == summary.storageID }
         sessions.append(summary)
         sessions = sortSessions(sessions)
 
-        sessionCatalog.removeAll { $0.id == summary.id }
+        sessionCatalog.removeAll { $0.storageID == summary.storageID }
         sessionCatalog.append(summary)
         sessionCatalog = sortSessions(sessionCatalog)
         onSessionSummaryChange(summary)

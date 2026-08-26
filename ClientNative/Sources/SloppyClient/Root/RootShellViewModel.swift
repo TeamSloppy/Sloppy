@@ -144,6 +144,19 @@ final class RootShellViewModel {
         connectionMonitor.start(baseURL: url)
         appState = .chat(url)
         startNotificationListener(baseURL: url)
+        settings.installLocalInstance(baseURL: url)
+        Task { @MainActor in
+            do {
+                let topology = try await SloppyAPIClient(baseURL: url).fetchMeshTopology()
+                guard !Task.isCancelled else { return }
+                settings.installMeshTopology(topology, coordinatorBaseURL: url)
+            } catch {
+                logger.warning(
+                    "app.instances.discovery-failed",
+                    metadata: ["error": .string(String(describing: error))]
+                )
+            }
+        }
     }
 
     func connect(to url: URL) {

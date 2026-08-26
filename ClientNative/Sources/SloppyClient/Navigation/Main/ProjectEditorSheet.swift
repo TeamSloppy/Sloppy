@@ -35,7 +35,7 @@ struct ProjectEditorSheet: View {
         }
     }
 
-    let baseURL: URL
+    let endpoint: SloppyInstanceEndpoint
     let project: APIProjectRecord?
     let onSaved: @MainActor (APIProjectRecord) -> Void
 
@@ -50,11 +50,11 @@ struct ProjectEditorSheet: View {
     @State private var errorMessage: String?
 
     init(
-        baseURL: URL,
+        endpoint: SloppyInstanceEndpoint,
         project: APIProjectRecord? = nil,
         onSaved: @escaping @MainActor (APIProjectRecord) -> Void
     ) {
-        self.baseURL = baseURL
+        self.endpoint = endpoint
         self.project = project
         self.onSaved = onSaved
         _name = State(initialValue: project?.name ?? "")
@@ -68,7 +68,7 @@ struct ProjectEditorSheet: View {
 
     private var canPickLocalDirectories: Bool {
         #if os(macOS)
-        ServerAddress.isLoopbackHost(baseURL.host)
+        endpoint.isDirect && ServerAddress.isLoopbackHost(endpoint.coordinatorBaseURL.host)
         #else
         false
         #endif
@@ -321,7 +321,7 @@ struct ProjectEditorSheet: View {
         let kind: APIProjectKind = source == .workspace ? .workspace : .project
         let paths = source == .directory || source == .workspace ? directoryPaths : []
         let repoPath = source == .directory ? paths.first : nil
-        let client = SloppyAPIClient(baseURL: baseURL)
+        let client = SloppyAPIClient(endpoint: endpoint)
 
         Task {
             do {

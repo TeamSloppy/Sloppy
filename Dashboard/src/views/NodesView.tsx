@@ -22,6 +22,8 @@ const CAPABILITY_OPTIONS = [
   { id: "git", label: "Git", detail: "Can branch, commit, and push" },
   { id: "run_shell", label: "Shell", detail: "Can run local commands" },
   { id: "local_files", label: "Local files", detail: "Can inspect local paths" },
+  { id: "sloppy.core.remote", label: "Full Sloppy", detail: "Can use this instance through the encrypted relay" },
+  { id: "sloppy.terminal.control", label: "Remote terminal", detail: "Can open an interactive terminal through the encrypted relay" },
 ];
 
 const ROLE_OPTIONS = [

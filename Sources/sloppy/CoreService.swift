@@ -290,6 +290,9 @@ public actor CoreService {
     /// Tracks tool-result thresholds already reviewed for a session.
     var selfImprovementProposalReviewToolBuckets: [String: Int] = [:]
     var nodeMeshClientTask: Task<Void, Never>?
+    var nodeMeshClient: NodeMeshClient?
+    var meshTerminalSessionIDs: [String: String] = [:]
+    var meshTerminalForwardTasks: [String: Task<Void, Never>] = [:]
     public let notificationService: NotificationService
     public let kanbanEventService: KanbanEventService
     let workspaceRealtimeService: WorkspaceRealtimeService

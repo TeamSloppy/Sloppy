@@ -28,6 +28,7 @@ public enum APIError: Error, Sendable {
 
 public actor BackendHTTPClient {
     public nonisolated let baseURL: URL
+    public nonisolated let endpoint: SloppyInstanceEndpoint
 
     private let session: URLSession
     private let decoder: JSONDecoder
@@ -43,7 +44,24 @@ public actor BackendHTTPClient {
         authSessionStore: AuthSessionStore = .shared,
         logger: Logger = Logger(label: "sloppy.backend-http")
     ) {
-        self.baseURL = baseURL
+        self.init(
+            endpoint: .direct(baseURL: baseURL),
+            authToken: authToken,
+            session: session,
+            authSessionStore: authSessionStore,
+            logger: logger
+        )
+    }
+
+    public init(
+        endpoint: SloppyInstanceEndpoint,
+        authToken: String = "",
+        session: URLSession = .shared,
+        authSessionStore: AuthSessionStore = .shared,
+        logger: Logger = Logger(label: "sloppy.backend-http")
+    ) {
+        self.endpoint = endpoint
+        self.baseURL = endpoint.coordinatorBaseURL
         self.session = session
         self.authSessionStore = authSessionStore
         self.logger = logger
@@ -246,20 +264,15 @@ public actor BackendHTTPClient {
         timeout: TimeInterval?,
         authToken: String?
     ) async throws -> (data: Data, response: URLResponse) {
-        let url = url(for: path)
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        if let authToken, !authToken.isEmpty {
-            request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
-        }
-        if let timeout {
-            request.timeoutInterval = timeout
-        }
-        if let bodyData {
-            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-            request.httpBody = bodyData
-        }
+        let targetURL = url(for: path)
+        let request = try await makeURLRequest(
+            method: method,
+            path: path,
+            targetURL: targetURL,
+            bodyData: bodyData,
+            timeout: timeout,
+            authToken: authToken
+        )
 
         let requestID = String(UUID().uuidString.prefix(8)).lowercased()
         let startedAt = Date()
@@ -267,14 +280,19 @@ public actor BackendHTTPClient {
             "auth": .string(authToken?.isEmpty == false ? "present" : "absent"),
             "body_bytes": .stringConvertible(bodyData?.count ?? 0),
             "method": .string(method),
-            "path": .string(url.path.isEmpty ? "/" : url.path),
+            "path": .string(targetURL.path.isEmpty ? "/" : targetURL.path),
             "request_id": .string(requestID),
-            "server": .string(Self.serverDescription(url)),
+            "server": .string(Self.serverDescription(targetURL)),
         ]
         logger.info("http.request.started", metadata: metadata)
 
         do {
-            let result = try await session.data(for: request)
+            let rawResult = try await session.data(for: request)
+            let result = try decodeRelayedResponseIfNeeded(
+                data: rawResult.0,
+                response: rawResult.1,
+                targetURL: targetURL
+            )
             var responseMetadata = metadata
             responseMetadata["duration_ms"] = .stringConvertible(
                 max(0, Int(Date().timeIntervalSince(startedAt) * 1_000))
@@ -300,6 +318,104 @@ public actor BackendHTTPClient {
             logger.error("http.request.failed", metadata: failureMetadata)
             throw error
         }
+    }
+
+    private func makeURLRequest(
+        method: String,
+        path: String,
+        targetURL: URL,
+        bodyData: Data?,
+        timeout: TimeInterval?,
+        authToken: String?
+    ) async throws -> URLRequest {
+        let requestURL: URL
+        switch endpoint {
+        case .direct:
+            requestURL = targetURL
+        case .relay(let coordinatorBaseURL, let targetNodeID):
+            let encodedNodeID = Self.encodePathSegment(targetNodeID)
+            requestURL = URL(
+                string: "/v1/node/mesh/nodes/\(encodedNodeID)/core",
+                relativeTo: coordinatorBaseURL
+            )?.absoluteURL ?? coordinatorBaseURL
+        }
+
+        var request = URLRequest(url: requestURL)
+        request.httpMethod = endpoint.isDirect ? method : "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        if let authToken, !authToken.isEmpty {
+            request.setValue("Bearer \(authToken)", forHTTPHeaderField: "Authorization")
+        }
+        if let timeout {
+            request.timeoutInterval = timeout
+        }
+
+        switch endpoint {
+        case .direct:
+            if let bodyData {
+                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.httpBody = bodyData
+            }
+        case .relay:
+            var forwardedHeaders: [String: String] = [:]
+            if let userID = await authSessionStore.session(for: baseURL)?.user?.id,
+               !userID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                forwardedHeaders["x-sloppy-user-context"] = userID
+            }
+            let payload = MeshCoreProxyRequest(
+                method: method,
+                path: normalizedTargetPath(path),
+                headers: forwardedHeaders,
+                bodyBase64: bodyData?.base64EncodedString()
+            )
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.httpBody = try encoder.encode(payload)
+        }
+        return request
+    }
+
+    private func decodeRelayedResponseIfNeeded(
+        data: Data,
+        response: URLResponse,
+        targetURL: URL
+    ) throws -> (data: Data, response: URLResponse) {
+        guard case .relay = endpoint else {
+            return (data, response)
+        }
+        guard let outerHTTP = response as? HTTPURLResponse else {
+            throw APIError.invalidResponse
+        }
+        guard (200..<300).contains(outerHTTP.statusCode) else {
+            return (data, response)
+        }
+        let proxy: MeshCoreProxyResponse
+        do {
+            proxy = try decoder.decode(MeshCoreProxyResponse.self, from: data)
+        } catch {
+            throw APIError.decodingFailed("Invalid mesh Core proxy response: \(error.localizedDescription)")
+        }
+        guard let body = Data(base64Encoded: proxy.bodyBase64),
+              let synthetic = HTTPURLResponse(
+                url: targetURL,
+                statusCode: proxy.status,
+                httpVersion: "HTTP/1.1",
+                headerFields: ["Content-Type": proxy.contentType]
+              ) else {
+            throw APIError.invalidResponse
+        }
+        return (body, synthetic)
+    }
+
+    private func normalizedTargetPath(_ path: String) -> String {
+        guard let url = URL(string: path, relativeTo: baseURL)?.absoluteURL,
+              var components = URLComponents(url: url, resolvingAgainstBaseURL: false) else {
+            return path.hasPrefix("/") ? path : "/\(path)"
+        }
+        components.scheme = nil
+        components.host = nil
+        components.port = nil
+        let value = components.string ?? path
+        return value.hasPrefix("/") ? value : "/\(value)"
     }
 
     private func refreshSession(using refreshToken: String) async -> AuthSession? {
@@ -375,6 +491,19 @@ public actor BackendHTTPClient {
             throw APIError.decodingFailed(error.localizedDescription)
         }
     }
+}
+
+private struct MeshCoreProxyRequest: Encodable {
+    var method: String
+    var path: String
+    var headers: [String: String]
+    var bodyBase64: String?
+}
+
+private struct MeshCoreProxyResponse: Decodable {
+    var status: Int
+    var contentType: String
+    var bodyBase64: String
 }
 
 private struct EmptyBody: Encodable {}

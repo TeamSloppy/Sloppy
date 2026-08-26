@@ -39,7 +39,9 @@ public struct NodeMeshRemoteJoiner: Sendable {
             name: config.identity.name,
             publicKey: config.identity.publicKey,
             roles: config.identity.roles,
-            capabilities: config.identity.capabilities
+            capabilities: config.identity.capabilities,
+            encryptionPublicKey: config.identity.encryptionPublicKey,
+            encryptionKeySignature: config.identity.encryptionKeySignature
         )
         let node = try await acceptInvite(acceptURL, acceptRequest)
         try configStore.save(NodeConfig(

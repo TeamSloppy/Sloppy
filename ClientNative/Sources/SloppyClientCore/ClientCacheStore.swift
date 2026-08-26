@@ -48,7 +48,7 @@ public actor ClientCacheStore {
     private var fallbackSessionDetails: [String: [String: ChatSessionDetail]] = [:]
     private var fallbackMessages: [String: CachedMessageSearchResult] = [:]
 
-    public init(path: String? = nil) {
+    public init(path: String? = nil, namespace: String? = nil) {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         self.encoder = encoder
@@ -70,7 +70,7 @@ public actor ClientCacheStore {
         self.decoder = decoder
 
 #if canImport(CSQLite3)
-        self.db = Self.openDatabase(path: path ?? Self.defaultDatabasePath()).0
+        self.db = Self.openDatabase(path: path ?? Self.defaultDatabasePath(namespace: namespace)).0
 #endif
     }
 
@@ -115,7 +115,7 @@ public actor ClientCacheStore {
     public func cacheProjects(_ projects: [APIProjectRecord]) async {
 #if canImport(CSQLite3)
         guard let db else {
-            fallbackProjects = Dictionary(uniqueKeysWithValues: projects.map { ($0.id, $0) })
+            fallbackProjects = Dictionary(uniqueKeysWithValues: projects.map { ($0.storageID, $0) })
             return
         }
 
@@ -125,12 +125,12 @@ public actor ClientCacheStore {
             _ = execute(
                 sql:
                 "INSERT OR REPLACE INTO cached_projects(id, json_payload) VALUES(?, ?);",
-                binds: [.text(project.id), .text(json)],
+                binds: [.text(project.storageID), .text(json)],
                 db: db
             )
         }
 #else
-        fallbackProjects = Dictionary(uniqueKeysWithValues: projects.map { ($0.id, $0) })
+        fallbackProjects = Dictionary(uniqueKeysWithValues: projects.map { ($0.storageID, $0) })
 #endif
     }
 
@@ -159,7 +159,7 @@ public actor ClientCacheStore {
             } else {
                 byAgent = byAgent.filter { $0.value.projectId != projectId }
             }
-            sessions.forEach { byAgent[$0.id] = $0 }
+            sessions.forEach { byAgent[$0.storageID] = $0 }
             fallbackSessions[agentId] = byAgent
             return
         }
@@ -191,7 +191,7 @@ public actor ClientCacheStore {
                 """,
                 binds: [
                     .text(agentId),
-                    .text(session.id),
+                    .text(session.storageID),
                     .optionalText(session.projectId),
                     .double(session.updatedAt.timeIntervalSince1970),
                     .int(session.messageCount),
@@ -207,7 +207,7 @@ public actor ClientCacheStore {
         } else {
             byAgent = byAgent.filter { $0.value.projectId != projectId }
         }
-        sessions.forEach { byAgent[$0.id] = $0 }
+        sessions.forEach { byAgent[$0.storageID] = $0 }
         fallbackSessions[agentId] = byAgent
 #endif
     }
@@ -332,7 +332,7 @@ public actor ClientCacheStore {
 #endif
     }
 
-    public nonisolated static func defaultDatabasePath() -> String {
+    public nonisolated static func defaultDatabasePath(namespace: String? = nil) -> String {
         let fileManager = FileManager.default
         let baseURL = (try? fileManager.url(
             for: .applicationSupportDirectory,
@@ -342,7 +342,14 @@ public actor ClientCacheStore {
         )) ?? fileManager.temporaryDirectory
         let directoryURL = baseURL.appendingPathComponent("SloppyClient", isDirectory: true)
         try? fileManager.createDirectory(at: directoryURL, withIntermediateDirectories: true)
-        return directoryURL.appendingPathComponent("offline-cache.sqlite3").path
+        guard let namespace, !namespace.isEmpty else {
+            return directoryURL.appendingPathComponent("offline-cache.sqlite3").path
+        }
+        let encoded = Data(namespace.utf8).base64EncodedString()
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "=", with: "")
+        return directoryURL.appendingPathComponent("offline-cache-\(encoded).sqlite3").path
     }
 
     public func searchMessages(query: String, limit: Int = 20) async -> [CachedMessageSearchResult] {

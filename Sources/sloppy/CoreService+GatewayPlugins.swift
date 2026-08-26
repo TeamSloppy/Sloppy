@@ -227,6 +227,12 @@ extension CoreService {
         await taskSyncRunner?.stop()
         nodeMeshClientTask?.cancel()
         nodeMeshClientTask = nil
+        nodeMeshClient = nil
+        for task in meshTerminalForwardTasks.values {
+            task.cancel()
+        }
+        meshTerminalForwardTasks.removeAll()
+        meshTerminalSessionIDs.removeAll()
         await acpSessionManager.shutdown()
     }
 

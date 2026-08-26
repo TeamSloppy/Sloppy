@@ -116,6 +116,50 @@ struct ChatModelsTests {
         #expect(detail.latestRunStatus?.label == "Planning")
     }
 
+    @Test("model context windows normalize catalog suffixes into token limits")
+    func modelContextWindowsNormalizeCatalogSuffixes() {
+        #expect(ChatModelOption(id: "a", contextWindow: "272K").contextWindowTokens == 272_000)
+        #expect(ChatModelOption(id: "b", contextWindow: "1.5M").contextWindowTokens == 1_500_000)
+        #expect(ChatModelOption(id: "c", contextWindow: "128,000").contextWindowTokens == 128_000)
+        #expect(ChatModelOption(id: "d", contextWindow: "unknown").contextWindowTokens == nil)
+    }
+
+    @Test("run status decodes typed token usage for context progress")
+    func runStatusDecodesTypedTokenUsage() throws {
+        let json = """
+        {
+            "stage": "done",
+            "label": "Done",
+            "tokenUsage": {
+                "prompt": 81000,
+                "completion": 2400,
+                "cachedInput": 60000,
+                "reasoning": 900
+            }
+        }
+        """.data(using: .utf8)!
+
+        let status = try isoDecoder.decode(ChatRunStatusEvent.self, from: json)
+        let context = ChatContextUsage(
+            usedTokens: status.tokenUsage?.total ?? 0,
+            limitTokens: 200_000
+        )
+
+        #expect(status.tokenUsage?.cachedInput == 60_000)
+        #expect(status.tokenUsage?.reasoning == 900)
+        #expect(status.tokenUsage?.total == 83_400)
+        #expect(context.fraction == 0.417)
+        #expect(context.percentage == 42)
+    }
+
+    @Test("context progress clamps over-limit usage")
+    func contextProgressClampsOverLimitUsage() {
+        let context = ChatContextUsage(usedTokens: 250_000, limitTokens: 200_000)
+
+        #expect(context.fraction == 1)
+        #expect(context.percentage == 100)
+    }
+
     @Test("run stages expose typed working state")
     func runStagesExposeTypedWorkingState() {
         #expect(ChatRunStage.thinking.isWorking)

@@ -6,6 +6,7 @@ import SwiftUI
 struct SidebarSessionRow: View {
     let session: ChatSessionSummary
     let projectName: String?
+    var instanceName: String? = nil
     var showsProjectName = true
     let isPinned: Bool
     let isSelected: Bool
@@ -64,6 +65,12 @@ struct SidebarSessionRow: View {
                             .lineLimit(1)
                     }
                     .foregroundColor(theme.colors.textMuted)
+                }
+                if let instanceName {
+                    Label(instanceName, systemImage: "desktopcomputer")
+                        .font(.system(size: theme.typography.micro))
+                        .foregroundColor(theme.colors.textMuted)
+                        .lineLimit(1)
                 }
             }
             Spacer(minLength: 0)

@@ -398,7 +398,7 @@ final class CanvasWorkspaceViewModel {
         stopSessionStream()
 
         let manager = SessionSocketManager(
-            baseURL: apiClient.baseURL,
+            endpoint: apiClient.endpoint,
             agentId: agentID,
             sessionId: sessionID
         )

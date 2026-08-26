@@ -17,6 +17,9 @@ public struct NodeIdentity: Codable, Sendable, Equatable {
     public var privateKey: String
     public var roles: [String]
     public var capabilities: [String]
+    public var encryptionPublicKey: String?
+    public var encryptionPrivateKey: String?
+    public var encryptionKeySignature: String?
     public var createdAt: Date
 
     public init(
@@ -26,6 +29,9 @@ public struct NodeIdentity: Codable, Sendable, Equatable {
         privateKey: String,
         roles: [String],
         capabilities: [String],
+        encryptionPublicKey: String? = nil,
+        encryptionPrivateKey: String? = nil,
+        encryptionKeySignature: String? = nil,
         createdAt: Date = Date()
     ) {
         self.nodeId = nodeId
@@ -34,6 +40,9 @@ public struct NodeIdentity: Codable, Sendable, Equatable {
         self.privateKey = privateKey
         self.roles = roles
         self.capabilities = capabilities
+        self.encryptionPublicKey = encryptionPublicKey
+        self.encryptionPrivateKey = encryptionPrivateKey
+        self.encryptionKeySignature = encryptionKeySignature
         self.createdAt = createdAt
     }
 }
@@ -90,7 +99,15 @@ public struct NodeConfigStore: Sendable {
         let data = try Data(contentsOf: configURL)
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
-        return try decoder.decode(NodeConfig.self, from: data)
+        var config = try decoder.decode(NodeConfig.self, from: data)
+        if config.identity.encryptionPublicKey == nil || config.identity.encryptionPrivateKey == nil {
+            let upgraded = try NodeIdentityGenerator.addEncryptionIdentity(to: config.identity)
+            if upgraded.encryptionPublicKey != nil, upgraded.encryptionPrivateKey != nil {
+                config.identity = upgraded
+                try save(config)
+            }
+        }
+        return config
     }
 
     @discardableResult
@@ -159,7 +176,7 @@ public enum NodeIdentityError: LocalizedError, Equatable {
 public enum NodeIdentityGenerator {
     public static func makeIdentity(name: String, roles: [String], capabilities: [String]) -> NodeIdentity {
         let keyPair = makeKeyPair()
-        return NodeIdentity(
+        let identity = NodeIdentity(
             nodeId: makeNodeId(name: name),
             name: name,
             publicKey: keyPair.publicKey,
@@ -167,6 +184,41 @@ public enum NodeIdentityGenerator {
             roles: roles,
             capabilities: capabilities
         )
+        return (try? addEncryptionIdentity(to: identity)) ?? identity
+    }
+
+    public static func addEncryptionIdentity(to identity: NodeIdentity) throws -> NodeIdentity {
+        #if canImport(CryptoKit)
+        var updated = identity
+        let privateKey = Curve25519.KeyAgreement.PrivateKey()
+        let publicKey = "x25519:" + base64URL(privateKey.publicKey.rawRepresentation)
+        updated.encryptionPublicKey = publicKey
+        updated.encryptionPrivateKey = "x25519:" + base64URL(privateKey.rawRepresentation)
+        updated.encryptionKeySignature = try sign(
+            challenge: encryptionKeyBinding(nodeId: identity.nodeId, publicKey: publicKey),
+            privateKey: identity.privateKey
+        )
+        return updated
+        #else
+        return identity
+        #endif
+    }
+
+    public static func verifyEncryptionKeyBinding(
+        nodeId: String,
+        encryptionPublicKey: String,
+        signature: String,
+        signingPublicKey: String
+    ) -> Bool {
+        verify(
+            signature: signature,
+            challenge: encryptionKeyBinding(nodeId: nodeId, publicKey: encryptionPublicKey),
+            publicKey: signingPublicKey
+        )
+    }
+
+    private static func encryptionKeyBinding(nodeId: String, publicKey: String) -> Data {
+        Data("sloppy-mesh-encryption-v1:\(nodeId):\(publicKey)".utf8)
     }
 
     public static func makeKeyPair() -> (publicKey: String, privateKey: String) {

@@ -227,6 +227,8 @@ public struct MeshNodeRecord: Codable, Sendable, Equatable {
     public var status: MeshNodeStatus
     public var lastSeenAt: Date
     public var capabilities: [String]
+    public var encryptionPublicKey: String?
+    public var encryptionKeySignature: String?
 
     public init(
         id: String,
@@ -236,7 +238,9 @@ public struct MeshNodeRecord: Codable, Sendable, Equatable {
         endpoint: String? = nil,
         status: MeshNodeStatus = .offline,
         lastSeenAt: Date = Date(),
-        capabilities: [String]
+        capabilities: [String],
+        encryptionPublicKey: String? = nil,
+        encryptionKeySignature: String? = nil
     ) {
         self.id = id
         self.name = name
@@ -246,6 +250,8 @@ public struct MeshNodeRecord: Codable, Sendable, Equatable {
         self.status = status
         self.lastSeenAt = lastSeenAt
         self.capabilities = capabilities
+        self.encryptionPublicKey = encryptionPublicKey
+        self.encryptionKeySignature = encryptionKeySignature
     }
 }
 
@@ -255,6 +261,8 @@ public struct MeshLocalNodeRecord: Codable, Sendable, Equatable {
     public var publicKey: String
     public var roles: [String]
     public var capabilities: [String]
+    public var encryptionPublicKey: String?
+    public var encryptionKeySignature: String?
     public var relayURL: String?
     public var networkId: String?
     public var networkName: String?
@@ -265,6 +273,8 @@ public struct MeshLocalNodeRecord: Codable, Sendable, Equatable {
         publicKey: String,
         roles: [String],
         capabilities: [String],
+        encryptionPublicKey: String? = nil,
+        encryptionKeySignature: String? = nil,
         relayURL: String? = nil,
         networkId: String? = nil,
         networkName: String? = nil
@@ -274,6 +284,8 @@ public struct MeshLocalNodeRecord: Codable, Sendable, Equatable {
         self.publicKey = publicKey
         self.roles = roles
         self.capabilities = capabilities
+        self.encryptionPublicKey = encryptionPublicKey
+        self.encryptionKeySignature = encryptionKeySignature
         self.relayURL = relayURL
         self.networkId = networkId
         self.networkName = networkName
@@ -330,6 +342,8 @@ public struct MeshInviteAcceptRequest: Codable, Sendable, Equatable {
     public var publicKey: String?
     public var roles: [String]?
     public var capabilities: [String]?
+    public var encryptionPublicKey: String?
+    public var encryptionKeySignature: String?
 
     public init(
         token: String,
@@ -339,7 +353,9 @@ public struct MeshInviteAcceptRequest: Codable, Sendable, Equatable {
         name: String? = nil,
         publicKey: String? = nil,
         roles: [String]? = nil,
-        capabilities: [String]? = nil
+        capabilities: [String]? = nil,
+        encryptionPublicKey: String? = nil,
+        encryptionKeySignature: String? = nil
     ) {
         self.token = token
         self.endpoint = endpoint
@@ -349,6 +365,8 @@ public struct MeshInviteAcceptRequest: Codable, Sendable, Equatable {
         self.publicKey = publicKey
         self.roles = roles
         self.capabilities = capabilities
+        self.encryptionPublicKey = encryptionPublicKey
+        self.encryptionKeySignature = encryptionKeySignature
     }
 
     enum CodingKeys: String, CodingKey {
@@ -360,6 +378,8 @@ public struct MeshInviteAcceptRequest: Codable, Sendable, Equatable {
         case publicKey
         case roles
         case capabilities
+        case encryptionPublicKey
+        case encryptionKeySignature
     }
 
     public init(from decoder: Decoder) throws {
@@ -372,6 +392,8 @@ public struct MeshInviteAcceptRequest: Codable, Sendable, Equatable {
         self.publicKey = try container.decodeIfPresent(String.self, forKey: .publicKey)
         self.roles = try container.decodeIfPresent([String].self, forKey: .roles)
         self.capabilities = try container.decodeIfPresent([String].self, forKey: .capabilities)
+        self.encryptionPublicKey = try container.decodeIfPresent(String.self, forKey: .encryptionPublicKey)
+        self.encryptionKeySignature = try container.decodeIfPresent(String.self, forKey: .encryptionKeySignature)
     }
 }
 
@@ -1182,7 +1204,9 @@ public struct NodeMeshStore: Sendable {
             endpoint: endpoint ?? bundle?.relayURL ?? invite.relayURL,
             status: .online,
             lastSeenAt: Date(),
-            capabilities: identity.capabilities
+            capabilities: identity.capabilities,
+            encryptionPublicKey: identity.encryptionPublicKey,
+            encryptionKeySignature: identity.encryptionKeySignature
         )
         upsert(record, in: &state.nodes)
         state.auditLog.append(MeshAuditLogEntry(actor: identity.nodeId, action: "node.join", allowed: true, message: invite.token))

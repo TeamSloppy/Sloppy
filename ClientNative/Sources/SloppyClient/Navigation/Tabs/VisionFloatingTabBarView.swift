@@ -21,7 +21,7 @@ struct VisionFloatingTabBarView: View {
     var body: some View {
         VStack(spacing: 8) {
             HStack {
-                Button(action: { viewModel.createBlankChatTab() }) {
+                Button(action: { viewModel.selectNewChat() }) {
                     Image(systemName: "plus")
                         .font(.system(size: theme.typography.body, weight: .semibold))
                         .foregroundColor(theme.colors.textPrimary)
@@ -196,7 +196,7 @@ struct VisionFloatingTabBarButtonStyle<S: Shape>: ButtonStyle {
 
 #Preview {
     let viewModel = MainViewModel(
-        baseURL: .debugURL,
+        endpoint: .direct(baseURL: .debugURL),
         settings: ClientSettings(),
         connectionMonitor: ConnectionMonitor(baseURL: .debugURL),
         onOpenSettings: { _ in },

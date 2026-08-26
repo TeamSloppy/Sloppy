@@ -119,9 +119,9 @@ private struct RootShellContent: View {
             case .pairing:
                 MainLoadingView()
 
-            case .chat(let url):
+            case .chat:
                 MainView(
-                    baseURL: url,
+                    endpoint: rootViewModel.settings.activeInstanceEndpoint,
                     settings: rootViewModel.settings,
                     connectionMonitor: rootViewModel.connectionMonitor,
                     rootSafeAreaInsets: safeAreaInsets,
@@ -136,6 +136,7 @@ private struct RootShellContent: View {
                     deepLinkRequest: rootViewModel.appDeepLinkRequest,
                     onConsumeDeepLink: rootViewModel.consumeDeepLink
                 )
+                .id(rootViewModel.settings.instanceDirectoryKey)
 
             case .settings(let destination):
                 SettingsScreen(

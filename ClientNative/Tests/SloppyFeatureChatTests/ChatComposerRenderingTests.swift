@@ -92,9 +92,44 @@ struct ChatComposerRenderingTests {
         #expect(source.contains("private static let panelRadius: CGFloat = panelHeight / 2"))
         #expect(source.contains("width: ChatComposerView.buttonSize"))
         #expect(source.contains("height: ChatComposerView.buttonSize"))
-        #expect(source.contains("HStack(spacing: 0)"))
+        #expect(source.contains("HStack(alignment: .bottom, spacing: 0)"))
         #expect(source.contains(".fixedSize(horizontal: true, vertical: false)"))
         #expect(!source.contains("modelPickerBottomPadding"))
+    }
+
+    @Test("desktop model controls stay bottom-right without a button background")
+    func desktopModelControlsStayBottomRightWithoutButtonBackground() throws {
+        let source = try chatComposerSource
+
+        #expect(source.contains("ComposerContextUsageView(usage: viewModel.contextUsage)"))
+        #expect(source.contains(".padding(.trailing, theme.spacing.s)"))
+        #expect(source.contains(".padding(.bottom, theme.spacing.s)"))
+        #expect(!source.contains("theme.colors.surfaceRaised.opacity(0.72"))
+    }
+
+    @Test("context usage is a circular progress view with hover details")
+    func contextUsageIsCircularProgressViewWithHoverDetails() throws {
+        let source = try chatComposerSource
+
+        #expect(source.contains("private struct ComposerContextUsageView"))
+        #expect(source.contains("ProgressView(value: usage?.fraction ?? 0, total: 1)"))
+        #expect(source.contains(".progressViewStyle(.circular)"))
+        #expect(source.contains(".onHover { isHovering in"))
+        #expect(source.contains(".popover(isPresented: $isDetailsPresented"))
+        #expect(source.contains("Text(\"Used\")"))
+        #expect(source.contains("Text(\"Limit\")"))
+    }
+
+    @Test("reasoning and agent actions use padded plain menu rows")
+    func reasoningAndAgentActionsUsePaddedPlainMenuRows() throws {
+        let source = try chatComposerSource
+
+        #expect(source.components(separatedBy: ".menuStyle(.borderlessButton)").count == 2)
+        #expect(source.contains("showsMenuIndicator: true"))
+        #expect(source.contains(".menuIndicator(.hidden)"))
+        #expect(source.contains(".buttonStyle(.plain)"))
+        #expect(source.contains(".frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)"))
+        #expect(source.contains(".padding(.horizontal, theme.spacing.m)"))
     }
 
     @Test("desktop add glyph is centered independently from the menu indicator")

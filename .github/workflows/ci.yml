@@ -90,7 +90,9 @@ jobs:
     name: Swift Tests (macOS)
     # Temporarily disabled.
     if: ${{ false }}
-    runs-on: macos-latest
+    # Swift 6.2.1 needs an SDK from the Xcode 16 generation. macos-latest can
+    # move to Xcode 26 first, whose WebKit interfaces require a newer compiler.
+    runs-on: macos-15
     timeout-minutes: 30
 
     steps:
@@ -157,7 +159,8 @@ jobs:
 
   swift-build-macos:
     name: Swift Build (macOS)
-    runs-on: macos-latest
+    # Keep the runner SDK compatible with SWIFT_ACTIONS_VERSION.
+    runs-on: macos-15
 
     steps:
       - name: Checkout

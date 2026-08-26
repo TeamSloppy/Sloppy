@@ -90,6 +90,14 @@ struct MainTabsSourceTests {
         #expect(strip.contains("viewModel.closeTab(tab.id)"))
     }
 
+    @Test("macOS desktop tab strip does not expose a trailing add button")
+    func macOSDesktopTabStripHidesTrailingAddButton() throws {
+        let strip = try source("Sources/SloppyClient/Navigation/Tabs/DesktopWorkspaceTabStrip.swift")
+
+        #expect(strip.contains("#if !os(macOS)\n            Button(action: { viewModel.createBlankChatTab() })"))
+        #expect(strip.contains("private var trailingControlWidth: CGFloat {\n#if os(macOS)\n        0"))
+    }
+
     @Test("macOS toolbar searches chats and projects")
     func macOSToolbarSearchesChatsAndProjects() throws {
         let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")

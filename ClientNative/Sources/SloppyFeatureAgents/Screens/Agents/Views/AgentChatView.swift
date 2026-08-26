@@ -202,7 +202,7 @@ struct AgentChatView: View {
     }
 
     private func loadSessionAndConnect(sessionId: String) {
-        let manager = SessionSocketManager(baseURL: apiClient.baseURL, agentId: agent.id, sessionId: sessionId)
+        let manager = SessionSocketManager(endpoint: apiClient.endpoint, agentId: agent.id, sessionId: sessionId)
         socketManager = manager
 
         streamTask = Task { @MainActor in

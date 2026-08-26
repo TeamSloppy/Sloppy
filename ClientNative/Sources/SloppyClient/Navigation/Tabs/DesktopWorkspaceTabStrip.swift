@@ -11,14 +11,20 @@ struct DesktopWorkspaceTabStrip: View {
 
     private let stripHeight: CGFloat = 46
     private let minimumTabWidth: CGFloat = 120
-    private let addButtonWidth: CGFloat = 30
+    private var trailingControlWidth: CGFloat {
+#if os(macOS)
+        0
+#else
+        30
+#endif
+    }
 
     @State private var previousTabIDs: [WorkspaceTab.ID] = []
     @Environment(\.theme) private var theme
 
     var body: some View {
         GeometryReader { geometry in
-            let availableTabWidth = max(0, geometry.size.width - addButtonWidth - 2)
+            let availableTabWidth = max(0, geometry.size.width - trailingControlWidth - 2)
             let tabWidth = tabWidth(for: availableTabWidth)
 
             dragProtectedStrip(tabWidth: tabWidth)
@@ -117,18 +123,20 @@ struct DesktopWorkspaceTabStrip: View {
                 }
             }
 
-            Button(action: { viewModel.createBlankChatTab() }) {
+#if !os(macOS)
+            Button(action: { viewModel.selectNewChat() }) {
                 Image(systemName: "plus")
                     .font(.system(size: theme.typography.caption, weight: .semibold))
                     .foregroundColor(theme.colors.textPrimary.opacity(0.94 as CGFloat))
                     .frame(width: 24, height: 24)
             }
-            #if os(visionOS)
+    #if os(visionOS)
             .backportGlassEffect(.regular, in: .circle)
-            #else
+    #else
             .buttonBorderShape(.circle)
             .buttonStyle(.glass)
-            #endif
+    #endif
+#endif
         }
         .frame(maxWidth: .infinity, alignment: .leading)
     }
@@ -248,7 +256,7 @@ private final class MiddleClickCloseNSView: NSView {
 
 #Preview {
     @Previewable @State var viewModel = MainViewModel(
-        baseURL: .debugURL,
+        endpoint: .direct(baseURL: .debugURL),
         settings: ClientSettings(),
         connectionMonitor: ConnectionMonitor(baseURL: .debugURL),
         onOpenSettings: { _ in },

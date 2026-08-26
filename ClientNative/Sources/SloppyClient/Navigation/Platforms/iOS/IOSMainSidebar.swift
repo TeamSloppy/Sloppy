@@ -41,8 +41,11 @@ struct PlatformMainSidebar: View {
             Tab("Inbox", systemImage: "tray", value: MainAppSection.chats) {
                 NavigationStack {
                     inboxContent
-                        .navigationTitle("Sloppy")
+                        .navigationTitle(viewModel.selectedInstanceTitle)
                         .navigationBarTitleDisplayMode(.large)
+                        .toolbarTitleMenu {
+                            instanceSelectionMenuContent
+                        }
                         .searchable(
                             text: $searchText,
                             placement: .toolbar,
@@ -101,6 +104,33 @@ struct PlatformMainSidebar: View {
         }
         .accessibilityLabel("Open settings")
         .accessibilityIdentifier("inbox.settings")
+    }
+
+    @ViewBuilder
+    private var instanceSelectionMenuContent: some View {
+        Button {
+            viewModel.selectInstance(.all)
+        } label: {
+            if viewModel.settings.instanceSelection == .all {
+                Label("All", systemImage: "checkmark")
+            } else {
+                Label("All", systemImage: "square.stack.3d.up")
+            }
+        }
+
+        Divider()
+
+        ForEach(viewModel.settings.discoveredInstances) { instance in
+            Button {
+                viewModel.selectInstance(.instance(instance.id))
+            } label: {
+                let isSelected = viewModel.settings.instanceSelection == .instance(instance.id)
+                Label(
+                    instance.displayName,
+                    systemImage: isSelected ? "checkmark" : instance.isLocal ? "desktopcomputer" : "network"
+                )
+            }
+        }
     }
 
     private var sidebarViewOptionsMenu: some View {
@@ -264,10 +294,11 @@ private struct IOSInboxHome: View {
                     .foregroundStyle(theme.colors.textMuted)
                     .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
             } else {
-                ForEach(viewModel.projects) { project in
-                    NavigationLink(value: MainSidebarSelection.project(project.id)) {
+                ForEach(viewModel.projects, id: \.storageID) { project in
+                    NavigationLink(value: MainSidebarSelection.project(project.storageID)) {
                         IOSInboxProjectRow(
                             title: project.name,
+                            subtitle: viewModel.instanceTitle(for: project.sourceInstanceID),
                             systemImage: project.semanticIconName,
                             showsDisclosure: true
                         )
@@ -345,6 +376,7 @@ private struct IOSInboxMetricCard: View {
 
 private struct IOSInboxProjectRow: View {
     let title: String
+    var subtitle: String? = nil
     let systemImage: String
     let showsDisclosure: Bool
 
@@ -357,10 +389,18 @@ private struct IOSInboxProjectRow: View {
                 .foregroundStyle(theme.colors.textMuted)
                 .frame(width: 30)
 
-            Text(title)
-                .font(.title3)
-                .foregroundStyle(theme.colors.textPrimary)
-                .lineLimit(1)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(title)
+                    .font(.title3)
+                    .foregroundStyle(theme.colors.textPrimary)
+                    .lineLimit(1)
+                if let subtitle {
+                    Text(subtitle)
+                        .font(.caption)
+                        .foregroundStyle(theme.colors.textMuted)
+                        .lineLimit(1)
+                }
+            }
 
             Spacer(minLength: theme.spacing.s)
 
@@ -399,7 +439,7 @@ private struct IOSInboxSearchResults: View {
         List {
             if !chatResults.isEmpty {
                 Section("Chats") {
-                    ForEach(chatResults) { session in
+                    ForEach(chatResults, id: \.storageID) { session in
                         NavigationLink(value: MainSidebarSelection.chats) {
                             Label(session.title, systemImage: "bubble.left")
                                 .foregroundStyle(theme.colors.textPrimary)
@@ -416,8 +456,8 @@ private struct IOSInboxSearchResults: View {
 
             if !projectResults.isEmpty {
                 Section("Projects") {
-                    ForEach(projectResults) { project in
-                        NavigationLink(value: MainSidebarSelection.project(project.id)) {
+                    ForEach(projectResults, id: \.storageID) { project in
+                        NavigationLink(value: MainSidebarSelection.project(project.storageID)) {
                             Label(project.name, systemImage: project.semanticIconName)
                                 .foregroundStyle(theme.colors.textPrimary)
                         }

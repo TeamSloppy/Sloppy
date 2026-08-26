@@ -46,6 +46,8 @@ extension CoreService {
                 publicKey: config.identity.publicKey,
                 roles: config.identity.roles,
                 capabilities: config.identity.capabilities,
+                encryptionPublicKey: config.identity.encryptionPublicKey,
+                encryptionKeySignature: config.identity.encryptionKeySignature,
                 relayURL: config.relayURL,
                 networkId: config.networkId,
                 networkName: config.networkName
@@ -92,8 +94,30 @@ extension CoreService {
         else {
             return
         }
+        if let relayState = try? await Self.fetchMeshState(from: relayURL) {
+            for node in relayState.nodes {
+                _ = try? nodeMeshStore.upsertNodeRecord(node, auditAction: "node.directory.sync")
+            }
+        }
+        var coreConfig = config
+        coreConfig.identity.capabilities = Array(Set(
+            coreConfig.identity.capabilities + ["sloppy.core.remote", "sloppy.terminal.control"]
+        )).sorted()
+        _ = try? nodeMeshStore.upsertNodeRecord(
+            MeshNodeRecord(
+                id: coreConfig.identity.nodeId,
+                name: coreConfig.identity.name,
+                publicKey: coreConfig.identity.publicKey,
+                roles: coreConfig.identity.roles,
+                status: .online,
+                capabilities: coreConfig.identity.capabilities,
+                encryptionPublicKey: coreConfig.identity.encryptionPublicKey,
+                encryptionKeySignature: coreConfig.identity.encryptionKeySignature
+            ),
+            auditAction: "node.local-core.grant"
+        )
         let client = NodeMeshClient(
-            config: config,
+            config: coreConfig,
             meshStore: nodeMeshStore,
             onEnvelope: { [weak self] envelope in
                 guard let self else { return [] }
@@ -104,6 +128,7 @@ extension CoreService {
                 return await self.handleMeshCoreHTTPRPC(envelope: envelope, method: method, params: params)
             }
         )
+        nodeMeshClient = client
         nodeMeshClientTask = Task {
             do {
                 try await client.run(relayURL: relayURL)
@@ -134,10 +159,9 @@ extension CoreService {
         if isLoginPasswordMode(), meshUserIdHeader(from: forwardedHeaders) == nil {
             throw MeshCoreProxyError.missingMeshUserContext
         }
-        let dashboardToken = currentConfig.ui.dashboardAuth.token.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !dashboardToken.isEmpty {
-            forwardedHeaders["authorization"] = "Bearer \(dashboardToken)"
-        }
+        // The coordinator already authenticated the client. Never forward either the
+        // client token or this node's dashboard token to another machine.
+        forwardedHeaders["authorization"] = nil
         if nodeId == config.identity.nodeId {
             return await CoreRouter(service: self).handle(
                 method: method,
@@ -146,7 +170,12 @@ extension CoreService {
                 headers: forwardedHeaders
             )
         }
-        let client = NodeMeshClient(config: config, meshStore: nodeMeshStore)
+        let client: NodeMeshClient
+        if let connectedClient = nodeMeshClient {
+            client = connectedClient
+        } else {
+            client = NodeMeshClient(config: config, meshStore: nodeMeshStore)
+        }
         var params: [String: JSONValue] = [
             "method": .string(method),
             "path": .string(path),
@@ -227,7 +256,9 @@ extension CoreService {
                     publicKey: publicKey,
                     privateKey: "",
                     roles: request.roles ?? ["worker"],
-                    capabilities: request.capabilities ?? ["run_agent", "git"]
+                    capabilities: request.capabilities ?? ["run_agent", "git"],
+                    encryptionPublicKey: request.encryptionPublicKey,
+                    encryptionKeySignature: request.encryptionKeySignature
                 )
                 return try nodeMeshStore.consumeInvite(token: request.token, identity: identity, endpoint: request.endpoint)
             }
@@ -377,6 +408,15 @@ extension CoreService {
                 message: "Unknown mesh Core RPC method."
             )
         }
+        guard let source = try? nodeMeshStore.listNodes().first(where: { $0.id == envelope.from }),
+              source.capabilities.contains("sloppy.core.remote") else {
+            return meshCoreRPCErrorPayload(
+                requestId: envelope.id,
+                method: method,
+                code: "mesh_forbidden",
+                message: "Source node does not have a full Core access grant."
+            )
+        }
         guard let object = params.asObject else {
             return meshCoreRPCErrorPayload(
                 requestId: envelope.id,
@@ -395,6 +435,14 @@ extension CoreService {
                 message: "core.http path must start with /."
             )
         }
+        guard !path.hasPrefix("/v1/node/mesh/nodes/") else {
+            return meshCoreRPCErrorPayload(
+                requestId: envelope.id,
+                method: method,
+                code: "mesh_proxy_chaining_forbidden",
+                message: "Nested mesh proxying is forbidden."
+            )
+        }
 
         let headers = (object["headers"]?.asObject ?? [:]).reduce(into: [String: String]()) { partial, item in
             if let value = item.value.asString {
@@ -411,12 +459,6 @@ extension CoreService {
             )
         }
 
-        var headersWithContext = headers
-        let dashboardToken = currentConfig.ui.dashboardAuth.token.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !dashboardToken.isEmpty {
-            headersWithContext["authorization"] = "Bearer \(dashboardToken)"
-        }
-
         let body: Data?
         if let bodyBase64 = object["bodyBase64"]?.asString, !bodyBase64.isEmpty {
             body = Data(base64Encoded: bodyBase64)
@@ -429,8 +471,8 @@ extension CoreService {
             method: httpMethod,
             path: path,
             body: body,
-            headers: headersWithContext,
-            remoteAddress: "mesh:\(envelope.from)"
+            headers: headers,
+            remoteAddress: "mesh-authorized:\(envelope.from)"
         )
         guard response.sseStream == nil else {
             return meshCoreRPCErrorPayload(
@@ -468,6 +510,9 @@ extension CoreService {
     }
 
     func handleMeshMailboxEnvelope(_ envelope: MeshEnvelope) async -> [MeshEnvelope] {
+        if envelope.type == .streamOpen || envelope.type == .streamChunk || envelope.type == .streamClose {
+            return await handleMeshStreamEnvelope(envelope)
+        }
         guard envelope.type == .eventPublish,
               envelope.payload.asObject?["kind"]?.asString == "agent.browser_context_message",
               let requestValue = envelope.payload.asObject?["request"]
@@ -491,6 +536,236 @@ extension CoreService {
             ])
             return []
         }
+    }
+
+    func openMeshTerminalStream(
+        nodeID: String,
+        startMessage: DashboardTerminalClientMessage
+    ) async throws -> NodeMeshStream {
+        guard let nodeMeshClient else {
+            throw MeshCoreProxyError.missingLocalNodeConfig
+        }
+        return try await nodeMeshClient.openStream(
+            to: nodeID,
+            kind: "dashboard.terminal",
+            params: try JSONValueCoder.encode(startMessage)
+        )
+    }
+
+    func openMeshAgentSessionStream(
+        nodeID: String,
+        agentID: String,
+        sessionID: String
+    ) async throws -> NodeMeshStream {
+        guard let nodeMeshClient else {
+            throw MeshCoreProxyError.missingLocalNodeConfig
+        }
+        return try await nodeMeshClient.openStream(
+            to: nodeID,
+            kind: "agent.session",
+            params: .object([
+                "agentId": .string(agentID),
+                "sessionId": .string(sessionID),
+            ])
+        )
+    }
+
+    func closeMeshAgentSessionStream(streamID: String, nodeID: String) async {
+        try? await nodeMeshClient?.closeStream(streamID: streamID, to: nodeID)
+    }
+
+    func sendMeshTerminalFrame(
+        streamID: String,
+        nodeID: String,
+        message: DashboardTerminalClientMessage
+    ) async throws {
+        guard let nodeMeshClient else {
+            throw MeshCoreProxyError.missingLocalNodeConfig
+        }
+        try await nodeMeshClient.sendStreamChunk(
+            streamID: streamID,
+            to: nodeID,
+            data: try JSONValueCoder.encode(message)
+        )
+    }
+
+    func closeMeshTerminalStream(streamID: String, nodeID: String) async {
+        try? await nodeMeshClient?.closeStream(streamID: streamID, to: nodeID)
+    }
+
+    private func handleMeshStreamEnvelope(_ envelope: MeshEnvelope) async -> [MeshEnvelope] {
+        guard let object = envelope.payload.asObject,
+              let streamID = object["streamId"]?.asString else {
+            return []
+        }
+
+        guard let source = try? nodeMeshStore.listNodes().first(where: { $0.id == envelope.from }),
+              source.capabilities.contains("sloppy.core.remote") else {
+            return [meshStreamClose(for: envelope, streamID: streamID, ok: false, message: "Source node is not authorized for remote Core streams.")]
+        }
+
+        switch envelope.type {
+        case .streamOpen:
+            guard meshTerminalForwardTasks[streamID] == nil,
+                  meshTerminalSessionIDs[streamID] == nil else {
+                return [meshStreamClose(for: envelope, streamID: streamID, ok: false, message: "Stream id is already active.")]
+            }
+            if object["kind"]?.asString == "agent.session" {
+                guard let params = object["params"]?.asObject,
+                      let agentID = params["agentId"]?.asString,
+                      let sessionID = params["sessionId"]?.asString else {
+                    return [meshStreamClose(for: envelope, streamID: streamID, ok: false, message: "Invalid agent session stream request.")]
+                }
+                do {
+                    let updates = try streamAgentSessionEvents(agentID: agentID, sessionID: sessionID)
+                    let targetNodeID = envelope.from
+                    meshTerminalForwardTasks[streamID] = Task { [weak self] in
+                        guard let self else { return }
+                        for await update in updates {
+                            guard let value = try? JSONValueCoder.encode(update) else { continue }
+                            try? await self.nodeMeshClient?.sendStreamChunk(
+                                streamID: streamID,
+                                to: targetNodeID,
+                                data: value
+                            )
+                        }
+                        try? await self.nodeMeshClient?.closeStream(streamID: streamID, to: targetNodeID)
+                        await self.finishMeshForwardedStream(streamID: streamID)
+                    }
+                    return []
+                } catch {
+                    return [meshStreamClose(for: envelope, streamID: streamID, ok: false, message: error.localizedDescription)]
+                }
+            }
+
+            guard object["kind"]?.asString == "dashboard.terminal",
+                  source.capabilities.contains("sloppy.terminal.control"),
+                  let params = object["params"],
+                  let start = try? JSONValueCoder.decode(DashboardTerminalClientMessage.self, from: params),
+                  let cols = start.cols,
+                  let rows = start.rows else {
+                return [meshStreamClose(for: envelope, streamID: streamID, ok: false, message: "Invalid terminal stream request.")]
+            }
+            do {
+                let terminal = try await startDashboardTerminalSession(
+                    projectID: start.projectId,
+                    cwd: start.cwd,
+                    cols: cols,
+                    rows: rows,
+                    remoteAddress: "mesh:\(envelope.from)",
+                    allowTrustedMesh: true
+                )
+                meshTerminalSessionIDs[streamID] = terminal.sessionID
+                let targetNodeID = envelope.from
+                meshTerminalForwardTasks[streamID] = Task { [weak self] in
+                    guard let self else { return }
+                    for await event in terminal.events {
+                        let message: DashboardTerminalServerMessage
+                        switch event {
+                        case .output(let data):
+                            message = DashboardTerminalServerMessage(type: "output", sessionId: terminal.sessionID, data: data)
+                        case .exit(let code):
+                            message = DashboardTerminalServerMessage(type: "exit", sessionId: terminal.sessionID, exitCode: code)
+                        case .error(let code, let detail):
+                            message = DashboardTerminalServerMessage(type: "error", sessionId: terminal.sessionID, code: code, message: detail)
+                        case .closed:
+                            message = DashboardTerminalServerMessage(type: "closed", sessionId: terminal.sessionID)
+                        }
+                        guard let value = try? JSONValueCoder.encode(message) else { continue }
+                        try? await self.nodeMeshClient?.sendStreamChunk(
+                            streamID: streamID,
+                            to: targetNodeID,
+                            data: value
+                        )
+                    }
+                    try? await self.nodeMeshClient?.closeStream(
+                        streamID: streamID,
+                        to: targetNodeID
+                    )
+                    await self.finishMeshForwardedStream(streamID: streamID)
+                }
+                let ready = DashboardTerminalServerMessage(
+                    type: "ready",
+                    sessionId: terminal.sessionID,
+                    cwd: terminal.cwd,
+                    shell: terminal.shell,
+                    pid: terminal.pid
+                )
+                return [meshStreamChunk(for: envelope, streamID: streamID, data: try JSONValueCoder.encode(ready))]
+            } catch {
+                return [meshStreamClose(for: envelope, streamID: streamID, ok: false, message: error.localizedDescription)]
+            }
+
+        case .streamChunk:
+            guard let sessionID = meshTerminalSessionIDs[streamID],
+                  let data = object["data"],
+                  let message = try? JSONValueCoder.decode(DashboardTerminalClientMessage.self, from: data) else {
+                return []
+            }
+            do {
+                switch message.type.lowercased() {
+                case "input":
+                    try await writeDashboardTerminalInput(sessionID: sessionID, data: message.data ?? "")
+                case "resize":
+                    guard let cols = message.cols, let rows = message.rows else { return [] }
+                    try await resizeDashboardTerminalSession(sessionID: sessionID, cols: cols, rows: rows)
+                case "close":
+                    await closeDashboardTerminalSession(sessionID: sessionID)
+                    meshTerminalSessionIDs[streamID] = nil
+                    meshTerminalForwardTasks[streamID]?.cancel()
+                    meshTerminalForwardTasks[streamID] = nil
+                default:
+                    break
+                }
+            } catch {
+                return [meshStreamClose(for: envelope, streamID: streamID, ok: false, message: error.localizedDescription)]
+            }
+            return []
+
+        case .streamClose:
+            if let sessionID = meshTerminalSessionIDs.removeValue(forKey: streamID) {
+                await closeDashboardTerminalSession(sessionID: sessionID)
+            }
+            meshTerminalForwardTasks.removeValue(forKey: streamID)?.cancel()
+            return []
+
+        default:
+            return []
+        }
+    }
+
+    private func finishMeshForwardedStream(streamID: String) async {
+        if let sessionID = meshTerminalSessionIDs.removeValue(forKey: streamID) {
+            await closeDashboardTerminalSession(sessionID: sessionID)
+        }
+        meshTerminalForwardTasks[streamID] = nil
+    }
+
+    private func meshStreamChunk(for envelope: MeshEnvelope, streamID: String, data: JSONValue) -> MeshEnvelope {
+        MeshEnvelope(
+            type: .streamChunk,
+            from: envelope.to ?? "",
+            to: envelope.from,
+            payload: .object(["streamId": .string(streamID), "data": data])
+        )
+    }
+
+    private func meshStreamClose(
+        for envelope: MeshEnvelope,
+        streamID: String,
+        ok: Bool,
+        message: String?
+    ) -> MeshEnvelope {
+        MeshEnvelope(
+            type: .streamClose,
+            from: envelope.to ?? "",
+            to: envelope.from,
+            payload: .object([
+                "streamId": .string(streamID),
+                "ok": .bool(ok),
+                "message": message.map(JSONValue.string) ?? .null,
+            ])
+        )
     }
 
     private func meshMailboxAck(for envelope: MeshEnvelope, from nodeId: String) -> MeshEnvelope {

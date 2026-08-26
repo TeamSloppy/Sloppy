@@ -361,6 +361,12 @@ public struct ProjectKanbanView: View {
                                 .font(.system(size: theme.typography.caption))
                                 .foregroundColor(theme.colors.textSecondary)
                         }
+
+                        if let nodeID = card.executionNodeID, !nodeID.isEmpty {
+                            Label(viewModel.instanceTitle(for: nodeID), systemImage: "desktopcomputer")
+                                .font(.system(size: theme.typography.caption))
+                                .foregroundColor(theme.colors.textSecondary)
+                        }
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(theme.spacing.m)
@@ -368,6 +374,29 @@ public struct ProjectKanbanView: View {
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                 }
                 .buttonStyle(.plain)
+                .contextMenu {
+                    if !viewModel.availableInstances.isEmpty {
+                        Menu("Run on") {
+                            ForEach(viewModel.availableInstances) { instance in
+                                Button {
+                                    Task {
+                                        await viewModel.assignTask(
+                                            id: card.id,
+                                            to: instance.id,
+                                            projectId: projectId
+                                        )
+                                    }
+                                } label: {
+                                    if card.executionNodeID == instance.id {
+                                        Label(instance.displayName, systemImage: "checkmark")
+                                    } else {
+                                        Text(instance.displayName)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
                 .draggable(card.id)
             }
 

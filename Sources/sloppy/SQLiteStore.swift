@@ -2441,8 +2441,9 @@ public actor SQLiteStore: PersistenceStore {
                 selected_model,
                 attachments_json,
                 external_metadata_json,
-                tags_json
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                tags_json,
+                execution_node_id
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
 
         for task in project.tasks {
@@ -2494,6 +2495,7 @@ public actor SQLiteStore: PersistenceStore {
             bindText(attachmentsJSON, at: 31, statement: taskStatement)
             bindOptionalText(externalJSON, at: 32, statement: taskStatement)
             bindText(tagsJSON, at: 33, statement: taskStatement)
+            bindOptionalText(task.executionNodeId, at: 34, statement: taskStatement)
             _ = sqlite3_step(taskStatement)
         }
 #endif
@@ -3289,6 +3291,8 @@ public actor SQLiteStore: PersistenceStore {
                 claimed_actor_id,
                 claimed_agent_id,
                 parent_task_id,
+                created_by,
+                depends_on_task_ids_json,
                 swarm_id,
                 swarm_task_id,
                 swarm_parent_task_id,
@@ -3307,7 +3311,8 @@ public actor SQLiteStore: PersistenceStore {
                 selected_model,
                 attachments_json,
                 external_metadata_json,
-                tags_json
+                tags_json,
+                execution_node_id
             FROM dashboard_project_tasks
             WHERE project_id = ?
             ORDER BY created_at ASC;
@@ -3359,6 +3364,7 @@ public actor SQLiteStore: PersistenceStore {
                     originType: originTypeRaw.flatMap { TaskOriginType(rawValue: $0) },
                     originChannelId: optionalText(statement: statement, index: 26),
                     actorId: optionalText(statement: statement, index: 6),
+                    executionNodeId: optionalText(statement: statement, index: 32),
                     teamId: optionalText(statement: statement, index: 7),
                     claimedActorId: optionalText(statement: statement, index: 8),
                     claimedAgentId: optionalText(statement: statement, index: 9),
@@ -3373,7 +3379,7 @@ public actor SQLiteStore: PersistenceStore {
                     swarmActorPath: actorPath,
                     worktreeBranch: optionalText(statement: statement, index: 21),
                     sourceControlProviderId: optionalText(statement: statement, index: 22),
-                    selectedModel: optionalText(statement: statement, index: 27),
+                    selectedModel: optionalText(statement: statement, index: 28),
                     externalMetadata: externalMetadata,
                     attachments: attachments,
                     tags: tags,
@@ -4185,7 +4191,8 @@ public actor SQLiteStore: PersistenceStore {
             "ALTER TABLE dashboard_project_tasks ADD COLUMN is_archived INTEGER NOT NULL DEFAULT 0;",
             "ALTER TABLE dashboard_project_tasks ADD COLUMN parent_task_id TEXT;",
             "ALTER TABLE dashboard_project_tasks ADD COLUMN created_by TEXT;",
-            "ALTER TABLE dashboard_project_tasks ADD COLUMN depends_on_task_ids_json TEXT NOT NULL DEFAULT '[]';"
+            "ALTER TABLE dashboard_project_tasks ADD COLUMN depends_on_task_ids_json TEXT NOT NULL DEFAULT '[]';",
+            "ALTER TABLE dashboard_project_tasks ADD COLUMN execution_node_id TEXT;"
         ]
 
         for statement in statements {

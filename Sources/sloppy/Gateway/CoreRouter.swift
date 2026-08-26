@@ -3,6 +3,7 @@ import Logging
 import AgentRuntime
 import Protocols
 import PluginSDK
+import SloppyNodeCore
 
 /// Minimal transport-agnostic response type used by sloppy router handlers.
 public struct CoreRouterResponse: Sendable {
@@ -458,7 +459,8 @@ public actor CoreRouter {
                 remoteAddress: remoteAddress
             )
             let allowsUnauthenticatedLocalPluginInstall = Self.allowsUnauthenticatedLocalPluginInstall(request)
-            if await service.identityAuthEnabled() {
+            let isTrustedMeshRequest = request.remoteAddress?.hasPrefix("mesh-authorized:") == true
+            if await service.identityAuthEnabled(), !isTrustedMeshRequest {
                 let isEnterprisePublicRoute = await service.isEnterprisePublicIdentityRoute(
                     method: request.method.rawValue,
                     path: "/" + request.segments.joined(separator: "/")
@@ -503,7 +505,7 @@ public actor CoreRouter {
                         return Self.json(status: HTTPStatus.forbidden, payload: ["error": "forbidden"])
                     }
                 }
-            } else {
+            } else if !isTrustedMeshRequest {
                 let requiresDashboardAuthorization = await shouldRequireDashboardAuthorization(for: request)
                 let hasValidDashboardAuthorization = await service
                     .validateDashboardAuthorizationHeader(request.header("authorization"))
@@ -779,6 +781,59 @@ public actor CoreRouter {
 
         routes.append(
             .init(
+                path: "/v1/node/mesh/nodes/:nodeId/agents/:agentId/sessions/:sessionId/ws",
+                validator: { request in
+                    guard !(request.pathParam("nodeId") ?? "").isEmpty
+                        && !(request.pathParam("agentId") ?? "").isEmpty
+                        && !(request.pathParam("sessionId") ?? "").isEmpty else {
+                        return false
+                    }
+                    return await service.validateClientAuthorizationHeader(
+                        request.header("authorization")
+                    )
+                },
+                callback: { request, connection in
+                    let nodeID = request.pathParam("nodeId") ?? ""
+                    let agentID = request.pathParam("agentId") ?? ""
+                    let sessionID = request.pathParam("sessionId") ?? ""
+                    do {
+                        let stream = try await service.openMeshAgentSessionStream(
+                            nodeID: nodeID,
+                            agentID: agentID,
+                            sessionID: sessionID
+                        )
+                        defer {
+                            Task {
+                                await service.closeMeshAgentSessionStream(streamID: stream.id, nodeID: nodeID)
+                            }
+                        }
+                        let encoder = JSONEncoder()
+                        encoder.dateEncodingStrategy = .iso8601
+                        for try await value in stream.messages {
+                            guard let data = try? encoder.encode(value),
+                                  let text = String(data: data, encoding: .utf8),
+                                  await connection.sendText(text) else {
+                                break
+                            }
+                        }
+                    } catch {
+                        Self.logger.warning(
+                            "node.mesh.session-stream.failed",
+                            metadata: [
+                                "node_id": .string(nodeID),
+                                "agent_id": .string(agentID),
+                                "session_id": .string(sessionID),
+                                "error": .string(String(describing: error)),
+                            ]
+                        )
+                    }
+                    await connection.close()
+                }
+            )
+        )
+
+        routes.append(
+            .init(
                 path: "/v1/notifications/ws",
                 validator: { _ in true },
                 callback: { _, connection in
@@ -1035,6 +1090,127 @@ public actor CoreRouter {
 
                         default:
                             await sendError(code: "invalid_message", message: "Unsupported terminal message type.")
+                        }
+                    }
+
+                    await connection.close()
+                }
+            )
+        )
+
+        routes.append(
+            .init(
+                path: "/v1/node/mesh/nodes/:nodeId/terminal/ws",
+                validator: { request in
+                    !(request.pathParam("nodeId") ?? "").isEmpty
+                },
+                callback: { request, connection in
+                    let encoder = JSONEncoder()
+                    let decoder = JSONDecoder()
+                    var isAuthenticated = false
+                    let targetNodeID = request.pathParam("nodeId") ?? ""
+                    var activeStream: NodeMeshStream?
+                    var forwardTask: Task<Void, Never>?
+
+                    func send(_ message: DashboardTerminalServerMessage) async -> Bool {
+                        guard let data = try? encoder.encode(message),
+                              let text = String(data: data, encoding: .utf8) else {
+                            return false
+                        }
+                        return await connection.sendText(text)
+                    }
+
+                    defer {
+                        forwardTask?.cancel()
+                        if let activeStream {
+                            Task {
+                                await service.closeMeshTerminalStream(
+                                    streamID: activeStream.id,
+                                    nodeID: targetNodeID
+                                )
+                            }
+                        }
+                    }
+
+                    messageLoop: for await rawMessage in connection.incomingMessages() {
+                        guard let data = rawMessage.data(using: .utf8),
+                              let message = try? decoder.decode(DashboardTerminalClientMessage.self, from: data) else {
+                            _ = await send(DashboardTerminalServerMessage(type: "error", code: "invalid_message", message: "Malformed terminal message."))
+                            continue
+                        }
+
+                        if !isAuthenticated {
+                            guard message.type.lowercased() == "auth",
+                                  await service.validateClientAuthToken(message.token) else {
+                                _ = await send(DashboardTerminalServerMessage(type: "error", code: ErrorCode.unauthorized, message: "Invalid dashboard token."))
+                                break
+                            }
+                            isAuthenticated = true
+                            _ = await send(DashboardTerminalServerMessage(type: "authenticated"))
+                            continue
+                        }
+
+                        switch message.type.lowercased() {
+                        case "start":
+                            guard activeStream == nil else {
+                                _ = await send(DashboardTerminalServerMessage(type: "error", code: "session_already_started", message: "Terminal session already started."))
+                                continue
+                            }
+                            do {
+                                let stream = try await service.openMeshTerminalStream(
+                                    nodeID: targetNodeID,
+                                    startMessage: message
+                                )
+                                activeStream = stream
+                                forwardTask = Task {
+                                    do {
+                                        for try await value in stream.messages {
+                                            guard let data = try? encoder.encode(value),
+                                                  let text = String(data: data, encoding: .utf8),
+                                                  await connection.sendText(text) else {
+                                                break
+                                            }
+                                        }
+                                    } catch {
+                                        _ = await send(
+                                            DashboardTerminalServerMessage(
+                                                type: "error",
+                                                code: "mesh_stream_closed",
+                                                message: error.localizedDescription
+                                            )
+                                        )
+                                    }
+                                }
+                            } catch {
+                                _ = await send(DashboardTerminalServerMessage(type: "error", code: "mesh_stream_open_failed", message: error.localizedDescription))
+                            }
+
+                        case "input", "resize", "ping":
+                            guard let activeStream else {
+                                _ = await send(DashboardTerminalServerMessage(type: "error", code: "session_not_started", message: "Start a terminal session first."))
+                                continue
+                            }
+                            do {
+                                try await service.sendMeshTerminalFrame(
+                                    streamID: activeStream.id,
+                                    nodeID: targetNodeID,
+                                    message: message
+                                )
+                            } catch {
+                                _ = await send(DashboardTerminalServerMessage(type: "error", code: "mesh_stream_write_failed", message: error.localizedDescription))
+                            }
+
+                        case "close":
+                            if let activeStream {
+                                await service.closeMeshTerminalStream(
+                                    streamID: activeStream.id,
+                                    nodeID: targetNodeID
+                                )
+                            }
+                            break messageLoop
+
+                        default:
+                            _ = await send(DashboardTerminalServerMessage(type: "error", code: "invalid_message", message: "Unsupported terminal message type."))
                         }
                     }
 

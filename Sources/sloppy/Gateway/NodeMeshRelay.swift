@@ -5,12 +5,19 @@ import SloppyNodeCore
 
 actor NodeMeshRelay {
     private struct Connection {
+        var id: UUID
         var node: MeshNodeRecord
         var context: WebSocketConnectionContext
     }
 
     private var connections: [String: Connection] = [:]
     private var nodes: [String: MeshNodeRecord] = [:]
+    private struct ActiveStream: Sendable {
+        var source: String
+        var target: String
+        var kind: String
+    }
+    private var activeStreams: [String: ActiveStream] = [:]
     private let store: NodeMeshStore?
     private let logger: Logger
     private let encoder: JSONEncoder
@@ -27,11 +34,12 @@ actor NodeMeshRelay {
 
     func attach(connection: WebSocketConnectionContext, remoteAddress: String?) async {
         var attachedNodeId: String?
+        let connectionId = UUID()
         let authChallenge = makeAuthChallenge()
         var authenticatedNode: MeshNodeRecord?
         defer {
             if let attachedNodeId {
-                markOffline(nodeId: attachedNodeId)
+                markOffline(nodeId: attachedNodeId, connectionId: connectionId)
             }
         }
 
@@ -68,7 +76,10 @@ actor NodeMeshRelay {
                     }
                     let node = nodeRecord(from: envelope, authenticatedNode: authenticatedNode, remoteAddress: remoteAddress)
                     nodes[node.id] = node
-                    connections[node.id] = Connection(node: node, context: connection)
+                    if let previous = connections[node.id], previous.id != connectionId {
+                        await previous.context.close()
+                    }
+                    connections[node.id] = Connection(id: connectionId, node: node, context: connection)
                     attachedNodeId = node.id
                     persist {
                         try store?.upsertNodeRecord(node, auditAction: "node.hello")
@@ -81,6 +92,9 @@ actor NodeMeshRelay {
                     handleHeartbeat(envelope)
                 default:
                     guard let authenticatedNode, authenticatedNode.id == envelope.from else {
+                        continue
+                    }
+                    guard connections[envelope.from]?.id == connectionId else {
                         continue
                     }
                     try await route(envelope)
@@ -195,6 +209,31 @@ actor NodeMeshRelay {
             }
             return
         }
+        if envelope.type == .streamOpen {
+            if let denial = streamAuthorizationDenial(for: envelope, target: target) {
+                try await sendStreamClose(for: envelope, message: denial)
+                return
+            }
+            guard let streamID = envelope.payload.asObject?["streamId"]?.asString,
+                  let kind = envelope.payload.asObject?["kind"]?.asString,
+                  activeStreams[streamID] == nil else {
+                try await sendStreamClose(for: envelope, message: "stream id is invalid or already active")
+                return
+            }
+            activeStreams[streamID] = ActiveStream(source: envelope.from, target: target, kind: kind)
+        } else if envelope.type == .streamChunk || envelope.type == .streamClose {
+            guard let streamID = envelope.payload.asObject?["streamId"]?.asString,
+                  let stream = activeStreams[streamID],
+                  (envelope.from == stream.source && target == stream.target)
+                    || (envelope.from == stream.target && target == stream.source)
+            else {
+                try await sendStreamClose(for: envelope, message: "stream is not authorized")
+                return
+            }
+            if envelope.type == .streamClose {
+                activeStreams[streamID] = nil
+            }
+        }
         if envelope.type == .taskDispatch, let denial = taskDispatchAuthorizationDenial(for: envelope, target: target) {
             try await sendForbiddenRPCResponse(for: envelope, message: denial)
             persist {
@@ -235,8 +274,10 @@ actor NodeMeshRelay {
             }
             return
         }
-        persist {
-            try store?.routeEnvelope(envelope)
+        if shouldPersist(envelope) {
+            persist {
+                try store?.routeEnvelope(envelope)
+            }
         }
         try await send(envelope, over: connection.context)
         if envelope.type == .taskDispatch {
@@ -382,6 +423,9 @@ actor NodeMeshRelay {
     }
 
     private func rpcAuthorizationDenial(for envelope: MeshEnvelope, target: String) -> String? {
+        if envelope.payload.asObject?["method"]?.asString == "core.http" {
+            return fullCoreAccessDenial(source: envelope.from, target: target)
+        }
         guard let store,
               envelope.scope?.hasPrefix("sharedProject:") == true,
               let projectId = envelope.scope.map({ String($0.dropFirst("sharedProject:".count)) })
@@ -406,6 +450,37 @@ actor NodeMeshRelay {
         } catch {
             return "mesh authorization state is unavailable"
         }
+    }
+
+    private func streamAuthorizationDenial(for envelope: MeshEnvelope, target: String) -> String? {
+        guard let kind = envelope.payload.asObject?["kind"]?.asString else {
+            return "stream kind is missing"
+        }
+        if let denial = fullCoreAccessDenial(source: envelope.from, target: target) {
+            return denial
+        }
+        if kind == "dashboard.terminal",
+           nodes[target]?.capabilities.contains("sloppy.terminal.control") != true {
+            return "target has not granted terminal control"
+        }
+        return nil
+    }
+
+    private func fullCoreAccessDenial(source: String, target: String) -> String? {
+        guard nodes[source]?.capabilities.contains("sloppy.core.remote") == true else {
+            return "source does not have a full Core access grant"
+        }
+        guard nodes[target]?.capabilities.contains("sloppy.core.remote") == true else {
+            return "target has not granted full Core access"
+        }
+        return nil
+    }
+
+    private func shouldPersist(_ envelope: MeshEnvelope) -> Bool {
+        if envelope.type == .streamOpen || envelope.type == .streamChunk || envelope.type == .streamClose {
+            return false
+        }
+        return envelope.payload.asObject?["method"]?.asString != "core.http"
     }
 
     private func sharedProject(projectIdOrName: String, in store: NodeMeshStore) throws -> SharedProjectRecord? {
@@ -536,8 +611,14 @@ actor NodeMeshRelay {
         }
     }
 
-    private func markOffline(nodeId: String) {
+    private func markOffline(nodeId: String, connectionId: UUID) {
+        guard connections[nodeId]?.id == connectionId else {
+            return
+        }
         connections[nodeId] = nil
+        activeStreams = activeStreams.filter { _, stream in
+            stream.source != nodeId && stream.target != nodeId
+        }
         guard var node = nodes[nodeId] else {
             return
         }
@@ -559,11 +640,13 @@ actor NodeMeshRelay {
             id: envelope.from,
             name: payload["name"]?.asString ?? envelope.from,
             publicKey: authenticatedNode.publicKey,
-            roles: stringArray(payload["roles"]),
+            roles: authenticatedNode.roles,
             endpoint: remoteAddress,
             status: .online,
             lastSeenAt: Date(),
-            capabilities: stringArray(payload["capabilities"])
+            capabilities: authenticatedNode.capabilities,
+            encryptionPublicKey: payload["encryptionPublicKey"]?.asString,
+            encryptionKeySignature: payload["encryptionKeySignature"]?.asString
         )
     }
 
@@ -576,6 +659,10 @@ actor NodeMeshRelay {
 
     private func sendUnavailableTargetError(for envelope: MeshEnvelope, target: String) async throws {
         guard let source = connections[envelope.from] else {
+            return
+        }
+        if envelope.type == .streamOpen || envelope.type == .streamChunk || envelope.type == .streamClose {
+            try await sendStreamClose(for: envelope, message: "Target node is not connected.")
             return
         }
         let errorEnvelope = MeshEnvelope(
@@ -597,6 +684,27 @@ actor NodeMeshRelay {
         persist {
             try store?.recordRouteFailure(envelope, target: target, message: "target node unavailable")
         }
+    }
+
+    private func sendStreamClose(for envelope: MeshEnvelope, message: String) async throws {
+        guard let source = connections[envelope.from],
+              let streamID = envelope.payload.asObject?["streamId"]?.asString else {
+            return
+        }
+        activeStreams[streamID] = nil
+        try await send(
+            MeshEnvelope(
+                type: .streamClose,
+                from: "relay",
+                to: envelope.from,
+                payload: .object([
+                    "streamId": .string(streamID),
+                    "ok": .bool(false),
+                    "message": .string(message),
+                ])
+            ),
+            over: source.context
+        )
     }
 
     private func sendForbiddenRPCResponse(for envelope: MeshEnvelope, message: String) async throws {

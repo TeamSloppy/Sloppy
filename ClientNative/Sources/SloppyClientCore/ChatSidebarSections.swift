@@ -19,7 +19,7 @@ public struct ChatSidebarProjectGroup: Sendable, Identifiable {
     public var visibleSessions: [ChatSessionSummary]
     public var totalSessions: [ChatSessionSummary]
 
-    public var id: String { project.id }
+    public var id: String { project.storageID }
 
     public var hiddenCount: Int {
         max(0, totalSessions.count - visibleSessions.count)
@@ -80,8 +80,8 @@ public struct ChatSidebarSections: Sendable {
             }
             return $0.updatedAt > $1.updatedAt
         }
-        let pinned = sortedSessions.filter { pinnedSessionIds.contains($0.id) }
-        let unpinned = sortedSessions.filter { !pinnedSessionIds.contains($0.id) }
+        let pinned = sortedSessions.filter { pinnedSessionIds.contains($0.storageID) }
+        let unpinned = sortedSessions.filter { !pinnedSessionIds.contains($0.storageID) }
 
         switch mode {
         case .allChats:
@@ -102,7 +102,9 @@ public struct ChatSidebarSections: Sendable {
         case .projects:
             let groups = projects.map { project in
                 let projectSessions = unpinned.filter {
-                    $0.projectId == project.id && $0.messageCount > 0
+                    $0.projectId == project.id
+                        && $0.sourceInstanceID == project.sourceInstanceID
+                        && $0.messageCount > 0
                 }
 
                 let visibleSessions: [ChatSessionSummary]
