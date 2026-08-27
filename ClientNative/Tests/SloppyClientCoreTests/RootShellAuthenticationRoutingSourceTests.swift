@@ -12,6 +12,9 @@ struct RootShellAuthenticationRoutingSourceTests {
         #expect(viewModelSource.contains("case .splash, .connectionSetup, .pairing:"))
         #expect(viewModelSource.contains("return false"))
         #expect(viewModelSource.contains("func showConnectionSetup()"))
+        #expect(viewModelSource.contains("func changeServer()"))
+        #expect(viewModelSource.contains("await SloppyAPIClient(baseURL: baseURL).logout()"))
+        #expect(viewSource.contains("viewModel.changeServer()"))
         #expect(viewSource.contains("onChooseServer: {\n                        rootViewModel.showConnectionSetup()"))
         #expect(!viewSource.contains("onChooseServer: {\n                        rootViewModel.appState = .connectionSetup"))
     }

@@ -11,7 +11,7 @@ import UIKit
 #endif
 
 fileprivate let chatHeroWidth: CGFloat = 720
-fileprivate let chatContentWidth: CGFloat = 840
+fileprivate let chatContentWidth: CGFloat = 960
 
 @MainActor
 public struct ChatScreen: View {
@@ -20,6 +20,7 @@ public struct ChatScreen: View {
     private let onOpenSidebar: (@MainActor () -> Void)?
     private let showsContextToolbar: Bool
     private let showsNavigationToolbar: Bool
+    private let onAskInSideChat: (@MainActor @Sendable (String) -> Void)?
 
     public init(
         apiClient: SloppyAPIClient,
@@ -29,12 +30,14 @@ public struct ChatScreen: View {
         rootSafeAreaInsets: EdgeInsets = EdgeInsets(),
         onOpenSidebar: (@MainActor () -> Void)? = nil,
         showsContextToolbar: Bool = true,
-        showsNavigationToolbar: Bool = true
+        showsNavigationToolbar: Bool = true,
+        onAskInSideChat: (@MainActor @Sendable (String) -> Void)? = nil
     ) {
         self.rootSafeAreaInsets = rootSafeAreaInsets
         self.onOpenSidebar = onOpenSidebar
         self.showsContextToolbar = showsContextToolbar
         self.showsNavigationToolbar = showsNavigationToolbar
+        self.onAskInSideChat = onAskInSideChat
         self._viewModel = State(
             initialValue: ChatScreenViewModel(
                 apiClient: apiClient,
@@ -50,12 +53,14 @@ public struct ChatScreen: View {
         rootSafeAreaInsets: EdgeInsets = EdgeInsets(),
         onOpenSidebar: (@MainActor () -> Void)? = nil,
         showsContextToolbar: Bool = true,
-        showsNavigationToolbar: Bool = true
+        showsNavigationToolbar: Bool = true,
+        onAskInSideChat: (@MainActor @Sendable (String) -> Void)? = nil
     ) {
         self.rootSafeAreaInsets = rootSafeAreaInsets
         self.onOpenSidebar = onOpenSidebar
         self.showsContextToolbar = showsContextToolbar
         self.showsNavigationToolbar = showsNavigationToolbar
+        self.onAskInSideChat = onAskInSideChat
         self.viewModel = viewModel
     }
 
@@ -75,6 +80,14 @@ public struct ChatScreen: View {
         )
         .environment(viewModel)
         .environment(viewModel.connectionMonitor)
+        .environment(
+            \.chatTextSelectionActions,
+            ChatTextSelectionActions(
+                addToChat: viewModel.addTextSelectionToComposer,
+                moreDetails: viewModel.askForMoreDetails,
+                askInSideChat: onAskInSideChat
+            )
+        )
         .overlay(anchor: .top, content: {
             ChatConnectionBar(connectionMonitor: viewModel.connectionMonitor)
         })
@@ -446,7 +459,7 @@ private struct ChatChrome: View {
     }
 
     private var messagesTopInset: CGFloat {
-        idiom == .phone ? theme.spacing.s : theme.spacing.xxl
+        idiom == .phone ? theme.spacing.s : theme.spacing.l
     }
 
     private var composerScrollGap: CGFloat {
@@ -707,7 +720,6 @@ public struct ChatComposerOverlay: View {
         HStack {
             Spacer(minLength: 0)
             composerBar
-//                .frame(width: contentWidth)
 #if os(visionOS)
                 .padding3D(.front)
 #endif
@@ -733,15 +745,6 @@ public struct ChatComposerOverlay: View {
         ) { providers in
             viewModel.attachItemProviders(providers)
         }
-#if !os(visionOS)
-        .background(
-            LinearGradient(colors: [
-                Color.black.opacity(0.01),
-                Color.black.opacity(0.4),
-                Color.black
-            ], startPoint: .top, endPoint: .bottom)
-        )
-#endif
     }
 
     @ViewBuilder
@@ -760,6 +763,7 @@ public struct ChatComposerOverlay: View {
                 viewModel: viewModel,
                 tabActions: tabActions
             )
+            .frame(maxWidth: maximumComposerWidth)
             .overlay {
                 if isAttachmentDropTargeted {
                     RoundedRectangle(cornerRadius: 20)
@@ -779,6 +783,14 @@ public struct ChatComposerOverlay: View {
             .easeInOut(duration: 0.18),
             value: viewModel.workingTreeSourceControl?.diff
         )
+    }
+
+    private var maximumComposerWidth: CGFloat {
+#if os(macOS)
+        min(contentWidth, ChatComposerView.desktopPanelWidth)
+#else
+        contentWidth
+#endif
     }
 }
 
@@ -805,6 +817,7 @@ private struct ChatTranscriptPane: View {
     @Environment(\.theme) private var theme
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.chatTextSelectionActions) private var textSelectionActions
     var body: some View {
         ChatNativeTranscriptView(
             items: nativeItems,
@@ -832,7 +845,19 @@ private struct ChatTranscriptPane: View {
             ))
         }
 
+        var previousEntryDate: Date?
         for (index, entry) in transcript.entries.enumerated() {
+            if let previousEntryDate,
+               ChatTranscriptDateSeparators.shouldInsert(
+                   between: previousEntryDate,
+                   and: entry.createdAt
+               ) {
+                items.append(ChatTranscriptNativeItem(
+                    id: "date-separator:\(entry.id)",
+                    content: .dateSeparator(entry.createdAt)
+                ))
+            }
+
             let bottomSpacing: CGFloat
             if index < transcript.entries.index(before: transcript.entries.endIndex) {
                 bottomSpacing = ChatTranscriptGrouping.usesCompactSpacing(
@@ -859,6 +884,7 @@ private struct ChatTranscriptPane: View {
                     providerRecoveryMessageIDs: entryProviderRecoveryMessageIDs(entry)
                 )
             ))
+            previousEntryDate = entry.createdAt
         }
 
         if let workingTreeSourceControl {
@@ -908,6 +934,15 @@ private struct ChatTranscriptPane: View {
                 revealEarlierButton(count: count)
                     .padding(.top, messagesTopInset)
                     .padding(.bottom, theme.spacing.m)
+            )
+        case .dateSeparator(let date):
+            rendered = AnyView(
+                Text(ChatTranscriptDateSeparators.title(for: date))
+                    .font(.system(size: theme.typography.caption, weight: .medium))
+                    .foregroundColor(theme.colors.textMuted)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, theme.spacing.xl)
+                    .accessibilityLabel("Conversation continued \(ChatTranscriptDateSeparators.title(for: date))")
             )
         case .entry(
             let entry,
@@ -964,6 +999,7 @@ private struct ChatTranscriptPane: View {
             rendered
                 .environment(\.theme, theme)
                 .environment(\.userInterfaceIdiom, idiom)
+                .environment(\.chatTextSelectionActions, textSelectionActions)
         )
     }
 

@@ -99,14 +99,30 @@ struct MainSidebarSelectionTests {
         #expect(source.contains("MobileWorkspaceTabsOverview("))
     }
 
-    @Test("main view uses split sidebar column for phone navigation")
-    func mainViewUsesSplitSidebarColumnForPhoneNavigation() throws {
+    @Test("phone owns its navigation stack without an outer split view")
+    func phoneOwnsNavigationStackWithoutOuterSplitView() throws {
         let source = try mainSidebarSource
 
-        #expect(source.contains("NavigationSplitView(columnVisibility: $viewModel.columnVisibility)"))
-        #expect(source.contains(".navigationDestination(for: MainSidebarSelection.self)"))
-        #expect(source.contains("viewModel.dismissMobileSidebar()"))
+        #expect(source.contains("#if os(iOS)\n        // `PlatformMainSidebar` owns the phone TabView"))
         #expect(source.contains("sidebarView(isOverlay: false)"))
+        #expect(source.contains("NavigationSplitView(columnVisibility: $viewModel.columnVisibility)"))
+        #expect(source.contains("viewModel.dismissMobileSidebar()"))
+
+        let packageRoot = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+        let iosSidebarURL = packageRoot
+            .appendingPathComponent("Sources/SloppyClient/Navigation/Platforms/iOS/IOSMainSidebar.swift")
+        let iosSidebarSource = try String(contentsOf: iosSidebarURL, encoding: .utf8)
+        #expect(iosSidebarSource.contains(".navigationDestination(for: MainSidebarSelection.self)"))
+        #expect(iosSidebarSource.contains("NavigationStack(path: $inboxNavigationPath)"))
+        #expect(iosSidebarSource.contains("NavigationLink(value: InboxDestination.settings)"))
+        #expect(iosSidebarSource.contains("Button(action: openNewChatComposer)"))
+        #expect(iosSidebarSource.contains("inboxNavigationPath.append(MainSidebarSelection.chats)"))
+        #expect(iosSidebarSource.contains("viewModel.requestSelectedComposerFocus()"))
+        #expect(iosSidebarSource.contains(".buttonStyle(.plain)"))
+        #expect(iosSidebarSource.contains("accessoryIcon(\"microphone\")"))
     }
 
     @Test("split sidebar uses a single width constraint contract")

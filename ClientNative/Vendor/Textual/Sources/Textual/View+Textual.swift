@@ -1,5 +1,30 @@
 import SwiftUI
 
+/// An application-specific command shown for selected Textual content.
+public struct TextSelectionAction: Sendable {
+  public let title: String
+  private let handler: @MainActor @Sendable (String) -> Void
+
+  public init(
+    _ title: String,
+    handler: @escaping @MainActor @Sendable (String) -> Void
+  ) {
+    self.title = title
+    self.handler = handler
+  }
+
+  @MainActor
+  func perform(with selectedText: String) {
+    handler(selectedText)
+  }
+}
+
+#if TEXTUAL_ENABLE_TEXT_SELECTION
+  extension EnvironmentValues {
+    @Entry var textualTextSelectionActions: [TextSelectionAction] = []
+  }
+#endif
+
 extension View {
   /// Provides access to Textual-specific modifiers.
   ///
@@ -154,6 +179,20 @@ extension TextualNamespace where Base: View {
   public func textSelection(_ selectability: some TextSelectability) -> some View {
     #if TEXTUAL_ENABLE_TEXT_SELECTION
       base.environment(\.textSelection, type(of: selectability))
+    #else
+      base
+    #endif
+  }
+
+  /// Adds application-specific commands to the native menu for selected text.
+  @available(macOS 10.15, *)
+  @available(iOS, unavailable)
+  @available(tvOS, unavailable)
+  @available(watchOS, unavailable)
+  @available(visionOS, unavailable)
+  public func textSelectionActions(_ actions: [TextSelectionAction]) -> some View {
+    #if TEXTUAL_ENABLE_TEXT_SELECTION
+      base.environment(\.textualTextSelectionActions, actions)
     #else
       base
     #endif

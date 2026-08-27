@@ -57,6 +57,11 @@ private struct StoredComposerDraft {
     var attachments: [ChatComposerAttachment]
 }
 
+private enum PendingComposerTextMutation {
+    case append(String)
+    case replace(String)
+}
+
 struct ChatMessageSendFailurePolicy {
     static func shouldRestoreDraft(
         after error: Error,
@@ -312,6 +317,7 @@ public final class ChatScreenViewModel {
     public private(set) var transcriptScrollToEndRequest = 0
     private(set) var providerSettingsRecoveryMessageIDs: Set<String> = []
     public private(set) var composerFocusResetToken = 0
+    public private(set) var composerFocusRequestToken = 0
     public private(set) var composerPanelHeight: CGFloat?
     private(set) var composerSuggestions: [ChatComposerSuggestion] = []
     private(set) var composerSuggestionSelection = ChatComposerSuggestionSelection()
@@ -442,6 +448,7 @@ public final class ChatScreenViewModel {
     @ObservationIgnored private var sessionLoadGeneration = 0
     @ObservationIgnored private var composerDraftsByKey: [String: StoredComposerDraft] = [:]
     @ObservationIgnored private var activeComposerDraftKey: String?
+    @ObservationIgnored private var pendingComposerTextMutation: PendingComposerTextMutation?
     @ObservationIgnored private let dictationRecorder = DictationRecorder()
     @ObservationIgnored private var dictationMeterTask: Task<Void, Never>?
     @ObservationIgnored private var suggestionTask: Task<Void, Never>?
@@ -477,6 +484,10 @@ public final class ChatScreenViewModel {
 
     public func dismissComposerFocus() {
         composerFocusResetToken += 1
+    }
+
+    public func requestComposerFocus() {
+        composerFocusRequestToken += 1
     }
 
     public func requestTranscriptScrollToEnd() {
@@ -950,6 +961,37 @@ public final class ChatScreenViewModel {
     public func useStarterPrompt(_ prompt: String) {
         composerDraft.text = prompt
         saveActiveComposerDraft()
+    }
+
+    public func addTextSelectionToComposer(_ selectedText: String) {
+        let selectedText = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !selectedText.isEmpty else { return }
+
+        applyComposerTextMutation(.append(selectedText))
+    }
+
+    public func askForMoreDetails(about selectedText: String) {
+        let selectedText = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !selectedText.isEmpty else { return }
+
+        applyComposerTextMutation(.replace("Tell me more about this:\n\n\(selectedText)"))
+    }
+
+    private func applyComposerTextMutation(_ mutation: PendingComposerTextMutation) {
+        if activeComposerDraftKey == nil {
+            pendingComposerTextMutation = mutation
+        }
+
+        switch mutation {
+        case .append(let text):
+            composerDraft.text = composerDraft.text.isEmpty
+                ? text
+                : "\(composerDraft.text)\n\(text)"
+        case .replace(let text):
+            composerDraft.text = text
+        }
+        saveActiveComposerDraft()
+        requestComposerFocus()
     }
 
     public func deleteSession(_ session: ChatSessionSummary) {
@@ -2279,6 +2321,10 @@ public final class ChatScreenViewModel {
         let storedDraft = composerDraftsByKey[nextKey]
         composerDraft.text = storedDraft?.text ?? ""
         composerAttachments = storedDraft?.attachments ?? []
+        if let pendingComposerTextMutation {
+            self.pendingComposerTextMutation = nil
+            applyComposerTextMutation(pendingComposerTextMutation)
+        }
     }
 
     private func saveActiveComposerDraft() {

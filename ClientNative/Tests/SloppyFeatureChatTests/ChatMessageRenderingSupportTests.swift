@@ -12,6 +12,31 @@ struct ChatMessageRenderingSupportTests {
         #expect(ChatCompactDurationFormatter.string(for: 7384) == "2h 03m")
     }
 
+    @Test("date separators appear after a long pause or on a new day")
+    func dateSeparatorsTrackConversationBreaks() {
+        var calendar = Calendar(identifier: .gregorian)
+        calendar.timeZone = TimeZone(secondsFromGMT: 0)!
+        let start = Date(timeIntervalSince1970: 1_700_000_000)
+
+        #expect(!ChatTranscriptDateSeparators.shouldInsert(
+            between: start,
+            and: start.addingTimeInterval(44 * 60),
+            calendar: calendar
+        ))
+        #expect(ChatTranscriptDateSeparators.shouldInsert(
+            between: start,
+            and: start.addingTimeInterval(45 * 60),
+            calendar: calendar
+        ))
+
+        let nextDay = calendar.date(byAdding: .day, value: 1, to: start)!
+        #expect(ChatTranscriptDateSeparators.shouldInsert(
+            between: start,
+            and: nextDay,
+            calendar: calendar
+        ))
+    }
+
     @Test("consecutive system messages are merged into transcript groups")
     func consecutiveSystemMessagesAreMerged() {
         let firstSystem = ChatMessage(id: "system-1", role: .system, segments: [

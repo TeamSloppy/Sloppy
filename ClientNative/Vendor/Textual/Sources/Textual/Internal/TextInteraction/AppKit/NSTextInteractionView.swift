@@ -14,6 +14,7 @@
     var model: TextSelectionModel
     var exclusionRects: [CGRect]
     var openURL: OpenURLAction
+    var selectionActions: [TextSelectionAction]
 
     override var acceptsFirstResponder: Bool { true }
     override var isFlipped: Bool { true }
@@ -21,15 +22,18 @@
 
     private var dragStart: TextPosition?
     private var selectionAnchor: TextPosition?
+    private var didDragSelection = false
 
     init(
       model: TextSelectionModel,
       exclusionRects: [CGRect],
-      openURL: OpenURLAction
+      openURL: OpenURLAction,
+      selectionActions: [TextSelectionAction]
     ) {
       self.model = model
       self.exclusionRects = exclusionRects
       self.openURL = openURL
+      self.selectionActions = selectionActions
 
       super.init(frame: .zero)
       self.wantsLayer = false
@@ -54,6 +58,7 @@
 
     override func mouseDown(with event: NSEvent) {
       window?.makeFirstResponder(self)
+      didDragSelection = false
       let location = convert(event.locationInWindow, from: nil)
 
       switch event.clickCount {
@@ -91,11 +96,21 @@
       }
 
       model.selectedRange = TextRange(from: dragStart, to: currentPosition)
+      didDragSelection = true
       autoscroll(with: event)
     }
 
     override func mouseUp(with event: NSEvent) {
       dragStart = nil
+      guard didDragSelection,
+        let selectedRange = model.selectedRange,
+        !selectedRange.isCollapsed,
+        !selectionActions.isEmpty
+      else {
+        return
+      }
+
+      NSMenu.popUpContextMenu(makeContextMenu(), with: event, for: self)
     }
 
     override func rightMouseDown(with event: NSEvent) {
@@ -189,6 +204,20 @@
         return contextMenu
       }
 
+      for (index, selectionAction) in selectionActions.enumerated() {
+        let item = NSMenuItem(
+          title: selectionAction.title,
+          action: #selector(performSelectionAction(_:)),
+          keyEquivalent: ""
+        )
+        item.target = self
+        item.tag = index
+        contextMenu.addItem(item)
+      }
+      if !selectionActions.isEmpty {
+        contextMenu.addItem(.separator())
+      }
+
       // Get the localized title for the share action
       let sharingPicker = NSSharingServicePicker(items: [])
       let shareActionTitle = sharingPicker.standardShareMenuItem.title
@@ -220,6 +249,17 @@
       )
 
       return contextMenu
+    }
+
+    @objc private func performSelectionAction(_ sender: NSMenuItem) {
+      guard selectionActions.indices.contains(sender.tag),
+        let selectedRange = model.selectedRange,
+        !selectedRange.isCollapsed
+      else {
+        return
+      }
+
+      selectionActions[sender.tag].perform(with: model.text(in: selectedRange))
     }
 
     private func modifySelection(

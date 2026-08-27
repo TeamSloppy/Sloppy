@@ -71,7 +71,7 @@ private struct RootShellContent: View {
     @Environment(\.theme) private var theme
 
     var body: some View {
-        let rootViewModel = viewModel
+        @Bindable var rootViewModel = viewModel
 
         return ZStack(alignment: .topLeading) {
             #if os(macOS)
@@ -126,7 +126,7 @@ private struct RootShellContent: View {
                     connectionMonitor: rootViewModel.connectionMonitor,
                     rootSafeAreaInsets: safeAreaInsets,
                     onOpenSettings: { destination in
-                        rootViewModel.appState = .settings(destination)
+                        rootViewModel.presentSettings(destination)
                     },
                     onOpenWorkspace: {
                         rootViewModel.showConnectionSetup()
@@ -137,18 +137,6 @@ private struct RootShellContent: View {
                     onConsumeDeepLink: rootViewModel.consumeDeepLink
                 )
                 .id(rootViewModel.settings.instanceDirectoryKey)
-
-            case .settings(let destination):
-                SettingsScreen(
-                    settings: rootViewModel.settings,
-                    initialDestination: destination,
-                    onDismiss: {
-                        rootViewModel.startConnected(url: rootViewModel.settings.baseURL)
-                    },
-                    onLogout: {
-                        rootViewModel.logout()
-                    }
-                )
             }
 
             if let banner = rootViewModel.activeBanner {
@@ -171,6 +159,36 @@ private struct RootShellContent: View {
         .onChange(of: rootViewModel.settings.windowCloseBehavior) { _, _ in
             rootViewModel.applyDesktopWindowCloseBehavior()
         }
+        #if os(iOS)
+        .fullScreenCover(item: $rootViewModel.presentedSettings) { destination in
+            settingsPresentation(for: destination, viewModel: rootViewModel)
+        }
+        #else
+        .sheet(item: $rootViewModel.presentedSettings) { destination in
+            settingsPresentation(for: destination, viewModel: rootViewModel)
+        }
+        #endif
+    }
+
+    private func settingsPresentation(
+        for destination: ClientSettingsDestination,
+        viewModel: RootShellViewModel
+    ) -> some View {
+        SettingsScreen(
+            settings: viewModel.settings,
+            initialDestination: destination,
+            onDismiss: {
+                viewModel.dismissSettings()
+            },
+            onChangeServer: {
+                viewModel.dismissSettings()
+                viewModel.changeServer()
+            },
+            onLogout: {
+                viewModel.dismissSettings()
+                viewModel.logout()
+            }
+        )
     }
 }
 

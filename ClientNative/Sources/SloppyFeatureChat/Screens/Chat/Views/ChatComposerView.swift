@@ -29,6 +29,7 @@ public final class ChatComposerDraft {
 }
 
 public struct ChatComposerView: View {
+    public static let desktopPanelWidth: CGFloat = 800
     public static let panelWidth: CGFloat = 900
     public static let panelHeight: CGFloat = Constants.fieldHeight
     public static let phonePanelHeight: CGFloat = 72
@@ -136,7 +137,7 @@ public struct ChatComposerView: View {
             minHeight: currentPanelHeight,
             alignment: .leading
         )
-        .frame(maxWidth: Self.panelWidth)
+        .frame(maxWidth: maximumPanelWidth)
         .overlay(alignment: .top) {
             if !viewModel.composerSuggestions.isEmpty {
                 ComposerSuggestionsView(
@@ -157,6 +158,14 @@ public struct ChatComposerView: View {
             reduceMotion ? nil : .spring(duration: 0.32, bounce: 0.08),
             value: isPhoneComposerExpanded
         )
+    }
+
+    private var maximumPanelWidth: CGFloat {
+#if os(macOS)
+        Self.desktopPanelWidth
+#else
+        Self.panelWidth
+#endif
     }
 
     #if os(macOS)
@@ -1189,6 +1198,13 @@ struct ChatTextField: View {
             .layoutPriority(1)
             .onChange(of: viewModel.composerFocusResetToken) { _, _ in
                 isTextFieldFocused = false
+            }
+            .task(id: viewModel.composerFocusRequestToken) {
+                guard viewModel.composerFocusRequestToken > 0 else {
+                    return
+                }
+                await Task.yield()
+                isTextFieldFocused = true
             }
             .onChange(of: isTextFieldFocused) { _, isFocused in
                 onFocusChanged(isFocused)

@@ -177,10 +177,13 @@ public struct SettingsScreen: View {
     @State private var config: SloppyConfig? = nil
     @State private var statusText: String = "Loading config..."
     @State private var searchQuery: String = ""
-    @State private var selectedSection: SettingsScreenSection
+    @State private var selectedSection: SettingsScreenSection?
+    @State private var preferredCompactColumn: NavigationSplitViewColumn = .sidebar
 
     private let settings: ClientSettings
+    private let initialSection: SettingsScreenSection
     private let onDismiss: (() -> Void)?
+    private let onChangeServer: (@MainActor () -> Void)?
     private let onLogout: (@MainActor () -> Void)?
 
     @Environment(\.userInterfaceIdiom) private var idiom
@@ -192,10 +195,12 @@ public struct SettingsScreen: View {
         settings: ClientSettings? = nil,
         initialDestination: ClientSettingsDestination = .general,
         onDismiss: (() -> Void)? = nil,
+        onChangeServer: (@MainActor () -> Void)? = nil,
         onLogout: (@MainActor () -> Void)? = nil
     ) {
         self.settings = settings ?? ClientSettings()
         self.onDismiss = onDismiss
+        self.onChangeServer = onChangeServer
         self.onLogout = onLogout
         self.api = SloppyAPIClient(baseURL: (settings ?? ClientSettings()).baseURL)
         let initialSection: SettingsScreenSection
@@ -207,56 +212,45 @@ public struct SettingsScreen: View {
         case .providers:
             initialSection = .providers
         }
-        self._selectedSection = State(
-            initialValue: initialSection
-        )
+        self.initialSection = initialSection
+        self._selectedSection = State(initialValue: nil)
     }
 
     public var body: some View {
-        Group {
-            if idiom == .phone {
-                phoneLayout
-            } else {
-                desktopShell
-            }
-        }
+        settingsShell
         .onAppear {
-            if selectedSection != .account {
+            if idiom != .phone, selectedSection == nil {
+                selectedSection = initialSection
+                return
+            }
+            if displayedSection != .account {
                 loadConfig()
             }
         }
         .onChange(of: selectedSection) { _, section in
-            if section != .account, config == nil {
+            if section != nil, section != .account, config == nil {
                 loadConfig()
             }
         }
     }
 
-    private var phoneLayout: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: theme.spacing.xl) {
-                headerSection
-                detailContent(for: selectedSection)
-            }
-            .padding(.bottom, theme.spacing.xxl)
-        }
-    }
-
-    private var desktopShell: some View {
-        return NavigationSplitView(sidebar: {
+    private var settingsShell: some View {
+        return NavigationSplitView(preferredCompactColumn: $preferredCompactColumn, sidebar: {
             settingsSidebar
                 .searchable(text: $searchQuery, placement: .sidebar, prompt: "Search settings...")
                 .navigationSplitViewColumnWidth(min: 240, ideal: 308, max: 380)
         }, detail: {
             settingsDetailPane
         })
+        #if os(macOS)
         .frame(minWidth: 1120, maxWidth: .infinity, minHeight: 760, maxHeight: .infinity)
+        #endif
         .background(theme.colors.background)
     }
 
     private var settingsSidebar: some View {
-        List(selection: selectedSectionBinding) {
-            if let onDismiss {
+        List(selection: $selectedSection) {
+            if let onDismiss, idiom != .phone {
                 Section {
                     Button(action: onDismiss) {
                         Label("Back to app", systemImage: "arrow.left")
@@ -279,17 +273,18 @@ public struct SettingsScreen: View {
         }
         .listStyle(.sidebar)
         .navigationTitle("Settings")
-    }
-
-    private var selectedSectionBinding: Binding<SettingsScreenSection?> {
-        Binding(
-            get: { selectedSection },
-            set: { selection in
-                if let selection {
-                    selectedSection = selection
+        .toolbar {
+            #if os(iOS)
+            if let onDismiss, idiom == .phone {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button(action: onDismiss) {
+                        Image(systemName: "chevron.left")
+                    }
+                    .accessibilityLabel("Back to app")
                 }
             }
-        )
+            #endif
+        }
     }
 
     private var settingsDetailPane: some View {
@@ -303,7 +298,7 @@ public struct SettingsScreen: View {
 
             Form {
                 Section {
-                    detailContent(for: selectedSection)
+                    detailContent(for: displayedSection)
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
@@ -313,6 +308,10 @@ public struct SettingsScreen: View {
             .frame(maxWidth: 920)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .navigationTitle(displayedSection.title)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
     }
 
     private var headerSection: some View {
@@ -321,13 +320,13 @@ public struct SettingsScreen: View {
         let ty = theme.typography
 
         return VStack(alignment: .leading, spacing: sp.s) {
-            Text(selectedSection.title)
+            Text(displayedSection.title)
                 .font(.system(size: ty.title, weight: .semibold))
                 .foregroundColor(c.textPrimary)
-            Text(selectedSection.subtitle)
+            Text(displayedSection.subtitle)
                 .font(.system(size: ty.body))
                 .foregroundColor(c.textMuted)
-            if selectedSection != .backend, selectedSection != .account {
+            if displayedSection != .backend, displayedSection != .account {
                 Text(statusText)
                     .font(.system(size: ty.caption))
                     .foregroundColor(c.textMuted)
@@ -337,11 +336,14 @@ public struct SettingsScreen: View {
 
     @ViewBuilder
     private func detailContent(for section: SettingsScreenSection) -> some View {
-        switch selectedSection {
+        switch section {
         case .account:
             AccountSettingsSection(apiClient: api, onLogout: onLogout ?? {})
         case .client:
-            ClientSettingsSection(settings: settings)
+            ClientSettingsSection(
+                settings: settings,
+                onChangeServer: onChangeServer ?? {}
+            )
             #if os(macOS)
             windowResizeSection
             #endif
@@ -426,6 +428,10 @@ public struct SettingsScreen: View {
         case .sessions, .voiceMode, .updates:
             UnsupportedSettingsSectionView(section: section)
         }
+    }
+
+    private var displayedSection: SettingsScreenSection {
+        selectedSection ?? initialSection
     }
 
     @ViewBuilder

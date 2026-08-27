@@ -42,6 +42,10 @@ struct ChatMarkdownRenderingSourceTests {
             "Vendor", "Textual", "Sources", "Textual", "Internal", "TextInteraction", "AppKit",
             "AppKitTextSelectionView.swift"
         )
+        let interactionViewSource = try source(
+            "Vendor", "Textual", "Sources", "Textual", "Internal", "TextInteraction", "AppKit",
+            "NSTextInteractionView.swift"
+        )
         let structuredTextSource = try source(
             "Vendor", "Textual", "Sources", "Textual", "StructuredText", "StructuredText.swift"
         )
@@ -51,6 +55,10 @@ struct ChatMarkdownRenderingSourceTests {
         #expect(textBuilderSource.contains("guard attachmentSizes != currentAttachmentSizes else { return }"))
         #expect(selectionBackgroundSource.contains("if textSelectionModel != nil"))
         #expect(selectionViewSource.contains("guard updatedSelectionRects != selectionRects else { return }"))
+        #expect(interactionViewSource.contains("performSelectionAction"))
+        #expect(interactionViewSource.contains("selectionActions[sender.tag].perform"))
+        #expect(interactionViewSource.contains("didDragSelection"))
+        #expect(interactionViewSource.contains("NSMenu.popUpContextMenu(makeContextMenu(), with: event, for: self)"))
         #expect(structuredTextSource.contains("actor BackgroundMarkdownParser"))
         #expect(structuredTextSource.contains(".task(id: markup)"))
         #expect(structuredTextSource.contains("guard !Task.isCancelled else { return }"))

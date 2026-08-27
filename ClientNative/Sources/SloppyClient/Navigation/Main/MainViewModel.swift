@@ -226,6 +226,7 @@ final class MainViewModel {
         isNewChatInstancePickerPresented = false
         showBlankChatInSelectedTab(endpoint: instance.endpoint)
         applyPendingNewChatStarterPrompt()
+        requestSelectedComposerFocus()
     }
 
     func selectChatSession(_ session: ChatSessionSummary) {
@@ -647,6 +648,14 @@ final class MainViewModel {
 
     func requestChatScrollToEnd(for tabID: WorkspaceTab.ID) {
         tabStates[tabID]?.chatState?.viewModel.requestTranscriptScrollToEnd()
+    }
+
+    func requestSelectedComposerFocus() {
+        guard let selectedTabID,
+              let chatViewModel = tabStates[selectedTabID]?.chatState?.viewModel else {
+            return
+        }
+        chatViewModel.requestComposerFocus()
     }
 
     func loadProjects(force: Bool = false) async {

@@ -44,8 +44,8 @@ struct ChatBubbleRenderingTests {
         #expect(source.contains("accessibilityReduceMotion"))
     }
 
-    @Test("macOS markdown avoids Textual's text-layout selection feedback loop")
-    func macOSMarkdownUsesNativeTextSelection() throws {
+    @Test("macOS markdown provides native selected-text actions")
+    func macOSMarkdownProvidesSelectedTextActions() throws {
         let source = try source
         let stackStart = try #require(source.range(of: "private struct ChatMarkdownTextStack"))
         let cardStart = try #require(source.range(of: "private struct ChatSegmentCollapsibleCard"))
@@ -54,8 +54,8 @@ struct ChatBubbleRenderingTests {
         let fallbackBranchStart = try #require(stackSource.range(of: "#else"))
         let macOSBranch = stackSource[macOSBranchStart.lowerBound..<fallbackBranchStart.lowerBound]
 
-        #expect(macOSBranch.contains(".textSelection(.enabled)"))
-        #expect(!macOSBranch.contains("textual.textSelection"))
+        #expect(macOSBranch.contains(".textual.textSelection(.enabled)"))
+        #expect(macOSBranch.contains(".textual.textSelectionActions(selectionActions.textualActions)"))
         #expect(stackSource.contains(".textual.textSelection(.enabled)"))
 
         let bubbleBodyStart = try #require(source.range(of: "public var body: some View"))
@@ -87,6 +87,16 @@ struct ChatBubbleRenderingTests {
         #expect(groupSource.contains("ChatSystemActivityVisibility.visibleItems"))
         #expect(groupSource.contains("isExpanded.toggle()"))
         #expect(groupSource.contains(".buttonStyle(.plain)"))
+    }
+
+    @Test("chat messages use Codex-like flat typography and a subtle user bubble")
+    func chatMessagesUseCodexLikeVisualTreatment() throws {
+        let source = try source
+
+        #expect(source.contains("private static let userBubbleRadius: CGFloat = 18"))
+        #expect(source.contains(".fill(c.surfaceGlow)"))
+        #expect(source.contains(".stroke(c.border.opacity(0.72)"))
+        #expect(source.contains(".lineSpacing(4)"))
     }
 
     @Test("recoverable provider failures link to provider settings")

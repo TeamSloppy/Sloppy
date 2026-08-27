@@ -11,6 +11,8 @@
   // the text.
 
   struct AppKitTextInteractionOverlay: NSViewRepresentable {
+    @Environment(\.textualTextSelectionActions) private var selectionActions
+
     private let model: TextSelectionModel
     private let overflowFrames: [CGRect]
 
@@ -23,7 +25,8 @@
       NSTextInteractionView(
         model: model,
         exclusionRects: overflowFrames,
-        openURL: context.environment.openURL
+        openURL: context.environment.openURL,
+        selectionActions: selectionActions
       )
     }
 
@@ -31,6 +34,7 @@
       nsView.model = model
       nsView.exclusionRects = overflowFrames
       nsView.openURL = context.environment.openURL
+      nsView.selectionActions = selectionActions
     }
   }
 #endif

@@ -194,7 +194,11 @@ struct SloppyClientApp: App {
 
         #if os(macOS)
         Settings {
-            SettingsScreen(settings: viewModel.settings)
+            SettingsScreen(
+                settings: viewModel.settings,
+                onChangeServer: viewModel.changeServer,
+                onLogout: viewModel.logout
+            )
                 .frame(minWidth: 1120, minHeight: 760)
         }
         .defaultSize(width: 1360, height: 880)

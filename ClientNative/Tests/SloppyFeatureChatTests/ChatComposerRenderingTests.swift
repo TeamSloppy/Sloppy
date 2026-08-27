@@ -88,6 +88,9 @@ struct ChatComposerRenderingTests {
     func desktopComposerUsesCompactSingleRowLayout() throws {
         let source = try chatComposerSource
 
+        #expect(source.contains("public static let desktopPanelWidth: CGFloat = 800"))
+        #expect(source.contains("public static let panelWidth: CGFloat = 900"))
+        #expect(source.contains("#if os(macOS)\n        Self.desktopPanelWidth\n#else\n        Self.panelWidth\n#endif"))
         #expect(source.contains("public static let panelHeight: CGFloat = Constants.fieldHeight"))
         #expect(source.contains("private static let panelRadius: CGFloat = panelHeight / 2"))
         #expect(source.contains("width: ChatComposerView.buttonSize"))
@@ -95,6 +98,23 @@ struct ChatComposerRenderingTests {
         #expect(source.contains("HStack(alignment: .bottom, spacing: 0)"))
         #expect(source.contains(".fixedSize(horizontal: true, vertical: false)"))
         #expect(!source.contains("modelPickerBottomPadding"))
+    }
+
+    @Test("desktop composer keeps add and trailing actions outside the text field")
+    func desktopComposerKeepsActionsOutsideTextField() throws {
+        let source = try chatComposerSource
+        let surfaceStart = try #require(source.range(of: "private var macComposerInputSurface"))
+        let mobileStart = try #require(source.range(of: "#if !os(macOS)", range: surfaceStart.upperBound..<source.endIndex))
+        let surfaceSource = source[surfaceStart.lowerBound..<mobileStart.lowerBound]
+
+        #expect(source.contains("HStack(alignment: .bottom, spacing: sp.s)"))
+        #expect(source.contains("ComposerAddMenu("))
+        #expect(source.contains("macComposerInputSurface"))
+        #expect(source.contains("MobileComposerCircleButton("))
+        #expect(!surfaceSource.contains("ComposerAddMenu("))
+        #expect(!surfaceSource.contains("MobileComposerCircleButton("))
+        #expect(surfaceSource.contains(".glassEffect("))
+        #expect(!surfaceSource.contains("theme.colors.surface.opacity(0.98)"))
     }
 
     @Test("desktop model controls stay bottom-right without a button background")

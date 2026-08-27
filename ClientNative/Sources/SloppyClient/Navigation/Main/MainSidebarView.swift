@@ -21,13 +21,15 @@ struct MainSidebarView: View {
     let viewModel: MainViewModel
     let isOverlay: Bool
     let canvasWorkspaceViewModel: CanvasWorkspaceViewModel
+    let navigationDestination: @MainActor (MainSidebarSelection) -> AnyView
 
     var body: some View {
         #if os(iOS)
         PlatformMainSidebar(
             viewModel: viewModel,
             isOverlay: isOverlay,
-            canvasWorkspaceViewModel: canvasWorkspaceViewModel
+            canvasWorkspaceViewModel: canvasWorkspaceViewModel,
+            navigationDestination: navigationDestination
         )
         #else
         PlatformMainSidebar(viewModel: viewModel, isOverlay: isOverlay)

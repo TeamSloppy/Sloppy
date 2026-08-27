@@ -5,9 +5,8 @@ import SloppyClientUI
 
 struct ClientSettingsSection: View {
     let settings: ClientSettings
+    let onChangeServer: @MainActor () -> Void
 
-    @State private var hostDraft: String = ""
-    @State private var portDraft: String = ""
     @Environment(\.theme) private var theme
 
     private let accentPresets: [(label: String, hex: String)] = [
@@ -24,22 +23,33 @@ struct ClientSettingsSection: View {
 
         return VStack(alignment: .leading, spacing: sp.m) {
             SettingsSectionCard("Connection") {
-                SettingsFieldRow("Host", hint: "Sloppy server hostname or IP", text: Binding(
-                    get: { hostDraft },
-                    set: { hostDraft = $0 }
-                ))
-                SettingsDivider()
-                SettingsFieldRow("Port", hint: "Default: 25101", text: Binding(
-                    get: { portDraft },
-                    set: { portDraft = $0 }
-                ))
-                SettingsDivider()
-                HStack(spacing: sp.m) {
-                    Spacer()
-                    Button("Apply") { applyConnection() }
+                VStack(alignment: .leading, spacing: sp.s) {
+                    Text("SERVER")
+                        .font(.system(size: theme.typography.micro))
+                        .foregroundColor(theme.colors.textSecondary)
+                    Text(settings.serverHost)
+                        .font(.system(.body, design: .monospaced))
+                        .foregroundColor(theme.colors.textPrimary)
+                        .textSelection(.enabled)
+                        .accessibilityLabel("Current server")
+                    Text("Changing server signs you out of the current session.")
+                        .font(.system(size: theme.typography.caption))
+                        .foregroundColor(theme.colors.textMuted)
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(.horizontal, sp.m)
                 .padding(.vertical, sp.s)
+
+                SettingsDivider()
+
+                Button(action: onChangeServer) {
+                    Label("Change Server", systemImage: "arrow.triangle.2.circlepath")
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, sp.m)
+                .padding(.vertical, sp.s)
+                .accessibilityIdentifier("settings.change-server")
             }
             .padding(.horizontal, sp.m)
 
@@ -56,10 +66,6 @@ struct ClientSettingsSection: View {
             #if os(macOS)
             desktopSettingsSection
             #endif
-        }
-        .onAppear {
-            hostDraft = settings.serverHost
-            portDraft = String(settings.serverPort)
         }
     }
 
@@ -131,14 +137,6 @@ struct ClientSettingsSection: View {
                 set: { settings.accentColorHex = $0 }
             ))
         }
-    }
-
-    private func applyConnection() {
-        guard let address = ServerAddress.parse(host: hostDraft, port: portDraft) else { return }
-        hostDraft = address.host
-        portDraft = String(address.port)
-        settings.serverHost = address.host
-        settings.serverPort = address.port
     }
 
     #if os(macOS)

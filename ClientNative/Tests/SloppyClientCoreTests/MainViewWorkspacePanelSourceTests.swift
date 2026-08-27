@@ -83,6 +83,30 @@ struct MainViewWorkspacePanelSourceTests {
         #expect(chatViewModel.contains("public var activeProjectNameForWorkspacePanel: String?"))
     }
 
+    @Test("selected transcript text opens side chat and survives its initial load")
+    func selectedTranscriptTextOpensSideChat() throws {
+        let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
+        let chatBubble = try source("Sources/SloppyFeatureChat/Screens/Chat/Views/ChatBubbleView.swift")
+        let chatViewModel = try source("Sources/SloppyFeatureChat/Screens/Chat/ChatScreenViewModel.swift")
+
+        #expect(mainView.contains("onAskInSideChat: askInSideChat"))
+        #expect(mainView.contains("private func askInSideChat(_ selectedText: String)"))
+        #expect(mainView.contains("sideChatViewModel?.addTextSelectionToComposer(selectedText)"))
+        #expect(mainView.contains("workspaceSidePanelDestination = .sideChat"))
+        #expect(mainView.contains("isWorkspacePanelPresented = true"))
+        #expect(chatBubble.contains("TextSelectionAction(\"Ask in side chat\""))
+        #expect(chatViewModel.contains("pendingComposerTextMutation"))
+        #expect(chatViewModel.contains("applyComposerTextMutation(pendingComposerTextMutation)"))
+    }
+
+    @Test("main macOS composer uses the 800 point desktop width without changing iOS")
+    func mainMacOSComposerUsesDesktopWidth() throws {
+        let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
+
+        #expect(mainView.contains("#if os(macOS)\n                        ChatComposerView.desktopPanelWidth\n#else\n                        10\n#endif"))
+        #expect(mainView.contains("contentWidth: 340"))
+    }
+
     @Test("chat tabs synchronize with the session created by the composer")
     func chatTabsSynchronizeWithTheSessionCreatedByTheComposer() throws {
         let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")

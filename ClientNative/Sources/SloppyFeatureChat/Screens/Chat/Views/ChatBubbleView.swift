@@ -4,8 +4,32 @@ import SloppyClientCore
 import SloppyClientUI
 import Textual
 
+struct ChatTextSelectionActions {
+    var addToChat: (@MainActor @Sendable (String) -> Void)?
+    var moreDetails: (@MainActor @Sendable (String) -> Void)?
+    var askInSideChat: (@MainActor @Sendable (String) -> Void)?
+
+    var textualActions: [TextSelectionAction] {
+        [
+            addToChat.map { handler in
+                TextSelectionAction("Add to chat", handler: handler)
+            },
+            moreDetails.map { handler in
+                TextSelectionAction("More details", handler: handler)
+            },
+            askInSideChat.map { handler in
+                TextSelectionAction("Ask in side chat", handler: handler)
+            },
+        ].compactMap { $0 }
+    }
+}
+
+extension EnvironmentValues {
+    @Entry var chatTextSelectionActions = ChatTextSelectionActions()
+}
+
 public struct ChatBubbleView: View {
-    private static let userBubbleRadius: CGFloat = 14
+    private static let userBubbleRadius: CGFloat = 18
 
     public let message: ChatMessage
     public let isActivelyWorking: Bool
@@ -64,7 +88,11 @@ public struct ChatBubbleView: View {
                 .padding(.vertical, sp.s)
                 .background {
                     RoundedRectangle(cornerRadius: Self.userBubbleRadius)
-                        .fill(c.surfaceRaised)
+                        .fill(c.surfaceGlow)
+                        .overlay {
+                            RoundedRectangle(cornerRadius: Self.userBubbleRadius)
+                                .stroke(c.border.opacity(0.72), lineWidth: theme.borders.thin)
+                        }
                 }
         }
     }
@@ -335,13 +363,15 @@ private struct ChatMarkdownTextStack: View {
     var allowsTextSelection = true
 
     @Environment(\.theme) private var theme
+    @Environment(\.chatTextSelectionActions) private var selectionActions
 
     @ViewBuilder
     var body: some View {
         #if os(macOS)
         if allowsTextSelection {
             structuredText
-                .textSelection(.enabled)
+                .textual.textSelection(.enabled)
+                .textual.textSelectionActions(selectionActions.textualActions)
         } else {
             structuredText
         }
@@ -361,6 +391,7 @@ private struct ChatMarkdownTextStack: View {
         return StructuredText(markdown: text)
             .textual.structuredTextStyle(.gitHub)
             .font(.system(size: ty.body))
+            .lineSpacing(4)
             .foregroundColor(theme.colors.textPrimary)
             .tint(theme.colors.accentCyan)
             .fixedSize(horizontal: false, vertical: true)

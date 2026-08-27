@@ -50,7 +50,7 @@ struct MainView: View {
         case sideChat
     }
 
-    #if os(macOS)
+#if os(macOS)
     private enum ToolbarSearchResult: Identifiable {
         case chat(ChatSessionSummary)
         case project(APIProjectRecord)
@@ -98,8 +98,8 @@ struct MainView: View {
                     RoundedRectangle(cornerRadius: 8, style: .continuous)
                         .fill(
                             isSelected
-                                ? Color.accentColor.opacity(0.18)
-                                : isHovered ? Color.primary.opacity(0.08) : .clear
+                            ? Color.accentColor.opacity(0.18)
+                            : isHovered ? Color.primary.opacity(0.08) : .clear
                         )
                 }
             }
@@ -113,7 +113,7 @@ struct MainView: View {
             }
         }
     }
-    #endif
+#endif
 
     let rootSafeAreaInsets: EdgeInsets
     let menuBarQuickActionRequest: MenuBarQuickActionRequest?
@@ -140,10 +140,10 @@ struct MainView: View {
     @State private var canvasWorkspaceViewModel: CanvasWorkspaceViewModel
     @State private var hasActivatedWorkspaceMode = false
     @SceneStorage("sloppy.main-content-mode") private var mainContentModeRawValue = MainContentMode.coding.rawValue
-    #if os(macOS)
+#if os(macOS)
     @State private var toolbarSearchSelectionID: ToolbarSearchResult.ID?
     @FocusState private var isToolbarSearchFocused: Bool
-    #endif
+#endif
 
     // iOS
     @State private var pagerSize: CGSize = .zero
@@ -226,220 +226,220 @@ struct MainView: View {
                 MainLoadingView()
             }
         }
-            .onAppear {
-                if viewModel.tabs.isEmpty {
-                    viewModel.createBlankChatTab(select: true)
-                }
-                viewModel.chatViewModel.loadInitialData()
-                Task {
-                    await viewModel.loadProjects()
-                }
-                Task {
-                    await viewModel.loadAggregatedChatCatalogIfNeeded()
-                }
-                Task {
-                    await viewModel.loadCurrentAccount()
-                }
-                handleMenuBarQuickAction(menuBarQuickActionRequest)
-                handleDeepLink(deepLinkRequest)
-                if mainContentModeRawValue == MainContentMode.workspace.rawValue {
-                    viewModel.selectWorkspace()
-                    hasActivatedWorkspaceMode = true
-                }
+        .onAppear {
+            if viewModel.tabs.isEmpty {
+                viewModel.createBlankChatTab(select: true)
             }
-            .onChange(of: menuBarQuickActionRequest?.id) { _, _ in
-                handleMenuBarQuickAction(menuBarQuickActionRequest)
+            viewModel.chatViewModel.loadInitialData()
+            Task {
+                await viewModel.loadProjects()
             }
-            .onChange(of: deepLinkRequest?.id) { _, _ in
-                handleDeepLink(deepLinkRequest)
+            Task {
+                await viewModel.loadAggregatedChatCatalogIfNeeded()
             }
-            .background {
-                Group {
-                    Button("") {
-                        viewModel.selectNewChat()
-                    }
-                    .keyboardShortcut("t", modifiers: [.command])
-                    .opacity(0.001)
-                    .allowsHitTesting(false)
+            Task {
+                await viewModel.loadCurrentAccount()
+            }
+            handleMenuBarQuickAction(menuBarQuickActionRequest)
+            handleDeepLink(deepLinkRequest)
+            if mainContentModeRawValue == MainContentMode.workspace.rawValue {
+                viewModel.selectWorkspace()
+                hasActivatedWorkspaceMode = true
+            }
+        }
+        .onChange(of: menuBarQuickActionRequest?.id) { _, _ in
+            handleMenuBarQuickAction(menuBarQuickActionRequest)
+        }
+        .onChange(of: deepLinkRequest?.id) { _, _ in
+            handleDeepLink(deepLinkRequest)
+        }
+        .background {
+            Group {
+                Button("") {
+                    viewModel.selectNewChat()
+                }
+                .keyboardShortcut("t", modifiers: [.command])
+                .opacity(0.001)
+                .allowsHitTesting(false)
 
-                    Button("") {
-                        viewModel.closeActiveTab()
-                    }
-                    .keyboardShortcut("w", modifiers: [.command])
-                    .opacity(0.001)
-                    .allowsHitTesting(false)
-
-                    Button("") {
-                        Task { await viewModel.refreshContent() }
-                    }
-                    .keyboardShortcut("r", modifiers: [.command])
-                    .opacity(0.001)
-                    .allowsHitTesting(false)
-
-                    #if os(macOS)
-                    Button("") {
-                        viewModel.toggleTerminalForSelectedTab()
-                    }
-                    .keyboardShortcut("j", modifiers: [.command])
-                    .opacity(0.001)
-                    .allowsHitTesting(false)
-                    #endif
+                Button("") {
+                    viewModel.closeActiveTab()
                 }
-            }
-            #if os(macOS)
-            .focusedSceneValue(
-                \.toggleWorkspaceTerminal,
-                ToggleWorkspaceTerminalAction {
+                .keyboardShortcut("w", modifiers: [.command])
+                .opacity(0.001)
+                .allowsHitTesting(false)
+
+                Button("") {
+                    Task { await viewModel.refreshContent() }
+                }
+                .keyboardShortcut("r", modifiers: [.command])
+                .opacity(0.001)
+                .allowsHitTesting(false)
+
+#if os(macOS)
+                Button("") {
                     viewModel.toggleTerminalForSelectedTab()
                 }
-            )
-            #endif
-            .toolbar {
-                if viewModel.hasLoadedInitialContent {
-                    if isCanvasWorkspaceSelected,
-                       !canvasWorkspaceViewModel.isShowingLibrary {
-                        ToolbarItem(placement: .navigation) {
-                            Button {
-                                returnToCanvasWorkspaceLibrary()
-                            } label: {
-                                Label("Workspaces", systemImage: "chevron.left")
-                            }
-                            .help("Back to Workspaces")
-                            .accessibilityIdentifier("canvas-workspace-back")
-                        }
-                    }
-
-                    #if os(macOS)
-                    if !isCanvasWorkspaceSelected {
-                        ToolbarItem(placement: .principal) {
-                            toolbarSearchField
-                        }
-                    }
-                    #endif
-
-                    ToolbarItemGroup(placement: .primaryAction) {
-                        #if !os(macOS)
-                        if !isCanvasWorkspaceSelected,
-                           viewModel.selectedAppSection != .artifacts,
-                           viewModel.selectedAppSection != .sites,
-                           let activeChatViewModel {
-                            ChatContextToolbarMenu(
-                                selectedAgent: activeChatViewModel.selectedAgent,
-                                agents: activeChatViewModel.agents,
-                                selectedModelId: activeChatViewModel.selectedModelId,
-                                models: activeChatViewModel.availableModels,
-                                onSelectAgent: activeChatViewModel.pickAgent,
-                                onSelectModel: activeChatViewModel.pickModel
-                            )
-                        }
-                        #endif
-
-                        if idiom != .phone,
-                           !isCanvasWorkspaceSelected,
-                           viewModel.selectedAppSection != .artifacts,
-                           viewModel.selectedAppSection != .sites {
-                            workspaceSidePanelButton
-                        }
-                    }
-                }
+                .keyboardShortcut("j", modifiers: [.command])
+                .opacity(0.001)
+                .allowsHitTesting(false)
+#endif
             }
-            #if os(macOS)
-            .overlay(alignment: .top) {
-                toolbarSearchResultsOverlay
-            }
-            #endif
-            .sheet(isPresented: $viewModel.isProjectEditorPresented) {
-                ProjectEditorSheet(
-                    endpoint: viewModel.projectEditorEndpoint,
-                    project: viewModel.projectBeingEdited,
-                    onSaved: viewModel.didSaveProject
-                )
-            }
-            .sheet(isPresented: $viewModel.isNewChatInstancePickerPresented) {
-                NavigationStack {
-                    List(viewModel.settings.discoveredInstances) { instance in
+        }
+#if os(macOS)
+        .focusedSceneValue(
+            \.toggleWorkspaceTerminal,
+             ToggleWorkspaceTerminalAction {
+                 viewModel.toggleTerminalForSelectedTab()
+             }
+        )
+#endif
+        .toolbar {
+            if viewModel.hasLoadedInitialContent {
+                if isCanvasWorkspaceSelected,
+                   !canvasWorkspaceViewModel.isShowingLibrary {
+                    ToolbarItem(placement: .navigation) {
                         Button {
-                            viewModel.selectNewChat(on: instance)
+                            returnToCanvasWorkspaceLibrary()
                         } label: {
-                            HStack(spacing: 12) {
-                                Image(systemName: instance.isLocal ? "desktopcomputer" : "network")
+                            Label("Workspaces", systemImage: "chevron.left")
+                        }
+                        .help("Back to Workspaces")
+                        .accessibilityIdentifier("canvas-workspace-back")
+                    }
+                }
+
+#if os(macOS)
+                if !isCanvasWorkspaceSelected {
+                    ToolbarItem(placement: .principal) {
+                        toolbarSearchField
+                    }
+                }
+#endif
+
+                ToolbarItemGroup(placement: .primaryAction) {
+#if !os(macOS)
+                    if !isCanvasWorkspaceSelected,
+                       viewModel.selectedAppSection != .artifacts,
+                       viewModel.selectedAppSection != .sites,
+                       let activeChatViewModel {
+                        ChatContextToolbarMenu(
+                            selectedAgent: activeChatViewModel.selectedAgent,
+                            agents: activeChatViewModel.agents,
+                            selectedModelId: activeChatViewModel.selectedModelId,
+                            models: activeChatViewModel.availableModels,
+                            onSelectAgent: activeChatViewModel.pickAgent,
+                            onSelectModel: activeChatViewModel.pickModel
+                        )
+                    }
+#endif
+
+                    if idiom != .phone,
+                       !isCanvasWorkspaceSelected,
+                       viewModel.selectedAppSection != .artifacts,
+                       viewModel.selectedAppSection != .sites {
+                        workspaceSidePanelButton
+                    }
+                }
+            }
+        }
+#if os(macOS)
+        .overlay(alignment: .top) {
+            toolbarSearchResultsOverlay
+        }
+#endif
+        .sheet(isPresented: $viewModel.isProjectEditorPresented) {
+            ProjectEditorSheet(
+                endpoint: viewModel.projectEditorEndpoint,
+                project: viewModel.projectBeingEdited,
+                onSaved: viewModel.didSaveProject
+            )
+        }
+        .sheet(isPresented: $viewModel.isNewChatInstancePickerPresented) {
+            NavigationStack {
+                List(viewModel.settings.discoveredInstances) { instance in
+                    Button {
+                        viewModel.selectNewChat(on: instance)
+                    } label: {
+                        HStack(spacing: 12) {
+                            Image(systemName: instance.isLocal ? "desktopcomputer" : "network")
+                                .foregroundStyle(.secondary)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(instance.displayName)
+                                Text(instance.isLocal ? "Local" : "Via Relay")
+                                    .font(.caption)
                                     .foregroundStyle(.secondary)
-                                VStack(alignment: .leading, spacing: 2) {
-                                    Text(instance.displayName)
-                                    Text(instance.isLocal ? "Local" : "Via Relay")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Circle()
-                                    .fill(instance.status == .online ? Color.green : Color.secondary)
-                                    .frame(width: 8, height: 8)
                             }
-                        }
-                    }
-                    .navigationTitle("New Chat")
-                    .toolbar {
-                        ToolbarItem(placement: .cancellationAction) {
-                            Button("Cancel") {
-                                viewModel.isNewChatInstancePickerPresented = false
-                            }
+                            Spacer()
+                            Circle()
+                                .fill(instance.status == .online ? Color.green : Color.secondary)
+                                .frame(width: 8, height: 8)
                         }
                     }
                 }
-                .frame(minWidth: 360, minHeight: 280)
-            }
-            .onChange(of: viewModel.selectedTabID) { oldValue, newValue in
-                if let oldValue,
-                   oldValue != newValue,
-                   shouldCaptureLiveSnapshotForCache {
-                    captureMobileTabsSnapshot(for: oldValue, storeInCache: true)
-                }
-                updateMobileTabPagingDirection(from: oldValue, to: newValue)
-                if let newValue {
-                    viewModel.requestChatScrollToEnd(for: newValue)
+                .navigationTitle("New Chat")
+                .toolbar {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Cancel") {
+                            viewModel.isNewChatInstancePickerPresented = false
+                        }
+                    }
                 }
             }
-            .onChange(of: activeChatViewModel?.workingTreeSourceControl?.diff) { _, diff in
-                guard diff != nil,
-                      let activeChatViewModel,
-                      let sourceControl = activeChatViewModel.workingTreeSourceControl,
-                      activeChatViewModel.activeProjectIdForWorkspacePanel
-                        == viewModel.workspacePanelViewModel.context?.projectId else {
-                    return
-                }
-                viewModel.workspacePanelViewModel.synchronizeSourceControl(sourceControl)
+            .frame(minWidth: 360, minHeight: 280)
+        }
+        .onChange(of: viewModel.selectedTabID) { oldValue, newValue in
+            if let oldValue,
+               oldValue != newValue,
+               shouldCaptureLiveSnapshotForCache {
+                captureMobileTabsSnapshot(for: oldValue, storeInCache: true)
             }
-            .onChange(of: viewModel.selectedAppSection) { _, _ in
-                mainContentModeRawValue = isCanvasWorkspaceSelected
-                    ? MainContentMode.workspace.rawValue
-                    : MainContentMode.coding.rawValue
-                guard isCanvasWorkspaceSelected else {
-                    return
-                }
-                viewModel.selectedSidebarItem = nil
-                hasActivatedWorkspaceMode = true
-                isWorkspacePanelPresented = false
-                canvasWorkspaceViewModel.showLibrary()
-                #if os(macOS)
-                dismissToolbarSearch()
-                #endif
+            updateMobileTabPagingDirection(from: oldValue, to: newValue)
+            if let newValue {
+                viewModel.requestChatScrollToEnd(for: newValue)
             }
-            .task(id: canvasResolutionKey) {
-                guard isCanvasWorkspaceSelected else {
-                    return
-                }
-                await canvasWorkspaceViewModel.resolve(
-                    workspaceID: viewModel.activeCanvasWorkspaceID,
-                    projectID: viewModel.activeCanvasProjectID,
-                    projectName: viewModel.workspaceContext?.projectName,
-                    force: true
-                )
+        }
+        .onChange(of: activeChatViewModel?.workingTreeSourceControl?.diff) { _, diff in
+            guard diff != nil,
+                  let activeChatViewModel,
+                  let sourceControl = activeChatViewModel.workingTreeSourceControl,
+                  activeChatViewModel.activeProjectIdForWorkspacePanel
+                    == viewModel.workspacePanelViewModel.context?.projectId else {
+                return
             }
+            viewModel.workspacePanelViewModel.synchronizeSourceControl(sourceControl)
+        }
+        .onChange(of: viewModel.selectedAppSection) { _, _ in
+            mainContentModeRawValue = isCanvasWorkspaceSelected
+            ? MainContentMode.workspace.rawValue
+            : MainContentMode.coding.rawValue
+            guard isCanvasWorkspaceSelected else {
+                return
+            }
+            viewModel.selectedSidebarItem = nil
+            hasActivatedWorkspaceMode = true
+            isWorkspacePanelPresented = false
+            canvasWorkspaceViewModel.showLibrary()
+#if os(macOS)
+            dismissToolbarSearch()
+#endif
+        }
+        .task(id: canvasResolutionKey) {
+            guard isCanvasWorkspaceSelected else {
+                return
+            }
+            await canvasWorkspaceViewModel.resolve(
+                workspaceID: viewModel.activeCanvasWorkspaceID,
+                projectID: viewModel.activeCanvasProjectID,
+                projectName: viewModel.workspaceContext?.projectName,
+                force: true
+            )
+        }
     }
 
     @ViewBuilder
     private var workspacePanelContainer: some View {
-        #if os(macOS)
+#if os(macOS)
         HStack(spacing: 0) {
             contentView
                 .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
@@ -453,14 +453,14 @@ struct MainView: View {
                     .background(theme.colors.surface)
             }
         }
-        #else
+#else
         contentView
             .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
             .inspector(isPresented: $isWorkspacePanelPresented) {
                 workspaceScreen()
                     .inspectorColumnWidth(min: 320, ideal: 380, max: 520)
             }
-        #endif
+#endif
     }
 
     @ViewBuilder
@@ -537,8 +537,6 @@ struct MainView: View {
             Image(systemName: "sidebar.right")
                 .frame(width: 24, height: 24)
         }
-        .buttonStyle(.glass)
-        .buttonBorderShape(.circle)
         .help(isWorkspacePanelPresented ? "Show panel picker" : "Open side panel")
         .accessibilityLabel("Side panel")
     }
@@ -587,7 +585,16 @@ struct MainView: View {
         }
     }
 
-    #if os(macOS)
+    private func askInSideChat(_ selectedText: String) {
+        if sideChatViewModel == nil {
+            sideChatViewModel = viewModel.makeChatTabState().viewModel
+        }
+        sideChatViewModel?.addTextSelectionToComposer(selectedText)
+        workspaceSidePanelDestination = .sideChat
+        isWorkspacePanelPresented = true
+    }
+
+#if os(macOS)
     private var toolbarSearchField: some View {
         HStack(spacing: 8) {
             Image(systemName: "magnifyingglass")
@@ -668,7 +675,7 @@ struct MainView: View {
 
     private var toolbarSearchResults: [ToolbarSearchResult] {
         visibleToolbarChatSessions.map(ToolbarSearchResult.chat)
-            + visibleToolbarProjects.map(ToolbarSearchResult.project)
+        + visibleToolbarProjects.map(ToolbarSearchResult.project)
     }
 
     private var toolbarSearchResultIDs: [ToolbarSearchResult.ID] {
@@ -678,7 +685,7 @@ struct MainView: View {
     private var toolbarSearchResultsPanelHeight: CGFloat {
         let resultCount = visibleToolbarChatSessions.count + visibleToolbarProjects.count
         let sectionCount = (matchingToolbarChatSessions.isEmpty ? 0 : 1)
-            + (matchingToolbarProjects.isEmpty ? 0 : 1)
+        + (matchingToolbarProjects.isEmpty ? 0 : 1)
         return min(420, max(64, CGFloat(resultCount) * 38 + CGFloat(sectionCount) * 30 + 16))
     }
 
@@ -827,7 +834,7 @@ struct MainView: View {
             isToolbarSearchFocused = false
         }
     }
-    #endif
+#endif
 
     @ViewBuilder
     private var contentView: some View {
@@ -859,7 +866,7 @@ struct MainView: View {
         }
 #else
         navigationView
-            #endif
+#endif
     }
 
     private func handleMenuBarQuickAction(_ request: MenuBarQuickActionRequest?) {
@@ -922,6 +929,13 @@ struct MainView: View {
     }
 
     private var navigationView: some View {
+        Group {
+#if os(iOS)
+        // `PlatformMainSidebar` owns the phone TabView and its NavigationStack.
+        // Wrapping it in a second NavigationSplitView makes UIKit suppress the
+        // inner stack's navigation bar on a real device (but not in Preview).
+        sidebarView(isOverlay: false)
+#else
         NavigationSplitView(columnVisibility: $viewModel.columnVisibility) {
             sidebarView(isOverlay: false)
                 .navigationSplitViewColumnWidth(
@@ -939,6 +953,8 @@ struct MainView: View {
             contentArea()
         }
         .navigationSplitViewStyle(.balanced)
+#endif
+        }
         .overlay {
             if idiom == .phone,
                viewModel.isMobileTabsOverviewPresented || mobileTabsHeroOverlay != nil || isMobileTabsOverviewGestureActive {
@@ -999,7 +1015,7 @@ struct MainView: View {
                     viewModel: viewModel,
                     onOpenOverview: { viewModel.presentVisionTabsOverview() }
                 )
-                    .padding(.bottom, 12)
+                .padding(.bottom, 12)
             }
         )
 #endif
@@ -1027,7 +1043,7 @@ struct MainView: View {
             }
         }
         .navigationSplitViewColumnWidth(min: 600, ideal: 940)
-        #if os(macOS)
+#if os(macOS)
         .overlay(alignment: .bottom) {
             GeometryReader { proxy in
                 workspaceBottomPanelOverlay(
@@ -1036,7 +1052,7 @@ struct MainView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
             }
         }
-        #endif
+#endif
     }
 
     private var mainModeContent: some View {
@@ -1076,35 +1092,41 @@ struct MainView: View {
 
     private var workspaceArea: some View {
         ZStack(alignment: .top) {
-            #if os(visionOS)
+#if os(visionOS)
             workspaceContentHost(showsFloatingTabChrome: true)
-            #elseif os(macOS)
+#elseif os(macOS)
             VStack(spacing: 0) {
                 if viewModel.tabs.count > 1 {
                     DesktopWorkspaceTabStrip(viewModel: viewModel)
                 }
                 workspaceContentHost(showsFloatingTabChrome: false)
             }
-            #else
+#else
             if idiom == .phone {
                 phoneWorkspaceContentHost(showsFloatingTabChrome: false)
             } else {
                 workspaceContentHost(showsFloatingTabChrome: false)
             }
-            #endif
+#endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .overlay(anchor: .bottom) {
             if let activeChatViewModel {
                 ChatComposerOverlay(
                     viewModel: activeChatViewModel,
-                    contentWidth: 10,
+                    contentWidth: {
+#if os(macOS)
+                        ChatComposerView.desktopPanelWidth
+#else
+                        10
+#endif
+                    }(),
                     composerBottomInset: {
-                        #if os(macOS)
+#if os(macOS)
                         24
-                        #else
+#else
                         theme.spacing.s
-                        #endif
+#endif
                     }(),
                     tabs: viewModel.tabs,
                     tabActions: idiom == .phone
@@ -1249,15 +1271,16 @@ struct MainView: View {
                 )
             }
             let openSidebar: (@MainActor @Sendable () -> Void)? = idiom == .phone
-                ? { @MainActor @Sendable in viewModel.openMobileSidebar() }
-                : nil
+            ? { @MainActor @Sendable in viewModel.openMobileSidebar() }
+            : nil
             return AnyView(
                 ChatScreen(
                     viewModel: chatState.viewModel,
                     rootSafeAreaInsets: rootSafeAreaInsets,
                     onOpenSidebar: openSidebar,
                     showsContextToolbar: false,
-                    showsNavigationToolbar: idiom == .phone
+                    showsNavigationToolbar: idiom == .phone,
+                    onAskInSideChat: askInSideChat
                 )
                 .id(ObjectIdentifier(chatState.viewModel))
                 .onChange(of: chatState.viewModel.selectedSessionId) { _, _ in
@@ -1273,11 +1296,11 @@ struct MainView: View {
                 )
             }
             let project = viewModel.project(for: tab.id, localProjectID: context.projectId)
-                ?? APIProjectRecord(
-                    id: context.projectId,
-                    name: context.projectName,
-                    directoryPaths: context.projectRootPath.map { [$0] } ?? []
-                )
+            ?? APIProjectRecord(
+                id: context.projectId,
+                name: context.projectName,
+                directoryPaths: context.projectRootPath.map { [$0] } ?? []
+            )
             return AnyView(
                 ProjectModeView(
                     project: project,
@@ -1317,20 +1340,20 @@ struct MainView: View {
                     taskId: context.taskId,
                     onClose: {
                         let project = viewModel.project(for: tab.id, localProjectID: context.projectId)
-                            ?? APIProjectRecord(
-                                id: context.projectId,
-                                name: context.projectName,
-                                directoryPaths: context.projectRootPath.map { [$0] } ?? []
-                            )
+                        ?? APIProjectRecord(
+                            id: context.projectId,
+                            name: context.projectName,
+                            directoryPaths: context.projectRootPath.map { [$0] } ?? []
+                        )
                         viewModel.openProjectKanbanTab(project: project)
                     },
                     onOpenChat: { task in
                         var project = viewModel.project(for: tab.id, localProjectID: context.projectId)
-                            ?? APIProjectRecord(
-                                id: context.projectId,
-                                name: context.projectName,
-                                tasks: [task]
-                            )
+                        ?? APIProjectRecord(
+                            id: context.projectId,
+                            name: context.projectName,
+                            tasks: [task]
+                        )
                         project.tasks = [task]
                         viewModel.openTaskChatTab(
                             project: project,
@@ -1464,8 +1487,8 @@ struct MainView: View {
             return false
         }
         return !viewModel.isMobileTabsOverviewPresented
-            && !isMobileTabsOverviewGestureActive
-            && mobileTabsHeroOverlay == nil
+        && !isMobileTabsOverviewGestureActive
+        && mobileTabsHeroOverlay == nil
     }
 
     @ViewBuilder
@@ -1475,15 +1498,15 @@ struct MainView: View {
 
             Group {
                 if let mobileTabsSnapshotImage {
-                    #if canImport(UIKit)
+#if canImport(UIKit)
                     Image(uiImage: mobileTabsSnapshotImage)
                         .resizable()
                         .interpolation(.high)
-                    #elseif canImport(AppKit)
+#elseif canImport(AppKit)
                     Image(nsImage: mobileTabsSnapshotImage)
                         .resizable()
                         .interpolation(.high)
-                    #endif
+#endif
                 } else if let tab = viewModel.tabs.first(where: { $0.id == hero.tabID }) {
                     liveHeroFallbackContent(for: tab)
                 }
@@ -1732,11 +1755,11 @@ struct MainView: View {
             return nil
         }
 
-        #if canImport(UIKit)
+#if canImport(UIKit)
         let image = captureWindowSnapshot()
-        #else
+#else
         let image: MobileTabsSnapshotImage? = nil
-        #endif
+#endif
         if storeInCache, let image {
             mobileTabsSnapshotCache[tabID] = image
         }
@@ -1789,13 +1812,14 @@ struct MainView: View {
 
     private func chatScreen(showsSidebarControl: Bool) -> some View {
         let openSidebar: (@MainActor @Sendable () -> Void)? = showsSidebarControl
-            ? { @MainActor @Sendable in viewModel.openMobileSidebar() }
-            : nil
+        ? { @MainActor @Sendable in viewModel.openMobileSidebar() }
+        : nil
         return ChatScreen(
             viewModel: viewModel.chatViewModel,
             rootSafeAreaInsets: rootSafeAreaInsets,
             onOpenSidebar: openSidebar,
-            showsContextToolbar: false
+            showsContextToolbar: false,
+            onAskInSideChat: askInSideChat
         )
     }
 
@@ -1803,7 +1827,15 @@ struct MainView: View {
         MainSidebarView(
             viewModel: viewModel,
             isOverlay: isOverlay,
-            canvasWorkspaceViewModel: canvasWorkspaceViewModel
+            canvasWorkspaceViewModel: canvasWorkspaceViewModel,
+            navigationDestination: { _ in
+                AnyView(
+                    contentArea()
+                        .onAppear {
+                            viewModel.dismissMobileSidebar()
+                        }
+                )
+            }
         )
     }
 

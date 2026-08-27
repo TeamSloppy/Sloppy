@@ -9,10 +9,13 @@ struct PlatformMainSidebar: View {
     let viewModel: MainViewModel
     let isOverlay: Bool
     let canvasWorkspaceViewModel: CanvasWorkspaceViewModel
+    let navigationDestination: @MainActor (MainSidebarSelection) -> AnyView
 
     @Environment(\.userInterfaceIdiom) private var idiom
+    @Environment(\.theme) private var theme
     @State private var searchText = ""
     @State private var isAgentsPresented = false
+    @State private var inboxNavigationPath = NavigationPath()
     @AppStorage("client_chat_sidebar_layout_mode") private var layoutMode = SidebarLayoutMode.list
 
     var body: some View {
@@ -39,8 +42,11 @@ struct PlatformMainSidebar: View {
         @Bindable var viewModel = viewModel
         return TabView(selection: $viewModel.selectedAppSection) {
             Tab("Inbox", systemImage: "tray", value: MainAppSection.chats) {
-                NavigationStack {
+                NavigationStack(path: $inboxNavigationPath) {
                     inboxContent
+                        .navigationDestination(for: MainSidebarSelection.self) { selection in
+                            navigationDestination(selection)
+                        }
                         .navigationTitle(viewModel.selectedInstanceTitle)
                         .navigationBarTitleDisplayMode(.large)
                         .toolbarTitleMenu {
@@ -174,7 +180,7 @@ struct PlatformMainSidebar: View {
     }
 
     private var newChatToolbarButton: some View {
-        Button(action: viewModel.selectNewChat) {
+        Button(action: openNewChatComposer) {
             Image(systemName: "square.and.pencil")
         }
         .accessibilityLabel("New chat")
@@ -183,24 +189,49 @@ struct PlatformMainSidebar: View {
 
     @available(iOS 26.0, *)
     private var newChatAccessory: some View {
-        Button(action: viewModel.selectNewChat) {
-            HStack(spacing: 12) {
-                Image(systemName: "plus")
-                    .font(.headline)
+        Button(action: openNewChatComposer) {
+            HStack(spacing: theme.spacing.m) {
+                accessoryIcon("plus")
 
                 Text("Plan, ask, build…")
-                    .foregroundStyle(.secondary)
+                    .font(.title3)
+                    .foregroundStyle(theme.colors.textMuted)
                     .lineLimit(1)
 
                 Spacer(minLength: 8)
 
-                Image(systemName: "square.and.pencil")
+                accessoryIcon("microphone")
             }
-            .padding(.horizontal, 4)
+            .padding(.horizontal, theme.spacing.xs)
+            .frame(height: 52)
             .frame(maxWidth: .infinity)
+            .contentShape(Capsule())
         }
+        .buttonStyle(.plain)
+        .padding(.horizontal, theme.spacing.xs)
+        .padding(.vertical, theme.spacing.xs)
         .accessibilityLabel("New chat")
         .accessibilityIdentifier("sidebar.new-chat")
+    }
+
+    private func accessoryIcon(_ systemName: String) -> some View {
+        Image(systemName: systemName)
+            .font(.title2.weight(.medium))
+            .foregroundStyle(theme.colors.textMuted)
+            .frame(width: 44, height: 44)
+            .background(Color.primary.opacity(0.08), in: Circle())
+    }
+
+    private func openNewChatComposer() {
+        viewModel.selectNewChat()
+        inboxNavigationPath.append(MainSidebarSelection.chats)
+        guard !viewModel.isNewChatInstancePickerPresented else {
+            return
+        }
+        Task { @MainActor in
+            await Task.yield()
+            viewModel.requestSelectedComposerFocus()
+        }
     }
 }
 
@@ -483,7 +514,8 @@ private struct IOSInboxSearchResults: View {
     PlatformMainSidebar(
         viewModel: .preview(),
         isOverlay: false,
-        canvasWorkspaceViewModel: CanvasWorkspaceViewModel()
+        canvasWorkspaceViewModel: CanvasWorkspaceViewModel(),
+        navigationDestination: { _ in AnyView(EmptyView()) }
     )
 }
 #endif

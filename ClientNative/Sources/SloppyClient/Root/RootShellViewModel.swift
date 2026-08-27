@@ -19,7 +19,6 @@ enum AppState: Equatable {
     case authentication(URL, AuthChallenge, String?)
     case pairing(URL)
     case chat(URL)
-    case settings(ClientSettingsDestination)
 }
 
 enum MenuBarQuickAction: Sendable {
@@ -46,6 +45,7 @@ final class RootShellViewModel {
     var activeBanner: NotificationBannerItem?
     var menuBarQuickActionRequest: MenuBarQuickActionRequest?
     var appDeepLinkRequest: AppDeepLinkRequest?
+    var presentedSettings: ClientSettingsDestination?
 
     private var bannerDismissTask: Task<Void, Never>?
     private var notificationManager: NotificationSocketManager?
@@ -174,6 +174,23 @@ final class RootShellViewModel {
         appState = .connectionSetup
     }
 
+    func presentSettings(_ destination: ClientSettingsDestination) {
+        presentedSettings = destination
+    }
+
+    func dismissSettings() {
+        presentedSettings = nil
+    }
+
+    func changeServer() {
+        let baseURL = currentBaseURL
+        stopConnectedServices()
+        Task { @MainActor in
+            await SloppyAPIClient(baseURL: baseURL).logout()
+            showConnectionSetup()
+        }
+    }
+
     func observeAuthenticationRequirements() async {
         let notifications = NotificationCenter.default.sloppyNotifications(
             named: AuthSessionNotifications.authenticationRequired
@@ -264,7 +281,7 @@ final class RootShellViewModel {
         switch appState {
         case .authentication(let url, _, _), .pairing(let url), .chat(let url):
             return url
-        case .splash, .connectionSetup, .settings:
+        case .splash, .connectionSetup:
             return settings.baseURL
         }
     }
@@ -319,8 +336,6 @@ final class RootShellViewModel {
         switch appState {
         case .authentication(let activeURL, _, _), .chat(let activeURL):
             return activeURL == baseURL
-        case .settings:
-            return settings.baseURL == baseURL
         case .splash, .connectionSetup, .pairing:
             return false
         }

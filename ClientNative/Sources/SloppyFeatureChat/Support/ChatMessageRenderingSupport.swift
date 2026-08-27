@@ -13,6 +13,39 @@ enum ChatTranscriptEntry: Identifiable, Equatable {
             return "system-group:\(messages.first?.id ?? "empty")"
         }
     }
+
+    var createdAt: Date {
+        switch self {
+        case .message(let message):
+            return message.createdAt
+        case .systemGroup(let messages):
+            return messages.first?.createdAt ?? .distantPast
+        }
+    }
+}
+
+enum ChatTranscriptDateSeparators {
+    static let minimumInterval: TimeInterval = 45 * 60
+
+    static func shouldInsert(
+        between previous: Date,
+        and current: Date,
+        calendar: Calendar = .current
+    ) -> Bool {
+        !calendar.isDate(previous, inSameDayAs: current)
+            || current.timeIntervalSince(previous) >= minimumInterval
+    }
+
+    static func title(for date: Date, calendar: Calendar = .current) -> String {
+        let time = date.formatted(date: .omitted, time: .shortened)
+        if calendar.isDateInToday(date) {
+            return "Today \(time)"
+        }
+        if calendar.isDateInYesterday(date) {
+            return "Yesterday \(time)"
+        }
+        return date.formatted(date: .abbreviated, time: .shortened)
+    }
 }
 
 enum ChatTranscriptGrouping {

@@ -106,6 +106,16 @@ struct ChatScreenRenderingTests {
         #expect(nativeSource.contains("scrollView.contentInsets"))
     }
 
+    @Test("composer overlay respects the desktop maximum width")
+    func composerOverlayRespectsDesktopMaximumWidth() throws {
+        let source = try chatScreenSource
+
+        #expect(source.contains(".frame(maxWidth: maximumComposerWidth)"))
+        #expect(source.contains("min(contentWidth, ChatComposerView.desktopPanelWidth)"))
+        #expect(source.contains("#else\n        contentWidth\n#endif"))
+        #expect(!source.contains(".frame(width: contentWidth)"))
+    }
+
     @Test("empty task draft surfaces the active context to the user")
     func emptyTaskDraftSurfacesTheActiveContextToTheUser() throws {
         let source = try chatScreenSource
@@ -217,6 +227,18 @@ struct ChatScreenRenderingTests {
         let source = try chatScreenSource
 
         #expect(source.contains("topInset: transcript.hasEarlierMessages ? 0 : messagesTopInset"))
+    }
+
+    @Test("desktop chat uses a wide transparent transcript with time separators")
+    func desktopChatUsesTransparentTranscriptChrome() throws {
+        let source = try chatScreenSource
+
+        #expect(source.contains("fileprivate let chatContentWidth: CGFloat = 960"))
+        #expect(!source.contains(".background(theme.colors.background)"))
+        #expect(!source.contains("theme.colors.background.opacity(0.88 as Double)"))
+        #expect(source.contains("ChatTranscriptDateSeparators.shouldInsert"))
+        #expect(source.contains("case .dateSeparator(let date)"))
+        #expect(source.contains(".frame(maxWidth: maximumComposerWidth)"))
     }
 
     @Test("chat groups system activity and shows a shimmering thinking state")

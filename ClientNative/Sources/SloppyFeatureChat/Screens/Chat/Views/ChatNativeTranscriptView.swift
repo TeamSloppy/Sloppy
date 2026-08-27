@@ -11,6 +11,7 @@ import UIKit
 struct ChatTranscriptNativeItem: Identifiable, Equatable {
     enum Content: Equatable {
         case revealEarlier(count: Int)
+        case dateSeparator(Date)
         case entry(
             ChatTranscriptEntry,
             bottomSpacing: CGFloat,
