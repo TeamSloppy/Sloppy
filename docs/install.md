@@ -251,6 +251,8 @@ docker compose -f utils/docker/docker-compose.yml up --build
 
 For details see [Build With Docker](/guides/build-with-docker).
 
+To install the server as a public relay for multiple Sloppy computers, see [Relay Deployment and Multi-Instance Access](/guides/relay).
+
 ## Environment variables
 
 Create a `.env` in the repository root to configure API keys:

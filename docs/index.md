@@ -152,6 +152,7 @@ See [Model Providers](/guides/models) for provider-specific setup, [Terminal UI]
 | [Install](/install) | Get Sloppy running from the terminal or with Docker |
 | [Terminal UI](/tui/overview) | Use the full-screen local terminal chat, multi-session list, model picker, and slash commands |
 | [CLI Reference](/guides/cli) | All `sloppy` subcommands and flags |
+| [Relay Deployment](/guides/relay) | Connect work and home Sloppy instances through a personal VPS |
 | [Model Providers](/guides/models) | Configure OpenAI, Gemini, Anthropic, and Ollama |
 | [Channels](/channels/about) | How channels work and how to set up Telegram and Discord |
 | [Agents](/agents/runtime) | Runtime internals: workers, branches, and scheduling |

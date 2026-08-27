@@ -122,6 +122,27 @@ struct NodeMeshClientTests {
         }
     }
 
+    @Test("stream writes report an unavailable platform transport")
+    func streamWritesReportUnavailablePlatformTransport() async throws {
+        let identity = NodeIdentityGenerator.makeIdentity(name: "Laptop", roles: ["client"], capabilities: [])
+        let client = NodeMeshClient(config: NodeConfig(identity: identity))
+
+        do {
+            try await client.sendStreamChunk(
+                streamID: "stream_1",
+                to: "node_worker",
+                data: .string("hello")
+            )
+            Issue.record("Expected unavailable relay transport error")
+        } catch {
+            #if os(Linux)
+            #expect(error as? NodeMeshClientError == .unsupportedRelayScheme("linux-urlsession-websocket"))
+            #else
+            #expect(error as? NodeMeshStreamError == .relayNotConnected)
+            #endif
+        }
+    }
+
     @Test("client handles node ping rpc request")
     func clientHandlesNodePingRPCRequest() async throws {
         let identity = NodeIdentityGenerator.makeIdentity(

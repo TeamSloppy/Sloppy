@@ -763,14 +763,18 @@ public actor NodeMeshClient {
         #endif
     }
 
-    #if !os(Linux)
     private func sendConnectedEnvelope(_ envelope: MeshEnvelope) async throws {
+        #if os(Linux)
+        throw NodeMeshClientError.unsupportedRelayScheme("linux-urlsession-websocket")
+        #else
         guard let activeWebSocketTask, isRelayAuthenticated else {
             throw NodeMeshStreamError.relayNotConnected
         }
         try await send(envelope, over: activeWebSocketTask)
+        #endif
     }
 
+    #if !os(Linux)
     private func send(_ envelope: MeshEnvelope, over task: URLSessionWebSocketTask) async throws {
         let outbound = try prepareOutbound(envelope)
         let data = try encoder.encode(outbound)

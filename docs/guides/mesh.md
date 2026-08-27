@@ -9,6 +9,8 @@ SloppyNode Mesh connects several `SloppyNode` instances through a Sloppy relay s
 
 Use Mesh when one Sloppy installation should coordinate work across multiple machines: for example, a laptop that owns the project board and a workstation that can run heavier local builds, tests, or agent work.
 
+For VPS installation, TLS, Docker, ClientNative work/home switching, encryption, backups, and operational diagnostics, see [Relay Deployment and Multi-Instance Access](/guides/relay).
+
 ## What Mesh Provides
 
 | Capability | Purpose |
@@ -152,7 +154,7 @@ sloppy-node list --mesh-path "$MESH_STATE"
 Through the Core API:
 
 ```bash
-curl http://127.0.0.1:8787/v1/node/mesh/nodes
+curl http://127.0.0.1:25101/v1/node/mesh/nodes
 ```
 
 ### Dashboard Join Model
@@ -328,7 +330,7 @@ The coordinator exposes mesh management over the Core API:
 Example shared project request:
 
 ```bash
-curl -X POST http://127.0.0.1:8787/v1/node/mesh/shared-projects \
+curl -X POST http://127.0.0.1:25101/v1/node/mesh/shared-projects \
   -H 'content-type: application/json' \
   -d '{
     "name": "Sloppy",
@@ -340,7 +342,7 @@ curl -X POST http://127.0.0.1:8787/v1/node/mesh/shared-projects \
 Example task dispatch request:
 
 ```bash
-curl -X POST http://127.0.0.1:8787/v1/node/mesh/tasks \
+curl -X POST http://127.0.0.1:25101/v1/node/mesh/tasks \
   -H 'content-type: application/json' \
   -d '{
     "projectId": "sp_sloppy",
@@ -408,7 +410,7 @@ sloppy-node audit-log --mesh-path "$MESH_STATE" --limit 100
 Or query the coordinator:
 
 ```bash
-curl http://127.0.0.1:8787/v1/node/mesh/audit-log
+curl http://127.0.0.1:25101/v1/node/mesh/audit-log
 ```
 
 Audit entries include time, actor, target, action, project, task, whether the action was allowed, and an optional message. They are useful for debugging invite consumption, node registration, authorization denials, unavailable targets, and task delivery.

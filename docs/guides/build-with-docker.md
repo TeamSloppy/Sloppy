@@ -124,3 +124,5 @@ Use direct terminal builds when:
 - You need the fastest edit-run loop
 - You are iterating on Swift or frontend code locally
 - You want easier access to native debuggers and local tools
+
+To deploy the same image as a public relay-only coordinator, including persistent state, TLS proxying, and work/home bootstrap, see [Relay Deployment and Multi-Instance Access](/guides/relay).

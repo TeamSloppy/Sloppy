@@ -56,6 +56,7 @@ export default defineConfig({
           { text: "Project Context", link: "/guides/project-context" },
           { text: "CLI Reference", link: "/guides/cli" },
           { text: "SloppyNode", link: "/guides/sloppy-node" },
+          { text: "Relay Deployment", link: "/guides/relay" },
           { text: "SloppyNode Mesh", link: "/guides/mesh" },
           { text: "Model Providers", link: "/guides/models" },
           { text: "MCP Integration", link: "/guides/mcp" },
