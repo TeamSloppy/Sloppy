@@ -297,6 +297,35 @@ struct ToolRegistryTests {
         return false
     }
 
+    @Test("Memory corrections update the same record and cannot cross scopes")
+    func memorySaveUpdatesExistingScopedRecord() async {
+        let context = makeMemoryToolContext()
+        let tool = MemorySaveTool()
+        let original = await tool.invoke(arguments: [
+            "note": .string("Project uses XCTest"), "summary": .string("XCTest"),
+            "scope_type": .string("project"), "scope_id": .string("aurora")
+        ], context: context)
+        guard let memoryID = original.data?.asObject?["id"]?.asString else {
+            Issue.record("Memory was not saved")
+            return
+        }
+        let wrongScope = await tool.invoke(arguments: [
+            "note": .string("Incorrect scope mutation"), "memory_id": .string(memoryID),
+            "scope_type": .string("project"), "scope_id": .string("other")
+        ], context: context)
+        #expect(wrongScope.ok == false)
+        let corrected = await tool.invoke(arguments: [
+            "note": .string("Project uses Swift Testing"), "memory_id": .string(memoryID),
+            "scope_type": .string("project"), "scope_id": .string("aurora")
+        ], context: context)
+        #expect(corrected.ok)
+        let entries = await context.memoryStore.entries(filter: .init(scope: .project("aurora")))
+        #expect(entries.count == 1)
+        #expect(entries.first?.id == memoryID)
+        #expect(entries.first?.note == "Project uses Swift Testing")
+        #expect(entries.first?.summary == "Project uses Swift Testing")
+    }
+
     private func makeMemoryToolContext(sharedMemoryEnabled: Bool = true) -> ToolContext {
         let tmp = FileManager.default.temporaryDirectory
         return ToolContext(

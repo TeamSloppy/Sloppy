@@ -189,6 +189,9 @@ public actor RuntimeSystem {
     /// context overflow or model hot-swap.
     var bootstrapByChannel: [String: String] = [:]
 
+    /// Explicit project association supplied by the session owner, never inferred from prompt text.
+    var memoryProjectByChannel: [String: String] = [:]
+
     /// Latest context accounting snapshot per channel. This is diagnostic and
     /// compaction input; it does not store full prompt text.
     var contextLedgerByChannel: [String: ContextLedgerSnapshot] = [:]

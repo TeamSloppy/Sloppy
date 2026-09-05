@@ -565,7 +565,6 @@ extension CoreService {
     }
 
     public func getAgentConfigWithMemory(agentID: String) async throws -> AgentConfigDetail {
-        await refreshAgentMemoryFile(agentID: agentID)
         return try getAgentConfig(agentID: agentID)
     }
 
@@ -982,74 +981,6 @@ extension CoreService {
                 return channelID.isEmpty ? nil : channelID
             }
             .first
-    }
-
-    func generateAgentMemoryMarkdown(agentID: String) async -> String {
-        let entries = await allAgentMemoryEntries(agentID: agentID)
-        guard !entries.isEmpty else { return "" }
-
-        let isoFormatter = ISO8601DateFormatter()
-        isoFormatter.formatOptions = [.withInternetDateTime]
-
-        var sections: [String: [(note: String, summary: String?, importance: Double, date: String)]] = [:]
-        for entry in entries {
-            let key = entry.kind.rawValue
-            let dateStr = isoFormatter.string(from: entry.createdAt)
-            sections[key, default: []].append((entry.note, entry.summary, entry.importance, dateStr))
-        }
-
-        let kindOrder: [String] = ["identity", "preference", "goal", "decision", "fact", "observation", "todo", "event"]
-        let sortedKeys = sections.keys.sorted { a, b in
-            let ai = kindOrder.firstIndex(of: a) ?? kindOrder.count
-            let bi = kindOrder.firstIndex(of: b) ?? kindOrder.count
-            return ai < bi
-        }
-
-        var lines: [String] = ["# Memory"]
-        for key in sortedKeys {
-            guard let items = sections[key], !items.isEmpty else { continue }
-            lines.append("")
-            lines.append("## \(key.capitalized)")
-            for item in items.prefix(50) {
-                let note = item.note.trimmingCharacters(in: .whitespacesAndNewlines)
-                    .replacingOccurrences(of: "\n", with: " ")
-                var line = "- \(note)"
-                if let summary = item.summary?.trimmingCharacters(in: .whitespacesAndNewlines), !summary.isEmpty {
-                    line += " — \(summary)"
-                }
-                lines.append(line)
-            }
-        }
-        lines.append("")
-        return lines.joined(separator: "\n")
-    }
-
-    func refreshAgentMemoryFile(agentID: String) async {
-        guard let normalizedID = normalizedAgentID(agentID) else { return }
-        let markdown = await generateAgentMemoryMarkdown(agentID: normalizedID)
-        guard let summary = try? agentCatalogStore.getAgent(id: normalizedID) else { return }
-
-        let agentsRootURL = self.agentsRootURL
-        let root = summary.isSystem
-            ? agentsRootURL.appendingPathComponent(".system", isDirectory: true)
-            : agentsRootURL
-        let memoryURL = root
-            .appendingPathComponent(normalizedID, isDirectory: true)
-            .appendingPathComponent("MEMORY.md")
-
-        if markdown.count > AgentMarkdownLimits.memoryMarkdownMaxCharacters {
-            logger.warning(
-                "refreshAgentMemoryFile skipped: generated MEMORY.md exceeds character limit",
-                metadata: [
-                    "agent_id": .string(normalizedID),
-                    "chars": .stringConvertible(markdown.count),
-                    "limit": .stringConvertible(AgentMarkdownLimits.memoryMarkdownMaxCharacters)
-                ]
-            )
-            return
-        }
-
-        try? markdown.data(using: .utf8)?.write(to: memoryURL, options: .atomic)
     }
 
     func allAgentMemoryEntries(agentID: String) async -> [MemoryEntry] {

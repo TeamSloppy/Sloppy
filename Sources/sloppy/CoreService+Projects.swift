@@ -639,7 +639,6 @@ extension CoreService {
             return nil
         }
         let rootPaths = effectiveProjectDirectoryURLs(project).map(\.path)
-        guard !rootPaths.isEmpty else { return nil }
         let loader = ProjectContextLoader()
         let loaded = loader.load(repoPaths: rootPaths, projectMemoryURL: projectMetaMemoryFileURL(projectID: normalizedID))
         return renderProjectContextBootstrap(projectID: normalizedID, projectName: project.name, loaded: loaded)

@@ -32,6 +32,8 @@ func projectMetaMemoryToolWritesWorkspacePrivateMemoryWithoutRepoPath() async th
         .appendingPathComponent("MEMORY.md", isDirectory: false)
     let text = try String(contentsOf: memoryURL, encoding: .utf8)
     #expect(text.contains("Workspace-private fact."))
+    let bootstrap = try #require(await service.projectBootstrapMarkdownForAgentSession(projectID: projectID))
+    #expect(bootstrap.contains("Workspace-private fact."))
     #expect(result.data?.asObject?["path"]?.asString == memoryURL.path)
 }
 

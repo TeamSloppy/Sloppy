@@ -2377,6 +2377,7 @@ actor AgentSessionOrchestrator {
         let shouldRefreshBootstrap = channelsRequiringBootstrapRefresh.contains(channelID)
         let hasScopedUserContext = Self.scopedMemoryUserID(userID) != nil
         let sessionDetail = try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID)
+        await runtime.setMemoryProject(channelId: channelID, projectID: sessionDetail?.summary.projectId)
         let recoverySourceSessionID = explicitRecoverySourceSessionID
             ?? sessionDetail?.summary.parentSessionId?.trimmingCharacters(in: .whitespacesAndNewlines)
         let recoverySourceDetail = recoverySourceSessionID
@@ -2500,6 +2501,10 @@ actor AgentSessionOrchestrator {
         }
 
         var bootstrapContent = bootstrapPrompt.description
+        let memoryContext = await runtime.persistentMemoryContext(channelId: channelID)
+        if !memoryContext.isEmpty {
+            bootstrapContent += "\n\n" + memoryContext
+        }
 
         var includedConversationHistory = false
         if let historyContext = buildConversationHistoryContext(

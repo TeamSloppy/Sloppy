@@ -16,6 +16,8 @@ public extension RuntimeSystem {
     func discardEphemeralCheckpointChannel(channelId: String) async {
         sessionsByChannel.removeValue(forKey: channelId)
         bootstrapByChannel.removeValue(forKey: channelId)
+        memoryProjectByChannel.removeValue(forKey: channelId)
+        channelToolAllowList.removeValue(forKey: channelId)
         contextLedgerByChannel.removeValue(forKey: channelId)
         recoveryTranscriptByChannel.removeValue(forKey: channelId)
         await channels.removeChannel(channelId: channelId)

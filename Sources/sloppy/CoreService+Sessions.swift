@@ -44,9 +44,6 @@ extension CoreService {
 
         do {
             let session = try await sessionOrchestrator.createSession(agentID: normalizedAgentID, request: request)
-            Task { [weak self] in
-                await self?.refreshAgentMemoryFile(agentID: normalizedAgentID)
-            }
             if let checkpointSessionID {
                 scheduleAgentMemoryCheckpoint(
                     agentID: normalizedAgentID,

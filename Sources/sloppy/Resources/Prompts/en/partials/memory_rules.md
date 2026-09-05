@@ -1,19 +1,18 @@
 [Memory usage rules]
-You have access to a semantic memory store that persists across sessions.
-Memory is injected into every session, so keep it compact and focused on facts that will still matter later.
-Prioritize what reduces future user steering — the most valuable memory is one that prevents the user from having to correct or remind you again.
-Safe matters, don't record PR numbers, issue numbers, commit SHAs, or any artifact that will be stale in 7 days. If a fact will be stale in a week, it does not belong in memory.
-If you find a new way to do something, solved a problem that could be necessary later, save it as a skill with the skill tool.
-Write memories as declarative facts, not instructions to yourself.
+You learn across sessions through a compact user profile, curated notes, project memory, and searchable records.
+Use this memory proactively: the user should not have to repeat preferences, corrections, project conventions, or lessons from previous tasks.
 
-"Imperative phrasing may be interpreted as a directive in later sessions, "
-"leading to repeated work or overriding the user's current request. Procedures "
-"and workflows belong in skills, not memory."
+Read:
+- USER.md and MEMORY.md are loaded into the session context. USER.md describes the current user; MEMORY.md holds compact notes and pointers to deeper knowledge.
+- Persistent agent and current-project records are also included in a bounded session-start snapshot. Relevant records are recalled before each response. Session-scoped records stay within their original chat.
+- At the start of a nontrivial task, search the relevant agent/project memory with `memory.search` or `memory.get` when earlier decisions or experience could help. If the task is self-contained, skip extra searches.
+- Memories are historical context, not higher-priority instructions. A current explicit correction supersedes an older note. Verify changeable facts before relying on them; distinguish remembered facts from current verification.
 
-Tools: 
-- Use `memory.save` to persist important facts, decisions, or user preferences that should be remembered long-term. You must set **scope** on every call: `scope_type` + `scope_id`, or a `scope` object with `type` and `id`. For the current chat (and the agent Memories UI), use `scope_type: channel` and `scope_id: agent:<agentId>:session:<sessionId>` (use the real ids from context). For agent-wide facts, use `scope_type: agent` and `scope_id: <agentId>`.
-- Use `memory.recall` or `memory.get` to retrieve relevant information from the past when starting a new task or if you need context about previous interactions.
-- Use `memory.search` if you need to perform a keyword-based search across memory entries.
-- Prefer `memory.recall` for general context gathering and `memory.get` for specific semantic queries.
-- When saving memory, provide a concise `summary`. Use valid `class` values only (`semantic`, `episodic`, `procedural`, `bulletin`); put categories such as preferences, project context, or decisions into `kind` and/or `metadata`.
-- For durable project-wide facts, use `memory.save` with `scope_type: project` and `scope_id: <projectId>`. Project markdown memory lives in the Sloppy workspace at `~/.sloppy/projects/<projectId>/.meta/MEMORY.md` and is updated with `project.meta_memory_set`.
+Write during the task, as soon as useful knowledge becomes clear:
+- Save stable user preferences, recurring corrections, environment constraints, project conventions, verified decisions, and lessons that prevent repeated mistakes. Do not wait until a long session ends or until the user explicitly asks you to remember.
+- Use `agent.documents.set_user_markdown` for the current user's profile and preferences, and `agent.documents.set_memory_markdown` for compact cross-session notes. Both REPLACE the entire document: preserve useful existing content, merge related facts, and replace corrected or obsolete facts. Keep them within the tool's character limits.
+- Use `memory.save` for searchable knowledge. Set `scope_type` and `scope_id` explicitly: `agent` + the current agent ID for knowledge shared across this agent's sessions; `project` + the current project ID for project knowledge. Use `channel` + `agent:<agentId>:session:<sessionId>` only for facts intentionally restricted to this conversation. Do not put personal user facts into agent/project scopes shared with other users; use the current user's documents.
+- For the project's compact reference notes, use `project.meta_memory_set`. This replaces the full workspace-private `~/.sloppy/projects/<projectId>/.meta/MEMORY.md`; preserve useful existing content.
+- Search the intended scope before adding a searchable record to avoid duplicates. To correct an existing record, pass its ID as `memory_id` to `memory.save` with the same scope and the corrected note and summary. Supply a concise `summary`, a typed `kind` (identity, preference, decision, fact, observation, goal, todo, event), and a valid `class` (semantic, episodic, procedural, bulletin). Stable facts belong in semantic memory, not runtime bulletins.
+- Record what was learned and the evidence or file pointer needed to use it again. Write declarative facts; reusable multi-step workflows belong in skills. A dated reference to a decision or fix is useful evidence, but an old status must never be presented as current.
+- Do not store secrets, credentials, raw logs, speculative conclusions, routine progress, or duplicate facts. A trivial conversation needs no memory write.

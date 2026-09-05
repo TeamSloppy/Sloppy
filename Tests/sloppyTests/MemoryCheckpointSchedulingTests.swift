@@ -108,7 +108,11 @@ private struct BlockingMemoryCheckpointResponseModel: LanguageModel {
         guard type == String.self else {
             fatalError("BlockingMemoryCheckpointResponseModel only supports String responses")
         }
-        await store.waitIfNeeded()
+        // Match the internal checkpoint fixture, not the number of model calls:
+        // planning and other background reviews may also use this provider.
+        if session.instructions?.description.contains("Internal MEMORY checkpoint") == true {
+            await store.waitIfNeeded()
+        }
         let text = "Turn completed."
         return LanguageModelSession.Response(
             content: text as! Content,
@@ -262,9 +266,13 @@ func createAgentSessionSchedulesNewSessionMemoryCheckpointInBackground() async t
 
 @Test
 func userTurnThresholdSchedulesMemoryCheckpointInBackground() async throws {
-    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    var config = CoreConfig.test
+    // This test isolates the turn-count trigger. Context compaction has its own
+    // checkpoint trigger and must not consume the blocking model response first.
+    config.compactor.contextWindowTokens = 1_000_000
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let provider = BlockingMemoryCheckpointResponseProvider(
-        blockAtResponse: CoreService.agentMemoryCheckpointUserTurnThreshold + 1
+        blockAtResponse: 1
     )
     await service.overrideModelProviderForTests(provider, defaultModel: "mock:test-model")
 
