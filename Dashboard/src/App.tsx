@@ -24,6 +24,7 @@ import { formatSecureSessionStatus } from "./app/sessionStatus";
 import { AgentsView } from "./views/AgentsView";
 import { ActorsView } from "./views/ActorsView";
 import { VisorChatView } from "./features/visor/VisorChatView";
+import { MemoryView } from "./features/memory/MemoryView";
 import { ConfigView } from "./views/ConfigView";
 import { LogsView } from "./views/LogsView";
 import { DebugView } from "./views/DebugView";
@@ -138,7 +139,7 @@ function DashboardShell({
   autoStartTutorialAfterOnboarding: boolean;
 }) {
   const runtime = useRuntimeOverview(dependencies.coreApi);
-  const { route, setSection, setConfigSection, setProjectRoute, setWorkspaceRoute, setAgentRoute, setSessionRoute, setChatsRoute } =
+  const { route, setSection, setConfigSection, setProjectRoute, setWorkspaceRoute, setAgentRoute, setSessionRoute, setChatsRoute, setMemoryRoute } =
     useDashboardRoute();
   const [sidebarCompact, setSidebarCompact] = useState(true);
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
@@ -430,6 +431,11 @@ function DashboardShell({
       id: "visor",
       label: { icon: "visibility", title: "Visor" },
       content: <VisorChatView />
+    },
+    {
+      id: "memory",
+      label: { icon: "neurology", title: "Memory" },
+      content: <MemoryView tab={route.memoryTab} scopeType={route.memoryScopeType} scopeId={route.memoryScopeId} onRouteChange={setMemoryRoute} onRuntimeConfigUpdated={onRuntimeConfigUpdated} />
     },
     {
       id: "nodes",

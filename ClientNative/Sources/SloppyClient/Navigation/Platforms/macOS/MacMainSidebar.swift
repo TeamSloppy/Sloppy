@@ -10,6 +10,7 @@ struct PlatformMainSidebar: View {
     let isOverlay: Bool
 
     @Environment(\.theme) private var theme
+    @State private var isSettingsHovered = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -86,12 +87,17 @@ struct PlatformMainSidebar: View {
 
                 Spacer(minLength: theme.spacing.s)
 
+                SidebarCustomizationMenu(settings: viewModel.settings)
+
                 Button {
                     viewModel.onOpenSettings(.account)
                 } label: {
                     Image(systemName: "gearshape")
                         .font(.system(size: theme.typography.heading))
                 }
+                .buttonStyle(SidebarHoverButtonStyle(isHovered: isSettingsHovered))
+                .onHover { isSettingsHovered = $0 }
+                .help("Open settings")
                 .accessibilityLabel("Open settings")
             }
             .buttonStyle(.borderless)
@@ -139,54 +145,105 @@ private struct MacSidebarPrimaryActions: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            SidebarNavigationRow(
-                icon: .new,
-                title: "New chat",
-                isSelected: false,
-                navigationValue: .chats,
-                action: viewModel.selectNewChat
-            )
+            if !viewModel.settings.hiddenSidebarItems.contains("newChat") {
+                SidebarNavigationRow(
+                    icon: .new,
+                    title: "New chat",
+                    isSelected: false,
+                    navigationValue: .chats,
+                    action: viewModel.selectNewChat
+                )
+            }
 
-            SidebarNavigationRow(
-                icon: .language,
-                title: "Sites",
-                isSelected: viewModel.selectedAppSection == .sites,
-                navigationValue: .sites,
-                action: viewModel.selectSites
-            )
+            if !viewModel.settings.hiddenSidebarItems.contains("sites") {
+                SidebarNavigationRow(
+                    icon: .language,
+                    title: "Sites",
+                    isSelected: viewModel.selectedAppSection == .sites,
+                    navigationValue: .sites,
+                    action: viewModel.selectSites
+                )
+            }
 
-            SidebarNavigationRow(
-                icon: .pullRequest,
-                title: "Pull Requests",
-                isSelected: viewModel.selectedAppSection == .pullRequests,
-                navigationValue: .pullRequests,
-                action: viewModel.selectPullRequests
-            )
+            if !viewModel.settings.hiddenSidebarItems.contains("pullRequests") {
+                SidebarNavigationRow(
+                    icon: .pullRequest,
+                    title: "Pull Requests",
+                    isSelected: viewModel.selectedAppSection == .pullRequests,
+                    navigationValue: .pullRequests,
+                    action: viewModel.selectPullRequests
+                )
+            }
 
-            SidebarNavigationRow(
-                icon: .timer,
-                title: "Scheduled",
-                isSelected: viewModel.selectedAppSection == .scheduled,
-                navigationValue: .scheduled,
-                action: viewModel.selectScheduled
-            )
+            if !viewModel.settings.hiddenSidebarItems.contains("scheduled") {
+                SidebarNavigationRow(
+                    icon: .timer,
+                    title: "Scheduled",
+                    isSelected: viewModel.selectedAppSection == .scheduled,
+                    navigationValue: .scheduled,
+                    action: viewModel.selectScheduled
+                )
+            }
 
-            SidebarNavigationRow(
-                icon: .workspace,
-                title: "Workspace",
-                isSelected: viewModel.selectedAppSection == .workspace,
-                action: viewModel.selectWorkspace
-            )
+            if !viewModel.settings.hiddenSidebarItems.contains("workspace") {
+                SidebarNavigationRow(
+                    icon: .workspace,
+                    title: "Workspace",
+                    isSelected: viewModel.selectedAppSection == .workspace,
+                    action: viewModel.selectWorkspace
+                )
+            }
             
-            SidebarNavigationRow(
-                icon: .description,
-                title: "Artifacts",
-                isSelected: viewModel.selectedAppSection == .artifacts,
-                navigationValue: .artifacts,
-                action: viewModel.selectArtifacts
-            )
+            if !viewModel.settings.hiddenSidebarItems.contains("artifacts") {
+                SidebarNavigationRow(
+                    icon: .description,
+                    title: "Artifacts",
+                    isSelected: viewModel.selectedAppSection == .artifacts,
+                    navigationValue: .artifacts,
+                    action: viewModel.selectArtifacts
+                )
+            }
         }
         .padding(.horizontal, theme.spacing.xs)
+    }
+}
+
+@MainActor
+private struct SidebarCustomizationMenu: View {
+    let settings: ClientSettings
+
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        Menu {
+            Toggle("New chat", isOn: visibility(for: "newChat"))
+            Toggle("Sites", isOn: visibility(for: "sites"))
+            Toggle("Pull Requests", isOn: visibility(for: "pullRequests"))
+            Toggle("Scheduled", isOn: visibility(for: "scheduled"))
+            Toggle("Workspace", isOn: visibility(for: "workspace"))
+            Toggle("Artifacts", isOn: visibility(for: "artifacts"))
+        } label: {
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: theme.typography.heading))
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+        .fixedSize()
+        .help("Customize sidebar")
+        .accessibilityLabel("Customize sidebar")
+    }
+
+    private func visibility(for item: String) -> Binding<Bool> {
+        Binding(
+            get: { !settings.hiddenSidebarItems.contains(item) },
+            set: { isVisible in
+                if isVisible {
+                    settings.hiddenSidebarItems.remove(item)
+                } else {
+                    settings.hiddenSidebarItems.insert(item)
+                }
+            }
+        )
     }
 }
 

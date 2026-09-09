@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { Network, DataSet } from "vis-network/standalone";
 import { fetchAgentMemories, fetchAgentMemoryGraph, updateAgentMemory, deleteAgentMemory } from "../../../api";
 import { AgentMemoriesToolbar } from "./AgentMemoriesToolbar";
+import { AgentMemoryImport } from "./AgentMemoryImport";
 import { LoadingSkeleton } from "../../../components/LoadingSkeleton";
 
 const PAGE_SIZE = 20;
@@ -1090,6 +1091,8 @@ export function AgentMemoriesTab({ agentId }: { agentId: string }) {
         </div>
         <span className="agent-tools-status">{view === "graph" ? graphStatusText : listStatusText}</span>
       </div>
+
+      <AgentMemoryImport key={agentId} agentId={agentId} onUpdated={() => setRefreshKey((value) => value + 1)} />
 
       <AgentMemoriesToolbar
         searchInput={searchInput}

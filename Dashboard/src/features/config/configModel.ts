@@ -1233,5 +1233,5 @@ export function normalizeProxyType(value, fallback = "socks5") {
 }
 
 export function isSettingsSection(id) {
-  return SETTINGS_ITEMS.some((item) => item.id === id);
+  return id === "memory" || id === "memory-dreams" || SETTINGS_ITEMS.some((item) => item.id === id);
 }

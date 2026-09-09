@@ -32,6 +32,7 @@ import {
 } from "../../api";
 import { collectAggregatedProviderModels, mergeModelOptions } from "../agents/utils/aggregateProviderModels";
 import { NodeHostEditor } from "./components/NodeHostEditor";
+import { MemoryProviderEditor } from "./components/MemoryProviderEditor";
 import { MCPEditor } from "./components/MCPEditor";
 import { PluginEditor } from "./components/PluginEditor";
 import { ProviderEditor } from "./components/ProviderEditor";
@@ -85,10 +86,12 @@ import {
 } from "./configModel";
 
 export function ConfigView({
+  embedded = false,
   sectionId = "providers",
   onSectionChange = null,
   onRuntimeConfigUpdated = null
 }: {
+  embedded?: boolean;
   sectionId?: string;
   onSectionChange?: ((nextSectionId: string) => void) | null;
   onRuntimeConfigUpdated?: ((nextConfig: Record<string, unknown>) => void) | null;
@@ -101,6 +104,7 @@ export function ConfigView({
   const [savedConfig, setSavedConfig] = useState(clone(EMPTY_CONFIG));
   const [rawConfig, setRawConfig] = useState(JSON.stringify(EMPTY_CONFIG, null, 2));
   const [statusText, setStatusText] = useState("Loading config...");
+  const [configLoaded, setConfigLoaded] = useState(false);
   const [selectedPluginIndex, setSelectedPluginIndex] = useState(0);
   const [selectedMCPServerIndex, setSelectedMCPServerIndex] = useState(0);
   const [providerModalId, setProviderModalId] = useState(null);
@@ -188,7 +192,7 @@ export function ConfigView({
   );
 
   useEffect(() => {
-    if (selectedSettings !== "model-routing" && selectedSettings !== "visor") {
+    if (!["model-routing", "visor", "memory", "memory-dreams"].includes(selectedSettings)) {
       return;
     }
     let cancelled = false;
@@ -342,6 +346,7 @@ export function ConfigView({
     const channelPlugins = await fetchChannelPlugins().catch(() => null);
     const normalized = mergeChannelPluginsIntoConfig(normalizeConfig(config), channelPlugins);
     setSavedConfig(normalized);
+    setConfigLoaded(true);
 
     const savedDraft = localStorage.getItem(DRAFT_CONFIG_KEY);
     if (savedDraft) {
@@ -1741,6 +1746,13 @@ export function ConfigView({
       );
     }
 
+    if (selectedSettings === "memory" || selectedSettings === "memory-dreams") {
+      return <>
+        {selectedSettings === "memory" && <MemoryProviderEditor draftConfig={draftConfig} mutateDraft={mutateDraft} />}
+        <VisorEditor section={selectedSettings === "memory" ? "memory" : "dreams"} draftConfig={draftConfig} mutateDraft={mutateDraft} parseLines={parseLines} modelRoutingCatalog={modelRoutingCatalog} modelRoutingCatalogStatus={modelRoutingCatalogStatus} />
+      </>;
+    }
+
     if (selectedSettings === "visor") {
       return (
         <VisorEditor
@@ -1815,25 +1827,27 @@ export function ConfigView({
   }
 
   return (
-    <main className="settings-shell">
-      <SettingsSidebar
+    <main className={embedded ? "memory-settings-editor" : "settings-shell"}>
+      {!embedded && <SettingsSidebar
         rawValid={isRawMode ? rawValid : true}
         query={query}
         onQueryChange={setQuery}
         filteredSettings={filteredSettings}
         selectedSettings={selectedSettings}
         onSelectSettings={selectSettings}
-      />
+      />}
 
       <section className="settings-main">
         <SettingsMainHeader
-          hasChanges={hasManualChanges}
+          hasChanges={(!embedded || configLoaded) && hasManualChanges}
           statusText={statusText}
           onReload={cancelChanges}
           onSave={saveConfig}
         />
 
-        {renderSettingsContent()}
+        {embedded && !configLoaded
+          ? <button type="button" onClick={() => loadConfig().catch(() => setStatusText("Failed to load config"))}>Retry loading settings</button>
+          : renderSettingsContent()}
       </section>
     </main>
   );

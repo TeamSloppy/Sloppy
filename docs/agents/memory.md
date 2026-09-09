@@ -13,11 +13,21 @@ This page describes how both layers work, how they show up in the Dashboard, whi
 
 | Layer | What it is | Where you see it |
 | --- | --- | --- |
-| **Hybrid memory** | Structured entries (note, summary, kind, class, scope, edges). Indexed for recall and search. | **Agents → Memories** tab (list and graph). SQLite in your workspace. |
-| **Agent markdown** | Plain files in the agent catalog: `USER.md` (identity/instructions), `FRIEND_REMINDER.md` (short per-turn reminders), `MEMORY.md` (long-form narrative the model reads). | **Agents → Agent files** in the Dashboard; files under `.sloppy/agents/<agent>/` on disk. |
+| **Hybrid memory** | Structured entries (note, summary, kind, class, scope, edges). Indexed for recall and search. | **Memory → Memories** tab (list and graph). SQLite in your workspace. |
+| **Agent markdown** | Plain files in the agent catalog: `USER.md` (identity/instructions), `FRIEND_REMINDER.md` (short per-turn reminders), `MEMORY.md` (long-form narrative the model reads). | **Memory → Memories** for `MEMORY.md`; **Agents → Agent files** for other documents. Files under `.sloppy/agents/<agent>/` on disk. |
 | **Project meta memory** | Optional workspace-private `.meta/MEMORY.md` under `~/.sloppy/projects/<projectId>/.meta/MEMORY.md`. | On disk; updated via tools when the agent targets a project. |
 
 These are **not** the same list: saving a hybrid entry does **not** automatically rewrite `MEMORY.md`, and editing `MEMORY.md` does **not** create hybrid rows unless a workflow explicitly does both.
+
+## Import memory from another assistant
+
+Open **Memory → Memories**, choose an agent in the scope picker, and select **Import memory**. Copy the export prompt and send it to the previous assistant. It can return one Markdown file or several files grouped by topic. Upload the `.md` or `.markdown` files using the file picker or drag and drop, then select **Import into this agent**. Dashboard accepts UTF-8 text, up to 20 files, 1 MB per file and 5 MB total.
+
+The import runs in a normal, persisted **Memory import** chat session using the bundled `memory-import` skill. The source files are stored as session attachments. The skill reads them in portions, checks existing entries, saves useful facts through `memory.save`, and checks recall. Saved entries use the existing hybrid retrieval and configured indexing pipeline; an import does not require a separate RAG database. Semantic indexing depends on the server's configured providers.
+
+The Dashboard count comes from successful memory tool results. Open the import session for the agent's report, skipped items, unresolved conflicts, errors, or requests for input. Processing finishing does not itself guarantee every source was imported. If a request loses its connection, inspect that session before retrying. The latest session link survives a page reload in the same browser.
+
+You can also attach Markdown files in chat or ask: `Use @memory-import to import the Markdown files in /path/to/export`. Local paths must be readable by the Sloppy server or execution node. The skill defaults to the current agent's memory. For project or shared memory, specify the intended destination explicitly. File contents never choose the destination. Original agent documents such as `USER.md` and `MEMORY.md` remain separate from imported searchable entries.
 
 ## Character limits (markdown files)
 
@@ -32,11 +42,16 @@ The API and tools enforce size limits (character counts) on bundled agent docume
 
 If generated or submitted text exceeds a limit, the update may be rejected or skipped with a warning—avoid treating markdown files as unlimited storage.
 
-## Dashboard: Memories vs Agent files
+## Dashboard: Memory
 
-- **Memories** — shows **hybrid store** entries for that agent (scoped to the agent or to channels like `agent:<agentId>:session:<sessionId>`). This is **not** a live view of the `MEMORY.md` file.
+- **Overview** — shows the saved provider, embedding and Autodream configuration and the total number of active records.
+- **Memories** — browses all records, shared memory, or a selected agent/project. Agent and project scopes retain their list and graph views. Agent scope also exposes the separate read-only `MEMORY.md` document and Markdown import.
+- **Dreams** — configures Autodream scheduling and its model.
+- **Settings** — configures the memory provider, retrieval weights, retention, maintenance, merging and embeddings. These settings use the existing runtime configuration and Apply action.
+
+Old `/agents/:id/memories` and `/projects/:id/memory` links open the new Memory section with the same scope.
 - **Agent files → `FRIEND_REMINDER.md`** — a user-editable short reminder appended to every runtime user turn when non-empty. It is meant for tactical, current constraints rather than unlimited memory.
-- **Agent files → `MEMORY.md`** — often labeled as **auto-generated** or read-only in the UI when the server maintains that file from checkpoints or refresh logic. Prefer updating via **`agent.documents.set_memory_markdown`** (or checkpoints) rather than expecting ad-hoc hybrid saves to appear here.
+- **Memory → Memories → agent scope → `MEMORY.md`** — often labeled as **auto-generated** or read-only in the UI when the server maintains that file from checkpoints or refresh logic. Prefer updating via **`agent.documents.set_memory_markdown`** (or checkpoints) rather than expecting ad-hoc hybrid saves to appear here.
 
 ::: tip
 `memory.search` and `memory.recall` / `memory.get` **only read** the hybrid store. They do not create rows and do not edit `MEMORY.md`.
@@ -44,7 +59,7 @@ If generated or submitted text exceeds a limit, the update may be rejected or sk
 
 ## Scopes and the Memories list
 
-Hybrid entries are **scoped**. The **Agents → Memories** view lists entries that belong to **this agent**:
+Hybrid entries are **scoped**. The **Memory → Memories** view defaults to all scopes, including shared memory. Choosing an agent restricts the list to entries that belong to **this agent**:
 
 - **`agent`** scope with id equal to the agent id, or  
 - **`channel`** scope whose channel id looks like `agent:<agentId>:session:<sessionId>`.

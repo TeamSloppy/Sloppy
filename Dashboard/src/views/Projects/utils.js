@@ -12,7 +12,6 @@ export const PROJECT_TABS = [
   { id: "analytics", title: "Analytics" },
   { id: "workers", title: "Workers" },
   { id: "visor", title: "Visor" },
-  { id: "memory", title: "Memory" },
   { id: "workflows", title: "Workflows" },
   { id: "settings", title: "Settings" }
 ];

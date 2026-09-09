@@ -1,6 +1,8 @@
 import { createCoreApi } from "./shared/api/coreApi";
 
 const coreApi = createCoreApi();
+export const fetchMemories = coreApi.fetchMemories;
+export const submitAgentMemoryImport = coreApi.submitAgentMemoryImport;
 
 export const sendChannelMessage = coreApi.sendChannelMessage;
 export const fetchChannelState = coreApi.fetchChannelState;

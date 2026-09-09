@@ -1,15 +1,6 @@
 import React from "react";
 
-const MEMORY_PROVIDER_MODES = [
-  { value: "local", label: "Built-in (Local)", description: "Use Sloppy's built-in local memory provider." },
-  { value: "http", label: "Remote HTTP", description: "Call an external HTTP memory provider." },
-  { value: "mcp", label: "Remote MCP", description: "Route memory operations through an MCP server." }
-];
-
 export function NodeHostEditor({ draftConfig, mutateDraft, parseLines }) {
-  const memoryProviderMode = String(draftConfig.memory?.provider?.mode || "local");
-  const memoryProviderOption = MEMORY_PROVIDER_MODES.find((option) => option.value === memoryProviderMode) || MEMORY_PROVIDER_MODES[0];
-  const [memoryProviderMenuOpen, setMemoryProviderMenuOpen] = React.useState(false);
   const [nodeTestStatus, setNodeTestStatus] = React.useState({});
   const [selectedNodeIndex, setSelectedNodeIndex] = React.useState(0);
   const nodes = Array.isArray(draftConfig.nodes) ? draftConfig.nodes : [];
@@ -119,17 +110,7 @@ export function NodeHostEditor({ draftConfig, mutateDraft, parseLines }) {
     return { token: value, tokenEnv: "" };
   }
 
-  function selectMemoryProviderMode(value) {
-    mutateDraft((draft) => {
-      draft.memory.provider.mode = value;
-      if (value === "local") {
-        draft.memory.provider.endpoint = "";
-        draft.memory.provider.mcpServer = "";
-        draft.memory.provider.apiKeyEnv = "";
-      }
-    });
-    setMemoryProviderMenuOpen(false);
-  }
+
 
   async function testNode(node, index) {
     const baseURL = String(node?.url || "").replace(/\/+$/, "");
@@ -170,7 +151,7 @@ export function NodeHostEditor({ draftConfig, mutateDraft, parseLines }) {
       <section className="entry-editor-card providers-intro-card">
         <h3>NodeHost & Runtime</h3>
         <p className="placeholder-text">
-          Configure the local Core API, persistence paths, memory backend, and linked Sloppy instances used by the TUI remote picker.
+          Configure the local Core API, persistence paths and linked Sloppy instances used by the TUI remote picker.
         </p>
       </section>
 
@@ -236,110 +217,6 @@ export function NodeHostEditor({ draftConfig, mutateDraft, parseLines }) {
               }
             />
             <span className="entry-form-hint">Bearer token expected by this local Core API.</span>
-          </label>
-          <label>
-            Memory Backend
-            <input
-              value={draftConfig.memory.backend}
-              onChange={(event) =>
-                mutateDraft((draft) => {
-                  draft.memory.backend = event.target.value;
-                })
-              }
-            />
-            <span className="entry-form-hint">Storage backend for memory records and embeddings.</span>
-          </label>
-          <label>
-            Memory Provider Mode
-            <div className="actor-team-search-wrap config-memory-mode-picker">
-              <input
-                className="actor-team-search"
-                value={memoryProviderOption.label}
-                readOnly
-                onFocus={() => setMemoryProviderMenuOpen(true)}
-                onClick={() => setMemoryProviderMenuOpen(true)}
-                onBlur={() => setTimeout(() => setMemoryProviderMenuOpen(false), 150)}
-              />
-              {memoryProviderMenuOpen ? (
-                <ul className="actor-team-dropdown">
-                  {MEMORY_PROVIDER_MODES.map((option) => {
-                    const selected = option.value === memoryProviderMode;
-                    return (
-                      <li
-                        key={option.value}
-                        className={`actor-team-dropdown-item ${selected ? "selected" : ""}`}
-                        onMouseDown={(event) => {
-                          event.preventDefault();
-                          selectMemoryProviderMode(option.value);
-                        }}
-                      >
-                        <span className="actor-team-dropdown-name">{option.label}</span>
-                        <span className="actor-team-dropdown-id">{option.description}</span>
-                        {selected ? <span className="actor-team-dropdown-check">✓</span> : null}
-                      </li>
-                    );
-                  })}
-                </ul>
-              ) : null}
-            </div>
-            <span className="entry-form-hint">Choose where semantic memory operations are executed.</span>
-          </label>
-          {memoryProviderMode === "http" ? (
-            <>
-              <label>
-                Memory Remote Endpoint
-                <input
-                  placeholder="https://memory.example.com"
-                  value={draftConfig.memory.provider.endpoint || ""}
-                  onChange={(event) =>
-                    mutateDraft((draft) => {
-                      draft.memory.provider.endpoint = event.target.value;
-                    })
-                  }
-                />
-                <span className="entry-form-hint">HTTP endpoint for an external memory provider.</span>
-              </label>
-              <label>
-                Memory API Key Env
-                <input
-                  placeholder="MEMORY_API_KEY"
-                  value={draftConfig.memory.provider.apiKeyEnv || ""}
-                  onChange={(event) =>
-                    mutateDraft((draft) => {
-                      draft.memory.provider.apiKeyEnv = event.target.value;
-                    })
-                  }
-                />
-                <span className="entry-form-hint">Environment variable containing the memory provider API key.</span>
-              </label>
-            </>
-          ) : null}
-          {memoryProviderMode === "mcp" ? (
-            <label>
-              Memory MCP Server
-              <input
-                placeholder="memory-server"
-                value={draftConfig.memory.provider.mcpServer || ""}
-                onChange={(event) =>
-                  mutateDraft((draft) => {
-                    draft.memory.provider.mcpServer = event.target.value;
-                  })
-                }
-              />
-              <span className="entry-form-hint">Configured MCP server ID that handles memory operations.</span>
-            </label>
-          ) : null}
-          <label>
-            Memory Timeout (ms)
-            <input
-              value={String(draftConfig.memory.provider.timeoutMs ?? 2500)}
-              onChange={(event) =>
-                mutateDraft((draft) => {
-                  draft.memory.provider.timeoutMs = parseInteger(event.target.value, 2500);
-                })
-              }
-            />
-            <span className="entry-form-hint">Maximum time to wait for memory provider calls.</span>
           </label>
           <label>
             SQLite Path

@@ -12,6 +12,7 @@ import {
 } from "./dashboardRouteAdapter";
 
 interface DashboardRouteController {
+  setMemoryRoute: (tab: string, scopeType?: string, scopeId?: string | null) => void;
   route: DashboardRoute;
   setSection: (section: string) => void;
   setConfigSection: (sectionId: string | null) => void;
@@ -54,7 +55,10 @@ export function useDashboardRoute(): DashboardRouteController {
     route.workspaceId,
     route.section,
     route.sessionAgentId,
-    route.sessionId
+    route.sessionId,
+    route.memoryTab,
+    route.memoryScopeType,
+    route.memoryScopeId
   ]);
 
   const setSection = useCallback((section: string) => {
@@ -76,8 +80,17 @@ export function useDashboardRoute(): DashboardRouteController {
     }));
   }, []);
 
+  const setMemoryRoute = useCallback((tab: string, scopeType = "all", scopeId: string | null = null) => {
+    const suffix = scopeType !== "all" ? `/${scopeType}${scopeId ? `/${encodeURIComponent(scopeId)}` : ""}` : "";
+    setRoute(parseRouteFromPath(`/memory/${tab}${suffix}`));
+  }, []);
+
   const setProjectRoute = useCallback(
     (projectId: string | null, projectTab: string | null = DEFAULT_PROJECT_TAB, projectTaskReference: string | null = null) => {
+      if (projectId && projectTab === "memory") {
+        setRoute(parseRouteFromPath(`/memory/memories/project/${encodeURIComponent(projectId)}`));
+        return;
+      }
       const normalizedProjectID = typeof projectId === "string" && projectId.trim().length > 0 ? projectId : null;
       const normalizedProjectTab = normalizedProjectID
         ? normalizeProjectTab(String(projectTab || DEFAULT_PROJECT_TAB).toLowerCase())
@@ -106,6 +119,10 @@ export function useDashboardRoute(): DashboardRouteController {
 
   const setAgentRoute = useCallback(
     (agentId: string | null, agentTab: string | null = DEFAULT_AGENT_TAB, initialChatSessionId: string | null = null) => {
+      if (agentId && agentTab === "memories") {
+        setRoute(parseRouteFromPath(`/memory/memories/agent/${encodeURIComponent(agentId)}`));
+        return;
+      }
       const normalizedAgentID = typeof agentId === "string" && agentId.trim().length > 0 ? agentId : null;
       const normalizedAgentTab = normalizedAgentID
         ? normalizeAgentTab(String(agentTab || DEFAULT_AGENT_TAB).toLowerCase())
@@ -183,6 +200,7 @@ export function useDashboardRoute(): DashboardRouteController {
   );
 
   return {
+    setMemoryRoute,
     route,
     setSection,
     setConfigSection,

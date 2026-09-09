@@ -37,6 +37,7 @@ function inferEmbeddingDimensions(modelId: string, fallback: number) {
 }
 
 type VisorEditorProps = {
+  section?: "supervision" | "memory" | "dreams";
   draftConfig: Record<string, any>;
   mutateDraft: (mutator: (draft: Record<string, any>) => void) => void;
   parseLines: (value: string) => string[];
@@ -45,6 +46,7 @@ type VisorEditorProps = {
 };
 
 export function VisorEditor({
+  section = "supervision",
   draftConfig,
   mutateDraft,
   parseLines,
@@ -132,13 +134,16 @@ export function VisorEditor({
 
   return (
     <div className="tg-settings-shell visor-settings-shell">
+      {section === "supervision" && (
       <section className="entry-editor-card providers-intro-card">
         <h3>Visor</h3>
         <p className="placeholder-text">
           Visor is the runtime supervision layer. It monitors worker and branch health, maintains memory over time, and generates periodic bulletins that keep agents aware of what's happening in the system.
         </p>
       </section>
+      )}
 
+      {section === "supervision" && (
       <section className="entry-editor-card">
         <h3>Bulletin Scheduler</h3>
         <div className="entry-form-grid">
@@ -191,7 +196,9 @@ export function VisorEditor({
           </label>
         </div>
       </section>
+      )}
 
+      {section === "supervision" && (
       <section className="entry-editor-card">
         <h3>Bulletin Content</h3>
         <div className="entry-form-grid">
@@ -220,19 +227,15 @@ export function VisorEditor({
           </label>
         </div>
       </section>
+      )}
 
+      {section === "dreams" && (
       <section className="entry-editor-card">
         <h3>Autodream</h3>
         <div className="entry-form-grid">
           <label style={{ gridColumn: "1 / -1" }}>
             Autodream
-            <select
-              value={autodreamEnabled ? "enabled" : "disabled"}
-              onChange={(event) => setAutodream("enabled", event.target.value === "enabled")}
-            >
-              <option value="enabled">Enabled</option>
-              <option value="disabled">Disabled</option>
-            </select>
+            <input type="checkbox" checked={autodreamEnabled} onChange={(event) => setAutodream("enabled", event.target.checked)} />
             <span className="entry-form-hint">When enabled, Visor periodically reviews recent changed sessions and records memory checkpoints without revisiting unchanged sessions.</span>
           </label>
 
@@ -286,7 +289,9 @@ export function VisorEditor({
           </label>
         </div>
       </section>
+      )}
 
+      {section === "supervision" && (
       <section className="entry-editor-card">
         <h3>Supervision</h3>
         <div className="entry-form-grid">
@@ -324,7 +329,9 @@ export function VisorEditor({
           </label>
         </div>
       </section>
+      )}
 
+      {section === "memory" && (
       <section className="entry-editor-card">
         <h3>Memory Maintenance</h3>
         <div className="entry-form-grid">
@@ -377,7 +384,9 @@ export function VisorEditor({
           </label>
         </div>
       </section>
+      )}
 
+      {section === "supervision" && (
       <section className="entry-editor-card">
         <h3>Channel Health</h3>
         <div className="entry-form-grid">
@@ -415,7 +424,9 @@ export function VisorEditor({
           </label>
         </div>
       </section>
+      )}
 
+      {section === "supervision" && (
       <section className="entry-editor-card">
         <h3>Webhooks</h3>
         <div className="entry-form-grid">
@@ -431,19 +442,15 @@ export function VisorEditor({
           </label>
         </div>
       </section>
+      )}
 
+      {section === "memory" && (
       <section className="entry-editor-card">
         <h3>Memory Merge</h3>
         <div className="entry-form-grid">
           <label style={{ gridColumn: "1 / -1" }}>
             Memory Merge
-            <select
-              value={mergeEnabled ? "enabled" : "disabled"}
-              onChange={(event) => setVisor("mergeEnabled", event.target.value === "enabled")}
-            >
-              <option value="disabled">Disabled</option>
-              <option value="enabled">Enabled</option>
-            </select>
+            <input type="checkbox" checked={mergeEnabled} onChange={(event) => setVisor("mergeEnabled", event.target.checked)} />
             <span className="entry-form-hint">When enabled, Visor consolidates similar memory entries into one during each maintenance pass. Requires a good recall backend to work effectively.</span>
           </label>
 
@@ -475,19 +482,15 @@ export function VisorEditor({
           </label>
         </div>
       </section>
+      )}
 
+      {section === "memory" && (
       <section className="entry-editor-card">
         <h3>Embedding Model</h3>
         <div className="entry-form-grid">
           <label style={{ gridColumn: "1 / -1" }}>
             Embedding
-            <select
-              value={embeddingEnabled ? "enabled" : "disabled"}
-              onChange={(event) => setEmbedding({ enabled: event.target.value === "enabled" })}
-            >
-              <option value="disabled">Disabled</option>
-              <option value="enabled">Enabled</option>
-            </select>
+            <input type="checkbox" checked={embeddingEnabled} onChange={(event) => setEmbedding({ enabled: event.target.checked })} />
             <span className="entry-form-hint">When enabled, memory entries are vectorized using the configured embedding model for semantic recall. Requires a compatible endpoint.</span>
           </label>
 
@@ -562,6 +565,7 @@ export function VisorEditor({
           </label>
         </div>
       </section>
+      )}
     </div>
   );
 }

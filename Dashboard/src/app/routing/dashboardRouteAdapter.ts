@@ -7,6 +7,7 @@ export const TOP_LEVEL_SECTIONS = [
   "overview",
   "actors",
   "agents",
+  "memory",
   "visor",
   "usafe",
   "nodes",
@@ -32,6 +33,9 @@ export const DEFAULT_AGENT_TAB: AgentTab = "overview";
 export const DEFAULT_PROJECT_TAB: ProjectTab = "overview";
 
 export interface DashboardRoute {
+  memoryTab?: string;
+  memoryScopeType?: string;
+  memoryScopeId?: string | null;
   section: TopLevelSection;
   configSection: string | null;
   projectId: string | null;
@@ -121,6 +125,16 @@ export function parseRouteFromPath(pathname: string): DashboardRoute {
   const sectionArg3 = decodePathSegment(sectionArg3Raw);
   const sectionArg4 = decodePathSegment(sectionArg4Raw);
 
+  if (section === "agents" && sectionArg2 === "memories") {
+    return parseRouteFromPath(`/memory/memories/agent/${encodeURIComponent(sectionArg)}`);
+  }
+  if (section === "projects" && sectionArg2 === "memory") {
+    return parseRouteFromPath(`/memory/memories/project/${encodeURIComponent(sectionArg)}`);
+  }
+  if (section === "config" && ["memory", "memory-dreams"].includes(sectionArg)) {
+    return parseRouteFromPath(sectionArg === "memory" ? "/memory/settings" : "/memory/dreams");
+  }
+
   if (section === "chats") {
     return {
       section: "projects",
@@ -194,6 +208,11 @@ export function parseRouteFromPath(pathname: string): DashboardRoute {
 
   return {
     section,
+    ...(section === "memory" ? {
+      memoryTab: ["overview", "memories", "dreams", "settings"].includes(sectionArg) ? sectionArg : "overview",
+      memoryScopeType: ["agent", "project", "global"].includes(sectionArg2) ? sectionArg2 : "all",
+      memoryScopeId: sectionArg2 === "agent" || sectionArg2 === "project" ? sectionArg3 || null : null
+    } : {}),
     configSection,
     projectId,
     projectTab,
@@ -228,6 +247,15 @@ export function buildPathFromRoute(route: DashboardRoute) {
   }
 
   let nextPathname = `/${route.section}`;
+
+  if (route.section === "memory") {
+    nextPathname = `/memory/${route.memoryTab || "overview"}`;
+    if (route.memoryTab === "memories" && route.memoryScopeType && route.memoryScopeType !== "all") {
+      nextPathname += `/${route.memoryScopeType}`;
+      if (route.memoryScopeId) nextPathname += `/${encodeURIComponent(route.memoryScopeId)}`;
+    }
+    return nextPathname;
+  }
 
   if (route.section === "config" && route.configSection) {
     nextPathname = `${nextPathname}/${encodeURIComponent(route.configSection)}`;

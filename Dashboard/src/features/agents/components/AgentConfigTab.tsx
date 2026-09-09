@@ -162,14 +162,13 @@ function statusValue(value, fallback = "None") {
   return normalized || fallback;
 }
 
-const AGENT_DOC_FILES = [
+const AGENT_DOC_FILES: Array<{ id: string; name: string; icon: string; readOnly?: boolean }> = [
   { id: "userMarkdown", name: "USER.md", icon: "person" },
   { id: "agentsMarkdown", name: "AGENTS.md", icon: "smart_toy" },
   { id: "soulMarkdown", name: "SOUL.md", icon: "psychology" },
   { id: "identityMarkdown", name: "IDENTITY.md", icon: "badge" },
   { id: "heartbeatMarkdown", name: "HEARTBEAT.md", icon: "monitor_heart" },
-  { id: "friendReminderMarkdown", name: "FRIEND_REMINDER.md", icon: "favorite" },
-  { id: "memoryMarkdown", name: "MEMORY.md", icon: "neurology", readOnly: true }
+  { id: "friendReminderMarkdown", name: "FRIEND_REMINDER.md", icon: "favorite" }
 ];
 
 const MOBILE_AGENT_FILES_BREAKPOINT_PX = 1000;

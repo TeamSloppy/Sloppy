@@ -108,10 +108,32 @@ struct ArtifactsScreen: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             header
+            #if os(macOS)
+            HStack(spacing: theme.spacing.s) {
+                Image(systemName: "magnifyingglass")
+                    .foregroundStyle(.secondary)
+                TextField("Search artifacts", text: $searchText)
+                    .textFieldStyle(.plain)
+                    .accessibilityIdentifier("artifacts.search")
+                if !searchText.isEmpty {
+                    Button { searchText = "" } label: {
+                        Image(systemName: "xmark.circle.fill")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Clear artifact search")
+                }
+            }
+            .padding(theme.spacing.s)
+            .background(theme.colors.surfaceRaised, in: RoundedRectangle(cornerRadius: 10))
+            .padding(.horizontal, theme.spacing.l)
+            .padding(.bottom, theme.spacing.m)
+            #endif
             Divider()
             content
         }
+        #if !os(macOS)
         .searchable(text: $searchText, prompt: "Search artifacts")
+        #endif
         .task(id: catalogVersion) {
             await viewModel.load(sessions: sessions)
         }

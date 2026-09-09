@@ -64,7 +64,6 @@ import { ProjectVisorTab } from "./Projects/ProjectVisorTab";
 import { ProjectChatTab } from "./Projects/ProjectChatTab";
 import { ProjectSettingsTab } from "./Projects/ProjectSettingsTab";
 import { ProjectFilesTab } from "./Projects/ProjectFilesTab";
-import { ProjectMemoryTab } from "./Projects/ProjectMemoryTab";
 import { ProjectAnalyticsTab } from "./Projects/ProjectAnalyticsTab";
 import { ProjectWorkflowsTab } from "./Projects/ProjectWorkflowsTab";
 import { ProjectWorkspacesTab } from "./Projects/ProjectWorkspacesTab";
@@ -2398,10 +2397,6 @@ export function ProjectsView({
 
     if (selectedTab === "visor") {
       return <ProjectVisorTab project={project} chatSnapshots={chatSnapshots} bulletins={bulletins} />;
-    }
-
-    if (selectedTab === "memory") {
-      return <ProjectMemoryTab projectId={project.id} />;
     }
 
     if (selectedTab === "workflows") {

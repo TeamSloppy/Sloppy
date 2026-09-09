@@ -1,4 +1,5 @@
 import { buildApiURL, buildWebSocketURL, formatHttpError, requestBlob, requestJson } from "./httpClient";
+import { memoryImportMessage, type MemoryImportAttachment } from "../../features/agents/memoryImport";
 import {
   clearDashboardAuthToken,
   getDashboardAuthToken,
@@ -8,6 +9,21 @@ import {
 } from "./dashboardAuth";
 
 type AnyRecord = Record<string, unknown>;
+
+export interface MemoryBrowserItem {
+  id: string;
+  note: string;
+  summary?: string;
+  kind: string;
+  scope: { type: string; id: string };
+  source?: { type: string; id?: string };
+}
+export interface MemoryBrowserResponse {
+  items: MemoryBrowserItem[];
+  total: number;
+  limit: number;
+  offset: number;
+}
 
 interface RequestOptions {
   signal?: AbortSignal;
@@ -60,6 +76,7 @@ export interface DashboardTerminalConnection {
 }
 
 export interface CoreApi {
+  fetchMemories: (query?: AgentMemoryQuery & { scope?: "all" | "global" }) => Promise<MemoryBrowserResponse | null>;
   fetchHealth: () => Promise<AnyRecord | null>;
   sendChannelMessage: (channelId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchChannelState: (channelId: string) => Promise<AnyRecord | null>;
@@ -247,6 +264,7 @@ export interface CoreApi {
     options?: { projectId?: string | null; limit?: number; offset?: number }
   ) => Promise<AnyRecord[] | null>;
   createAgentSession: (agentId: string, payload?: AnyRecord) => Promise<AnyRecord | null>;
+  submitAgentMemoryImport: (agentId: string, sessionId: string, attachments: MemoryImportAttachment[]) => Promise<void>;
   postAgentMemoryCheckpoint: (
     agentId: string,
     sessionId: string,
@@ -1940,6 +1958,15 @@ export function createCoreApi(): CoreApi {
       return response.data;
     },
 
+    fetchMemories: async (query = {}) => {
+      const params = new URLSearchParams();
+      for (const [key, value] of Object.entries(query)) {
+        if (value !== undefined && value !== "") params.set(key, String(value));
+      }
+      const response = await requestJson<MemoryBrowserResponse>({ path: `/v1/memories?${params}` });
+      return response.ok ? response.data : null;
+    },
+
     fetchAgentMemories: async (agentId, query = {}) => {
       const params = new URLSearchParams();
       if (typeof query.search === "string" && query.search.trim().length > 0) {
@@ -2254,6 +2281,15 @@ export function createCoreApi(): CoreApi {
         return null;
       }
       return response.data;
+    },
+
+    submitAgentMemoryImport: async (agentId, sessionId, attachments) => {
+      const response = await requestJson({
+        path: `/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/messages`,
+        method: "POST",
+        body: { userId: "dashboard", content: memoryImportMessage(agentId), attachments, spawnSubSession: false, mode: "auto" }
+      });
+      if (!response.ok) throw new Error(`Import request failed (${response.status || "connection lost"}). Check the session before retrying.`);
     },
 
     postAgentMemoryCheckpoint: async (agentId, sessionId, payload = {}) => {

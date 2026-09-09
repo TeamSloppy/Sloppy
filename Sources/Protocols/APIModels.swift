@@ -2782,6 +2782,20 @@ public struct AgentMemoryItem: Codable, Sendable, Equatable {
     }
 }
 
+public struct MemoryListResponse: Codable, Sendable, Equatable {
+    public var items: [AgentMemoryItem]
+    public var total: Int
+    public var limit: Int
+    public var offset: Int
+
+    public init(items: [AgentMemoryItem], total: Int, limit: Int, offset: Int) {
+        self.items = items
+        self.total = total
+        self.limit = limit
+        self.offset = offset
+    }
+}
+
 public struct AgentMemoryListResponse: Codable, Sendable, Equatable {
     public var agentId: String
     public var items: [AgentMemoryItem]

@@ -1,0 +1,13 @@
+.memory-import { margin-bottom: 16px; }
+.memory-import-panel { margin-top: 12px; padding: 18px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); display: grid; gap: 12px; }
+.memory-import-panel h4, .memory-import-panel p { margin: 0; }
+.memory-import-panel > button { justify-self: start; }
+.memory-import-panel textarea { width: 100%; box-sizing: border-box; margin-top: 10px; padding: 12px; resize: vertical; font: inherit; color: inherit; background: transparent; border: 1px solid var(--line); border-radius: var(--radius-sm); }
+.memory-import-panel summary { cursor: pointer; }
+.memory-import-drop { border: 1px dashed var(--line); border-radius: var(--radius-sm); padding: 20px; display: grid; justify-items: center; gap: 10px; }
+.memory-import-files { margin: 0; padding: 0; list-style: none; display: grid; gap: 6px; }
+.memory-import-files li { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.memory-import-files li > span { min-width: 0; overflow-wrap: anywhere; }
+.memory-import-hint, .memory-import-drop small { opacity: .75; font-size: 13px; }
+.memory-import-error { color: var(--danger); }
+.memory-import-progress { margin-top: 12px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; }

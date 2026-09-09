@@ -22,7 +22,6 @@ import { AgentConfigTab } from "./components/AgentConfigTab";
 import { AgentToolsTab } from "./components/AgentToolsTab";
 import { AgentSkillsTab } from "./components/AgentSkillsTab";
 import { AgentCronTab } from "./components/AgentCronTab";
-import { AgentMemoriesTab } from "./components/AgentMemoriesTab";
 import { Breadcrumbs } from "../../components/Breadcrumbs/Breadcrumbs";
 import { AgentCreateForm, emptyAgentFormValues } from "./components/AgentCreateForm";
 import { AgentGeneratePreview, type GeneratedAgentFiles } from "./components/AgentGeneratePreview";
@@ -34,7 +33,6 @@ const AGENT_TABS = [
   { id: "overview", title: "Overview" },
   { id: "chat", title: "Chat" },
   { id: "workers", title: "Workers" },
-  { id: "memories", title: "Memories" },
   { id: "tasks", title: "Tasks" },
   { id: "skills", title: "Skills" },
   { id: "tools", title: "Tools" },
@@ -669,10 +667,6 @@ export function AgentsView({
 
     if (tab === "workers") {
       return <AgentWorkersTab agentId={agent.id} onOpenWorkerSession={handleOpenWorkerSession} />;
-    }
-
-    if (tab === "memories") {
-      return <AgentMemoriesTab agentId={agent.id} />;
     }
 
     if (tab === "tasks") {
