@@ -212,6 +212,7 @@ struct NodePluginDescriptor: Decodable, Sendable, Equatable {
     var skills: [NodeNamedCapability]
     var gateways: [NodeGatewayCapability]
     var sourceControls: [NodeSourceControlCapability]
+    var codeReviews: [NodeCodeReviewCapability]
     var memories: [NodeNamedCapability]
     var modelProviders: [NodeNamedCapability]
 
@@ -223,6 +224,8 @@ struct NodePluginDescriptor: Decodable, Sendable, Equatable {
         case gateways
         case sourceControls
         case sourceControl = "source_control"
+        case codeReviews
+        case codeReview = "code_review"
         case memories
         case memory
         case modelProviders
@@ -236,6 +239,7 @@ struct NodePluginDescriptor: Decodable, Sendable, Equatable {
         skills: [NodeNamedCapability] = [],
         gateways: [NodeGatewayCapability] = [],
         sourceControls: [NodeSourceControlCapability] = [],
+        codeReviews: [NodeCodeReviewCapability] = [],
         memories: [NodeNamedCapability] = [],
         modelProviders: [NodeNamedCapability] = []
     ) {
@@ -245,6 +249,7 @@ struct NodePluginDescriptor: Decodable, Sendable, Equatable {
         self.skills = skills
         self.gateways = gateways
         self.sourceControls = sourceControls
+        self.codeReviews = codeReviews
         self.memories = memories
         self.modelProviders = modelProviders
     }
@@ -259,12 +264,31 @@ struct NodePluginDescriptor: Decodable, Sendable, Equatable {
         let sourceControls = try container.decodeIfPresent([NodeSourceControlCapability].self, forKey: .sourceControls)
         let sourceControl = try container.decodeIfPresent([NodeSourceControlCapability].self, forKey: .sourceControl)
         self.sourceControls = sourceControls ?? sourceControl ?? []
+        let codeReviews = try container.decodeIfPresent([NodeCodeReviewCapability].self, forKey: .codeReviews)
+        let codeReview = try container.decodeIfPresent([NodeCodeReviewCapability].self, forKey: .codeReview)
+        self.codeReviews = codeReviews ?? codeReview ?? []
         memories = try container.decodeIfPresent([NodeNamedCapability].self, forKey: .memories)
             ?? container.decodeIfPresent([NodeNamedCapability].self, forKey: .memory)
             ?? []
         modelProviders = try container.decodeIfPresent([NodeNamedCapability].self, forKey: .modelProviders)
             ?? container.decodeIfPresent([NodeNamedCapability].self, forKey: .providers)
             ?? []
+    }
+}
+
+struct NodeCodeReviewCapability: Codable, Sendable, Equatable {
+    var name: String
+    var displayName: String?
+    var capabilities: [String]
+
+    init(
+        name: String,
+        displayName: String? = nil,
+        capabilities: [String] = ["list_pull_requests"]
+    ) {
+        self.name = name
+        self.displayName = displayName
+        self.capabilities = capabilities
     }
 }
 

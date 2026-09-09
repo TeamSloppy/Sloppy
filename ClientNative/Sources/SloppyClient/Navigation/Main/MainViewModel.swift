@@ -17,6 +17,7 @@ import SloppyFeatureChat
 import SloppyFeatureProjects
 
 enum MainAppSection: String, CaseIterable, Hashable {
+    case pullRequests
     case scheduled
     case artifacts
     case sites
@@ -825,6 +826,11 @@ final class MainViewModel {
     func selectScheduled() {
         selectedSidebarItem = .scheduled
         selectAppSection(.scheduled)
+    }
+
+    func selectPullRequests() {
+        selectedSidebarItem = .pullRequests
+        selectAppSection(.pullRequests)
     }
 
     func selectArtifacts() {

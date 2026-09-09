@@ -196,6 +196,29 @@ public actor SloppyAPIClient {
         try await sites.list()
     }
 
+    public func fetchCodeReviewProviders() async throws -> [CodeReviewProviderDescriptor] {
+        try await http.get("/v1/code-reviews/providers")
+    }
+
+    public func fetchCodeReviews(
+        state: CodeReviewState = .open,
+        roles: [CodeReviewRole] = CodeReviewRole.allCases,
+        providerIDs: [String] = [],
+        limit: Int = 100
+    ) async throws -> CodeReviewInboxResponse {
+        var query = [
+            "state=\(BackendHTTPClient.encodeQueryValue(state.rawValue))",
+            "roles=\(BackendHTTPClient.encodeQueryValue(roles.map(\.rawValue).joined(separator: ",")))",
+            "limit=\(max(1, min(limit, 200)))",
+        ]
+        if !providerIDs.isEmpty {
+            query.append(
+                "providers=\(BackendHTTPClient.encodeQueryValue(providerIDs.joined(separator: ",")))"
+            )
+        }
+        return try await http.get("/v1/code-reviews?\(query.joined(separator: "&"))")
+    }
+
     public func updatePublishedSite(
         id: String,
         request: PublishedSiteUpdateRequest

@@ -7,6 +7,7 @@ import {
     fetchSourceControlProviders,
     fetchTaskSyncProviders,
     fetchProjectTaskSync,
+    updateProjectTaskSync,
     discoverProjectTaskSync,
     linkProjectTaskSync,
     unlinkProjectTaskSync,
@@ -436,6 +437,7 @@ export function ProjectSettingsTab({
     const iconUploadRef = useRef(null);
     const [iconUploadStatus, setIconUploadStatus] = useState("");
     const [taskSyncDraft, setTaskSyncDraft] = useState(() => cloneTaskSyncDraft(project));
+    const [savedTaskSyncDraft, setSavedTaskSyncDraft] = useState(() => cloneTaskSyncDraft(project));
     const [taskSyncToken, setTaskSyncToken] = useState("");
     const [taskSyncTokenStatus, setTaskSyncTokenStatus] = useState(null);
     const [taskSyncBusy, setTaskSyncBusy] = useState(false);
@@ -459,7 +461,9 @@ export function ProjectSettingsTab({
 
     useEffect(() => {
         setDraft(cloneDraft(project));
-        setTaskSyncDraft(cloneTaskSyncDraft(project));
+        const nextTaskSyncDraft = cloneTaskSyncDraft(project);
+        setTaskSyncDraft(nextTaskSyncDraft);
+        setSavedTaskSyncDraft(nextTaskSyncDraft);
         setIconUploadStatus("");
         setDebugWorktreeName("");
         setDebugWorktreeStatus("");
@@ -498,7 +502,11 @@ export function ProjectSettingsTab({
             const providerId = settings?.providerId || "github";
             const tokenStatus = await fetchProjectTaskSyncToken(project.id, providerId);
             if (cancelled) return;
-            if (settings) setTaskSyncDraft((prev) => ({ ...prev, ...cloneTaskSyncDraft({ taskSyncSettings: settings }) }));
+            if (settings) {
+                const nextTaskSyncDraft = cloneTaskSyncDraft({ taskSyncSettings: settings });
+                setTaskSyncDraft(nextTaskSyncDraft);
+                setSavedTaskSyncDraft(nextTaskSyncDraft);
+            }
             if (tokenStatus) setTaskSyncTokenStatus(tokenStatus);
         }
         loadTaskSync();
@@ -543,10 +551,15 @@ export function ProjectSettingsTab({
         return () => { cancelled = true; };
     }, []);
 
-    const hasChanges = useMemo(() => {
+    const hasProjectChanges = useMemo(() => {
         const saved = cloneDraft(project);
         return JSON.stringify(draft) !== JSON.stringify(saved);
     }, [draft, project]);
+    const hasTaskSyncChanges = useMemo(
+        () => JSON.stringify(taskSyncDraft) !== JSON.stringify(savedTaskSyncDraft),
+        [taskSyncDraft, savedTaskSyncDraft]
+    );
+    const hasChanges = hasProjectChanges || hasTaskSyncChanges;
 
     const agentOptions = useMemo(() => {
         const options = [];
@@ -614,29 +627,94 @@ export function ProjectSettingsTab({
         }, {});
     }
 
+    function taskSyncUpdatePayload(source = taskSyncDraft) {
+        return {
+            enabled: Boolean(source.enabled),
+            providerId: source.providerId || "github",
+            repositoryURL: source.repositoryURL.trim() || null,
+            repositorySlug: source.repositorySlug.trim() || null,
+            projectURL: source.projectURL.trim() || null,
+            projectNodeId: source.projectNodeId.trim() || null,
+            defaultRepo: source.defaultRepo.trim() || null,
+            source: {
+                kind: source.source?.kind || "query",
+                value: String(source.source?.value || "").trim(),
+                displayName: String(source.source?.displayName || "").trim(),
+                url: String(source.source?.url || "").trim()
+            },
+            tokenMode: source.tokenMode,
+            inboundStatusMappings: sanitizedStatusMappings(source.inboundStatusMappings),
+            statusMappings: sanitizedStatusMappings(source.statusMappings),
+            linkedProjects: source.linkedProjects,
+            syncSchedule: {
+                enabled: Boolean(source.syncSchedule?.enabled),
+                intervalMinutes: Math.max(1, Number(source.syncSchedule?.intervalMinutes) || 15),
+                lastRunAt: source.syncSchedule?.lastRunAt || null
+            }
+        };
+    }
+
+    function applyTaskSyncResponse(result) {
+        const settings = result?.settings || result?.project?.taskSyncSettings;
+        if (settings) {
+            const nextTaskSyncDraft = cloneTaskSyncDraft({ taskSyncSettings: settings });
+            setTaskSyncDraft(nextTaskSyncDraft);
+            setSavedTaskSyncDraft(nextTaskSyncDraft);
+        }
+        if (result?.project && onReplaceProject) {
+            onReplaceProject(result.project);
+        }
+    }
+
     async function saveSettings() {
-        if (draft.kind === "workspace" && draft.directoryPaths.length < 2) {
+        if (hasProjectChanges && draft.kind === "workspace" && draft.directoryPaths.length < 2) {
             setStatusText("A workspace requires at least two directories");
             return;
         }
-        const result = await onUpdateProject({
-            name: draft.name.trim() || undefined,
-            icon: draft.icon.trim(),
-            models: draft.models,
-            agentFiles: draft.agentFiles,
-            heartbeat: draft.heartbeat,
-            kind: draft.kind,
-            directoryPaths: draft.kind === "workspace"
-                ? draft.directoryPaths
-                : (draft.repoPath.trim() ? [draft.repoPath.trim()] : []),
-            sourceControlProviderId: draft.sourceControlProviderId || DEFAULT_SOURCE_CONTROL_PROVIDER.id,
-            reviewSettings: draft.reviewSettings,
-            autopilotSettings: draft.autopilotSettings,
-            taskLoopMode: draft.taskLoopMode,
-            actors: draft.actors,
-            teams: draft.teams
-        });
-        if (result) {
+        const projectDraft = cloneDraft({ ...project, ...draft });
+        const syncDraft = cloneTaskSyncDraft({ taskSyncSettings: taskSyncDraft });
+        let saved = true;
+
+        if (hasTaskSyncChanges) {
+            setTaskSyncBusy(true);
+            try {
+                const result = await updateProjectTaskSync(project.id, taskSyncUpdatePayload(syncDraft));
+                if (result) {
+                    applyTaskSyncResponse(result);
+                } else {
+                    saved = false;
+                }
+            } finally {
+                setTaskSyncBusy(false);
+            }
+        }
+
+        if (hasProjectChanges) {
+            const result = await onUpdateProject({
+                name: projectDraft.name.trim() || undefined,
+                icon: projectDraft.icon.trim(),
+                models: projectDraft.models,
+                agentFiles: projectDraft.agentFiles,
+                heartbeat: projectDraft.heartbeat,
+                kind: projectDraft.kind,
+                directoryPaths: projectDraft.kind === "workspace"
+                    ? projectDraft.directoryPaths
+                    : (projectDraft.repoPath.trim() ? [projectDraft.repoPath.trim()] : []),
+                sourceControlProviderId: projectDraft.sourceControlProviderId || DEFAULT_SOURCE_CONTROL_PROVIDER.id,
+                reviewSettings: projectDraft.reviewSettings,
+                autopilotSettings: projectDraft.autopilotSettings,
+                taskLoopMode: projectDraft.taskLoopMode,
+                actors: projectDraft.actors,
+                teams: projectDraft.teams
+            });
+            if (result) {
+                setDraft(cloneDraft(result));
+            } else {
+                saved = false;
+            }
+        }
+
+        if (saved) {
             setStatusText("Settings saved");
         } else {
             setStatusText("Failed to save settings");
@@ -645,6 +723,7 @@ export function ProjectSettingsTab({
 
     function cancelChanges() {
         setDraft(cloneDraft(project));
+        setTaskSyncDraft(cloneTaskSyncDraft({ taskSyncSettings: savedTaskSyncDraft }));
         setIconUploadStatus("");
         setStatusText("Changes cancelled");
     }
@@ -1958,9 +2037,7 @@ export function ProjectSettingsTab({
         setStatusText("");
         try {
             const result = await action();
-            if (result?.project && onReplaceProject) {
-                onReplaceProject(result.project);
-            }
+            applyTaskSyncResponse(result);
             return result;
         } finally {
             setTaskSyncBusy(false);
@@ -2286,7 +2363,10 @@ export function ProjectSettingsTab({
                             const result = await setProjectTaskSyncToken(project.id, { token: taskSyncToken.trim() }, providerId);
                             setTaskSyncToken("");
                             setTaskSyncTokenStatus(result || null);
-                            if (result) mutateTaskSync((draft) => { draft.tokenMode = "override"; });
+                            if (result) {
+                                mutateTaskSync((draft) => { draft.tokenMode = "override"; });
+                                setSavedTaskSyncDraft((saved) => ({ ...saved, tokenMode: "override" }));
+                            }
                             setStatusText(result ? "Override token saved" : "Token save failed");
                         }}
                     >
@@ -2299,6 +2379,10 @@ export function ProjectSettingsTab({
                         onClick={async () => {
                             const result = await clearProjectTaskSyncToken(project.id, providerId);
                             setTaskSyncTokenStatus(result || null);
+                            if (result) {
+                                mutateTaskSync((draft) => { draft.tokenMode = "inherit"; });
+                                setSavedTaskSyncDraft((saved) => ({ ...saved, tokenMode: "inherit" }));
+                            }
                             setStatusText(result ? "Override token cleared" : "Token clear failed");
                         }}
                     >
@@ -2379,10 +2463,10 @@ export function ProjectSettingsTab({
                 <div className={`settings-toast ${hasChanges ? "settings-toast--visible" : ""}`}>
                     <span className="settings-toast-label">Unsaved changes</span>
                     <div className="settings-toast-actions">
-                        <button type="button" className="danger hover-levitate" onClick={cancelChanges}>
+                        <button type="button" className="danger hover-levitate" onClick={cancelChanges} disabled={taskSyncBusy}>
                             Cancel
                         </button>
-                        <button type="button" className="hover-levitate" onClick={saveSettings}>
+                        <button type="button" className="hover-levitate" onClick={saveSettings} disabled={taskSyncBusy}>
                             Apply
                         </button>
                     </div>

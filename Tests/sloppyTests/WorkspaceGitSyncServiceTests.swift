@@ -55,6 +55,10 @@ func workspaceGitSyncPushesConfigurationSnapshotOnly() async throws {
     try Data("project".utf8).write(to: workspace.appendingPathComponent("projects/repo/file.txt"))
     try FileManager.default.createDirectory(at: workspace.appendingPathComponent("auth", isDirectory: true), withIntermediateDirectories: true)
     try Data("token".utf8).write(to: workspace.appendingPathComponent("auth/github.json"))
+    let submodule = workspace.appendingPathComponent("Vendor/AdaEngine", isDirectory: true)
+    try FileManager.default.createDirectory(at: submodule, withIntermediateDirectories: true)
+    try Data("gitdir: ../../missing/modules/Vendor/AdaEngine\n".utf8).write(to: submodule.appendingPathComponent(".git"))
+    try Data("submodule source".utf8).write(to: submodule.appendingPathComponent("Package.swift"))
 
     let service = WorkspaceGitSyncService()
     let response = try await service.syncNow(
@@ -78,6 +82,7 @@ func workspaceGitSyncPushesConfigurationSnapshotOnly() async throws {
     #expect(!FileManager.default.fileExists(atPath: verify.appendingPathComponent("memory/core.sqlite").path))
     #expect(!FileManager.default.fileExists(atPath: verify.appendingPathComponent("projects/repo/file.txt").path))
     #expect(!FileManager.default.fileExists(atPath: verify.appendingPathComponent("auth/github.json").path))
+    #expect(!FileManager.default.fileExists(atPath: verify.appendingPathComponent("Vendor/AdaEngine").path))
 
     let syncedConfig = try String(contentsOf: verify.appendingPathComponent("sloppy.json"), encoding: .utf8)
     #expect(!syncedConfig.contains("dev-secret"))

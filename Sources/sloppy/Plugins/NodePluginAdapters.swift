@@ -280,6 +280,47 @@ struct NodeTaskSyncProvider: TaskSyncProvider {
     }
 }
 
+struct NodeCodeReviewProvider: CodeReviewProvider {
+    let id: String
+    let displayName: String
+    let capabilities: Set<String>
+
+    private let runtime: NodePluginRuntime
+    private let manifest: PluginManifest
+
+    init(
+        manifest: PluginManifest,
+        pluginDirectory: URL,
+        descriptor: NodePluginDescriptor? = nil,
+        logger: Logger = Logger.sloppy(label: "sloppy.plugin.node.code-review")
+    ) throws {
+        self.id = manifest.name
+        let codeReview = descriptor?.codeReviews.first
+        self.displayName = codeReview?.displayName
+            ?? manifest.config["displayName"]?.asString
+            ?? manifest.name
+        self.capabilities = Set(
+            codeReview?.capabilities
+                ?? manifest.config["capabilities"]?.asArray?.compactMap(\.asString)
+                ?? ["list_pull_requests"]
+        )
+        self.runtime = try NodePluginRuntime(
+            manifest: manifest,
+            pluginDirectory: pluginDirectory,
+            logger: logger
+        )
+        self.manifest = manifest
+    }
+
+    func listCodeReviews(query: CodeReviewQuery) async throws -> [CodeReviewItem] {
+        try await runtime.call(
+            manifest.isNodePluginAPIV2 ? "code_review.list" : "listCodeReviews",
+            params: ["query": encodeJSONValue(query)],
+            as: [CodeReviewItem].self
+        )
+    }
+}
+
 struct NodeToolPlugin: ToolPlugin {
     let id: String
     let supportedTools: [String]

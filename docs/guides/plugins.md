@@ -291,6 +291,7 @@ Supported source plugin protocols are:
 ```text
 gateway
 task_sync
+code_review
 source_control
 tool
 memory
@@ -326,7 +327,7 @@ MyPlatformPlugin/
 | Field | Description |
 | --- | --- |
 | `name` | Unique plugin identifier. Use lowercase letters, numbers, `.`, `_`, or `-`. Must match the source package product name. |
-| `protocol` | One of `gateway`, `task_sync`, `source_control`, `tool`, `memory`, or `model_provider`. |
+| `protocol` | One of `gateway`, `task_sync`, `code_review`, `source_control`, `tool`, `memory`, or `model_provider`. |
 | `version` | Optional semver string for diagnostics. |
 | `runtime` | Optional. `"swift"` or `"nodejs"`; defaults to `"swift"`. Legacy aliases: `"swift-dylib"` and `"node"`. |
 | `entrypoint` | Required for `nodejs` plugins; ignored for `swift` plugins. |
@@ -370,6 +371,7 @@ The dylib must export a C function matching its plugin protocol:
 ```c
 void* sloppy_gateway_create(const char* manifest_json, void* inbound_receiver_opaque);
 void* sloppy_task_sync_create(const char* manifest_json);
+void* sloppy_code_review_create(const char* manifest_json);
 void* sloppy_source_control_create(const char* manifest_json);
 void* sloppy_tool_create(const char* manifest_json);
 void* sloppy_memory_create(const char* manifest_json);
@@ -378,7 +380,7 @@ void* sloppy_model_provider_create(const char* manifest_json);
 
 - `manifest_json` is a UTF-8 JSON string of the manifest.
 - `inbound_receiver_opaque` is only passed to gateway plugins; it is an opaque pointer to a retained `GatewayPluginReceiverBox`.
-- Return an opaque pointer to a retained `Any...Box` from `PluginSDK` (`AnyGatewayPluginBox`, `AnyTaskSyncProviderBox`, `AnySourceControlProviderBox`, `AnyToolPluginBox`, `AnyMemoryPluginBox`, or `AnyModelProviderBox`), or `NULL` on failure.
+- Return an opaque pointer to a retained `Any...Box` from `PluginSDK` (`AnyGatewayPluginBox`, `AnyTaskSyncProviderBox`, `AnyCodeReviewProviderBox`, `AnySourceControlProviderBox`, `AnyToolPluginBox`, `AnyMemoryPluginBox`, or `AnyModelProviderBox`), or `NULL` on failure.
 
 Sloppy will call `start`, `stop`, and `send` on the returned object through the `GatewayPlugin` protocol.
 
@@ -429,10 +431,40 @@ Node.js method names match the Swift protocol methods:
 | --- | --- |
 | `gateway` | `start`, `stop`, `send` |
 | `task_sync` | `resolveProject`, `importTasks`, `createOrUpdateTask`, `mirrorComment` |
+| `code_review` | `listCodeReviews` |
 | `source_control` | `inspectRepository`, `workingTreeStatus`, `workingTreeDiff`, `branchDiff`, `currentBranch`, `defaultBranch`, `createWorktree`, `removeWorktree`, `worktreePath`, `restorePathFromHead`, `mergeBranch` |
 | `tool` | `invoke` |
 | `memory` | `recall`, `save` |
 | `model_provider` | `respond` |
+
+### Code-review provider contract
+
+Use `code_review` when a connected service can enumerate pull requests, merge requests, or an equivalent review object for the current account:
+
+```json
+{
+  "name": "gitlab-reviews",
+  "protocol": "code_review",
+  "runtime": "nodejs",
+  "entrypoint": "index.js",
+  "config": {
+    "displayName": "GitLab",
+    "capabilities": ["list_pull_requests"]
+  }
+}
+```
+
+The host calls `listCodeReviews` with a provider-neutral query:
+
+```json
+{
+  "state": "open",
+  "roles": ["authored", "review_requested"],
+  "limit": 100
+}
+```
+
+The result is an array of `CodeReviewItem` objects. Required fields are `id`, `providerId`, `providerName`, `repository`, `title`, `url`, `state`, `isDraft`, `roles`, and `labels`; providers may also return `number`, `author`, `reviewDecision`, `checksStatus`, `createdAt`, and `updatedAt`. Use ISO-8601 timestamps. Provider failures are isolated: `GET /v1/code-reviews` returns successful items alongside a `failures` map, while `GET /v1/code-reviews/providers` lists every registered provider.
 
 ### Node.js Plugin API v2
 
@@ -499,6 +531,7 @@ Supported v2 method namespaces are:
 | Command | `command.run` |
 | Gateway | `gateway.start`, `gateway.send` |
 | Source control | `source_control.createWorktree`, `source_control.branchDiff`, `source_control.mergeBranch` |
+| Code review | `code_review.list` |
 | Memory | `memory.recall` |
 | Model provider | `model.respond` |
 

@@ -234,6 +234,7 @@ public actor CoreService {
     var sourceControlProviders: [String: any SourceControlProvider]
     var taskSyncProviders: [String: any TaskSyncProvider]
     var taskSyncProviderDescriptors: [String: TaskSyncProviderDescriptor]
+    var codeReviewProviders: [String: any CodeReviewProvider]
     let workspaceGitSyncService: WorkspaceGitSyncService
     let logger: Logger
     let configPath: String
@@ -491,6 +492,10 @@ public actor CoreService {
                 capabilities: ["pull_tasks", "push_task_fields", "push_comments", "webhook"]
             )
         ]
+        let githubCodeReviewProvider = GitHubCodeReviewProvider(
+            tokenProvider: { githubAuth.currentToken() }
+        )
+        self.codeReviewProviders = [githubCodeReviewProvider.id: githubCodeReviewProvider]
         self.workspaceGitSyncService = WorkspaceGitSyncService()
         self.sessionGoalController = AgentSessionGoalController()
         let orchestratorCatalogStore = AgentCatalogFileStore(agentsRootURL: self.agentsRootURL)

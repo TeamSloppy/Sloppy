@@ -60,6 +60,21 @@ extension CoreService {
             logger.info("External task-sync provider \(loaded.provider.id) registered.")
         }
 
+        let disabledCodeReviewPluginIDs = Set(
+            await store.listChannelPlugins()
+                .filter { !$0.enabled }
+                .map(\.id)
+        )
+        let codeReviewPlugins = await loader.loadCodeReviewPluginBundles(
+            from: pluginsDir,
+            cacheRootURL: pluginCacheRootURL,
+            disabledPluginIDs: disabledCodeReviewPluginIDs
+        )
+        for loaded in codeReviewPlugins {
+            registerCodeReviewProvider(loaded.provider)
+            logger.info("External code-review provider \(loaded.provider.id) registered.")
+        }
+
         let disabledPluginIDs = Set(
             await store.listChannelPlugins()
                 .filter { !$0.enabled && $0.deliveryMode == ChannelPluginRecord.DeliveryMode.inProcess }

@@ -26,6 +26,7 @@ extension CoreRouter {
             SitesAPIRouter(service: service),
             WorkspacesAPIRouter(service: service),
             SourceControlAPIRouter(service: service),
+            CodeReviewAPIRouter(service: service),
             PluginsAPIRouter(service: service)
         ]
 

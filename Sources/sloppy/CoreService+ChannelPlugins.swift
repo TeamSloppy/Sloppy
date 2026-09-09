@@ -88,8 +88,36 @@ extension CoreService {
         plugin.updatedAt = Date()
         await store.saveChannelPlugin(plugin)
         if plugin.deliveryMode == ChannelPluginRecord.DeliveryMode.inProcess {
-            if plugin.enabled {
-                let sourceURL = pluginsRootURL.appendingPathComponent(plugin.id, isDirectory: true)
+            let sourceURL = pluginsRootURL.appendingPathComponent(plugin.id, isDirectory: true)
+            let loader = PluginLoader(logger: logger)
+            let manifest = loader.loadManifest(at: sourceURL)
+            if manifest?.protocol == "code_review" {
+                if plugin.enabled {
+                    guard let manifest,
+                          let loaded = await loader.loadCodeReviewPlugin(
+                              from: sourceURL,
+                              cacheRootURL: pluginCacheRootURL,
+                              manifest: manifest
+                          ) else {
+                        throw ChannelPluginError.invalidPayload
+                    }
+                    registerCodeReviewProvider(loaded.provider)
+                } else {
+                    codeReviewProviders.removeValue(forKey: plugin.id)
+                }
+            } else if manifest?.isNodePluginAPIV2 == true {
+                if plugin.enabled,
+                   let manifest,
+                   let loaded = await loader.loadCodeReviewPlugin(
+                       from: sourceURL,
+                       cacheRootURL: pluginCacheRootURL,
+                       manifest: manifest
+                   ) {
+                    registerCodeReviewProvider(loaded.provider)
+                } else if !plugin.enabled {
+                    codeReviewProviders.removeValue(forKey: plugin.id)
+                }
+            } else if plugin.enabled {
                 if FileManager.default.fileExists(atPath: sourceURL.appendingPathComponent("Package.swift").path) {
                     try await startSourceChannelPluginIfNeeded(record: plugin)
                 }
@@ -108,6 +136,7 @@ extension CoreService {
             throw ChannelPluginError.notFound
         }
         await stopActiveGatewayPlugin(id: normalized)
+        codeReviewProviders.removeValue(forKey: normalized)
         await store.deleteChannelPlugin(id: normalized)
     }
 
@@ -120,6 +149,20 @@ extension CoreService {
         let result = try await installer.install(request)
         let enabled = request.enabled ?? true
         await stopActiveGatewayPlugin(id: result.manifest.name)
+
+        if result.manifest.isNodePluginAPIV2 && result.manifest.protocol == "plugin" {
+            let loader = PluginLoader(logger: logger)
+            if enabled,
+               let loaded = await loader.loadCodeReviewPlugin(
+                   from: result.sourceURL,
+                   cacheRootURL: pluginCacheRootURL,
+                   manifest: result.manifest
+               ) {
+                registerCodeReviewProvider(loaded.provider)
+            } else if !enabled {
+                codeReviewProviders.removeValue(forKey: result.manifest.name)
+            }
+        }
 
         if result.manifest.protocol == "source_control" {
             if enabled {
@@ -167,6 +210,43 @@ extension CoreService {
                     throw ChannelPluginError.invalidPayload
                 }
                 registerTaskSyncProvider(loaded.provider, manifest: loaded.manifest)
+            }
+
+            let now = Date()
+            let existing = await store.channelPlugin(id: result.manifest.name)
+            let record = ChannelPluginRecord(
+                id: result.manifest.name,
+                type: result.manifest.name,
+                baseUrl: "",
+                channelIds: [],
+                config: existing?.config ?? [:],
+                enabled: enabled,
+                deliveryMode: ChannelPluginRecord.DeliveryMode.inProcess,
+                createdAt: existing?.createdAt ?? now,
+                updatedAt: now
+            )
+            await store.saveChannelPlugin(record)
+            return ChannelPluginInstallResponse(
+                plugin: record,
+                sourcePath: result.sourceURL.path,
+                binaryPath: result.binaryURL?.path ?? result.sourceURL.appendingPathComponent(result.manifest.entrypoint ?? "").path,
+                rebuilt: result.rebuilt
+            )
+        }
+
+        if result.manifest.protocol == "code_review" {
+            if enabled {
+                let loader = PluginLoader(logger: logger)
+                guard let loaded = await loader.loadCodeReviewPlugin(
+                    from: result.sourceURL,
+                    cacheRootURL: pluginCacheRootURL,
+                    manifest: result.manifest
+                ) else {
+                    throw ChannelPluginError.invalidPayload
+                }
+                registerCodeReviewProvider(loaded.provider)
+            } else {
+                codeReviewProviders.removeValue(forKey: result.manifest.name)
             }
 
             let now = Date()

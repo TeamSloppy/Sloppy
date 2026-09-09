@@ -353,7 +353,7 @@ func sourcePluginInstallerAcceptsAllPluginProtocolsAndNodejsRuntime() throws {
         processRunner: FakePluginProcessRunner()
     )
 
-    for pluginProtocol in ["gateway", "task_sync", "source_control", "tool", "memory", "model_provider"] {
+    for pluginProtocol in ["gateway", "task_sync", "code_review", "source_control", "tool", "memory", "model_provider"] {
         let source = root.appendingPathComponent(pluginProtocol, isDirectory: true)
         if pluginProtocol == "gateway" {
             try makeSourcePlugin(at: source, name: "\(pluginProtocol)-plugin", pluginProtocol: pluginProtocol)

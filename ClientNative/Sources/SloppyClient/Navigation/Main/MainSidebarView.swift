@@ -2,6 +2,7 @@ import SloppyClientCore
 import SwiftUI
 
 enum MainSidebarSelection: Hashable {
+    case pullRequests
     case scheduled
     case artifacts
     case sites

@@ -35,7 +35,7 @@ public struct PluginManifest: Codable, Sendable {
 
     /// Unique plugin identifier (e.g. `"telegram"`).
     public var name: String
-    /// Protocol the plugin implements: `"gateway"`, `"task_sync"`, `"source_control"`, `"tool"`, `"memory"`, `"model_provider"`.
+    /// Protocol the plugin implements: `"gateway"`, `"task_sync"`, `"code_review"`, `"source_control"`, `"tool"`, `"memory"`, `"model_provider"`.
     public var `protocol`: String
     /// Optional semver string for display and diagnostics.
     public var version: String?
@@ -101,7 +101,7 @@ public struct PluginManifest: Codable, Sendable {
         if self.protocol == expectedProtocol {
             return true
         }
-        return isNodePluginAPIV2 && self.protocol == "plugin" && ["tool", "source_control"].contains(expectedProtocol)
+        return isNodePluginAPIV2 && self.protocol == "plugin" && ["tool", "source_control", "code_review"].contains(expectedProtocol)
     }
 }
 
@@ -214,6 +214,18 @@ public struct PluginLoader: Sendable {
         return loaded.map(\.provider)
     }
 
+    /// Loads providers for the global code-review inbox.
+    public func loadCodeReviewPlugins(from pluginsDirectory: URL) async -> [any CodeReviewProvider] {
+        let cacheRootURL = pluginsDirectory
+            .deletingLastPathComponent()
+            .appendingPathComponent("plugin-cache", isDirectory: true)
+        let loaded = await loadCodeReviewPluginBundles(
+            from: pluginsDirectory,
+            cacheRootURL: cacheRootURL
+        )
+        return loaded.map(\.provider)
+    }
+
     /// Loads all external source-control providers found under `pluginsDirectory`.
     /// Each sub-directory must contain a `plugin.json` with `"protocol": "source_control"` and either a
     /// prebuilt binary or a SwiftPM package.
@@ -292,6 +304,24 @@ public struct PluginLoader: Sendable {
             disabledPluginIDs: disabledPluginIDs
         ) { entry, manifest in
             await loadTaskSyncPlugin(
+                from: entry,
+                cacheRootURL: cacheRootURL,
+                manifest: manifest
+            )
+        }
+    }
+
+    func loadCodeReviewPluginBundles(
+        from pluginsDirectory: URL,
+        cacheRootURL: URL,
+        disabledPluginIDs: Set<String> = []
+    ) async -> [LoadedCodeReviewPlugin] {
+        await loadPluginBundles(
+            from: pluginsDirectory,
+            protocol: "code_review",
+            disabledPluginIDs: disabledPluginIDs
+        ) { entry, manifest in
+            await loadCodeReviewPlugin(
                 from: entry,
                 cacheRootURL: cacheRootURL,
                 manifest: manifest
@@ -583,6 +613,71 @@ public struct PluginLoader: Sendable {
                 return nil
             }
             return LoadedSourceControlPlugin(
+                manifest: manifest,
+                provider: provider,
+                sourceURL: directory,
+                binaryURL: binary.binaryURL,
+                rebuilt: binary.rebuilt
+            )
+        }
+    }
+
+    func loadCodeReviewPlugin(
+        from directory: URL,
+        cacheRootURL: URL,
+        manifest: PluginManifest
+    ) async -> LoadedCodeReviewPlugin? {
+        switch manifest.runtime {
+        case .nodejs:
+            guard await nodeRuntimeIsAvailable() else {
+                logger.error("Node.js runtime is not available; code-review plugin \(manifest.name) was not registered.")
+                return nil
+            }
+            do {
+                let descriptor = try await describeNodePluginIfNeeded(
+                    manifest: manifest,
+                    pluginDirectory: directory
+                )
+                guard !manifest.isNodePluginAPIV2
+                    || manifest.protocol == "code_review"
+                    || descriptor?.codeReviews.isEmpty == false else {
+                    return nil
+                }
+                let provider = try NodeCodeReviewProvider(
+                    manifest: manifest,
+                    pluginDirectory: directory,
+                    descriptor: descriptor,
+                    logger: logger
+                )
+                return LoadedCodeReviewPlugin(
+                    manifest: manifest,
+                    provider: provider,
+                    sourceURL: directory,
+                    binaryURL: nil,
+                    rebuilt: false
+                )
+            } catch {
+                logger.error("Failed to initialize Node code-review plugin \(manifest.name): \(error)")
+                return nil
+            }
+        case .swift:
+            guard let binary = await loadSwiftPluginBinary(
+                from: directory,
+                cacheRootURL: cacheRootURL,
+                manifest: manifest,
+                build: { builder in
+                    try await builder.buildCodeReviewPlugin(at: directory, manifest: manifest)
+                }
+            ) else {
+                return nil
+            }
+            guard let provider = loadDylibCodeReviewProvider(
+                binaryURL: binary.binaryURL,
+                manifest: manifest
+            ) else {
+                return nil
+            }
+            return LoadedCodeReviewPlugin(
                 manifest: manifest,
                 provider: provider,
                 sourceURL: directory,
@@ -900,6 +995,43 @@ public struct PluginLoader: Sendable {
         return provider
     }
 
+    func loadDylibCodeReviewProvider(
+        binaryURL: URL,
+        manifest: PluginManifest
+    ) -> (any CodeReviewProvider)? {
+        guard let handle = dlopen(binaryURL.path, RTLD_NOW | RTLD_LOCAL) else {
+            let error = String(cString: dlerror())
+            logger.error("dlopen failed for code-review plugin \(manifest.name): \(error)")
+            return nil
+        }
+
+        guard let sym = dlsym(handle, "sloppy_code_review_create") else {
+            let error = String(cString: dlerror())
+            logger.error("dlsym(sloppy_code_review_create) failed for plugin \(manifest.name): \(error)")
+            dlclose(handle)
+            return nil
+        }
+
+        typealias CreateFn = @convention(c) (UnsafePointer<CChar>) -> UnsafeMutableRawPointer?
+        let createFn = unsafeBitCast(sym, to: CreateFn.self)
+        let manifestJSON = (try? String(data: JSONEncoder().encode(manifest), encoding: .utf8)) ?? "{}"
+
+        guard let rawProvider = manifestJSON.withCString({ createFn($0) }) else {
+            logger.error("sloppy_code_review_create returned nil for plugin \(manifest.name).")
+            dlclose(handle)
+            return nil
+        }
+
+        let provider = Unmanaged<AnyCodeReviewProviderBox>.fromOpaque(rawProvider).takeRetainedValue()
+        guard provider.id == manifest.name else {
+            logger.error("Code-review provider id mismatch for \(manifest.name): dylib returned \(provider.id).")
+            dlclose(handle)
+            return nil
+        }
+        logger.info("Loaded external code-review plugin \(manifest.name) v\(manifest.version ?? "unknown").")
+        return provider
+    }
+
     func loadDylibToolPlugin(
         binaryURL: URL,
         manifest: PluginManifest
@@ -1048,6 +1180,14 @@ struct LoadedTaskSyncPlugin: Sendable {
 struct LoadedSourceControlPlugin: Sendable {
     var manifest: PluginManifest
     var provider: any SourceControlProvider
+    var sourceURL: URL
+    var binaryURL: URL?
+    var rebuilt: Bool
+}
+
+struct LoadedCodeReviewPlugin: Sendable {
+    var manifest: PluginManifest
+    var provider: any CodeReviewProvider
     var sourceURL: URL
     var binaryURL: URL?
     var rebuilt: Bool

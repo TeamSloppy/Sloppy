@@ -4,7 +4,7 @@ import FoundationNetworking
 #endif
 import Logging
 
-public enum APIError: Error, Sendable {
+public enum APIError: LocalizedError, Sendable {
     case invalidResponse
     case httpError(statusCode: Int, body: String?)
     case decodingFailed(String)
@@ -18,11 +18,44 @@ public enum APIError: Error, Sendable {
         switch self {
         case .invalidResponse:
             return "Invalid HTTP response"
-        case .httpError(let statusCode, _):
+        case .httpError(let statusCode, let body):
+            if let detail = Self.responseDetail(from: body) {
+                return "HTTP \(statusCode): \(detail)"
+            }
             return "HTTP \(statusCode)"
         case .decodingFailed(let message):
             return "Response decoding failed: \(message)"
         }
+    }
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidResponse:
+            return "The server returned an invalid HTTP response."
+        case .httpError:
+            return "The server request failed (\(diagnosticDescription))."
+        case .decodingFailed(let message):
+            return "The server response could not be read: \(message)"
+        }
+    }
+
+    private static func responseDetail(from body: String?) -> String? {
+        guard let body else { return nil }
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return nil }
+
+        if let data = trimmed.data(using: .utf8),
+           let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            for key in ["message", "error", "detail"] {
+                if let value = object[key] as? String,
+                   !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return value
+                }
+            }
+        }
+
+        guard !trimmed.hasPrefix("<") else { return nil }
+        return String(trimmed.prefix(300))
     }
 }
 

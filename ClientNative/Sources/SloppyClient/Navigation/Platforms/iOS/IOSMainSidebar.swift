@@ -70,6 +70,12 @@ struct PlatformMainSidebar: View {
                 }
             }
 
+            Tab("Pull Requests", systemImage: "arrow.triangle.branch", value: MainAppSection.pullRequests) {
+                NavigationStack {
+                    PullRequestsScreen(apiClient: viewModel.apiClient)
+                }
+            }
+
             Tab("Workspace", systemImage: "square.grid.2x2", value: MainAppSection.workspace) {
                 if idiom == .phone {
                     NavigationStack {

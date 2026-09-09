@@ -231,7 +231,7 @@ public final class ChatTranscriptState {
     }
 
     func appendStreamingAssistantText(_ text: String, messageId: String) {
-        if let messageIndex = allMessages.firstIndex(where: { $0.id == messageId }) {
+        if let messageIndex = allMessages.lastIndex(where: { $0.id == messageId }) {
             var message = allMessages[messageIndex]
             if let segmentIndex = message.segments.lastIndex(where: { $0.kind == .text }) {
                 message.segments[segmentIndex].text = (message.segments[segmentIndex].text ?? "") + text
@@ -239,6 +239,17 @@ public final class ChatTranscriptState {
                 message.segments.append(ChatMessageSegment(kind: .text, text: text))
             }
             allMessages[messageIndex] = message
+            // Text growth cannot change grouping or identity. Update the affected row
+            // without rebuilding the transcript and all of its activity groups.
+            let visibleIndex = messageIndex - visibleStartIndex
+            if messages.indices.contains(visibleIndex),
+               let entryIndex = entries.lastIndex(where: { $0.id == "message:\(messageId)" }),
+               case .message = entries[entryIndex] {
+                messages[visibleIndex] = message
+                entries[entryIndex] = .message(message)
+                renderRevision &+= 1
+                return
+            }
         } else {
             allMessages.append(
                 ChatMessage(
@@ -1646,13 +1657,15 @@ public final class ChatScreenViewModel {
         }
 
         streamingFlushTask = Task { @MainActor in
-            try? await Task.sleep(nanoseconds: 100_000_000)
+            try? await Task.sleep(nanoseconds: 33_000_000)
             guard !Task.isCancelled else { return }
             flushPendingStreamingAssistantText()
         }
     }
 
     private func flushPendingStreamingAssistantText() {
+        streamingFlushTask?.cancel()
+        streamingFlushTask = nil
         guard pendingStreamingSessionId != nil,
               let messageId = pendingStreamingAssistantMessageId,
               let text = pendingStreamingAssistantText,

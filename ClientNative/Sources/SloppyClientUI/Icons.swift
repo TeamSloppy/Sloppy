@@ -24,6 +24,7 @@ public enum MaterialSymbol: String, CaseIterable, Sendable {
     case radioButtonChecked
     case radioButtonPartial
     case pushPin
+    case pullRequest
     case refresh
     case settings
     case stop
@@ -58,6 +59,7 @@ public enum MaterialSymbol: String, CaseIterable, Sendable {
         case .radioButtonChecked: "circle.inset.filled"
         case .radioButtonPartial: "circle.lefthalf.filled"
         case .pushPin: "pin.fill"
+        case .pullRequest: "arrow.triangle.branch"
         case .refresh: "arrow.clockwise"
         case .settings: "gearshape"
         case .stop: "stop.fill"

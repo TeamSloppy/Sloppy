@@ -322,6 +322,7 @@ struct MainView: View {
                     if !isCanvasWorkspaceSelected,
                        viewModel.selectedAppSection != .artifacts,
                        viewModel.selectedAppSection != .sites,
+                       viewModel.selectedAppSection != .pullRequests,
                        let activeChatViewModel {
                         ChatContextToolbarMenu(
                             selectedAgent: activeChatViewModel.selectedAgent,
@@ -337,7 +338,8 @@ struct MainView: View {
                     if idiom != .phone,
                        !isCanvasWorkspaceSelected,
                        viewModel.selectedAppSection != .artifacts,
-                       viewModel.selectedAppSection != .sites {
+                       viewModel.selectedAppSection != .sites,
+                       viewModel.selectedAppSection != .pullRequests {
                         workspaceSidePanelButton
                     }
                 }
@@ -1026,6 +1028,8 @@ struct MainView: View {
         Group {
             if viewModel.selectedAppSection == .scheduled {
                 ScheduledTasksScreen(apiClient: viewModel.apiClient)
+            } else if viewModel.selectedAppSection == .pullRequests {
+                PullRequestsScreen(apiClient: viewModel.apiClient)
             } else if viewModel.selectedAppSection == .sites {
                 SitesScreen(
                     apiClient: viewModel.apiClient,

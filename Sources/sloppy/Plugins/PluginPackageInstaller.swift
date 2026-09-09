@@ -34,9 +34,9 @@ enum PluginPackageInstallError: Error, LocalizedError, Sendable {
         case .missingPackageSwift:
             return "Swift plugin package is missing Package.swift at its root. Add Package.swift or set plugin.json runtime to nodejs for a Node.js plugin."
         case .missingOrInvalidManifest:
-            return "Plugin package is missing a valid plugin.json at its root. Required fields include `name` and a supported `protocol` such as gateway, task_sync, source_control, tool, memory, or model_provider."
+            return "Plugin package is missing a valid plugin.json at its root. Required fields include `name` and a supported `protocol` such as gateway, task_sync, code_review, source_control, tool, memory, or model_provider."
         case .unsupportedProtocol(let value):
-            return "Only gateway, task_sync, source_control, tool, memory, model_provider, and Node.js API v2 plugin source plugins are supported; plugin.json protocol was \(value)."
+            return "Only gateway, task_sync, code_review, source_control, tool, memory, model_provider, and Node.js API v2 plugin source plugins are supported; plugin.json protocol was \(value)."
         case .invalidPluginName(let name):
             return "Invalid plugin name in plugin.json: \(name)."
         case .conflict(let name):
@@ -155,6 +155,7 @@ struct PluginPackageInstaller {
     private static let supportedSourceProtocols: Set<String> = [
         "gateway",
         "task_sync",
+        "code_review",
         "source_control",
         "tool",
         "memory",

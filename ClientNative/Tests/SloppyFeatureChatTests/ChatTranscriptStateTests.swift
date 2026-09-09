@@ -198,6 +198,23 @@ struct ChatTranscriptStateTests {
         #expect(transcript.messages.map(\.id) == ["thinking-1", "streaming-assistant-session"])
     }
 
+    @Test("streaming updates an earlier visible turn without changing neighboring entries")
+    func streamingPreservesNeighboringEntries() {
+        let transcript = ChatTranscriptState()
+        transcript.replaceAll(makeMessages(count: 150))
+        let originalEntries = transcript.entries
+        let identityRevision = transcript.identityRevision
+        for _ in 0..<100 {
+            transcript.appendStreamingAssistantText(" delta", messageId: "msg-147")
+        }
+        #expect(transcript.messages.count == 64)
+        #expect(transcript.messages[61].textContent == "message 147" + String(repeating: " delta", count: 100))
+        #expect(transcript.entries[61] == .message(transcript.messages[61]))
+        #expect(transcript.entries[60] == originalEntries[60])
+        #expect(transcript.entries[62] == originalEntries[62])
+        #expect(transcript.identityRevision == identityRevision)
+    }
+
     private func makeMessages(count: Int) -> [ChatMessage] {
         (0..<count).map { message(id: "msg-\($0)", index: $0) }
     }

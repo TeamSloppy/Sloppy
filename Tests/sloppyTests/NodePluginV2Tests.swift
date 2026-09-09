@@ -169,6 +169,36 @@ struct NodePluginV2Tests {
     }
 
     @Test
+    func codeReviewProviderUsesNamespacedV2Method() async throws {
+        guard nodeIsAvailableForV2Tests() else { return }
+        let root = try makePluginFixture(
+            manifest: """
+            {
+              "name": "reviews-v2",
+              "version": "1.0.0",
+              "runtime": "nodejs",
+              "apiVersion": "2026-05-plugins-v2",
+              "entrypoint": "index.js"
+            }
+            """,
+            script: nodeV2FixtureScript,
+            directoryName: "reviews-v2"
+        )
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let loaded = await PluginLoader().loadCodeReviewPluginBundles(
+            from: root,
+            cacheRootURL: root.appendingPathComponent("plugin-cache", isDirectory: true)
+        )
+        let provider = try #require(loaded.first?.provider)
+        let reviews = try await provider.listCodeReviews(query: CodeReviewQuery())
+
+        #expect(provider.displayName == "Reviews v2")
+        #expect(reviews.first?.title == "Plugin pull request")
+        #expect(reviews.first?.providerId == "reviews-v2")
+    }
+
+    @Test
     func runtimeDecodesISO8601DatesFromNodePlugins() async throws {
         guard nodeIsAvailableForV2Tests() else { return }
         let root = try makePluginFixture(
@@ -246,6 +276,11 @@ process.stdin.on("end", () => {
           name: "scm-v2",
           displayName: "Source Control v2",
           capabilities: ["worktrees"]
+        }],
+        code_review: [{
+          name: "reviews-v2",
+          displayName: "Reviews v2",
+          capabilities: ["list_pull_requests"]
         }]
       }
     });
@@ -261,6 +296,24 @@ process.stdin.on("end", () => {
         worktreePath: `${request.params.repoPath}/.sloppy-worktrees/${request.params.taskId}`,
         branchName: `sloppy/${request.params.taskId}`
       }
+    });
+    return;
+  }
+  if (request.method === "code_review.list") {
+    respond({
+      result: [{
+        id: "reviews-v2:repo#1",
+        providerId: "reviews-v2",
+        providerName: "Reviews v2",
+        repository: "team/repo",
+        number: 1,
+        title: "Plugin pull request",
+        url: "https://reviews.example/team/repo/1",
+        state: "open",
+        isDraft: false,
+        roles: ["authored"],
+        labels: []
+      }]
     });
     return;
   }

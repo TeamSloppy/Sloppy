@@ -37,6 +37,7 @@ struct WorkspaceGitSyncService: Sendable {
     ]
 
     private static let excludedFiles: Set<String> = [
+        ".git",
         ".DS_Store",
         "core.sqlite",
         "core.sqlite-shm",
@@ -238,7 +239,7 @@ struct WorkspaceGitSyncService: Sendable {
 
     private func shouldInclude(name: String, url: URL) -> Bool {
         if isDirectory(url) {
-            return !Self.excludedDirectories.contains(name)
+            return !Self.excludedDirectories.contains(name) && !isNestedGitCheckout(url)
         }
         return !Self.excludedFiles.contains(name) && !name.hasSuffix(".sqlite") &&
             !name.hasSuffix(".sqlite-shm") && !name.hasSuffix(".sqlite-wal") &&
@@ -247,6 +248,10 @@ struct WorkspaceGitSyncService: Sendable {
 
     private func isDirectory(_ url: URL) -> Bool {
         (try? url.resourceValues(forKeys: [.isDirectoryKey]).isDirectory) == true
+    }
+
+    private func isNestedGitCheckout(_ url: URL) -> Bool {
+        FileManager.default.fileExists(atPath: url.appendingPathComponent(".git").path)
     }
 
     private func sanitizeConfigJSON(_ data: Data) -> Data? {

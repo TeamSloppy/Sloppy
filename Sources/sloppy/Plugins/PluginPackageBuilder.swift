@@ -122,6 +122,13 @@ struct PluginPackageBuilder {
         try await buildPlugin(at: packageURL, manifest: manifest)
     }
 
+    func buildCodeReviewPlugin(
+        at packageURL: URL,
+        manifest: PluginManifest
+    ) async throws -> PluginPackageBuildResult {
+        try await buildPlugin(at: packageURL, manifest: manifest)
+    }
+
     func buildSourceControlPlugin(
         at packageURL: URL,
         manifest: PluginManifest

@@ -262,7 +262,7 @@ private struct UIKitChatTranscriptCollection: UIViewRepresentable {
 #endif
 
 #if os(macOS)
-private struct AppKitChatTranscriptCollection: NSViewRepresentable {
+struct AppKitChatTranscriptCollection: NSViewRepresentable {
     let items: [ChatTranscriptNativeItem]
     let contentWidth: CGFloat
     let topInset: CGFloat
@@ -337,6 +337,7 @@ private struct AppKitChatTranscriptCollection: NSViewRepresentable {
         private var previousRenderRevision: UInt?
         private var scrollObserver: NSObjectProtocol?
         private var isNearBottom = true
+        private var heightUpdateScheduled = false
 
         init(parent: AppKitChatTranscriptCollection) {
             self.parent = parent
@@ -353,17 +354,43 @@ private struct AppKitChatTranscriptCollection: NSViewRepresentable {
                       ) as? AppKitHostedTranscriptItem else {
                     return nil
                 }
-                hostedItem.configure(
-                    rootView: AnyView(
-                        HStack(spacing: 0) {
-                            Spacer(minLength: 0)
-                            self.parent.renderer(item)
-                                .frame(width: self.parent.contentWidth)
-                            Spacer(minLength: 0)
-                        }
-                    )
-                )
+                self.configure(hostedItem, with: item)
                 return hostedItem
+            }
+        }
+
+        private func configure(_ hostedItem: AppKitHostedTranscriptItem, with item: ChatTranscriptNativeItem) {
+            hostedItem.onHeightChange = { [weak self] in
+                self?.scheduleHeightUpdate()
+            }
+            hostedItem.configure(
+                rootView: AnyView(
+                    HStack(spacing: 0) {
+                        Spacer(minLength: 0)
+                        parent.renderer(item)
+                            .frame(width: parent.contentWidth)
+                        Spacer(minLength: 0)
+                    }
+                    .id(item.id)
+                    .frame(width: max(scrollView?.contentSize.width ?? parent.contentWidth, 1))
+                    .fixedSize(horizontal: false, vertical: true)
+                )
+            )
+        }
+
+        private func scheduleHeightUpdate() {
+            guard !heightUpdateScheduled else { return }
+            heightUpdateScheduled = true
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                self.heightUpdateScheduled = false
+                let shouldFollow = self.isNearBottom
+                self.collectionView?.collectionViewLayout?.invalidateLayout()
+                self.collectionView?.layoutSubtreeIfNeeded()
+                if shouldFollow {
+                    self.scrollToBottom(animated: false)
+                }
+                self.updateNearBottom()
             }
         }
 
@@ -402,40 +429,38 @@ private struct AppKitChatTranscriptCollection: NSViewRepresentable {
             self.parent = parent
             itemByID = Dictionary(uniqueKeysWithValues: parent.items.map { ($0.id, $0) })
             scrollView.automaticallyAdjustsContentInsets = false
-            scrollView.contentInsets = NSEdgeInsets(
-                top: parent.topInset,
-                left: 0,
-                bottom: parent.bottomInset,
-                right: 0
-            )
-            if let layout = collectionView.collectionViewLayout as? NSCollectionViewFlowLayout {
-                layout.estimatedItemSize = NSSize(
-                    width: max(scrollView.contentSize.width, 1),
-                    height: 100
+            if initial || previousTopInset != parent.topInset || bottomInsetChanged {
+                scrollView.contentInsets = NSEdgeInsets(
+                    top: parent.topInset,
+                    left: 0,
+                    bottom: parent.bottomInset,
+                    right: 0
                 )
-                if widthChanged {
-                    layout.invalidateLayout()
-                }
             }
+            updateCollectionWidth()
 
-            var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
-            snapshot.appendSections([0])
-            snapshot.appendItems(parent.items.map(\.id), toSection: 0)
-            if !initial {
-                let oldByID = Dictionary(uniqueKeysWithValues: previousItems.map { ($0.id, $0) })
-                var changedIDs = parent.items.compactMap { item -> String? in
-                    guard let oldItem = oldByID[item.id], oldItem != item else { return nil }
-                    return item.id
-                }
-                if widthChanged {
-                    changedIDs = parent.items.map(\.id)
-                }
-                let reloadableIDs = changedIDs.filter { snapshot.indexOfItem($0) != nil }
-                if !reloadableIDs.isEmpty {
-                    snapshot.reloadItems(reloadableIDs)
-                }
+            let identitiesChanged = previousItems.map(\.id) != parent.items.map(\.id)
+            let oldByID = Dictionary(uniqueKeysWithValues: previousItems.map { ($0.id, $0) })
+            let changedIDs = parent.items.compactMap { item -> String? in
+                guard oldByID[item.id] != item || widthChanged else { return nil }
+                return item.id
             }
-            dataSource?.apply(snapshot, animatingDifferences: false)
+            if initial || identitiesChanged {
+                var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
+                snapshot.appendSections([0])
+                snapshot.appendItems(parent.items.map(\.id), toSection: 0)
+                snapshot.reloadItems(changedIDs.filter { oldByID[$0] != nil })
+                dataSource?.apply(snapshot, animatingDifferences: false)
+            } else if !changedIDs.isEmpty {
+                // Keep the hosting view and its local state alive during streaming.
+                for id in changedIDs {
+                    guard let indexPath = dataSource?.indexPath(for: id),
+                          let hostedItem = collectionView.item(at: indexPath) as? AppKitHostedTranscriptItem,
+                          let item = itemByID[id] else { continue }
+                    configure(hostedItem, with: item)
+                }
+                collectionView.collectionViewLayout?.invalidateLayout()
+            }
 
             DispatchQueue.main.async { [weak self, weak collectionView, weak scrollView] in
                 guard let self, let collectionView, let scrollView else { return }
@@ -473,6 +498,12 @@ private struct AppKitChatTranscriptCollection: NSViewRepresentable {
             let width = max(scrollView.contentSize.width, 1)
             guard abs(layout.estimatedItemSize.width - width) > 0.5 else { return }
             layout.estimatedItemSize = NSSize(width: width, height: 100)
+            for indexPath in collectionView.indexPathsForVisibleItems() {
+                guard let id = dataSource?.itemIdentifier(for: indexPath),
+                      let item = itemByID[id],
+                      let hostedItem = collectionView.item(at: indexPath) as? AppKitHostedTranscriptItem else { continue }
+                configure(hostedItem, with: item)
+            }
             layout.invalidateLayout()
         }
 
@@ -525,20 +556,42 @@ private final class AppKitChatTranscriptScrollView: NSScrollView {
 }
 
 @MainActor
-private final class AppKitHostedTranscriptItem: NSCollectionViewItem {
+final class AppKitHostedTranscriptItem: NSCollectionViewItem {
     static let identifier = NSUserInterfaceItemIdentifier("chat.native-transcript.hosted-item")
     private var hostingView: NSHostingView<AnyView>?
+    private var measuredHeight: CGFloat = 0
+    private var measurementGeneration: UInt = 0
+    var onHeightChange: (@MainActor () -> Void)?
 
     override func loadView() {
         view = NSView()
     }
 
     func configure(rootView: AnyView) {
+        measurementGeneration &+= 1
+        let generation = measurementGeneration
+        let measuredRoot = AnyView(rootView.onGeometryChange(for: CGFloat.self) { geometry in
+            ceil(geometry.size.height)
+        } action: { [weak self] height in
+            guard let self, height.isFinite, height > 0,
+                  abs(self.measuredHeight - height) > 0.5 else { return }
+            self.measuredHeight = height
+            // Geometry callbacks run inside SwiftUI layout; invalidate on the next turn.
+            DispatchQueue.main.async { [weak self] in
+                guard let self, self.measurementGeneration == generation else { return }
+                if let onHeightChange = self.onHeightChange {
+                    onHeightChange()
+                } else {
+                    self.collectionView?.collectionViewLayout?.invalidateLayout()
+                }
+            }
+        })
         if let hostingView {
-            hostingView.rootView = rootView
+            hostingView.rootView = measuredRoot
             return
         }
-        let hostingView = NSHostingView(rootView: rootView)
+        let hostingView = NSHostingView(rootView: measuredRoot)
+        hostingView.sizingOptions = [.intrinsicContentSize]
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(hostingView)
         NSLayoutConstraint.activate([
@@ -548,6 +601,19 @@ private final class AppKitHostedTranscriptItem: NSCollectionViewItem {
             hostingView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
         ])
         self.hostingView = hostingView
+    }
+
+    override func preferredLayoutAttributesFitting(
+        _ layoutAttributes: NSCollectionViewLayoutAttributes
+    ) -> NSCollectionViewLayoutAttributes {
+        guard let attributes = layoutAttributes.copy() as? NSCollectionViewLayoutAttributes,
+              let hostingView else { return layoutAttributes }
+        hostingView.layoutSubtreeIfNeeded()
+        let height = ceil(hostingView.fittingSize.height)
+        if height.isFinite && height > 0 {
+            attributes.size.height = height
+        }
+        return attributes
     }
 }
 #endif

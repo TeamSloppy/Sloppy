@@ -7,28 +7,43 @@ Current status: internal-first Apple client workspace with connection setup, loc
 ## Build
 
 ```bash
-cd Apps/Client
+cd ClientNative
 swift build
 ```
+
+## Build and install on this Mac
+
+Build the release app, replace the local copy in `/Applications`, and launch it:
+
+```bash
+cd ClientNative
+./script/build_and_install.sh
+```
+
+The script asks for an administrator password only when the destination is not
+writable. Use `--no-launch` to install without opening the app, or
+`--install-dir "$HOME/Applications"` to install for the current user only.
 
 ## Generate Xcode project
 
 Requires [XcodeGen](https://github.com/yonaskolb/XcodeGen):
 
 ```bash
-cd Apps/Client
+cd ClientNative
 xcodegen generate
 open SloppyClient.xcodeproj
 ```
 
 ## Workspace Notes
 
-`Apps/Client` is the canonical Apple client workspace. It is built independently from the root server package and has its own package boundaries plus generated Xcode project flow.
+`ClientNative` is the Apple client workspace. It is built independently from
+the root server package and has its own package boundaries plus generated Xcode
+project flow.
 
 ## Structure
 
 ```
-Apps/Client/
+ClientNative/
   Package.swift          # Standalone SwiftPM package (SloppyClient)
   project.yml            # XcodeGen spec for .xcodeproj generation
   Sources/

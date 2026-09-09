@@ -156,6 +156,14 @@ private struct MacSidebarPrimaryActions: View {
             )
 
             SidebarNavigationRow(
+                icon: .pullRequest,
+                title: "Pull Requests",
+                isSelected: viewModel.selectedAppSection == .pullRequests,
+                navigationValue: .pullRequests,
+                action: viewModel.selectPullRequests
+            )
+
+            SidebarNavigationRow(
                 icon: .timer,
                 title: "Scheduled",
                 isSelected: viewModel.selectedAppSection == .scheduled,
