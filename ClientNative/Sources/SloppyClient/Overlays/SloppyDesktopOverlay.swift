@@ -5,6 +5,7 @@ import SloppyClientUI
 
 #if os(macOS)
 import AppKit
+import QuartzCore
 import SwiftUI
 
 @MainActor
@@ -17,6 +18,7 @@ final class SloppyDesktopOverlay {
     private var apiClient = SloppyAPIClient()
     private var closeBehavior: ClientWindowCloseBehavior = .keepProcess
     private var activityRefreshTask: Task<Void, Never>?
+    private var panelResizeTask: Task<Void, Never>?
     private var agentRunCache: [String: SloppyDesktopAgentRunCacheEntry] = [:]
     var onOpenAgentRun: (@MainActor (String, String) -> Void)?
 
@@ -107,7 +109,7 @@ final class SloppyDesktopOverlay {
         panel.hasShadow = true
         panel.hidesOnDeactivate = false
         panel.isReleasedWhenClosed = false
-        panel.contentView = NSHostingView(
+        let hostingView = NSHostingView(
             rootView: SloppyDesktopNotchView(
                 state: state,
                 isPointerInsidePanel: { [weak panel] in
@@ -116,6 +118,10 @@ final class SloppyDesktopOverlay {
                 }
             )
         )
+        // The panel owns its size. SwiftUI's intrinsic-size constraints must not
+        // resize/recenter the window when the expanded content is inserted.
+        hostingView.sizingOptions = []
+        panel.contentView = hostingView
         overlayPanel = panel
         state.onExpansionChanged = { [weak self] in
             guard let self, let panel = self.overlayPanel else { return }
@@ -151,6 +157,7 @@ final class SloppyDesktopOverlay {
     }
 
     private func position(panel: NSPanel, animated: Bool) {
+        panelResizeTask?.cancel()
         guard let screen = window?.screen ?? NSScreen.main ?? NSScreen.screens.first else { return }
         let size = SloppyDesktopNotchView.size(for: state)
         let frame = NSRect(
@@ -159,7 +166,39 @@ final class SloppyDesktopOverlay {
             width: size.width,
             height: size.height
         )
-        panel.setFrame(frame, display: true, animate: animated)
+        guard animated, !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion else {
+            panel.setFrame(frame, display: true)
+            return
+        }
+        let initialFrame = panel.frame
+        let expanding = state.isExpanded
+        let duration = expanding ? 0.24 : 0.16
+        // NSWindow's animator clamps overshoot, so interpolate the frame directly.
+        // Starting from the current frame also keeps interrupted transitions continuous.
+        panelResizeTask = Task { @MainActor [weak panel] in
+            let start = CACurrentMediaTime()
+            while !Task.isCancelled {
+                guard let panel else { return }
+                let time = min((CACurrentMediaTime() - start) / duration, 1)
+                guard time < 1 else {
+                    panel.setFrame(frame, display: true)
+                    return
+                }
+                let remaining = time - 1
+                let progress = expanding
+                    ? 1 + 1.9 * remaining * remaining * remaining + 0.9 * remaining * remaining
+                    : 1 + remaining * remaining * remaining
+                let width = initialFrame.width + (frame.width - initialFrame.width) * progress
+                let height = initialFrame.height + (frame.height - initialFrame.height) * progress
+                panel.setFrame(NSRect(
+                    x: screen.frame.midX - width / 2,
+                    y: screen.frame.maxY - height,
+                    width: width,
+                    height: height
+                ), display: false)
+                try? await Task.sleep(for: .milliseconds(8))
+            }
+        }
     }
 
     private func startActivityRefresh() {
@@ -338,6 +377,11 @@ final class SloppyDesktopOverlay {
 private final class SloppyNotchPanel: NSPanel {
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
+
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect {
+        // A notch sits at the physical screen edge, including the menu-bar area.
+        frameRect
+    }
 }
 
 private struct SloppyDesktopNotchView: View {
@@ -351,6 +395,10 @@ private struct SloppyDesktopNotchView: View {
                 ? CGSize(width: wideWidth, height: collapsedSize.height)
                 : collapsedSize
         }
+        return expandedPanelSize(for: state)
+    }
+
+    private static func expandedPanelSize(for state: SloppyDesktopOverlayState) -> CGSize {
         guard state.usesWideLayout else {
             return expandedSize
         }
@@ -360,7 +408,7 @@ private struct SloppyDesktopNotchView: View {
         let chatComposerHeight: CGFloat = state.selectedRecentChatID == nil
             ? 0
             : (state.promptError == nil ? 40 : 58)
-        let taskComposerHeight: CGFloat = state.taskCreationError == nil ? 46 : 62
+        let taskComposerHeight: CGFloat = state.taskCreationError == nil ? 70 : 86
         let approvalHeight: CGFloat = state.toolApproval == nil ? 0 : 132
         let sectionCount = (state.activeAgentRuns.isEmpty ? 0 : 1)
             + (state.activeTasks.isEmpty ? 0 : 1)
@@ -392,60 +440,13 @@ private struct SloppyDesktopNotchView: View {
     }
 
     var body: some View {
-        VStack(spacing: 0) {
-            HStack(spacing: 7) {
-                Image(systemName: state.toolApproval == nil ? "waveform.path.ecg" : "exclamationmark.shield.fill")
-                    .font(.system(size: 12))
-                    .foregroundStyle(state.toolApproval == nil ? .green : .orange)
-                if let run = state.primaryAgentRun {
-                    Button {
-                        state.openAgentRun(run)
-                    } label: {
-                        Text(compactTitle)
-                            .font(.system(size: 12, weight: .semibold))
-                            .lineLimit(1)
-                    }
-                    .buttonStyle(.plain)
-                    .help("Open chat with \(run.agentName)")
-                } else {
-                    Button {
-                        state.toggleExpanded()
-                    } label: {
-                        Text(compactTitle)
-                            .font(.system(size: 12, weight: .semibold))
-                            .lineLimit(1)
-                    }
-                    .buttonStyle(.plain)
-                }
-                Spacer(minLength: 2)
-                if state.activityCount > 0 {
-                    Label("\(state.activityCount)", systemImage: "bolt.fill")
-                        .font(.system(size: 9, weight: .semibold))
-                        .foregroundStyle(.cyan)
-                        .labelStyle(.titleAndIcon)
-                }
-                Button {
-                    state.toggleExpanded()
-                } label: {
-                    Image(systemName: state.isExpanded ? "chevron.up" : "chevron.down")
-                        .font(.system(size: 9, weight: .bold))
-                        .foregroundStyle(.secondary)
-                        .frame(width: 18, height: 18)
-                        .contentShape(Rectangle())
-                }
-                .buttonStyle(.plain)
-                .help(state.isExpanded ? "Hide details" : "Show details")
-            }
-            .padding(.horizontal, 12)
-            .frame(height: Self.collapsedSize.height)
-
-            if state.isExpanded {
-                Divider().opacity(0.35)
-                expandedContent
-                    .transition(.opacity.combined(with: .move(edge: .top)))
-            }
-        }
+        headerContent
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        .overlay(alignment: .top) {
+            // The fixed-width details must not impose their width on the header
+            // or the collapsed panel. Reveal them below the stationary header.
+            revealedContent.padding(.top, Self.collapsedSize.height)
+        }
         .foregroundStyle(.white)
         .background {
             UnevenRoundedRectangle(bottomLeadingRadius: 14, bottomTrailingRadius: 14)
@@ -469,9 +470,94 @@ private struct SloppyDesktopNotchView: View {
                 focusedRecentChatID = chatID
             }
         }
-        .animation(.snappy(duration: 0.22), value: state.isExpanded)
+        .onChange(of: state.isExpanded) { _, expanded in
+            if !expanded {
+                focusedRecentChatID = nil
+                isTaskComposerFocused = false
+            }
+        }
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Sloppy desktop notch")
+    }
+
+    private var headerContent: some View {
+        HStack(spacing: 7) {
+            if state.toolApproval == nil {
+                SloppyAssets.projectLogo
+                    .resizable()
+                    .scaledToFit()
+                    .frame(width: 16, height: 16)
+                    .accessibilityHidden(true)
+            } else {
+                Image(systemName: "exclamationmark.shield.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.orange)
+            }
+            if let run = state.primaryAgentRun {
+                Button {
+                    state.openAgentRun(run)
+                } label: {
+                    Text(compactTitle)
+                        .font(.system(size: 12, weight: .semibold))
+                        .lineLimit(1)
+                }
+                .buttonStyle(.plain)
+                .help("Open chat with \(run.agentName)")
+            } else {
+                Button {
+                    state.toggleExpanded()
+                } label: {
+                    Text(compactTitle)
+                        .font(.system(size: 12, weight: .semibold))
+                        .lineLimit(1)
+                }
+                .buttonStyle(.plain)
+            }
+            Spacer(minLength: 2)
+            if state.activityCount > 0 {
+                Label("\(state.activityCount)", systemImage: "bolt.fill")
+                    .font(.system(size: 9, weight: .semibold))
+                    .foregroundStyle(.cyan)
+                    .labelStyle(.titleAndIcon)
+            }
+            Button {
+                state.toggleExpanded()
+            } label: {
+                Image(systemName: state.isExpanded ? "chevron.up" : "chevron.down")
+                    .font(.system(size: 9, weight: .bold))
+                    .foregroundStyle(.secondary)
+                    .frame(width: 18, height: 18)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help(state.isExpanded ? "Hide details" : "Show details")
+        }
+        .padding(.horizontal, 12)
+        .frame(height: Self.collapsedSize.height)
+    }
+
+    private var revealedContent: some View {
+        let size = Self.expandedPanelSize(for: state)
+        let opacity: Double = state.isExpanded ? 1 : 0
+        return VStack(spacing: 0) {
+            Divider().opacity(0.35)
+            expandedContent
+        }
+        // Keep text, rows and native controls at their final layout size.
+        // Only the surrounding panel clips/reveals them during resizing.
+        .frame(
+            width: size.width,
+            height: size.height - Self.collapsedSize.height,
+            alignment: .top
+        )
+        .opacity(opacity)
+        .animation(
+            state.isExpanded ? .easeOut(duration: 0.16).delay(0.03) : .easeOut(duration: 0.08),
+            value: state.isExpanded
+        )
+        .allowsHitTesting(state.isExpanded)
+        .disabled(!state.isExpanded)
+        .accessibilityHidden(!state.isExpanded)
     }
 
     private var compactTitle: String {
@@ -811,7 +897,7 @@ private struct SloppyDesktopNotchView: View {
 
     private var taskComposerContent: some View {
         VStack(alignment: .leading, spacing: 5) {
-            HStack(spacing: 7) {
+            Menu {
                 Picker(
                     "Project",
                     selection: Binding(
@@ -827,12 +913,26 @@ private struct SloppyDesktopNotchView: View {
                         }
                     }
                 }
-                .labelsHidden()
-                .pickerStyle(.menu)
-                .controlSize(.small)
-                .frame(width: 142)
-                .help("Project for the new task")
+                .pickerStyle(.inline)
+            } label: {
+                HStack(spacing: 5) {
+                    Text(state.projects.first { $0.id == state.selectedProjectID }?.name ?? "No projects")
+                        .lineLimit(1)
+                    Image(systemName: "chevron.down")
+                        .font(.system(size: 8, weight: .semibold))
+                }
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(.secondary)
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize(horizontal: true, vertical: false)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .frame(height: 19)
+            .disabled(state.projects.isEmpty)
+            .help("Project for the new task")
 
+            HStack(spacing: 7) {
                 TextField(
                     "New task for agent…",
                     text: Binding(

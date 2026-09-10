@@ -41,7 +41,9 @@ struct WorkspacePanelSourceTests {
         #expect(chatVM.contains("func attachItemProviders(_ providers: [NSItemProvider])"))
         #expect(chatScreen.contains("case .success(let urls):"))
         #expect(chatScreen.contains("viewModel.attachFileURLs(urls)"))
-        #expect(chatScreen.contains("of: [UTType.fileURL, UTType.image]"))
-        #expect(chatScreen.contains("viewModel.attachItemProviders(providers)"))
+        let dropZone = try source("Sources/SloppyFeatureChat/Screens/Chat/Views/ChatAttachmentDropZone.swift")
+        #expect(chatScreen.contains(".modifier(ChatAttachmentDropZone(viewModel: viewModel))"))
+        #expect(dropZone.contains("of: [.fileURL, .data, .url]"))
+        #expect(dropZone.contains("viewModel.attachItemProviders(providers)"))
     }
 }

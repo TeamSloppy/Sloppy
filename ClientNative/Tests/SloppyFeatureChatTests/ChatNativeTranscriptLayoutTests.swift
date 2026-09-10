@@ -57,10 +57,11 @@ struct ChatNativeTranscriptLayoutTests {
         }
         let initial = parent(height: 80, revision: 1)
         let coordinator = initial.makeCoordinator()
-        let layout = NSCollectionViewFlowLayout()
-        layout.minimumLineSpacing = 0
-        layout.minimumInteritemSpacing = 0
-        layout.estimatedItemSize = NSSize(width: 500, height: 100)
+        let layout = NSCollectionViewCompositionalLayout { _, _ in
+            let size = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .estimated(100))
+            let item = NSCollectionLayoutItem(layoutSize: size)
+            return NSCollectionLayoutSection(group: .vertical(layoutSize: size, subitems: [item]))
+        }
         let collection = NSCollectionView()
         collection.collectionViewLayout = layout
         collection.register(AppKitHostedTranscriptItem.self,
@@ -120,6 +121,58 @@ struct ChatNativeTranscriptLayoutTests {
         }
         #expect(heights[1] > heights[0])
         #expect(heights[2] > heights[1])
+    }
+
+    @Test("history with a message taller than the viewport can scroll in both directions")
+    func oversizedMessageScrolls() async throws {
+        _ = NSApplication.shared
+        let transcript = AppKitChatTranscriptCollection(
+            items: [
+                ChatTranscriptNativeItem(id: "first", content: .revealEarlier(count: 100)),
+                ChatTranscriptNativeItem(id: "long", content: .revealEarlier(count: 1800)),
+                ChatTranscriptNativeItem(id: "last", content: .revealEarlier(count: 100)),
+            ],
+            contentWidth: 400, topInset: 24, bottomInset: 120,
+            scrollToEndRequest: 0, renderRevision: 1, reduceMotion: true
+        ) { item in
+            guard case .revealEarlier(let height) = item.content else { return AnyView(EmptyView()) }
+            return AnyView(Text("Message").frame(height: CGFloat(height)))
+        }
+        let host = NSHostingView(rootView: transcript)
+        host.frame = NSRect(x: 0, y: 0, width: 500, height: 400)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = host
+        defer { window.contentView = nil }
+        for _ in 0..<10 {
+            await Task.yield()
+            host.layoutSubtreeIfNeeded()
+        }
+        func scrollView(in view: NSView) -> NSScrollView? {
+            if let scroll = view as? NSScrollView { return scroll }
+            return view.subviews.lazy.compactMap { scrollView(in: $0) }.first
+        }
+        let scroll = try #require(scrollView(in: host))
+        let document = try #require(scroll.documentView as? NSCollectionView)
+        #expect(scroll.bounds.height <= 400)
+        #expect(document.frame.height >= 2000)
+        #expect(scroll.contentView.bounds.maxY - scroll.contentInsets.bottom >= document.frame.height - 1)
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: 600))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        #expect(scroll.contentView.bounds.minY >= 590)
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: 0))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        #expect(abs(scroll.contentView.bounds.minY) <= 1)
+
+        host.frame.size.width = 620
+        for _ in 0..<6 {
+            await Task.yield()
+            host.layoutSubtreeIfNeeded()
+        }
+        #expect(abs(document.frame.width - scroll.contentSize.width) <= 1)
+        #expect(document.frame.height >= 2000)
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: 600))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        #expect(scroll.contentView.bounds.minY >= 590)
     }
 
     @Test("wrapped text reports its full height")

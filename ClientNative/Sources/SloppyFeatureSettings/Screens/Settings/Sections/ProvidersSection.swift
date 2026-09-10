@@ -43,8 +43,11 @@ struct ProvidersSection: View {
         let sp = theme.spacing
         let ty = theme.typography
 
-        return VStack(alignment: .leading, spacing: sp.m) {
-            SectionHeader("Providers", accentColor: c.accentCyan)
+        return VStack(alignment: .leading, spacing: 24) {
+            SettingsCollectionHeader(
+                title: "Configured providers", count: draft.count,
+                actionTitle: "Add Provider", onAdd: addProvider
+            )
 
             if draft.isEmpty {
                 Text("No providers configured.")
@@ -58,12 +61,9 @@ struct ProvidersSection: View {
             }
 
             HStack(spacing: sp.s) {
-                Button("+ ADD") { addProvider() }
-                    .font(.system(size: ty.caption))
-                    .foregroundColor(c.accent)
                 Spacer()
                 if selectedIndex < draft.count && draft.count > 1 {
-                    Button("REMOVE") { removeSelected() }
+                    Button("Remove", role: .destructive) { removeSelected() }
                         .font(.system(size: ty.caption))
                         .foregroundColor(c.statusBlocked)
                 }
@@ -82,38 +82,21 @@ struct ProvidersSection: View {
     }
 
     private var providerList: some View {
-        let c = theme.colors
-        let sp = theme.spacing
-        let bo = theme.borders
-        let ty = theme.typography
-
-        return VStack(alignment: .leading, spacing: 0) {
-            ForEach(Array(draft.enumerated()), id: \.offset) { index, model in
-                Button(action: { selectedIndex = index }) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(model.title)
-                                .font(.system(size: ty.body))
-                                .foregroundColor(index == selectedIndex ? c.textPrimary : c.textSecondary)
-                            Text(model.model)
-                                .font(.system(size: ty.micro))
-                                .foregroundColor(c.textMuted)
-                        }
-                        Spacer()
-                    }
-                    .padding(.horizontal, sp.m)
-                    .padding(.vertical, sp.s)
-                    .background(index == selectedIndex ? c.surfaceRaised : Color.clear)
-                    .border(c.border, lineWidth: bo.thin)
-                }
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 8)], spacing: 8) {
+            ForEach(Array(draft.enumerated()), id: \.offset) { index, provider in
+                SettingsSelectionTile(
+                    title: provider.title.isEmpty ? "Untitled" : provider.title,
+                    subtitle: provider.model,
+                    icon: "sparkles",
+                    isSelected: index == selectedIndex,
+                    action: { selectedIndex = index }
+                )
             }
         }
-        .background(c.surface)
-        .border(c.border, lineWidth: bo.thin)
     }
 
     private func providerEditor(index: Int) -> some View {
-        SettingsSectionCard("Edit Provider") {
+        SettingsSectionCard("Provider details") {
             VStack(alignment: .leading, spacing: 0) {
                 SettingsFieldRow("Title", text: Binding(
                     get: { draft[index].title },

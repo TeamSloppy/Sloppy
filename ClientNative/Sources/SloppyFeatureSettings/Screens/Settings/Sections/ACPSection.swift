@@ -25,12 +25,9 @@ struct ACPSection: View {
 
     var body: some View {
         let c = theme.colors
-        let sp = theme.spacing
         let ty = theme.typography
 
-        return VStack(alignment: .leading, spacing: sp.m) {
-            SectionHeader("ACP", accentColor: c.accentCyan)
-
+        return VStack(alignment: .leading, spacing: 24) {
             SettingsSectionCard("Agent Communication Protocol") {
                 SettingsToggleRow(label: "Enabled", value: enabled) {
                     enabled.toggle()
@@ -38,6 +35,11 @@ struct ACPSection: View {
             }
 
             if enabled {
+                SettingsCollectionHeader(
+                    title: "Configured targets", count: targets.count,
+                    actionTitle: "Add Target", onAdd: addTarget
+                )
+
                 if targets.isEmpty {
                     Text("No ACP targets configured.")
                         .font(.system(size: ty.body))
@@ -50,12 +52,9 @@ struct ACPSection: View {
                 }
 
                 HStack {
-                    Button("+ ADD TARGET") { addTarget() }
-                        .font(.system(size: ty.caption))
-                        .foregroundColor(c.accent)
                     Spacer()
                     if !targets.isEmpty {
-                        Button("REMOVE") { removeSelected() }
+                        Button("Remove", role: .destructive) { removeSelected() }
                             .font(.system(size: ty.caption))
                             .foregroundColor(c.statusBlocked)
                     }
@@ -72,43 +71,21 @@ struct ACPSection: View {
     }
 
     private var targetList: some View {
-        let c = theme.colors
-        let sp = theme.spacing
-        let bo = theme.borders
-        let ty = theme.typography
-
-        return VStack(alignment: .leading, spacing: 0) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 8)], spacing: 8) {
             ForEach(Array(targets.enumerated()), id: \.offset) { index, target in
-                Button(action: { selectedIndex = index }) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(target.title)
-                                .font(.system(size: ty.body))
-                                .foregroundColor(index == selectedIndex ? c.textPrimary : c.textSecondary)
-                            Text(target.command)
-                                .font(.system(size: ty.micro))
-                                .foregroundColor(c.textMuted)
-                        }
-                        Spacer()
-                        if !target.enabled {
-                            Text("DISABLED")
-                                .font(.system(size: ty.micro))
-                                .foregroundColor(c.textMuted)
-                        }
-                    }
-                    .padding(.horizontal, sp.m)
-                    .padding(.vertical, sp.s)
-                    .background(index == selectedIndex ? c.surfaceRaised : Color.clear)
-                    .border(c.border, lineWidth: bo.thin)
-                }
+                SettingsSelectionTile(
+                    title: target.title.isEmpty ? "Untitled" : target.title,
+                    subtitle: target.command,
+                    icon: "cpu",
+                    isSelected: index == selectedIndex,
+                    action: { selectedIndex = index }
+                )
             }
         }
-        .background(c.surface)
-        .border(c.border, lineWidth: bo.thin)
     }
 
     private func targetEditor(index: Int) -> some View {
-        SettingsSectionCard("Edit Target") {
+        SettingsSectionCard("Target details") {
             VStack(alignment: .leading, spacing: 0) {
                 SettingsFieldRow("ID", text: Binding(
                     get: { targets[index].id },

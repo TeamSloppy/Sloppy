@@ -13,7 +13,6 @@ struct ProxySection: View {
     @State private var port: String
     @State private var username: String
     @State private var password: String
-    @Environment(\.theme) private var theme
 
     private let proxyTypes = ["socks5", "http", "https"]
 
@@ -36,14 +35,7 @@ struct ProxySection: View {
     }
 
     var body: some View {
-        let c = theme.colors
-        let sp = theme.spacing
-        let bo = theme.borders
-        let ty = theme.typography
-
-        return VStack(alignment: .leading, spacing: sp.m) {
-            SectionHeader("Proxy", accentColor: c.accentCyan)
-
+        VStack(alignment: .leading, spacing: 24) {
             SettingsSectionCard("Proxy Settings") {
                 SettingsToggleRow(label: "Enabled", value: enabled) {
                     enabled.toggle()
@@ -51,25 +43,13 @@ struct ProxySection: View {
 
                 if enabled {
                     SettingsDivider()
-                    VStack(alignment: .leading, spacing: sp.xs) {
-                        Text("TYPE")
-                            .font(.system(size: ty.micro))
-                            .foregroundColor(c.textSecondary)
-                        HStack(spacing: sp.s) {
-                            ForEach(proxyTypes, id: \.self) { proxyType in
-                                Button(proxyType) { type = proxyType }
-                                    .font(.system(size: ty.caption))
-                                    .foregroundColor(type == proxyType ? c.textPrimary : c.textMuted)
-                                    .padding(.vertical, sp.xs)
-                                    .padding(.horizontal, sp.s)
-                                    .background(type == proxyType ? c.surfaceRaised : Color.clear)
-                                    .border(type == proxyType ? c.borderBold : c.border, lineWidth: bo.thin)
-                            }
-                            Spacer()
+                    Picker("Proxy type", selection: $type) {
+                        ForEach(proxyTypes, id: \.self) { proxyType in
+                            Text(proxyType.uppercased()).tag(proxyType)
                         }
                     }
-                    .padding(.horizontal, sp.m)
-                    .padding(.vertical, sp.s)
+                    .pickerStyle(.segmented)
+                    .padding(16)
                     SettingsDivider()
                     SettingsFieldRow("Host", text: $host)
                     SettingsDivider()

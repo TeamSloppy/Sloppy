@@ -1109,7 +1109,8 @@ enum CorePersistenceFactory {
             selected_model TEXT,
             attachments_json TEXT NOT NULL DEFAULT '[]',
             external_metadata_json TEXT,
-            tags_json TEXT NOT NULL DEFAULT '[]'
+            tags_json TEXT NOT NULL DEFAULT '[]',
+            kanban_column_entered_at TEXT
         );
 
         CREATE INDEX IF NOT EXISTS idx_dashboard_project_tasks_project ON dashboard_project_tasks(project_id);

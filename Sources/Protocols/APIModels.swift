@@ -984,7 +984,15 @@ public struct ProjectTask: Codable, Sendable, Equatable {
     public var title: String
     public var description: String
     public var priority: String
-    public var status: String
+    public var status: String {
+        didSet {
+            if ProjectTaskKanbanColumn(status: oldValue) != ProjectTaskKanbanColumn(status: status) {
+                kanbanColumnEnteredAt = Date()
+            }
+        }
+    }
+    /// The last transition into the current board column. Nil for legacy tasks with no recorded transition.
+    public var kanbanColumnEnteredAt: Date?
     public var initiativeID: String?
     public var kind: ProjectTaskKind?
     public var loopModeOverride: ProjectLoopMode?
@@ -1022,6 +1030,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         case description
         case priority
         case status
+        case kanbanColumnEnteredAt
         case initiativeID
         case kind
         case loopModeOverride
@@ -1087,7 +1096,8 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         routeHistory: [ProjectTaskRouteStep] = [],
         isArchived: Bool = false,
         createdAt: Date = Date(),
-        updatedAt: Date = Date()
+        updatedAt: Date = Date(),
+        kanbanColumnEnteredAt: Date? = Date()
     ) {
         self.id = id
         self.title = title
@@ -1123,6 +1133,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         self.isArchived = isArchived
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.kanbanColumnEnteredAt = kanbanColumnEnteredAt
     }
 
     public init(from decoder: Decoder) throws {
@@ -1132,6 +1143,7 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         description = try container.decode(String.self, forKey: .description)
         priority = try container.decode(String.self, forKey: .priority)
         status = try container.decode(String.self, forKey: .status)
+        kanbanColumnEnteredAt = try container.decodeIfPresent(Date.self, forKey: .kanbanColumnEnteredAt)
         initiativeID = try container.decodeIfPresent(String.self, forKey: .initiativeID)
         kind = try container.decodeIfPresent(ProjectTaskKind.self, forKey: .kind)
         loopModeOverride = try container.decodeIfPresent(ProjectLoopMode.self, forKey: .loopModeOverride)

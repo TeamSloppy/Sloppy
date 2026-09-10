@@ -56,7 +56,7 @@ struct MainSidebarSelectionTests {
         let source = try String(contentsOf: rowURL, encoding: .utf8)
 
         #expect(source.contains("var isSelected = false"))
-        #expect(source.contains("configuration.isPressed || isHovered || isSelected"))
+        #expect(source.contains("isSelected ? theme.colors.surfaceRaised : .clear"))
     }
 
     @Test("chat rows use their full visual width for hover and selection")

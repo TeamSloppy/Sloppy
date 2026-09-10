@@ -39,7 +39,7 @@ public struct ChatComposerView: View {
     private static let expandedPhonePanelRadius: CGFloat = 28
     private static let phoneFieldHeight: CGFloat = 48
     fileprivate static let phoneCircleSize: CGFloat = 36
-    fileprivate static let buttonSize: CGFloat = 36
+    fileprivate static let buttonSize: CGFloat = panelHeight
     private static let overviewGestureDistance: CGFloat = 220
 
     private let viewModel: ChatScreenViewModel

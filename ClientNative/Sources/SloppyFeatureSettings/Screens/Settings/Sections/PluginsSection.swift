@@ -33,8 +33,11 @@ struct PluginsSection: View {
         let sp = theme.spacing
         let ty = theme.typography
 
-        return VStack(alignment: .leading, spacing: sp.m) {
-            SectionHeader("Plugins", accentColor: c.accentCyan)
+        return VStack(alignment: .leading, spacing: 24) {
+            SettingsCollectionHeader(
+                title: "Configured plugins", count: draft.count,
+                actionTitle: "Add Plugin", onAdd: addPlugin
+            )
 
             if draft.isEmpty {
                 Text("No plugins configured.")
@@ -48,12 +51,9 @@ struct PluginsSection: View {
             }
 
             HStack(spacing: sp.s) {
-                Button("+ ADD") { addPlugin() }
-                    .font(.system(size: ty.caption))
-                    .foregroundColor(c.accent)
                 Spacer()
                 if selectedIndex < draft.count && !draft.isEmpty {
-                    Button("REMOVE") { removeSelected() }
+                    Button("Remove", role: .destructive) { removeSelected() }
                         .font(.system(size: ty.caption))
                         .foregroundColor(c.statusBlocked)
                 }
@@ -69,38 +69,21 @@ struct PluginsSection: View {
     }
 
     private var pluginList: some View {
-        let c = theme.colors
-        let sp = theme.spacing
-        let bo = theme.borders
-        let ty = theme.typography
-
-        return VStack(alignment: .leading, spacing: 0) {
+        LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 8)], spacing: 8) {
             ForEach(Array(draft.enumerated()), id: \.offset) { index, plugin in
-                Button(action: { selectedIndex = index }) {
-                    HStack {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(plugin.title)
-                                .font(.system(size: ty.body))
-                                .foregroundColor(index == selectedIndex ? c.textPrimary : c.textSecondary)
-                            Text(plugin.plugin)
-                                .font(.system(size: ty.micro))
-                                .foregroundColor(c.textMuted)
-                        }
-                        Spacer()
-                    }
-                    .padding(.horizontal, sp.m)
-                    .padding(.vertical, sp.s)
-                    .background(index == selectedIndex ? c.surfaceRaised : Color.clear)
-                    .border(c.border, lineWidth: bo.thin)
-                }
+                SettingsSelectionTile(
+                    title: plugin.title.isEmpty ? "Untitled" : plugin.title,
+                    subtitle: plugin.plugin,
+                    icon: "puzzlepiece.extension",
+                    isSelected: index == selectedIndex,
+                    action: { selectedIndex = index }
+                )
             }
         }
-        .background(c.surface)
-        .border(c.border, lineWidth: bo.thin)
     }
 
     private func pluginEditor(index: Int) -> some View {
-        SettingsSectionCard("Edit Plugin") {
+        SettingsSectionCard("Plugin details") {
             VStack(alignment: .leading, spacing: 0) {
                 SettingsFieldRow("Title", text: Binding(
                     get: { draft[index].title },

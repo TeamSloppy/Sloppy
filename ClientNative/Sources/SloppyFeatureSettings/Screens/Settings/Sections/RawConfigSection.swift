@@ -23,21 +23,21 @@ struct RawConfigSection: View {
         let sp = theme.spacing
         let ty = theme.typography
 
-        return VStack(alignment: .leading, spacing: sp.m) {
-            SectionHeader("Raw Config", accentColor: c.accentCyan)
-
+        return VStack(alignment: .leading, spacing: 24) {
             SettingsSectionCard("JSON") {
                 ScrollView {
                     Text(rawJSON)
-                        .font(.system(size: ty.micro))
+                        .font(.system(size: 12, design: .monospaced))
                         .foregroundColor(c.textSecondary)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                         .padding(sp.m)
                 }
                 .frame(height: 400)
             }
 
             Text("Read-only view. Use section editors above to modify config.")
-                .font(.system(size: ty.micro))
+                .font(.system(size: ty.caption))
                 .foregroundColor(c.textMuted)
         }
     }

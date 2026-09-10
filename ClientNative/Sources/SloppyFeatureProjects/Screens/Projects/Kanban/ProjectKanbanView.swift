@@ -345,33 +345,12 @@ public struct ProjectKanbanView: View {
                 Button {
                     onOpenTask(card)
                 } label: {
-                    VStack(alignment: .leading, spacing: theme.spacing.xs) {
-                        Text(card.title)
-                            .font(.system(size: theme.typography.body))
-                            .foregroundColor(theme.colors.textPrimary)
-
-                        if let priority = card.priority, !priority.isEmpty {
-                            Text(priority.uppercased())
-                                .font(.system(size: theme.typography.micro))
-                                .foregroundColor(theme.colors.textMuted)
-                        }
-
-                        if let actorID = card.actorID, !actorID.isEmpty {
-                            Text(actorID)
-                                .font(.system(size: theme.typography.caption))
-                                .foregroundColor(theme.colors.textSecondary)
-                        }
-
-                        if let nodeID = card.executionNodeID, !nodeID.isEmpty {
-                            Label(viewModel.instanceTitle(for: nodeID), systemImage: "desktopcomputer")
-                                .font(.system(size: theme.typography.caption))
-                                .foregroundColor(theme.colors.textSecondary)
-                        }
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(theme.spacing.m)
-                    .background(theme.colors.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 16))
+                    ProjectKanbanCardContent(
+                        card: card,
+                        columnTitle: column.title,
+                        assigneeTitle: card.assigneeID.map { viewModel.assigneeTitle(for: .actor($0)) },
+                        instanceTitle: card.executionNodeID.map { viewModel.instanceTitle(for: $0) }
+                    )
                 }
                 .buttonStyle(.plain)
                 .contextMenu {

@@ -28,6 +28,8 @@ test("import explicitly invokes the skill and targets only the selected agent", 
   const message = memoryImportMessage("personal-agent");
   assert.match(message, /bundled\/memory-import/);
   assert.match(message, /scope_id = "personal-agent"/);
+  assert.match(message, /memory\.recall/);
+  assert.doesNotMatch(message, /memory\.get/);
 });
 
 test("progress counts persisted IDs from typed tool events, never assistant claims", () => {

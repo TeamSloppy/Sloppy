@@ -1222,6 +1222,10 @@ export function createCoreApi(): CoreApi {
     },
 
     updateRuntimeConfig: async (config) => {
+      const challenge = await requestJson<AnyRecord>({ path: "/v1/auth/challenge" });
+      if (!challenge.ok || !["token", "login_password"].includes(String(challenge.data?.mode))) {
+        throw new Error("Could not determine the authentication mode. Try saving again.");
+      }
       const response = await requestJson<AnyRecord, AnyRecord>({
         path: "/v1/config",
         method: "PUT",
@@ -1230,7 +1234,11 @@ export function createCoreApi(): CoreApi {
       if (!response.ok || response.data == null) {
         throw new Error(formatHttpError(response.status, response.data));
       }
-      const nextUI = (config.ui as AnyRecord | undefined) ?? null;
+      // Identity sessions are independent of the legacy token in the config.
+      if (challenge.data?.mode === "login_password") {
+        return response.data;
+      }
+      const nextUI = (response.data.ui as AnyRecord | undefined) ?? null;
       const nextDashboardAuth = (nextUI?.dashboardAuth as AnyRecord | undefined) ?? null;
       const nextDashboardAuthEnabled = Boolean(nextDashboardAuth?.enabled);
       const nextDashboardAuthToken = String(nextDashboardAuth?.token || "").trim();
@@ -1738,7 +1746,7 @@ export function createCoreApi(): CoreApi {
         method: "PATCH",
         body: payload
       });
-      if (!response.ok) return null;
+      if (!response.ok) throw new Error(formatHttpError(response.status, response.data));
       return response.data;
     },
 
@@ -1748,7 +1756,7 @@ export function createCoreApi(): CoreApi {
         method: "POST",
         body: payload
       });
-      if (!response.ok) return null;
+      if (!response.ok) throw new Error(formatHttpError(response.status, response.data));
       return response.data;
     },
 
@@ -1758,7 +1766,7 @@ export function createCoreApi(): CoreApi {
         method: "POST",
         body: payload
       });
-      if (!response.ok) return null;
+      if (!response.ok) throw new Error(formatHttpError(response.status, response.data));
       return response.data;
     },
 
@@ -1767,7 +1775,7 @@ export function createCoreApi(): CoreApi {
         path: `/v1/projects/${encodeURIComponent(projectId)}/task-sync/unlink`,
         method: "POST"
       });
-      if (!response.ok) return null;
+      if (!response.ok) throw new Error(formatHttpError(response.status, response.data));
       return response.data;
     },
 
@@ -1776,7 +1784,7 @@ export function createCoreApi(): CoreApi {
         path: `/v1/projects/${encodeURIComponent(projectId)}/task-sync/sync-now`,
         method: "POST"
       });
-      if (!response.ok) return null;
+      if (!response.ok) throw new Error(formatHttpError(response.status, response.data));
       return response.data;
     },
 
@@ -1794,7 +1802,7 @@ export function createCoreApi(): CoreApi {
         method: "POST",
         body: payload
       });
-      if (!response.ok) return null;
+      if (!response.ok) throw new Error(formatHttpError(response.status, response.data));
       return response.data;
     },
 
@@ -1803,7 +1811,7 @@ export function createCoreApi(): CoreApi {
         path: `/v1/projects/${encodeURIComponent(projectId)}/task-sync/token?providerId=${encodeURIComponent(providerId)}`,
         method: "DELETE"
       });
-      if (!response.ok) return null;
+      if (!response.ok) throw new Error(formatHttpError(response.status, response.data));
       return response.data;
     },
 

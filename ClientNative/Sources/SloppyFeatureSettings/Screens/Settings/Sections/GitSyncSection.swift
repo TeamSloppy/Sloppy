@@ -14,7 +14,6 @@ struct GitSyncSection: View {
     @State private var frequency: String
     @State private var syncTime: String
     @State private var conflictStrategy: String
-    @Environment(\.theme) private var theme
 
     private let frequencies = ["manual", "daily", "weekdays"]
     private let conflictStrategies = ["remote_wins", "local_wins", "manual"]
@@ -39,14 +38,7 @@ struct GitSyncSection: View {
     }
 
     var body: some View {
-        let c = theme.colors
-        let sp = theme.spacing
-        let bo = theme.borders
-        let ty = theme.typography
-
-        return VStack(alignment: .leading, spacing: sp.m) {
-            SectionHeader("Git Sync", accentColor: c.accentCyan)
-
+        VStack(alignment: .leading, spacing: 24) {
             SettingsSectionCard("Sync Settings") {
                 SettingsToggleRow(label: "Enabled", value: enabled) {
                     enabled.toggle()
@@ -60,54 +52,29 @@ struct GitSyncSection: View {
             }
 
             SettingsSectionCard("Schedule") {
-                VStack(alignment: .leading, spacing: sp.xs) {
-                    Text("FREQUENCY")
-                        .font(.system(size: ty.micro))
-                        .foregroundColor(c.textSecondary)
-                    HStack(spacing: sp.s) {
-                        ForEach(frequencies, id: \.self) { freq in
-                            Button(freq.replacingOccurrences(of: "_", with: " ").capitalized) {
-                                frequency = freq
-                            }
-                            .font(.system(size: ty.caption))
-                            .foregroundColor(frequency == freq ? c.textPrimary : c.textMuted)
-                            .padding(.vertical, sp.xs)
-                            .padding(.horizontal, sp.s)
-                            .background(frequency == freq ? c.surfaceRaised : Color.clear)
-                            .border(frequency == freq ? c.borderBold : c.border, lineWidth: bo.thin)
-                        }
-                        Spacer()
+                Picker("Frequency", selection: $frequency) {
+                    ForEach(frequencies, id: \.self) { frequency in
+                        Text(frequency.capitalized).tag(frequency)
                     }
                 }
-                .padding(.horizontal, sp.m)
-                .padding(.vertical, sp.s)
+                .pickerStyle(.segmented)
+                .padding(16)
                 SettingsDivider()
                 SettingsFieldRow("Sync Time", hint: "UTC, HH:MM", text: $syncTime)
             }
 
             SettingsSectionCard("Conflict Strategy") {
-                VStack(alignment: .leading, spacing: sp.xs) {
+                VStack(spacing: 8) {
                     ForEach(conflictStrategies, id: \.self) { strategy in
-                        Button(action: { conflictStrategy = strategy }) {
-                            HStack {
-                                Text(strategy.replacingOccurrences(of: "_", with: " ").uppercased())
-                                    .font(.system(size: ty.caption))
-                                    .foregroundColor(conflictStrategy == strategy ? c.textPrimary : c.textSecondary)
-                                Spacer()
-                                if conflictStrategy == strategy {
-                                    Icons.symbol(.check, size: ty.caption)
-                                        .foregroundColor(c.statusDone)
-                                }
-                            }
-                            .padding(.horizontal, sp.m)
-                            .padding(.vertical, sp.s)
-                            .background(conflictStrategy == strategy ? c.surfaceRaised : Color.clear)
-                        }
-                        if strategy != conflictStrategies.last {
-                            SettingsDivider()
-                        }
+                        SettingsSelectionTile(
+                            title: strategy.replacingOccurrences(of: "_", with: " ").capitalized,
+                            subtitle: "", icon: "arrow.triangle.merge",
+                            isSelected: conflictStrategy == strategy,
+                            action: { conflictStrategy = strategy }
+                        )
                     }
                 }
+                .padding(8)
             }
 
             SettingsSaveBar(

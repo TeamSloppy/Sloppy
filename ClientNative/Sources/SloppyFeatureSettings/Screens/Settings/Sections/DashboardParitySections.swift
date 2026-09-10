@@ -16,7 +16,7 @@ struct ModelRoutingSection: View {
     @State private var statusText = ""
 
     var body: some View {
-        SettingsSectionCard("Model Routing") {
+        SettingsSectionCard("Aliases") {
             VStack(alignment: .leading, spacing: 0) {
                 ForEach(Array(aliases.enumerated()), id: \.offset) { index, pair in
                     aliasRow(index: index, key: pair.0, value: pair.1)
@@ -33,6 +33,7 @@ struct ModelRoutingSection: View {
                     .padding(.vertical, 8)
                     Spacer()
                     Button("Save") { save() }
+                        .buttonStyle(.borderedProminent)
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
                 }
@@ -68,7 +69,7 @@ struct ModelRoutingSection: View {
             ))
             HStack {
                 Spacer()
-                Button("Remove") {
+                Button("Remove", role: .destructive) {
                     aliases.remove(at: index)
                     if aliases.isEmpty {
                         aliases.append(("", ""))
@@ -108,7 +109,7 @@ struct BrowserSection: View {
     }
 
     var body: some View {
-        SettingsSectionCard("Browser") {
+        SettingsSectionCard("Browser automation") {
             VStack(alignment: .leading, spacing: 0) {
                 SettingsToggleRow(label: "Enable Browser Automation", value: draft.enabled) { draft.enabled.toggle() }
                 SettingsDivider()
@@ -127,7 +128,7 @@ struct BrowserSection: View {
                 SettingsDivider()
                 SettingsToggleRow(label: "Headless", value: draft.headless) { draft.headless.toggle() }
                 SettingsDivider()
-                SettingsFieldRow("Extra Arguments", hint: "One Chromium argument per line.", text: Binding(
+                SettingsMultilineFieldRow("Extra Arguments", hint: "One Chromium argument per line.", text: Binding(
                     get: { draft.additionalArguments.joined(separator: "\n") },
                     set: { draft.additionalArguments = $0.split(separator: "\n").map { String($0).trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }
                 ))
@@ -144,6 +145,7 @@ struct BrowserSection: View {
                 updated.browser = draft
                 onSave(updated)
             }
+            .buttonStyle(.borderedProminent)
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
@@ -171,26 +173,25 @@ struct MCPSection: View {
     }
 
     var body: some View {
-        HStack(alignment: .top, spacing: 16) {
-            SettingsSectionSurface {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(Array(servers.enumerated()), id: \.offset) { index, server in
-                        Button(server.id) {
-                            selectedIndex = index
-                        }
-                        .buttonStyle(.plain)
-                        .foregroundColor(selectedIndex == index ? .primary : .secondary)
-                    }
-                    Button("Add Server") {
-                        servers.append(SloppyConfig.MCPServer(id: "mcp-server-\(servers.count + 1)"))
-                        selectedIndex = servers.count - 1
-                    }
-                    .padding(.top, 8)
+        VStack(alignment: .leading, spacing: 24) {
+            SettingsCollectionHeader(
+                title: "Configured servers", count: servers.count,
+                actionTitle: "Add Server", onAdd: {
+                    servers.append(SloppyConfig.MCPServer(id: "mcp-server-\(servers.count + 1)"))
+                    selectedIndex = servers.count - 1
+                }
+            )
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 8)], spacing: 8) {
+                ForEach(Array(servers.enumerated()), id: \.offset) { index, server in
+                    SettingsSelectionTile(
+                        title: server.id, subtitle: server.transport.uppercased(),
+                        icon: "point.3.connected.trianglepath.dotted",
+                        isSelected: selectedIndex == index,
+                        action: { selectedIndex = index }
+                    )
                 }
             }
-            .frame(width: 220)
-
-            SettingsSectionCard("MCP") {
+            SettingsSectionCard("Server details") {
                 if servers.indices.contains(selectedIndex) {
                     editor(for: selectedIndex)
                 }
@@ -207,7 +208,7 @@ struct MCPSection: View {
             if servers[index].transport == "http" {
                 SettingsFieldRow("Endpoint", text: binding(index, \.endpoint))
                 SettingsDivider()
-                SettingsFieldRow("Headers", hint: "One header per line: Name: value", text: Binding(
+                SettingsMultilineFieldRow("Headers", hint: "One header per line: Name: value", text: Binding(
                     get: { servers[index].headers.map { "\($0.key): \($0.value)" }.sorted().joined(separator: "\n") },
                     set: { value in
                         let headers = value.split(separator: "\n").reduce(into: [String: String]()) { partial, line in
@@ -224,7 +225,7 @@ struct MCPSection: View {
                 SettingsDivider()
                 SettingsFieldRow("Working Directory", text: binding(index, \.cwd))
                 SettingsDivider()
-                SettingsFieldRow("Arguments", hint: "One argument per line", text: Binding(
+                SettingsMultilineFieldRow("Arguments", hint: "One argument per line", text: Binding(
                     get: { servers[index].arguments.joined(separator: "\n") },
                     set: { servers[index].arguments = $0.split(separator: "\n").map { String($0) }.filter { !$0.isEmpty } }
                 ))
@@ -245,7 +246,7 @@ struct MCPSection: View {
             SettingsDivider()
             SettingsToggleRow(label: "Expose Prompts", value: servers[index].exposePrompts) { servers[index].exposePrompts.toggle() }
             HStack {
-                Button("Delete") {
+                Button("Delete", role: .destructive) {
                     servers.remove(at: index)
                     if servers.isEmpty {
                         servers = [SloppyConfig.MCPServer()]
@@ -260,6 +261,7 @@ struct MCPSection: View {
                     updated.mcp = SloppyConfig.MCP(servers: servers)
                     onSave(updated)
                 }
+                .buttonStyle(.borderedProminent)
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
             }
@@ -291,7 +293,7 @@ struct UISection: View {
     }
 
     var body: some View {
-        SettingsSectionCard("UI") {
+        SettingsSectionCard("Dashboard and tools") {
             VStack(alignment: .leading, spacing: 0) {
                 SettingsToggleRow(label: "Dashboard Auth", value: draft.dashboardAuth.enabled) { draft.dashboardAuth.enabled.toggle() }
                 SettingsDivider()
@@ -308,7 +310,7 @@ struct UISection: View {
                 SettingsDivider()
                 SettingsFieldRow("Pre-tools Command", text: Binding(get: { preTools.command }, set: { preTools.command = $0 }))
                 SettingsDivider()
-                SettingsFieldRow("Pre-tools Arguments", hint: "One argument per line", text: Binding(
+                SettingsMultilineFieldRow("Pre-tools Arguments", hint: "One argument per line", text: Binding(
                     get: { preTools.arguments.joined(separator: "\n") },
                     set: { preTools.arguments = $0.split(separator: "\n").map(String.init).filter { !$0.isEmpty } }
                 ))
@@ -341,6 +343,7 @@ struct UISection: View {
                         updated.toolBudgetExhausted = toolBudgetExhausted
                         onSave(updated)
                     }
+                    .buttonStyle(.borderedProminent)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                 }
@@ -362,7 +365,7 @@ struct TUISection: View {
     }
 
     var body: some View {
-        SettingsSectionCard("TUI") {
+        SettingsSectionCard("Terminal editor") {
             VStack(alignment: .leading, spacing: 0) {
                 SettingsFieldRow("Default Editor", hint: "Examples: zed, code, vim", text: $defaultEditor)
                 HStack {
@@ -372,6 +375,7 @@ struct TUISection: View {
                         updated.tui.defaultEditor = defaultEditor
                         onSave(updated)
                     }
+                    .buttonStyle(.borderedProminent)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                 }
@@ -393,7 +397,7 @@ struct CompactorSection: View {
     }
 
     var body: some View {
-        SettingsSectionCard("Compactor") {
+        SettingsSectionCard("Context compaction") {
             VStack(alignment: .leading, spacing: 0) {
                 SettingsToggleRow(label: "Enabled", value: draft.enabled) { draft.enabled.toggle() }
                 SettingsDivider()
@@ -430,6 +434,7 @@ struct CompactorSection: View {
                         updated.compactor = draft
                         onSave(updated)
                     }
+                    .buttonStyle(.borderedProminent)
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                 }
@@ -457,15 +462,15 @@ struct ConnectClientSection: View {
 
         return SettingsSectionSurface {
             VStack(alignment: .leading, spacing: theme.spacing.m) {
-                Text("Connect Client")
-                    .font(.system(size: theme.typography.heading, weight: .semibold))
+                Text("Scan with another Sloppy client")
+                    .font(.system(size: 13, weight: .semibold))
                 if let qr = qrImage(for: deepLink) {
                     Image(decorative: qr, scale: 1.0)
                         .interpolation(.none)
                         .resizable()
                         .frame(width: 180, height: 180)
                         .padding(12)
-                        .background(Color.white)
+                        .background(Color.white, in: RoundedRectangle(cornerRadius: 12))
                 }
                 SettingsFieldRow("Server Host", hint: "Leave blank to use the current app server host.", text: $customHost)
                 SettingsFieldRow("Deep Link", hint: "Scan or copy this URL into another client.", text: .constant(deepLink))
@@ -511,6 +516,7 @@ struct ApprovalsSection: View {
                     Button(isLoading ? "Loading…" : "Refresh") {
                         load()
                     }
+                    .disabled(isLoading)
                 }
                 TextField("Search by name or ID…", text: $query)
                     .textFieldStyle(.roundedBorder)
@@ -530,7 +536,7 @@ struct ApprovalsSection: View {
                             Spacer()
                             Text(user.status)
                                 .font(.caption)
-                            Button("Remove") {
+                            Button("Remove", role: .destructive) {
                                 remove(user)
                             }
                         }

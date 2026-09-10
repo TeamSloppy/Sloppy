@@ -7,8 +7,6 @@ import {
     fetchSourceControlProviders,
     fetchTaskSyncProviders,
     fetchProjectTaskSync,
-    updateProjectTaskSync,
-    discoverProjectTaskSync,
     linkProjectTaskSync,
     unlinkProjectTaskSync,
     syncProjectTasksNow,
@@ -412,6 +410,17 @@ function cloneTaskSyncDraft(project) {
     };
 }
 
+function inferStartrekSourceKind(value) {
+    const source = String(value || "").trim();
+    if (/^(filter:)?\d+$/i.test(source) || /[?&](filter|filterId)=/i.test(source) || /\/filters\//i.test(source)) {
+        return "saved_filter";
+    }
+    if (/^[A-Z][A-Z0-9_]+$/.test(source) || /^https?:\/\/st\.yandex-team\.ru\/[A-Z][A-Z0-9_]+\/?$/i.test(source)) {
+        return "queue";
+    }
+    return "query";
+}
+
 export function ProjectSettingsTab({
     project,
     onUpdateProject,
@@ -441,7 +450,6 @@ export function ProjectSettingsTab({
     const [taskSyncToken, setTaskSyncToken] = useState("");
     const [taskSyncTokenStatus, setTaskSyncTokenStatus] = useState(null);
     const [taskSyncBusy, setTaskSyncBusy] = useState(false);
-    const [taskSyncDiscovery, setTaskSyncDiscovery] = useState(null);
     const [sourceControlProviders, setSourceControlProviders] = useState([DEFAULT_SOURCE_CONTROL_PROVIDER]);
     const [taskSyncProviders, setTaskSyncProviders] = useState([
         { id: "github", displayName: "GitHub Projects", sourceKinds: [], capabilities: [] }
@@ -559,7 +567,7 @@ export function ProjectSettingsTab({
         () => JSON.stringify(taskSyncDraft) !== JSON.stringify(savedTaskSyncDraft),
         [taskSyncDraft, savedTaskSyncDraft]
     );
-    const hasChanges = hasProjectChanges || hasTaskSyncChanges;
+    const hasChanges = hasProjectChanges || hasTaskSyncChanges || Boolean(taskSyncToken.trim());
 
     const agentOptions = useMemo(() => {
         const options = [];
@@ -627,33 +635,6 @@ export function ProjectSettingsTab({
         }, {});
     }
 
-    function taskSyncUpdatePayload(source = taskSyncDraft) {
-        return {
-            enabled: Boolean(source.enabled),
-            providerId: source.providerId || "github",
-            repositoryURL: source.repositoryURL.trim() || null,
-            repositorySlug: source.repositorySlug.trim() || null,
-            projectURL: source.projectURL.trim() || null,
-            projectNodeId: source.projectNodeId.trim() || null,
-            defaultRepo: source.defaultRepo.trim() || null,
-            source: {
-                kind: source.source?.kind || "query",
-                value: String(source.source?.value || "").trim(),
-                displayName: String(source.source?.displayName || "").trim(),
-                url: String(source.source?.url || "").trim()
-            },
-            tokenMode: source.tokenMode,
-            inboundStatusMappings: sanitizedStatusMappings(source.inboundStatusMappings),
-            statusMappings: sanitizedStatusMappings(source.statusMappings),
-            linkedProjects: source.linkedProjects,
-            syncSchedule: {
-                enabled: Boolean(source.syncSchedule?.enabled),
-                intervalMinutes: Math.max(1, Number(source.syncSchedule?.intervalMinutes) || 15),
-                lastRunAt: source.syncSchedule?.lastRunAt || null
-            }
-        };
-    }
-
     function applyTaskSyncResponse(result) {
         const settings = result?.settings || result?.project?.taskSyncSettings;
         if (settings) {
@@ -666,6 +647,57 @@ export function ProjectSettingsTab({
         }
     }
 
+    function taskSyncLinkPayload(source, tokenMode) {
+        const providerId = source.providerId || "github";
+        const isStartrek = providerId === "startrek";
+        const sourceValue = String(source.source?.value || "").trim();
+        return {
+            providerId,
+            repositoryURL: isStartrek ? null : source.repositoryURL.trim() || source.repositorySlug.trim() || null,
+            defaultRepo: isStartrek ? null : source.defaultRepo.trim() || source.repositorySlug.trim() || null,
+            source: isStartrek ? {
+                kind: inferStartrekSourceKind(sourceValue),
+                value: sourceValue
+            } : null,
+            tokenMode,
+            inboundStatusMappings: sanitizedStatusMappings(source.inboundStatusMappings),
+            statusMappings: sanitizedStatusMappings(source.statusMappings),
+            syncSchedule: {
+                enabled: Boolean(source.syncSchedule?.enabled),
+                intervalMinutes: Math.max(1, Number(source.syncSchedule?.intervalMinutes) || 15)
+            }
+        };
+    }
+
+    async function saveTaskSync(source) {
+        const providerId = source.providerId || "github";
+        const isStartrek = providerId === "startrek";
+        const sourceValue = String(source.source?.value || "").trim();
+        if (isStartrek && !sourceValue) {
+            throw new Error("Enter a StartTrack queue, saved filter, board query, or Tracker query.");
+        }
+
+        let tokenMode = source.tokenMode || "inherit";
+        const token = taskSyncToken.trim();
+        if (token) {
+            const tokenStatus = await setProjectTaskSyncToken(project.id, { token }, providerId);
+            setTaskSyncTokenStatus(tokenStatus);
+            setTaskSyncToken("");
+            tokenMode = "override";
+        }
+
+        setStatusText("Saving and checking the external source...");
+        const linked = await linkProjectTaskSync(project.id, taskSyncLinkPayload(source, tokenMode));
+        applyTaskSyncResponse(linked);
+
+        setStatusText("Source linked. Running the first sync...");
+        const synced = await syncProjectTasksNow(project.id);
+        if (synced?.message) {
+            throw new Error(String(synced.message));
+        }
+        return `Settings saved · ${Number(synced?.imported || 0)} imported · ${Number(synced?.updated || 0)} updated`;
+    }
+
     async function saveSettings() {
         if (hasProjectChanges && draft.kind === "workspace" && draft.directoryPaths.length < 2) {
             setStatusText("A workspace requires at least two directories");
@@ -674,16 +706,16 @@ export function ProjectSettingsTab({
         const projectDraft = cloneDraft({ ...project, ...draft });
         const syncDraft = cloneTaskSyncDraft({ taskSyncSettings: taskSyncDraft });
         let saved = true;
+        let successMessage = "Settings saved";
+        let failureMessage = "";
 
-        if (hasTaskSyncChanges) {
+        if (hasTaskSyncChanges || taskSyncToken.trim()) {
             setTaskSyncBusy(true);
             try {
-                const result = await updateProjectTaskSync(project.id, taskSyncUpdatePayload(syncDraft));
-                if (result) {
-                    applyTaskSyncResponse(result);
-                } else {
-                    saved = false;
-                }
+                successMessage = await saveTaskSync(syncDraft);
+            } catch (error) {
+                saved = false;
+                failureMessage = error?.message || "Failed to save task sync settings";
             } finally {
                 setTaskSyncBusy(false);
             }
@@ -715,9 +747,9 @@ export function ProjectSettingsTab({
         }
 
         if (saved) {
-            setStatusText("Settings saved");
+            setStatusText(successMessage);
         } else {
-            setStatusText("Failed to save settings");
+            setStatusText(failureMessage || "Failed to save settings");
         }
     }
 
@@ -2039,6 +2071,9 @@ export function ProjectSettingsTab({
             const result = await action();
             applyTaskSyncResponse(result);
             return result;
+        } catch (error) {
+            setStatusText(error?.message || "Task sync failed");
+            return null;
         } finally {
             setTaskSyncBusy(false);
         }
@@ -2046,11 +2081,6 @@ export function ProjectSettingsTab({
 
     const taskSyncStatusOptions = useMemo(() => {
         const options = new Set();
-        if (Array.isArray(taskSyncDiscovery?.statusOptions)) {
-            taskSyncDiscovery.statusOptions.forEach((option) => {
-                if (option) options.add(String(option));
-            });
-        }
         if (Array.isArray(taskSyncDraft.linkedProjects)) {
             taskSyncDraft.linkedProjects.forEach((p) => {
                 if (Array.isArray(p.statusOptions)) {
@@ -2069,47 +2099,12 @@ export function ProjectSettingsTab({
             else if (status?.key) options.add(String(status.key));
         });
         return Array.from(options).sort((a, b) => a.localeCompare(b));
-    }, [taskSyncDiscovery, taskSyncDraft.linkedProjects, taskSyncDraft.inboundStatusMappings, project?.tasks]);
-
-    async function discoverTaskSyncProjects() {
-        const providerId = taskSyncDraft.providerId || "github";
-        const isStartrek = providerId === "startrek";
-        const result = await runTaskSyncAction(() => discoverProjectTaskSync(project.id, {
-            providerId,
-            repositoryURL: isStartrek ? null : taskSyncDraft.repositoryURL.trim() || null,
-            tokenMode: taskSyncDraft.tokenMode,
-            source: isStartrek ? {
-                kind: taskSyncDraft.source?.kind || "query",
-                value: String(taskSyncDraft.source?.value || "").trim()
-            } : null
-        }));
-        setTaskSyncDiscovery(result || null);
-        if (result) {
-            mutateTaskSync((d) => {
-                d.repositoryURL = result.repositoryURL || d.repositoryURL || "";
-                d.repositorySlug = result.repositorySlug || d.repositorySlug || "";
-                d.defaultRepo = result.repositorySlug || d.defaultRepo || "";
-                d.linkedProjects = Array.isArray(result.projects) ? result.projects : [];
-                d.inboundStatusMappings = d.inboundStatusMappings || {};
-                for (const option of result.statusOptions || []) {
-                    const key = String(option || "").trim().toLowerCase();
-                    if (key && !d.inboundStatusMappings[key]) {
-                        const fallback = TASK_SYNC_STATUS_FIELDS.find((field) => field.placeholder.toLowerCase() === key);
-                        d.inboundStatusMappings[key] = fallback?.id || "";
-                    }
-                }
-            });
-            setStatusText(result.manualRepositoryRequired ? "Repository URL required" : `${isStartrek ? "StartTrack source" : "GitHub Projects"} discovered`);
-        } else {
-            setStatusText(`${isStartrek ? "StartTrack" : "GitHub Projects"} discovery failed`);
-        }
-    }
+    }, [taskSyncDraft.linkedProjects, taskSyncDraft.inboundStatusMappings, project?.tasks]);
 
     function renderTaskSync() {
         const health = taskSyncDraft.health || {};
         const webhook = taskSyncDraft.webhook || {};
         const linkedProjects = Array.isArray(taskSyncDraft.linkedProjects) ? taskSyncDraft.linkedProjects : [];
-        const manualRepositoryRequired = Boolean(taskSyncDiscovery?.manualRepositoryRequired);
         const providerId = taskSyncDraft.providerId || "github";
         const isStartrek = providerId === "startrek";
         const providerName = taskSyncProviders.find((provider) => provider.id === providerId)?.displayName || providerId;
@@ -2125,7 +2120,6 @@ export function ProjectSettingsTab({
                             className={`task-sync-token-option ${provider.id === providerId ? "active" : ""}`}
                             onClick={async () => {
                                 mutateTaskSync((draft) => { draft.providerId = provider.id; });
-                                setTaskSyncDiscovery(null);
                                 setTaskSyncTokenStatus(await fetchProjectTaskSyncToken(project.id, provider.id));
                             }}
                         >
@@ -2137,55 +2131,41 @@ export function ProjectSettingsTab({
                     <div className="review-toggle-label">
                         <span className="material-symbols-rounded review-toggle-icon">sync_alt</span>
                         <div>
-                            <strong>Issue-backed task sync</strong>
+                            <strong>External task sync</strong>
                             <p className="review-toggle-desc">
-                                Sloppy tasks link to external issues. Imported comments stay read-only; human comments can mirror back.
+                                Enter a source and press Save. Sloppy will validate, link, and run the first sync automatically.
                             </p>
                         </div>
                     </div>
-                    <label className="agent-tools-switch">
-                        <input
-                            type="checkbox"
-                            checked={taskSyncDraft.enabled}
-                            onChange={(e) => mutateTaskSync((d) => { d.enabled = e.target.checked; })}
-                        />
-                        <span className="agent-tools-switch-track" />
-                    </label>
                 </div>
 
                 <div className="entry-form-grid task-sync-form-grid" style={{ marginTop: 16 }}>
                     {isStartrek ? (
-                        <>
-                            <div className="task-sync-token-options" style={{ gridColumn: "1 / -1" }}>
-                                {["queue", "query", "saved_filter"].map((kind) => (
-                                    <button
-                                        key={kind}
-                                        type="button"
-                                        className={`task-sync-token-option ${taskSyncDraft.source?.kind === kind ? "active" : ""}`}
-                                        onClick={() => mutateTaskSync((d) => { d.source = { ...(d.source || {}), kind }; })}
-                                    >
-                                        <strong>{kind.replace("_", " ")}</strong>
-                                    </button>
-                                ))}
-                            </div>
-                            <label style={{ gridColumn: "1 / -1" }}>
-                                Queue, Tracker query, or saved filter
-                                <input
-                                    type="text"
-                                    placeholder={'Assignee: me() Resolution: empty() "Sort by": Updated DESC'}
-                                    value={taskSyncDraft.source?.value || ""}
-                                    onChange={(e) => mutateTaskSync((d) => { d.source = { ...(d.source || {}), value: e.target.value }; })}
-                                />
-                            </label>
-                        </>
+                        <label style={{ gridColumn: "1 / -1" }} htmlFor="task-sync-startrek-source">
+                            Tracker source
+                            <input
+                                id="task-sync-startrek-source"
+                                type="text"
+                                placeholder="Queue key, saved filter URL, or query — e.g. Boards: 153966"
+                                value={taskSyncDraft.source?.value || ""}
+                                onChange={(e) => mutateTaskSync((d) => {
+                                    d.enabled = true;
+                                    d.source = { ...(d.source || {}), value: e.target.value };
+                                })}
+                            />
+                        </label>
                     ) : (
-                        <label style={{ gridColumn: "1 / -1" }}>
+                        <label style={{ gridColumn: "1 / -1" }} htmlFor="task-sync-github-repository">
                             Repository
                             <input
+                                id="task-sync-github-repository"
                                 type="text"
-                                placeholder={manualRepositoryRequired ? "https://github.com/org/repo" : "Auto-detected from project git remote"}
+                                placeholder="Auto-detected from project git remote, or enter https://github.com/org/repo"
                                 value={taskSyncDraft.repositoryURL || taskSyncDraft.repositorySlug}
-                                onChange={(e) => mutateTaskSync((d) => { d.repositoryURL = e.target.value; })}
+                                onChange={(e) => mutateTaskSync((d) => {
+                                    d.enabled = true;
+                                    d.repositoryURL = e.target.value;
+                                })}
                             />
                         </label>
                     )}
@@ -2215,26 +2195,10 @@ export function ProjectSettingsTab({
                             <span className="agent-tools-switch-track" />
                         </label>
                     </label>
-                    <div className="task-sync-token-mode-field">
-                        <span className="task-sync-field-label">Token mode</span>
-                        <div className="task-sync-token-options">
-                            {["inherit", "override"].map((mode) => (
-                                <button
-                                    key={mode}
-                                    type="button"
-                                    className={`task-sync-token-option ${taskSyncDraft.tokenMode === mode ? "active" : ""}`}
-                                    onClick={() => mutateTaskSync((d) => { d.tokenMode = mode; })}
-                                >
-                                    <span className="material-symbols-rounded">{mode === "inherit" ? "key" : "vpn_key"}</span>
-                                    <strong>{mode === "inherit" ? "Inherit" : "Override"}</strong>
-                                </button>
-                            ))}
-                        </div>
-                    </div>
                     <div className="task-sync-linked-projects">
                         <span className="task-sync-field-label">Detected source</span>
                         {linkedProjects.length === 0 ? (
-                                <p className="placeholder-text">No external source detected yet.</p>
+                            <p className="placeholder-text">No external source detected yet.</p>
                         ) : (
                             <div className="task-sync-project-list">
                                 {linkedProjects.map((p) => (
@@ -2257,95 +2221,64 @@ export function ProjectSettingsTab({
                         <span className="task-sync-field-label">Status mappings</span>
                         <div className="task-sync-status-list">
                             {taskSyncStatusOptions.length === 0 ? (
-                                <p className="placeholder-text">Discover the source to load external statuses.</p>
+                                <p className="placeholder-text">Status mappings appear after the first Save.</p>
                             ) : taskSyncStatusOptions.map((option) => {
                                 const key = String(option || "").trim().toLowerCase();
                                 return (
-                                <label key={key} className="task-sync-status-row">
-                                    <span className="task-sync-status-name">
-                                        <strong>{option}</strong>
-                                        <code>{isStartrek ? "StartTrack status" : "GitHub Status"}</code>
-                                    </span>
-                                    <SloppyStatusDropdown
-                                        value={taskSyncDraft.inboundStatusMappings?.[key] || ""}
-                                        onChange={(status) => mutateTaskSync((d) => {
-                                            d.inboundStatusMappings = d.inboundStatusMappings || {};
-                                            d.statusMappings = d.statusMappings || {};
-                                            d.inboundStatusMappings[key] = status;
-                                            d.statusMappings[status] = key;
-                                        })}
-                                    />
-                                </label>
+                                    <label key={key} className="task-sync-status-row">
+                                        <span className="task-sync-status-name">
+                                            <strong>{option}</strong>
+                                            <code>{isStartrek ? "StartTrack status" : "GitHub Status"}</code>
+                                        </span>
+                                        <SloppyStatusDropdown
+                                            value={taskSyncDraft.inboundStatusMappings?.[key] || ""}
+                                            onChange={(status) => mutateTaskSync((d) => {
+                                                d.inboundStatusMappings = d.inboundStatusMappings || {};
+                                                d.statusMappings = d.statusMappings || {};
+                                                d.inboundStatusMappings[key] = status;
+                                                d.statusMappings[status] = key;
+                                            })}
+                                        />
+                                    </label>
                                 );
                             })}
                         </div>
                     </div>
                 </div>
 
-                <div className="settings-danger-confirm-actions" style={{ marginTop: 16 }}>
-                    <button
-                        type="button"
-                        className="hover-levitate"
-                        disabled={taskSyncBusy}
-                        onClick={discoverTaskSyncProjects}
-                    >
-                        Discover
-                    </button>
-                    <button
-                        type="button"
-                        className="hover-levitate"
-                        disabled={taskSyncBusy}
-                        onClick={async () => {
-                            const result = await runTaskSyncAction(() => linkProjectTaskSync(project.id, {
-                                providerId,
-                                repositoryURL: isStartrek ? null : taskSyncDraft.repositoryURL.trim() || taskSyncDraft.repositorySlug.trim() || null,
-                                defaultRepo: isStartrek ? null : taskSyncDraft.defaultRepo.trim() || taskSyncDraft.repositorySlug.trim() || null,
-                                source: isStartrek ? {
-                                    kind: taskSyncDraft.source?.kind || "query",
-                                    value: String(taskSyncDraft.source?.value || "").trim()
-                                } : null,
-                                tokenMode: taskSyncDraft.tokenMode,
-                                inboundStatusMappings: sanitizedStatusMappings(taskSyncDraft.inboundStatusMappings),
-                                statusMappings: sanitizedStatusMappings(taskSyncDraft.statusMappings),
-                                syncSchedule: {
-                                    enabled: Boolean(taskSyncDraft.syncSchedule?.enabled),
-                                    intervalMinutes: Math.max(1, Number(taskSyncDraft.syncSchedule?.intervalMinutes) || 15)
+                {taskSyncLinked ? (
+                    <div className="settings-danger-confirm-actions" style={{ marginTop: 16 }}>
+                        <button
+                            type="button"
+                            className="hover-levitate"
+                            disabled={taskSyncBusy}
+                            onClick={async () => {
+                                const result = await runTaskSyncAction(() => syncProjectTasksNow(project.id));
+                                if (result) {
+                                    setStatusText(`Sync finished · ${Number(result.imported || 0)} imported · ${Number(result.updated || 0)} updated`);
                                 }
-                            }));
-                            setStatusText(result ? "Task sync linked" : "Task sync link failed");
-                        }}
-                    >
-                        Link / Save
-                    </button>
-                    <button
-                        type="button"
-                        className="hover-levitate"
-                        disabled={taskSyncBusy || !taskSyncLinked}
-                        title={taskSyncLinked ? "Run a full task sync" : "Link and save the external source first"}
-                        onClick={async () => {
-                            const result = await runTaskSyncAction(() => syncProjectTasksNow(project.id));
-                            setStatusText(result ? "Manual sync finished" : "Manual sync failed");
-                        }}
-                    >
-                        Sync Now
-                    </button>
-                    <button
-                        type="button"
-                        className="danger hover-levitate"
-                        disabled={taskSyncBusy}
-                        onClick={async () => {
-                            const result = await runTaskSyncAction(() => unlinkProjectTaskSync(project.id));
-                            setStatusText(result ? "Task sync unlinked" : "Task sync unlink failed");
-                        }}
-                    >
-                        Unlink
-                    </button>
-                </div>
+                            }}
+                        >
+                            Sync Now
+                        </button>
+                        <button
+                            type="button"
+                            className="danger hover-levitate"
+                            disabled={taskSyncBusy}
+                            onClick={async () => {
+                                const result = await runTaskSyncAction(() => unlinkProjectTaskSync(project.id));
+                                if (result) setStatusText("Task sync disconnected");
+                            }}
+                        >
+                            Disconnect
+                        </button>
+                    </div>
+                ) : null}
 
                 <div className="review-section-divider" />
                 <div className="entry-form-grid">
                     <label style={{ gridColumn: "1 / -1" }}>
-                        Override token
+                        Access token <span className="placeholder-text">(optional — leave blank to keep the current token)</span>
                         <input
                             type="password"
                             placeholder={taskSyncTokenStatus?.maskedToken || `${providerName} token`}
@@ -2354,41 +2287,26 @@ export function ProjectSettingsTab({
                         />
                     </label>
                 </div>
-                <div className="settings-danger-confirm-actions" style={{ marginTop: 12 }}>
-                    <button
-                        type="button"
-                        className="hover-levitate"
-                        disabled={taskSyncBusy || !taskSyncToken.trim()}
-                        onClick={async () => {
-                            const result = await setProjectTaskSyncToken(project.id, { token: taskSyncToken.trim() }, providerId);
-                            setTaskSyncToken("");
-                            setTaskSyncTokenStatus(result || null);
-                            if (result) {
-                                mutateTaskSync((draft) => { draft.tokenMode = "override"; });
-                                setSavedTaskSyncDraft((saved) => ({ ...saved, tokenMode: "override" }));
-                            }
-                            setStatusText(result ? "Override token saved" : "Token save failed");
-                        }}
-                    >
-                        Save Token
-                    </button>
-                    <button
-                        type="button"
-                        className="danger hover-levitate"
-                        disabled={taskSyncBusy || !taskSyncTokenStatus?.hasOverrideToken}
-                        onClick={async () => {
-                            const result = await clearProjectTaskSyncToken(project.id, providerId);
-                            setTaskSyncTokenStatus(result || null);
-                            if (result) {
-                                mutateTaskSync((draft) => { draft.tokenMode = "inherit"; });
-                                setSavedTaskSyncDraft((saved) => ({ ...saved, tokenMode: "inherit" }));
-                            }
-                            setStatusText(result ? "Override token cleared" : "Token clear failed");
-                        }}
-                    >
-                        Clear Token
-                    </button>
-                </div>
+                {taskSyncTokenStatus?.hasOverrideToken ? (
+                    <div className="settings-danger-confirm-actions" style={{ marginTop: 12 }}>
+                        <button
+                            type="button"
+                            className="danger hover-levitate"
+                            disabled={taskSyncBusy}
+                            onClick={async () => {
+                                const result = await runTaskSyncAction(() => clearProjectTaskSyncToken(project.id, providerId));
+                                setTaskSyncTokenStatus(result || null);
+                                if (result) {
+                                    mutateTaskSync((draft) => { draft.tokenMode = "inherit"; });
+                                    setSavedTaskSyncDraft((saved) => ({ ...saved, tokenMode: "inherit" }));
+                                    setStatusText("Saved token forgotten");
+                                }
+                            }}
+                        >
+                            Forget saved token
+                        </button>
+                    </div>
+                ) : null}
 
                 <div className="review-agent-hint" style={{ marginTop: 16 }}>
                     <span className="material-symbols-rounded" style={{ fontSize: "1rem", color: "var(--accent)" }}>info</span>
@@ -2467,7 +2385,7 @@ export function ProjectSettingsTab({
                             Cancel
                         </button>
                         <button type="button" className="hover-levitate" onClick={saveSettings} disabled={taskSyncBusy}>
-                            Apply
+                            {taskSyncBusy ? "Saving..." : "Save"}
                         </button>
                     </div>
                 </div>

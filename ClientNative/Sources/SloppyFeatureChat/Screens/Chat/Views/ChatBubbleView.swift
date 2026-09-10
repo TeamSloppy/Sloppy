@@ -167,6 +167,15 @@ public struct ChatBubbleView: View {
                         isRunning: isSegmentRunning(segment)
                             || (isActivelyWorking && segment.kind == .thinking)
                     )
+                } else if message.role == .user {
+                    // User input has an intrinsic size immediately, including in a
+                    // newly inserted native collection row before markdown parses.
+                    Text(verbatim: segment.text ?? "…")
+                        .font(.system(size: theme.typography.body))
+                        .foregroundStyle(theme.colors.textPrimary)
+                        .lineSpacing(4)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
                 } else {
                     ChatMarkdownTextStack(
                         text: segment.text ?? "…",
@@ -574,30 +583,39 @@ private struct ChatSegmentCollapsibleCard: View {
 private struct ChatShimmerText: View {
     let text: String
 
-    @State private var phase: CGFloat = -1
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.theme) private var theme
 
     var body: some View {
-        Text(text)
-            .foregroundStyle(
-                LinearGradient(
-                    colors: [
-                        theme.colors.textMuted,
-                        theme.colors.textPrimary,
-                        theme.colors.textMuted,
-                    ],
-                    startPoint: UnitPoint(x: phase - 1, y: 0.5),
-                    endPoint: UnitPoint(x: phase, y: 0.5)
-                )
-            )
-        .onAppear {
-            guard !reduceMotion else {
-                phase = 0.5
-                return
-            }
-            withAnimation(.linear(duration: 1.4).repeatForever(autoreverses: false)) {
-                phase = 2
+        if reduceMotion {
+            Text(text)
+                .foregroundStyle(theme.colors.textSecondary)
+        } else {
+            TimelineView(.animation(minimumInterval: 1.0 / 30)) { context in
+                let progress = context.date.timeIntervalSinceReferenceDate
+                    .truncatingRemainder(dividingBy: 1.8) / 1.8
+                let center = -0.35 + progress * 1.7
+
+                Text(text)
+                    .foregroundStyle(theme.colors.textMuted)
+                    .overlay {
+                        GeometryReader { geometry in
+                            LinearGradient(
+                                colors: [
+                                    theme.colors.textPrimary.opacity(0 as Double),
+                                    theme.colors.textPrimary,
+                                    theme.colors.textPrimary.opacity(0 as Double),
+                                ],
+                                startPoint: .leading,
+                                endPoint: .trailing
+                            )
+                            .frame(width: geometry.size.width * 0.7)
+                            .offset(x: geometry.size.width * (center - 0.35))
+                        }
+                        .mask(Text(text))
+                        .allowsHitTesting(false)
+                        .accessibilityHidden(true)
+                    }
             }
         }
     }

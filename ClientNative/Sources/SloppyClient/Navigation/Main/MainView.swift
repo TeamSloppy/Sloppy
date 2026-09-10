@@ -340,6 +340,13 @@ struct MainView: View {
                        viewModel.selectedAppSection != .artifacts,
                        viewModel.selectedAppSection != .sites,
                        viewModel.selectedAppSection != .pullRequests {
+                        #if os(macOS)
+                        Button { viewModel.selectNewChat() } label: {
+                            Label("New chat", systemImage: "plus")
+                        }
+                        .help("New chat")
+                        .accessibilityIdentifier("workspace.new-chat")
+                        #endif
                         workspaceSidePanelButton
                     }
                 }

@@ -24,7 +24,7 @@ struct AccountSettingsSection: View {
     @Environment(\.theme) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: theme.spacing.xl) {
+        VStack(alignment: .leading, spacing: 24) {
             if let user {
                 profileSection(user)
                 passwordSection
@@ -161,6 +161,8 @@ struct AccountSettingsSection: View {
                 HStack(spacing: theme.spacing.m) {
                     TextField("Token name", text: $newTokenName)
                         .textFieldStyle(.roundedBorder)
+                        .labelsHidden()
+                        .controlSize(.large)
                     Button("Create Token", action: createApplicationToken)
                         .buttonStyle(.borderedProminent)
                         .disabled(isWorking || normalizedTokenName.isEmpty)
@@ -219,6 +221,7 @@ struct AccountSettingsSection: View {
             Text(subtitle)
                 .font(.system(size: theme.typography.caption))
                 .foregroundColor(theme.colors.textMuted)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -227,8 +230,10 @@ struct AccountSettingsSection: View {
             Text(title)
                 .font(.system(size: theme.typography.caption, weight: .medium))
                 .foregroundColor(theme.colors.textSecondary)
-            TextField(title, text: text)
+            TextField(title, text: text, prompt: Text(""))
                 .textFieldStyle(.roundedBorder)
+                .labelsHidden()
+                .controlSize(.large)
         }
     }
 
@@ -237,8 +242,10 @@ struct AccountSettingsSection: View {
             Text(title)
                 .font(.system(size: theme.typography.caption, weight: .medium))
                 .foregroundColor(theme.colors.textSecondary)
-            SecureField(title, text: text)
+            SecureField(title, text: text, prompt: Text("••••••••"))
                 .textFieldStyle(.roundedBorder)
+                .labelsHidden()
+                .controlSize(.large)
         }
     }
 

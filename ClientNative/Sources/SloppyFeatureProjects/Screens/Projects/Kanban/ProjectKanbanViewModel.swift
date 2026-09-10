@@ -11,6 +11,9 @@ public struct ProjectKanbanCard: Identifiable, Equatable, Sendable {
     public let executionNodeID: String?
     public let description: String?
     public let tags: [String]
+    public let assigneeID: String?
+    public let isClaimed: Bool
+    public let kanbanColumnEnteredAt: Date?
 
     public init(
         id: String,
@@ -20,7 +23,10 @@ public struct ProjectKanbanCard: Identifiable, Equatable, Sendable {
         actorID: String?,
         executionNodeID: String? = nil,
         description: String? = nil,
-        tags: [String] = []
+        tags: [String] = [],
+        assigneeID: String? = nil,
+        isClaimed: Bool = false,
+        kanbanColumnEnteredAt: Date? = nil
     ) {
         self.id = id
         self.title = title
@@ -30,6 +36,9 @@ public struct ProjectKanbanCard: Identifiable, Equatable, Sendable {
         self.executionNodeID = executionNodeID
         self.description = description
         self.tags = tags
+        self.assigneeID = [assigneeID, actorID].compactMap { $0 }.first { !$0.isEmpty }
+        self.isClaimed = isClaimed
+        self.kanbanColumnEnteredAt = kanbanColumnEnteredAt
     }
 }
 
@@ -259,7 +268,10 @@ public final class ProjectKanbanViewModel {
                     actorID: $0.actorId,
                     executionNodeID: $0.executionNodeId,
                     description: $0.description,
-                    tags: $0.tags ?? []
+                    tags: $0.tags ?? [],
+                    assigneeID: $0.kanbanAssigneeID,
+                    isClaimed: $0.claimedActorId?.isEmpty == false || $0.claimedAgentId?.isEmpty == false,
+                    kanbanColumnEnteredAt: $0.kanbanColumnEnteredAt
                 )
             }
             return ProjectKanbanColumn(id: columnID, title: columnID.title, items: cards)
@@ -272,13 +284,13 @@ public final class ProjectKanbanViewModel {
         columns = Self.buildColumns(from: tasks)
         errorMessage = nil
 
-        let actorIDs = Set((project.actors ?? []) + tasks.compactMap(\.actorId))
+        let actorIDs = Set((project.actors ?? []) + tasks.compactMap(\.kanbanAssigneeID))
         let knownAgents = agents ?? availableActors.map {
             APIAgentRecord(id: $0.id, displayName: $0.title)
         }
         let namesByID = Dictionary(uniqueKeysWithValues: knownAgents.map { ($0.id, $0.displayName) })
         availableActors = actorIDs
-            .map { ProjectKanbanActorOption(id: $0, title: namesByID[$0] ?? $0) }
+            .map { ProjectKanbanActorOption(id: $0, title: namesByID[$0] ?? ($0.hasPrefix("agent:") ? namesByID[String($0.dropFirst("agent:".count))] : nil) ?? $0) }
             .sorted {
                 $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
             }
@@ -304,9 +316,9 @@ public final class ProjectKanbanViewModel {
         case .all:
             break
         case .unassigned:
-            guard task.actorId?.isEmpty != false else { return false }
+            guard task.kanbanAssigneeID == nil else { return false }
         case .actor(let actorID):
-            guard task.actorId == actorID else { return false }
+            guard task.kanbanAssigneeID == actorID else { return false }
         }
 
         let query = filters.searchText.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -314,7 +326,7 @@ public final class ProjectKanbanViewModel {
         let searchableValues = [
             task.title,
             task.description ?? "",
-            task.actorId ?? "",
+            task.kanbanAssigneeID ?? "",
             task.priority ?? "",
             (task.tags ?? []).joined(separator: " "),
         ]

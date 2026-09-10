@@ -426,7 +426,8 @@ CREATE TABLE IF NOT EXISTS dashboard_project_tasks (
     attachments_json TEXT NOT NULL DEFAULT '[]',
     external_metadata_json TEXT,
     tags_json TEXT NOT NULL DEFAULT '[]',
-    execution_node_id TEXT
+    execution_node_id TEXT,
+    kanban_column_entered_at TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_dashboard_project_tasks_project ON dashboard_project_tasks(project_id);

@@ -13,10 +13,17 @@ struct MemoryImportTests {
         let skills = try await service.listAgentSkills(agentID: "import-owner")
         let skill = try #require(skills.skills.first { $0.id == "bundled/memory-import" })
         #expect(skill.userInvocable)
-        #expect(Set(["files.read", "memory.search", "memory.get", "memory.save"]).isSubset(of: Set(skill.allowedTools)))
+        let publishedToolIDs = Set(ToolRegistry.makeDefault().catalogEntries.map(\.id))
+        #expect(Set(skill.allowedTools).isSubset(of: publishedToolIDs))
+        #expect(skill.allowedTools.contains("memory.recall"))
         let path = URL(fileURLWithPath: skill.localPath)
         #expect(FileManager.default.fileExists(atPath: path.appendingPathComponent("SKILL.md").path))
         #expect(FileManager.default.fileExists(atPath: path.appendingPathComponent("references/export-prompt.md").path))
+        let skillFile = path.appendingPathComponent("SKILL.md")
+        let currentMarkdown = try String(contentsOf: skillFile, encoding: .utf8)
+        try Data("---\nname: memory-import\nallowedTools: memory.get\n---\nVerify with memory.get.\n".utf8).write(to: skillFile)
+        _ = try await service.listAgentSkills(agentID: "import-owner")
+        #expect(try String(contentsOf: skillFile, encoding: .utf8) == currentMarkdown)
     }
 
     /// Verifies the actual attachment -> tools -> durable retrieval path used by the skill.
@@ -53,6 +60,18 @@ struct MemoryImportTests {
         ))
         #expect(saved.ok)
         let memoryID = try #require(saved.data?.asObject?["id"]?.asString)
+        // Verify through the published tool, with legacy dispatch compatibility checked separately.
+        for toolID in ["memory.recall", "memory.search", "memory.get"] {
+            let recalled = await service.invokeToolFromRuntime(agentID: agentID, sessionID: session.id, request: .init(
+                tool: toolID, arguments: [
+                    "query": .string("Aurora"),
+                    "scope_type": .string("agent"), "scope_id": .string(agentID)
+                ]
+            ))
+            #expect(recalled.ok, "\(toolID) must retrieve the imported record")
+            let items = recalled.data?.asObject?["items"]?.asArray ?? []
+            #expect(items.contains { $0.asObject?["id"]?.asString == memoryID })
+        }
         let reopened = HybridMemoryStore(config: config)
         let hits = await reopened.recall(request: .init(query: "Aurora", limit: 10, scope: .agent(agentID)))
         #expect(hits.contains { $0.ref.id == memoryID })

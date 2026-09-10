@@ -83,7 +83,7 @@ struct BackendSettingsSection: View {
     @Environment(\.theme) private var theme
 
     var body: some View {
-        VStack(alignment: .leading, spacing: theme.spacing.m) {
+        VStack(alignment: .leading, spacing: 24) {
             SettingsSectionCard("Installation") {
                 VStack(alignment: .leading, spacing: theme.spacing.m) {
                     statusRow
@@ -136,14 +136,13 @@ struct BackendSettingsSection: View {
                 }
                 .padding(theme.spacing.m)
             }
-            .padding(.horizontal, theme.spacing.m)
 
             SettingsSectionSurface {
                 VStack(alignment: .leading, spacing: theme.spacing.s) {
                     Label("Release verification", systemImage: "checkmark.shield")
                         .font(.system(size: theme.typography.heading, weight: .semibold))
                         .foregroundStyle(theme.colors.textPrimary)
-                    Text("The matching macOS archive is downloaded from TeamSloppy/Sloppy, verified against SHA256SUMS.txt, and checked with sloppy --version after installation.")
+                    Text("Downloads the latest macOS release and verifies the archive before installation.")
                         .font(.system(size: theme.typography.body))
                         .foregroundStyle(theme.colors.textSecondary)
                 }
@@ -163,6 +162,7 @@ struct BackendSettingsSection: View {
                 Text(model.isInstalled ? "Reinstall to fetch the latest release." : "Install the local backend required to run Sloppy agents.")
                     .font(.system(size: theme.typography.caption))
                     .foregroundStyle(theme.colors.textMuted)
+                    .fixedSize(horizontal: false, vertical: true)
             }
             Spacer()
         }
@@ -170,13 +170,14 @@ struct BackendSettingsSection: View {
 
     private var locationRow: some View {
         VStack(alignment: .leading, spacing: theme.spacing.xs) {
-            Text("INSTALLATION LOCATION")
-                .font(.system(size: theme.typography.micro))
+            Text("Installation location")
+                .font(.system(size: theme.typography.caption))
                 .foregroundStyle(theme.colors.textSecondary)
             Text(BackendInstaller.installedExecutableURL().path)
                 .font(.system(.caption, design: .monospaced))
                 .foregroundStyle(theme.colors.textMuted)
                 .textSelection(.enabled)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

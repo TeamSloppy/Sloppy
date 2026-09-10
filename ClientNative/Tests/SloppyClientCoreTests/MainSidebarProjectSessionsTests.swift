@@ -42,7 +42,7 @@ struct MainSidebarProjectSessionsTests {
         let mainViewModelSource = try sourceFile("Sources/SloppyClient/Navigation/Main/MainViewModel.swift")
 
         #expect(source.contains("sections.projectGroups.prefix(viewModel.visibleProjectCount)"))
-        #expect(source.contains("Button(\"Show more project\")"))
+        #expect(source.contains("Text(\"Show more projects\")"))
         #expect(source.contains("viewModel.showMoreProjects()"))
         #expect(mainViewModelSource.contains("var visibleProjectCount = 6"))
         #expect(mainViewModelSource.contains("visibleProjectCount += 6"))

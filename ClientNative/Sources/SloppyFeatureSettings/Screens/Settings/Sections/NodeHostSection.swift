@@ -8,7 +8,6 @@ struct NodeHostSection: View {
     let onSave: (SloppyConfig) -> Void
 
     @State private var nodesText: String
-    @Environment(\.theme) private var theme
 
     init(config: SloppyConfig, onSave: @escaping (SloppyConfig) -> Void) {
         self.config = config
@@ -25,36 +24,9 @@ struct NodeHostSection: View {
     }
 
     var body: some View {
-        let c = theme.colors
-        let sp = theme.spacing
-        let bo = theme.borders
-        let ty = theme.typography
-
-        return VStack(alignment: .leading, spacing: sp.m) {
-            SectionHeader("Node Host", accentColor: c.accentCyan)
-
+        VStack(alignment: .leading, spacing: 24) {
             SettingsSectionCard("Nodes") {
-                VStack(alignment: .leading, spacing: sp.xs) {
-                    Text("NODES")
-                        .font(.system(size: ty.micro))
-                        .foregroundColor(c.textSecondary)
-                        .padding(.horizontal, sp.m)
-                        .padding(.top, sp.s)
-
-                    TextField("local", text: $nodesText)
-                        .font(.system(size: ty.body))
-                        .foregroundColor(c.textPrimary)
-                        .padding(sp.s)
-                        .background(c.background)
-                        .border(c.border, lineWidth: bo.thin)
-                        .padding(.horizontal, sp.m)
-
-                    Text("One node per line. Default: local")
-                        .font(.system(size: ty.micro))
-                        .foregroundColor(c.textMuted)
-                        .padding(.horizontal, sp.m)
-                        .padding(.bottom, sp.s)
-                }
+                SettingsMultilineFieldRow("Node IDs", hint: "One node per line. Default: local", text: $nodesText)
             }
 
             SettingsSaveBar(

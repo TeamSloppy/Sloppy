@@ -19,171 +19,162 @@ struct ClientSettingsSection: View {
     ]
 
     var body: some View {
-        let sp = theme.spacing
-
-        return VStack(alignment: .leading, spacing: sp.m) {
+        VStack(alignment: .leading, spacing: 24) {
             SettingsSectionCard("Connection") {
-                VStack(alignment: .leading, spacing: sp.s) {
-                    Text("SERVER")
-                        .font(.system(size: theme.typography.micro))
-                        .foregroundColor(theme.colors.textSecondary)
-                    Text(settings.serverHost)
-                        .font(.system(.body, design: .monospaced))
-                        .foregroundColor(theme.colors.textPrimary)
-                        .textSelection(.enabled)
-                        .accessibilityLabel("Current server")
-                    Text("Changing server signs you out of the current session.")
-                        .font(.system(size: theme.typography.caption))
-                        .foregroundColor(theme.colors.textMuted)
+                ViewThatFits(in: .horizontal) {
+                    HStack(spacing: 24) {
+                        serverDetails
+                        Spacer(minLength: 0)
+                        changeServerButton
+                    }
+                    VStack(alignment: .leading, spacing: 16) {
+                        serverDetails
+                        changeServerButton
+                    }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, sp.m)
-                .padding(.vertical, sp.s)
+                .padding(16)
+            }
+
+            SettingsSectionCard("Appearance") {
+                HStack(spacing: 12) {
+                    appearanceOption("Light", scheme: .light)
+                    appearanceOption("Dark", scheme: .dark)
+                }
+                .padding(16)
 
                 SettingsDivider()
 
-                Button(action: onChangeServer) {
-                    Label("Change Server", systemImage: "arrow.triangle.2.circlepath")
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("Accent color")
+                        .font(.system(size: 13, weight: .medium))
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 64), spacing: 8)], spacing: 8) {
+                        ForEach(accentPresets, id: \.hex) { preset in
+                            accentOption(preset)
+                        }
+                    }
                 }
-                .buttonStyle(.plain)
-                .padding(.horizontal, sp.m)
-                .padding(.vertical, sp.s)
-                .accessibilityIdentifier("settings.change-server")
-            }
-            .padding(.horizontal, sp.m)
+                .padding(16)
 
-            SettingsSectionCard("Appearance") {
-                colorSchemePicker
+                SettingsDivider()
+                SettingsFieldRow("Custom color", hint: "Hex color, e.g. #FF2D6F", text: Binding(
+                    get: { settings.accentColorHex },
+                    set: { settings.accentColorHex = $0 }
+                ))
             }
-            .padding(.horizontal, sp.m)
-
-            SettingsSectionCard("Accent Color") {
-                accentColorPicker
-            }
-            .padding(.horizontal, sp.m)
 
             #if os(macOS)
-            desktopSettingsSection
+            SettingsSectionCard("Desktop") {
+                VStack(alignment: .leading, spacing: 10) {
+                    Text("When the last window closes")
+                        .font(.system(size: 13, weight: .medium))
+                    Picker("When the last window closes", selection: Binding(
+                        get: { settings.windowCloseBehavior },
+                        set: { settings.windowCloseBehavior = $0 }
+                    )) {
+                        Text("Keep running").tag(ClientWindowCloseBehavior.keepProcess)
+                        Text("Quit Sloppy").tag(ClientWindowCloseBehavior.quitOnLastWindow)
+                    }
+                    .pickerStyle(.segmented)
+                    .labelsHidden()
+                    Text("Keep Sloppy available in the menu bar after closing its windows.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .padding(16)
+            }
             #endif
         }
     }
 
-    private var colorSchemePicker: some View {
-        let sp = theme.spacing
-
-        return VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: sp.s) {
-                colorSchemeButton("Light", scheme: .light)
-                colorSchemeButton("Dark", scheme: .dark)
-            }
-            .padding(.horizontal, sp.m)
-            .padding(.vertical, sp.s)
+    private var serverDetails: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Label("Server", systemImage: "server.rack")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundStyle(.secondary)
+            Text(settings.serverHost)
+                .font(.system(size: 15, weight: .medium, design: .monospaced))
+                .textSelection(.enabled)
+                .accessibilityLabel("Current server")
+            Text("Changing server signs you out of the current session.")
+                .font(.system(size: 12))
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 
-    private func colorSchemeButton(_ title: String, scheme: ClientColorScheme) -> some View {
-        let c = theme.colors
-        let sp = theme.spacing
-        let bo = theme.borders
-        let ty = theme.typography
+    private var changeServerButton: some View {
+        Button(action: onChangeServer) {
+            Label("Change Server", systemImage: "arrow.triangle.2.circlepath")
+        }
+        .buttonStyle(.bordered)
+        .controlSize(.large)
+        .fixedSize()
+        .accessibilityIdentifier("settings.change-server")
+    }
+
+    private func appearanceOption(_ title: String, scheme: ClientColorScheme) -> some View {
         let selected = settings.colorScheme == scheme
-
-        return Button(title) {
+        return Button {
             settings.colorScheme = scheme
+        } label: {
+            VStack(spacing: 10) {
+                SettingsAppearancePreview(isDark: scheme == .dark, accent: theme.colors.accent)
+                    .frame(height: 76)
+                HStack(spacing: 6) {
+                    Text(title)
+                    Spacer(minLength: 0)
+                    Image(systemName: selected ? "checkmark.circle.fill" : "circle")
+                        .foregroundStyle(selected ? theme.colors.accent : .secondary)
+                }
+                .font(.system(size: 13, weight: .medium))
+            }
+            .padding(10)
+            .background(selected ? theme.colors.accent.opacity(0.08) : .clear,
+                        in: RoundedRectangle(cornerRadius: 10))
+            .overlay {
+                RoundedRectangle(cornerRadius: 10)
+                    .strokeBorder(selected ? theme.colors.accent : .primary.opacity(0.12),
+                                  lineWidth: selected ? 2 : 1)
+            }
+            .contentShape(RoundedRectangle(cornerRadius: 10))
         }
-        .font(.system(size: ty.caption))
-        .foregroundColor(selected ? c.textPrimary : c.textMuted)
-        .padding(.vertical, sp.xs)
-        .padding(.horizontal, sp.s)
-        .background(selected ? c.surfaceRaised.opacity(0.5 as CGFloat) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(selected ? c.borderBold.opacity(0.5 as CGFloat) : c.border.opacity(0.35 as CGFloat), lineWidth: bo.thin)
-        )
+        .buttonStyle(SettingsChoiceButtonStyle())
+        .accessibilityLabel("\(title) appearance")
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityIdentifier("settings.appearance.\(scheme.rawValue)")
     }
 
-    private var accentColorPicker: some View {
-        let c = theme.colors
-        let sp = theme.spacing
-        let bo = theme.borders
-        let ty = theme.typography
-
-        return VStack(alignment: .leading, spacing: sp.s) {
-            HStack(spacing: sp.s) {
-                ForEach(accentPresets, id: \.hex) { preset in
-                    Button(preset.label) {
-                        settings.accentColorHex = preset.hex
+    private func accentOption(_ preset: (label: String, hex: String)) -> some View {
+        let selected = settings.accentColorHex.caseInsensitiveCompare(preset.hex) == .orderedSame
+        let color = Color.fromHex(UInt32(preset.hex.dropFirst(), radix: 16) ?? 0)
+        return Button {
+            settings.accentColorHex = preset.hex
+        } label: {
+            VStack(spacing: 6) {
+                Circle()
+                    .fill(color)
+                    .frame(width: 26, height: 26)
+                    .overlay {
+                        Circle().strokeBorder(.black.opacity(0.15), lineWidth: 1)
+                        if selected {
+                            Image(systemName: "checkmark")
+                                .font(.system(size: 12, weight: .bold))
+                                .foregroundStyle(.black)
+                        }
                     }
-                    .font(.system(size: ty.caption))
-                    .foregroundColor(settings.accentColorHex == preset.hex ? c.textPrimary : c.textMuted)
-                    .padding(.vertical, sp.xs)
-                    .padding(.horizontal, sp.s)
-                    .background(settings.accentColorHex == preset.hex ? c.surfaceRaised.opacity(0.45 as CGFloat) : Color.clear)
-                    .clipShape(RoundedRectangle(cornerRadius: 8))
-                    .overlay(
-                        RoundedRectangle(cornerRadius: 8)
-                            .stroke(settings.accentColorHex == preset.hex ? c.borderBold.opacity(0.45 as CGFloat) : c.border.opacity(0.3 as CGFloat), lineWidth: bo.thin)
-                    )
-                }
+                Text(preset.label)
+                    .font(.system(size: 11, weight: selected ? .semibold : .regular))
             }
-            .padding(.horizontal, sp.m)
-            .padding(.vertical, sp.s)
-
-            SettingsDivider()
-            SettingsFieldRow("Custom Hex", hint: "e.g. #FF2D6F", text: Binding(
-                get: { settings.accentColorHex },
-                set: { settings.accentColorHex = $0 }
-            ))
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
+            .background(selected ? Color.primary.opacity(0.06) : .clear,
+                        in: RoundedRectangle(cornerRadius: 8))
+            .contentShape(RoundedRectangle(cornerRadius: 8))
         }
+        .buttonStyle(SettingsChoiceButtonStyle())
+        .help(preset.label)
+        .accessibilityLabel("\(preset.label) accent")
+        .accessibilityAddTraits(selected ? .isSelected : [])
     }
-
-    #if os(macOS)
-    private var desktopSettingsSection: some View {
-        let c = theme.colors
-        let sp = theme.spacing
-        let ty = theme.typography
-
-        return SettingsSectionCard("Desktop") {
-            VStack(alignment: .leading, spacing: 0) {
-                Text("WINDOW CLOSE")
-                    .font(.system(size: ty.micro))
-                    .foregroundColor(c.textSecondary)
-                    .padding(.horizontal, sp.m)
-                    .padding(.top, sp.s)
-
-                HStack(spacing: sp.s) {
-                    desktopCloseButton("Keep Process", behavior: .keepProcess)
-                    desktopCloseButton("Quit On Last Window", behavior: .quitOnLastWindow)
-                }
-                .padding(.horizontal, sp.m)
-                .padding(.vertical, sp.s)
-            }
-        }
-        .padding(.horizontal, sp.m)
-    }
-
-    private func desktopCloseButton(_ title: String, behavior: ClientWindowCloseBehavior) -> some View {
-        let c = theme.colors
-        let sp = theme.spacing
-        let bo = theme.borders
-        let ty = theme.typography
-        let selected = settings.windowCloseBehavior == behavior
-
-        return Button(title) {
-            settings.windowCloseBehavior = behavior
-        }
-        .font(.system(size: ty.caption))
-        .foregroundColor(selected ? c.textPrimary : c.textMuted)
-        .padding(.vertical, sp.xs)
-        .padding(.horizontal, sp.s)
-        .background(selected ? c.surfaceRaised.opacity(0.5 as CGFloat) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: 8))
-        .overlay(
-            RoundedRectangle(cornerRadius: 8)
-                .stroke(selected ? c.borderBold.opacity(0.45 as CGFloat) : c.border.opacity(0.3 as CGFloat), lineWidth: bo.thin)
-        )
-    }
-    #endif
 }

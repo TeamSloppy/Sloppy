@@ -63,8 +63,13 @@ struct SidebarHoverButtonStyle: ButtonStyle {
         configuration.label
             .background {
                 RoundedRectangle(cornerRadius: 12)
-                    .fill(configuration.isPressed || isHovered || isSelected ? theme.colors.surfaceRaised : .clear)
+                    .fill(isSelected ? theme.colors.surfaceRaised : .clear)
+                if configuration.isPressed || isHovered {
+                    RoundedRectangle(cornerRadius: 12)
+                        .fill(.primary.opacity(configuration.isPressed ? 0.14 : 0.08))
+                }
             }
+            .animation(.easeInOut(duration: 0.12), value: isHovered)
     }
 }
 

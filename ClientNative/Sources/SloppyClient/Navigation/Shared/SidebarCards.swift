@@ -100,6 +100,9 @@ struct SidebarProjectCard: View {
 
     @Environment(\.theme) private var theme
     @State private var isDropTarget = false
+    @State private var isHovered = false
+
+    private var projectColor: Color? { viewModel.settings.sidebarColor(for: group.project) }
 
     private var isSelected: Bool { viewModel.selectedSidebarItem == .project(group.id) }
     private var projectDescription: String {
@@ -113,7 +116,7 @@ struct SidebarProjectCard: View {
                 HStack {
                     Image(systemName: group.project.semanticIconName)
                         .font(.system(size: theme.typography.body, weight: .semibold))
-                        .foregroundColor(theme.colors.accentCyan)
+                        .foregroundColor(projectColor ?? theme.colors.accentCyan)
                     Spacer(minLength: 0)
                     Text("\(group.totalSessions.count) chats")
                         .font(.system(size: theme.typography.caption, weight: .semibold))
@@ -151,6 +154,14 @@ struct SidebarProjectCard: View {
             .background {
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
                     .fill(isDropTarget ? theme.colors.surfaceGlow : theme.colors.surfaceRaised)
+                if let projectColor {
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .fill(projectColor.opacity(0.20 as Double))
+                }
+                if isHovered {
+                    RoundedRectangle(cornerRadius: 24, style: .continuous)
+                        .fill(.primary.opacity(0.06))
+                }
             }
             .overlay {
                 RoundedRectangle(cornerRadius: 24, style: .continuous)
@@ -162,6 +173,8 @@ struct SidebarProjectCard: View {
         })
         .buttonStyle(.plain)
         .draggable(group.id)
+        .onHover { isHovered = $0 }
+        .animation(.easeInOut(duration: 0.12), value: isHovered)
         .dropDestination(for: String.self) { projectIDs, _ in
             guard let projectID = projectIDs.first else { return false }
             return viewModel.moveProject(projectID, relativeTo: group.id)

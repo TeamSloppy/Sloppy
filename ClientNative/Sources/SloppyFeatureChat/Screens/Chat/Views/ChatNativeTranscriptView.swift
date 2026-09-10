@@ -277,12 +277,14 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> NSScrollView {
-        let layout = NSCollectionViewFlowLayout()
-        layout.minimumInteritemSpacing = 0
-        layout.minimumLineSpacing = 0
-        layout.sectionInset = NSEdgeInsets(top: 0, left: 0, bottom: 0, right: 0)
-        layout.estimatedItemSize = NSSize(width: max(contentWidth, 1), height: 100)
-
+        let layout = NSCollectionViewCompositionalLayout { _, _ in
+            let size = NSCollectionLayoutSize(
+                widthDimension: .fractionalWidth(1), heightDimension: .estimated(100)
+            )
+            let item = NSCollectionLayoutItem(layoutSize: size)
+            let group = NSCollectionLayoutGroup.vertical(layoutSize: size, subitems: [item])
+            return NSCollectionLayoutSection(group: group)
+        }
         let collectionView = NSCollectionView()
         collectionView.collectionViewLayout = layout
         collectionView.backgroundColors = [.clear]
@@ -331,6 +333,7 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
         private var itemByID: [String: ChatTranscriptNativeItem] = [:]
         private var previousItems: [ChatTranscriptNativeItem] = []
         private var previousContentWidth: CGFloat = 0
+        private var previousViewportWidth: CGFloat = 0
         private var previousTopInset: CGFloat = 0
         private var previousBottomInset: CGFloat = 0
         private var previousScrollRequest: Int?
@@ -490,14 +493,12 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
         }
 
         func updateCollectionWidth() {
-            guard let collectionView,
-                  let scrollView,
-                  let layout = collectionView.collectionViewLayout as? NSCollectionViewFlowLayout else {
-                return
-            }
+            guard let collectionView, let scrollView,
+                  let layout = collectionView.collectionViewLayout else { return }
             let width = max(scrollView.contentSize.width, 1)
-            guard abs(layout.estimatedItemSize.width - width) > 0.5 else { return }
-            layout.estimatedItemSize = NSSize(width: width, height: 100)
+            guard abs(previousViewportWidth - width) > 0.5 else { return }
+            previousViewportWidth = width
+            collectionView.setFrameSize(NSSize(width: width, height: collectionView.frame.height))
             for indexPath in collectionView.indexPathsForVisibleItems() {
                 guard let id = dataSource?.itemIdentifier(for: indexPath),
                       let item = itemByID[id],

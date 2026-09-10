@@ -81,7 +81,7 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
         case .account: "Profile, password, recovery codes, application tokens, and sign out."
         case .client: "Connection, appearance, accent, and desktop behavior."
         case .backend: "Install or update the local Sloppy backend from GitHub Releases."
-        case .mesh: "Mesh invite and target node selection."
+        case .mesh: "Connect your machines and choose where to work."
         case .providers: "Model providers, API URLs, auth, and defaults."
         case .searchTools: "Web search provider routing and credentials."
         case .channels: "Telegram and Discord gateway settings."
@@ -91,18 +91,18 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
         case .acp: "ACP targets and agent communication settings."
         case .proxy: "SOCKS/HTTP proxy credentials and routing."
         case .gitSync: "Repository, schedule, and conflict behavior."
-        case .rawConfig: "Inspect and edit raw JSON config."
-        case .modelRouting: "Dashboard section not yet backed by app-native models."
-        case .sessions: "Dashboard section not yet backed by app-native models."
-        case .approvals: "Dashboard section not yet backed by app-native models."
-        case .mcp: "Dashboard section not yet backed by app-native models."
-        case .browser: "Dashboard section not yet backed by app-native models."
-        case .voiceMode: "Dashboard section not yet backed by app-native models."
-        case .tui: "Dashboard section not yet backed by app-native models."
-        case .ui: "Dashboard section not yet backed by app-native models."
-        case .compactor: "Dashboard section not yet backed by app-native models."
-        case .connectClient: "Dashboard section not yet backed by app-native models."
-        case .updates: "Dashboard section not yet backed by app-native models."
+        case .rawConfig: "Inspect your server configuration as JSON."
+        case .modelRouting: "Aliases for fast, heavy, and specialized models."
+        case .sessions: "Manage conversation history and retention."
+        case .approvals: "People with access through your connected channels."
+        case .mcp: "Servers, tools, resources, and prompts available to agents."
+        case .browser: "Browser connections, profiles, and automation."
+        case .voiceMode: "Speech, audio, and transcription preferences."
+        case .tui: "Your preferred editor for the terminal interface."
+        case .ui: "Dashboard access, terminal, and tool execution preferences."
+        case .compactor: "Context limits, reduction thresholds, and retries."
+        case .connectClient: "Pair another client with your Sloppy server."
+        case .updates: "Sloppy versions and updates."
         }
     }
 
@@ -237,8 +237,10 @@ public struct SettingsScreen: View {
     private var settingsShell: some View {
         return NavigationSplitView(preferredCompactColumn: $preferredCompactColumn, sidebar: {
             settingsSidebar
+                #if !os(macOS)
                 .searchable(text: $searchQuery, placement: .sidebar, prompt: "Search settings...")
-                .navigationSplitViewColumnWidth(min: 240, ideal: 308, max: 380)
+                #endif
+                .navigationSplitViewColumnWidth(min: 220, ideal: 240, max: 280)
         }, detail: {
             settingsDetailPane
         })
@@ -249,6 +251,18 @@ public struct SettingsScreen: View {
     }
 
     private var settingsSidebar: some View {
+        VStack(spacing: 0) {
+            #if os(macOS)
+            SettingsSearchField(text: $searchQuery)
+                .padding(.horizontal, 16)
+                .padding(.top, 20)
+                .padding(.bottom, 12)
+            #endif
+            settingsSidebarList
+        }
+    }
+
+    private var settingsSidebarList: some View {
         List(selection: $selectedSection) {
             if let onDismiss, idiom != .phone {
                 Section {
@@ -257,6 +271,13 @@ public struct SettingsScreen: View {
                     }
                     .buttonStyle(.plain)
                 }
+            }
+
+            if filteredSections.isEmpty {
+                Text("No matching settings")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .listRowSeparator(.hidden)
             }
 
             ForEach(SettingsScreenSectionGroup.allCases, id: \.self) { group in
@@ -290,24 +311,18 @@ public struct SettingsScreen: View {
     private var settingsDetailPane: some View {
         let sp = theme.spacing
 
-        return VStack(alignment: .leading, spacing: 0) {
-            headerSection
-                .padding(.horizontal, sp.xxl)
-                .padding(.top, sp.xl)
-                .frame(maxWidth: 920, alignment: .leading)
-
-            Form {
-                Section {
-                    detailContent(for: displayedSection)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
+        return ScrollView {
+            VStack(alignment: .leading, spacing: sp.xl) {
+                headerSection
+                detailContent(for: displayedSection)
             }
-            .formStyle(.grouped)
-            .scrollContentBackground(.hidden)
-            .background(.clear)
-            .frame(maxWidth: 920)
+            .frame(maxWidth: 760, alignment: .leading)
+            .padding(idiom == .phone ? sp.m : sp.xl)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        .buttonStyle(.bordered)
+        .controlSize(.regular)
         .navigationTitle(displayedSection.title)
         #if os(iOS)
         .navigationBarTitleDisplayMode(.inline)
@@ -325,8 +340,9 @@ public struct SettingsScreen: View {
                 .foregroundColor(c.textPrimary)
             Text(displayedSection.subtitle)
                 .font(.system(size: ty.body))
-                .foregroundColor(c.textMuted)
-            if displayedSection != .backend, displayedSection != .account {
+                .foregroundColor(c.textSecondary)
+            if displayedSection != .backend, displayedSection != .account,
+               displayedSection != .client, displayedSection != .mesh, !statusText.isEmpty {
                 Text(statusText)
                     .font(.system(size: ty.caption))
                     .foregroundColor(c.textMuted)
@@ -344,9 +360,6 @@ public struct SettingsScreen: View {
                 settings: settings,
                 onChangeServer: onChangeServer ?? {}
             )
-            #if os(macOS)
-            windowResizeSection
-            #endif
         case .backend:
             #if os(macOS)
             BackendSettingsSection()
@@ -481,28 +494,13 @@ public struct SettingsScreen: View {
         }
     }
 
-    #if os(macOS)
-    private var windowResizeSection: some View {
-        SettingsSectionSurface {
-            VStack(alignment: .leading, spacing: theme.spacing.s) {
-                Text("Window")
-                    .font(.system(size: theme.typography.heading, weight: .semibold))
-                    .foregroundColor(theme.colors.textPrimary)
-                Text("This settings window now supports a larger default size and live resize on macOS.")
-                    .font(.system(size: theme.typography.body))
-                    .foregroundColor(theme.colors.textSecondary)
-            }
-        }
-    }
-    #endif
-
     private func loadConfig() {
         statusText = "Loading..."
         Task { @MainActor in
             do {
                 let loaded = try await api.fetchConfig()
                 self.config = loaded
-                self.statusText = "Config loaded"
+                self.statusText = ""
             } catch {
                 self.statusText = "Failed to load config"
             }
@@ -555,24 +553,17 @@ private extension SettingsScreenSection {
     }
 }
 
-private struct UnsupportedSettingsSectionView: View {
+struct UnsupportedSettingsSectionView: View {
     let section: SettingsScreenSection
-
-    @Environment(\.theme) private var theme
 
     var body: some View {
         SettingsSectionSurface {
-            VStack(alignment: .leading, spacing: theme.spacing.m) {
-                Text(section.title)
-                    .font(.system(size: theme.typography.heading, weight: .semibold))
-                    .foregroundColor(theme.colors.textPrimary)
-                Text("This dashboard settings section is now represented in the app shell, but its native editor still needs a dedicated Swift model and API wiring.")
-                    .font(.system(size: theme.typography.body))
-                    .foregroundColor(theme.colors.textSecondary)
-                Text("The current screen preserves the dashboard information architecture so we can add native support here without redesigning the window again.")
-                    .font(.system(size: theme.typography.caption))
-                    .foregroundColor(theme.colors.textMuted)
-            }
+            ContentUnavailableView(
+                "Available in the dashboard",
+                systemImage: section.iconName,
+                description: Text("Manage these preferences in your Sloppy dashboard. This section is not available in the native client yet.")
+            )
+            .frame(maxWidth: .infinity, minHeight: 220)
         }
     }
 }

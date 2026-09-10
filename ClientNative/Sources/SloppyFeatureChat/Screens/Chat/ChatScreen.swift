@@ -70,6 +70,7 @@ public struct ChatScreen: View {
             onOpenSidebar: onOpenSidebar,
             composerTabActions: nil
         )
+        .modifier(ChatAttachmentDropZone(viewModel: viewModel))
         .modifier(ChatContextToolbarModifier(viewModel: viewModel, isEnabled: showsContextToolbar))
         .modifier(
             ChatNavigationToolbarModifier(
@@ -442,7 +443,7 @@ private struct ChatChrome: View {
             + (viewModel.composerAttachments.isEmpty
                 ? 0
                 : ChatComposerView.attachmentStripHeight + theme.spacing.s)
-        return (viewModel.composerPanelHeight ?? fallbackHeight) + composerScrollGap
+        return (viewModel.composerPanelHeight ?? fallbackHeight) + composerBottomInset + composerScrollGap
     }
 
     private var composerBottomInset: CGFloat {
@@ -463,7 +464,7 @@ private struct ChatChrome: View {
     }
 
     private var composerScrollGap: CGFloat {
-        idiom == .phone ? theme.spacing.l : theme.spacing.xxl
+        idiom == .phone ? theme.spacing.l : theme.spacing.xxl + theme.spacing.l
     }
 
     private var showsThinkingIndicator: Bool {
@@ -700,7 +701,6 @@ public struct ChatComposerOverlay: View {
 
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
-    @State private var isAttachmentDropTargeted = false
 
     public init(
         viewModel: ChatScreenViewModel,
@@ -727,6 +727,23 @@ public struct ChatComposerOverlay: View {
         }
         .padding(.horizontal, idiom == .phone ? theme.spacing.xs : 0)
         .padding(.bottom, composerBottomInset)
+        #if os(macOS)
+        .background(alignment: .bottom) {
+            LinearGradient(
+                stops: [
+                    .init(color: theme.colors.background.opacity(0 as Double), location: 0),
+                    .init(color: theme.colors.background.opacity(0.85 as Double), location: 0.45),
+                    .init(color: theme.colors.background, location: 1),
+                ],
+                startPoint: .top,
+                endPoint: .bottom
+            )
+            .frame(height: (viewModel.composerPanelHeight ?? ChatComposerView.panelHeight)
+                + composerBottomInset + 40)
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+        }
+        #endif
         .dropDestination(for: String.self) { items, _ in
             guard let encoded = items.first,
                   let payload = WorkspacePanelDragPayload.decode(from: encoded) else {
@@ -739,12 +756,7 @@ public struct ChatComposerOverlay: View {
             )
             return true
         }
-        .onDrop(
-            of: [UTType.fileURL, UTType.image],
-            isTargeted: $isAttachmentDropTargeted
-        ) { providers in
-            viewModel.attachItemProviders(providers)
-        }
+        .modifier(ChatAttachmentDropZone(viewModel: viewModel))
     }
 
     @ViewBuilder
@@ -764,17 +776,7 @@ public struct ChatComposerOverlay: View {
                 tabActions: tabActions
             )
             .frame(maxWidth: maximumComposerWidth)
-            .overlay {
-                if isAttachmentDropTargeted {
-                    RoundedRectangle(cornerRadius: 20)
-                        .stroke(
-                            theme.colors.accentCyan,
-                            style: StrokeStyle(lineWidth: 2, dash: [7, 5])
-                        )
-                        .padding(.horizontal, theme.spacing.s)
-                        .allowsHitTesting(false)
-                }
-            }
+
         }
         .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { height in
             viewModel.updateComposerPanelHeight(height)

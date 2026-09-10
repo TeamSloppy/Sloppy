@@ -10,6 +10,7 @@ struct SidebarRecentsList: View {
 
     @Environment(\.theme) private var theme
     @AppStorage("client_chat_sidebar_layout_mode") private var layoutMode = SidebarLayoutMode.list
+    @State private var isShowMoreHovered = false
 
     private var sections: ChatSidebarSections {
         ChatSidebarSections.build(
@@ -114,10 +115,17 @@ struct SidebarRecentsList: View {
             }
 
             if sections.projectGroups.count > viewModel.visibleProjectCount {
-                Button("Show more project") {
+                Button {
                     viewModel.showMoreProjects()
+                } label: {
+                    HStack(spacing: theme.spacing.s) {
+                        Text("Show more projects")
+                        Image(systemName: "arrow.right")
+                    }
+                    .padding(theme.spacing.s)
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(SidebarHoverButtonStyle(isHovered: isShowMoreHovered))
+                .onHover { isShowMoreHovered = $0 }
                 .foregroundColor(theme.colors.textMuted)
                 .padding(.leading, 42)
                 .padding(.vertical, theme.spacing.s)
@@ -211,7 +219,7 @@ private struct SidebarProjectGroupView: View {
                     HStack(spacing: theme.spacing.s) {
                         Image(systemName: group.project.semanticIconName)
                             .font(.system(size: theme.typography.body))
-                            .foregroundColor(isSelected ? theme.colors.accentCyan : theme.colors.textMuted)
+                            .foregroundColor(viewModel.settings.sidebarColor(for: group.project) ?? (isSelected ? theme.colors.accentCyan : theme.colors.textMuted))
                             .frame(width: 22)
                         Text(group.project.name)
                             .font(.system(size: theme.typography.body))

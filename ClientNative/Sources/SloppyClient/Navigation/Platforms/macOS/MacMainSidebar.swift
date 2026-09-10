@@ -94,6 +94,7 @@ struct PlatformMainSidebar: View {
                 } label: {
                     Image(systemName: "gearshape")
                         .font(.system(size: theme.typography.heading))
+                        .frame(width: 32, height: 32)
                 }
                 .buttonStyle(SidebarHoverButtonStyle(isHovered: isSettingsHovered))
                 .onHover { isSettingsHovered = $0 }
@@ -222,6 +223,8 @@ private struct SidebarCustomizationMenu: View {
             Toggle("Scheduled", isOn: visibility(for: "scheduled"))
             Toggle("Workspace", isOn: visibility(for: "workspace"))
             Toggle("Artifacts", isOn: visibility(for: "artifacts"))
+            Divider()
+            Button("Restore Default Sidebar") { settings.hiddenSidebarItems = [] }
         } label: {
             Image(systemName: "slider.horizontal.3")
                 .font(.system(size: theme.typography.heading))

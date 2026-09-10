@@ -2442,8 +2442,9 @@ public actor SQLiteStore: PersistenceStore {
                 attachments_json,
                 external_metadata_json,
                 tags_json,
-                execution_node_id
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                execution_node_id,
+                kanban_column_entered_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
 
         for task in project.tasks {
@@ -2496,6 +2497,7 @@ public actor SQLiteStore: PersistenceStore {
             bindOptionalText(externalJSON, at: 32, statement: taskStatement)
             bindText(tagsJSON, at: 33, statement: taskStatement)
             bindOptionalText(task.executionNodeId, at: 34, statement: taskStatement)
+            bindOptionalText(task.kanbanColumnEnteredAt.map { isoFormatter.string(from: $0) }, at: 35, statement: taskStatement)
             _ = sqlite3_step(taskStatement)
         }
 #endif
@@ -3312,7 +3314,8 @@ public actor SQLiteStore: PersistenceStore {
                 attachments_json,
                 external_metadata_json,
                 tags_json,
-                execution_node_id
+                execution_node_id,
+                kanban_column_entered_at
             FROM dashboard_project_tasks
             WHERE project_id = ?
             ORDER BY created_at ASC;
@@ -3385,7 +3388,8 @@ public actor SQLiteStore: PersistenceStore {
                     tags: tags,
                     isArchived: sqlite3_column_int(statement, 27) != 0,
                     createdAt: createdAt,
-                    updatedAt: updatedAt
+                    updatedAt: updatedAt,
+                    kanbanColumnEnteredAt: optionalText(statement: statement, index: 33).flatMap { isoFormatter.date(from: $0) }
                 )
             )
         }
@@ -4192,7 +4196,8 @@ public actor SQLiteStore: PersistenceStore {
             "ALTER TABLE dashboard_project_tasks ADD COLUMN parent_task_id TEXT;",
             "ALTER TABLE dashboard_project_tasks ADD COLUMN created_by TEXT;",
             "ALTER TABLE dashboard_project_tasks ADD COLUMN depends_on_task_ids_json TEXT NOT NULL DEFAULT '[]';",
-            "ALTER TABLE dashboard_project_tasks ADD COLUMN execution_node_id TEXT;"
+            "ALTER TABLE dashboard_project_tasks ADD COLUMN execution_node_id TEXT;",
+            "ALTER TABLE dashboard_project_tasks ADD COLUMN kanban_column_entered_at TEXT;"
         ]
 
         for statement in statements {

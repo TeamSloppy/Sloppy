@@ -1140,24 +1140,39 @@ public final class ChatScreenViewModel {
                 continue
             }
 
-            guard let imageType = provider.registeredTypeIdentifiers
+            guard let contentType = provider.registeredTypeIdentifiers
                 .compactMap(UTType.init)
-                .first(where: { $0.conforms(to: .image) }) else {
+                .first(where: { $0.conforms(to: .data) || $0.conforms(to: .url) }) else {
                 continue
             }
 
             didAcceptProvider = true
-            let suggestedName = Self.suggestedImageName(
+            let suggestedName = Self.suggestedAttachmentName(
                 providerName: provider.suggestedName,
-                contentType: imageType
+                contentType: contentType
             )
-            provider.loadDataRepresentation(forTypeIdentifier: imageType.identifier) { [weak self] data, _ in
-                guard let data else { return }
+            provider.loadDataRepresentation(forTypeIdentifier: contentType.identifier) { [weak self] data, _ in
+                guard let data else {
+                    Task { @MainActor in
+                        self?.sendErrorMessage = "Could not load dropped attachment"
+                    }
+                    return
+                }
                 Task { @MainActor in
+                    if contentType.conforms(to: .text),
+                       let text = String(data: data, encoding: .utf8),
+                       let payload = WorkspacePanelDragPayload.decode(from: text) {
+                        self?.attachProjectFileReference(
+                            projectId: payload.projectId,
+                            path: payload.path,
+                            type: payload.type
+                        )
+                        return
+                    }
                     self?.attachData(
                         data,
                         suggestedName: suggestedName,
-                        mimeType: imageType.preferredMIMEType ?? "image/png"
+                        mimeType: contentType.preferredMIMEType ?? "application/octet-stream"
                     )
                 }
             }
@@ -1180,7 +1195,7 @@ public final class ChatScreenViewModel {
         return nil
     }
 
-    private nonisolated static func suggestedImageName(
+    private nonisolated static func suggestedAttachmentName(
         providerName: String?,
         contentType: UTType
     ) -> String {
@@ -1188,7 +1203,7 @@ public final class ChatScreenViewModel {
         if let trimmedName, !trimmedName.isEmpty {
             return trimmedName
         }
-        return "Pasted Image.\(contentType.preferredFilenameExtension ?? "png")"
+        return "Attachment.\(contentType.preferredFilenameExtension ?? "bin")"
     }
 
     #if DEBUG

@@ -295,6 +295,14 @@ public struct APIProjectChannel: Codable, Sendable, Identifiable {
     }
 }
 
+public struct APIProjectTaskExternalMetadata: Codable, Sendable {
+    public var externalAssignee: String?
+
+    public init(externalAssignee: String? = nil) {
+        self.externalAssignee = externalAssignee
+    }
+}
+
 public struct APIProjectTask: Codable, Sendable, Identifiable {
     public var id: String
     public var title: String
@@ -309,6 +317,8 @@ public struct APIProjectTask: Codable, Sendable, Identifiable {
     public var tags: [String]?
     public var createdAt: Date?
     public var updatedAt: Date?
+    public var kanbanColumnEnteredAt: Date?
+    public var externalMetadata: APIProjectTaskExternalMetadata?
 
     public init(
         id: String,
@@ -323,7 +333,9 @@ public struct APIProjectTask: Codable, Sendable, Identifiable {
         createdBy: String? = nil,
         tags: [String]? = nil,
         createdAt: Date? = nil,
-        updatedAt: Date? = nil
+        updatedAt: Date? = nil,
+        kanbanColumnEnteredAt: Date? = nil,
+        externalMetadata: APIProjectTaskExternalMetadata? = nil
     ) {
         self.id = id
         self.title = title
@@ -338,6 +350,8 @@ public struct APIProjectTask: Codable, Sendable, Identifiable {
         self.tags = tags
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.kanbanColumnEnteredAt = kanbanColumnEnteredAt
+        self.externalMetadata = externalMetadata
     }
 }
 
@@ -479,6 +493,12 @@ public extension APIProjectRecord {
 }
 
 public extension APIProjectTask {
+    /// A worker claim takes precedence over the planned assignment.
+    var kanbanAssigneeID: String? {
+        [claimedActorId, claimedAgentId, actorId, externalMetadata?.externalAssignee]
+            .compactMap { $0 }.first { !$0.isEmpty }
+    }
+
     var normalizedKanbanColumnID: ProjectKanbanColumnID {
         switch status {
         case "todo", "backlog", "ready":
