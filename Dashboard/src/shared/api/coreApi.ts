@@ -10,6 +10,44 @@ import {
 
 type AnyRecord = Record<string, unknown>;
 
+export interface DevicePairingRecord {
+  id: string;
+  token: string;
+  clientName: string;
+  createdAt: string;
+  expiresAt: string;
+  user: { id: string; login: string; name: string };
+}
+
+export type ClientConnection =
+  | { mode: "token" }
+  | { mode: "login_password"; pairing: DevicePairingRecord };
+
+export async function prepareClientConnection(signal?: AbortSignal): Promise<ClientConnection> {
+  const challenge = await requestJson<{ mode: string }>({ path: "/v1/auth/challenge", signal });
+  signal?.throwIfAborted();
+  if (!challenge.ok || !challenge.data) {
+    throw new Error(formatHttpError(challenge.status, challenge.data));
+  }
+  if (challenge.data.mode === "token") {
+    return { mode: "token" };
+  }
+  if (challenge.data.mode !== "login_password") {
+    throw new Error("The server returned an unsupported authentication mode. Retry after checking the server configuration.");
+  }
+  const response = await requestJson<DevicePairingRecord>({
+    path: "/v1/auth/device-pairing",
+    method: "POST",
+    body: { clientName: "Sloppy Client", ttlSeconds: 120 },
+    signal
+  });
+  signal?.throwIfAborted();
+  if (!response.ok || !response.data) {
+    throw new Error(formatHttpError(response.status, response.data));
+  }
+  return { mode: "login_password", pairing: response.data };
+}
+
 export interface MemoryBrowserItem {
   id: string;
   note: string;

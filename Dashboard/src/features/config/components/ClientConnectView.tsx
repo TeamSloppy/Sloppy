@@ -1,24 +1,9 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { formatHttpError, requestJson } from "../../../shared/api/httpClient";
+import { prepareClientConnection, type DevicePairingRecord } from "../../../shared/api/coreApi";
 
 interface ClientConnectViewProps {
   listenPort: number;
-}
-
-interface PairingUser {
-  id: string;
-  login: string;
-  name: string;
-}
-
-interface DevicePairingRecord {
-  id: string;
-  token: string;
-  clientName: string;
-  createdAt: string;
-  expiresAt: string;
-  user: PairingUser;
 }
 
 function deriveServerHost(): string {
@@ -29,6 +14,7 @@ export function ClientConnectView({ listenPort }: ClientConnectViewProps) {
   const [customHost, setCustomHost] = useState("");
   const [pairing, setPairing] = useState<DevicePairingRecord | null>(null);
   const [pairingError, setPairingError] = useState("");
+  const [isTokenMode, setIsTokenMode] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -41,19 +27,22 @@ export function ClientConnectView({ listenPort }: ClientConnectViewProps) {
     setIsLoading(true);
     setPairingError("");
     setPairing(null);
-    const response = await requestJson<DevicePairingRecord, { clientName: string; ttlSeconds: number }>({
-      path: "/v1/auth/device-pairing",
-      method: "POST",
-      body: { clientName: "Sloppy Client", ttlSeconds: 120 },
-      signal
-    });
-    if (signal?.aborted) return;
-    setIsLoading(false);
-    if (!response.ok || !response.data) {
-      setPairingError(formatHttpError(response.status, response.data));
-      return;
+    setIsTokenMode(false);
+    try {
+      const connection = await prepareClientConnection(signal);
+      if (signal?.aborted) return;
+      if (connection.mode === "token") {
+        setIsTokenMode(true);
+        setPairingError("QR pairing requires login/password authentication and is unavailable with an operator token. Your Dashboard session is still active. Connect manually in Sloppy Client using the server address and operator token.");
+        return;
+      }
+      setPairing(connection.pairing);
+    } catch (error) {
+      if (signal?.aborted) return;
+      setPairingError(error instanceof Error ? error.message : "Failed to prepare the client connection.");
+    } finally {
+      if (!signal?.aborted) setIsLoading(false);
     }
-    setPairing(response.data);
   }, []);
 
   useEffect(() => {
@@ -125,9 +114,9 @@ export function ClientConnectView({ listenPort }: ClientConnectViewProps) {
           <span className="placeholder-text" style={{ fontSize: "0.75rem", textAlign: "center" }}>
             {pairing
               ? `Connect as ${pairing.user.name} (@${pairing.user.login})`
-              : "Sign in to Dashboard to create a code"}
+              : isTokenMode ? "Operator token mode does not support QR pairing" : "Generate a new code to connect"}
           </span>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={() => void issuePairing()} disabled={isLoading}>
+          <button type="button" className="btn btn-secondary btn-sm" onClick={() => void issuePairing()} disabled={isLoading || isTokenMode}>
             {isLoading ? "Generating…" : "Generate new QR"}
           </button>
         </div>
