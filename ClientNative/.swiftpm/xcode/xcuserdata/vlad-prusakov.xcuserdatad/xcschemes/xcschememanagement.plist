@@ -47,7 +47,7 @@
 		<key>SloppyFeatureProjectsTests.xcscheme_^#shared#^_</key>
 		<dict>
 			<key>orderHint</key>
-			<integer>16</integer>
+			<integer>19</integer>
 		</dict>
 		<key>SloppyFeatureSettings.xcscheme_^#shared#^_</key>
 		<dict>
@@ -57,7 +57,7 @@
 		<key>SloppyFeatureSites.xcscheme_^#shared#^_</key>
 		<dict>
 			<key>orderHint</key>
-			<integer>15</integer>
+			<integer>16</integer>
 		</dict>
 		<key>SloppyLiveActivity.xcscheme_^#shared#^_</key>
 		<dict>

@@ -47,4 +47,38 @@ extension CoreService {
             failures: failures
         )
     }
+
+    public func codeReviewDetail(
+        providerID: String,
+        reviewID: String,
+        maxDiffBytes: Int = 1_048_576
+    ) async throws -> CodeReviewDetail {
+        guard let provider = codeReviewProviders[providerID] else {
+            throw CodeReviewProviderError.unsupportedOperation("unknown provider \(providerID)")
+        }
+        return try await provider.codeReviewDetail(
+            id: reviewID,
+            maxDiffBytes: max(1, min(maxDiffBytes, 4 * 1_048_576)),
+            credential: codeReviewCredential(providerID: providerID)
+        )
+    }
+
+    public func replyToCodeReviewComment(
+        providerID: String,
+        reviewID: String,
+        parentCommentID: String,
+        body: String
+    ) async throws -> CodeReviewComment {
+        guard let provider = codeReviewProviders[providerID] else {
+            throw CodeReviewProviderError.unsupportedOperation("unknown provider \(providerID)")
+        }
+        let trimmed = body.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { throw ChannelPluginError.invalidPayload }
+        return try await provider.replyToCodeReviewComment(
+            reviewID: reviewID,
+            parentCommentID: parentCommentID,
+            body: trimmed,
+            credential: codeReviewCredential(providerID: providerID)
+        )
+    }
 }

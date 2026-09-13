@@ -19,6 +19,7 @@ public final class ProjectAutomationViewModel {
     }
 
     public func load(projectId: String) async {
+        guard !isLoading else { return }
         isLoading = true
         defer { isLoading = false }
 
@@ -31,12 +32,14 @@ public final class ProjectAutomationViewModel {
                 runsRequest,
                 workflowsRequest
             )
-            self.automations = Self.projectAutomations(automations, projectId: projectId)
-                .sorted { $0.updatedAt > $1.updatedAt }
-            self.runs = Self.projectRuns(runs, projectId: projectId)
-                .sorted { $0.startedAt > $1.startedAt }
-            self.workflows = Self.projectWorkflows(workflows, projectId: projectId)
-                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+            let snapshot = try await ClientBackgroundWork.run {
+                (Self.projectAutomations(automations, projectId: projectId).sorted { $0.updatedAt > $1.updatedAt },
+                 Self.projectRuns(runs, projectId: projectId).sorted { $0.startedAt > $1.startedAt },
+                 Self.projectWorkflows(workflows, projectId: projectId).sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending })
+            }
+            self.automations = snapshot.0
+            self.runs = snapshot.1
+            self.workflows = snapshot.2
             errorMessage = nil
         } catch {
             errorMessage = Self.message(for: error)

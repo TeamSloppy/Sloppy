@@ -56,7 +56,8 @@ let package = Package(
             name: "SloppyFeatureProjects",
             dependencies: [
                 "SloppyClientCore",
-                "SloppyClientUI"
+                "SloppyClientUI",
+                .product(name: "Textual", package: "textual")
             ],
             path: "Sources/SloppyFeatureProjects"
         ),

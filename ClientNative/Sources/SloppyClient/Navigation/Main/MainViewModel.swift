@@ -848,6 +848,12 @@ final class MainViewModel {
         selectNewChat()
     }
 
+    func openPullRequestChat(_ detail: CodeReviewDetail) {
+        pendingNewChatStarterPrompt = CodeReviewChatPromptBuilder.prompt(for: detail)
+        selectNewChat()
+        requestSelectedComposerFocus()
+    }
+
     private func applyPendingNewChatStarterPrompt() {
         guard let prompt = pendingNewChatStarterPrompt,
               let selectedTabID,
@@ -1210,7 +1216,7 @@ final class MainViewModel {
                 )
             ),
             to: chatState.viewModel,
-            loadInitialData: true
+            loadInitialData: false
         )
 
         let selectedSection = settings.projectModeSections[projectStateID]
@@ -1242,7 +1248,7 @@ final class MainViewModel {
     ) {
         switch section {
         case .kanban:
-            Task { await state.viewModel.load(projectId: project.id) }
+            break // The visible board owns its cancellable loading task.
         case .workspaces:
             Task {
                 await state.workspaceViewModel.resolve(

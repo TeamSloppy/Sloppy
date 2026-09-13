@@ -9,7 +9,8 @@ import SloppyClientUI
 public final class TaskDetailViewModel {
     public private(set) var projectName: String = ""
     public private(set) var task: APIProjectTask?
-    public private(set) var comments: [TaskComment] = []
+    public private(set) var projectTasks: [APIProjectTask] = []
+    public let activity: TaskActivityViewModel
     public private(set) var isLoading = false
     public private(set) var errorMessage: String?
 
@@ -17,21 +18,24 @@ public final class TaskDetailViewModel {
 
     public init(apiClient: SloppyAPIClient) {
         self.apiClient = apiClient
+        self.activity = TaskActivityViewModel(api: apiClient)
     }
 
     public func load(projectId: String, taskId: String) async {
         isLoading = true
+        task = nil
+        projectTasks = []
+        errorMessage = nil
         defer { isLoading = false }
 
         do {
             async let projectRequest = apiClient.fetchProject(id: projectId)
-            async let commentsRequest = apiClient.fetchTaskComments(projectId: projectId, taskId: taskId)
 
             let project = try await projectRequest
-            let fetchedComments = try await commentsRequest
 
+            try Task.checkCancellation()
             projectName = project.name
-            comments = fetchedComments
+            projectTasks = project.tasks ?? []
             task = project.tasks?.first(where: { $0.id == taskId })
 
             if task == nil {
@@ -39,10 +43,12 @@ public final class TaskDetailViewModel {
             } else {
                 errorMessage = nil
             }
+        } catch is CancellationError {
+            return
         } catch {
             projectName = ""
             task = nil
-            comments = []
+            projectTasks = []
             errorMessage = "Could not load task details."
         }
     }
@@ -54,7 +60,10 @@ public struct TaskDetailView: View {
     let projectId: String
     let taskId: String
     let onClose: @MainActor () -> Void
-    let onOpenChat: @MainActor (APIProjectTask) -> Void
+    let onOpenChat: (@MainActor (APIProjectTask) -> Void)?
+    let onExpand: (@MainActor () -> Void)?
+    let onOpenRelatedTask: (@MainActor (APIProjectTask) -> Void)?
+    let onTaskChanged: (@MainActor () async -> Void)?
 
     @Environment(\.theme) private var theme
 
@@ -63,13 +72,19 @@ public struct TaskDetailView: View {
         projectId: String,
         taskId: String,
         onClose: @escaping @MainActor () -> Void = {},
-        onOpenChat: @escaping @MainActor (APIProjectTask) -> Void = { _ in }
+        onOpenChat: (@MainActor (APIProjectTask) -> Void)? = nil,
+        onExpand: (@MainActor () -> Void)? = nil,
+        onOpenRelatedTask: (@MainActor (APIProjectTask) -> Void)? = nil,
+        onTaskChanged: (@MainActor () async -> Void)? = nil
     ) {
         self.viewModel = viewModel
         self.projectId = projectId
         self.taskId = taskId
         self.onClose = onClose
         self.onOpenChat = onOpenChat
+        self.onExpand = onExpand
+        self.onOpenRelatedTask = onOpenRelatedTask
+        self.onTaskChanged = onTaskChanged
     }
 
     public var body: some View {
@@ -78,7 +93,7 @@ public struct TaskDetailView: View {
 
             Group {
                 if viewModel.isLoading && viewModel.task == nil {
-                    ProgressView("Loading task…")
+                    LoadingSkeleton("Loading task…", style: .detail)
                 } else if let errorMessage = viewModel.errorMessage, viewModel.task == nil {
                     contentState(title: "Task Detail", message: errorMessage)
                 } else if let task = viewModel.task {
@@ -87,7 +102,11 @@ public struct TaskDetailView: View {
                             header(task: task)
                             metadata(task: task)
                             description(task: task)
-                            commentsSection
+                            TaskActivityView(model: viewModel.activity, projectId: projectId, task: task, projectTasks: viewModel.projectTasks, onOpenRelated: onOpenRelatedTask, onReviewChanged: {
+                                    await viewModel.load(projectId: projectId, taskId: taskId)
+                                    await onTaskChanged?()
+                                })
+                                .id(task.id)
                         }
                         .padding(theme.spacing.xl)
                         .frame(maxWidth: 920, alignment: .leading)
@@ -117,6 +136,15 @@ public struct TaskDetailView: View {
             .accessibilityLabel("Close task details")
 
             Spacer(minLength: 0)
+            if let onExpand {
+                Button(action: onExpand) {
+                    Image(systemName: "arrow.up.left.and.arrow.down.right")
+                }
+                .buttonStyle(.plain)
+                .help("Expand task")
+                .accessibilityLabel("Expand task")
+                .accessibilityIdentifier("task-detail-expand")
+            }
         }
         .padding(.horizontal, theme.spacing.xl)
         .padding(.top, theme.spacing.l)
@@ -134,24 +162,24 @@ public struct TaskDetailView: View {
                 .font(.system(size: theme.typography.title))
                 .foregroundColor(theme.colors.textPrimary)
 
-            HStack(spacing: theme.spacing.s) {
-                taskChip(task.status.replacingOccurrences(of: "_", with: " ").capitalized)
+            TaskChipFlowLayout {
+                StatusBadge.forTaskStatus(task.status)
 
                 if let priority = task.priority, !priority.isEmpty {
-                    taskChip(priority.uppercased())
+                    TaskPriorityChip(priority: priority)
                 }
 
-                Spacer(minLength: 0)
-
-                Button("Open Chat") {
-                    onOpenChat(task)
+                if let onOpenChat {
+                    Button("Open Chat") {
+                        onOpenChat(task)
+                    }
+                    .buttonStyle(.plain)
+                    .padding(.horizontal, theme.spacing.m)
+                    .padding(.vertical, theme.spacing.s)
+                    .background(theme.colors.surfaceRaised)
+                    .clipShape(Capsule())
+                    .foregroundColor(theme.colors.textPrimary)
                 }
-                .buttonStyle(.plain)
-                .padding(.horizontal, theme.spacing.m)
-                .padding(.vertical, theme.spacing.s)
-                .background(theme.colors.surfaceRaised)
-                .clipShape(Capsule())
-                .foregroundColor(theme.colors.textPrimary)
             }
         }
     }
@@ -164,8 +192,12 @@ public struct TaskDetailView: View {
             detailRow(label: "Created By", value: task.createdBy)
             detailRow(label: "Updated", value: task.updatedAt.map(Self.dateFormatter.string(from:)))
 
+            if let metadata = task.externalMetadata {
+                TaskExternalMetadataChips(metadata: metadata, allowsLink: true)
+            }
+
             if let tags = task.tags, !tags.isEmpty {
-                detailRow(label: "Tags", value: tags.joined(separator: ", "))
+                TaskTagChips(tags: tags)
             }
         }
         .padding(theme.spacing.l)
@@ -180,7 +212,7 @@ public struct TaskDetailView: View {
                 .font(.system(size: theme.typography.body))
                 .foregroundColor(theme.colors.textPrimary)
 
-            Text(task.description?.isEmpty == false ? task.description! : "No description")
+            TaskMarkdownView(text: task.description?.isEmpty == false ? task.description! : "No description")
                 .font(.system(size: theme.typography.body))
                 .foregroundColor(theme.colors.textSecondary)
                 .textSelection(.enabled)
@@ -188,49 +220,6 @@ public struct TaskDetailView: View {
         .padding(theme.spacing.l)
         .background(theme.colors.surface)
         .clipShape(RoundedRectangle(cornerRadius: 20))
-    }
-
-    private var commentsSection: some View {
-        VStack(alignment: .leading, spacing: theme.spacing.m) {
-            Text("Comments")
-                .font(.system(size: theme.typography.body))
-                .foregroundColor(theme.colors.textPrimary)
-
-            if viewModel.comments.isEmpty {
-                Text("No comments yet")
-                    .font(.system(size: theme.typography.body))
-                    .foregroundColor(theme.colors.textMuted)
-                    .padding(theme.spacing.l)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .background(theme.colors.surface)
-                    .clipShape(RoundedRectangle(cornerRadius: 20))
-            } else {
-                VStack(alignment: .leading, spacing: theme.spacing.s) {
-                    ForEach(viewModel.comments) { comment in
-                        VStack(alignment: .leading, spacing: theme.spacing.xs) {
-                            HStack {
-                                Text(comment.sourceAuthor ?? comment.authorActorId)
-                                    .font(.system(size: theme.typography.caption))
-                                    .foregroundColor(theme.colors.textPrimary)
-                                Spacer(minLength: 0)
-                                Text(Self.dateFormatter.string(from: comment.createdAt))
-                                    .font(.system(size: theme.typography.micro))
-                                    .foregroundColor(theme.colors.textMuted)
-                            }
-
-                            Text(comment.content)
-                                .font(.system(size: theme.typography.body))
-                                .foregroundColor(theme.colors.textSecondary)
-                                .textSelection(.enabled)
-                        }
-                        .padding(theme.spacing.l)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(theme.colors.surface)
-                        .clipShape(RoundedRectangle(cornerRadius: 18))
-                    }
-                }
-            }
-        }
     }
 
     private func detailRow(label: String, value: String?) -> some View {
@@ -247,16 +236,6 @@ public struct TaskDetailView: View {
 
             Spacer(minLength: 0)
         }
-    }
-
-    private func taskChip(_ title: String) -> some View {
-        Text(title)
-            .font(.system(size: theme.typography.micro))
-            .foregroundColor(theme.colors.textPrimary)
-            .padding(.horizontal, theme.spacing.s)
-            .padding(.vertical, theme.spacing.xs)
-            .background(theme.colors.surface)
-            .clipShape(Capsule())
     }
 
     private func contentState(title: String, message: String) -> some View {

@@ -5261,6 +5261,7 @@ public enum ProviderAuthMethod: String, Codable, Sendable {
 }
 
 public enum ProviderProbeID: String, Codable, Sendable {
+    case sloppy
     case openAIAPI = "openai-api"
     case openAIOAuth = "openai-oauth"
     case openRouter = "openrouter"

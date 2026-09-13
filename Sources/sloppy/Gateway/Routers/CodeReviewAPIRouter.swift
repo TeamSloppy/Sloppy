@@ -45,5 +45,118 @@ struct CodeReviewAPIRouter: APIRouter {
             )
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
         }
+
+        router.get(
+            "/v1/code-reviews/:providerId/:reviewId",
+            metadata: RouteMetadata(
+                summary: "Get pull request details",
+                description: "Returns comments and a bounded code diff from one code-review provider",
+                tags: ["Code Review"]
+            )
+        ) { request in
+            let maxDiffBytes = Int(request.queryParam("maxDiffBytes") ?? "") ?? 1_048_576
+            do {
+                let detail = try await service.codeReviewDetail(
+                    providerID: request.pathParam("providerId") ?? "",
+                    reviewID: request.pathParam("reviewId") ?? "",
+                    maxDiffBytes: maxDiffBytes
+                )
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: detail)
+            } catch {
+                return CoreRouter.json(
+                    status: HTTPStatus.badRequest,
+                    payload: ["error": "code_review_detail_failed", "message": error.localizedDescription]
+                )
+            }
+        }
+
+        router.post(
+            "/v1/code-reviews/:providerId/:reviewId/comments",
+            metadata: RouteMetadata(
+                summary: "Reply to code-review comment",
+                description: "Creates a reply in an existing provider comment thread",
+                tags: ["Code Review"]
+            )
+        ) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: CodeReviewCommentReplyRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "invalid_comment_reply_payload"])
+            }
+            do {
+                let comment = try await service.replyToCodeReviewComment(
+                    providerID: request.pathParam("providerId") ?? "",
+                    reviewID: request.pathParam("reviewId") ?? "",
+                    parentCommentID: payload.parentCommentID,
+                    body: payload.body
+                )
+                return CoreRouter.encodable(status: HTTPStatus.created, payload: comment)
+            } catch {
+                return CoreRouter.json(
+                    status: HTTPStatus.badRequest,
+                    payload: ["error": "code_review_comment_reply_failed", "message": error.localizedDescription]
+                )
+            }
+        }
+
+        router.get(
+            "/v1/code-review-credentials/:providerId",
+            metadata: RouteMetadata(
+                summary: "Get code-review credential status",
+                description: "Reports whether a provider credential is stored without returning its value",
+                tags: ["Code Review"]
+            )
+        ) { request in
+            let providerID = request.pathParam("providerId") ?? ""
+            return CoreRouter.encodable(
+                status: HTTPStatus.ok,
+                payload: await service.codeReviewCredentialStatus(providerID: providerID)
+            )
+        }
+
+        router.put(
+            "/v1/code-review-credentials/:providerId",
+            metadata: RouteMetadata(
+                summary: "Save code-review credential",
+                description: "Stores a provider credential in the local system Keychain",
+                tags: ["Code Review"]
+            )
+        ) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: CodeReviewCredentialRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "invalid_credential_payload"])
+            }
+            let providerID = request.pathParam("providerId") ?? ""
+            do {
+                try await service.saveCodeReviewCredential(providerID: providerID, token: payload.token)
+                return CoreRouter.encodable(
+                    status: HTTPStatus.ok,
+                    payload: await service.codeReviewCredentialStatus(providerID: providerID)
+                )
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "credential_save_failed"])
+            }
+        }
+
+        router.delete(
+            "/v1/code-review-credentials/:providerId",
+            metadata: RouteMetadata(
+                summary: "Delete code-review credential",
+                description: "Removes a provider credential from the local system Keychain",
+                tags: ["Code Review"]
+            )
+        ) { request in
+            let providerID = request.pathParam("providerId") ?? ""
+            do {
+                try await service.deleteCodeReviewCredential(providerID: providerID)
+                return CoreRouter.encodable(
+                    status: HTTPStatus.ok,
+                    payload: await service.codeReviewCredentialStatus(providerID: providerID)
+                )
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "credential_delete_failed"])
+            }
+        }
     }
 }

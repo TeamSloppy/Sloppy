@@ -841,9 +841,9 @@ extension OpenAIOAuthModel {
 
 #if canImport(FoundationNetworking)
 extension URLSession {
-    fileprivate func linuxBytes(for request: URLRequest) async throws -> (StreamWrapper, URLResponse) {
+    func linuxBytes(for request: URLRequest) async throws -> (StreamWrapper, URLResponse) {
         let delegate = LinuxStreamingDelegate()
-        let session = URLSession(configuration: .default, delegate: delegate, delegateQueue: nil)
+        let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
         let task = session.dataTask(with: request)
         task.resume()
         let response = try await delegate.waitForResponse()

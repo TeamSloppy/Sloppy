@@ -51,7 +51,8 @@ private final class ScheduledTasksViewModel {
                 for try await agentTasks in group {
                     result.append(contentsOf: agentTasks)
                 }
-                return result.sorted { $0.updatedAt > $1.updatedAt }
+                let snapshot = result
+                return try await ClientBackgroundWork.run { snapshot.sorted { $0.updatedAt > $1.updatedAt } }
             }
             agents = loadedAgents
             tasks = loadedTasks

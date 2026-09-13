@@ -21,8 +21,8 @@ public final class SitesViewModel {
         isLoading = true
         defer { isLoading = false }
         do {
-            sites = try await apiClient.fetchPublishedSites()
-                .sorted { $0.updatedAt > $1.updatedAt }
+            let fetched = try await apiClient.fetchPublishedSites()
+            sites = try await ClientBackgroundWork.run { fetched.sorted { $0.updatedAt > $1.updatedAt } }
             errorMessage = nil
         } catch {
             errorMessage = error.localizedDescription
@@ -180,10 +180,7 @@ public struct SitesScreen: View {
     @ViewBuilder
     private var content: some View {
         if viewModel.isLoading && viewModel.sites.isEmpty {
-            Spacer()
-            ProgressView("Loading sites…")
-                .frame(maxWidth: .infinity)
-            Spacer()
+            LoadingSkeleton("Loading sites…")
         } else if let error = viewModel.errorMessage, viewModel.sites.isEmpty {
             ContentUnavailableView(
                 "Sites unavailable",

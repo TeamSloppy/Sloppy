@@ -175,6 +175,7 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
 
 public struct SettingsScreen: View {
     @State private var config: SloppyConfig? = nil
+    @State private var isLoadingConfig = false
     @State private var statusText: String = "Loading config..."
     @State private var searchQuery: String = ""
     @State private var selectedSection: SettingsScreenSection?
@@ -483,20 +484,27 @@ public struct SettingsScreen: View {
         let ty = theme.typography
 
         return SettingsSectionSurface {
-            VStack(alignment: .leading, spacing: sp.m) {
-                Text(statusText)
-                    .font(.system(size: ty.body))
-                    .foregroundColor(c.textMuted)
-                Button("Retry") { loadConfig() }
-                    .font(.system(size: ty.caption))
-                    .foregroundColor(c.accent)
+            if isLoadingConfig {
+                LoadingSkeleton("Loading settings…", style: .detail)
+            } else {
+                VStack(alignment: .leading, spacing: sp.m) {
+                    Text(statusText)
+                        .font(.system(size: ty.body))
+                        .foregroundColor(c.textMuted)
+                    Button("Retry") { loadConfig() }
+                        .font(.system(size: ty.caption))
+                        .foregroundColor(c.accent)
+                }
             }
         }
     }
 
     private func loadConfig() {
+        guard !isLoadingConfig else { return }
+        isLoadingConfig = true
         statusText = "Loading..."
         Task { @MainActor in
+            defer { isLoadingConfig = false }
             do {
                 let loaded = try await api.fetchConfig()
                 self.config = loaded

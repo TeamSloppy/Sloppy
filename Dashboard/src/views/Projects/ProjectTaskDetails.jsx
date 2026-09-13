@@ -18,6 +18,7 @@ import { taskDescriptionMode } from "./taskDescriptionMode";
 import { linkifyTaskReferences, taskByReference } from "./taskReferenceLinks";
 import { normalizeTrackerMarkdown, parseTrackerMarkdown } from "./trackerMarkdown";
 import { resolveLinkedAgentPet } from "./commentAvatars";
+import { isTechnicalTaskComment } from "./taskComments";
 import {
     fetchTaskComments,
     addTaskComment,
@@ -477,7 +478,7 @@ function formatAbsoluteDateTime(value) {
     }).format(date);
 }
 
-function CommentsTab({ project, task, createModalActors, agentDirectory, openTaskDetails }) {
+function CommentsTab({ project, task, createModalActors, agentDirectory, openTaskDetails, technical = false }) {
     const [comments, setComments] = useState([]);
     const [loading, setLoading] = useState(true);
     const [commentText, setCommentText] = useState("");
@@ -521,7 +522,7 @@ function CommentsTab({ project, task, createModalActors, agentDirectory, openTas
 
     const sortedComments = useMemo(() => {
         const direction = commentSortOrder === "oldest" ? 1 : -1;
-        return [...comments].sort((left, right) => {
+        return comments.filter((comment) => isTechnicalTaskComment(comment) === technical).sort((left, right) => {
             const createdDelta = commentCreatedAtMs(left) - commentCreatedAtMs(right);
             if (createdDelta !== 0) {
                 return createdDelta * direction;
@@ -529,7 +530,7 @@ function CommentsTab({ project, task, createModalActors, agentDirectory, openTas
 
             return String(left.id || "").localeCompare(String(right.id || "")) * direction;
         });
-    }, [comments, commentSortOrder]);
+    }, [comments, commentSortOrder, technical]);
 
     async function handleSubmit(e) {
         e.preventDefault();
@@ -556,84 +557,88 @@ function CommentsTab({ project, task, createModalActors, agentDirectory, openTas
 
     return (
         <div className="td-comments">
-            <form className="td-comment-form" onSubmit={handleSubmit}>
-                <ProjectMentionTextarea
-                    className="td-comment-textarea"
-                    value={commentText}
-                    onChange={(e) => setCommentText(e.target.value)}
-                    project={project}
-                    placeholder="Leave a comment... use # for tasks, / for files and skills"
-                    rows={3}
-                />
-                <div className="td-comment-form-actions">
-                    <span className="material-symbols-rounded td-comment-attach-icon">attachment</span>
-                    <div className="td-comment-actor-wrap" ref={dropdownRef}>
-                        <button
-                            type="button"
-                            className={`td-comment-actor-btn ${actorDropdownOpen ? "active" : ""}`}
-                            onClick={() => setActorDropdownOpen((v) => !v)}
-                        >
-                            <span className="material-symbols-rounded">
-                                {selectedActor?.linkedAgentId ? "smart_toy" : "person"}
-                            </span>
-                            <span>{selectedActor ? selectedActor.displayName : "No assignee"}</span>
-                        </button>
-                        {actorDropdownOpen && (
-                            <div className="td-comment-actor-dropdown">
-                                <input
-                                    className="td-comment-actor-search"
-                                    value={actorSearch}
-                                    onChange={(e) => setActorSearch(e.target.value)}
-                                    placeholder="Search assignees..."
-                                    autoFocus
-                                />
-                                <ul>
-                                    <li
-                                        className={`tcm-dropdown-item ${!selectedActorId ? "selected" : ""}`}
-                                        onMouseDown={(e) => {
-                                            e.preventDefault();
-                                            setSelectedActorId("");
-                                            setActorDropdownOpen(false);
-                                        }}
-                                    >
-                                        No assignee
-                                        {!selectedActorId && <span className="tcm-dropdown-check">✓</span>}
-                                    </li>
-                                    {filteredActors.map((actor) => (
+            {technical ? (
+                <p className="placeholder-text">Worker heartbeats, retries, and other service events.</p>
+            ) : (
+                <form className="td-comment-form" onSubmit={handleSubmit}>
+                    <ProjectMentionTextarea
+                        className="td-comment-textarea"
+                        value={commentText}
+                        onChange={(e) => setCommentText(e.target.value)}
+                        project={project}
+                        placeholder="Leave a comment... use # for tasks, / for files and skills"
+                        rows={3}
+                    />
+                    <div className="td-comment-form-actions">
+                        <span className="material-symbols-rounded td-comment-attach-icon">attachment</span>
+                        <div className="td-comment-actor-wrap" ref={dropdownRef}>
+                            <button
+                                type="button"
+                                className={`td-comment-actor-btn ${actorDropdownOpen ? "active" : ""}`}
+                                onClick={() => setActorDropdownOpen((v) => !v)}
+                            >
+                                <span className="material-symbols-rounded">
+                                    {selectedActor?.linkedAgentId ? "smart_toy" : "person"}
+                                </span>
+                                <span>{selectedActor ? selectedActor.displayName : "No assignee"}</span>
+                            </button>
+                            {actorDropdownOpen && (
+                                <div className="td-comment-actor-dropdown">
+                                    <input
+                                        className="td-comment-actor-search"
+                                        value={actorSearch}
+                                        onChange={(e) => setActorSearch(e.target.value)}
+                                        placeholder="Search assignees..."
+                                        autoFocus
+                                    />
+                                    <ul>
                                         <li
-                                            key={actor.id}
-                                            className={`tcm-dropdown-item ${selectedActorId === actor.id ? "selected" : ""}`}
+                                            className={`tcm-dropdown-item ${!selectedActorId ? "selected" : ""}`}
                                             onMouseDown={(e) => {
                                                 e.preventDefault();
-                                                setSelectedActorId(actor.id);
+                                                setSelectedActorId("");
                                                 setActorDropdownOpen(false);
-                                                setActorSearch("");
                                             }}
                                         >
-                                            <span className="material-symbols-rounded tcm-dropdown-item-icon">
-                                                {actor.linkedAgentId ? "smart_toy" : "person"}
-                                            </span>
-                                            <span>{actor.displayName}</span>
-                                            <span className="tcm-dropdown-item-id">{actor.id}</span>
-                                            {selectedActorId === actor.id && <span className="tcm-dropdown-check">✓</span>}
+                                            No assignee
+                                            {!selectedActorId && <span className="tcm-dropdown-check">✓</span>}
                                         </li>
-                                    ))}
-                                </ul>
-                            </div>
-                        )}
+                                        {filteredActors.map((actor) => (
+                                            <li
+                                                key={actor.id}
+                                                className={`tcm-dropdown-item ${selectedActorId === actor.id ? "selected" : ""}`}
+                                                onMouseDown={(e) => {
+                                                    e.preventDefault();
+                                                    setSelectedActorId(actor.id);
+                                                    setActorDropdownOpen(false);
+                                                    setActorSearch("");
+                                                }}
+                                            >
+                                                <span className="material-symbols-rounded tcm-dropdown-item-icon">
+                                                    {actor.linkedAgentId ? "smart_toy" : "person"}
+                                                </span>
+                                                <span>{actor.displayName}</span>
+                                                <span className="tcm-dropdown-item-id">{actor.id}</span>
+                                                {selectedActorId === actor.id && <span className="tcm-dropdown-check">✓</span>}
+                                            </li>
+                                        ))}
+                                    </ul>
+                                </div>
+                            )}
+                        </div>
+                        <button
+                            type="submit"
+                            className="td-comment-submit-btn"
+                            disabled={!commentText.trim() || submitting}
+                        >
+                            {submitting ? "Sending…" : "Comment"}
+                        </button>
                     </div>
-                    <button
-                        type="submit"
-                        className="td-comment-submit-btn"
-                        disabled={!commentText.trim() || submitting}
-                    >
-                        {submitting ? "Sending…" : "Comment"}
-                    </button>
-                </div>
-            </form>
+                </form>
+            )}
 
             <div className="td-comments-toolbar">
-                <span>{comments.length === 1 ? "1 comment" : `${comments.length} comments`}</span>
+                <span>{sortedComments.length === 1 ? "1 comment" : `${sortedComments.length} comments`}</span>
                 <div className="td-comment-sort" role="group" aria-label="Sort comments">
                     <button
                         type="button"
@@ -656,8 +661,8 @@ function CommentsTab({ project, task, createModalActors, agentDirectory, openTas
 
             {loading ? (
                 <LoadingSkeleton label="Loading comments…" variant="list" rows={3} />
-            ) : comments.length === 0 ? (
-                <p className="placeholder-text">No comments yet.</p>
+            ) : sortedComments.length === 0 ? (
+                <p className="placeholder-text">{technical ? "No technical comments yet." : "No comments yet."}</p>
             ) : (
                 <div className="td-comments-list">
                     {sortedComments.map((comment) => {
@@ -2083,6 +2088,14 @@ export function TaskDetailView({
                         </button>
                         <button
                             type="button"
+                            className={`td-tab ${activeTab === "technical-comments" ? "active" : ""}`}
+                            onClick={() => setActiveTab("technical-comments")}
+                        >
+                            <span className="material-symbols-rounded td-tab-icon">build</span>
+                            Technical comments
+                        </button>
+                        <button
+                            type="button"
                             className={`td-tab ${activeTab === "subtasks" ? "active" : ""}`}
                             onClick={() => setActiveTab("subtasks")}
                         >
@@ -2127,13 +2140,14 @@ export function TaskDetailView({
                     </div>
 
                     <div className="td-tab-content">
-                        {activeTab === "comments" && (
+                        {(activeTab === "comments" || activeTab === "technical-comments") && (
                             <CommentsTab
                                 project={project}
                                 task={task}
                                 createModalActors={createModalActors}
                                 agentDirectory={agentDirectory}
                                 openTaskDetails={openTaskDetails}
+                                technical={activeTab === "technical-comments"}
                             />
                         )}
                         {activeTab === "subtasks" && (

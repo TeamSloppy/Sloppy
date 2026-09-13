@@ -401,7 +401,7 @@ extension CoreService {
             config: config,
             hasOAuthCredentials: hasOAuthCredentials,
             currentDirectory: currentDirectory
-        ) + config.effectiveModels(currentDirectory: currentDirectory).filter { !$0.disabled }.map(\.model)
+        ) + config.effectiveModels(currentDirectory: currentDirectory).filter { !$0.disabled && $0.providerCatalogId != "sloppy" }.map(\.model)
         for raw in candidates {
             let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !value.isEmpty else {
@@ -444,6 +444,11 @@ extension CoreService {
         let knowsProvider = resolved.contains { $0.hasPrefix("\(prefix):") }
 
         switch prefix {
+        case "sloppy":
+            let entries = config.effectiveModels().filter { !$0.disabled && $0.providerCatalogId == "sloppy" }
+            if resolved.contains(trimmed) { return true }
+            guard let first = entries.first else { return false }
+            return entries.allSatisfy { $0.apiUrl == first.apiUrl && $0.apiKey == first.apiKey }
         case "opencode":
             let resolvedModels = config.effectiveModels().compactMap {
                 CoreModelProviderFactory.resolvedIdentifier(for: $0)

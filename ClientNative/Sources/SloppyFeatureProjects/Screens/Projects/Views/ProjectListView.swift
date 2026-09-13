@@ -17,10 +17,12 @@ struct ProjectListView: View {
 
         return ScrollView {
             VStack(alignment: .leading, spacing: sp.l) {
-                if projects.isEmpty {
-                    EmptyStateView(isLoading ? "Loading..." : "No projects found")
+                if isLoading && projects.isEmpty {
+                    LoadingSkeleton("Loading projects…")
+                } else if projects.isEmpty {
+                    EmptyStateView("No projects found")
                 } else {
-                    VStack(alignment: .leading, spacing: sp.s) {
+                    LazyVStack(alignment: .leading, spacing: sp.s) {
                         ForEach(projects) { project in
                             NavigationLink(value: project.id) {
                                 EntityCard(

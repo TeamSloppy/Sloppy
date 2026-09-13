@@ -1,5 +1,6 @@
 import Foundation
 import SloppyClientCore
+import SloppyClientUI
 import SwiftUI
 
 private enum CanvasWorkspaceLibraryLayout: String {
@@ -225,13 +226,7 @@ struct CanvasWorkspaceLibraryView: View {
     @ViewBuilder
     private var libraryContent: some View {
         if viewModel.isResolving, viewModel.workspaces.isEmpty {
-            VStack(spacing: 10) {
-                ProgressView()
-                Text("Loading Workspaces…")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
-            }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            LoadingSkeleton("Loading workspaces…")
         } else if filteredWorkspaces.isEmpty {
             ContentUnavailableView {
                 Label(

@@ -63,7 +63,9 @@ private final class ArtifactsViewModel {
             return loaded
         }
 
-        artifacts = ChatArtifactCatalog.build(from: details)
+        do {
+            artifacts = try await ClientBackgroundWork.run { ChatArtifactCatalog.build(from: details) }
+        } catch { return }
         errorMessage = details.isEmpty ? "Failed to load artifacts" : nil
     }
 }
@@ -170,7 +172,7 @@ struct ArtifactsScreen: View {
     @ViewBuilder
     private var content: some View {
         if viewModel.isLoading && viewModel.artifacts.isEmpty {
-            ProgressView("Loading artifacts…")
+            LoadingSkeleton("Loading artifacts…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if let errorMessage = viewModel.errorMessage, viewModel.artifacts.isEmpty {
             ContentUnavailableView(

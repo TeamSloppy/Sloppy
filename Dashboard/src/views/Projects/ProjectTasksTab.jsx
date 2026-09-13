@@ -2,6 +2,7 @@ import { resolveApiBase } from "../../shared/api/httpClient";
 import { KanbanFilters } from "../../features/kanban-filters/KanbanFilters";
 import { useTaskFilters } from "../../features/kanban-filters/useTaskFilters";
 import { hasTaskFilter, taskFilterStorageKey, taskMatchesFilter } from "../../features/kanban-filters/taskFilters";
+import { TaskResponsibilitySummary } from "./TaskResponsibilitySummary";
 import { TeamBoardPanel } from "./TeamBoardPanel";
 import { TASK_STAGES, memberRoles } from "../../features/actors/teamRoles";
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
@@ -27,6 +28,9 @@ import {
 import { AgentPetIcon } from "../../features/agents/components/AgentPetSprite";
 import { LoadingSkeleton } from "../../components/LoadingSkeleton";
 import { TaskDetailView, TASK_SIDE_VIEW_STORAGE_KEY, clampTaskSideViewWidthPercent, readTaskSideViewWidthPercent } from "./ProjectTaskDetails";
+
+const BOARD_STATUSES = ["backlog", "ready", "in_progress", "needs_review", "waiting_input", "blocked", "done"]
+    .map((id) => TASK_STATUSES.find((status) => status.id === id));
 
 function assigneeInitials(name) {
     const parts = String(name || "?")
@@ -326,6 +330,7 @@ function ProjectTasksBoard({
     createModalTeams,
     onOpenReview
 }) {
+    const [compactCards, setCompactCards] = useState(true);
     const [agentDirectory, setAgentDirectory] = useState({});
     const [showArchive, setShowArchive] = useState(false);
     const [archivedTasks, setArchivedTasks] = useState([]);
@@ -401,7 +406,7 @@ function ProjectTasksBoard({
     );
     useEffect(() => { setContextMenu(null); }, [boardFilters.state.filter]);
     const visibleTaskSelectionOrder = useMemo(
-        () => buildProjectTaskSelectionOrder(filteredActiveTasks, TASK_STATUSES),
+        () => buildProjectTaskSelectionOrder(filteredActiveTasks, BOARD_STATUSES),
         [filteredActiveTasks]
     );
 
@@ -681,8 +686,8 @@ function ProjectTasksBoard({
 
     return (
         <section className={`project-tab-layout project-tab-layout--tasks${sideTask ? " project-tab-layout--with-task-side-view" : ""}`}>
-            <section className="project-pane project-kanban-pane">
-                <TeamBoardPanel project={project} actors={createModalActors} teams={createModalTeams} onUpdateProject={onUpdateProject} onTeamsChange={onTeamsChange} />
+            <section className={`project-pane project-kanban-pane project-team-kanban${compactCards ? " project-team-kanban--compact" : ""}`}>
+                <TeamBoardPanel project={project} actors={createModalActors} teams={createModalTeams} onUpdateProject={onUpdateProject} onTeamsChange={onTeamsChange} bulkUpdateTasks={bulkUpdateTasks} />
                 <div className="project-kanban-head">
                     <div className="project-kanban-summary">
                         <span>
@@ -699,6 +704,7 @@ function ProjectTasksBoard({
                         </span>
                     </div>
                     <div className="project-kanban-head-actions">
+                        <button type="button" className="project-task-selection-toggle" aria-pressed={!compactCards} onClick={() => setCompactCards((value) => !value)}>Card details</button>
                         <button
                             type="button"
                             className={`project-task-selection-toggle${selectionMode ? " active" : ""}`}
@@ -797,7 +803,7 @@ function ProjectTasksBoard({
                 ) : null}
 
                 <div className="project-kanban-board">
-                    {TASK_STATUSES.map((column) => {
+                    {BOARD_STATUSES.map((column) => {
                         const tasks = sortProjectKanbanColumnTasks(filteredActiveTasks.filter((task) => task.status === column.id));
                         const stageRole = column.id === "in_progress" ? "developer" : column.id === "needs_review" ? "reviewer" : null;
                         const roleOwners = stageRole ? createModalActors.filter((actor) => createModalTeams.some((team) => project.teams?.includes(team.id) && memberRoles(team, actor).includes(stageRole))) : [];
@@ -824,9 +830,8 @@ function ProjectTasksBoard({
                                 <header className={`project-kanban-column-head project-kanban-column-head--${column.id}`}>
                                     <span>{column.title}</span>
                                     <strong>{tasks.length}</strong>
+                                    {stageRole && <small className="project-column-owners">{roleOwners.length ? roleOwners.map((actor) => actor.displayName).join(" · ") : `No ${stageRole} assigned`}</small>}
                                 </header>
-
-                                {stageRole && <div className="project-column-owners">{roleOwners.length ? roleOwners.map((actor) => actor.displayName).join(" · ") : `No ${stageRole} assigned`}</div>}
                                 <div
                                     className={`project-kanban-column-body${dragOverColumnId === column.id ? " project-kanban-column-body--dragover" : ""}`}
                                 >
@@ -959,6 +964,7 @@ function ProjectTasksBoard({
                                                             </span>
                                                         </div>
                                                         <h5>{task.title}</h5>
+                                                        <TaskResponsibilitySummary task={task} actors={createModalActors} teams={createModalTeams} agentDirectory={agentDirectory} />
                                                         {task.stageAssignments && <p className="project-task-stage-summary">{TASK_STAGES.map((role) => `${role.title}: ${createModalActors.find((actor) => actor.id === task.stageAssignments[role.id])?.displayName || task.stageAssignments[role.id] || "Unassigned"}`).join(" · ")}</p>}
                                                         {task.description ? <p>{task.description}</p> : null}
 
@@ -1118,6 +1124,8 @@ function ProjectTasksBoard({
                         );
                     })}
                 </div>
+
+                {sideTask && <TaskResponsibilitySummary task={sideTask} actors={createModalActors} teams={createModalTeams} expanded />}
 
                 <TaskBulkContextMenu
                     menu={contextMenu}

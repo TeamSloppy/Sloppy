@@ -18,7 +18,10 @@ struct PlatformMainSidebar: View {
                 ScrollView { SidebarRecentsList(viewModel: viewModel) }
             }
             Tab("Pull Requests", systemImage: "arrow.triangle.branch", value: MainAppSection.pullRequests) {
-                PullRequestsScreen(apiClient: viewModel.apiClient)
+                PullRequestsScreen(
+                    apiClient: viewModel.apiClient,
+                    onOpenChat: viewModel.openPullRequestChat
+                )
             }
             Tab("Sites", systemImage: "globe", value: MainAppSection.sites) {
                 SitesScreen(

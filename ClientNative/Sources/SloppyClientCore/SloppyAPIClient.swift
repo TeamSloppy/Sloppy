@@ -67,6 +67,21 @@ public actor SloppyAPIClient {
         await http.setAuthToken(token)
     }
 
+    public func fetchCodexAuthorizationStatus() async throws -> CodexAuthorizationStatus {
+        try await http.get("/v1/providers/openai/status")
+    }
+
+    public func startCodexDeviceAuthorization() async throws -> CodexDeviceAuthorization {
+        try await http.post("/v1/providers/openai/oauth/device-code/start", body: [String: String]())
+    }
+
+    public func pollCodexDeviceAuthorization(_ authorization: CodexDeviceAuthorization) async throws -> CodexDeviceAuthorizationResult {
+        try await http.post("/v1/providers/openai/oauth/device-code/poll", body: [
+            "deviceAuthId": authorization.deviceAuthId,
+            "userCode": authorization.userCode,
+        ])
+    }
+
     public func currentAccessToken() async -> String? {
         await http.currentAccessToken()
     }
@@ -219,6 +234,47 @@ public actor SloppyAPIClient {
         return try await http.get("/v1/code-reviews?\(query.joined(separator: "&"))")
     }
 
+    public func fetchCodeReviewDetail(
+        providerID: String,
+        reviewID: String,
+        maxDiffBytes: Int = 1_048_576
+    ) async throws -> CodeReviewDetail {
+        let provider = BackendHTTPClient.encodePathSegment(providerID)
+        let review = BackendHTTPClient.encodePathSegment(reviewID)
+        return try await http.get(
+            "/v1/code-reviews/\(provider)/\(review)?maxDiffBytes=\(max(1, min(maxDiffBytes, 4 * 1_048_576)))"
+        )
+    }
+
+    public func replyToCodeReviewComment(
+        providerID: String,
+        reviewID: String,
+        parentCommentID: String,
+        body: String
+    ) async throws -> CodeReviewComment {
+        try await http.post(
+            "/v1/code-reviews/\(BackendHTTPClient.encodePathSegment(providerID))/\(BackendHTTPClient.encodePathSegment(reviewID))/comments",
+            body: CodeReviewCommentReplyRequest(parentCommentID: parentCommentID, body: body)
+        )
+    }
+
+    public func fetchCodeReviewCredentialStatus(providerID: String) async throws -> CodeReviewCredentialStatus {
+        try await http.get("/v1/code-review-credentials/\(BackendHTTPClient.encodePathSegment(providerID))")
+    }
+
+    public func saveCodeReviewCredential(providerID: String, token: String) async throws -> CodeReviewCredentialStatus {
+        try await http.put(
+            "/v1/code-review-credentials/\(BackendHTTPClient.encodePathSegment(providerID))",
+            body: CodeReviewCredentialRequest(token: token)
+        )
+    }
+
+    public func deleteCodeReviewCredential(providerID: String) async throws -> CodeReviewCredentialStatus {
+        let path = "/v1/code-review-credentials/\(BackendHTTPClient.encodePathSegment(providerID))"
+        try await http.delete(path)
+        return try await http.get(path)
+    }
+
     public func updatePublishedSite(
         id: String,
         request: PublishedSiteUpdateRequest
@@ -369,6 +425,47 @@ public actor SloppyAPIClient {
                 + "\(BackendHTTPClient.encodePathSegment(automationId))/run",
             body: request
         )
+    }
+
+    private func taskActivityPath(_ projectId: String, _ taskId: String, _ suffix: String) -> String {
+        "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/tasks/\(BackendHTTPClient.encodePathSegment(taskId))/\(suffix)"
+    }
+
+    public func fetchTaskActivities(projectId: String, taskId: String) async throws -> [APITaskActivity] {
+        try await http.get(taskActivityPath(projectId, taskId, "activities"))
+    }
+
+    public func fetchTaskLogs(projectId: String, taskId: String) async throws -> [APITaskLog] {
+        try await http.get(taskActivityPath(projectId, taskId, "logs"))
+    }
+
+    public func fetchTaskClarifications(projectId: String, taskId: String) async throws -> [APITaskClarification] {
+        try await http.get(taskActivityPath(projectId, taskId, "clarifications"))
+    }
+
+    public func fetchTaskDiff(projectId: String, taskId: String) async throws -> APITaskDiff {
+        try await http.get(taskActivityPath(projectId, taskId, "diff"))
+    }
+
+    public func fetchTaskReviewComments(projectId: String, taskId: String) async throws -> [APITaskReviewComment] {
+        try await http.get(taskActivityPath(projectId, taskId, "review-comments"))
+    }
+
+    public func addTaskComment(projectId: String, taskId: String, content: String) async throws -> TaskComment {
+        try await http.post(taskActivityPath(projectId, taskId, "comments"), body: APITaskCommentRequest(content: content))
+    }
+
+    public func answerTaskClarification(projectId: String, taskId: String, clarificationId: String,
+                                       answer: APITaskClarificationAnswer) async throws -> APITaskClarification {
+        try await http.post(taskActivityPath(projectId, taskId, "clarifications/\(BackendHTTPClient.encodePathSegment(clarificationId))/answer"), body: answer)
+    }
+
+    public func decideTaskReview(projectId: String, taskId: String, approve: Bool, reason: String) async throws {
+        try await http.post(taskActivityPath(projectId, taskId, approve ? "approve" : "reject"), body: ["reason": reason])
+    }
+
+    public func resolveTaskReviewComment(projectId: String, taskId: String, commentId: String, resolved: Bool) async throws -> APITaskReviewComment {
+        try await http.patch(taskActivityPath(projectId, taskId, "review-comments/\(BackendHTTPClient.encodePathSegment(commentId))"), body: ["resolved": resolved])
     }
 
     public func fetchTaskComments(projectId: String, taskId: String) async throws -> [TaskComment] {

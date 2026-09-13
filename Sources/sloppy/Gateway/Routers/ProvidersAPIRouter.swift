@@ -1,5 +1,6 @@
 import Foundation
 import Protocols
+import PluginSDK
 
 struct ProvidersAPIRouter: APIRouter {
     private let service: CoreService
@@ -9,6 +10,25 @@ struct ProvidersAPIRouter: APIRouter {
     }
 
     func configure(on router: CoreRouterRegistrar) {
+        router.post("/v1/providers/inference", metadata: RouteMetadata(summary: "Generate with a local model", description: "Sloppy inference v1; tool calls are returned to the requesting server for execution", tags: ["Providers"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: SloppyInferenceRequest.self) else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            do {
+                if payload.stream == true {
+                    let stream = try await service.streamRemoteInference(payload)
+                    return CoreRouterResponse(status: HTTPStatus.ok, body: Data(), contentType: "text/event-stream", sseStream: stream)
+                }
+                let result = try await service.remoteInference(payload)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: result)
+            } catch SloppyRemoteError.unknownModel {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "remote_model_unavailable"])
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": "remote_inference_failed"])
+            }
+        }
+
         router.get("/v1/providers/image-generation/status", metadata: RouteMetadata(summary: "Image generation status", description: "Returns image generation configuration, credentials status, and supported models", tags: ["Providers"])) { _ in
             let status = await service.imageGenerationStatus()
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: status)

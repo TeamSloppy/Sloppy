@@ -662,6 +662,9 @@ public actor ConfigService {
                     apiUrl: apiUrl
                 )
             )
+            if response.ok == false {
+                throw ProviderCatalogError(message: response.message ?? "Could not load the provider catalog.")
+            }
             return response.models
         }
     }
@@ -695,4 +698,11 @@ private struct ProviderProbePayload: Encodable {
 
 private struct ProviderModelsResponse: Decodable {
     var models: [ChatModelOption]
+    var ok: Bool?
+    var message: String?
+}
+
+private struct ProviderCatalogError: LocalizedError {
+    let message: String
+    var errorDescription: String? { message }
 }

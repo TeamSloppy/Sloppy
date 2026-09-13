@@ -54,6 +54,59 @@ public struct CodeReviewItem: Codable, Sendable, Equatable, Identifiable {
     public var updatedAt: Date?
 }
 
+public struct CodeReviewComment: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var author: String?
+    public var body: String
+    public var filePath: String?
+    public var line: Int?
+    public var originalLine: Int?
+    public var side: String?
+    public var diffHunk: String?
+    public var inReplyToId: String?
+    public var isResolved: Bool?
+    public var isOutdated: Bool?
+    public var status: String?
+    public var createdAt: Date?
+    public var updatedAt: Date?
+}
+
+public struct CodeReviewDetail: Codable, Sendable, Equatable {
+    public var item: CodeReviewItem
+    public var description: String?
+    public var sourceBranch: String?
+    public var targetBranch: String?
+    public var reviewers: [String]
+    public var comments: [CodeReviewComment]
+    public var commentsError: String?
+    public var diff: String
+    public var diffTruncated: Bool
+    public var diffError: String?
+}
+
+public struct CodeReviewCredentialStatus: Codable, Sendable, Equatable {
+    public var providerId: String
+    public var isConfigured: Bool
+}
+
+public struct CodeReviewCredentialRequest: Codable, Sendable, Equatable {
+    public var token: String
+
+    public init(token: String) {
+        self.token = token
+    }
+}
+
+public struct CodeReviewCommentReplyRequest: Codable, Sendable, Equatable {
+    public var parentCommentID: String
+    public var body: String
+
+    public init(parentCommentID: String, body: String) {
+        self.parentCommentID = parentCommentID
+        self.body = body
+    }
+}
+
 public struct CodeReviewInboxResponse: Codable, Sendable, Equatable {
     public var items: [CodeReviewItem]
     public var providers: [CodeReviewProviderDescriptor]

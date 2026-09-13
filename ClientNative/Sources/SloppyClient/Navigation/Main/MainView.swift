@@ -1036,7 +1036,10 @@ struct MainView: View {
             if viewModel.selectedAppSection == .scheduled {
                 ScheduledTasksScreen(apiClient: viewModel.apiClient)
             } else if viewModel.selectedAppSection == .pullRequests {
-                PullRequestsScreen(apiClient: viewModel.apiClient)
+                PullRequestsScreen(
+                    apiClient: viewModel.apiClient,
+                    onOpenChat: viewModel.openPullRequestChat
+                )
             } else if viewModel.selectedAppSection == .sites {
                 SitesScreen(
                     apiClient: viewModel.apiClient,
@@ -1333,6 +1336,9 @@ struct MainView: View {
                             task: task,
                             fallbackAgentId: card.actorID
                         )
+                    },
+                    onOpenTaskChat: { task in
+                        viewModel.openTaskChatTab(project: project, task: task, fallbackAgentId: task.actorId)
                     }
                 )
             )
@@ -1371,6 +1377,11 @@ struct MainView: View {
                             task: task,
                             fallbackAgentId: context.fallbackAgentId
                         )
+                    },
+                    onOpenRelatedTask: { task in
+                        let project = viewModel.project(for: tab.id, localProjectID: context.projectId)
+                            ?? APIProjectRecord(id: context.projectId, name: context.projectName)
+                        viewModel.openTaskDetailTab(project: project, task: task, fallbackAgentId: task.actorId)
                     }
                 )
             )

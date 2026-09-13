@@ -313,10 +313,41 @@ struct NodeCodeReviewProvider: CodeReviewProvider {
     }
 
     func listCodeReviews(query: CodeReviewQuery) async throws -> [CodeReviewItem] {
-        try await runtime.call(
+        return try await runtime.call(
             manifest.isNodePluginAPIV2 ? "code_review.list" : "listCodeReviews",
             params: ["query": encodeJSONValue(query)],
             as: [CodeReviewItem].self
+        )
+    }
+
+    func codeReviewDetail(id: String, maxDiffBytes: Int, credential: String?) async throws -> CodeReviewDetail {
+        var params: [String: JSONValue] = [
+            "id": .string(id),
+            "maxDiffBytes": .number(Double(max(1, maxDiffBytes))),
+        ]
+        if let credential, !credential.isEmpty {
+            params["token"] = .string(credential)
+        }
+        return try await runtime.call(
+            manifest.isNodePluginAPIV2 ? "code_review.get" : "codeReviewDetail",
+            params: params,
+            as: CodeReviewDetail.self
+        )
+    }
+
+    func replyToCodeReviewComment(reviewID: String, parentCommentID: String, body: String, credential: String?) async throws -> CodeReviewComment {
+        var params: [String: JSONValue] = [
+            "reviewID": .string(reviewID),
+            "parentCommentID": .string(parentCommentID),
+            "body": .string(body),
+        ]
+        if let credential, !credential.isEmpty {
+            params["token"] = .string(credential)
+        }
+        return try await runtime.call(
+            manifest.isNodePluginAPIV2 ? "code_review.reply" : "replyToCodeReviewComment",
+            params: params,
+            as: CodeReviewComment.self
         )
     }
 }

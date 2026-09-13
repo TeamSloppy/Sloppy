@@ -8,6 +8,7 @@ export function TaskStageAssignmentsEditor({ draft, actors, teams, onChange }) {
   const candidates = team ? actors.filter((actor) => team.memberActorIds?.includes(actor.id)) : actors;
   return <section className="task-stage-assignments" aria-label="Stage responsibilities">
     <div className="team-board-heading"><strong>Stage responsibilities</strong>{team && <button type="button" onClick={() => onChange(teamDefaults(team, actors))}>Use team defaults</button>}</div>
+    <p className="team-role-note">Set your project's Board team on the kanban to assign roles once for new tasks. These fields are task-specific overrides; existing tasks keep their saved assignments.</p>
     <div className="task-stage-grid">{TASK_STAGES.map((role) => <div key={role.id}>
       <span className="team-role-label">{role.title}</span>
       <TeamAssignmentPicker label={`${role.title} assignee`} value={assignments[role.id] || ""}

@@ -295,15 +295,34 @@ public struct APIProjectChannel: Codable, Sendable, Identifiable {
     }
 }
 
-public struct APIProjectTaskExternalMetadata: Codable, Sendable {
-    public var externalAssignee: String?
+public struct APIProjectTaskExternalStatus: Codable, Sendable, Equatable {
+    public var display: String?
+}
 
-    public init(externalAssignee: String? = nil) {
+public struct APIProjectTaskExternalMetadata: Codable, Sendable, Equatable {
+    public var externalAssignee: String?
+    public var providerId: String?
+    public var externalIssueKey: String?
+    public var externalIssueURL: String?
+    public var externalStatus: APIProjectTaskExternalStatus?
+    public var syncState: String?
+
+    public init(externalAssignee: String? = nil, providerId: String? = nil,
+                externalIssueKey: String? = nil, externalIssueURL: String? = nil,
+                externalStatus: APIProjectTaskExternalStatus? = nil, syncState: String? = nil) {
         self.externalAssignee = externalAssignee
+        self.providerId = providerId
+        self.externalIssueKey = externalIssueKey
+        self.externalIssueURL = externalIssueURL
+        self.externalStatus = externalStatus
+        self.syncState = syncState
     }
 }
 
 public struct APIProjectTask: Codable, Sendable, Identifiable {
+    public var parentTaskId: String?
+    public var dependsOnTaskIds: [String]?
+    public var worktreeBranch: String?
     public var id: String
     public var title: String
     public var status: String
@@ -337,6 +356,9 @@ public struct APIProjectTask: Codable, Sendable, Identifiable {
         kanbanColumnEnteredAt: Date? = nil,
         externalMetadata: APIProjectTaskExternalMetadata? = nil
     ) {
+        self.parentTaskId = nil
+        self.dependsOnTaskIds = nil
+        self.worktreeBranch = nil
         self.id = id
         self.title = title
         self.status = status
@@ -356,6 +378,10 @@ public struct APIProjectTask: Codable, Sendable, Identifiable {
 }
 
 public struct TaskComment: Codable, Sendable, Identifiable, Equatable {
+    public var kind: String?
+    public var externalMetadata: APIProjectTaskExternalMetadata?
+    public var effectiveKind: String { kind ?? (authorActorId == "system" ? "technical" : "user_comment") }
+    public var isTechnical: Bool { effectiveKind == "technical" }
     public var id: String
     public var taskId: String
     public var content: String
@@ -373,8 +399,12 @@ public struct TaskComment: Codable, Sendable, Identifiable, Equatable {
         mentionedActorId: String? = nil,
         isAgentReply: Bool = false,
         sourceAuthor: String? = nil,
-        createdAt: Date
+        createdAt: Date,
+        kind: String? = nil,
+        externalMetadata: APIProjectTaskExternalMetadata? = nil
     ) {
+        self.kind = kind
+        self.externalMetadata = externalMetadata
         self.id = id
         self.taskId = taskId
         self.content = content

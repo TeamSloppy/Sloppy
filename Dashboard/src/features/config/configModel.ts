@@ -137,7 +137,7 @@ export const PROVIDER_CATALOG = [
     id: "openai-oauth",
     brandProviderKey: "openai",
     title: "OpenAI Codex",
-    description: "ChatGPT/Codex login via OpenAI OAuth.",
+    description: "Sign in to Codex with your ChatGPT account using a device code.",
     modelHint: "gpt-5.4",
     authMethod: "deeplink",
     requiresApiKey: false,
@@ -149,6 +149,24 @@ export const PROVIDER_CATALOG = [
       model: "gpt-5.4",
       disabled: false,
       providerCatalogId: "openai-oauth"
+    }
+  },
+  {
+    id: "sloppy",
+    brandProviderKey: null,
+    title: "Sloppy server",
+    description: "Use models from another Sloppy server. Enter its URL and access token.",
+    modelHint: "Choose a model from the remote server",
+    authMethod: "api_key",
+    requiresApiKey: true,
+    supportsModelCatalog: true,
+    defaultEntry: {
+      title: "Sloppy server",
+      apiKey: "",
+      apiUrl: "",
+      model: "",
+      disabled: false,
+      providerCatalogId: "sloppy"
     }
   },
   {
@@ -645,6 +663,7 @@ export function normalizeModel(item, index) {
 }
 
 export function inferModelProvider(model) {
+  if (model?.providerCatalogId === "sloppy" || String(model?.model || "").startsWith("sloppy:")) return "sloppy";
   const apiUrl = String(model?.apiUrl || "").toLowerCase();
   const title = String(model?.title || "").toLowerCase();
   const modelName = String(model?.model || "").toLowerCase();
@@ -697,6 +716,7 @@ export function inferCatalogIdForEntry(entry) {
     return isAnthropicOAuthCatalogEntry(entry) ? "anthropic-oauth" : "anthropic";
   }
   const map = {
+    sloppy: "sloppy",
     openrouter: "openrouter",
     ollama: "ollama",
     gemini: "gemini"
@@ -705,6 +725,9 @@ export function inferCatalogIdForEntry(entry) {
 }
 
 export function isOpenAIOAuthEntry(model) {
+  if (model?.providerCatalogId) return model.providerCatalogId === "openai-oauth";
+  if (String(model?.model || "").startsWith("openai-oauth:")) return true;
+  if (String(model?.apiUrl || "").includes("chatgpt.com")) return true;
   const title = String(model?.title || "").toLowerCase();
   return title.includes("oauth") || title.includes("deeplink");
 }

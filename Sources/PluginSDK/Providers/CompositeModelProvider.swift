@@ -37,6 +37,7 @@ public struct CompositeModelProvider: ModelProvider {
             return exact
         }
         let routes: [(prefix: String, id: String)] = [
+            ("sloppy:", "sloppy"),
             ("openrouter:", "openrouter"),
             ("openai-api:", "openai-api"),
             ("openai-oauth:", "openai-oauth"),

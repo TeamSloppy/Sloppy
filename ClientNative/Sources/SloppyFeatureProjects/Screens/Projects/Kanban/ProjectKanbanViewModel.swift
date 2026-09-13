@@ -10,6 +10,7 @@ public struct ProjectKanbanCard: Identifiable, Equatable, Sendable {
     public let actorID: String?
     public let executionNodeID: String?
     public let description: String?
+    public let externalMetadata: APIProjectTaskExternalMetadata?
     public let tags: [String]
     public let assigneeID: String?
     public let isClaimed: Bool
@@ -24,6 +25,7 @@ public struct ProjectKanbanCard: Identifiable, Equatable, Sendable {
         executionNodeID: String? = nil,
         description: String? = nil,
         tags: [String] = [],
+        externalMetadata: APIProjectTaskExternalMetadata? = nil,
         assigneeID: String? = nil,
         isClaimed: Bool = false,
         kanbanColumnEnteredAt: Date? = nil
@@ -36,6 +38,7 @@ public struct ProjectKanbanCard: Identifiable, Equatable, Sendable {
         self.executionNodeID = executionNodeID
         self.description = description
         self.tags = tags
+        self.externalMetadata = externalMetadata
         self.assigneeID = [assigneeID, actorID].compactMap { $0 }.first { !$0.isEmpty }
         self.isClaimed = isClaimed
         self.kanbanColumnEnteredAt = kanbanColumnEnteredAt
@@ -141,6 +144,20 @@ public struct ProjectKanbanColumn: Identifiable, Equatable, Sendable {
 public final class ProjectKanbanViewModel {
     public private(set) var projectName: String = ""
     public private(set) var columns: [ProjectKanbanColumn] = []
+    public private(set) var filteredColumns: [ProjectKanbanColumn] = []
+    public private(set) var filterRevision = 0
+    public var filters = ProjectKanbanFilters() {
+        didSet {
+            guard filters != oldValue else { return }
+            filterRevision &+= 1
+            if let filterProjectID {
+                filterStore.save(filters, endpoint: apiClient.endpoint, projectId: filterProjectID)
+            }
+        }
+    }
+    @ObservationIgnored private let filterStore: ProjectKanbanFilterStore
+    @ObservationIgnored private var filterProjectID: String?
+    @ObservationIgnored private var loadID = UUID()
     public private(set) var availableActors: [ProjectKanbanActorOption] = []
     public let availableInstances: [SloppyInstance]
     public let preferredExecutionNodeID: String
@@ -153,9 +170,11 @@ public final class ProjectKanbanViewModel {
     public init(
         apiClient: SloppyAPIClient,
         availableInstances: [SloppyInstance] = [],
-        preferredExecutionNodeID: String? = nil
+        preferredExecutionNodeID: String? = nil,
+        filterStore: ProjectKanbanFilterStore = ProjectKanbanFilterStore()
     ) {
         self.apiClient = apiClient
+        self.filterStore = filterStore
         self.availableInstances = availableInstances
         self.preferredExecutionNodeID = preferredExecutionNodeID
             ?? availableInstances.first(where: \.isLocal)?.id
@@ -163,19 +182,34 @@ public final class ProjectKanbanViewModel {
             ?? ""
     }
 
+    public func makeTaskDetailViewModel() -> TaskDetailViewModel {
+        TaskDetailViewModel(apiClient: apiClient)
+    }
+
+    public func restoreFilters(projectId: String) {
+        guard filterProjectID != projectId else { return }
+        filterProjectID = nil
+        filters = filterStore.load(endpoint: apiClient.endpoint, projectId: projectId)
+        filterProjectID = projectId
+    }
+
     public func load(projectId: String) async {
+        restoreFilters(projectId: projectId)
+        let requestID = UUID()
+        loadID = requestID
         isLoading = true
-        defer { isLoading = false }
+        defer { if loadID == requestID { isLoading = false } }
 
         do {
-            let project = try await apiClient.fetchProject(id: projectId)
-            let agents = (try? await apiClient.fetchAgents()) ?? []
-            apply(project: project, agents: agents)
+            async let projectRequest = apiClient.fetchProject(id: projectId)
+            async let agentsRequest = apiClient.fetchAgents()
+            let project = try await projectRequest
+            let agents = (try? await agentsRequest) ?? []
+            guard loadID == requestID, !Task.isCancelled else { return }
+            try await apply(project: project, agents: agents, requestID: requestID)
+            guard loadID == requestID, !Task.isCancelled else { return }
         } catch {
-            projectName = ""
-            tasks = []
-            columns = []
-            availableActors = []
+            guard loadID == requestID, !Task.isCancelled else { return }
             errorMessage = "Could not load project board."
         }
     }
@@ -185,7 +219,7 @@ public final class ProjectKanbanViewModel {
         request: APIProjectTaskCreateRequest
     ) async throws {
         let project = try await apiClient.createProjectTask(projectId: projectId, request: request)
-        apply(project: project)
+        try await apply(project: project)
     }
 
     public func moveTask(
@@ -204,7 +238,7 @@ public final class ProjectKanbanViewModel {
                 taskId: taskID,
                 request: APIProjectTaskUpdateRequest(status: columnID.taskStatus)
             )
-            apply(project: project)
+            try await apply(project: project)
         } catch {
             errorMessage = "Could not update task status."
         }
@@ -221,14 +255,23 @@ public final class ProjectKanbanViewModel {
                 taskId: taskID,
                 request: APIProjectTaskUpdateRequest(executionNodeId: executionNodeID)
             )
-            apply(project: project)
+            try await apply(project: project)
         } catch {
             errorMessage = "Could not change the task instance."
         }
     }
 
-    public func columns(matching filters: ProjectKanbanFilters) -> [ProjectKanbanColumn] {
-        Self.buildColumns(from: tasks, filters: filters)
+    public func updateFilteredColumns() async {
+        let revision = filterRevision
+        let tasks = tasks
+        let filters = filters
+        do {
+            let result = try await ClientBackgroundWork.run {
+                Self.buildColumns(from: tasks, filters: filters)
+            }
+            guard revision == filterRevision, !Task.isCancelled else { return }
+            filteredColumns = result
+        } catch { /* Superseded filters keep the last rendered board. */ }
     }
 
     public func assigneeTitle(for filter: ProjectKanbanAssigneeFilter) -> String {
@@ -269,6 +312,7 @@ public final class ProjectKanbanViewModel {
                     executionNodeID: $0.executionNodeId,
                     description: $0.description,
                     tags: $0.tags ?? [],
+                    externalMetadata: $0.externalMetadata,
                     assigneeID: $0.kanbanAssigneeID,
                     isClaimed: $0.claimedActorId?.isEmpty == false || $0.claimedAgentId?.isEmpty == false,
                     kanbanColumnEnteredAt: $0.kanbanColumnEnteredAt
@@ -278,22 +322,30 @@ public final class ProjectKanbanViewModel {
         }
     }
 
-    private func apply(project: APIProjectRecord, agents: [APIAgentRecord]? = nil) {
-        projectName = project.name
-        tasks = project.tasks ?? []
-        columns = Self.buildColumns(from: tasks)
-        errorMessage = nil
-
-        let actorIDs = Set((project.actors ?? []) + tasks.compactMap(\.kanbanAssigneeID))
+    private func apply(project: APIProjectRecord, agents: [APIAgentRecord]? = nil, requestID: UUID? = nil) async throws {
         let knownAgents = agents ?? availableActors.map {
             APIAgentRecord(id: $0.id, displayName: $0.title)
         }
-        let namesByID = Dictionary(uniqueKeysWithValues: knownAgents.map { ($0.id, $0.displayName) })
-        availableActors = actorIDs
-            .map { ProjectKanbanActorOption(id: $0, title: namesByID[$0] ?? ($0.hasPrefix("agent:") ? namesByID[String($0.dropFirst("agent:".count))] : nil) ?? $0) }
-            .sorted {
-                $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending
-            }
+        let currentFilters = filters
+        let snapshot = try await ClientBackgroundWork.run {
+            let tasks = project.tasks ?? []
+            let actorIDs = Set((project.actors ?? []) + tasks.compactMap(\.kanbanAssigneeID))
+            let namesByID = knownAgents.reduce(into: [String: String]()) { $0[$1.id] = $1.displayName }
+            let actors = actorIDs.map { id in
+                ProjectKanbanActorOption(id: id, title: namesByID[id]
+                    ?? (id.hasPrefix("agent:") ? namesByID[String(id.dropFirst(6))] : nil) ?? id)
+            }.sorted { $0.title.localizedCaseInsensitiveCompare($1.title) == .orderedAscending }
+            return (Self.buildColumns(from: tasks), Self.buildColumns(from: tasks, filters: currentFilters), actors)
+        }
+        try Task.checkCancellation()
+        if let requestID, loadID != requestID { throw CancellationError() }
+        projectName = project.name
+        tasks = project.tasks ?? []
+        columns = snapshot.0
+        filteredColumns = snapshot.1
+        availableActors = snapshot.2
+        filterRevision &+= 1
+        errorMessage = nil
     }
 
     nonisolated private static func matches(

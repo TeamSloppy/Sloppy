@@ -645,16 +645,7 @@ private struct ChatTranscriptLoadingView: View {
     @Environment(\.theme) private var theme
 
     var body: some View {
-        VStack(spacing: theme.spacing.s) {
-            ProgressView()
-                .controlSize(.large)
-            Text("Loading conversation…")
-                .font(.system(size: theme.typography.body))
-                .foregroundColor(theme.colors.textSecondary)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Loading conversation")
+        LoadingSkeleton("Loading conversation…", style: .detail)
         .accessibilityIdentifier("chat.transcript.loading")
     }
 }

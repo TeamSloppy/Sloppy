@@ -23,7 +23,7 @@ const CLI_AUTH_TOOLS = [
     providerId: "openai-oauth",
     title: "OpenAI Codex",
     command: "codex login",
-    source: "Local Codex credentials or device-code OAuth"
+    source: "Sign in with a Codex device code"
   },
   {
     providerId: "anthropic-oauth",
@@ -580,7 +580,7 @@ export function ProviderEditor({
                     ? anthropicAuthMode === "oauth"
                       ? "OAuth token"
                       : "API token"
-                    : "API Key"}
+                    : providerModalMeta.id === "sloppy" ? "Sloppy access token" : "API Key"}
                   <input
                     type="password"
                     value={providerForm.apiKey}
@@ -592,7 +592,7 @@ export function ProviderEditor({
                         ? "Paste token or leave empty for ANTHROPIC_AUTH_TOKEN"
                         : providerModalMeta.id === "anthropic"
                           ? "Console API key (sk-ant-api...)"
-                          : "sk-..."
+                          : providerModalMeta.id === "sloppy" ? "Access token from the Sloppy server" : "sk-..."
                     }
                   />
                   {providerModalMeta.id === "openai-api" && openAIProviderStatus.hasEnvironmentKey ? (
@@ -612,7 +612,7 @@ export function ProviderEditor({
               ) : null}
 
               <label>
-                API URL
+                {providerModalMeta.id === "sloppy" ? "Sloppy server URL" : "API URL"}
                 <input
                   value={providerForm.apiUrl}
                   onChange={(event) => onUpdateProviderForm("apiUrl", event.target.value)}
@@ -676,7 +676,7 @@ export function ProviderEditor({
 
                     <div className="provider-device-code-step">
                       <span className="provider-device-code-step-number">2</span>
-                      <span>Open OpenAI in this browser or scan the QR code</span>
+                      <span>Open Codex sign-in in this browser or scan the QR code</span>
                     </div>
                     <button type="button" onClick={onOpenDeviceCodeLoginPage}>
                       Open login page
@@ -697,7 +697,7 @@ export function ProviderEditor({
                 ) : providerModalMeta.id === "openai-oauth" ? (
                   <div className="provider-modal-actions">
                     <button type="button" onClick={onOpenOAuth}>
-                      {openAIProviderStatus.hasOAuthCredentials ? "Reconnect OpenAI" : "Connect OpenAI"}
+                      {openAIProviderStatus.hasOAuthCredentials ? "Reconnect Codex" : "Sign in to Codex"}
                     </button>
                   </div>
                 ) : null}

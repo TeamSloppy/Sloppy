@@ -50,6 +50,7 @@ export function mergeModelOptions(
 
 export function inferProviderId(entry: Record<string, unknown>): string {
   const catalog = String((entry as { providerCatalogId?: string }).providerCatalogId || "").trim();
+  if (catalog === "sloppy") return "sloppy";
   if (catalog === "openai-api") return "openai-api";
   if (catalog === "openai-oauth") return "openai-oauth";
   if (catalog === "openrouter") return "openrouter";
@@ -63,6 +64,7 @@ export function inferProviderId(entry: Record<string, unknown>): string {
   const lowerModel = modelVal.toLowerCase();
 
   // Routed ids already stored on the row — must win over URL/title heuristics (Chat tab uses server list; config tab probes here).
+  if (lowerModel.startsWith("sloppy:")) return "sloppy";
   if (lowerModel.startsWith("openai-api:")) return "openai-api";
   if (lowerModel.startsWith("openai-oauth:")) return "openai-oauth";
   if (lowerModel.startsWith("openrouter:")) return "openrouter";
@@ -96,6 +98,7 @@ export function prefixedRuntimeModelId(providerCatalogId: string, rawId: string)
   if (!trimmed) {
     return trimmed;
   }
+  if (providerCatalogId === "sloppy") return trimmed.startsWith("sloppy:") ? trimmed : `sloppy:${trimmed}`;
   if (
     isProviderRoutedModelId(trimmed)
   ) {

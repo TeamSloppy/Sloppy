@@ -32,6 +32,7 @@ enum CoreModelProviderFactory {
         MockModelProviderFactory(),
         OpenCodeModelProviderFactory(),
         OpenAIModelProviderFactory(),
+        SloppyModelProviderFactory(),
         OpenRouterModelProviderFactory(),
         OllamaModelProviderFactory(),
         GeminiModelProviderFactory(),
@@ -127,11 +128,14 @@ enum CoreModelProviderFactory {
         }
         let modelValue = model.model.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !modelValue.isEmpty else { return nil }
+        if model.providerCatalogId == "sloppy" {
+            return modelValue.hasPrefix("sloppy:") ? modelValue : "sloppy:\(modelValue)"
+        }
         if modelValue.hasPrefix("openai:") {
             return nil
         }
 
-        if modelValue.hasPrefix("openai-api:") || modelValue.hasPrefix("openai-oauth:")
+        if modelValue.hasPrefix("sloppy:") || modelValue.hasPrefix("openai-api:") || modelValue.hasPrefix("openai-oauth:")
             || modelValue.hasPrefix("openrouter:")
             || modelValue.hasPrefix("ollama:")
             || modelValue.hasPrefix("gemini:") || modelValue.hasPrefix("anthropic:")

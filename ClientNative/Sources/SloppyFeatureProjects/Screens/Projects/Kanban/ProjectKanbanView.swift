@@ -4,39 +4,92 @@ import SloppyClientUI
 
 @MainActor
 public struct ProjectKanbanView: View {
-    let viewModel: ProjectKanbanViewModel
+    @Bindable var viewModel: ProjectKanbanViewModel
     let projectId: String
     let projectName: String
     let onOpenTask: @MainActor (ProjectKanbanCard) -> Void
+    let onOpenTaskChat: (@MainActor (APIProjectTask) -> Void)?
 
     @Environment(\.theme) private var theme
-    @State private var filters = ProjectKanbanFilters()
+    @State private var previewTask: ProjectKanbanCard?
+    @State private var previewModel: TaskDetailViewModel?
     @State private var isCreateTaskPresented = false
 
     public init(
         viewModel: ProjectKanbanViewModel,
         projectId: String,
         projectName: String,
-        onOpenTask: @escaping @MainActor (ProjectKanbanCard) -> Void = { _ in }
+        onOpenTask: @escaping @MainActor (ProjectKanbanCard) -> Void = { _ in },
+        onOpenTaskChat: (@MainActor (APIProjectTask) -> Void)? = nil
     ) {
         self.viewModel = viewModel
         self.projectId = projectId
         self.projectName = projectName
         self.onOpenTask = onOpenTask
+        self.onOpenTaskChat = onOpenTaskChat
     }
 
     public var body: some View {
+        #if os(macOS)
+        HSplitView {
+            boardContent
+                .frame(minWidth: 340)
+            if let previewTask, let previewModel {
+                TaskDetailView(
+                    viewModel: previewModel,
+                    projectId: projectId,
+                    taskId: previewTask.id,
+                    onClose: closePreview,
+                    onOpenChat: onOpenTaskChat,
+                    onExpand: { onOpenTask(previewTask) },
+                    onOpenRelatedTask: { task in
+                        openTask(ProjectKanbanCard(id: task.id, title: task.title, status: task.status, priority: task.priority, actorID: task.actorId))
+                    },
+                    onTaskChanged: { await viewModel.load(projectId: projectId) }
+                )
+                .id(previewTask.id)
+                .frame(minWidth: 360, idealWidth: 480, maxWidth: 720, maxHeight: .infinity)
+                .background(theme.colors.background)
+                .accessibilityIdentifier("kanban-task-side-panel")
+            }
+        }
+        .onChange(of: projectId) { _, _ in closePreview() }
+        #else
+        boardContent
+        #endif
+    }
+
+    private func closePreview() {
+        previewTask = nil
+        previewModel = nil
+    }
+
+    private func openTask(_ card: ProjectKanbanCard) {
+        #if os(macOS)
+        guard previewTask?.id != card.id else { return }
+        previewModel = viewModel.makeTaskDetailViewModel()
+        previewTask = card
+        #else
+        onOpenTask(card)
+        #endif
+    }
+
+    private var boardContent: some View {
         VStack(spacing: 0) {
             boardToolbar
+            if let error = viewModel.errorMessage, !viewModel.columns.isEmpty {
+                Text(error).font(.callout).foregroundStyle(theme.colors.statusBlocked)
+                    .padding(.horizontal, theme.spacing.l)
+            }
 
             Rectangle()
                 .fill(theme.colors.border)
                 .frame(height: theme.borders.thin)
 
             if viewModel.isLoading && viewModel.columns.isEmpty {
-                ProgressView("Loading board…")
+                LoadingSkeleton("Loading board…", style: .board)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else if let errorMessage = viewModel.errorMessage {
+            } else if let errorMessage = viewModel.errorMessage, viewModel.columns.isEmpty {
                 boardMessage(
                     title: projectName,
                     message: errorMessage,
@@ -53,10 +106,12 @@ public struct ProjectKanbanView: View {
                     let availableWidth = max(0, geometry.size.width - (contentInset * 2))
                     let availableHeight = max(0, geometry.size.height - (contentInset * 2))
 
-                    ScrollView([.horizontal, .vertical], showsIndicators: false) {
+                    ScrollView(.horizontal, showsIndicators: false) {
                         HStack(alignment: .top, spacing: theme.spacing.m) {
                             ForEach(filteredColumns) { column in
-                                kanbanColumn(column, minHeight: availableHeight)
+                                ScrollView(.vertical) {
+                                    kanbanColumn(column, minHeight: availableHeight)
+                                }.frame(width: 320, height: availableHeight)
                             }
                         }
                         .frame(
@@ -73,6 +128,9 @@ public struct ProjectKanbanView: View {
         .task(id: projectId) {
             await viewModel.load(projectId: projectId)
         }
+        .task(id: viewModel.filterRevision) {
+            await viewModel.updateFilteredColumns()
+        }
         .sheet(isPresented: $isCreateTaskPresented) {
             ProjectTaskCreateSheet(
                 viewModel: viewModel,
@@ -83,7 +141,7 @@ public struct ProjectKanbanView: View {
     }
 
     private var filteredColumns: [ProjectKanbanColumn] {
-        viewModel.columns(matching: filters)
+        viewModel.filteredColumns
     }
 
     private var boardToolbar: some View {
@@ -92,13 +150,13 @@ public struct ProjectKanbanView: View {
                 Image(systemName: "magnifyingglass")
                     .foregroundColor(theme.colors.textMuted)
 
-                TextField("Filter tasks", text: $filters.searchText)
+                TextField("Filter tasks", text: $viewModel.filters.searchText)
                     .textFieldStyle(.plain)
                     .foregroundColor(theme.colors.textPrimary)
 
-                if !filters.searchText.isEmpty {
+                if !viewModel.filters.searchText.isEmpty {
                     Button {
-                        filters.searchText = ""
+                        viewModel.filters.searchText = ""
                     } label: {
                         Image(systemName: "xmark.circle.fill")
                             .foregroundColor(theme.colors.textMuted)
@@ -118,9 +176,9 @@ public struct ProjectKanbanView: View {
             priorityMenu
             assigneeMenu
 
-            if filters.isActive {
+            if viewModel.filters.isActive {
                 Button {
-                    filters = ProjectKanbanFilters()
+                    viewModel.filters = ProjectKanbanFilters()
                 } label: {
                     Image(systemName: "line.3.horizontal.decrease.circle.fill")
                 }
@@ -150,28 +208,28 @@ public struct ProjectKanbanView: View {
     private var statusMenu: some View {
         Menu {
             Button {
-                filters.status = .all
+                viewModel.filters.status = .all
             } label: {
-                filterMenuLabel("All statuses", selected: filters.status == .all)
+                filterMenuLabel("All statuses", selected: viewModel.filters.status == .all)
             }
 
             Divider()
 
             ForEach(ProjectKanbanColumnID.allCases, id: \.self) { columnID in
                 Button {
-                    filters.status = .column(columnID)
+                    viewModel.filters.status = .column(columnID)
                 } label: {
                     filterMenuLabel(
                         columnID.title,
-                        selected: filters.status == .column(columnID)
+                        selected: viewModel.filters.status == .column(columnID)
                     )
                 }
             }
         } label: {
             filterChip(
                 icon: "circle.grid.2x2",
-                title: filters.status.title,
-                isActive: filters.status != .all
+                title: viewModel.filters.status.title,
+                isActive: viewModel.filters.status != .all
             )
         }
         .menuStyle(.borderlessButton)
@@ -182,19 +240,19 @@ public struct ProjectKanbanView: View {
         Menu {
             ForEach(ProjectKanbanPriorityFilter.allCases) { priority in
                 Button {
-                    filters.priority = priority
+                    viewModel.filters.priority = priority
                 } label: {
                     filterMenuLabel(
                         priority.title,
-                        selected: filters.priority == priority
+                        selected: viewModel.filters.priority == priority
                     )
                 }
             }
         } label: {
             filterChip(
                 icon: "exclamationmark.circle",
-                title: filters.priority.title,
-                isActive: filters.priority != .all
+                title: viewModel.filters.priority.title,
+                isActive: viewModel.filters.priority != .all
             )
         }
         .menuStyle(.borderlessButton)
@@ -204,15 +262,15 @@ public struct ProjectKanbanView: View {
     private var assigneeMenu: some View {
         Menu {
             Button {
-                filters.assignee = .all
+                viewModel.filters.assignee = .all
             } label: {
-                filterMenuLabel("All assignees", selected: filters.assignee == .all)
+                filterMenuLabel("All assignees", selected: viewModel.filters.assignee == .all)
             }
 
             Button {
-                filters.assignee = .unassigned
+                viewModel.filters.assignee = .unassigned
             } label: {
-                filterMenuLabel("Unassigned", selected: filters.assignee == .unassigned)
+                filterMenuLabel("Unassigned", selected: viewModel.filters.assignee == .unassigned)
             }
 
             if !viewModel.availableActors.isEmpty {
@@ -221,19 +279,19 @@ public struct ProjectKanbanView: View {
 
             ForEach(viewModel.availableActors) { actor in
                 Button {
-                    filters.assignee = .actor(actor.id)
+                    viewModel.filters.assignee = .actor(actor.id)
                 } label: {
                     filterMenuLabel(
                         actor.title,
-                        selected: filters.assignee == .actor(actor.id)
+                        selected: viewModel.filters.assignee == .actor(actor.id)
                     )
                 }
             }
         } label: {
             filterChip(
                 icon: "person",
-                title: viewModel.assigneeTitle(for: filters.assignee),
-                isActive: filters.assignee != .all
+                title: viewModel.assigneeTitle(for: viewModel.filters.assignee),
+                isActive: viewModel.filters.assignee != .all
             )
         }
         .menuStyle(.borderlessButton)
@@ -297,12 +355,12 @@ public struct ProjectKanbanView: View {
         VStack(spacing: theme.spacing.m) {
             boardMessage(
                 title: "No matching tasks",
-                message: "Try changing or clearing the filters.",
+                message: "Try changing or clearing the viewModel.filters.",
                 icon: "line.3.horizontal.decrease.circle"
             )
 
             Button("Clear Filters") {
-                filters = ProjectKanbanFilters()
+                viewModel.filters = ProjectKanbanFilters()
             }
             .buttonStyle(.bordered)
         }
@@ -330,7 +388,7 @@ public struct ProjectKanbanView: View {
     ) -> some View {
         let contentMinHeight = max(0, minHeight - (theme.spacing.m * 2))
 
-        return VStack(alignment: .leading, spacing: theme.spacing.s) {
+        return LazyVStack(alignment: .leading, spacing: theme.spacing.s) {
             HStack {
                 Text(column.title)
                     .font(.system(size: theme.typography.body))
@@ -343,7 +401,7 @@ public struct ProjectKanbanView: View {
 
             ForEach(column.items) { card in
                 Button {
-                    onOpenTask(card)
+                    openTask(card)
                 } label: {
                     ProjectKanbanCardContent(
                         card: card,

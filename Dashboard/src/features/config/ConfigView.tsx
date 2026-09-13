@@ -16,7 +16,6 @@ import {
   fetchChannelPlugins,
   fetchSearchProviderStatus,
   importAnthropicClaudeCredentials,
-  importOpenAICodexCredentials,
   probeProvider,
   startAnthropicOAuth,
   startGeminiOAuth,
@@ -113,6 +112,7 @@ export function ConfigView({
   const [configDeviceCode, setConfigDeviceCode] = useState(null);
   const [configDeviceCodePolling, setConfigDeviceCodePolling] = useState(false);
   const [configDeviceCodeCopied, setConfigDeviceCodeCopied] = useState(false);
+  const configDeviceCodeGenerationRef = useRef(0);
   const configDeviceCodePollingRef = useRef(false);
   const [pendingOAuthDisconnect, setPendingOAuthDisconnect] = useState(false);
   const [pendingAnthropicOAuthDisconnect, setPendingAnthropicOAuthDisconnect] = useState(false);
@@ -667,77 +667,65 @@ export function ConfigView({
   }
 
   async function openOpenAIPlatform() {
-    setProviderStatus("openai-oauth", "Checking for local Codex credentials...");
+    const generation = ++configDeviceCodeGenerationRef.current;
+    // Open during the click event so the browser does not block the sign-in window.
+    const popup = window.open("about:blank", "sloppy-codex-device-code", "popup=yes,width=640,height=860");
+    setProviderStatus("openai-oauth", "Requesting a Codex device code...");
     setConfigDeviceCode(null);
     setConfigDeviceCodeCopied(false);
-    configDeviceCodePollingRef.current = false;
-
-    const imported = await importOpenAICodexCredentials();
-    if (imported?.ok) {
-      setProviderStatus("openai-oauth", String(imported.message || "Codex credentials imported."));
-      setStatusText("OpenAI OAuth connected");
-      await loadOpenAIProviderStatus();
-      await loadProviderModels("openai-oauth", providerForm || getProviderDefinition("openai-oauth").defaultEntry);
-      return;
-    }
-
-    setProviderStatus("openai-oauth", "Codex credentials were not found locally. Requesting device code from OpenAI...");
-    const response = await startOpenAIDeviceCode();
-    if (!response || typeof response.deviceAuthId !== "string") {
-      const message = imported?.message
-        ? `Failed to start device code flow. ${String(imported.message)}`
-        : "Failed to start device code flow.";
-      setProviderStatus("openai-oauth", message);
-      return;
-    }
-
-    const info = {
-      deviceAuthId: String(response.deviceAuthId),
-      userCode: String(response.userCode),
-      verificationURL: String(response.verificationURL || "https://auth.openai.com/codex/device")
-    };
-    setConfigDeviceCode(info);
-    setProviderStatus("openai-oauth", "Copy the code below, then open the login page to authorize.");
-
     configDeviceCodePollingRef.current = true;
     setConfigDeviceCodePolling(true);
-
-    let interval = 5000;
-    for (let attempt = 0; attempt < 120; attempt++) {
-      if (!configDeviceCodePollingRef.current) break;
-      await new Promise((r) => setTimeout(r, interval));
-      if (!configDeviceCodePollingRef.current) break;
-
-      const result = await pollOpenAIDeviceCode({
-        deviceAuthId: info.deviceAuthId,
-        userCode: info.userCode
-      });
-
-      if (!result) {
-        setProviderStatus("openai-oauth", "Polling failed. Try again.");
-        break;
+    try {
+      const response = await startOpenAIDeviceCode();
+      if (generation !== configDeviceCodeGenerationRef.current || !configDeviceCodePollingRef.current) return;
+      if (!response || typeof response.deviceAuthId !== "string") {
+        popup?.close();
+        setProviderStatus("openai-oauth", "Failed to start Codex device sign-in. Try again.");
+        return;
       }
-
-      const status = String(result.status || "");
-      if (status === "approved" && result.ok) {
-        setConfigDeviceCode(null);
-        setProviderStatus("openai-oauth", String(result.message || "Connected via device code."));
-        setStatusText("OpenAI OAuth connected");
-        await loadOpenAIProviderStatus();
-        await loadProviderModels("openai-oauth", providerForm || getProviderDefinition("openai-oauth").defaultEntry);
-        break;
+      const info = {
+        deviceAuthId: String(response.deviceAuthId),
+        userCode: String(response.userCode),
+        verificationURL: String(response.verificationURL || "https://auth.openai.com/codex/device")
+      };
+      setConfigDeviceCode(info);
+      if (popup) popup.location.href = info.verificationURL;
+      setProviderStatus("openai-oauth", popup
+        ? "Enter the device code in the Codex sign-in window."
+        : "Allow popups or use Open login page, then enter the device code.");
+      let interval = Math.max(1000, Number(response.interval || 5) * 1000);
+      const deadline = Date.now() + Math.max(1, Number(response.expiresIn || 600)) * 1000;
+      while (Date.now() < deadline) {
+        await new Promise((resolve) => setTimeout(resolve, interval));
+        if (generation !== configDeviceCodeGenerationRef.current || !configDeviceCodePollingRef.current) return;
+        const result = await pollOpenAIDeviceCode({ deviceAuthId: info.deviceAuthId, userCode: info.userCode });
+        if (generation !== configDeviceCodeGenerationRef.current || !configDeviceCodePollingRef.current) return;
+        if (!result) {
+          setProviderStatus("openai-oauth", "Polling failed. Try again.");
+          return;
+        }
+        if (result.status === "approved" && result.ok) {
+          setConfigDeviceCode(null);
+          setProviderStatus("openai-oauth", String(result.message || "Codex connected."));
+          setStatusText("Codex connected");
+          await loadOpenAIProviderStatus();
+          await loadProviderModels("openai-oauth", providerForm || getProviderDefinition("openai-oauth").defaultEntry);
+          return;
+        }
+        if (result.status === "slow_down") interval += 5000;
+        else if (result.status !== "pending") {
+          setProviderStatus("openai-oauth", String(result.message || "Device sign-in failed."));
+          return;
+        }
       }
-      if (status === "slow_down") {
-        interval = Math.min(interval + 2000, 15000);
-      }
-      if (status === "error") {
-        setProviderStatus("openai-oauth", String(result.message || "Device code authorization failed."));
-        break;
+      setConfigDeviceCode(null);
+      setProviderStatus("openai-oauth", "The device code expired. Sign in again to get a new code.");
+    } finally {
+      if (generation === configDeviceCodeGenerationRef.current) {
+        configDeviceCodePollingRef.current = false;
+        setConfigDeviceCodePolling(false);
       }
     }
-
-    configDeviceCodePollingRef.current = false;
-    setConfigDeviceCodePolling(false);
   }
 
   function copyConfigDeviceCode() {
@@ -1174,6 +1162,7 @@ export function ConfigView({
 
     let payload;
     if (
+      provider.id === "sloppy" ||
       provider.id === "openrouter" ||
       provider.id === "ollama" ||
       provider.id === "gemini" ||
@@ -1221,7 +1210,7 @@ export function ConfigView({
       setProviderStatus(provider.id, payload.warning);
     } else if (payload.source === "remote") {
       const label =
-        provider.id === "openrouter"
+        provider.id === "sloppy" ? "Sloppy" : provider.id === "openrouter"
           ? "OpenRouter"
           : provider.id === "ollama"
             ? "Ollama"
@@ -1295,7 +1284,7 @@ export function ConfigView({
       || (provider.id === "anthropic-oauth" && anthropicProviderStatus.hasEnvironmentKey);
 
     if (requiresApiKey && !hasKey) {
-      setProviderStatus(provider.id, "Set API Key to load models.");
+      setProviderStatus(provider.id, provider.id === "sloppy" ? "Set the Sloppy access token to load models." : "Set API Key to load models.");
       setProviderModelOptions((previous) => ({
         ...previous,
         [provider.id]: []

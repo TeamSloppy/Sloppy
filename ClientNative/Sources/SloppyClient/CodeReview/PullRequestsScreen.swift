@@ -1,53 +1,130 @@
 import SloppyClientCore
+import SloppyClientUI
 import SwiftUI
 
 @MainActor
 struct PullRequestsScreen: View {
     private enum RoleFilter: String, CaseIterable, Identifiable {
         case all
-        case authored
         case reviewRequested
+        case authored
 
         var id: Self { self }
 
         var title: String {
             switch self {
             case .all: "All"
-            case .authored: "Mine"
-            case .reviewRequested: "Review requested"
+            case .reviewRequested: "Reviewing"
+            case .authored: "Authored"
             }
         }
 
         var roles: [CodeReviewRole] {
             switch self {
             case .all: CodeReviewRole.allCases
-            case .authored: [.authored]
             case .reviewRequested: [.reviewRequested]
+            case .authored: [.authored]
             }
         }
     }
 
     let apiClient: SloppyAPIClient
+    let onOpenChat: @MainActor (CodeReviewDetail) -> Void
 
-    @Environment(\.openURL) private var openURL
     @State private var response = CodeReviewInboxResponse(items: [], providers: [])
     @State private var state: CodeReviewState = .open
     @State private var roleFilter: RoleFilter = .all
     @State private var selectedProviderID: String?
+    @State private var searchText = ""
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var recoveryMessage: String?
+    @State private var selectedReviewID: String?
+    @State private var isShowingArcadiaCredential = false
+
+#if !os(macOS)
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+#endif
 
     var body: some View {
+        reviewLayout
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .navigationTitle("Pull Requests")
+            .task(id: requestKey) { await load() }
+            .refreshable { await load() }
+            .sheet(isPresented: $isShowingArcadiaCredential) {
+                ArcadiaCredentialSheet(apiClient: apiClient)
+            }
+    }
+
+    @ViewBuilder
+    private var reviewLayout: some View {
+#if os(macOS)
+        HSplitView {
+            inboxPane
+                .frame(minWidth: 330, idealWidth: 410, maxWidth: 520)
+            detailPane(showsBackButton: false)
+                .frame(minWidth: 520, maxWidth: .infinity, maxHeight: .infinity)
+        }
+#else
+        if horizontalSizeClass == .compact {
+            if selectedItem != nil {
+                detailPane(showsBackButton: true)
+            } else {
+                inboxPane
+            }
+        } else {
+            HStack(spacing: 0) {
+                inboxPane
+                    .frame(minWidth: 310, idealWidth: 370, maxWidth: 440)
+                Divider()
+                detailPane(showsBackButton: false)
+            }
+        }
+#endif
+    }
+
+    private var inboxPane: some View {
         VStack(spacing: 0) {
             filters
             Divider()
             content
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .navigationTitle("Pull Requests")
-        .task(id: requestKey) { await load() }
-        .refreshable { await load() }
+    }
+
+    @ViewBuilder
+    private func detailPane(showsBackButton: Bool) -> some View {
+        if let selectedItem {
+            PullRequestDetailView(
+                apiClient: apiClient,
+                item: selectedItem,
+                showsBackButton: showsBackButton,
+                onBack: { selectedReviewID = nil },
+                onOpenChat: onOpenChat
+            )
+            .id(selectedItem.id)
+        } else {
+            ContentUnavailableView(
+                "Select a Pull Request",
+                systemImage: "arrow.triangle.branch",
+                description: Text("Review comments and code changes will appear here.")
+            )
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    private var selectedItem: CodeReviewItem? {
+        response.items.first { $0.id == selectedReviewID }
+    }
+
+    private var filteredItems: [CodeReviewItem] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return response.items }
+        return response.items.filter { item in
+            [item.title, item.repository, item.author, item.providerName]
+                .compactMap { $0 }
+                .contains { $0.localizedCaseInsensitiveContains(query) }
+        }
     }
 
     private var requestKey: String {
@@ -55,54 +132,89 @@ struct PullRequestsScreen: View {
     }
 
     private var filters: some View {
-        HStack(spacing: 12) {
-            Picker("State", selection: $state) {
-                ForEach(CodeReviewState.allCases) { state in
-                    Text(state.title).tag(state)
-                }
-            }
-            .pickerStyle(.segmented)
-            .frame(maxWidth: 360)
-
-            Picker("Role", selection: $roleFilter) {
-                ForEach(RoleFilter.allCases) { role in
-                    Text(role.title).tag(role)
-                }
-            }
-            .frame(maxWidth: 190)
-
-            if response.providers.count > 1 {
-                Picker("Provider", selection: $selectedProviderID) {
-                    Text("All providers").tag(String?.none)
-                    ForEach(response.providers) { provider in
-                        Text(provider.displayName).tag(Optional(provider.id))
+        VStack(spacing: 10) {
+            HStack(spacing: 10) {
+                Picker("Role", selection: $roleFilter) {
+                    ForEach(RoleFilter.allCases) { role in
+                        Text(role.title).tag(role)
                     }
                 }
-                .frame(maxWidth: 180)
+                .labelsHidden()
+                .pickerStyle(.segmented)
+
+                if isLoading {
+                    ProgressView()
+                        .controlSize(.small)
+                }
             }
 
-            Spacer(minLength: 0)
+            HStack(spacing: 8) {
+                HStack(spacing: 7) {
+                    Image(systemName: "magnifyingglass")
+                        .foregroundStyle(.secondary)
+                    TextField("Search pull requests", text: $searchText)
+                        .textFieldStyle(.plain)
+                    if !searchText.isEmpty {
+                        Button { searchText = "" } label: {
+                            Image(systemName: "xmark.circle.fill")
+                                .foregroundStyle(.tertiary)
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.horizontal, 10)
+                .frame(height: 30)
+                .background(Color.secondary.opacity(0.11), in: RoundedRectangle(cornerRadius: 7))
 
-            if isLoading {
-                ProgressView()
-                    .controlSize(.small)
-            }
+                Menu {
+                    Picker("State", selection: $state) {
+                        ForEach(CodeReviewState.allCases) { state in
+                            Text(state.title).tag(state)
+                        }
+                    }
+                    if response.providers.count > 1 {
+                        Divider()
+                        Picker("Provider", selection: $selectedProviderID) {
+                            Text("All providers").tag(String?.none)
+                            ForEach(response.providers) { provider in
+                                Text(provider.displayName).tag(Optional(provider.id))
+                            }
+                        }
+                    }
+                } label: {
+                    Image(systemName: "line.3.horizontal.decrease.circle")
+                }
+                .buttonStyle(.borderless)
+                .accessibilityLabel("Filter pull requests")
 
-            Button {
-                Task { await load() }
-            } label: {
-                Image(systemName: "arrow.clockwise")
+                if response.providers.contains(where: { $0.id == "arcadia-code-review" }) {
+                    Button {
+                        isShowingArcadiaCredential = true
+                    } label: {
+                        Image(systemName: "key")
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityLabel("Configure Arcadia token")
+                }
+
+                Button {
+                    Task { await load() }
+                } label: {
+                    Image(systemName: "arrow.clockwise")
+                }
+                .buttonStyle(.borderless)
+                .disabled(isLoading)
+                .accessibilityLabel("Refresh pull requests")
             }
-            .buttonStyle(.borderless)
-            .disabled(isLoading)
-            .accessibilityLabel("Refresh pull requests")
         }
-        .padding()
+        .padding(12)
     }
 
     @ViewBuilder
     private var content: some View {
-        if let errorMessage, response.items.isEmpty {
+        if isLoading && response.items.isEmpty {
+            LoadingSkeleton("Loading pull requests…")
+        } else if let errorMessage, response.items.isEmpty {
             ContentUnavailableView {
                 Label("Couldn’t Load Pull Requests", systemImage: "exclamationmark.triangle")
             } description: {
@@ -121,10 +233,8 @@ struct PullRequestsScreen: View {
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 560)
             } actions: {
-                Button("Try Again") {
-                    Task { await load() }
-                }
-                .disabled(isLoading)
+                Button("Try Again") { Task { await load() } }
+                    .disabled(isLoading)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if !isLoading, response.providers.isEmpty {
@@ -134,15 +244,19 @@ struct PullRequestsScreen: View {
                 description: Text("Connect GitHub or install a code-review plugin.")
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
-        } else if !isLoading, response.items.isEmpty {
+        } else if !isLoading, filteredItems.isEmpty {
             ContentUnavailableView(
                 "No Pull Requests",
                 systemImage: "arrow.triangle.branch",
-                description: Text("Nothing matches the selected state, role, and provider.")
+                description: Text(
+                    searchText.isEmpty
+                        ? "Nothing matches the selected state, role, and provider."
+                        : "Nothing matches your search."
+                )
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
-            List {
+            List(selection: $selectedReviewID) {
                 if !response.failures.isEmpty {
                     Section("Provider issues") {
                         ForEach(response.failures.sorted(by: { $0.key < $1.key }), id: \.key) { entry in
@@ -165,27 +279,20 @@ struct PullRequestsScreen: View {
                 }
 
                 Section {
-                    ForEach(response.items) { item in
-                        Button { open(item) } label: {
-                            PullRequestRow(item: item)
-                        }
-                        .buttonStyle(.plain)
+                    ForEach(filteredItems) { item in
+                        PullRequestRow(item: item)
+                            .tag(item.id)
                     }
                 } header: {
-                    Text("\(response.items.count) pull requests")
+                    Text("\(filteredItems.count) pull requests")
                 }
             }
-            .listStyle(.inset)
+            .listStyle(.sidebar)
         }
     }
 
     private func providerName(for id: String) -> String {
         response.providers.first(where: { $0.id == id })?.displayName ?? id
-    }
-
-    private func open(_ item: CodeReviewItem) {
-        guard let url = URL(string: item.url) else { return }
-        openURL(url)
     }
 
     private func load() async {
@@ -203,6 +310,15 @@ struct PullRequestsScreen: View {
                !response.providers.contains(where: { $0.id == selectedProviderID }) {
                 self.selectedProviderID = nil
             }
+            if let selectedReviewID,
+               !response.items.contains(where: { $0.id == selectedReviewID }) {
+                self.selectedReviewID = nil
+            }
+#if os(macOS)
+            if selectedReviewID == nil {
+                selectedReviewID = response.items.first?.id
+            }
+#endif
         } catch {
             errorMessage = error.localizedDescription
             recoveryMessage = recoverySuggestion(for: error)
@@ -217,7 +333,7 @@ struct PullRequestsScreen: View {
         case .httpError(statusCode: 404, _):
             return "The connected Sloppy Core does not expose the Pull Requests API. Update or restart Core so it matches this client."
         case .httpError(statusCode: 401, _), .httpError(statusCode: 403, _):
-            return "The server rejected this session. Reconnect the client and verify the GitHub account permissions."
+            return "The server rejected this session. Reconnect the client and verify the code-review account permissions."
         case .decodingFailed:
             return "The client and Core use incompatible response formats. Update or restart both components."
         case .invalidResponse, .httpError:
@@ -227,22 +343,126 @@ struct PullRequestsScreen: View {
 }
 
 @MainActor
+private struct ArcadiaCredentialSheet: View {
+    private let providerID = "arcadia-code-review"
+
+    let apiClient: SloppyAPIClient
+
+    @Environment(\.dismiss) private var dismiss
+    @FocusState private var isTokenFocused: Bool
+    @State private var token = ""
+    @State private var status: CodeReviewCredentialStatus?
+    @State private var isWorking = false
+    @State private var errorMessage: String?
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text("Arcadia access")
+                    .font(.title3.weight(.semibold))
+                Text("Your token is stored only in the local macOS Keychain. It is not saved in the plugin configuration.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
+            SecureField("Arc OAuth token", text: $token)
+                .textFieldStyle(.roundedBorder)
+                .focused($isTokenFocused)
+
+            if status?.isConfigured == true {
+                Label("A token is saved", systemImage: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            }
+
+            if let errorMessage {
+                Label(errorMessage, systemImage: "exclamationmark.triangle")
+                    .font(.callout)
+                    .foregroundStyle(.orange)
+                    .textSelection(.enabled)
+            }
+
+            Spacer(minLength: 0)
+
+            HStack {
+                if status?.isConfigured == true {
+                    Button("Remove", role: .destructive) { Task { await remove() } }
+                        .disabled(isWorking)
+                }
+                Spacer()
+                Button("Cancel") { dismiss() }
+                    .disabled(isWorking)
+                Button("Save") { Task { await save() } }
+                    .buttonStyle(.borderedProminent)
+                    .disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isWorking)
+            }
+        }
+        .padding(24)
+        .frame(width: 460, height: 300)
+        .task {
+            await load()
+            isTokenFocused = true
+        }
+    }
+
+    private func load() async {
+        do {
+            status = try await apiClient.fetchCodeReviewCredentialStatus(providerID: providerID)
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func save() async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            status = try await apiClient.saveCodeReviewCredential(providerID: providerID, token: token)
+            token = ""
+            errorMessage = nil
+            dismiss()
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+
+    private func remove() async {
+        isWorking = true
+        defer { isWorking = false }
+        do {
+            status = try await apiClient.deleteCodeReviewCredential(providerID: providerID)
+            errorMessage = nil
+        } catch {
+            errorMessage = error.localizedDescription
+        }
+    }
+}
+
+@MainActor
 private struct PullRequestRow: View {
     let item: CodeReviewItem
 
     var body: some View {
-        HStack(alignment: .top, spacing: 12) {
+        HStack(alignment: .top, spacing: 10) {
             Image(systemName: item.isDraft ? "circle.dashed" : stateImage)
                 .foregroundStyle(stateColor)
-                .frame(width: 20)
+                .frame(width: 18)
 
-            VStack(alignment: .leading, spacing: 5) {
-                Text(item.title)
-                    .font(.headline)
-                    .foregroundStyle(.primary)
-                    .lineLimit(2)
+            VStack(alignment: .leading, spacing: 4) {
+                HStack(alignment: .firstTextBaseline, spacing: 8) {
+                    Text(item.title)
+                        .font(.callout.weight(.medium))
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                    Spacer(minLength: 6)
+                    if let updatedAt = item.updatedAt {
+                        Text(updatedAt, format: .relative(presentation: .named))
+                            .font(.caption2)
+                            .foregroundStyle(.tertiary)
+                    }
+                }
 
-                HStack(spacing: 6) {
+                HStack(spacing: 5) {
                     Text(repositoryLabel)
                     Text("·")
                     Text(item.providerName)
@@ -253,32 +473,24 @@ private struct PullRequestRow: View {
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
 
-                HStack(spacing: 6) {
-                    if item.roles.contains(.reviewRequested) {
-                        badge("Review requested", color: .orange)
-                    }
-                    if item.isDraft {
-                        badge("Draft", color: .secondary)
-                    }
-                    if let decision = item.reviewDecision, !decision.isEmpty {
-                        badge(decision.replacingOccurrences(of: "_", with: " ").capitalized, color: .blue)
-                    }
-                    ForEach(item.labels.prefix(3), id: \.self) { label in
-                        badge(label, color: .secondary)
+                if item.isDraft || item.reviewDecision?.isEmpty == false || !item.labels.isEmpty {
+                    HStack(spacing: 5) {
+                        if item.isDraft {
+                            badge("Draft", color: .secondary)
+                        }
+                        if let decision = item.reviewDecision, !decision.isEmpty {
+                            badge(decision.replacingOccurrences(of: "_", with: " ").capitalized, color: .blue)
+                        }
+                        ForEach(item.labels.prefix(2), id: \.self) { label in
+                            badge(label, color: .secondary)
+                        }
                     }
                 }
             }
-
-            Spacer(minLength: 0)
-
-            if let updatedAt = item.updatedAt {
-                Text(updatedAt, format: .relative(presentation: .named))
-                    .font(.caption)
-                    .foregroundStyle(.tertiary)
-            }
         }
-        .padding(.vertical, 5)
+        .padding(.vertical, 6)
         .contentShape(Rectangle())
     }
 

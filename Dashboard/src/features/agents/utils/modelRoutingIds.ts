@@ -1,4 +1,5 @@
 const ROUTED_MODEL_PREFIXES = [
+  "sloppy:",
   "openai-api:",
   "openai-oauth:",
   "openrouter:",

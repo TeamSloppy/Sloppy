@@ -7,6 +7,59 @@ import Testing
 
 @Suite("Provider model catalog", .serialized)
 struct ProviderModelCatalogTests {
+    @Test("Codex device sign-in uses the connected server and returns polling status")
+    func codexDeviceSignIn() async throws {
+        let capture = ProviderModelRequestCapture()
+        ProviderModelURLProtocol.install { request in
+            capture.append(request)
+            let payload: String
+            switch request.url?.path {
+            case "/v1/providers/openai/oauth/device-code/start":
+                payload = #"{"deviceAuthId":"device-id","userCode":"ABCD-EFGH","verificationURL":"https://auth.openai.com/codex/device","interval":5,"expiresIn":600}"#
+            case "/v1/providers/openai/oauth/device-code/poll":
+                payload = #"{"status":"approved","ok":true,"message":"Connected","accountId":"account","planType":"plus"}"#
+            case "/v1/providers/openai/status":
+                payload = #"{"hasOAuthCredentials":true,"oauthPlanType":"plus"}"#
+            default:
+                Issue.record("Unexpected endpoint")
+                payload = "{}"
+            }
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!, Data(payload.utf8))
+        }
+        defer { ProviderModelURLProtocol.reset() }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ProviderModelURLProtocol.self]
+        let client = SloppyAPIClient(baseURL: URL(string: "https://models.sloppy.test")!, session: URLSession(configuration: configuration), authSessionStore: AuthSessionStore(persistence: .memory))
+        let device = try await client.startCodexDeviceAuthorization()
+        #expect(device.userCode == "ABCD-EFGH")
+        let result = try await client.pollCodexDeviceAuthorization(device)
+        #expect(result.ok)
+        #expect(result.status == "approved")
+        #expect(try await client.fetchCodexAuthorizationStatus().hasOAuthCredentials)
+        let body = try requestJSON(capture.snapshot()[1])
+        #expect(body["deviceAuthId"] as? String == "device-id")
+        #expect(body["userCode"] as? String == "ABCD-EFGH")
+        #expect(capture.snapshot().count == 3)
+    }
+
+    @Test("Sloppy catalog authentication errors remain visible")
+    func remoteCatalogFailure() async throws {
+        ProviderModelURLProtocol.install { request in
+            (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!,
+             Data(#"{"ok":false,"message":"Sloppy server returned HTTP 401","models":[]}"#.utf8))
+        }
+        defer { ProviderModelURLProtocol.reset() }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ProviderModelURLProtocol.self]
+        let client = SloppyAPIClient(baseURL: URL(string: "https://models.sloppy.test")!, session: URLSession(configuration: configuration), authSessionStore: AuthSessionStore(persistence: .memory))
+        do {
+            _ = try await client.fetchProviderModels(providerId: "sloppy", apiKey: "wrong", apiUrl: "https://remote.example")
+            Issue.record("Expected visible authorization failure")
+        } catch {
+            #expect(error.localizedDescription.contains("401"))
+        }
+    }
+
     @Test("uses provider-specific model catalog endpoints and payloads")
     func fetchesProviderModels() async throws {
         let baseURL = try #require(URL(string: "https://models.sloppy.test"))

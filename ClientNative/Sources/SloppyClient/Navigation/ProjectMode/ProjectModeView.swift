@@ -11,6 +11,7 @@ struct ProjectModeView: View {
     let rootSafeAreaInsets: EdgeInsets
     let onSelectSection: @MainActor (ProjectModeSection) -> Void
     let onOpenTask: @MainActor (ProjectKanbanCard) -> Void
+    var onOpenTaskChat: (@MainActor (APIProjectTask) -> Void)? = nil
 
     @Environment(\.theme) private var theme
 
@@ -102,28 +103,31 @@ struct ProjectModeView: View {
         }
     }
 
+    @ViewBuilder
     private var projectContent: some View {
-        ZStack {
+        switch state.selectedSection {
+        case .kanban:
             ProjectKanbanView(
                 viewModel: state.viewModel,
                 projectId: project.id,
                 projectName: project.name,
-                onOpenTask: onOpenTask
+                onOpenTask: onOpenTask,
+                onOpenTaskChat: onOpenTaskChat
             )
-            .projectModeVisibility(state.selectedSection == .kanban)
+        case .workspaces:
 
             CanvasWorkspaceSurface(
                 viewModel: state.workspaceViewModel,
                 allowsProjectSelection: false
             )
-            .projectModeVisibility(state.selectedSection == .workspaces)
+        case .automation:
 
             ProjectAutomationView(
                 viewModel: state.automationViewModel,
                 projectId: project.id,
                 projectName: project.name
             )
-            .projectModeVisibility(state.selectedSection == .automation)
+        case .chats:
 
             ChatScreen(
                 viewModel: state.chatViewModel,
@@ -132,16 +136,7 @@ struct ProjectModeView: View {
                 showsNavigationToolbar: false
             )
             .id(ObjectIdentifier(state.chatViewModel))
-            .projectModeVisibility(state.selectedSection == .chats)
-        }
-    }
-}
 
-private extension View {
-    func projectModeVisibility(_ isVisible: Bool) -> some View {
-        let opacityValue: Double = isVisible ? 1 : 0
-        return opacity(opacityValue)
-            .allowsHitTesting(isVisible)
-            .accessibilityHidden(!isVisible)
+        }
     }
 }

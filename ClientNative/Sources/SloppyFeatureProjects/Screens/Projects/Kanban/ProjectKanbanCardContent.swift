@@ -11,22 +11,26 @@ struct ProjectKanbanCardContent: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: theme.spacing.s) {
+            TaskMetadataChip(title: card.id, icon: "number", color: theme.colors.accentCyan)
+
             Text(card.title)
                 .font(.system(size: theme.typography.body, weight: .medium))
                 .foregroundColor(theme.colors.textPrimary)
 
             if let priority = card.priority, !priority.isEmpty {
-                Text(priority.uppercased())
-                    .font(.system(size: theme.typography.micro, weight: .semibold))
-                    .foregroundColor(theme.colors.textMuted)
+                TaskPriorityChip(priority: priority)
             }
 
             Label(assigneeTitle ?? "Unassigned", systemImage: card.isClaimed ? "person.fill.checkmark" : "person")
+                .foregroundStyle(theme.colors.accentCyan)
                 .help(card.isClaimed ? "Claimed by \(assigneeTitle ?? "—")" : "Assigned to \(assigneeTitle ?? "no one")")
 
             if !card.tags.isEmpty {
-                Label(card.tags.joined(separator: " · "), systemImage: "tag")
-                    .fixedSize(horizontal: false, vertical: true)
+                TaskTagChips(tags: card.tags)
+            }
+
+            if let metadata = card.externalMetadata {
+                TaskExternalMetadataChips(metadata: metadata)
             }
 
             if let date = card.kanbanColumnEnteredAt {

@@ -12,6 +12,7 @@ test("model pickers hide bare models and keep provider-routed ids", () => {
   const models = filterProviderRoutedModelOptions([
       { id: "gpt-5.5", title: "GPT 5.5" },
       { id: "claude-sonnet-4-6", title: "Claude Sonnet 4.6" },
+      { id: "sloppy:openai-oauth:gpt-5.5", title: "Remote Codex" },
       { id: "mock:test-model", title: "Mock test model" },
       { id: "openai-oauth:gpt-5.5", title: "GPT 5.5" },
       { id: "openrouter:google/gemini-2.5-pro", title: "Gemini 2.5 Pro" }
@@ -20,6 +21,7 @@ test("model pickers hide bare models and keep provider-routed ids", () => {
   assert.deepEqual(
     models.map((model) => model.id),
     [
+      "sloppy:openai-oauth:gpt-5.5",
       "mock:test-model",
       "openai-oauth:gpt-5.5",
       "openrouter:google/gemini-2.5-pro"

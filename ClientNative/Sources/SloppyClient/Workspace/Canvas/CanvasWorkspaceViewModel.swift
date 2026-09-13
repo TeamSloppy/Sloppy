@@ -125,8 +125,12 @@ final class CanvasWorkspaceViewModel {
         var errors: [String] = []
 
         do {
-            projects = try await apiClient.fetchProjects()
-                .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            let fetchedProjects = try await apiClient.fetchProjects()
+            let sortedProjects = try await ClientBackgroundWork.run {
+                fetchedProjects.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
+            }
+            guard resolutionID == requestID, !Task.isCancelled else { return }
+            projects = sortedProjects
             if let projectID,
                let selectedProject = projects.first(where: { $0.id == projectID }) {
                 projectName = selectedProject.name
@@ -137,10 +141,12 @@ final class CanvasWorkspaceViewModel {
 
         do {
             let requestedProjectID = projectID
-            let records = try await apiClient.fetchCanvasWorkspaces(projectId: requestedProjectID)
-                .filter { !$0.isArchived }
-                .filter { requestedProjectID != nil || $0.projectId == nil }
-                .sorted { $0.updatedAt > $1.updatedAt }
+            let fetchedRecords = try await apiClient.fetchCanvasWorkspaces(projectId: requestedProjectID)
+            let records = try await ClientBackgroundWork.run {
+                fetchedRecords.filter { !$0.isArchived }
+                    .filter { requestedProjectID != nil || $0.projectId == nil }
+                    .sorted { $0.updatedAt > $1.updatedAt }
+            }
             guard resolutionID == requestID else {
                 return
             }

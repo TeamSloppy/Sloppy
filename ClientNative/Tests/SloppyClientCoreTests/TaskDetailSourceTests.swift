@@ -27,19 +27,6 @@ struct TaskDetailSourceTests {
         #expect(mainView.contains("TaskDetailView("))
     }
 
-    @Test("task detail view loads project task and comments")
-    func taskDetailViewLoadsProjectTaskAndComments() throws {
-        let detailSource = try source("Sources/SloppyFeatureProjects/Screens/Projects/Views/TaskDetailView.swift")
-        let apiSource = try source("Sources/SloppyClientCore/SloppyAPIClient.swift")
-
-        #expect(detailSource.contains("final class TaskDetailViewModel"))
-        #expect(detailSource.contains("async let projectRequest = apiClient.fetchProject(id: projectId)"))
-        #expect(detailSource.contains("async let commentsRequest = apiClient.fetchTaskComments(projectId: projectId, taskId: taskId)"))
-        #expect(detailSource.contains("Text(\"Comments\")"))
-        #expect(detailSource.contains("Button(\"Open Chat\")"))
-        #expect(apiSource.contains("public func fetchTaskComments(projectId: String, taskId: String) async throws -> [TaskComment]"))
-    }
-
     @Test("task detail provides a visible close action that returns to the project")
     func taskDetailProvidesCloseAction() throws {
         let detailSource = try source("Sources/SloppyFeatureProjects/Screens/Projects/Views/TaskDetailView.swift")

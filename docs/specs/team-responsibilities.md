@@ -53,3 +53,21 @@ copies the new team's defaults.
 SQLite persists assignments and the active stage in `stage_assignments_json` and
 `active_stage`; bootstrap migrations add both columns. Older task and team payloads
 remain readable. Legacy tasks without stage assignments keep their existing routing.
+
+### Project board configuration and existing backlog
+
+The board exposes a `Project defaults` panel showing the effective first member for
+Development, Review and manual QA. Team roles are shared between projects using
+the same team. A single board team supplies defaults for new unassigned tasks.
+
+`Apply to N unassigned backlog tasks` copies the displayed team and assignments to
+existing backlog tasks across the project (including filtered-out tasks). It skips
+archived tasks, other teams, explicit stage overrides (including an empty object),
+assigned actors, claims and tasks with an active stage. It uses the existing task
+update API; partial failure is reported and the remaining candidates can be retried.
+This is an explicit snapshot operation, not live reassignment when a team changes.
+
+Cards default to a compact owner/team presentation; `Card details` restores the
+full metadata. Review appears next to development. Selecting a task also shows its
+stored stage owners and typed active stage. The UI does not infer individual stage
+completion or introduce an automatic QA column.

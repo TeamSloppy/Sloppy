@@ -1,4 +1,5 @@
 import SwiftUI
+import SloppyClientUI
 
 @MainActor
 struct CanvasWorkspaceSurface: View {
@@ -24,10 +25,8 @@ struct CanvasWorkspaceSurface: View {
             CanvasWorkspaceEditorView(viewModel: viewModel)
 
             if viewModel.isLoadingDocument {
-                ProgressView()
-                    .controlSize(.large)
-                    .padding(18)
-                    .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+                LoadingSkeleton("Loading workspace…", style: .detail)
+                    .background(.regularMaterial)
                     .accessibilityLabel("Loading workspace")
             }
 

@@ -17,8 +17,10 @@ struct AgentListView: View {
 
         return ScrollView {
             VStack(alignment: .leading, spacing: sp.l) {
-                if agents.isEmpty {
-                    EmptyStateView(isLoading ? "Loading..." : "No agents registered")
+                if isLoading && agents.isEmpty {
+                    LoadingSkeleton("Loading agents…")
+                } else if agents.isEmpty {
+                    EmptyStateView("No agents registered")
                         .padding(sp.l)
                 } else {
                     LazyVStack(alignment: .leading, spacing: sp.s) {

@@ -81,7 +81,7 @@ public struct ProjectAutomationView: View {
     @ViewBuilder
     private var content: some View {
         if viewModel.isLoading && viewModel.automations.isEmpty {
-            ProgressView("Loading automations…")
+            LoadingSkeleton("Loading automations…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else if viewModel.automations.isEmpty {
             emptyState

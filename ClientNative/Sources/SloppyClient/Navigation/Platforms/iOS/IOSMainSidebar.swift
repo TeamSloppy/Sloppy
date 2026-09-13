@@ -72,7 +72,10 @@ struct PlatformMainSidebar: View {
 
             Tab("Pull Requests", systemImage: "arrow.triangle.branch", value: MainAppSection.pullRequests) {
                 NavigationStack {
-                    PullRequestsScreen(apiClient: viewModel.apiClient)
+                    PullRequestsScreen(
+                        apiClient: viewModel.apiClient,
+                        onOpenChat: viewModel.openPullRequestChat
+                    )
                 }
             }
 

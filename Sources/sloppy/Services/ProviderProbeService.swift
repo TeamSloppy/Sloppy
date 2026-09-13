@@ -87,6 +87,8 @@ struct ProviderProbeService {
 
     func probe(config: CoreConfig, request: ProviderProbeRequest) async -> ProviderProbeResponse {
         switch request.providerId {
+        case .sloppy:
+            return await probeSloppy(config: config, request: request)
         case .openAIAPI:
             return await probeOpenAI(config: config, request: request, authMethod: .apiKey)
         case .openAIOAuth:
@@ -107,6 +109,28 @@ struct ProviderProbeService {
                 message: "Anthropic uses sign-in; showing built-in model catalog.",
                 models: Self.anthropicModelCatalog
             )
+        }
+    }
+
+    private func probeSloppy(config: CoreConfig, request: ProviderProbeRequest) async -> ProviderProbeResponse {
+        do {
+            let entry = config.models.first { !$0.disabled && $0.providerCatalogId == "sloppy" }
+            let base = request.apiUrl ?? entry?.apiUrl ?? ""
+            // An explicitly supplied URL must never inherit a different server's saved token.
+            let token = (request.apiKey ?? (request.apiUrl == nil ? entry?.apiKey : nil) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            var httpRequest = URLRequest(url: try SloppyRemoteEndpoint.url(base: base, path: "providers/models"))
+            httpRequest.timeoutInterval = 30
+            if !token.isEmpty { httpRequest.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization") }
+            let (data, response) = try await transport(httpRequest)
+            guard response.statusCode == 200 else { throw SloppyRemoteError.http(response.statusCode) }
+            let models = try JSONDecoder().decode([ProviderModelOption].self, from: data)
+                .filter { !$0.id.hasPrefix("sloppy:") }
+            return ProviderProbeResponse(providerId: .sloppy, ok: true, usedEnvironmentKey: false,
+                                         message: "Loaded \(models.count) models from Sloppy.", models: models)
+        } catch {
+            return ProviderProbeResponse(providerId: .sloppy, ok: false, usedEnvironmentKey: false,
+                                         message: error.localizedDescription, models: [])
         }
     }
 

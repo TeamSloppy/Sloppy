@@ -31,7 +31,7 @@ struct ProvidersSection: View {
         guard draft.count == config.models.count else { return true }
         for (index, model) in draft.enumerated() {
             let original = config.models[index]
-            if model.title != original.title || model.apiKey != original.apiKey || model.apiUrl != original.apiUrl || model.model != original.model {
+            if model.title != original.title || model.apiKey != original.apiKey || model.apiUrl != original.apiUrl || model.model != original.model || model.providerCatalogId != original.providerCatalogId || model.disabled != original.disabled {
                 return true
             }
         }
@@ -98,20 +98,45 @@ struct ProvidersSection: View {
     private func providerEditor(index: Int) -> some View {
         SettingsSectionCard("Provider details") {
             VStack(alignment: .leading, spacing: 0) {
+                Picker("Connection", selection: Binding(
+                    get: { providerID(for: draft[index]) ?? "custom" },
+                    set: { value in
+                        guard let preset = ModelConnectionPreset(rawValue: value) else { return }
+                        draft[index] = preset.applying(to: draft[index])
+                    }
+                )) {
+                    if providerID(for: draft[index]) == nil { Text("Custom").tag("custom") }
+                    ForEach(ModelConnectionPreset.allCases) { preset in
+                        Text(preset.title).tag(preset.rawValue)
+                    }
+                }
+                .padding()
+                SettingsDivider()
                 SettingsFieldRow("Title", text: Binding(
                     get: { draft[index].title },
                     set: { draft[index].title = $0 }
                 ))
                 SettingsDivider()
-                SettingsFieldRow("API URL", text: Binding(
+                if providerID(for: draft[index]) == "openai-oauth" {
+                    CodexAuthorizationView(apiClient: apiClient) {
+                        await loadProviderModels(debounce: false)
+                    }
+                    .id(index)
+                } else {
+                SettingsFieldRow(providerID(for: draft[index]) == "sloppy" ? "Sloppy server URL" : "API URL", text: Binding(
                     get: { draft[index].apiUrl },
                     set: { draft[index].apiUrl = $0 }
                 ))
                 SettingsDivider()
-                SettingsFieldRow("API Key", text: Binding(
+                SettingsFieldRow(providerID(for: draft[index]) == "sloppy" ? "Sloppy access token" : "API Key", text: Binding(
                     get: { draft[index].apiKey },
                     set: { draft[index].apiKey = $0 }
                 ), isSecure: true)
+                if providerID(for: draft[index]) == "sloppy" {
+                    Text("Enter the other Sloppy server’s address and access token, then choose one of its models.")
+                        .font(.caption).foregroundStyle(.secondary).padding()
+                }
+                }
                 SettingsDivider()
                 SettingsModelPickerRow(
                     modelID: Binding(
@@ -131,7 +156,9 @@ struct ProvidersSection: View {
     }
 
     private func addProvider() {
-        draft.append(SloppyConfig.ModelConfig(title: "new-provider", apiKey: "", apiUrl: "", model: ""))
+        draft.append(ModelConnectionPreset.openAI.applying(to:
+            SloppyConfig.ModelConfig(title: "new-provider", apiKey: "", apiUrl: "", model: "")
+        ))
         selectedIndex = draft.count - 1
     }
 
@@ -223,7 +250,7 @@ struct ProvidersSection: View {
         } catch {
             guard modelCatalogLoadID == loadID else { return }
             modelOptions = []
-            modelCatalogStatus = "Couldn’t load models. You can still use a custom model ID."
+            modelCatalogStatus = error.localizedDescription
         }
     }
 
@@ -258,6 +285,7 @@ struct ProvidersSection: View {
     private static let catalogProviderIDs: Set<String> = [
         "openai-api",
         "openai-oauth",
+        "sloppy",
         "openrouter",
         "ollama",
         "gemini",
