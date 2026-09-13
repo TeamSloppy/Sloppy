@@ -21,7 +21,8 @@ extension CoreService {
         }
 
         var rootTask = project.tasks[taskIndex]
-        guard rootTask.status == ProjectTaskStatus.ready.rawValue else {
+        guard rootTask.status == ProjectTaskStatus.ready.rawValue,
+              pickupRulesPermit(project: project, task: rootTask) else {
             return false
         }
         guard rootTask.swarmTaskId == nil else {
@@ -583,6 +584,10 @@ extension CoreService {
     }
 
     func resolveTaskDelegation(project: ProjectRecord, task: ProjectTask) async -> TaskDelegation? {
+        if let assignments = task.stageAssignments {
+            let assigned = task.activeStage == .review ? assignments.reviewer : assignments.developer
+            guard assigned != nil else { return nil }
+        }
         let board = try? getActorBoard()
         let nodesByID = Dictionary(uniqueKeysWithValues: (board?.nodes ?? []).map { ($0.id, $0) })
         let routeAllowedActorIDs = routableActorIDs(project: project, task: task, board: board)
@@ -751,6 +756,14 @@ extension CoreService {
             }
         }
 
+        if task.activeStage == .review, let reviewer = task.stageAssignments?.reviewer {
+            add(reviewer)
+            return actorIDs
+        }
+        if let developer = task.stageAssignments?.developer {
+            add(developer)
+            return actorIDs
+        }
         add(task.actorId)
 
         let resolvedTeam = task.teamId.flatMap { resolveTeam($0, board: board) }
@@ -901,6 +914,13 @@ extension CoreService {
     }
 
     func nextTeamHandoffDelegate(project: ProjectRecord, task: ProjectTask) async -> TeamRetryDelegate? {
+        if let assignments = task.stageAssignments {
+            guard task.activeStage != .review,
+                  let reviewer = assignments.reviewer,
+                  let board = try? getActorBoard(),
+                  let node = board.nodes.first(where: { $0.id == reviewer }) else { return nil }
+            return TeamRetryDelegate(actorID: reviewer, agentID: node.linkedAgentId)
+        }
         guard let teamID = task.teamId else {
             return nil
         }
@@ -1081,6 +1101,7 @@ extension CoreService {
             }
 
             var task = project.tasks[taskIndex]
+            guard task.status != ProjectTaskStatus.cancelled.rawValue else { continue }
             var effectiveFailureNote = failureNote
             appendTaskLifecycleLog(
                 projectID: project.id,
@@ -1222,7 +1243,8 @@ extension CoreService {
                     await appendSystemTaskComment(
                         projectID: project.id,
                         taskID: task.id,
-                        content: "Task moved to needs_review because the delegated worker reported completion, but explicit project.task_update(done) was not recorded. Evidence: \(delegatedFinishSummary)"
+                        content: "Completion reported; verification is needed before closing this task.\nEvidence: \(delegatedFinishSummary)\nAction required: review the completion evidence and confirm the outcome in Sloppy.",
+                        kind: .actionRequired
                     )
                 } else {
                     resolvedStatus = ProjectTaskStatus.blocked.rawValue
@@ -1230,7 +1252,8 @@ extension CoreService {
                     await appendSystemTaskComment(
                         projectID: project.id,
                         taskID: task.id,
-                        content: "Task flow problem: \(effectiveFailureNote ?? "")"
+                        content: "Task blocked: the worker exited without confirming completion.\nAction required: inspect the execution log and any artifacts in Sloppy, then resume the task or confirm its result.",
+                        kind: .actionRequired
                     )
                 }
 
@@ -1238,10 +1261,13 @@ extension CoreService {
                 let board = try? getActorBoard()
                 let nodesByID = Dictionary(uniqueKeysWithValues: (board?.nodes ?? []).map { ($0.id, $0) })
                 let currentNode = task.claimedActorId.flatMap { nodesByID[$0] }
-                let currentActorIsReviewer = currentNode?.systemRole == .reviewer
+                let currentActorIsReviewer = task.stageAssignments != nil
+                    ? task.activeStage == .review
+                    : currentNode?.systemRole == .reviewer
                 if resolvedStatus == ProjectTaskStatus.done.rawValue, !currentActorIsReviewer {
                     let teamDelegate = await nextTeamHandoffDelegate(project: project, task: task)
-                    completionHandoffDelegate = teamDelegate ?? autopilotReviewerDelegate(project: project, task: task)
+                    completionHandoffDelegate = task.stageAssignments != nil ? teamDelegate
+                        : teamDelegate ?? autopilotReviewerDelegate(project: project, task: task)
                 } else {
                     completionHandoffDelegate = nil
                 }
@@ -1275,10 +1301,12 @@ extension CoreService {
                         return
                     }
                     let nextNode = nodesByID[handoffDelegate.actorID]
-                    let isReviewer = nextNode?.systemRole == .reviewer
+                    let isReviewer = task.stageAssignments?.reviewer == handoffDelegate.actorID
+                        || nextNode?.systemRole == .reviewer
                     let isAutopilotReviewer = normalizeWhitespace(handoffDelegate.agentID ?? "") == normalizeWhitespace(project.autopilotSettings.reviewerAgentId ?? "")
 
                     if isReviewer || isAutopilotReviewer {
+                        task.activeStage = .review
                         project.tasks[taskIndex] = task
                         project.updatedAt = Date()
                         await store.saveProject(project)
@@ -1384,7 +1412,8 @@ extension CoreService {
                     await appendSystemTaskComment(
                         projectID: project.id,
                         taskID: task.id,
-                        content: "Task flow problem: \(failedActor) failed task \(task.id): \(effectiveFailureNote)"
+                        content: "Task execution stopped; no automatic retry was selected.\nLast error: \(effectiveFailureNote)\nAction required: inspect the execution log and any saved results in Sloppy, resolve the error, then return the task to ready.",
+                        kind: .actionRequired
                     )
                 }
                 await runtime.appendSystemMessage(

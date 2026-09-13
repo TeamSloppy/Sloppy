@@ -136,7 +136,7 @@ struct NodePluginRuntime: Sendable {
             process.currentDirectoryURL = entrypointURL.deletingLastPathComponent()
             process.environment = childProcessEnvironment()
 
-            let stdinPipe = Pipe()
+            let stdinPipe = try makeProcessInputPipe()
             let stdoutPipe = Pipe()
             let stderrPipe = Pipe()
             process.standardInput = stdinPipe
@@ -147,7 +147,7 @@ struct NodePluginRuntime: Sendable {
             let stderrBuffer = NodePluginOutputBuffer()
 
             try process.run()
-            stdinPipe.fileHandleForWriting.write(Data(input.utf8))
+            try stdinPipe.fileHandleForWriting.write(contentsOf: Data(input.utf8))
             try? stdinPipe.fileHandleForWriting.close()
 
             let stdoutTask = Task.detached {

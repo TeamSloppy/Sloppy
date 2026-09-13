@@ -145,6 +145,7 @@ extension CoreService {
         path: String,
         body: Data? = nil,
         headers: [String: String] = [:],
+        localAuthorizationHeader: String? = nil,
         timeout: TimeInterval = 30
     ) async throws -> CoreRouterResponse {
         let config: NodeConfig
@@ -156,13 +157,15 @@ extension CoreService {
         var forwardedHeaders = headers.reduce(into: [String: String]()) { partial, item in
             partial[item.key.lowercased()] = item.value
         }
-        if isLoginPasswordMode(), meshUserIdHeader(from: forwardedHeaders) == nil {
+        if await isLoginPasswordMode(), meshUserIdHeader(from: forwardedHeaders) == nil {
             throw MeshCoreProxyError.missingMeshUserContext
         }
         // The coordinator already authenticated the client. Never forward either the
         // client token or this node's dashboard token to another machine.
         forwardedHeaders["authorization"] = nil
         if nodeId == config.identity.nodeId {
+            // Recheck the caller against local route permissions without exporting its token.
+            forwardedHeaders["authorization"] = localAuthorizationHeader
             return await CoreRouter(service: self).handle(
                 method: method,
                 path: path,
@@ -450,7 +453,7 @@ extension CoreService {
             }
         }
 
-        if isLoginPasswordMode(), meshUserIdHeader(from: headers) == nil {
+        if await isLoginPasswordMode(), meshUserIdHeader(from: headers) == nil {
             return meshCoreRPCErrorPayload(
                 requestId: envelope.id,
                 method: method,
@@ -495,7 +498,8 @@ extension CoreService {
         ])
     }
 
-    private func isLoginPasswordMode() -> Bool {
+    private func isLoginPasswordMode() async -> Bool {
+        if await identityAuthEnabled() { return true }
         let status = dashboardAuthStatus()
         return status.enabled && !status.acceptsLegacyToken
     }

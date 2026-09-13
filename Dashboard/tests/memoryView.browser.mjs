@@ -40,7 +40,7 @@ createRoot(document.getElementById("root")!).render(<App/>);`);
   let saves = 0;
   let failConfig = false;
   const records = [
-    { id: "one", note: "Prefer concise answers", kind: "preference", scope: { type: "agent", id: "helper" } },
+    { id: "one", note: "Prefer concise answers", kind: "preference", source: { type: "memory_import", id: "legacy-session" }, scope: { type: "agent", id: "helper" } },
     { id: "two", note: "Use SQLite for Aurora", kind: "decision", scope: { type: "project", id: "aurora" } },
     { id: "three", note: "Shared team convention", kind: "fact", scope: { type: "global", id: "shared" } }
   ];
@@ -53,11 +53,15 @@ createRoot(document.getElementById("root")!).render(<App/>);`);
     const url = new URL(req.url());
     if (req.method() === "OPTIONS") return route.fulfill({ status: 204, headers: { "access-control-allow-origin": "*", "access-control-allow-headers": "*", "access-control-allow-methods": "GET, PUT, POST" } });
     let data = {};
-    if (url.pathname === "/v1/config") {
+    if (url.pathname === "/v1/auth/challenge") data = { mode: "token" };
+    else if (url.pathname.includes("/memory-imports/for-memory/")) data = [{ jobId: "job", sourceId: "source", name: "old-export.md", startUTF8: 0, endUTF8: 30 }];
+    else if (url.pathname.includes("/memory-imports/") && url.pathname.includes("/sources/")) data = { name: "old-export.md", sha256: "verified", content: "Archived legacy preference" };
+    else if (url.pathname === "/v1/config") {
       if (failConfig) return route.fulfill({ status: 503, json: { error: "unavailable" }, headers: { "access-control-allow-origin": "*" } });
       if (req.method() === "PUT") { config = req.postDataJSON(); saves++; }
       data = config;
-    } else if (url.pathname === "/v1/agents") data = [{ id: "helper", displayName: "Helper" }];
+    } else if (url.pathname.endsWith("/memory-imports")) data = [];
+    else if (url.pathname === "/v1/agents") data = [{ id: "helper", displayName: "Helper" }];
     else if (url.pathname === "/v1/projects") data = [{ id: "aurora", name: "Aurora" }];
     else if (url.pathname.endsWith("/config") && url.pathname.includes("/agents/")) data = { documents: { memoryMarkdown: "# Curated memory\nKeep existing notes." } };
     else if (url.pathname.endsWith("/graph")) data = { nodes: [], edges: [], seedIds: [], truncated: false };
@@ -82,6 +86,9 @@ createRoot(document.getElementById("root")!).render(<App/>);`);
   await page.getByRole("combobox", { name: "Memory scope" }).click();
   await page.getByRole("option", { name: "Helper Agents" }).click();
   await page.getByRole("button", { name: "Import memory", exact: true }).waitFor();
+  await page.getByRole("button", { name: "Open archived source", exact: true }).click();
+  await page.getByText("Archived legacy preference", { exact: true }).waitFor();
+  await page.getByRole("button", { name: "Close source", exact: true }).click();
   await page.getByText("MEMORY.md", { exact: true }).click();
   await page.getByText("Keep existing notes.", { exact: false }).waitFor();
   assert.match(page.url(), /memory\/memories\/agent\/helper$/);
@@ -101,7 +108,9 @@ createRoot(document.getElementById("root")!).render(<App/>);`);
   await page.getByRole("button", { name: "Dreams", exact: true }).click();
   await page.getByRole("heading", { name: "Autodream", exact: true }).waitFor();
   await page.locator('input[type="checkbox"]').uncheck();
+  const dreamSaved = page.waitForResponse((response) => new URL(response.url()).pathname === "/v1/config" && response.request().method() === "PUT" && response.request().postDataJSON()?.visor?.autodream?.enabled === false);
   await page.getByRole("button", { name: "Apply", exact: true }).click();
+  await dreamSaved;
   await page.getByText("Config saved", { exact: true }).waitFor();
   assert.equal(config.visor.autodream.enabled, false);
   assert.equal(config.memory.provider.timeoutMs, 900);

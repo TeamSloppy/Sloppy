@@ -272,6 +272,7 @@ struct ToolPathResolutionTests {
     func invokeToolRejectsCwdWithoutExtraRoots() async throws {
         let config = CoreConfig.test
         let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+        await service.setToolApprovalPresenter { _ in .reject }
         let router = CoreRouter(service: service)
 
         let agentID = "test-extra-roots-agent"
@@ -303,7 +304,7 @@ struct ToolPathResolutionTests {
             ])
         )
         #expect(result.ok == false)
-        #expect(result.error?.code == "cwd_not_allowed")
+        #expect(result.error?.code == "tool_approval_rejected")
     }
 
     @Test("add session directory allows tools to use outside cwd")

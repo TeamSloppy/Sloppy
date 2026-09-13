@@ -1,6 +1,8 @@
+import { TaskStageAssignmentsEditor } from "./TaskStageAssignmentsEditor";
 import React, { useState, useRef, useEffect, useCallback, useMemo, forwardRef } from "react";
 import { createPortal } from "react-dom";
 import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import {
     TASK_STATUSES,
     TASK_PRIORITIES,
@@ -14,6 +16,7 @@ import {
 import { buildRelatedIssueGroups } from "./taskRelations";
 import { taskDescriptionMode } from "./taskDescriptionMode";
 import { linkifyTaskReferences, taskByReference } from "./taskReferenceLinks";
+import { normalizeTrackerMarkdown, parseTrackerMarkdown } from "./trackerMarkdown";
 import { resolveLinkedAgentPet } from "./commentAvatars";
 import {
     fetchTaskComments,
@@ -41,38 +44,73 @@ import { ReviewDiffPanel } from "./ReviewDiffPanel";
 import { LoadingSkeleton } from "../../components/LoadingSkeleton";
 
 function LinkedMarkdown({ children, project, openTaskDetails }) {
-    const source = linkifyTaskReferences(children, project);
-    return (
-        <ReactMarkdown
-            components={{
-                a({ href, children: linkChildren, ...props }) {
-                    const rawHref = String(href || "");
-                    if (rawHref.startsWith("sloppy-task:")) {
-                        const taskId = decodeURIComponent(rawHref.slice("sloppy-task:".length));
-                        const linkedTask = taskByReference(project, taskId);
-                        return (
-                            <button
-                                type="button"
-                                className="td-task-ref-link"
-                                onClick={(event) => {
-                                    event.stopPropagation();
-                                    linkedTask && openTaskDetails?.(linkedTask);
-                                }}
-                                disabled={!linkedTask}
-                                title={linkedTask?.title || taskId}
-                            >
-                                {linkChildren}
-                            </button>
-                        );
-                    }
-                    const external = /^https?:\/\//i.test(rawHref);
-                    return <a href={href} target={external ? "_blank" : undefined} rel={external ? "noreferrer" : undefined} {...props}>{linkChildren}</a>;
-                }
-            }}
-        >
-            {source}
-        </ReactMarkdown>
-    );
+    const normalized = normalizeTrackerMarkdown(children);
+    const source = linkifyTaskReferences(normalized, project);
+    const nodes = parseTrackerMarkdown(source);
+    const components = {
+        a({ href, children: linkChildren, ...props }) {
+            const rawHref = String(href || "");
+            if (rawHref.startsWith("sloppy-task:")) {
+                const taskId = decodeURIComponent(rawHref.slice("sloppy-task:".length));
+                const linkedTask = taskByReference(project, taskId);
+                return (
+                    <button
+                        type="button"
+                        className="td-task-ref-link"
+                        onClick={(event) => {
+                            event.stopPropagation();
+                            linkedTask && openTaskDetails?.(linkedTask);
+                        }}
+                        disabled={!linkedTask}
+                        title={linkedTask?.title || taskId}
+                    >
+                        {linkChildren}
+                    </button>
+                );
+            }
+            const external = /^https?:\/\//i.test(rawHref);
+            return <a href={href} target={external ? "_blank" : undefined} rel={external ? "noopener noreferrer" : undefined} {...props}>{linkChildren}</a>;
+        },
+        img({ src, alt, title, ...props }) {
+            const size = String(title || "").match(/^yfm-size:(\d+)x(\d+)$/);
+            return (
+                <img
+                    src={src}
+                    alt={alt || "Tracker attachment"}
+                    title={size ? undefined : title}
+                    width={size ? Number(size[1]) : undefined}
+                    height={size ? Number(size[2]) : undefined}
+                    loading="lazy"
+                    className="td-markdown-image"
+                    {...props}
+                />
+            );
+        }
+    };
+
+    const renderNodes = (items, keyPrefix = "markdown") => items.map((node, index) => {
+        const key = `${keyPrefix}-${index}`;
+        if (node.type === "cut") {
+            return (
+                <details key={key} className="td-yfm-cut">
+                    <summary>
+                        <span className="material-symbols-rounded" aria-hidden="true">chevron_right</span>
+                        <strong>{node.title}</strong>
+                    </summary>
+                    <div className="td-yfm-cut-content">
+                        {renderNodes(node.children, key)}
+                    </div>
+                </details>
+            );
+        }
+        return (
+            <ReactMarkdown key={key} remarkPlugins={[remarkGfm]} components={components}>
+                {node.content}
+            </ReactMarkdown>
+        );
+    });
+
+    return renderNodes(nodes);
 }
 
 function currentMentionQuery(value, selectionStart) {
@@ -1362,6 +1400,7 @@ export function TaskDetailView({
         editDraft.status !== task.status ||
         editDraft.actorId !== resolvedActorId ||
         editDraft.teamId !== (task.teamId || "") ||
+        JSON.stringify(editDraft.stageAssignments || null) !== JSON.stringify(task.stageAssignments || null) ||
         editDraft.kind !== (task.kind || "") ||
         editDraft.loopModeOverride !== (task.loopModeOverride || "");
 
@@ -1489,6 +1528,7 @@ export function TaskDetailView({
     function renderPropertiesBody() {
         return (
                 <div className="td-props">
+                    <TaskStageAssignmentsEditor draft={editDraft} actors={createModalActors} teams={createModalTeams} onChange={(value) => updateEditDraft("stageAssignments", value)} />
                     <div className="td-prop-row">
                         <span className="td-prop-label">Status</span>
                         <DetailDropdown

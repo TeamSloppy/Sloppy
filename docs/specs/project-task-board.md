@@ -46,6 +46,14 @@ Sloppy projects are the operator-facing unit for grouping repository context, ch
 - `done` is only valid when the caller provides completion confidence and evidence.
 - Cancellation must preserve the task record with a reason instead of silently deleting work.
 
+### Project worker settings
+- **Projects → Settings → Workers** contains the existing autopilot settings and an **Automatic task pickup** switch.
+- Pickup is enabled by default, including for older projects without `automaticTaskPickupEnabled`.
+- Disabling pickup keeps ready tasks queued across server startup, Kanban maintenance, and status or assignee updates. It also pauses autopilot backlog scheduling, even when autopilot remains enabled.
+- Running tasks continue. Re-enabling pickup allows the next maintenance pass to dispatch ready tasks under the existing routing rules.
+- **Stop all task executions** in Workers immediately disables pickup, interrupts task sessions and their processes, and cancels active workers and tasks. Queued tasks remain on the board. Failures and unconfirmed remote stops are reported in the settings panel.
+- The project API persists `automaticTaskPickupEnabled` independently of `autopilotSettings`; partial updates preserve it when omitted.
+
 ### FR-3: Assignment and routing metadata
 - Tasks may carry `actorId`, `teamId`, `selectedModel`, `kind`, `priority`, `tags`, dependencies, and optional parent task.
 - Autonomous routing history must be recorded so operators can see why a task moved or stalled.

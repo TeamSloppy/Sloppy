@@ -1,0 +1,31 @@
+.team-board-panel { flex-shrink: 0; margin-bottom: 16px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); }
+.team-board-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.team-board-heading p, .team-role-note { color: var(--muted); font-size: 12px; margin: 5px 0 12px; }
+.team-board-heading button, .team-role-actions button { padding: 7px 12px; border: 1px solid var(--line); background: var(--bg); color: var(--text); border-radius: 6px; cursor: pointer; }
+.team-board-roster { margin-top: 12px; }
+.team-board-members { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.team-board-member { display: flex; gap: 10px; align-items: center; text-align: left; padding: 9px 12px; background: var(--bg); border: 1px solid var(--line); color: var(--text); border-radius: 8px; cursor: pointer; }
+.team-board-member small { display: block; color: var(--muted); margin-top: 3px; }
+.team-board-avatar { display: grid; place-items: center; width: 30px; height: 30px; border-radius: 50%; color: var(--accent); border: 1px solid var(--line); }
+.team-board-edit { border-top: 1px solid var(--line); margin-top: 16px; padding-top: 16px; }
+.team-role-row { display: flex; flex-wrap: wrap; align-items: center; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--line); }
+.team-role-person { min-width: 110px; overflow-wrap: anywhere; }
+.team-role-options { display: flex; flex-wrap: wrap; gap: 14px; }
+.team-role-options label { display: flex; align-items: center; flex-direction: row; gap: 6px; font-size: 12px; }
+.team-role-options input { width: auto; accent-color: var(--accent); }
+.team-role-actions { display: flex; gap: 8px; margin-top: 12px; }
+.team-role-error { color: var(--danger); }
+.team-assignment-picker { min-width: 160px; position: relative; }
+.team-assignment-picker > button { width: 100%; text-align: left; background: var(--bg); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 8px 10px; cursor: pointer; overflow-wrap: anywhere; }
+.team-assignment-menu { position: absolute; z-index: 80; top: calc(100% + 4px); left: 0; width: max(100%, 220px); max-width: 280px; max-height: 260px; overflow-y: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 6px; padding: 6px; }
+.team-assignment-menu > input { width: 100%; background: var(--bg); color: var(--text); padding: 8px; border: 1px solid var(--line); }
+.team-assignment-menu > button { display: block; width: 100%; text-align: left; background: var(--surface); color: var(--text); padding: 8px; border: 0; cursor: pointer; }
+.team-assignment-menu > button:hover, .team-assignment-menu > button.selected { color: var(--accent); background: var(--bg); }
+.task-stage-assignments { width: 100%; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.task-stage-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 10px; margin: 12px 0; }
+.team-role-label { color: var(--muted); font-size: 12px; display: block; margin-bottom: 5px; }
+.actor-node .team-role-badges { color: var(--accent); font-size: 10px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.project-task-stage-summary { color: var(--muted); font-size: 11px; margin: 6px 0; overflow-wrap: anywhere; }
+@media (max-width: 560px) { .team-board-panel { padding: 12px; } .team-assignment-picker { min-width: 0; width: 100%; } .team-assignment-menu { width: 100%; max-width: 100%; } }
+
+.project-column-owners { padding: 6px 10px; color: var(--muted); font-size: 11px; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }

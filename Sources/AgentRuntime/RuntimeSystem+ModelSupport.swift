@@ -210,6 +210,7 @@ extension RuntimeSystem {
             },
             toolCallDecisionOverride: { toolCall in
                 let toolName = resolvedNameMap[toolCall.toolName] ?? toolCall.toolName
+                if await loopTracker?.toolLoopStopMessage != nil { return .stop }
                 if await loopTracker?.hitToolRoundLimit == true {
                     return .stop
                 }
@@ -221,7 +222,11 @@ extension RuntimeSystem {
             argumentDiagnosticsHandler: { diagnostic in
                 await self.logNativeToolArgumentDiagnostic(channelId: channelId, model: model, diagnostic: diagnostic)
             },
-            toolCallHandler: toolCallHandler
+            toolCallHandler: { request in
+                let result = await toolCallHandler(request)
+                await loopTracker?.recordLoopBlock(result)
+                return result
+            }
         )
     }
 
@@ -502,6 +507,10 @@ extension RuntimeSystem {
             return "Model provider error: \(error)"
         }
 
+        if let message = await loopTracker?.toolLoopStopMessage {
+            sessionsByChannel.removeValue(forKey: channelId)
+            return message
+        }
         if latest.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             let response = try? await freshSession.respond(to: userMessage, options: options)
             latest = response?.content ?? ""
@@ -510,6 +519,10 @@ extension RuntimeSystem {
             }
         }
 
+        if let message = await loopTracker?.toolLoopStopMessage {
+            sessionsByChannel.removeValue(forKey: channelId)
+            return message
+        }
         if let loopTracker, await loopTracker.hitToolRoundLimit {
             sessionsByChannel.removeValue(forKey: channelId)
             return Self.toolRoundLimitMessage

@@ -116,8 +116,8 @@ func workerCompletedWithDelegatedFinishEvidenceMovesToNeedsReview() async throws
     let comments = await service.listTaskComments(projectID: projectID, taskID: taskID)
     #expect(comments.contains {
         $0.authorActorId == "system"
-            && $0.content.contains("delegated worker reported completion")
-            && $0.content.contains("needs_review")
+            && $0.kind == .actionRequired
+            && $0.content.contains("Implemented and committed the requested change.")
     })
 }
 

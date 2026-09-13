@@ -2013,7 +2013,7 @@ public actor SQLiteStore: PersistenceStore {
                    created_at, updated_at, repo_path, review_settings_json,
                    icon, is_archived, task_loop_mode, task_sync_settings_json,
                    is_favorite, source_control_provider_id, autopilot_settings_json,
-                   project_kind, directory_paths_json
+                   project_kind, directory_paths_json, automatic_task_pickup_enabled
             FROM dashboard_projects
             ORDER BY created_at ASC;
             """
@@ -2093,6 +2093,7 @@ public actor SQLiteStore: PersistenceStore {
                     repoPath: repoPath,
                     sourceControlProviderId: sourceControlProviderId,
                     reviewSettings: reviewSettings,
+                    automaticTaskPickupEnabled: sqlite3_column_int(statement, 21) != 0,
                     autopilotSettings: autopilotSettings,
                     taskLoopMode: taskLoopMode,
                     taskSyncSettings: taskSyncSettings,
@@ -2217,7 +2218,7 @@ public actor SQLiteStore: PersistenceStore {
                        created_at, updated_at, repo_path, review_settings_json,
                        icon, is_archived, task_loop_mode, task_sync_settings_json,
                        is_favorite, source_control_provider_id, autopilot_settings_json,
-                       project_kind, directory_paths_json
+                       project_kind, directory_paths_json, automatic_task_pickup_enabled
                 FROM dashboard_projects
                 WHERE id = ?
                 LIMIT 1;
@@ -2288,6 +2289,7 @@ public actor SQLiteStore: PersistenceStore {
                     repoPath: repoPath,
                     sourceControlProviderId: sourceControlProviderId,
                     reviewSettings: reviewSettings,
+                    automaticTaskPickupEnabled: sqlite3_column_int(statement, 21) != 0,
                     autopilotSettings: autopilotSettings,
                     taskLoopMode: taskLoopMode,
                     taskSyncSettings: taskSyncSettings,
@@ -2334,8 +2336,9 @@ public actor SQLiteStore: PersistenceStore {
                 is_favorite,
                 source_control_provider_id,
                 project_kind,
-                directory_paths_json
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                directory_paths_json,
+                automatic_task_pickup_enabled
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
 
         var projectStatement: OpaquePointer?
@@ -2375,6 +2378,7 @@ public actor SQLiteStore: PersistenceStore {
         bindOptionalText(project.sourceControlProviderId, at: 19, statement: projectStatement)
         bindText(project.kind.rawValue, at: 20, statement: projectStatement)
         bindText(directoryPathsJSON, at: 21, statement: projectStatement)
+        sqlite3_bind_int(projectStatement, 22, project.automaticTaskPickupEnabled ? 1 : 0)
         guard sqlite3_step(projectStatement) == SQLITE_DONE else {
             return
         }
@@ -2443,8 +2447,10 @@ public actor SQLiteStore: PersistenceStore {
                 external_metadata_json,
                 tags_json,
                 execution_node_id,
-                kanban_column_entered_at
-            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+                kanban_column_entered_at,
+                stage_assignments_json,
+                active_stage
+            ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
             """
 
         for task in project.tasks {
@@ -2498,6 +2504,9 @@ public actor SQLiteStore: PersistenceStore {
             bindText(tagsJSON, at: 33, statement: taskStatement)
             bindOptionalText(task.executionNodeId, at: 34, statement: taskStatement)
             bindOptionalText(task.kanbanColumnEnteredAt.map { isoFormatter.string(from: $0) }, at: 35, statement: taskStatement)
+            let assignmentsJSON = task.stageAssignments.flatMap { try? String(data: JSONEncoder().encode($0), encoding: .utf8) }
+            bindOptionalText(assignmentsJSON, at: 36, statement: taskStatement)
+            bindOptionalText(task.activeStage?.rawValue, at: 37, statement: taskStatement)
             _ = sqlite3_step(taskStatement)
         }
 #endif
@@ -3315,7 +3324,9 @@ public actor SQLiteStore: PersistenceStore {
                 external_metadata_json,
                 tags_json,
                 execution_node_id,
-                kanban_column_entered_at
+                kanban_column_entered_at,
+                stage_assignments_json,
+                active_stage
             FROM dashboard_project_tasks
             WHERE project_id = ?
             ORDER BY created_at ASC;
@@ -3369,6 +3380,10 @@ public actor SQLiteStore: PersistenceStore {
                     actorId: optionalText(statement: statement, index: 6),
                     executionNodeId: optionalText(statement: statement, index: 32),
                     teamId: optionalText(statement: statement, index: 7),
+                    stageAssignments: optionalText(statement: statement, index: 34).flatMap {
+                        try? JSONDecoder().decode(TaskStageAssignments.self, from: Data($0.utf8))
+                    },
+                    activeStage: optionalText(statement: statement, index: 35).flatMap(TaskExecutionStage.init(rawValue:)),
                     claimedActorId: optionalText(statement: statement, index: 8),
                     claimedAgentId: optionalText(statement: statement, index: 9),
                     parentTaskId: optionalText(statement: statement, index: 10),
@@ -5272,6 +5287,11 @@ public actor SQLiteStore: PersistenceStore {
         )
         _ = sqlite3_exec(
             db,
+            "ALTER TABLE dashboard_projects ADD COLUMN automatic_task_pickup_enabled INTEGER NOT NULL DEFAULT 1;",
+            nil, nil, nil
+        )
+        _ = sqlite3_exec(
+            db,
             "ALTER TABLE dashboard_projects ADD COLUMN autopilot_settings_json TEXT NOT NULL DEFAULT '{}';",
             nil, nil, nil
         )
@@ -5298,6 +5318,16 @@ public actor SQLiteStore: PersistenceStore {
         _ = sqlite3_exec(
             db,
             "ALTER TABLE dashboard_project_tasks ADD COLUMN selected_model TEXT;",
+            nil, nil, nil
+        )
+        _ = sqlite3_exec(
+            db,
+            "ALTER TABLE dashboard_project_tasks ADD COLUMN stage_assignments_json TEXT;",
+            nil, nil, nil
+        )
+        _ = sqlite3_exec(
+            db,
+            "ALTER TABLE dashboard_project_tasks ADD COLUMN active_stage TEXT;",
             nil, nil, nil
         )
         _ = sqlite3_exec(

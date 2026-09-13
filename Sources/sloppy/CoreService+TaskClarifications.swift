@@ -91,6 +91,21 @@ extension CoreService {
             resumePoint: "Resume task \(project.tasks[taskIndex].id) after clarification answer"
         )
 
+        if targetType != .actor {
+            let options = record.options.map { "- \($0.label)" }.joined(separator: "\n")
+            let content = [
+                record.questionText,
+                options,
+                "Action required: answer this clarification in Sloppy to resume the task."
+            ].filter { !$0.isEmpty }.joined(separator: "\n\n")
+            await appendSystemTaskComment(
+                projectID: normalizedProject,
+                taskID: record.taskId,
+                content: content,
+                kind: .actionRequired
+            )
+        }
+
         return record
     }
 

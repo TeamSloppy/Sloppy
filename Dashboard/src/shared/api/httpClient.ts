@@ -1,6 +1,6 @@
 import { emitNotification } from "../../features/notifications/notificationBus";
 import {
-  getDashboardAuthToken,
+  captureDashboardAuth,
   invalidateDashboardAuthToken
 } from "./dashboardAuth";
 
@@ -22,15 +22,16 @@ export interface JsonResponse<TData> {
 
 export async function requestBlob(path: string, signal?: AbortSignal): Promise<Blob | null> {
   const headers = new Headers();
-  const dashboardToken = getDashboardAuthToken();
-  if (isProtectedDashboardRequest(path) && dashboardToken) {
-    headers.set("authorization", `Bearer ${dashboardToken}`);
+  const auth = captureDashboardAuth();
+  const requestURL = buildApiURL(path);
+  if (isProtectedDashboardRequest(path) && auth.token) {
+    headers.set("authorization", `Bearer ${auth.token}`);
   }
   try {
-    const response = await fetch(buildApiURL(path), { method: "GET", headers, signal });
+    const response = await fetch(requestURL, { method: "GET", headers, signal });
     markNetworkConnected();
-    if (response.status === 401) {
-      invalidateDashboardAuthToken();
+    if (response.status === 401 && headers.has("authorization") && requestURL === buildApiURL(path) && !signal?.aborted) {
+      invalidateDashboardAuthToken(auth);
     }
     if (!response.ok) {
       return null;
@@ -195,11 +196,14 @@ export async function requestJson<TResponse, TBody = unknown>(
     headers.set("content-type", "application/json");
   }
 
-  const protectedRequest = isProtectedDashboardRequest(options.path);
-  if (protectedRequest && !headers.has("authorization")) {
-    const dashboardToken = getDashboardAuthToken();
-    if (dashboardToken) {
-      headers.set("authorization", `Bearer ${dashboardToken}`);
+  const auth = captureDashboardAuth();
+  const requestURL = buildApiURL(options.path);
+  // Explicit credentials belong to a caller's validation/probe, not the
+  // global session. Its failure is returned to that caller without logging out.
+  const usesDashboardSession = isProtectedDashboardRequest(options.path) && !headers.has("authorization");
+  if (usesDashboardSession) {
+    if (auth.token) {
+      headers.set("authorization", `Bearer ${auth.token}`);
     }
   }
 
@@ -215,11 +219,11 @@ export async function requestJson<TResponse, TBody = unknown>(
   }
 
   try {
-    const response = await fetch(buildApiURL(options.path), requestInit);
+    const response = await fetch(requestURL, requestInit);
     markNetworkConnected();
     const data = await parseJSONSafely<TResponse>(response);
-    if (response.status === 401 && (protectedRequest || headers.has("authorization"))) {
-      invalidateDashboardAuthToken();
+    if (response.status === 401 && usesDashboardSession && requestURL === buildApiURL(options.path) && !options.signal?.aborted) {
+      invalidateDashboardAuthToken(auth);
     }
     return { ok: response.ok, status: response.status, data };
   } catch {

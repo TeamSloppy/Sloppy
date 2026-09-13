@@ -23,6 +23,7 @@ final class ToolExecutionService: @unchecked Sendable {
     var projectService: (any ProjectToolService)?
     var configService: (any RuntimeConfigToolService)?
     var skillsService: (any SkillsToolService)?
+    var memoryImportService: (any MemoryImportToolService)?
     var siteService: (any SiteToolService)?
     /// `(agentID, userID, field, markdown)` — used to build per-invocation `ToolContext.applyAgentMarkdown`.
     var applyAgentMarkdown: ((String, String?, AgentMarkdownDocumentField, String) async throws -> Void)?
@@ -176,6 +177,7 @@ final class ToolExecutionService: @unchecked Sendable {
             projectService: projectService,
             configService: configService,
             skillsService: skillsService,
+            memoryImportService: memoryImportService,
             siteService: siteService,
             lspManager: lspManager,
             browserService: browserService,

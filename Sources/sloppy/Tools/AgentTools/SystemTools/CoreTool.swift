@@ -61,6 +61,7 @@ struct ToolContext: @unchecked Sendable {
     let projectService: (any ProjectToolService)?
     let configService: (any RuntimeConfigToolService)?
     let skillsService: (any SkillsToolService)?
+    let memoryImportService: (any MemoryImportToolService)?
     let siteService: (any SiteToolService)?
     let lspManager: LSPServerManager?
     /// When set, updates `USER.md` / `MEMORY.md` through the same validation path as the HTTP API.
@@ -94,6 +95,7 @@ struct ToolContext: @unchecked Sendable {
         projectService: (any ProjectToolService)?,
         configService: (any RuntimeConfigToolService)?,
         skillsService: (any SkillsToolService)?,
+        memoryImportService: (any MemoryImportToolService)? = nil,
         siteService: (any SiteToolService)? = nil,
         lspManager: LSPServerManager?,
         browserService: BrowserCDPService? = nil,
@@ -129,6 +131,7 @@ struct ToolContext: @unchecked Sendable {
         self.projectService = projectService
         self.configService = configService
         self.skillsService = skillsService
+        self.memoryImportService = memoryImportService
         self.siteService = siteService
         self.lspManager = lspManager
         self.applyAgentMarkdown = applyAgentMarkdown
@@ -429,12 +432,25 @@ func toolSuccess(tool: String, data: JSONValue) -> ToolInvocationResult {
     ToolInvocationResult(tool: tool, ok: true, data: data)
 }
 
-func toolFailure(tool: String, code: String, message: String, retryable: Bool, hint: String? = nil) -> ToolInvocationResult {
+func toolFailure(tool: String, code: String, message: String, retryable: Bool, hint: String? = nil, argumentRecovery: ToolArgumentRecovery? = nil) -> ToolInvocationResult {
     ToolInvocationResult(
         tool: tool,
         ok: false,
-        error: ToolErrorPayload(code: code, message: message, retryable: retryable, hint: hint)
+        error: ToolErrorPayload(code: code, message: message, retryable: retryable, hint: hint, argumentRecovery: argumentRecovery)
     )
+}
+
+func toolArgumentCorrectionExhausted(_ result: ToolInvocationResult) -> ToolInvocationResult {
+    guard let error = result.error else { return result }
+    var stopped = result
+    stopped.error = ToolErrorPayload(
+        code: "tool_loop_detected",
+        message: "Argument correction failed (\(error.code)): \(error.message) The operation was stopped after one correction attempt.",
+        retryable: false,
+        hint: error.hint,
+        argumentRecovery: error.argumentRecovery
+    )
+    return stopped
 }
 
 // MARK: - GenerationSchema helpers

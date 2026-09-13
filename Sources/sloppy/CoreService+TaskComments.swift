@@ -23,7 +23,8 @@ extension CoreService {
             taskId: taskID,
             content: request.content,
             authorActorId: request.authorActorId,
-            mentionedActorId: request.mentionedActorId
+            mentionedActorId: request.mentionedActorId,
+            kind: request.kind ?? (request.authorActorId == "system" ? .technical : .userComment)
         )
         comments.append(comment)
         saveTaskComments(comments, projectID: projectID, taskID: taskID)
@@ -60,7 +61,8 @@ extension CoreService {
         taskID: String,
         content: String,
         authorActorId: String,
-        mentionedActorId: String? = nil
+        mentionedActorId: String? = nil,
+        kind: TaskCommentKind? = nil
     ) async -> TaskComment? {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         let author = authorActorId.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -73,7 +75,8 @@ extension CoreService {
             request: TaskCommentCreateRequest(
                 content: trimmed,
                 authorActorId: author,
-                mentionedActorId: mentionedActorId
+                mentionedActorId: mentionedActorId,
+                kind: kind
             )
         )
     }
@@ -88,7 +91,8 @@ extension CoreService {
             projectID: projectID,
             taskID: taskID,
             content: completionNote,
-            authorActorId: authorActorId
+            authorActorId: authorActorId,
+            kind: .result
         )
     }
 
@@ -295,7 +299,8 @@ extension CoreService {
             id: UUID().uuidString,
             taskId: taskID,
             content: "\(agentName) \(action) session [\(sessionName)](\(sessionURL))",
-            authorActorId: "system"
+            authorActorId: "system",
+            kind: .technical
         )
         comments.append(statusComment)
         saveTaskComments(comments, projectID: projectID, taskID: taskID)

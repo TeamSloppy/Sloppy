@@ -1,4 +1,5 @@
 import { sessionChannelMatchesBinding } from "../../shared/channelGatewayScope";
+import { clonePickupRules } from "./taskPickupRules";
 
 export const ACTIVE_WORKER_STATUSES = new Set(["running", "waitinginput", "waiting_input"]);
 
@@ -92,6 +93,7 @@ export function emptyTaskDraft(initialStatus = "backlog") {
     loopModeOverride: "",
     actorId: "",
     teamId: "",
+    stageAssignments: null,
     contextFiles: [],
     contextTasks: [],
     contextSkills: [],
@@ -122,6 +124,8 @@ export function normalizeTask(task, index = 0) {
     loopModeOverride: String(task?.loopModeOverride || "").trim(),
     actorId: String(task?.actorId || "").trim(),
     teamId: String(task?.teamId || "").trim(),
+    stageAssignments: task?.stageAssignments || null,
+    activeStage: task?.activeStage || null,
     claimedActorId: String(task?.claimedActorId || "").trim(),
     claimedAgentId: String(task?.claimedAgentId || "").trim(),
     parentTaskId: String(task?.parentTaskId || "").trim(),
@@ -227,6 +231,7 @@ export function normalizeProject(project, index = 0) {
       includedTags: Array.isArray(autopilotRaw.includedTags) ? autopilotRaw.includedTags.map(String) : [],
       ignoredTags: Array.isArray(autopilotRaw.ignoredTags) ? autopilotRaw.ignoredTags.map(String) : [],
       trustedAuthors: Array.isArray(autopilotRaw.trustedAuthors) ? autopilotRaw.trustedAuthors.map(String) : [],
+      pickupRules: clonePickupRules(autopilotRaw.pickupRules),
       maxParallelTasks: Number.isFinite(Number(autopilotRaw.maxParallelTasks))
         ? Math.max(1, Number(autopilotRaw.maxParallelTasks))
         : 1,
@@ -245,6 +250,7 @@ export function normalizeProject(project, index = 0) {
       includedTags: [],
       ignoredTags: [],
       trustedAuthors: [],
+      pickupRules: clonePickupRules(),
       maxParallelTasks: 1,
       canUseWeb: false,
       canEditFiles: false,
@@ -278,6 +284,7 @@ export function normalizeProject(project, index = 0) {
     worktreeRootPath: String(project?.worktreeRootPath || "").trim() || null,
     sourceControlProviderId: String(project?.sourceControlProviderId || "").trim() || null,
     reviewSettings,
+    automaticTaskPickupEnabled: project?.automaticTaskPickupEnabled !== false,
     autopilotSettings,
     taskLoopMode: String(project?.taskLoopMode || "human").trim(),
     isFavorite: Boolean(project?.isFavorite),

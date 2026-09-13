@@ -498,7 +498,7 @@ func agentSkillsStoreReturnsPersistedNestedSkillPath() throws {
 func installLocalSkillCopiesDirectoryAndUsesFrontmatterMetadata() async throws {
     let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
     let source = root.appendingPathComponent("source skill", isDirectory: true)
-    let nested = source.appendingPathComponent("docs", isDirectory: true)
+    let nested = source.appendingPathComponent("docs/Example.bundle", isDirectory: true)
     let destination = root.appendingPathComponent("agent", isDirectory: true)
         .appendingPathComponent("skills/local/local-skill", isDirectory: true)
     try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
@@ -530,7 +530,7 @@ func installLocalSkillCopiesDirectoryAndUsesFrontmatterMetadata() async throws {
     #expect(downloaded.version == "local")
     #expect(downloaded.localPath == destination.standardizedFileURL.path)
     #expect(downloaded.files.contains("SKILL.md"))
-    #expect(downloaded.files.contains("docs/notes.md"))
+    #expect(downloaded.files.contains("docs/Example.bundle/notes.md"))
     #expect(FileManager.default.fileExists(atPath: destination.appendingPathComponent("SKILL.md").path))
     #expect(downloaded.frontmatter?.userInvocable == false)
     #expect(downloaded.frontmatter?.allowedTools == ["files.read", "files.grep"])

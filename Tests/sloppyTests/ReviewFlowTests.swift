@@ -175,9 +175,12 @@ func projectUpdateRequestPersistsReviewSettings() async throws {
     let createResp = await router.handle(method: "POST", path: "/v1/projects", body: createBody)
     #expect(createResp.status == 201)
 
+    let repoURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: repoURL, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: repoURL) }
     let updateBody = try encoder.encode(
         ProjectUpdateRequest(
-            repoPath: "/tmp/my-repo",
+            repoPath: repoURL.path,
             reviewSettings: ProjectReviewSettings(enabled: true, approvalMode: .human)
         )
     )
@@ -186,7 +189,7 @@ func projectUpdateRequestPersistsReviewSettings() async throws {
     )
     #expect(updateResp.status == 200)
     let updated = try decoder.decode(ProjectRecord.self, from: updateResp.body)
-    #expect(updated.repoPath == "/tmp/my-repo")
+    #expect(updated.repoPath == repoURL.path)
     #expect(updated.reviewSettings.enabled == true)
     #expect(updated.reviewSettings.approvalMode == .human)
 }
@@ -570,13 +573,17 @@ func worktreeCreationFailureBlocksTaskBeforeWorkerLaunch() async throws {
     let createResp = await router.handle(method: "POST", path: "/v1/projects", body: createBody)
     #expect(createResp.status == 201)
 
+    let nonRepository = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: nonRepository, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: nonRepository) }
     let updateBody = try JSONEncoder().encode(
         ProjectUpdateRequest(
-            repoPath: "/nonexistent/path/that/is/not/a/git/repo",
+            repoPath: nonRepository.path,
             reviewSettings: ProjectReviewSettings(enabled: true, approvalMode: .human)
         )
     )
-    _ = await router.handle(method: "PATCH", path: "/v1/projects/\(projectID)", body: updateBody)
+    let patchResponse = await router.handle(method: "PATCH", path: "/v1/projects/\(projectID)", body: updateBody)
+    #expect(patchResponse.status == 200)
 
     let taskBody = try JSONEncoder().encode(
         ProjectTaskCreateRequest(title: "Do something", description: "", priority: "medium", status: "ready")

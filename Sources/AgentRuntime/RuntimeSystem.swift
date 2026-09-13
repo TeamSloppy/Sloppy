@@ -93,6 +93,7 @@ public enum NativeAgentLoopTurnExitReason: String, Sendable, Equatable {
     case contextWindowRecovered
     case contextWindowRecoveryFailed
     case toolRoundLimit
+    case toolLoopDetected
     case emptyResponse
     case emptyResponseRepaired
     case emptyAfterToolTimeout

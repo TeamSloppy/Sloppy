@@ -86,6 +86,7 @@ export const fetchProjectSummaries = coreApi.fetchProjectSummaries;
 export const fetchProject = coreApi.fetchProject;
 export const fetchTaskByReference = coreApi.fetchTaskByReference;
 export const createProject = coreApi.createProject;
+export const emergencyStopProject = coreApi.emergencyStopProject;
 export const updateProject = coreApi.updateProject;
 export const fetchProjectWorkflows = coreApi.fetchProjectWorkflows;
 export const createProjectWorkflow = coreApi.createProjectWorkflow;

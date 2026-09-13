@@ -197,6 +197,7 @@ public actor CoreService {
     var modelProvider: (any ModelProvider)?
     let runtime: RuntimeSystem
     let memoryStore: any MemoryStore
+    lazy var memoryImports = MemoryImportService(root: workspaceRootURL.appendingPathComponent("memory-imports", isDirectory: true), memoryStore: memoryStore)
     let hybridMemoryStore: HybridMemoryStore?
     let persistenceBuilder: any CorePersistenceBuilding
     var store: any PersistenceStore
@@ -234,6 +235,7 @@ public actor CoreService {
     var sourceControlProviders: [String: any SourceControlProvider]
     var taskSyncProviders: [String: any TaskSyncProvider]
     var taskSyncProviderDescriptors: [String: TaskSyncProviderDescriptor]
+    var taskCommentMirrorQueues: [String: (id: UUID, task: Task<Void, Never>)] = [:]
     var codeReviewProviders: [String: any CodeReviewProvider]
     let workspaceGitSyncService: WorkspaceGitSyncService
     let logger: Logger
@@ -264,6 +266,9 @@ public actor CoreService {
     var sessionExtraRoots: [String: [String]] = [:]
     var sessionWorkingDirectories: [String: String] = [:]
     var sessionAddedRoots: [String: [String]] = [:]
+    var projectExecutionSessions: [String: (projectID: String, taskID: String, agentID: String, generation: Int)] = [:]
+    var projectPlanningCancellations: [String: [UUID: @Sendable () -> Void]] = [:]
+    var projectStopGenerations: [String: Int] = [:]
     var sessionEnvironmentOverrides: [String: [String: String]] = [:]
     var channelExtraRoots: [String: [String]] = [:]
     var channelWorkingDirectories: [String: String] = [:]
@@ -576,6 +581,7 @@ public actor CoreService {
         toolExecution.projectService = self
         toolExecution.configService = self
         toolExecution.skillsService = self
+        toolExecution.memoryImportService = self
         toolExecution.siteService = self
         toolExecution.applyAgentMarkdown = { [weak self] agentID, userID, field, markdown in
             guard let self else {
@@ -712,6 +718,7 @@ public actor CoreService {
                     usage: usage
                 )
             }
+            await self.resumePendingMemoryImports()
         }
     }
 

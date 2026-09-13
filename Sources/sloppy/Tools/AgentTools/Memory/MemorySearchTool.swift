@@ -65,6 +65,7 @@ struct MemorySearchTool: CoreTool {
                 "score": .number(hit.ref.score),
                 "note": .string(hit.note),
                 "summary": hit.summary.map(JSONValue.string) ?? .null,
+                "source": hit.ref.source.map { .object(["type": .string($0.type), "id": $0.id.map(JSONValue.string) ?? .null]) } ?? .null,
                 "kind": .string(hit.ref.kind?.rawValue ?? ""),
                 "class": .string(hit.ref.memoryClass?.rawValue ?? "")
             ])

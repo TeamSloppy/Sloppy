@@ -82,7 +82,8 @@ struct ArtifactsAPIRouter: APIRouter {
                 return CoreRouter.encodable(status: HTTPStatus.created, payload: response)
             } catch WidgetArtifactService.WidgetError.invalidSize,
                     WidgetArtifactService.WidgetError.invalidPrompt,
-                    WidgetArtifactService.WidgetError.invalidHTML {
+                    WidgetArtifactService.WidgetError.invalidHTML,
+                    WidgetArtifactService.WidgetError.externalResource {
                 return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
             } catch {
                 return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.artifactCreateFailed])

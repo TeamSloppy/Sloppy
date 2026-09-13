@@ -43,6 +43,7 @@ func legacyProjectAndTaskDecodeWithAutopilotDefaults() throws {
 
     let project = try decoder.decode(ProjectRecord.self, from: json)
 
+    #expect(project.automaticTaskPickupEnabled == true)
     #expect(project.autopilotSettings == ProjectAutopilotSettings())
     #expect(project.tasks[0].createdBy == nil)
     #expect(project.tasks[0].dependsOnTaskIds == [])

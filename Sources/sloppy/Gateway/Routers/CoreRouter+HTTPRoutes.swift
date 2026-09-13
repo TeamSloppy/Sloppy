@@ -20,6 +20,7 @@ extension CoreRouter {
             ACPAPIRouter(service: service),
             AgentsAPIRouter(service: service),
             MemoryAPIRouter(service: service),
+            MemoryImportsAPIRouter(service: service),
             ActorsAPIRouter(service: service),
             CronAPIRouter(service: service),
             SkillsAPIRouter(service: service),

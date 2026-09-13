@@ -213,6 +213,9 @@ actor AgentSessionOrchestrator {
     private var delegatedSubagentSessionIDs: Set<String> = []
     private var syncedSessionStoreFingerprintsByChannel: [String: SessionStoreFingerprint] = [:]
     private var channelsRequiringBootstrapRefresh: Set<String> = []
+    private var bootstrapMemoryContextsByChannel: [String: String] = [:]
+    private var bootstrapUserIDsByChannel: [String: String] = [:]
+    private var bootstrapDocumentsByChannel: [String: AgentDocumentBundle] = [:]
 
     init(
         runtime: RuntimeSystem,
@@ -258,6 +261,9 @@ actor AgentSessionOrchestrator {
         agentSkillsStore?.updateAgentsRootURL(url)
         syncedSessionStoreFingerprintsByChannel.removeAll()
         channelsRequiringBootstrapRefresh.removeAll()
+        bootstrapMemoryContextsByChannel.removeAll()
+        bootstrapUserIDsByChannel.removeAll()
+        bootstrapDocumentsByChannel.removeAll()
     }
 
     func updateAvailableModels(_ models: [ProviderModelOption]) {
@@ -803,6 +809,13 @@ actor AgentSessionOrchestrator {
                 details: "Response generation stopped.",
                 tokenUsage: runtimeOutcome.tokenUsage
             )
+        } else if runtimeOutcome.turnExitReason == .toolLoopDetected {
+            completionStatus = AgentRunStatusEvent(
+                stage: .interrupted,
+                label: "Tool loop stopped",
+                details: runtimeOutcome.assistantText,
+                tokenUsage: runtimeOutcome.tokenUsage
+            )
         } else if isAssistantErrorText(runtimeOutcome.assistantText) {
             completionStatus = AgentRunStatusEvent(
                 stage: .interrupted,
@@ -979,6 +992,7 @@ actor AgentSessionOrchestrator {
         var appendedEvents: [AgentSessionEvent] = []
         for targetSessionID in targetSessionIDs {
             if (request.action == .interrupt || request.action == .interruptTree),
+               request.interruptPendingInput != true,
                let pendingDetail = try? sessionStore.loadSession(agentID: agentID, sessionID: targetSessionID),
                Self.hasUnansweredInputRequest(in: pendingDetail.events) {
                 if targetSessionID == sessionID || rootSummary == nil {
@@ -2188,6 +2202,7 @@ actor AgentSessionOrchestrator {
             !outcome.wasInterrupted &&
             outcome.pausedInputRequestID == nil &&
             !outcome.hitTurnLimit &&
+            outcome.turnExitReason != .toolLoopDetected &&
             (outcome.maxToolRounds == 0 || outcome.toolRoundsUsed < outcome.maxToolRounds) &&
             !isAssistantErrorTextStatic(outcome.assistantText)
     }
@@ -2375,9 +2390,14 @@ actor AgentSessionOrchestrator {
     ) async throws {
         let channelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
         let shouldRefreshBootstrap = channelsRequiringBootstrapRefresh.contains(channelID)
-        let hasScopedUserContext = Self.scopedMemoryUserID(userID) != nil
+        let scopedUserID = Self.scopedMemoryUserID(userID)
         let sessionDetail = try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID)
         await runtime.setMemoryProject(channelId: channelID, projectID: sessionDetail?.summary.projectId)
+        let memoryContext = await runtime.persistentMemoryContext(channelId: channelID)
+        let scopedDocuments = scopedUserID == nil ? nil : try? agentCatalogStore.readAgentDocuments(agentID: agentID, userID: userID)
+        let hasScopedUserContext = scopedUserID != nil && (bootstrapUserIDsByChannel[channelID] != scopedUserID
+            || bootstrapMemoryContextsByChannel[channelID] != memoryContext
+            || bootstrapDocumentsByChannel[channelID] != scopedDocuments)
         let recoverySourceSessionID = explicitRecoverySourceSessionID
             ?? sessionDetail?.summary.parentSessionId?.trimmingCharacters(in: .whitespacesAndNewlines)
         let recoverySourceDetail = recoverySourceSessionID
@@ -2453,7 +2473,7 @@ actor AgentSessionOrchestrator {
 
         let documents: AgentDocumentBundle
         do {
-            documents = try agentCatalogStore.readAgentDocuments(agentID: agentID, userID: userID)
+            documents = try scopedDocuments ?? agentCatalogStore.readAgentDocuments(agentID: agentID, userID: userID)
         } catch {
             throw OrchestratorError.storageFailure
         }
@@ -2501,7 +2521,6 @@ actor AgentSessionOrchestrator {
         }
 
         var bootstrapContent = bootstrapPrompt.description
-        let memoryContext = await runtime.persistentMemoryContext(channelId: channelID)
         if !memoryContext.isEmpty {
             bootstrapContent += "\n\n" + memoryContext
         }
@@ -2575,10 +2594,14 @@ actor AgentSessionOrchestrator {
         await runtime.appendSystemMessage(channelId: channelID, content: bootstrapContent)
         await runtime.setChannelBootstrap(channelId: channelID, content: bootstrapContent)
         channelsRequiringBootstrapRefresh.remove(channelID)
+        bootstrapMemoryContextsByChannel[channelID] = memoryContext
+        bootstrapUserIDsByChannel[channelID] = scopedUserID
+        bootstrapDocumentsByChannel[channelID] = documents
         await setRecoveryTranscriptIfAvailable(
             channelID: channelID,
             currentDetail: sessionDetail,
-            sourceDetail: recoverySourceDetail
+            sourceDetail: recoverySourceDetail,
+            clearWhenUnavailable: false
         )
         if includedConversationHistory,
            await runtime.hasCachedChannelSession(channelId: channelID) {

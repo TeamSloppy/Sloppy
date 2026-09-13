@@ -15,7 +15,7 @@ struct MemoryImportTests {
         #expect(skill.userInvocable)
         let publishedToolIDs = Set(ToolRegistry.makeDefault().catalogEntries.map(\.id))
         #expect(Set(skill.allowedTools).isSubset(of: publishedToolIDs))
-        #expect(skill.allowedTools.contains("memory.recall"))
+        #expect(skill.allowedTools.contains("memory.import"))
         let path = URL(fileURLWithPath: skill.localPath)
         #expect(FileManager.default.fileExists(atPath: path.appendingPathComponent("SKILL.md").path))
         #expect(FileManager.default.fileExists(atPath: path.appendingPathComponent("references/export-prompt.md").path))

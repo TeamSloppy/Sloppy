@@ -31,7 +31,7 @@ extension CoreService {
 
         let readyTasks = await store.listProjects().flatMap { project in
             project.tasks
-                .filter { $0.status == ProjectTaskStatus.ready.rawValue }
+                .filter { project.automaticTaskPickupEnabled && $0.status == ProjectTaskStatus.ready.rawValue }
                 .map { (project.id, $0.id) }
         }
 

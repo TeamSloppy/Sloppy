@@ -580,7 +580,9 @@ func selfImprovementFailureReviewTriggersProposalWithClassification() async thro
         guard let project = try? await service.getProject(id: projectID) else {
             return false
         }
+        let detail = try? await service.getAgentSession(agentID: agentID, sessionID: session.id)
         return project.tasks.contains { $0.title == "Self-improvement proposal: Unknown tool failure review" }
+            && detail?.events.contains(where: { $0.type == .selfImprovementReview }) == true
     }
     #expect(created)
 

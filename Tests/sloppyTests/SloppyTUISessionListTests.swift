@@ -257,8 +257,10 @@ private struct TUIFakeSourceControlProvider: SourceControlProvider {
         worktreeRootPath: String?
     ) async throws -> SourceControlWorktreeResult {
         let root = worktreeRootPath ?? URL(fileURLWithPath: repoPath).appendingPathComponent(".sloppy-worktrees").path
+        let worktree = URL(fileURLWithPath: root, isDirectory: true).appendingPathComponent(taskId)
+        try FileManager.default.createDirectory(at: worktree, withIntermediateDirectories: true)
         return SourceControlWorktreeResult(
-            worktreePath: URL(fileURLWithPath: root, isDirectory: true).appendingPathComponent(taskId).path,
+            worktreePath: worktree.path,
             branchName: "fake/\(taskId)"
         )
     }

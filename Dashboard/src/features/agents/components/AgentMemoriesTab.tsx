@@ -3,6 +3,7 @@ import { Network, DataSet } from "vis-network/standalone";
 import { fetchAgentMemories, fetchAgentMemoryGraph, updateAgentMemory, deleteAgentMemory } from "../../../api";
 import { AgentMemoriesToolbar } from "./AgentMemoriesToolbar";
 import { AgentMemoryImport } from "./AgentMemoryImport";
+import { MemorySourceLink } from "../../memory/MemorySourceLink";
 import { LoadingSkeleton } from "../../../components/LoadingSkeleton";
 
 const PAGE_SIZE = 20;
@@ -838,7 +839,7 @@ function MemoryInspector({
         </div>
         <div>
           <dt>Source</dt>
-          <dd>{item.source ? `${item.source.type}${item.source.id ? ` · ${item.source.id}` : ""}` : "None"}</dd>
+          <dd>{item.source?.type === "memory_import" ? <MemorySourceLink source={item.source} memoryId={item.id} agentId={agentId} /> : item.source ? `${item.source.type}${item.source.id ? ` · ${item.source.id}` : ""}` : "None"}</dd>
         </div>
         <div>
           <dt>Importance</dt>

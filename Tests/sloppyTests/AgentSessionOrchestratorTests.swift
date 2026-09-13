@@ -579,6 +579,8 @@ private func expectedFallbackBootstrapMessage(
     let taskPlanningRules = try renderer.render(template: try loader.loadPartial(named: "task_planning_rules"), values: [:])
     let taskSpecRules = try renderer.render(template: try loader.loadPartial(named: "task_spec_rules"), values: [:])
     let completionReflection = try renderer.render(template: try loader.loadPartial(named: "completion_reflection"), values: [:])
+    let memorySection = documents.memoryMarkdown.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        ? "" : "\n\n[MEMORY.md]\n\(documents.memoryMarkdown)"
     let agentDirectoryLine = agentDirectoryPath.map { "Agent directory: \($0)\n" } ?? ""
 
     return """
@@ -599,7 +601,7 @@ private func expectedFallbackBootstrapMessage(
     \(documents.identityMarkdown)
 
     [SOUL.md]
-    \(documents.soulMarkdown)
+    \(documents.soulMarkdown)\(memorySection)
 
     \(identity)
 
@@ -614,6 +616,8 @@ private func expectedFallbackBootstrapMessage(
     \(workerRules)
 
     \(toolsInstruction)
+
+    \(AgentPromptComposer().sharedMemoryPromptSection())
 
     \(taskPlanningRules)
 
@@ -2573,8 +2577,8 @@ func agentSessionBootstrapIncludesCompletionReflectionPartial() async throws {
     })?.content ?? ""
 
     #expect(bootstrapMessage.contains("[Completion reflection]"))
-    #expect(bootstrapMessage.contains("turned into a skill or remembered"))
-    #expect(bootstrapMessage.contains("Is there anything from this work"))
+    #expect(bootstrapMessage.contains("decide yourself whether the work produced anything durable"))
+    #expect(bootstrapMessage.contains("without asking the user to triage it"))
 }
 
 @Test
@@ -2963,4 +2967,27 @@ func agentSessionBootstrapOmitsHistoryForFreshSession() async throws {
     })?.content ?? ""
 
     #expect(!bootstrapMessage.contains("[Previous conversation history]"))
+}
+
+@Test
+func sessionRefreshesChangedScopedDocumentsWithoutLosingConversation() async throws {
+    let modelID = "mock:scoped-documents"
+    let models = [ProviderModelOption(id: modelID, title: "Mock", capabilities: ["tools"])]
+    let agentID = "scoped-doc-refresh"
+    let (catalog, store, root) = try makeAgentSessionFixture(agentID: agentID, selectedModel: modelID, availableModels: models)
+    defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+    try catalog.writeAgentScopedMarkdown(agentID: agentID, userID: "alice", field: .user, markdown: "SCOPED_BEFORE_MARKER")
+    let provider = SessionCapturingModelProvider(models: [modelID])
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: modelID)
+    let orchestrator = AgentSessionOrchestrator(runtime: runtime, sessionStore: store, agentCatalogStore: catalog, availableModels: models)
+    let session = try await orchestrator.createSession(agentID: agentID, request: .init())
+    _ = try await orchestrator.postMessage(agentID: agentID, sessionID: session.id, request: .init(userId: "alice", content: "Remember this conversation"))
+    #expect(await provider.requestedTranscriptsSnapshot().last?.joined(separator: "\n").contains("SCOPED_BEFORE_MARKER") == true)
+    let documentWriter = AgentCatalogFileStore(agentsRootURL: root)
+    try documentWriter.writeAgentScopedMarkdown(agentID: agentID, userID: "alice", field: .user, markdown: "SCOPED_AFTER_MARKER")
+    _ = try await orchestrator.postMessage(agentID: agentID, sessionID: session.id, request: .init(userId: "alice", content: "Continue our conversation"))
+    let transcript = await provider.requestedTranscriptsSnapshot().last?.joined(separator: "\n") ?? ""
+    #expect(transcript.contains("SCOPED_AFTER_MARKER"))
+    #expect(!transcript.contains("SCOPED_BEFORE_MARKER"))
+    #expect(transcript.contains("Remember this conversation"))
 }

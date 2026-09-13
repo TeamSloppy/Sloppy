@@ -11,3 +11,9 @@
 .memory-import-hint, .memory-import-drop small { opacity: .75; font-size: 13px; }
 .memory-import-error { color: var(--danger); }
 .memory-import-progress { margin-top: 12px; display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 12px; font-size: 13px; }
+.memory-import-job { margin-top: 16px; padding: 16px; border: 1px solid var(--line); display: grid; gap: 12px; }
+.memory-import-job progress { width: 100%; accent-color: var(--accent); }
+.memory-import-job p { margin: 8px 0; }
+.memory-import-job details > div { margin-top: 8px; }
+.memory-import-coverage { max-height: 400px; overflow: auto; padding-left: 20px; }
+.memory-import-coverage li { padding: 10px 0; border-bottom: 1px solid var(--line); overflow-wrap: anywhere; }

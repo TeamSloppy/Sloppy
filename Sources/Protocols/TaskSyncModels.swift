@@ -246,6 +246,18 @@ public struct TaskExternalProjectMembership: Codable, Sendable, Equatable {
     }
 }
 
+public struct TaskExternalIdentity: Codable, Sendable, Equatable {
+    public var id: String?
+    public var login: String?
+    public var displayName: String?
+
+    public init(id: String? = nil, login: String? = nil, displayName: String? = nil) {
+        self.id = id
+        self.login = login
+        self.displayName = displayName
+    }
+}
+
 public struct TaskExternalMetadata: Codable, Sendable, Equatable {
     public var providerId: String?
     public var externalProjectId: String?
@@ -264,6 +276,11 @@ public struct TaskExternalMetadata: Codable, Sendable, Equatable {
     public var syncState: String?
     public var lastSyncedAt: Date?
     public var projectMemberships: [TaskExternalProjectMembership]
+    public var externalCreator: TaskExternalIdentity?
+    public var externalAssigneeIdentity: TaskExternalIdentity?
+    public var externalQueue: String?
+    public var externalIssueType: String?
+    public var externalPriorityKey: String?
 
     private enum CodingKeys: String, CodingKey {
         case providerId
@@ -283,6 +300,7 @@ public struct TaskExternalMetadata: Codable, Sendable, Equatable {
         case syncState
         case lastSyncedAt
         case projectMemberships
+        case externalCreator, externalAssigneeIdentity, externalQueue, externalIssueType, externalPriorityKey
     }
 
     public init(
@@ -302,7 +320,12 @@ public struct TaskExternalMetadata: Codable, Sendable, Equatable {
         origin: String? = nil,
         syncState: String? = nil,
         lastSyncedAt: Date? = nil,
-        projectMemberships: [TaskExternalProjectMembership] = []
+        projectMemberships: [TaskExternalProjectMembership] = [],
+        externalCreator: TaskExternalIdentity? = nil,
+        externalAssigneeIdentity: TaskExternalIdentity? = nil,
+        externalQueue: String? = nil,
+        externalIssueType: String? = nil,
+        externalPriorityKey: String? = nil
     ) {
         self.providerId = providerId
         self.externalProjectId = externalProjectId
@@ -321,6 +344,11 @@ public struct TaskExternalMetadata: Codable, Sendable, Equatable {
         self.syncState = syncState
         self.lastSyncedAt = lastSyncedAt
         self.projectMemberships = projectMemberships
+        self.externalCreator = externalCreator
+        self.externalAssigneeIdentity = externalAssigneeIdentity
+        self.externalQueue = externalQueue
+        self.externalIssueType = externalIssueType
+        self.externalPriorityKey = externalPriorityKey
     }
 
     public init(from decoder: Decoder) throws {
@@ -342,6 +370,11 @@ public struct TaskExternalMetadata: Codable, Sendable, Equatable {
         syncState = try container.decodeIfPresent(String.self, forKey: .syncState)
         lastSyncedAt = try container.decodeIfPresent(Date.self, forKey: .lastSyncedAt)
         projectMemberships = try container.decodeIfPresent([TaskExternalProjectMembership].self, forKey: .projectMemberships) ?? []
+        externalCreator = try container.decodeIfPresent(TaskExternalIdentity.self, forKey: .externalCreator)
+        externalAssigneeIdentity = try container.decodeIfPresent(TaskExternalIdentity.self, forKey: .externalAssigneeIdentity)
+        externalQueue = try container.decodeIfPresent(String.self, forKey: .externalQueue)
+        externalIssueType = try container.decodeIfPresent(String.self, forKey: .externalIssueType)
+        externalPriorityKey = try container.decodeIfPresent(String.self, forKey: .externalPriorityKey)
     }
 }
 

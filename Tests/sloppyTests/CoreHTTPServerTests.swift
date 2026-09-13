@@ -707,10 +707,14 @@ func nodeMeshRelayDeliversLiveTaskDispatchAndAuditsDelivery() async throws {
         encoder: encoder
     ))
 
-    try await waitUntil("worker received live task dispatch") {
-        await workerMessages.count > messagesBeforeLiveDispatch
+    @Sendable func liveDispatch(_ text: String) -> Bool {
+        guard let envelope = try? decoder.decode(MeshEnvelope.self, from: Data(text.utf8)) else { return false }
+        return envelope.type == .taskDispatch && envelope.payload.asObject?["taskId"] == .string(task.id)
     }
-    let message = try #require(await workerMessages.last)
+    try await waitUntil("worker received live task dispatch") {
+        await workerMessages.all.dropFirst(messagesBeforeLiveDispatch).contains(where: liveDispatch)
+    }
+    let message = try #require(await workerMessages.all.dropFirst(messagesBeforeLiveDispatch).first(where: liveDispatch))
     let envelope = try decoder.decode(MeshEnvelope.self, from: Data(message.utf8))
     #expect(envelope.type == .taskDispatch)
     #expect(envelope.to == workerIdentity.nodeId)
@@ -2951,14 +2955,14 @@ func dashboardTerminalWebSocketAcceptsInputAndAllowsReconnect() async throws {
         DashboardTerminalClientFrame(type: "close", token: nil, projectId: nil, cwd: nil, cols: nil, rows: nil, data: nil),
         over: firstSocket
     )
-    let closed = try await receiveDashboardTerminalMessage(over: firstSocket)
+    let closed = try await receiveDashboardTerminalMessage(over: firstSocket, matching: "closed")
     #expect(closed.type == "closed")
 
     try await sendDashboardTerminalMessage(
         DashboardTerminalClientFrame(type: "start", token: nil, projectId: nil, cwd: nil, cols: 100, rows: 30, data: nil),
         over: firstSocket
     )
-    let restarted = try await receiveDashboardTerminalMessage(over: firstSocket)
+    let restarted = try await receiveDashboardTerminalMessage(over: firstSocket, matching: "ready")
     #expect(restarted.type == "ready")
     #expect((restarted.sessionId ?? "").isEmpty == false)
     #expect(restarted.sessionId != ready.sessionId)
@@ -3088,13 +3092,17 @@ private func receiveMeshWebSocketMessage(
 }
 
 private func receiveDashboardTerminalMessage(
-    over socket: URLSessionWebSocketTask
+    over socket: URLSessionWebSocketTask,
+    matching expectedType: String? = nil
 ) async throws -> DashboardTerminalServerFrame {
     try await withThrowingTaskGroup(of: DashboardTerminalServerFrame.self) { group in
         group.addTask {
-            let message = try await socket.receive()
-            let payload = try #require(messagePayload(message))
-            return try JSONDecoder().decode(DashboardTerminalServerFrame.self, from: Data(payload.utf8))
+            while true {
+                let message = try await socket.receive()
+                let payload = try #require(messagePayload(message))
+                let frame = try JSONDecoder().decode(DashboardTerminalServerFrame.self, from: Data(payload.utf8))
+                if expectedType == nil || frame.type == expectedType || frame.type == "error" { return frame }
+            }
         }
         group.addTask {
             try await Task.sleep(nanoseconds: 10_000_000_000)
@@ -3207,7 +3215,9 @@ private func signedRelayEvent(
 
 private func waitUntil(
     _ operation: String,
-    timeoutSeconds: TimeInterval = 2,
+    // The full parallel suite can occupy the cooperative executor while fixtures
+    // are being created. Keep the same bounded budget as withAsyncTestTimeout.
+    timeoutSeconds: TimeInterval = 10,
     condition: @escaping @Sendable () async -> Bool
 ) async throws {
     let deadline = Date().addingTimeInterval(timeoutSeconds)

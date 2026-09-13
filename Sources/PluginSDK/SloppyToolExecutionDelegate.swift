@@ -11,6 +11,9 @@ import Protocols
 public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
     private actor PreparedDecisionStore {
         private var decisions: [String: ToolExecutionDecision] = [:]
+        private(set) var stopped = false
+
+        func stop() { stopped = true }
 
         func replace(with prepared: [(String, ToolExecutionDecision)]) {
             decisions = Dictionary(prepared, uniquingKeysWith: { _, latest in latest })
@@ -104,6 +107,7 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
         for toolCall: Transcript.ToolCall,
         in session: LanguageModelSession
     ) async -> ToolExecutionDecision {
+        if await preparedDecisionStore.stopped { return .stop }
         if let prepared = await preparedDecisionStore.take(for: toolCall.id) {
             return prepared
         }
@@ -111,6 +115,7 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
     }
 
     private func resolveDecision(for toolCall: Transcript.ToolCall) async -> ToolExecutionDecision {
+        if await preparedDecisionStore.stopped { return .stop }
         if let override = await toolCallDecisionOverride?(toolCall) {
             return override
         }
@@ -122,6 +127,10 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
             argumentDiagnostics: conversion.diagnostics
         )
         let result = await toolCallHandler(request)
+        if !result.ok, result.error?.code == "tool_loop_detected" {
+            await preparedDecisionStore.stop()
+            return .stop
+        }
         return .provideOutput([.text(.init(content: encodedResult(result)))])
     }
 

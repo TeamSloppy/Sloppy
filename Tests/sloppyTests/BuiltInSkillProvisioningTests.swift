@@ -233,6 +233,12 @@ func builtInSkillsLoadAdditionalSkillsFromInstalledShareDirectoryViaSymlink() th
     # Release Only
     """.write(to: skillDirectory.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
 
+    // A resource directory suffix is data, not a request for macOS package lookup.
+    let nested = skillDirectory.appendingPathComponent("templates/Example.bundle", isDirectory: true)
+    try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+    try "nested resource".write(to: nested.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+    try "hidden resource".write(to: skillDirectory.appendingPathComponent(".hidden"), atomically: true, encoding: .utf8)
+
     let definitions = BuiltInSkillCatalog.resourceSkillDefinitions(
         executablePath: symlinkPath,
         currentDirectoryPath: root.path,
@@ -243,6 +249,8 @@ func builtInSkillsLoadAdditionalSkillsFromInstalledShareDirectoryViaSymlink() th
     #expect(skill.owner == "bundled")
     #expect(skill.name == "release-only")
     #expect(skill.allowedTools == ["project.current"])
+    #expect(skill.files["templates/Example.bundle/README.md"] == "nested resource")
+    #expect(skill.files[".hidden"] == nil)
 }
 
 @Test

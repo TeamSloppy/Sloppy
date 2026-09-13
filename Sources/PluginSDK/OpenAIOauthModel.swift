@@ -142,12 +142,20 @@ extension OpenAIOAuthModel {
             pendingCalls = next.functionCalls
         }
 
-        let content = text as! Content
+        let decoded = try decodeResponseText(text, generating: type)
         return LanguageModelSession.Response(
-            content: content,
-            rawContent: GeneratedContent(text),
+            content: decoded.content,
+            rawContent: decoded.rawContent,
             transcriptEntries: ArraySlice(transcriptEntries)
         )
+    }
+
+    func decodeResponseText<Content: Generable>(
+        _ text: String,
+        generating type: Content.Type
+    ) throws -> (content: Content, rawContent: GeneratedContent) {
+        let rawContent = type == String.self ? GeneratedContent(text) : try GeneratedContent(json: text)
+        return (try type.init(rawContent), rawContent)
     }
 
     public func streamResponse<Content>(
@@ -547,6 +555,17 @@ extension OpenAIOAuthModel {
 // MARK: - Request Building
 
 private extension OpenAIOAuthModel {
+    func responseInstructions(from transcript: Transcript) -> String {
+        let sessionInstructions = transcript.compactMap { entry -> String? in
+            guard case .instructions(let entry) = entry else { return nil }
+            return entry.segments.compactMap { segment -> String? in
+                guard case .text(let text) = segment else { return nil }
+                return text.content
+            }.joined(separator: "\n")
+        }.filter { !$0.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        return sessionInstructions.isEmpty ? instructions : sessionInstructions.joined(separator: "\n")
+    }
+
     func buildRequestBody(
         transcript: Transcript,
         options: GenerationOptions,
@@ -554,7 +573,7 @@ private extension OpenAIOAuthModel {
     ) throws -> Data {
         var body: [String: Any] = [
             "model": modelName,
-            "instructions": instructions,
+            "instructions": responseInstructions(from: transcript),
             "input": transcriptToResponsesInput(transcript),
             "stream": true,
             "store": false
@@ -634,7 +653,7 @@ private extension OpenAIOAuthModel {
 
         var body: [String: Any] = [
             "model": modelName,
-            "instructions": instructions,
+            "instructions": responseInstructions(from: transcript),
             "input": inputItems,
             "stream": true,
             "store": false

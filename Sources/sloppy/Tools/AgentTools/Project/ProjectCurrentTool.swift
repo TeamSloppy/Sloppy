@@ -95,6 +95,7 @@ private func projectCurrentJSONValue(
         "kind": .string(project.kind.rawValue),
         "directoryPaths": .array(project.directoryPaths.map { .string($0) }),
         "taskLoopMode": .string(project.taskLoopMode.rawValue),
+        "automaticTaskPickupEnabled": .bool(project.automaticTaskPickupEnabled),
         "autopilotSettings": autopilotSettingsJSONValue(project.autopilotSettings),
         "taskSyncSettings": .object([
             "linkedProjects": .array(project.taskSyncSettings.linkedProjects.map(taskSyncLinkedProjectJSONValue))

@@ -251,13 +251,14 @@ extension CoreService {
     public func processAutonomousExecution() async {
         let projects = await store.listProjects()
         for project in projects {
-            guard project.autopilotSettings.enabled else { continue }
+            guard project.automaticTaskPickupEnabled, project.autopilotSettings.enabled else { continue }
             await processProjectAutopilot(project)
         }
     }
 
     func processProjectAutopilot(_ initialProject: ProjectRecord) async {
-        guard var project = await store.project(id: initialProject.id) else {
+        guard var project = await store.project(id: initialProject.id),
+              project.automaticTaskPickupEnabled else {
             return
         }
 
@@ -289,7 +290,7 @@ extension CoreService {
             guard taskDependenciesSatisfied(project: project, task: root) else {
                 continue
             }
-            guard let rootIndex = project.tasks.firstIndex(where: { $0.id == root.id }) else {
+            guard project.tasks.contains(where: { $0.id == root.id }) else {
                 continue
             }
             let childTasks = project.tasks.filter { $0.parentTaskId == root.id }
@@ -318,10 +319,25 @@ extension CoreService {
 
                 do {
                     let planner = makeProjectAutopilotPlanner(project: project, rootTask: root)
-                    let planned = try await planner.plan(project: project, rootTask: root)
+                    let planningProject = project
+                    let planningID = UUID()
+                    let planningTask = Task { try await planner.plan(project: planningProject, rootTask: root) }
+                    projectPlanningCancellations[project.id, default: [:]][planningID] = { planningTask.cancel() }
+                    defer { projectPlanningCancellations[project.id]?.removeValue(forKey: planningID) }
+                    let planned = try await planningTask.value
+                    guard !planningTask.isCancelled else { return }
+                    // The user may pause pickup while the model is planning.
+                    guard let latest = await store.project(id: project.id),
+                          latest.automaticTaskPickupEnabled else { return }
+                    guard let currentRootIndex = latest.tasks.firstIndex(where: { $0.id == root.id }),
+                          pickupRulesPermit(project: latest, task: latest.tasks[currentRootIndex]) else {
+                        project = latest
+                        continue
+                    }
+                    project = latest
                     let newReadyIDs = createAutopilotChildTasks(
                         planned,
-                        rootIndex: rootIndex,
+                        rootIndex: currentRootIndex,
                         project: &project,
                         capacity: capacity
                     )
@@ -342,6 +358,8 @@ extension CoreService {
                     )
                     await store.saveProject(project)
                 } catch {
+                    guard await store.project(id: project.id)?.automaticTaskPickupEnabled == true else { return }
+                    if error is CancellationError { return }
                     if isTransientAutopilotPlanningError(error) {
                         let planner = makeProjectAutopilotPlanner(project: project, rootTask: root)
                         await deferAutopilotPlanningRetry(
@@ -423,6 +441,7 @@ extension CoreService {
         guard task.parentTaskId == nil else { return false }
         let settings = project.autopilotSettings
         guard settings.enabled else { return false }
+        guard pickupRulesPermit(project: project, task: task) else { return false }
         let included = Set(settings.includedTags.map { normalizeWhitespace($0).lowercased() }.filter { !$0.isEmpty })
         let ignored = Set(settings.ignoredTags.map { normalizeWhitespace($0).lowercased() }.filter { !$0.isEmpty })
         let taskTags = Set(task.tags.map { normalizeWhitespace($0).lowercased() }.filter { !$0.isEmpty })
@@ -434,13 +453,10 @@ extension CoreService {
                 return false
             }
         }
-        let trustedAuthors = Set(settings.trustedAuthors.map { $0.lowercased() })
+        let trustedAuthors = Set(settings.trustedAuthors.map { normalizeWhitespace($0).lowercased() }.filter { !$0.isEmpty })
         if !trustedAuthors.isEmpty {
-            guard let createdBy = task.createdBy?.lowercased(),
-                  trustedAuthors.contains(createdBy)
-            else {
-                return false
-            }
+            let authors = Set(task.pickupValues(for: .author).map { normalizeWhitespace($0).lowercased() })
+            guard !trustedAuthors.isDisjoint(with: authors) else { return false }
         }
         return true
     }
@@ -758,7 +774,11 @@ extension CoreService {
         await store.saveProject(latest)
         await kanbanEventService.push(KanbanEvent(type: .taskUpdated, projectId: latest.id, task: latest.tasks[index]))
         await recordSystemStatusChange(projectID: latest.id, taskID: taskID, from: previousStatus, to: ProjectTaskStatus.blocked.rawValue, source: "autopilot")
-        await appendSystemTaskComment(projectID: latest.id, taskID: taskID, content: note)
+        await appendSystemTaskComment(
+            projectID: latest.id, taskID: taskID,
+            content: "\(note)\nAction required: resolve the planning blocker, then return the task to ready.",
+            kind: .actionRequired
+        )
     }
 
     func launchAutopilotReadyTasks(projectID: String, taskIDs: [String]) async {

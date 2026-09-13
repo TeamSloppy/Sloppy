@@ -221,7 +221,7 @@ func runForegroundProcess(
     let process = Process()
     let stdout = Pipe()
     let stderr = Pipe()
-    let stdin = Pipe()
+    let stdin = try makeProcessInputPipe()
     let stdoutBuffer = ProcessOutputBuffer(maxBytes: maxOutputBytes)
     let stderrBuffer = ProcessOutputBuffer(maxBytes: maxOutputBytes)
 
@@ -250,7 +250,7 @@ func runForegroundProcess(
 
     try process.run()
     if let standardInput {
-        stdin.fileHandleForWriting.write(standardInput)
+        try stdin.fileHandleForWriting.write(contentsOf: standardInput)
         try? stdin.fileHandleForWriting.close()
     }
 

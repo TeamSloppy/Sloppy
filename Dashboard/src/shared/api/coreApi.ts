@@ -1,7 +1,9 @@
 import { buildApiURL, buildWebSocketURL, formatHttpError, requestBlob, requestJson } from "./httpClient";
-import { memoryImportMessage, type MemoryImportAttachment } from "../../features/agents/memoryImport";
+import { type MemoryImportAttachment } from "../../features/agents/memoryImport";
 import {
   clearDashboardAuthToken,
+  captureDashboardAuth,
+  type DashboardAuthSnapshot,
   getDashboardAuthToken,
   invalidateDashboardAuthToken,
   isDashboardAuthTokenPersisted,
@@ -241,6 +243,7 @@ export interface CoreApi {
   fetchProject: (projectId: string) => Promise<AnyRecord | null>;
   fetchTaskByReference: (taskReference: string) => Promise<AnyRecord | null>;
   createProject: (payload: AnyRecord) => Promise<{ project: AnyRecord; repoCloneSucceeded: boolean | null } | null>;
+  emergencyStopProject: (projectId: string) => Promise<AnyRecord>;
   updateProject: (projectId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchProjectWorkflows: (projectId: string) => Promise<AnyRecord[] | null>;
   createProjectWorkflow: (projectId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
@@ -1660,6 +1663,15 @@ export function createCoreApi(): CoreApi {
       return { project: record, repoCloneSucceeded: null };
     },
 
+    emergencyStopProject: async (projectId) => {
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/projects/${encodeURIComponent(projectId)}/emergency-stop`,
+        method: "POST"
+      });
+      if (!response.ok || !response.data) throw new Error("Emergency stop failed. Check the project and try again.");
+      return response.data;
+    },
+
     updateProject: async (projectId, payload) => {
       const response = await requestJson<AnyRecord, AnyRecord>({
         path: `/v1/projects/${encodeURIComponent(projectId)}`,
@@ -2330,12 +2342,7 @@ export function createCoreApi(): CoreApi {
     },
 
     submitAgentMemoryImport: async (agentId, sessionId, attachments) => {
-      const response = await requestJson({
-        path: `/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/messages`,
-        method: "POST",
-        body: { userId: "dashboard", content: memoryImportMessage(agentId), attachments, spawnSubSession: false, mode: "auto" }
-      });
-      if (!response.ok) throw new Error(`Import request failed (${response.status || "connection lost"}). Check the session before retrying.`);
+      await startMemoryImport(agentId, attachments, sessionId);
     },
 
     postAgentMemoryCheckpoint: async (agentId, sessionId, payload = {}) => {
@@ -2493,14 +2500,18 @@ export function createCoreApi(): CoreApi {
       let socket: WebSocket | null = null;
       let authenticated = false;
       let closedExplicitly = false;
+      let auth: DashboardAuthSnapshot | null = null;
+      const socketURL = buildWebSocketURL("/v1/dashboard/terminal/ws");
 
-      socket = new WebSocket(buildWebSocketURL("/v1/dashboard/terminal/ws"));
+      socket = new WebSocket(socketURL);
 
       socket.onopen = () => {
         try {
+          if (closedExplicitly || socketURL !== buildWebSocketURL("/v1/dashboard/terminal/ws")) return;
+          auth = captureDashboardAuth();
           socket?.send(JSON.stringify({
             type: "auth",
-            token: getDashboardAuthToken() || undefined
+            token: auth.token || undefined
           }));
         } catch {
           handlers.onError?.();
@@ -2522,8 +2533,9 @@ export function createCoreApi(): CoreApi {
               handlers.onOpen?.();
               return;
             }
-            if (type === "error" && String(normalized.code || "").toLowerCase() === "unauthorized") {
-              invalidateDashboardAuthToken();
+            if (type === "error" && String(normalized.code || "").toLowerCase() === "unauthorized"
+              && auth && !closedExplicitly && socketURL === buildWebSocketURL("/v1/dashboard/terminal/ws")) {
+              invalidateDashboardAuthToken(auth);
             }
             handlers.onMessage?.(normalized);
           }
@@ -3203,3 +3215,42 @@ export function createCoreApi(): CoreApi {
     }
   };
 }
+
+
+export interface MemoryImportJob {
+  id: string;
+  agentId: string;
+  sessionId: string;
+  status: "queued" | "running" | "completed" | "failed" | "cancelling" | "cancelled";
+  totalUnits: number;
+  completedUnits: number;
+  savedCount: number;
+  duplicateCount: number;
+  ignoredCount: number;
+  parts?: Array<{ id: string; sourceId: string; completed: boolean; disposition?: string; reason?: string; startUTF8: number; endUTF8: number; memoryIds: string[] }>;
+  error?: string;
+  sources: Array<{ id: string; name: string; sha256: string; completedUnits: number; totalUnits: number }>;
+}
+
+const memoryImportsBase = (agentId: string) => `/v1/agents/${encodeURIComponent(agentId)}/memory-imports`;
+
+async function checkedMemoryImport<T>(path: string, method: "GET" | "POST" = "GET", body?: unknown): Promise<T> {
+  const response = await requestJson<T>({ path, method, body });
+  if (!response.ok || !response.data) {
+    const error = response.data as { error?: string; message?: string } | null;
+    throw new Error(error?.message || error?.error || `Memory import request failed (${response.status || "connection lost"}).`);
+  }
+  return response.data;
+}
+
+export const startMemoryImport = (agentId: string, attachments: MemoryImportAttachment[], sessionId?: string) =>
+  checkedMemoryImport<MemoryImportJob>(memoryImportsBase(agentId), "POST", { attachments, sessionId });
+export const fetchMemoryImports = (agentId: string) => checkedMemoryImport<MemoryImportJob[]>(memoryImportsBase(agentId));
+export const fetchMemoryImport = (agentId: string, id: string) => checkedMemoryImport<MemoryImportJob>(`${memoryImportsBase(agentId)}/${encodeURIComponent(id)}`);
+export const resumeMemoryImport = (agentId: string, id: string) => checkedMemoryImport<MemoryImportJob>(`${memoryImportsBase(agentId)}/${encodeURIComponent(id)}/resume`, "POST");
+export const cancelMemoryImport = (agentId: string, id: string) => checkedMemoryImport<MemoryImportJob>(`${memoryImportsBase(agentId)}/${encodeURIComponent(id)}/cancel`, "POST");
+export const importSessionAttachments = (agentId: string, sessionId: string) => checkedMemoryImport<MemoryImportJob>(`${memoryImportsBase(agentId)}/from-session/${encodeURIComponent(sessionId)}`, "POST");
+export const fetchMemoryImportSource = (agentId: string, id: string, sourceId: string) =>
+  checkedMemoryImport<{ name: string; content: string; sha256: string }>(`${memoryImportsBase(agentId)}/${encodeURIComponent(id)}/sources/${encodeURIComponent(sourceId)}`);
+export const fetchMemoryImportSourceLocations = (agentId: string, memoryId: string) =>
+  checkedMemoryImport<Array<{ jobId: string; sourceId: string; name: string; startUTF8: number; endUTF8: number }>>(`${memoryImportsBase(agentId)}/for-memory/${encodeURIComponent(memoryId)}`);

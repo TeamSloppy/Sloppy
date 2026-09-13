@@ -5,6 +5,27 @@ import Testing
 
 @Suite("SloppyToolExecutionDelegate")
 struct SloppyToolExecutionDelegateTests {
+    @Test("loop errors stop this delegate and prevent later tool execution")
+    func loopErrorStopsFurtherCalls() async throws {
+        let capture = RequestCapture()
+        let delegate = SloppyToolExecutionDelegate(toolCallHandler: { request in
+            await capture.store(request)
+            return .init(tool: request.tool, ok: false, error: .init(code: "tool_loop_detected", message: "Repeated failure", retryable: false))
+        })
+        let session = makeFakeSession()
+        let first = Transcript.ToolCall(id: "loop", toolName: "memory.save", arguments: GeneratedContent(properties: [:]))
+        guard case .stop = await delegate.toolCallDecision(for: first, in: session) else {
+            Issue.record("Loop detection must stop generation, not return another error for the model to retry")
+            return
+        }
+        let later = Transcript.ToolCall(id: "later", toolName: "files.write", arguments: GeneratedContent(properties: [:]))
+        guard case .stop = await delegate.toolCallDecision(for: later, in: session) else {
+            Issue.record("The stopped delegate executed another call")
+            return
+        }
+        #expect(await capture.value?.tool == "memory.save")
+    }
+
     @Test("GeneratedContent structure converts to [String: JSONValue]")
     func structureConversion() async throws {
         let capture = RequestCapture()

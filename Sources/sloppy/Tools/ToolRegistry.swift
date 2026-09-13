@@ -116,6 +116,8 @@ struct ToolRegistry: Sendable {
             SessionsSendTool(),
             MemoryGetTool(),
             MemorySaveTool(),
+            MemoryImportTool(),
+            MemorySourceTool(),
             MemorySearchTool(),
             MCPListServersTool(),
             MCPListToolsTool(),

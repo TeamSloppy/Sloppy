@@ -16,6 +16,7 @@ extension CoreService {
         )
 
         let trimmedContent = request.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        await toolLoopGuard.beginTurn(sessionID: sessionChannelId)
         if let addDirReply = await handleAddDirCommand(channelId: sessionChannelId, content: request.content) {
             return ChannelRouteDecision(action: .respond, reason: addDirReply, confidence: 1.0, tokenBudget: 0)
         }

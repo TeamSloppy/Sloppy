@@ -29,7 +29,7 @@ struct MemorySaveTool: CoreTool {
                 schema: DynamicGenerationSchema(type: String.self),
                 isOptional: true
             ),
-            .init(name: "memory_id", description: "Optional existing record ID to update in the specified scope. Updates note, summary, kind, importance, and confidence; retains class and provenance.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "memory_id", description: "Only for updating: use an existing record ID returned by memory.search or memory.recall in the same scope. Omit or pass null for a new record; empty strings also mean create. A nonempty unknown ID is an error, never an implicit create.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "summary", description: "Optional summary", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "kind", description: "One of identity, preference, decision, fact, observation, goal, todo, event.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "importance", description: "Importance from 0 to 1; prioritize recurring corrections and stable preferences.", schema: DynamicGenerationSchema(type: Double.self), isOptional: true),
@@ -44,7 +44,9 @@ struct MemorySaveTool: CoreTool {
         let note = (arguments["note"]?.asString ?? arguments["content"]?.asString ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !note.isEmpty else {
-            return toolFailure(tool: name, code: "invalid_arguments", message: "`note` is required.", retryable: false)
+            return toolFailure(tool: name, code: "invalid_arguments", message: "`note` is required.", retryable: false,
+                               hint: "Provide non-empty memory content in note.",
+                               argumentRecovery: .init(invalidFields: ["note", "content"]))
         }
 
         let summary = arguments["summary"]?.asString
@@ -56,7 +58,8 @@ struct MemorySaveTool: CoreTool {
                 tool: name,
                 code: "invalid_arguments",
                 message: "Set memory scope: either `scope_type` + `scope_id`, or `scope` as { \"type\", \"id\", optional \"channel_id\", \"project_id\", \"agent_id\" }. Example channel scope_id: agent:<agentId>:session:<sessionId>.",
-                retryable: false
+                retryable: false,
+                argumentRecovery: .init(invalidFields: ["scope_type", "scope_id", "scope"])
             )
         }
         if let failure = rejectDisabledSharedMemory(scope: scope, context: context, tool: name) {
@@ -74,10 +77,25 @@ struct MemorySaveTool: CoreTool {
             metadata = metadataObject
         }
 
-        if let memoryID = arguments["memory_id"]?.asString {
+        let memoryID: String?
+        switch arguments["memory_id"] {
+        case nil, .null:
+            memoryID = nil
+        case .string(let value):
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            memoryID = trimmed.isEmpty ? nil : trimmed
+        default:
+            return toolFailure(tool: name, code: "invalid_arguments", message: "memory_id must be a string or null.", retryable: false,
+                               hint: "Omit memory_id for a new record. To update, provide an existing ID from scoped recall.",
+                               argumentRecovery: .init(invalidFields: ["memory_id"], contextFields: ["scope_type", "scope_id", "scope"]))
+        }
+
+        if let memoryID {
             let entries = await context.memoryStore.entries(filter: MemoryEntryFilter(scope: scope))
             guard entries.contains(where: { $0.id == memoryID }) else {
-                return toolFailure(tool: name, code: "memory_not_found", message: "No active memory with this ID exists in the specified scope.", retryable: false)
+                return toolFailure(tool: name, code: "memory_not_found", message: "No active memory with this ID exists in the specified scope.", retryable: false,
+                                   hint: "For an update, find the correct ID with memory.search or memory.recall in this scope. Only if you intend to create a new record, omit memory_id. Changing note does not fix an unknown ID.",
+                                   argumentRecovery: .init(invalidFields: ["memory_id"], contextFields: ["scope_type", "scope_id", "scope"]))
             }
             guard let updated = await context.memoryStore.updateEntry(
                 id: memoryID, note: note, summary: summary ?? note,

@@ -26,6 +26,11 @@
 .memory-record summary span { display: block; margin-top: 8px; color: var(--muted); font-size: 12px; }
 .memory-record-note { white-space: pre-wrap; }
 .memory-document { margin-bottom: 20px; }
+.memory-source-link { margin-top: 10px; }
+.memory-source-document { margin-top: 12px; padding: 12px; border: 1px solid var(--line); }
+.memory-source-document > div { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 8px; }
+.memory-source-document small { display: block; overflow-wrap: anywhere; margin-top: 8px; }
+.memory-source-document pre { max-height: 60vh; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; }
 .memory-browser-tools input { flex: 1; min-width: 150px; }
 .memory-settings-editor .settings-main { padding: 0; border: 0; background: transparent; display: block; }
 .memory-settings-editor .entry-editor-card { margin-bottom: 16px; padding: 20px; border: 1px solid var(--line); border-radius: var(--radius-md); background: var(--surface); }

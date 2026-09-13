@@ -1834,10 +1834,23 @@ struct MainView: View {
         )
     }
 
+    private var sidebarComposerBackdropHeight: CGFloat? {
+#if os(macOS)
+        guard viewModel.selectedAppSection == .chats || viewModel.selectedAppSection == .projects,
+              let activeChatViewModel else {
+            return nil
+        }
+        return (activeChatViewModel.composerPanelHeight ?? ChatComposerView.panelHeight) + 24 + 40
+#else
+        return nil
+#endif
+    }
+
     private func sidebarView(isOverlay: Bool) -> some View {
         MainSidebarView(
             viewModel: viewModel,
             isOverlay: isOverlay,
+            composerBackdropHeight: sidebarComposerBackdropHeight,
             canvasWorkspaceViewModel: canvasWorkspaceViewModel,
             navigationDestination: { _ in
                 AnyView(

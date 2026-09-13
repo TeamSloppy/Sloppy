@@ -1,5 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef, useCallback } from "react";
 import {
+    emergencyStopProject,
     attachMeshSharedProjectMember,
     createMeshSharedProject,
     deleteMeshSharedProject,
@@ -17,12 +18,14 @@ import {
 } from "../../api";
 import { PROJECT_IMAGE_ICON_MAX_BYTES, ProjectIcon, isProjectImageIcon } from "../../components/ProjectIcon";
 import { WorkspaceDirectoriesEditor } from "./WorkspaceDirectoriesEditor";
+import { TaskPickupRulesEditor } from "./TaskPickupRulesEditor";
+import { clonePickupRules, pickupRulesError } from "./taskPickupRules";
 
 const SETTINGS_TABS = [
     { id: "general", title: "General", icon: "settings" },
     { id: "actors", title: "Actors", icon: "group" },
     { id: "loop", title: "Task Loop Mode", icon: "sync" },
-    { id: "autopilot", title: "Autopilot", icon: "robot_2" },
+    { id: "autopilot", title: "Workers", icon: "robot_2" },
     { id: "review", title: "Git Worktree & Review", icon: "rate_review" },
     { id: "task_sync", title: "Task Sync", icon: "sync_alt" },
     { id: "mesh", title: "Mesh Sharing", icon: "hub" }
@@ -161,11 +164,23 @@ function SloppyStatusDropdown({ value, onChange }) {
                 className="actor-team-search task-sync-status-dropdown-button"
                 onClick={() => setOpen((next) => !next)}
             >
-                <span>{selected?.label || "Choose status"}</span>
+                <span>{selected?.label || "Automatic"}</span>
                 <span className="material-symbols-rounded" aria-hidden="true">expand_more</span>
             </button>
             {open && (
                 <ul className="actor-team-dropdown">
+                    <li
+                        className={`actor-team-dropdown-item ${!value ? "selected" : ""}`}
+                        onMouseDown={(e) => {
+                            e.preventDefault();
+                            onChange("");
+                            setOpen(false);
+                        }}
+                    >
+                        <span className="actor-team-dropdown-name">Automatic</span>
+                        <span className="actor-team-dropdown-id">Recommended</span>
+                        {!value && <span className="actor-team-dropdown-check">✓</span>}
+                    </li>
                     {TASK_SYNC_STATUS_FIELDS.map((field) => (
                         <li
                             key={field.id}
@@ -340,6 +355,7 @@ function cloneAutopilotSettings(project) {
         includedTags: Array.isArray(settings.includedTags) ? [...settings.includedTags] : [],
         ignoredTags: Array.isArray(settings.ignoredTags) ? [...settings.ignoredTags] : [],
         trustedAuthors: Array.isArray(settings.trustedAuthors) ? [...settings.trustedAuthors] : [],
+        pickupRules: clonePickupRules(settings.pickupRules),
         maxParallelTasks: Number.isFinite(Number(settings.maxParallelTasks))
             ? Math.max(1, Number(settings.maxParallelTasks))
             : 1,
@@ -376,6 +392,7 @@ function cloneDraft(project) {
             approvalMode: project?.reviewSettings?.approvalMode ?? "human",
             autonomousMode: project?.reviewSettings?.autonomousMode ?? "off"
         },
+        automaticTaskPickupEnabled: project?.automaticTaskPickupEnabled !== false,
         autopilotSettings: cloneAutopilotSettings(project),
         taskLoopMode: project?.taskLoopMode ?? "human",
         actors: Array.isArray(project?.actors) ? [...project.actors] : [],
@@ -421,6 +438,17 @@ function inferStartrekSourceKind(value) {
     return "query";
 }
 
+function normalizedExternalStatusKey(value) {
+    return String(value || "").trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function preferredExternalStatusLabel(current, candidate) {
+    if (!current) return candidate;
+    const currentHasCase = current !== current.toLowerCase();
+    const candidateHasCase = candidate !== candidate.toLowerCase();
+    return candidateHasCase && !currentHasCase ? candidate : current;
+}
+
 export function ProjectSettingsTab({
     project,
     onUpdateProject,
@@ -432,6 +460,8 @@ export function ProjectSettingsTab({
     availableActors = [],
     availableTeams = []
 }) {
+    const [emergencyStopBusy, setEmergencyStopBusy] = useState(false);
+    const [emergencyStopStatus, setEmergencyStopStatus] = useState("");
     const [selectedSettings, setSelectedSettings] = useState("general");
     const [draft, setDraft] = useState(() => cloneDraft(project));
     const [statusText, setStatusText] = useState("");
@@ -699,6 +729,8 @@ export function ProjectSettingsTab({
     }
 
     async function saveSettings() {
+        const rulesError = pickupRulesError(draft.autopilotSettings.pickupRules);
+        if (rulesError) { setStatusText(rulesError); return; }
         if (hasProjectChanges && draft.kind === "workspace" && draft.directoryPaths.length < 2) {
             setStatusText("A workspace requires at least two directories");
             return;
@@ -734,6 +766,7 @@ export function ProjectSettingsTab({
                     : (projectDraft.repoPath.trim() ? [projectDraft.repoPath.trim()] : []),
                 sourceControlProviderId: projectDraft.sourceControlProviderId || DEFAULT_SOURCE_CONTROL_PROVIDER.id,
                 reviewSettings: projectDraft.reviewSettings,
+                automaticTaskPickupEnabled: projectDraft.automaticTaskPickupEnabled,
                 autopilotSettings: projectDraft.autopilotSettings,
                 taskLoopMode: projectDraft.taskLoopMode,
                 actors: projectDraft.actors,
@@ -1752,14 +1785,70 @@ export function ProjectSettingsTab({
         const settings = draft.autopilotSettings;
         return (
             <section className="entry-editor-card">
-                <h3>Autopilot</h3>
+                <h3>Workers</h3>
+                <div className="review-toggle-row">
+                    <div className="review-toggle-label">
+                        <div>
+                            <strong>Emergency stop</strong>
+                            <p className="review-toggle-desc">
+                                Interrupt running task sessions and their processes, cancel active tasks,
+                                and disable automatic pickup. Other projects are unaffected.
+                            </p>
+                        </div>
+                    </div>
+                    <button type="button" className="project-emergency-stop" disabled={emergencyStopBusy}
+                        onClick={async () => {
+                            setEmergencyStopBusy(true);
+                            setEmergencyStopStatus("");
+                            try {
+                                const result = await emergencyStopProject(project.id);
+                                mutateDraft((d) => { d.automaticTaskPickupEnabled = false; });
+                                onReplaceProject?.(result.project);
+                                setEmergencyStopStatus(result.warnings?.length
+                                    ? `Automatic pickup disabled. Stop needs attention: ${result.warnings.join(" ")}`
+                                    : "Executions stopped. Automatic pickup is disabled.");
+                            } catch (error) {
+                                setEmergencyStopStatus(error.message || "Emergency stop failed. Try again.");
+                            } finally {
+                                setEmergencyStopBusy(false);
+                            }
+                        }}>
+                        {emergencyStopBusy ? "Stopping…" : "Stop all task executions"}
+                    </button>
+                </div>
+                {emergencyStopStatus && <p role="status">{emergencyStopStatus}</p>}
+                <div className="review-section-divider" />
+                <div className="review-toggle-row">
+                    <div className="review-toggle-label">
+                        <span className="material-symbols-rounded review-toggle-icon">play_circle</span>
+                        <div>
+                            <strong>Automatic task pickup</strong>
+                            <p className="review-toggle-desc">
+                                Enabled by default. Workers automatically pick up Ready to work tasks.
+                                Turn off to pause automatic pickup and autopilot scheduling. Running tasks continue.
+                            </p>
+                        </div>
+                    </div>
+                    <label className="agent-tools-switch">
+                        <input
+                            type="checkbox"
+                            aria-label="Automatic task pickup"
+                            checked={draft.automaticTaskPickupEnabled}
+                            onChange={(e) => mutateDraft((d) => {
+                                d.automaticTaskPickupEnabled = e.target.checked;
+                            })}
+                        />
+                        <span className="agent-tools-switch-track" />
+                    </label>
+                </div>
+                <div className="review-section-divider" />
                 <div className="review-toggle-row">
                     <div className="review-toggle-label">
                         <span className="material-symbols-rounded review-toggle-icon">robot_2</span>
                         <div>
                             <strong>Project Autopilot</strong>
                             <p className="review-toggle-desc">
-                                VISOR decomposes tagged backlog tasks and delegates child tasks through project workers.
+                                VISOR decomposes eligible backlog tasks and delegates child tasks through project workers.
                             </p>
                         </div>
                     </div>
@@ -1855,6 +1944,7 @@ export function ProjectSettingsTab({
                                 d.autopilotSettings.trustedAuthors = parseList(e.target.value);
                             })}
                         />
+                        <small className="project-settings-field-hint">Author logins or stable IDs. Tracker authors are available after syncing with the updated plugin.</small>
                     </label>
                     <label>
                         Max parallel tasks
@@ -1871,6 +1961,8 @@ export function ProjectSettingsTab({
                 </div>
 
                 <div className="review-section-divider" />
+                <TaskPickupRulesEditor rules={settings.pickupRules} tasks={project?.tasks || []}
+                    onChange={(rules) => mutateDraft((d) => { d.autopilotSettings.pickupRules = rules; })} />
                 <div className="task-sync-token-mode-field">
                     <span className="task-sync-field-label">Worker permissions</span>
                     <div className="autopilot-permission-grid">
@@ -2080,25 +2172,28 @@ export function ProjectSettingsTab({
     }
 
     const taskSyncStatusOptions = useMemo(() => {
-        const options = new Set();
+        const options = new Map();
+        const addOption = (rawOption) => {
+            const label = String(rawOption || "").trim().replace(/\s+/g, " ");
+            const key = normalizedExternalStatusKey(label);
+            if (!key) return;
+            options.set(key, preferredExternalStatusLabel(options.get(key), label));
+        };
         if (Array.isArray(taskSyncDraft.linkedProjects)) {
             taskSyncDraft.linkedProjects.forEach((p) => {
                 if (Array.isArray(p.statusOptions)) {
-                    p.statusOptions.forEach((option) => {
-                        if (option) options.add(String(option));
-                    });
+                    p.statusOptions.forEach(addOption);
                 }
             });
         }
-        Object.keys(taskSyncDraft.inboundStatusMappings || {}).forEach((option) => {
-            if (option) options.add(option);
-        });
+        Object.keys(taskSyncDraft.inboundStatusMappings || {}).forEach(addOption);
         (project?.tasks || []).forEach((task) => {
             const status = task?.externalMetadata?.externalStatus;
-            if (status?.display) options.add(String(status.display));
-            else if (status?.key) options.add(String(status.key));
+            if (status?.display) addOption(status.display);
+            else if (status?.key) addOption(status.key);
         });
-        return Array.from(options).sort((a, b) => a.localeCompare(b));
+        return Array.from(options, ([key, label]) => ({ key, label }))
+            .sort((a, b) => a.label.localeCompare(b.label));
     }, [taskSyncDraft.linkedProjects, taskSyncDraft.inboundStatusMappings, project?.tasks]);
 
     function renderTaskSync() {
@@ -2109,6 +2204,9 @@ export function ProjectSettingsTab({
         const isStartrek = providerId === "startrek";
         const providerName = taskSyncProviders.find((provider) => provider.id === providerId)?.displayName || providerId;
         const taskSyncLinked = Boolean(taskSyncDraft.enabled && providerId && linkedProjects.length > 0);
+        const taskSyncOverrideCount = taskSyncStatusOptions.filter(({ key }) => (
+            Boolean(taskSyncDraft.inboundStatusMappings?.[key])
+        )).length;
         return (
             <section className="entry-editor-card">
                 <h3>{providerName}</h3>
@@ -2211,23 +2309,36 @@ export function ProjectSettingsTab({
                                     >
                                         <span className="material-symbols-rounded" aria-hidden="true">view_kanban</span>
                                         <strong>{p.title}</strong>
-                                        <code>{p.tag}</code>
+                                        <code>{isStartrek ? (taskSyncDraft.source?.value || p.tag) : p.tag}</code>
                                     </a>
                                 ))}
                             </div>
                         )}
                     </div>
-                    <div className="task-sync-status-mappings">
-                        <span className="task-sync-field-label">Status mappings</span>
+                    <details className="task-sync-status-mappings task-sync-status-overrides">
+                        <summary className="task-sync-status-summary">
+                            <span>
+                                <strong>Advanced status overrides</strong>
+                                <small>Sloppy maps {isStartrek ? "StartTrack" : "GitHub"} statuses automatically</small>
+                            </span>
+                            <span className="task-sync-status-summary-meta">
+                                {taskSyncOverrideCount > 0
+                                    ? `${taskSyncOverrideCount} custom override${taskSyncOverrideCount === 1 ? "" : "s"}`
+                                    : "No setup needed"}
+                                <span className="material-symbols-rounded" aria-hidden="true">expand_more</span>
+                            </span>
+                        </summary>
+                        <p className="task-sync-status-help">
+                            Open this only if a task lands in the wrong Sloppy column. Automatic mapping uses the external status key and type.
+                        </p>
                         <div className="task-sync-status-list">
                             {taskSyncStatusOptions.length === 0 ? (
-                                <p className="placeholder-text">Status mappings appear after the first Save.</p>
-                            ) : taskSyncStatusOptions.map((option) => {
-                                const key = String(option || "").trim().toLowerCase();
+                                <p className="placeholder-text">External statuses appear after the first Save.</p>
+                            ) : taskSyncStatusOptions.map(({ key, label }) => {
                                 return (
                                     <label key={key} className="task-sync-status-row">
                                         <span className="task-sync-status-name">
-                                            <strong>{option}</strong>
+                                            <strong>{label}</strong>
                                             <code>{isStartrek ? "StartTrack status" : "GitHub Status"}</code>
                                         </span>
                                         <SloppyStatusDropdown
@@ -2235,15 +2346,23 @@ export function ProjectSettingsTab({
                                             onChange={(status) => mutateTaskSync((d) => {
                                                 d.inboundStatusMappings = d.inboundStatusMappings || {};
                                                 d.statusMappings = d.statusMappings || {};
-                                                d.inboundStatusMappings[key] = status;
-                                                d.statusMappings[status] = key;
+                                                const previousStatus = d.inboundStatusMappings[key];
+                                                if (previousStatus && d.statusMappings[previousStatus] === key) {
+                                                    delete d.statusMappings[previousStatus];
+                                                }
+                                                if (status) {
+                                                    d.inboundStatusMappings[key] = status;
+                                                    d.statusMappings[status] = key;
+                                                } else {
+                                                    delete d.inboundStatusMappings[key];
+                                                }
                                             })}
                                         />
                                     </label>
                                 );
                             })}
                         </div>
-                    </div>
+                    </details>
                 </div>
 
                 {taskSyncLinked ? (
@@ -2384,7 +2503,7 @@ export function ProjectSettingsTab({
                         <button type="button" className="danger hover-levitate" onClick={cancelChanges} disabled={taskSyncBusy}>
                             Cancel
                         </button>
-                        <button type="button" className="hover-levitate" onClick={saveSettings} disabled={taskSyncBusy}>
+                        <button type="button" className="hover-levitate" onClick={saveSettings} disabled={taskSyncBusy || Boolean(pickupRulesError(draft.autopilotSettings.pickupRules))}>
                             {taskSyncBusy ? "Saving..." : "Save"}
                         </button>
                     </div>

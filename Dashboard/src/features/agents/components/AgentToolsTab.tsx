@@ -44,6 +44,8 @@ const PRESETS = [
       "sessions.status": true,
       "channel.history": true,
       "memory.get": true,
+      "memory.recall": true,
+      "memory.source": true,
       "memory.search": true,
       "project.list": true,
       "project.task_list": true,

@@ -243,6 +243,7 @@ extension CoreService {
                 id: team.id,
                 name: team.name,
                 memberActorIds: team.memberActorIds.filter { $0 != normalizedID },
+                memberRoles: team.memberRoles.filter { team.memberActorIds.contains($0.key) && $0.key != normalizedID },
                 createdAt: team.createdAt
             )
         }

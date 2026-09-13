@@ -245,7 +245,7 @@ actor SkillsGitHubClient {
         guard let enumerator = fileManager.enumerator(
             at: source,
             includingPropertiesForKeys: [.isRegularFileKey, .isDirectoryKey],
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            options: [.skipsHiddenFiles]
         ) else {
             throw ClientError.contentNotFound
         }

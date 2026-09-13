@@ -305,7 +305,7 @@ extension CoreService {
             }
         }
 
-        let result: ToolInvocationResult
+        var result: ToolInvocationResult
         if authorization.allowed {
             if let preHookBlockedResult {
                 result = preHookBlockedResult
@@ -368,7 +368,7 @@ extension CoreService {
                             )
                         }
                     }
-                    await toolLoopGuard.recordResult(
+                    let correctionExhausted = await toolLoopGuard.recordResult(
                         sessionID: normalizedSessionID,
                         request: effectiveRequest,
                         result: result,
@@ -376,6 +376,7 @@ extension CoreService {
                         workspaceRootURL: workspaceRootURL,
                         currentDirectoryURL: currentDirectoryURL
                     )
+                    if correctionExhausted { result = toolArgumentCorrectionExhausted(result) }
                 }
             }
         } else {
@@ -673,7 +674,7 @@ extension CoreService {
             loopDecision = .allow(signature: "")
         }
 
-        let result: ToolInvocationResult
+        var result: ToolInvocationResult
         if authorization.allowed {
             if let preHookBlockedResult {
                 result = preHookBlockedResult
@@ -732,7 +733,7 @@ extension CoreService {
                             )
                         }
                     }
-                    await toolLoopGuard.recordResult(
+                    let correctionExhausted = await toolLoopGuard.recordResult(
                         sessionID: channelID,
                         request: effectiveRequest,
                         result: result,
@@ -740,6 +741,7 @@ extension CoreService {
                         workspaceRootURL: workspaceRootURL,
                         currentDirectoryURL: currentDirectoryURL
                     )
+                    if correctionExhausted { result = toolArgumentCorrectionExhausted(result) }
                 }
             }
         } else {
@@ -1080,6 +1082,7 @@ extension CoreService {
         toolExecution.projectService = self
         toolExecution.configService = self
         toolExecution.skillsService = self
+        toolExecution.memoryImportService = self
         toolExecution.siteService = self
         toolExecution.applyAgentMarkdown = { [weak self] agentID, userID, field, markdown in
             guard let self else {

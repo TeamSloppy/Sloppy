@@ -381,13 +381,8 @@ func meshAPIStateIncludesLocalNodeConfigAfterRemoteJoin() async throws {
     let configURL = FileManager.default.temporaryDirectory
         .appendingPathComponent("sloppy-tests-\(UUID().uuidString)")
         .appendingPathComponent("node.json")
-    let identity = NodeIdentity(
-        nodeId: "node_work",
-        name: "Work Mac",
-        publicKey: "ed25519:work_public",
-        privateKey: "work_private",
-        roles: ["worker"],
-        capabilities: ["run_agent", "git"]
+    let identity = NodeIdentityGenerator.makeIdentity(
+        name: "Work Mac", roles: ["worker"], capabilities: ["run_agent", "git"]
     )
     let configStore = NodeConfigStore(configURL: configURL)
     try configStore.save(NodeConfig(
@@ -407,7 +402,7 @@ func meshAPIStateIncludesLocalNodeConfigAfterRemoteJoin() async throws {
     let state = try decoder.decode(MeshState.self, from: response.body)
     #expect(state.networkId == "personal")
     #expect(state.networkName == "VPS-Node")
-    #expect(state.localNode?.id == "node_work")
+    #expect(state.localNode?.id == identity.nodeId)
     #expect(state.localNode?.name == "Work Mac")
     #expect(state.localNode?.relayURL == "http://mesh.example.com")
     #expect(state.localNode?.networkName == "VPS-Node")
@@ -418,9 +413,13 @@ func meshAPIStateIncludesLocalNodeConfigAfterRemoteJoin() async throws {
 @Test
 func meshCoreHTTPRPCDelegatesToLocalCoreRouter() async throws {
     let service = CoreService(config: .test)
+    let controller = NodeIdentityGenerator.makeIdentity(
+        name: "Controller", roles: ["controller"], capabilities: ["sloppy.core.remote"]
+    )
+    _ = try await service.nodeMeshStore.registerNode(controller)
     _ = try await service.createProject(ProjectCreateRequest(id: "mesh-remote", name: "Mesh Remote"))
     let payload = await service.handleMeshCoreHTTPRPC(
-        envelope: MeshEnvelope(id: "rpc_http", type: .rpcRequest, from: "node_controller", to: "node_worker"),
+        envelope: MeshEnvelope(id: "rpc_http", type: .rpcRequest, from: controller.nodeId, to: "node_worker"),
         method: "core.http",
         params: .object([
             "method": .string("GET"),
@@ -448,10 +447,14 @@ func meshCoreHTTPRPCRequiresUserContextInLoginPasswordMode() async throws {
     config.auth.token = ""
 
     let service = CoreService(config: config)
+    let controller = NodeIdentityGenerator.makeIdentity(
+        name: "Controller", roles: ["controller"], capabilities: ["sloppy.core.remote"]
+    )
+    _ = try await service.nodeMeshStore.registerNode(controller)
     _ = try await service.createProject(ProjectCreateRequest(id: "mesh-login", name: "Mesh Login"))
 
     let withoutContext = await service.handleMeshCoreHTTPRPC(
-        envelope: MeshEnvelope(id: "rpc_http_context", type: .rpcRequest, from: "node_controller", to: "node_worker"),
+        envelope: MeshEnvelope(id: "rpc_http_context", type: .rpcRequest, from: controller.nodeId, to: "node_worker"),
         method: "core.http",
         params: .object([
             "method": .string("GET"),
@@ -464,7 +467,7 @@ func meshCoreHTTPRPCRequiresUserContextInLoginPasswordMode() async throws {
     #expect(missingError["code"] == .string("mesh_missing_user_context"))
 
     let withContext = await service.handleMeshCoreHTTPRPC(
-        envelope: MeshEnvelope(id: "rpc_http_context", type: .rpcRequest, from: "node_controller", to: "node_worker"),
+        envelope: MeshEnvelope(id: "rpc_http_context", type: .rpcRequest, from: controller.nodeId, to: "node_worker"),
         method: "core.http",
         params: .object([
             "method": .string("GET"),
@@ -548,6 +551,26 @@ func meshAPIProxiesCoreRequestRequiresUserContextInLoginPasswordMode() async thr
     #expect(authorized.status == 200)
     let bodyObject = try #require(JSONSerialization.jsonObject(with: authorized.body) as? [String: Any])
     #expect(bodyObject["status"] as? Int == 200)
+
+    // The transport credential is mandatory even when an inner header is supplied.
+    let spoofed = await router.handle(
+        method: "POST",
+        path: "/v1/node/mesh/nodes/\(identity.nodeId)/core",
+        body: Data(#"{"method":"GET","path":"/v1/projects","headers":{"authorization":"Bearer dashboard-secret","x-sloppy-user-context":"user-admin"}}"#.utf8)
+    )
+    #expect(spoofed.status == 401)
+
+    // Native clients carry user context in the payload; retain this wire format.
+    let payloadContext = await router.handle(
+        method: "POST",
+        path: "/v1/node/mesh/nodes/\(identity.nodeId)/core",
+        body: Data(#"{"method":"GET","path":"/v1/projects","headers":{"Authorization":"Bearer wrong-inner-token","X-Sloppy-User-Context":"user-admin"}}"#.utf8),
+        headers: ["Authorization": "Bearer dashboard-secret"]
+    )
+    #expect(payloadContext.status == 200)
+    let payloadObject = try #require(JSONSerialization.jsonObject(with: payloadContext.body) as? [String: Any])
+    #expect(payloadObject["status"] as? Int == 200)
+
 }
 
 @Test
@@ -4157,6 +4180,7 @@ func agentToolsUpdateRejectsInvalidSchemaVersion() async throws {
 func invokeToolEndpointRespectsPolicy() async throws {
     let config = CoreConfig.test
     let service = CoreService(config: config)
+    await service.setToolApprovalPresenter { _ in .reject }
     let router = CoreRouter(service: service)
 
     let createAgentBody = try JSONEncoder().encode(
@@ -4212,7 +4236,10 @@ func invokeToolEndpointRespectsPolicy() async throws {
         path: "/v1/agents/agent-tools-invoke/sessions/\(summary.id)/tools/invoke",
         body: invokeBody
     )
-    #expect(invokeForbiddenResponse.status == 403)
+    #expect(invokeForbiddenResponse.status == 200)
+    let rejected = try decoder.decode(ToolInvocationResult.self, from: invokeForbiddenResponse.body)
+    #expect(!rejected.ok)
+    #expect(rejected.error?.code == "tool_approval_rejected")
 }
 
 @Test

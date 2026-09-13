@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { memoryImportMessage, memoryImportProgress, prepareMemoryAttachments, validateMemoryFiles } from "../src/features/agents/memoryImport.ts";
+import { isMemoryImportComplete, memoryImportMessage, memoryImportProgress, prepareMemoryAttachments, validateMemoryFiles } from "../src/features/agents/memoryImport.ts";
+
+test("completion requires complete verified coverage, not just a completed label", () => {
+  assert.equal(isMemoryImportComplete({ status: "completed", totalUnits: 80, completedUnits: 6 }), false);
+  assert.equal(isMemoryImportComplete({ status: "running", totalUnits: 80, completedUnits: 80 }), false);
+  assert.equal(isMemoryImportComplete({ status: "completed", totalUnits: 80, completedUnits: 80 }), true);
+});
 
 test("prepares multiple Unicode Markdown files without altering their bytes", async () => {
   const files = [new File(["# Память\nПредпочитаю Swift 🧠"], "память.md"), new File(["# Project\nDecision"], "project.MD")];
@@ -28,7 +34,7 @@ test("import explicitly invokes the skill and targets only the selected agent", 
   const message = memoryImportMessage("personal-agent");
   assert.match(message, /bundled\/memory-import/);
   assert.match(message, /scope_id = "personal-agent"/);
-  assert.match(message, /memory\.recall/);
+  assert.match(message, /memory\.import/);
   assert.doesNotMatch(message, /memory\.get/);
 });
 

@@ -1422,6 +1422,7 @@ export function ProjectsView({
       }
       const nodes = Array.isArray(raw.nodes)
         ? raw.nodes.map((n) => ({
+          ...n,
           id: String(n?.id ?? ""),
           displayName: String(n?.displayName ?? n?.id ?? ""),
           linkedAgentId: n?.linkedAgentId || null
@@ -1429,6 +1430,7 @@ export function ProjectsView({
         : [];
       const teamList = Array.isArray(raw.teams)
         ? raw.teams.map((t) => ({
+          ...t,
           id: String(t?.id ?? ""),
           name: String(t?.name ?? t?.id ?? "")
         }))
@@ -1506,7 +1508,8 @@ export function ProjectsView({
       kind: activeTask.kind || "",
       loopModeOverride: activeTask.loopModeOverride || "",
       actorId: resolvedActorId,
-      teamId: activeTask.teamId || ""
+      teamId: activeTask.teamId || "",
+      stageAssignments: activeTask.stageAssignments || null
     });
   }, [
     selectedTask?.id,
@@ -1842,7 +1845,10 @@ export function ProjectsView({
   }
 
   function openCreateTaskModal(initialStatus = "backlog") {
-    setTaskDraft(emptyTaskDraft(initialStatus));
+    setTaskDraft({
+      ...emptyTaskDraft(initialStatus),
+      teamId: selectedProject?.teams?.length === 1 ? selectedProject.teams[0] : ""
+    });
     setIsCreateTaskModalOpen(true);
   }
 
@@ -1862,7 +1868,8 @@ export function ProjectsView({
       kind: task.kind || "",
       loopModeOverride: task.loopModeOverride || "",
       actorId: resolvedActorId,
-      teamId: task.teamId || ""
+      teamId: task.teamId || "",
+      stageAssignments: task.stageAssignments || null
     });
   }
 
@@ -1889,7 +1896,8 @@ export function ProjectsView({
       kind: task.kind || "",
       loopModeOverride: task.loopModeOverride || "",
       actorId: resolvedActorId,
-      teamId: task.teamId || ""
+      teamId: task.teamId || "",
+      stageAssignments: task.stageAssignments || null
     });
   }
 
@@ -1906,7 +1914,7 @@ export function ProjectsView({
     }
     if (token.startsWith("team:")) {
       const teamId = token.slice("team:".length).trim();
-      setEditDraft((prev) => ({ ...prev, actorId: "", teamId }));
+      setEditDraft((prev) => ({ ...prev, actorId: "", teamId, stageAssignments: null }));
       return;
     }
   }
@@ -1927,8 +1935,9 @@ export function ProjectsView({
       status: editDraft.status,
       kind: String(editDraft.kind || "").trim() || null,
       loopModeOverride: String(editDraft.loopModeOverride || "").trim() || null,
-      actorId: String(editDraft.actorId || "").trim() || null,
-      teamId: String(editDraft.teamId || "").trim() || null,
+      ...(String(editDraft.actorId || "").trim() !== (taskToUpdate.claimedActorId || taskToUpdate.actorId || "") ? { actorId: String(editDraft.actorId || "").trim() } : {}),
+      ...(String(editDraft.teamId || "").trim() !== (taskToUpdate.teamId || "") ? { teamId: String(editDraft.teamId || "").trim() } : {}),
+      ...(JSON.stringify(editDraft.stageAssignments) !== JSON.stringify(taskToUpdate.stageAssignments) ? { stageAssignments: editDraft.stageAssignments } : {}),
       changedBy: "user"
     });
     if (!updated) {
@@ -1990,7 +1999,7 @@ export function ProjectsView({
       kind: String(taskDraft.kind || "").trim() || null,
       loopModeOverride: String(taskDraft.loopModeOverride || "").trim() || null,
       actorId: String(taskDraft.actorId || "").trim() || null,
-      teamId: String(taskDraft.teamId || "").trim() || null,
+      teamId: String(taskDraft.teamId || "").trim(),
       attachments: Array.isArray(taskDraft.attachments) ? taskDraft.attachments : []
     });
 
@@ -2345,6 +2354,12 @@ export function ProjectsView({
       return (
         <ProjectTasksTab
           project={project}
+          onUpdateProject={async (payload) => {
+            const updated = await updateProjectRequest(project.id, payload);
+            if (updated) replaceProjectInState(updated, true);
+            return updated;
+          }}
+          onTeamsChange={setCreateModalTeams}
           selectedTask={selectedTask}
           sideTask={resolvedSideTask}
           editDraft={editDraft}

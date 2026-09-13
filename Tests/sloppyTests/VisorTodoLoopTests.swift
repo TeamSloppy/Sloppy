@@ -374,7 +374,7 @@ func fireAndForgetWorkerPersistsObjectiveArtifact() async throws {
     #expect(comments.contains(where: { $0.authorActorId == "system" && !$0.content.isEmpty }))
     #expect(comments.contains(where: {
         $0.authorActorId == "system" &&
-            $0.content.contains("Task delegated to subagent session") &&
+            $0.kind == .technical && $0.content.contains("Task delegated to subagent attempt") &&
             $0.content.contains("](/agents/builder/chat/session-")
     }))
 }

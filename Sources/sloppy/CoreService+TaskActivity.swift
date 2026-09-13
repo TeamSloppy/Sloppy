@@ -362,13 +362,13 @@ extension CoreService {
         )
     }
 
-    func appendSystemTaskComment(projectID: String, taskID: String, content: String) async {
+    func appendSystemTaskComment(projectID: String, taskID: String, content: String, kind: TaskCommentKind = .technical) async {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return }
         _ = await addTaskComment(
             projectID: projectID,
             taskID: taskID,
-            request: TaskCommentCreateRequest(content: trimmed, authorActorId: "system")
+            request: TaskCommentCreateRequest(content: trimmed, authorActorId: "system", kind: kind)
         )
     }
 

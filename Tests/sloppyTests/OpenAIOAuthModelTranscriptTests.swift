@@ -4,6 +4,19 @@ import AnyLanguageModel
 @testable import PluginSDK
 
 @Test
+func oauthRequestUsesSessionInstructionsAndFallsBackToModelDefaults() throws {
+    let model = OpenAIOAuthModel(bearerToken: "test", model: "test", instructions: "Default assistant")
+    let session = LanguageModelSession(model: model, instructions: "Extract memory. Return only JSON matching the supplied schema.")
+    let data = try model.buildRequestBodyForTesting(transcript: session.transcript, options: GenerationOptions())
+    let body = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+    #expect(body["instructions"] as? String == "Extract memory. Return only JSON matching the supplied schema.")
+
+    let fallback = try model.buildRequestBodyForTesting(transcript: Transcript(entries: []), options: GenerationOptions())
+    let fallbackBody = try #require(JSONSerialization.jsonObject(with: fallback) as? [String: Any])
+    #expect(fallbackBody["instructions"] as? String == "Default assistant")
+}
+
+@Test
 func transcriptToResponsesInputConvertsPromptEntries() {
     let model = OpenAIOAuthModel(bearerToken: "test", model: "gpt-5")
     let transcript = Transcript(entries: [

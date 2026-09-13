@@ -14,6 +14,9 @@ actor ToolLoopGuard {
         let nonRetryableFailure: Bool
         let timeoutFailure: Bool
         let enforcesRepeatedCallLimits: Bool
+        let errorCode: String?
+        let argumentRecovery: ToolArgumentRecovery?
+        let recoveryValues: [String: JSONValue]
     }
 
     private struct SignatureDescriptor {
@@ -50,6 +53,23 @@ actor ToolLoopGuard {
 
         let records = recordsBySession[sessionID] ?? []
         let signature = descriptor.signature
+
+        // Match the failing fields, not incidental text such as a memory note.
+        for record in records where record.tool == trimmedTool && record.nonRetryableFailure {
+            guard let recovery = record.argumentRecovery, !recovery.invalidFields.isEmpty,
+                  matches(fields: recovery.contextFields, request: request, values: record.recoveryValues) else { continue }
+            if matches(fields: recovery.invalidFields, request: request, values: record.recoveryValues) {
+                return .block(message: "The failing arguments (\(recovery.invalidFields.joined(separator: ", "))) have not changed. The operation was stopped; correct these fields before continuing.")
+            }
+            let familyFailures = records.filter {
+                $0.tool == trimmedTool && $0.nonRetryableFailure && $0.errorCode == record.errorCode &&
+                $0.argumentRecovery == recovery &&
+                matches(fields: recovery.contextFields, request: request, values: $0.recoveryValues)
+            }.count
+            if familyFailures >= 2 {
+                return .block(message: "Argument correction failed for \(recovery.invalidFields.joined(separator: ", ")). The operation was stopped after one correction attempt.")
+            }
+        }
 
         if (pendingBySession[sessionID]?[signature] ?? 0) > 0 {
             return .block(message: "Loop blocked: a matching tool call is already running.")
@@ -119,6 +139,7 @@ actor ToolLoopGuard {
         pendingBySession[sessionID, default: [:]][descriptor.signature, default: 0] += 1
     }
 
+    @discardableResult
     func recordResult(
         sessionID: String,
         request: ToolInvocationRequest,
@@ -126,14 +147,14 @@ actor ToolLoopGuard {
         policy: AgentToolsPolicy,
         workspaceRootURL: URL,
         currentDirectoryURL: URL? = nil
-    ) {
+    ) -> Bool {
         guard let descriptor = signatureDescriptor(
             for: request,
             policy: policy,
             workspaceRootURL: workspaceRootURL,
             currentDirectoryURL: currentDirectoryURL
         ) else {
-            return
+            return false
         }
 
         cleanupExpiredRepeatedCallWindow(
@@ -157,20 +178,40 @@ actor ToolLoopGuard {
         }
 
         let trimmedTool = request.tool.trimmingCharacters(in: .whitespacesAndNewlines)
+        let recovery = result.error?.argumentRecovery
+        let recoveryFields = Set((recovery?.invalidFields ?? []) + (recovery?.contextFields ?? []))
         let record = InvocationRecord(
             timestamp: Date(),
             tool: trimmedTool,
             signature: descriptor.signature,
             nonRetryableFailure: result.ok == false && result.error?.retryable == false,
             timeoutFailure: result.error?.code == "tool_timeout" || result.data?.asObject?["timedOut"]?.asBool == true,
-            enforcesRepeatedCallLimits: descriptor.enforcesRepeatedCallLimits
+            enforcesRepeatedCallLimits: descriptor.enforcesRepeatedCallLimits,
+            errorCode: result.error?.code,
+            argumentRecovery: recovery,
+            recoveryValues: Dictionary(uniqueKeysWithValues: recoveryFields.map { ($0, request.arguments[$0] ?? .null) })
         )
         recordsBySession[sessionID, default: []].append(record)
+        guard record.nonRetryableFailure, let recovery, !recovery.invalidFields.isEmpty else { return false }
+        return (recordsBySession[sessionID] ?? []).filter {
+            $0.tool == trimmedTool && $0.nonRetryableFailure && $0.errorCode == record.errorCode &&
+            $0.argumentRecovery == recovery &&
+            matches(fields: recovery.contextFields, request: request, values: $0.recoveryValues)
+        }.count >= 2
     }
 
     func cleanup(sessionID: String) {
         recordsBySession.removeValue(forKey: sessionID)
         pendingBySession.removeValue(forKey: sessionID)
+    }
+
+    /// A new user turn can retry a corrected operation; automatic model rounds cannot reset this budget.
+    func beginTurn(sessionID: String) {
+        recordsBySession[sessionID]?.removeAll { $0.argumentRecovery != nil }
+    }
+
+    private func matches(fields: [String], request: ToolInvocationRequest, values: [String: JSONValue]) -> Bool {
+        fields.allSatisfy { (request.arguments[$0] ?? .null) == (values[$0] ?? .null) }
     }
 
     private func cleanupExpiredRepeatedCallWindow(sessionID: String, now: Date, windowSeconds: Int) {

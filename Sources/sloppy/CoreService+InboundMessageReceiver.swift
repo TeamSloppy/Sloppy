@@ -574,6 +574,7 @@ extension CoreService {
             toolInvoker = nil
         }
 
+        await toolLoopGuard.beginTurn(sessionID: channelId)
         _ = await runtime.postMessage(
             channelId: channelId,
             request: request,

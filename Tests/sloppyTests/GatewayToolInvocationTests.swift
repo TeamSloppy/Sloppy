@@ -18,6 +18,7 @@ struct GatewayToolInvocationTests {
     @Test("gateway channel tool calls honor linked agent tool policy")
     func gatewayChannelToolCallsHonorAgentPolicy() async throws {
         let service = makeService()
+        await service.setToolApprovalPresenter { _ in .reject }
         let agentID = "gateway-tools-\(UUID().uuidString)"
         try await makeAgent(service: service, agentID: agentID)
 
@@ -40,7 +41,7 @@ struct GatewayToolInvocationTests {
         )
 
         #expect(result.ok == false)
-        #expect(result.error?.code == "tool_forbidden")
+        #expect(result.error?.code == "tool_approval_rejected")
     }
 
     @Test("gateway channel tool calls resolve relative paths from linked project root")

@@ -140,6 +140,7 @@ extension RuntimeSystem {
                     group.cancelAll()
                 }
             } catch is StreamIdleTimeoutError {
+                if await finishToolLoopBlock(channelId: channelId, tracker: tracker, config: nativeLoopConfig, onResponseChunk: onResponseChunk, outcomeHandler: nativeLoopOutcomeHandler) { return }
                 let chunks = await tracker.chunks
                 let content = await tracker.latestContent
                 logger.warning(
@@ -215,6 +216,7 @@ extension RuntimeSystem {
                         )
                     }
                     let fallbackResponse = try await freshSession.respond(to: modelUserMessage, options: options)
+                    if await finishToolLoopBlock(channelId: channelId, tracker: tracker, config: nativeLoopConfig, onResponseChunk: onResponseChunk, outcomeHandler: nativeLoopOutcomeHandler) { return }
                     var fallbackContent = fallbackResponse.content
                     await consumeProviderUsageIfAvailable(
                         channelId: channelId,
@@ -302,6 +304,7 @@ extension RuntimeSystem {
                     throw StreamIdleTimeoutError()
                 }
             } catch let error as LanguageModelSession.GenerationError {
+                if await finishToolLoopBlock(channelId: channelId, tracker: tracker, config: nativeLoopConfig, onResponseChunk: onResponseChunk, outcomeHandler: nativeLoopOutcomeHandler) { return }
                 let latest = await tracker.latestContent
                 let streamChunks = await tracker.chunks
                 if case .exceededContextWindowSize = error {
@@ -445,6 +448,8 @@ extension RuntimeSystem {
                 )
             )
 
+            if await finishToolLoopBlock(channelId: channelId, tracker: tracker, config: nativeLoopConfig, onResponseChunk: onResponseChunk, outcomeHandler: nativeLoopOutcomeHandler) { return }
+
             if await tracker.hitToolRoundLimit {
                 sessionsByChannel.removeValue(forKey: channelId)
                 latest = Self.toolRoundLimitMessage
@@ -500,6 +505,7 @@ extension RuntimeSystem {
                 )
                 do {
                     let response = try await session.respond(to: modelUserMessage, options: options)
+                    if await finishToolLoopBlock(channelId: channelId, tracker: tracker, config: nativeLoopConfig, onResponseChunk: onResponseChunk, outcomeHandler: nativeLoopOutcomeHandler) { return }
                     latest = response.content
                     await consumeProviderUsageIfAvailable(
                         channelId: channelId,
@@ -658,6 +664,7 @@ extension RuntimeSystem {
                 turnExitReason: .streamRetryFailed
             ))
         } catch {
+            if await finishToolLoopBlock(channelId: channelId, tracker: tracker, config: nativeLoopConfig, onResponseChunk: onResponseChunk, outcomeHandler: nativeLoopOutcomeHandler) { return }
             if await retryInterruptedModelSessionIfNeeded(
                 channelId: channelId,
                 userMessage: userMessage,

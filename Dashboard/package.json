@@ -9,6 +9,7 @@
     "build": "node ./node_modules/vite/bin/vite.js build",
     "typecheck": "tsc --noEmit",
     "test:config-auth": "node --test ./scripts/configAuthTest.mjs",
+    "test:auth": "node --test ./scripts/configAuthTest.mjs ./scripts/authInvalidationTest.mjs",
     "preview": "node ./node_modules/vite/bin/vite.js preview",
     "seed:happy-path": "node ./scripts/seedHappyPath.mjs",
     "e2e:happy-path": "node ./scripts/happyPath.mjs"

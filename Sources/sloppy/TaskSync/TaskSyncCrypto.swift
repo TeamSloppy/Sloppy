@@ -1,6 +1,10 @@
 import Foundation
 
 enum TaskSyncCrypto {
+    static func sha256Hex(_ data: Data) -> String {
+        sha256([UInt8](data)).map { String(format: "%02x", $0) }.joined()
+    }
+
     static func verifyGitHubSignature(body: Data, secret: String, signatureHeader: String?) -> Bool {
         guard let signatureHeader,
               signatureHeader.hasPrefix("sha256=")

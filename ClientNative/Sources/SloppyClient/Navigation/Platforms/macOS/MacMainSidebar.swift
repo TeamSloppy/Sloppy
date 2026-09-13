@@ -8,6 +8,7 @@ import SwiftUI
 struct PlatformMainSidebar: View {
     let viewModel: MainViewModel
     let isOverlay: Bool
+    var composerBackdropHeight: CGFloat? = nil
 
     @Environment(\.theme) private var theme
     @State private var isSettingsHovered = false
@@ -104,11 +105,20 @@ struct PlatformMainSidebar: View {
             .buttonStyle(.borderless)
             .padding(.horizontal, theme.spacing.m)
             .frame(maxWidth: .infinity, minHeight: 64)
-            .background(theme.colors.surfaceRaised.ignoresSafeArea(edges: .bottom))
+            .background {
+                if composerBackdropHeight == nil {
+                    theme.colors.surfaceRaised.ignoresSafeArea(edges: .bottom)
+                }
+            }
             .overlay(alignment: .top) {
                 Rectangle()
                     .fill(theme.colors.borderBold)
                     .frame(height: theme.borders.thin)
+            }
+        }
+        .background(alignment: .bottom) {
+            if let composerBackdropHeight {
+                ComposerBackdrop(height: composerBackdropHeight)
             }
         }
     }

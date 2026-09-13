@@ -1,3 +1,9 @@
+import { resolveApiBase } from "../../shared/api/httpClient";
+import { KanbanFilters } from "../../features/kanban-filters/KanbanFilters";
+import { useTaskFilters } from "../../features/kanban-filters/useTaskFilters";
+import { hasTaskFilter, taskFilterStorageKey, taskMatchesFilter } from "../../features/kanban-filters/taskFilters";
+import { TeamBoardPanel } from "./TeamBoardPanel";
+import { TASK_STAGES, memberRoles } from "../../features/actors/teamRoles";
 import React, { useState, useRef, useEffect, useCallback, useMemo } from "react";
 import {
     TASK_STATUSES,
@@ -20,7 +26,7 @@ import {
 } from "../../api";
 import { AgentPetIcon } from "../../features/agents/components/AgentPetSprite";
 import { LoadingSkeleton } from "../../components/LoadingSkeleton";
-import { DetailDropdown, TaskDetailView, TASK_SIDE_VIEW_STORAGE_KEY, clampTaskSideViewWidthPercent, readTaskSideViewWidthPercent } from "./ProjectTaskDetails";
+import { TaskDetailView, TASK_SIDE_VIEW_STORAGE_KEY, clampTaskSideViewWidthPercent, readTaskSideViewWidthPercent } from "./ProjectTaskDetails";
 
 function assigneeInitials(name) {
     const parts = String(name || "?")
@@ -287,8 +293,16 @@ function TaskBulkContextMenu({
     );
 }
 
-export function ProjectTasksTab({
+export function ProjectTasksTab(props) {
+    const filterStorageKey = taskFilterStorageKey(resolveApiBase(), props.project.id);
+    return <ProjectTasksBoard key={filterStorageKey} {...props} filterStorageKey={filterStorageKey} />;
+}
+
+function ProjectTasksBoard({
+    filterStorageKey,
     project,
+    onUpdateProject,
+    onTeamsChange,
     selectedTask,
     sideTask,
     editDraft,
@@ -318,8 +332,7 @@ export function ProjectTasksTab({
     const [archiveLoading, setArchiveLoading] = useState(false);
     const [dragGhostTask, setDragGhostTask] = useState(null);
     const [dragOverColumnId, setDragOverColumnId] = useState(null);
-    const [tagFilter, setTagFilter] = useState("");
-    const [assigneeFilter, setAssigneeFilter] = useState("");
+    const boardFilters = useTaskFilters(filterStorageKey);
     const [selectionMode, setSelectionMode] = useState(false);
     const [selectedTaskIds, setSelectedTaskIds] = useState(() => new Set());
     const [lastSelectedTaskId, setLastSelectedTaskId] = useState("");
@@ -378,57 +391,27 @@ export function ProjectTasksTab({
         return Array.from(tags).sort((a, b) => a.localeCompare(b));
     }, [activeTasks]);
 
-    const assigneeOptions = useMemo(() => {
-        const options = new Map();
-        activeTasks.forEach((task) => {
-            if (task.actorId) {
-                const actor = createModalActors.find((a) => a.id === task.actorId);
-                options.set(`actor:${task.actorId}`, `Actor: ${actor?.displayName || task.actorId}`);
-            }
-            if (task.teamId) {
-                const team = createModalTeams.find((t) => t.id === task.teamId);
-                options.set(`team:${task.teamId}`, `Team: ${team?.name || task.teamId}`);
-            }
-            if (task.claimedActorId) {
-                const actor = createModalActors.find((a) => a.id === task.claimedActorId);
-                options.set(`claimedActor:${task.claimedActorId}`, `Claimed actor: ${actor?.displayName || task.claimedActorId}`);
-            }
-            if (task.claimedAgentId) {
-                const agent = agentDirectory[task.claimedAgentId];
-                options.set(`agent:${task.claimedAgentId}`, `Agent: ${agent?.displayName || task.claimedAgentId}`);
-            }
-        });
-        return Array.from(options, ([id, label]) => ({ id, label })).sort((a, b) => a.label.localeCompare(b.label));
-    }, [activeTasks, createModalActors, createModalTeams, agentDirectory]);
-
-    const filteredActiveTasks = useMemo(() => {
-        return activeTasks.filter((task) => {
-            if (tagFilter && !(task.tags || []).includes(tagFilter)) {
-                return false;
-            }
-            if (assigneeFilter) {
-                const matches =
-                    (assigneeFilter.startsWith("actor:") && task.actorId === assigneeFilter.slice("actor:".length)) ||
-                    (assigneeFilter.startsWith("team:") && task.teamId === assigneeFilter.slice("team:".length)) ||
-                    (assigneeFilter.startsWith("claimedActor:") && task.claimedActorId === assigneeFilter.slice("claimedActor:".length)) ||
-                    (assigneeFilter.startsWith("agent:") && task.claimedAgentId === assigneeFilter.slice("agent:".length));
-                if (!matches) return false;
-            }
-            return true;
-        });
-    }, [activeTasks, tagFilter, assigneeFilter]);
+    const filteredActiveTasks = useMemo(
+        () => activeTasks.filter((task) => taskMatchesFilter(task, boardFilters.state.filter)),
+        [activeTasks, boardFilters.state.filter]
+    );
+    const filteredArchivedTasks = useMemo(
+        () => archivedTasks.filter((task) => taskMatchesFilter(task, boardFilters.state.filter)),
+        [archivedTasks, boardFilters.state.filter]
+    );
+    useEffect(() => { setContextMenu(null); }, [boardFilters.state.filter]);
     const visibleTaskSelectionOrder = useMemo(
         () => buildProjectTaskSelectionOrder(filteredActiveTasks, TASK_STATUSES),
         [filteredActiveTasks]
     );
 
-    const activeTaskIdSet = useMemo(
-        () => new Set(activeTasks.map((task) => String(task.id || "").trim()).filter(Boolean)),
-        [activeTasks]
+    const visibleTaskIdSet = useMemo(
+        () => new Set(filteredActiveTasks.map((task) => String(task.id || "").trim()).filter(Boolean)),
+        [filteredActiveTasks]
     );
     const selectedTaskIdList = useMemo(
-        () => Array.from(selectedTaskIds).filter((id) => activeTaskIdSet.has(id)),
-        [selectedTaskIds, activeTaskIdSet]
+        () => Array.from(selectedTaskIds).filter((id) => visibleTaskIdSet.has(id)),
+        [selectedTaskIds, visibleTaskIdSet]
     );
     const selectedTaskCount = selectedTaskIdList.length;
     const selectedTaskIdSet = useMemo(() => new Set(selectedTaskIdList), [selectedTaskIdList]);
@@ -438,7 +421,7 @@ export function ProjectTasksTab({
             let changed = false;
             const next = new Set();
             previous.forEach((id) => {
-                if (activeTaskIdSet.has(id)) {
+                if (visibleTaskIdSet.has(id)) {
                     next.add(id);
                 } else {
                     changed = true;
@@ -446,7 +429,7 @@ export function ProjectTasksTab({
             });
             return changed ? next : previous;
         });
-    }, [activeTaskIdSet]);
+    }, [visibleTaskIdSet]);
 
     useEffect(() => {
         setLastSelectedTaskId((previous) => (
@@ -481,7 +464,7 @@ export function ProjectTasksTab({
     const taskCounts = buildTaskCounts(filteredActiveTasks);
     const swarmGroups = buildSwarmGroups(filteredActiveTasks);
     const selectedTaskId = (selectedTask || sideTask) ? String((selectedTask || sideTask).id || "").trim() : "";
-    const hasTaskFilters = Boolean(tagFilter || assigneeFilter);
+    const hasTaskFilters = hasTaskFilter(boardFilters.state.filter);
 
     useEffect(() => {
         if (!isResizingSideView) {
@@ -581,7 +564,7 @@ export function ProjectTasksTab({
     }
 
     async function runBulkUpdate(payloadBuilder, successMessage) {
-        const taskIds = contextMenu?.taskIds?.length ? contextMenu.taskIds : selectedTaskIdList;
+        const taskIds = (contextMenu?.taskIds?.length ? contextMenu.taskIds : selectedTaskIdList).filter((id) => visibleTaskIdSet.has(id));
         if (!taskIds.length || typeof bulkUpdateTasks !== "function") {
             return;
         }
@@ -595,7 +578,7 @@ export function ProjectTasksTab({
     }
 
     async function runBulkDelete() {
-        const taskIds = contextMenu?.taskIds?.length ? contextMenu.taskIds : selectedTaskIdList;
+        const taskIds = (contextMenu?.taskIds?.length ? contextMenu.taskIds : selectedTaskIdList).filter((id) => visibleTaskIdSet.has(id));
         if (!taskIds.length || typeof bulkDeleteTasks !== "function") {
             return;
         }
@@ -699,13 +682,14 @@ export function ProjectTasksTab({
     return (
         <section className={`project-tab-layout project-tab-layout--tasks${sideTask ? " project-tab-layout--with-task-side-view" : ""}`}>
             <section className="project-pane project-kanban-pane">
+                <TeamBoardPanel project={project} actors={createModalActors} teams={createModalTeams} onUpdateProject={onUpdateProject} onTeamsChange={onTeamsChange} />
                 <div className="project-kanban-head">
                     <div className="project-kanban-summary">
                         <span>
                             <span className="material-symbols-rounded" aria-hidden="true">
                                 list_alt
                             </span>
-                            {taskCounts.total} task{taskCounts.total === 1 ? "" : "s"}
+                            {taskCounts.total}{hasTaskFilters ? ` of ${activeTasks.length}` : ""} task{taskCounts.total === 1 && !hasTaskFilters ? "" : "s"}
                         </span>
                         <span>
                             <span className="material-symbols-rounded" aria-hidden="true">
@@ -745,81 +729,7 @@ export function ProjectTasksTab({
                     </div>
                 </div>
 
-                <div className="project-task-filter-bar">
-                    <DetailDropdown
-                        label={tagFilter || "All tags"}
-                        icon="sell"
-                    >
-                        <li
-                            className={`tcm-dropdown-item ${!tagFilter ? "selected" : ""}`}
-                            onMouseDown={(e) => {
-                                e.preventDefault();
-                                setTagFilter("");
-                            }}
-                        >
-                            <span className="material-symbols-rounded tcm-dropdown-item-icon">sell</span>
-                            <span>All tags</span>
-                            {!tagFilter && <span className="tcm-dropdown-check">✓</span>}
-                        </li>
-                        {tagOptions.map((tag) => (
-                            <li
-                                key={tag}
-                                className={`tcm-dropdown-item ${tagFilter === tag ? "selected" : ""}`}
-                                onMouseDown={(e) => {
-                                    e.preventDefault();
-                                    setTagFilter(tag);
-                                }}
-                            >
-                                <span className="material-symbols-rounded tcm-dropdown-item-icon">sell</span>
-                                <span>{tag}</span>
-                                {tagFilter === tag && <span className="tcm-dropdown-check">✓</span>}
-                            </li>
-                        ))}
-                    </DetailDropdown>
-                    <DetailDropdown
-                        label={assigneeOptions.find((option) => option.id === assigneeFilter)?.label || "All assignees"}
-                        icon="person"
-                    >
-                        <li
-                            className={`tcm-dropdown-item ${!assigneeFilter ? "selected" : ""}`}
-                            onMouseDown={(e) => {
-                                e.preventDefault();
-                                setAssigneeFilter("");
-                            }}
-                        >
-                            <span className="material-symbols-rounded tcm-dropdown-item-icon">person</span>
-                            <span>All assignees</span>
-                            {!assigneeFilter && <span className="tcm-dropdown-check">✓</span>}
-                        </li>
-                        {assigneeOptions.map((option) => (
-                            <li
-                                key={option.id}
-                                className={`tcm-dropdown-item ${assigneeFilter === option.id ? "selected" : ""}`}
-                                onMouseDown={(e) => {
-                                    e.preventDefault();
-                                    setAssigneeFilter(option.id);
-                                }}
-                            >
-                                <span className="material-symbols-rounded tcm-dropdown-item-icon">person</span>
-                                <span>{option.label}</span>
-                                {assigneeFilter === option.id && <span className="tcm-dropdown-check">✓</span>}
-                            </li>
-                        ))}
-                    </DetailDropdown>
-                    {hasTaskFilters ? (
-                        <button
-                            type="button"
-                            className="project-task-filter-clear"
-                            onClick={() => {
-                                setTagFilter("");
-                                setAssigneeFilter("");
-                            }}
-                        >
-                            <span className="material-symbols-rounded" aria-hidden="true">filter_alt_off</span>
-                            Clear
-                        </button>
-                    ) : null}
-                </div>
+                <KanbanFilters filters={boardFilters} tasks={activeTasks} actors={createModalActors} teams={createModalTeams} visibleCount={filteredActiveTasks.length} />
 
                 {selectionMode ? (
                     <div className="project-task-selection-bar">
@@ -889,6 +799,8 @@ export function ProjectTasksTab({
                 <div className="project-kanban-board">
                     {TASK_STATUSES.map((column) => {
                         const tasks = sortProjectKanbanColumnTasks(filteredActiveTasks.filter((task) => task.status === column.id));
+                        const stageRole = column.id === "in_progress" ? "developer" : column.id === "needs_review" ? "reviewer" : null;
+                        const roleOwners = stageRole ? createModalActors.filter((actor) => createModalTeams.some((team) => project.teams?.includes(team.id) && memberRoles(team, actor).includes(stageRole))) : [];
 
                         return (
                             <section
@@ -914,6 +826,7 @@ export function ProjectTasksTab({
                                     <strong>{tasks.length}</strong>
                                 </header>
 
+                                {stageRole && <div className="project-column-owners">{roleOwners.length ? roleOwners.map((actor) => actor.displayName).join(" · ") : `No ${stageRole} assigned`}</div>}
                                 <div
                                     className={`project-kanban-column-body${dragOverColumnId === column.id ? " project-kanban-column-body--dragover" : ""}`}
                                 >
@@ -1046,6 +959,7 @@ export function ProjectTasksTab({
                                                             </span>
                                                         </div>
                                                         <h5>{task.title}</h5>
+                                                        {task.stageAssignments && <p className="project-task-stage-summary">{TASK_STAGES.map((role) => `${role.title}: ${createModalActors.find((actor) => actor.id === task.stageAssignments[role.id])?.displayName || task.stageAssignments[role.id] || "Unassigned"}`).join(" · ")}</p>}
                                                         {task.description ? <p>{task.description}</p> : null}
 
                                                         {task.status === "needs_review" && task.worktreeBranch && onOpenReview && (
@@ -1184,7 +1098,7 @@ export function ProjectTasksTab({
                                                                     <span className="material-symbols-rounded" aria-hidden="true">
                                                                         groups
                                                                     </span>
-                                                                    Assigned team: {task.teamId}
+                                                                    Team: {createModalTeams.find((team) => team.id === task.teamId)?.name || task.teamId}
                                                                 </span>
                                                             ) : null}
                                                             <span className="project-task-age">
@@ -1242,11 +1156,11 @@ export function ProjectTasksTab({
                         </div>
                         {archiveLoading ? (
                             <LoadingSkeleton label="Loading archived tasks…" variant="list" rows={5} />
-                        ) : archivedTasks.length === 0 ? (
-                            <p className="placeholder-text">No archived tasks.</p>
+                        ) : filteredArchivedTasks.length === 0 ? (
+                            <p className="placeholder-text">{hasTaskFilters ? "No archived tasks match filters." : "No archived tasks."}</p>
                         ) : (
                             <div className="project-task-archive-list">
-                                {archivedTasks.map((task) => (
+                                {filteredArchivedTasks.map((task) => (
                                     <article
                                         key={task.id}
                                         className="project-task-archive-item"

@@ -21,6 +21,7 @@ struct MainSidebarView: View {
 
     let viewModel: MainViewModel
     let isOverlay: Bool
+    var composerBackdropHeight: CGFloat? = nil
     let canvasWorkspaceViewModel: CanvasWorkspaceViewModel
     let navigationDestination: @MainActor (MainSidebarSelection) -> AnyView
 
@@ -31,6 +32,12 @@ struct MainSidebarView: View {
             isOverlay: isOverlay,
             canvasWorkspaceViewModel: canvasWorkspaceViewModel,
             navigationDestination: navigationDestination
+        )
+        #elseif os(macOS)
+        PlatformMainSidebar(
+            viewModel: viewModel,
+            isOverlay: isOverlay,
+            composerBackdropHeight: composerBackdropHeight
         )
         #else
         PlatformMainSidebar(viewModel: viewModel, isOverlay: isOverlay)

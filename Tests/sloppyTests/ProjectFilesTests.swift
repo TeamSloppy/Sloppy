@@ -432,3 +432,27 @@ func projectSourceControlCreateWorktreeCreatesDedicatedBranchAndPath() async thr
     #expect(payload.worktree.worktreePath.contains("/worktrees/\(projectID)/debug-worktree-test"))
     #expect(FileManager.default.fileExists(atPath: payload.worktree.worktreePath))
 }
+
+@Test
+func workspaceProjectPathAliasRejectsTraversalAndSymlinkEscape() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let root = config.resolvedWorkspaceRootURL(currentDirectory: FileManager.default.currentDirectoryPath)
+    let projects = root.appendingPathComponent("projects", isDirectory: true)
+    let outside = root.appendingPathComponent("outside", isDirectory: true)
+    try FileManager.default.createDirectory(at: projects, withIntermediateDirectories: true)
+    try FileManager.default.createDirectory(at: outside, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createSymbolicLink(at: projects.appendingPathComponent("escape"), withDestinationURL: outside)
+    await #expect(throws: CoreService.ProjectError.invalidPayload) {
+        try await service.normalizedExternalProjectPath("/projects/../outside")
+    }
+    await #expect(throws: CoreService.ProjectError.invalidPayload) {
+        try await service.normalizedExternalProjectPath("/projects/escape")
+    }
+    for id in [".", "..", "escape"] {
+        await #expect(throws: CoreService.ProjectError.invalidProjectID) {
+            try await service.listProjectFiles(projectID: id, path: "")
+        }
+    }
+}

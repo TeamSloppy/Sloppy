@@ -502,6 +502,23 @@ extension CoreService {
     }
 
     func mirrorOutboundCommentIfNeeded(projectID: String, taskID: String, commentID: String) async {
+        // Provider calls suspend the Core actor. Serialize per task so simultaneous reports
+        // observe the preceding delivery before checking for duplicates.
+        let key = taskCommentsFileURL(projectID: projectID, taskID: taskID).path
+        let previous = taskCommentMirrorQueues[key]?.task
+        let id = UUID()
+        let pending = Task {
+            await previous?.value
+            await self.performOutboundCommentMirror(projectID: projectID, taskID: taskID, commentID: commentID)
+        }
+        taskCommentMirrorQueues[key] = (id, pending)
+        await pending.value
+        if taskCommentMirrorQueues[key]?.id == id {
+            taskCommentMirrorQueues.removeValue(forKey: key)
+        }
+    }
+
+    private func performOutboundCommentMirror(projectID: String, taskID: String, commentID: String) async {
         guard let project = await store.project(id: projectID),
               project.taskSyncSettings.enabled,
               let providerId = project.taskSyncSettings.providerId,
@@ -511,13 +528,31 @@ extension CoreService {
         let comments = await listTaskComments(projectID: projectID, taskID: taskID)
         guard var comment = comments.first(where: { $0.id == commentID }),
               comment.externalMetadata?.origin != providerId,
+              comment.externalMetadata?.externalCommentId == nil,
+              comment.effectiveKind != .technical,
               !comment.isAgentReply,
               comment.mentionedActorId == nil
         else { return }
+        // Collapse repeated automated reports, even when technical events occurred in between.
+        // Human comments always retain their normal publishing behavior.
+        if comment.effectiveKind == .result || comment.effectiveKind == .actionRequired,
+           let index = comments.firstIndex(where: { $0.id == commentID }),
+           let previous = comments[..<index].last(where: { $0.effectiveKind != .technical }),
+           previous.effectiveKind == comment.effectiveKind,
+           previous.content.trimmingCharacters(in: .whitespacesAndNewlines) == comment.content.trimmingCharacters(in: .whitespacesAndNewlines),
+           previous.externalMetadata?.providerId == providerId,
+           previous.externalMetadata?.externalCommentId != nil {
+            // Preserve the remote identity so a later delivery attempt stays idempotent.
+            comment.externalMetadata = previous.externalMetadata
+            var updated = comments
+            updated[index] = comment
+            saveTaskComments(updated, projectID: projectID, taskID: taskID)
+            return
+        }
         let token = resolvedTaskSyncToken(projectID: project.id, providerId: providerId, tokenMode: project.taskSyncSettings.tokenMode)
         do {
             comment.externalMetadata = try await provider.mirrorComment(comment, task: task, settings: project.taskSyncSettings, token: token)
-            var updated = comments
+            var updated = await listTaskComments(projectID: projectID, taskID: taskID)
             if let index = updated.firstIndex(where: { $0.id == commentID }) {
                 updated[index] = comment
                 saveTaskComments(updated, projectID: projectID, taskID: taskID)

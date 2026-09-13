@@ -208,17 +208,16 @@ extension CoreService {
     }
 
     public func listProjectFiles(projectID: String, path: String) async throws -> [ProjectFileEntry] {
-        guard let normalizedID = normalizedProjectID(projectID),
-              let project = await store.project(id: normalizedID)
-        else {
+        guard let normalizedID = normalizedProjectID(projectID) else {
             throw ProjectError.notFound
         }
-        let rootURLs = effectiveProjectDirectoryURLs(project)
+        let project = await store.project(id: normalizedID)
+        let rootURLs = try await resolveProjectWorkspaceRoots(projectID: normalizedID)
         guard let rootURL = rootURLs.first else { throw ProjectError.notFound }
 
         let targetURL: URL
         let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
-        if project.kind == .workspace, trimmedPath.isEmpty || trimmedPath == "/" {
+        if project?.kind == .workspace, trimmedPath.isEmpty || trimmedPath == "/" {
             return rootURLs.map { root in
                 ProjectFileEntry(
                     name: root.lastPathComponent.isEmpty ? root.path : root.lastPathComponent,
@@ -253,7 +252,7 @@ extension CoreService {
             let size = resourceValues?.fileSize
             entries.append(ProjectFileEntry(
                 name: url.lastPathComponent,
-                path: project.kind == .workspace || trimmedPath.hasPrefix("/") ? url.standardizedFileURL.path : nil,
+                path: project?.kind == .workspace || trimmedPath.hasPrefix("/") ? url.standardizedFileURL.path : nil,
                 type: isDirectory ? .directory : .file,
                 size: isDirectory ? nil : size
             ))
@@ -270,8 +269,7 @@ extension CoreService {
         guard let normalizedID = normalizedProjectID(projectID) else {
             throw ProjectError.invalidProjectID
         }
-        guard let project = await store.project(id: normalizedID) else { throw ProjectError.notFound }
-        let rootURLs = effectiveProjectDirectoryURLs(project)
+        let rootURLs = try await resolveProjectWorkspaceRoots(projectID: normalizedID)
         guard let rootURL = rootURLs.first else { throw ProjectError.notFound }
 
         let fm = FileManager.default
@@ -293,12 +291,11 @@ extension CoreService {
     }
 
     public func readProjectFile(projectID: String, path: String) async throws -> ProjectFileContentResponse {
-        guard let normalizedID = normalizedProjectID(projectID),
-              let project = await store.project(id: normalizedID)
-        else {
+        guard let normalizedID = normalizedProjectID(projectID) else {
             throw ProjectError.notFound
         }
-        let rootURLs = effectiveProjectDirectoryURLs(project)
+        let project = await store.project(id: normalizedID)
+        let rootURLs = try await resolveProjectWorkspaceRoots(projectID: normalizedID)
         guard let rootURL = rootURLs.first else { throw ProjectError.notFound }
 
         let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -323,7 +320,7 @@ extension CoreService {
         }
 
         let responsePath: String
-        if project.kind == .workspace || trimmedPath.hasPrefix("/") {
+        if project?.kind == .workspace || trimmedPath.hasPrefix("/") {
             responsePath = targetURL.path
         } else {
             responsePath = String(targetURL.path.dropFirst(rootURL.path.count))
@@ -907,7 +904,11 @@ extension CoreService {
         if let nextReviewSettings = request.reviewSettings {
             project.reviewSettings = nextReviewSettings
         }
+        if let enabled = request.automaticTaskPickupEnabled {
+            project.automaticTaskPickupEnabled = enabled
+        }
         if let nextAutopilotSettings = request.autopilotSettings {
+            guard nextAutopilotSettings.pickupRules.isValid else { throw ProjectError.invalidPayload }
             project.autopilotSettings = nextAutopilotSettings
         }
         if let nextLoopMode = request.taskLoopMode {
@@ -1079,6 +1080,12 @@ extension CoreService {
         let rawStatus = request.status?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased() ?? ""
         let resolvedStatus = ProjectTaskStatus(rawValue: rawStatus) != nil ? rawStatus : ProjectTaskStatus.backlog.rawValue
         let normalizedStatus = try normalizeTaskStatus(resolvedStatus)
+        let teamID = try normalizeOptionalTaskTeamID(request.teamId ?? (request.actorId == nil && project.teams.count == 1 ? project.teams.first : nil))
+        var assignments = try taskStageAssignments(requested: request.stageAssignments, teamID: teamID)
+        if assignments != nil, request.stageAssignments == nil, let actor = try normalizeOptionalTaskActorID(request.actorId) {
+            assignments?.developer = actor
+            assignments = try taskStageAssignments(requested: assignments, teamID: teamID)
+        }
         let task = ProjectTask(
             id: nextProjectTaskID(for: project),
             title: try normalizeTaskTitle(request.title),
@@ -1092,7 +1099,8 @@ extension CoreService {
             originChannelId: request.originChannelId,
             actorId: try normalizeOptionalTaskActorID(request.actorId),
             executionNodeId: request.executionNodeId.flatMap(normalizedEntityID),
-            teamId: try normalizeOptionalTaskTeamID(request.teamId),
+            teamId: teamID,
+            stageAssignments: assignments,
             parentTaskId: normalizeOptionalTaskID(request.parentTaskId),
             createdBy: normalizeOptionalTaskAuthor(request.changedBy),
             dependsOnTaskIds: normalizeTaskDependencyIds(request.dependsOnTaskIds ?? []),
@@ -1192,6 +1200,14 @@ extension CoreService {
             task.claimedActorId = nil
             task.claimedAgentId = nil
         }
+        if request.stageAssignments != nil || (request.teamId != nil && task.teamId != oldTask.teamId) {
+            task.stageAssignments = try taskStageAssignments(requested: request.stageAssignments, teamID: task.teamId)
+        }
+        if request.actorId != nil, request.stageAssignments == nil, task.stageAssignments != nil,
+           request.teamId == nil || task.actorId != nil {
+            task.stageAssignments?.developer = task.actorId
+            task.stageAssignments = try taskStageAssignments(requested: task.stageAssignments, teamID: task.teamId)
+        }
         if let kind = request.kind {
             task.kind = kind
         }
@@ -1234,6 +1250,9 @@ extension CoreService {
         let teamChanged = request.teamId != nil && oldTask.teamId != task.teamId
         let statusChangedToReady = request.status != nil && task.status == ProjectTaskStatus.ready.rawValue
         let statusChangedToCancelled = request.status != nil && task.status == ProjectTaskStatus.cancelled.rawValue
+        if task.stageAssignments != nil, !requiresCompletionConfirmation(changedBy: changedBy), statusChangedToReady {
+            task.activeStage = .development
+        }
         if !requiresCompletionConfirmation(changedBy: changedBy),
            actorChanged || teamChanged || statusChangedToReady || statusChangedToCancelled {
             task.routeHistory = []
@@ -1258,6 +1277,15 @@ extension CoreService {
             newTask: task,
             changedBy: changedBy
         )
+        if task.status == ProjectTaskStatus.blocked.rawValue || task.status == ProjectTaskStatus.waitingInput.rawValue,
+           let completionNote = requestedCompletionNote {
+            await appendSystemTaskComment(
+                projectID: normalizedProject,
+                taskID: task.id,
+                content: completionNote,
+                kind: .actionRequired
+            )
+        }
         if task.status == ProjectTaskStatus.done.rawValue,
            previousStatus != ProjectTaskStatus.done.rawValue,
            let completionNote = requestedCompletionNote {
@@ -1846,6 +1874,7 @@ extension CoreService {
             var task = project.tasks[index]
             guard task.status == ProjectTaskStatus.backlog.rawValue,
                   task.dependsOnTaskIds.contains(completedTaskID),
+                  pickupRulesPermit(project: project, task: task),
                   taskDependenciesSatisfied(project: project, task: task)
             else {
                 continue
@@ -2306,6 +2335,11 @@ extension CoreService {
         }
 
         let diskProjectURL = projectDirectoryURL(projectID: normalizedID).standardized
+        let projectsRoot = workspaceRootURL.appendingPathComponent("projects", isDirectory: true)
+        guard isProjectURL(diskProjectURL, inside: projectsRoot),
+              diskProjectURL.resolvingSymlinksInPath().standardizedFileURL != projectsRoot.resolvingSymlinksInPath().standardizedFileURL else {
+            throw ProjectError.invalidProjectID
+        }
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: diskProjectURL.path, isDirectory: &isDirectory),
               isDirectory.boolValue

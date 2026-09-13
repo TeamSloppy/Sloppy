@@ -231,7 +231,7 @@ struct ToolPreHookTests {
             command: "/bin/sh",
             arguments: [
                 "-c",
-                #"printf '%s' '{"action":"allow","arguments":{"path":"channel-safe.txt"}}'"#
+                 #"/bin/cat >/dev/null; printf '%s' '{"action":"allow","arguments":{"path":"channel-safe.txt"}}'"#
             ]
         )
         let service = CoreService(config: config)
@@ -249,7 +249,7 @@ struct ToolPreHookTests {
             request: ToolInvocationRequest(tool: "files.read", arguments: ["path": .string("channel-secret.txt")])
         )
 
-        #expect(result.ok == true)
+        #expect(result.ok == true, "\(String(describing: result.error))")
         #expect(result.data?.asObject?["content"]?.asString == "channel safe")
     }
 

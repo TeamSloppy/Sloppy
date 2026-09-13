@@ -9,6 +9,17 @@ struct ProjectsAPIRouter: APIRouter {
     }
 
     func configure(on router: CoreRouterRegistrar) {
+        router.post("/v1/projects/:projectId/emergency-stop", metadata: RouteMetadata(summary: "Emergency stop project", description: "Disables task pickup and interrupts project task executions", tags: ["Projects"])) { request in
+            do {
+                let result = try await service.emergencyStopProject(projectID: request.pathParam("projectId") ?? "")
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: result)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectReadFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": "project_emergency_stop_failed"])
+            }
+        }
+
         router.get("/v1/task-sync/providers", metadata: RouteMetadata(summary: "List task sync providers", description: "Returns registered external task providers", tags: ["Projects"])) { _ in
             let providers = await service.listTaskSyncProviders()
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: providers)

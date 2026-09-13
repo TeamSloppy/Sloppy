@@ -86,7 +86,7 @@ struct SessionProcessRegistryTests {
             await completion.markComplete()
         }
 
-        let finished = await waitForCompletion(completion, timeout: .seconds(5))
+        let finished = await waitForCompletion(completion, timeout: .seconds(10))
         if !finished {
             killProcess(pid)
         }

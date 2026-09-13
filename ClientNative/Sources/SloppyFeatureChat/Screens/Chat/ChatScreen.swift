@@ -729,19 +729,10 @@ public struct ChatComposerOverlay: View {
         .padding(.bottom, composerBottomInset)
         #if os(macOS)
         .background(alignment: .bottom) {
-            LinearGradient(
-                stops: [
-                    .init(color: theme.colors.background.opacity(0 as Double), location: 0),
-                    .init(color: theme.colors.background.opacity(0.85 as Double), location: 0.45),
-                    .init(color: theme.colors.background, location: 1),
-                ],
-                startPoint: .top,
-                endPoint: .bottom
+            ComposerBackdrop(
+                height: (viewModel.composerPanelHeight ?? ChatComposerView.panelHeight)
+                    + composerBottomInset + 40
             )
-            .frame(height: (viewModel.composerPanelHeight ?? ChatComposerView.panelHeight)
-                + composerBottomInset + 40)
-            .allowsHitTesting(false)
-            .accessibilityHidden(true)
         }
         #endif
         .dropDestination(for: String.self) { items, _ in

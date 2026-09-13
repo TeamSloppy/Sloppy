@@ -521,6 +521,7 @@ private struct NativeToolSequenceLanguageModel: LanguageModel {
     typealias UnavailableReason = Never
     let toolNames: [String]
     let finalText: String
+    var failStreaming = false
 
     func respond<Content>(
         within session: LanguageModelSession,
@@ -573,6 +574,10 @@ private struct NativeToolSequenceLanguageModel: LanguageModel {
         options: GenerationOptions
     ) -> sending LanguageModelSession.ResponseStream<Content> where Content: Generable {
         let stream = AsyncThrowingStream<LanguageModelSession.ResponseStream<Content>.Snapshot, any Error> { continuation in
+            if failStreaming {
+                continuation.finish(throwing: StreamIdleTimeoutError())
+                return
+            }
             Task {
                 do {
                     let response = try await respond(
@@ -599,13 +604,16 @@ private actor NativeToolSequenceModelProvider: ModelProvider {
     let toolNames: [String]
     let finalText: String
 
-    init(toolNames: [String], finalText: String = "Finished after native tools.") {
+    let failStreaming: Bool
+
+    init(toolNames: [String], finalText: String = "Finished after native tools.", failStreaming: Bool = false) {
         self.toolNames = toolNames
         self.finalText = finalText
+        self.failStreaming = failStreaming
     }
 
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
-        NativeToolSequenceLanguageModel(toolNames: toolNames, finalText: finalText)
+        NativeToolSequenceLanguageModel(toolNames: toolNames, finalText: finalText, failStreaming: failStreaming)
     }
 }
 
@@ -1114,6 +1122,35 @@ func respondInlineStopsBeforeExecutingToolsWhenToolRoundLimitIsReached() async t
     #expect(outcome.maxToolRounds == 0)
     #expect(outcome.hitTurnLimit)
     #expect(!outcome.finishedNaturally)
+}
+
+@Test(arguments: [false, true])
+func respondInlineStopsToolLoopWithoutEmptyResponseRetry(failStreaming: Bool) async throws {
+    let provider = NativeToolSequenceModelProvider(
+        toolNames: ["memory.save", "memory.save", "memory.save"],
+        finalText: "This success message must never be generated.",
+        failStreaming: failStreaming
+    )
+    let counter = ToolInvocationCounter()
+    let capture = NativeLoopOutcomeCapture()
+    let system = RuntimeSystem(modelProvider: provider)
+    _ = await system.postMessage(
+        channelId: "memory-loop", request: .init(userId: "test", content: "Import memory"),
+        toolInvoker: { request in
+            await counter.increment(tool: request.tool)
+            let code = await counter.value() == 1 ? "memory_not_found" : "tool_loop_detected"
+            return .init(tool: request.tool, ok: false, error: .init(code: code, message: "Correct memory_id.", retryable: false))
+        },
+        nativeLoopOutcomeHandler: { await capture.store($0) }
+    )
+    #expect(await counter.value() == 2)
+    let outcome = try #require(await capture.value())
+    #expect(outcome.turnExitReason == .toolLoopDetected)
+    #expect(!outcome.finishedNaturally)
+    #expect(outcome.toolErrors.count == 2)
+    #expect(outcome.lastAssistantText.contains("Correct memory_id"))
+    let state = await system.channelState(channelId: "memory-loop")
+    #expect(state?.messages.last(where: { $0.userId == "system" })?.content == outcome.lastAssistantText)
 }
 
 @Test

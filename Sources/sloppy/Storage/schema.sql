@@ -375,6 +375,7 @@ CREATE TABLE IF NOT EXISTS dashboard_projects (
     teams_json TEXT NOT NULL DEFAULT '[]',
     project_kind TEXT NOT NULL DEFAULT 'project',
     directory_paths_json TEXT NOT NULL DEFAULT '[]',
+    automatic_task_pickup_enabled INTEGER NOT NULL DEFAULT 1,
     autopilot_settings_json TEXT NOT NULL DEFAULT '{}',
     is_favorite INTEGER NOT NULL DEFAULT 0,
     source_control_provider_id TEXT,
@@ -427,6 +428,8 @@ CREATE TABLE IF NOT EXISTS dashboard_project_tasks (
     external_metadata_json TEXT,
     tags_json TEXT NOT NULL DEFAULT '[]',
     execution_node_id TEXT,
+    stage_assignments_json TEXT,
+    active_stage TEXT,
     kanban_column_entered_at TEXT
 );
 

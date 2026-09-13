@@ -1,3 +1,5 @@
+import { TeamRolesEditor } from "./TeamRolesEditor";
+import { TEAM_ROLES, memberRoles } from "./teamRoles";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
   createActorLink,
@@ -63,6 +65,7 @@ function normalizeNode(item, index) {
     linkedAgentId: asString(item?.linkedAgentId || "", "") || null,
     channelId: asString(item?.channelId || "", "") || null,
     role: asString(item?.role || "", "") || null,
+    systemRole: item?.systemRole || null,
     positionX,
     positionY,
     createdAt: item?.createdAt || new Date().toISOString()
@@ -121,6 +124,7 @@ function normalizeTeam(item, index, nodeIds) {
     id,
     name: asString(item?.name, id),
     memberActorIds: members,
+    memberRoles: item?.memberRoles || {},
     createdAt: item?.createdAt || new Date().toISOString()
   };
 }
@@ -248,6 +252,7 @@ export function ActorsView() {
   const [newAgentError, setNewAgentError] = useState("");
   const [teamName, setTeamName] = useState("");
   const [teamMembers, setTeamMembers] = useState([]);
+  const [teamMemberRoles, setTeamMemberRoles] = useState({});
   const [editingTeamId, setEditingTeamId] = useState(null);
   const [teamMemberSearch, setTeamMemberSearch] = useState("");
   const [teamMemberDropdownOpen, setTeamMemberDropdownOpen] = useState(false);
@@ -1031,12 +1036,14 @@ export function ActorsView() {
     setEditingTeamId(team.id);
     setTeamName(team.name);
     setTeamMembers(team.memberActorIds);
+    setTeamMemberRoles(team.memberRoles || {});
   }
 
   function resetTeamForm() {
     setEditingTeamId(null);
     setTeamName("");
     setTeamMembers([]);
+    setTeamMemberRoles({});
     setTeamMemberSearch("");
     setTeamMemberDropdownOpen(false);
   }
@@ -1053,6 +1060,7 @@ export function ActorsView() {
       id: editingTeamId || `team:${slugify(name) || Date.now()}`,
       name,
       memberActorIds: Array.from(new Set(teamMembers)),
+      memberRoles: Object.fromEntries(teamMembers.map((id) => [id, teamMemberRoles[id] ?? (board.nodes.find((node) => node.id === id)?.systemRole ? [board.nodes.find((node) => node.id === id).systemRole] : [])])),
       createdAt: new Date().toISOString()
     };
 
@@ -1330,6 +1338,8 @@ export function ActorsView() {
               {board.nodes.map((node) => {
                 const isSelected = selectedNodeId === node.id;
                 const isDragSource = portDrag?.sourceNodeId === node.id;
+                const roleLabels = Array.from(new Set(board.teams.flatMap((team) => memberRoles(team, node))))
+                  .map((role) => TEAM_ROLES.find((entry) => entry.id === role)?.title || role).join(" · ");
                 return (
                   <div
                     key={node.id}
@@ -1364,7 +1374,7 @@ export function ActorsView() {
                     })}
 
                     <strong>{node.displayName}</strong>
-                    <span>{node.id}</span>
+                    <span className={roleLabels ? "team-role-badges" : undefined} title={node.id}>{roleLabels || node.id}</span>
                     <small>
                       {node.kind}
                       {node.linkedAgentId && agentRuntimeMap[node.linkedAgentId]?.type === "acp" && (
@@ -1871,6 +1881,7 @@ export function ActorsView() {
                       autoFocus
                     />
                   </label>
+                  <TeamRolesEditor team={{ memberActorIds: teamMembers, memberRoles: teamMemberRoles }} actors={board.nodes} onChange={setTeamMemberRoles} disabled={isSaving} />
                   <div className="actor-team-members-picker">
                     {teamMembers.length > 0 ? (
                       <div className="actor-team-tags">

@@ -392,7 +392,9 @@ enum BuiltInSkillCatalog {
         guard let enumerator = FileManager.default.enumerator(
             at: directory,
             includingPropertiesForKeys: [.isRegularFileKey],
-            options: [.skipsHiddenFiles, .skipsPackageDescendants]
+            // Skills are data trees. Package classification calls LaunchServices on
+            // macOS and can block every cooperative worker in a headless process.
+            options: [.skipsHiddenFiles]
         ) else {
             return [:]
         }

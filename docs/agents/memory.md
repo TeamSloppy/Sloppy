@@ -21,13 +21,29 @@ These are **not** the same list: saving a hybrid entry does **not** automaticall
 
 ## Import memory from another assistant
 
-Open **Memory → Memories**, choose an agent in the scope picker, and select **Import memory**. Copy the export prompt and send it to the previous assistant. It can return one Markdown file or several files grouped by topic. Upload the `.md` or `.markdown` files using the file picker or drag and drop, then select **Import into this agent**. Dashboard accepts UTF-8 text, up to 20 files, 1 MB per file and 5 MB total.
+Open **Memory → Memories**, choose the destination agent, and select **Import memory**. Copy the export prompt, send it to the previous assistant, then upload its `.md` or `.markdown` files. Inputs must be UTF-8 text: up to 20 files, 1 MB per file and 5 MB total. The destination agent needs a configured native model.
 
-The import runs in a normal, persisted **Memory import** chat session using the bundled `memory-import` skill. The source files are stored as session attachments. The skill reads them in portions, checks existing entries, saves useful facts through `memory.save`, and checks recall. Saved entries use the existing hybrid retrieval and configured indexing pipeline; an import does not require a separate RAG database. Semantic indexing depends on the server's configured providers.
+Import is a durable background job. The server copies the inputs into the workspace's `memory-imports` archive before acknowledging the job. The archive is independent of session attachments and survives deletion of the original file or chat. It contains complete source snapshots; deliberately deleting the archive or workspace data also removes that evidence.
 
-The Dashboard count comes from successful memory tool results. Open the import session for the agent's report, skipped items, unresolved conflicts, errors, or requests for input. Processing finishing does not itself guarantee every source was imported. If a request loses its connection, inspect that session before retrying. The latest session link survives a page reload in the same browser.
+The server divides every source into bounded UTF-8 parts and processes small batches. A model extracts self-contained facts with evidence quotes and explicit dispositions for every part. A separate model session reviews each batch for omitted details, unsupported claims, unjustified discards and provenance text in notes. Missing coverage or a rejected review causes another extraction attempt; after three unsuccessful attempts the job reports a concrete error and retains its progress. A model's free-form final answer cannot complete or stop the worker.
 
-You can also attach Markdown files in chat or ask: `Use @memory-import to import the Markdown files in /path/to/export`. Local paths must be readable by the Sloppy server or execution node. The skill defaults to the current agent's memory. For project or shared memory, specify the intended destination explicitly. File contents never choose the destination. Original agent documents such as `USER.md` and `MEMORY.md` remain separate from imported searchable entries.
+Accepted decisions are checkpointed before writing. Each write has a stable import item key and is checked in canonical storage and scoped recall. Retries recover previously saved items instead of recreating them. A job reaches **completed** only after every source part has a reviewed disposition and all its writes are verified. Configured memory providers and embeddings still use the existing hybrid retrieval pipeline.
+
+The Dashboard displays verified coverage, saved records, duplicates, excluded parts and errors. **Coverage report** shows each part's disposition, reason and record IDs. **Resume remaining work** continues failed/cancelled jobs from their checkpoints; queued/running jobs resume when the server restarts. Cancellation stops further work while preserving the source archive and confirmed progress.
+
+To upgrade an earlier manual import, use **Continue previous import from saved attachments**, or ask in that same chat: `Use @memory-import to import these attachments completely`. The skill invokes `memory.import` and the server checks earlier records as possible duplicates. For local files, use `memory.import` with `operation: start` and `paths`; local paths must be readable in the agent's permitted roots. The job imports into the current agent's scope and does not silently substitute that scope for a requested project/global import.
+
+New notes contain the knowledge itself. Filename, SHA-256 hash, evidence quote and byte range are stored as metadata. **Open archived source** reads the snapshot through the authenticated API; an agent can use `memory.source(memory_id: ...)`, which starts near that record's evidence. Reviewed duplicate relationships also connect legacy records to the new archive without rewriting their existing text. A note remains usable by recall without opening its source.
+
+The API exposes start/list/get/resume/cancel under `/v1/agents/:agentId/memory-imports`, migration under `/from-session/:sessionId`, and archived source reads under `/:jobId/sources/:sourceId`. Only the worker can mark a job complete; no agent-facing completion operation exists. `USER.md` and `MEMORY.md` remain separate from imported searchable entries.
+
+## Recovering from invalid memory arguments
+
+For a new record, omit `memory_id` or pass null. Empty and whitespace-only IDs also create a record. A nonempty ID always means update: an unknown ID, or an ID belonging to another scope, fails without creating a replacement.
+
+Memory argument errors include `argumentRecovery.invalidFields` and optional contextual field names, plus a hint. The runtime checks those fields instead of the entire note: changing the note while retaining an invalid ID cannot bypass the guard. A corrected request can proceed, but a second failure in the same argument-error family exhausts the single correction attempt and returns `tool_loop_detected`.
+
+In the native runtime, loop detection stops the current model turn, reports an interrupted run, and suppresses automatic completion/empty-response retries. Already completed operations are retained. A new user turn resets the argument-correction budget; automatic goal turns do not. Independent scopes have separate correction budgets.
 
 ## Character limits (markdown files)
 

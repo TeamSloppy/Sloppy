@@ -171,12 +171,22 @@ struct NodeMeshAPIRouter: APIRouter {
             }
             do {
                 let nodeId = request.pathParam("nodeId") ?? ""
+                var forwardedHeaders = payload.headers.reduce(into: [String: String]()) { result, entry in
+                    result[entry.key.lowercased()] = entry.value
+                }
+                // Identity-mode clients cannot impersonate another user via proxy headers.
+                if let actor = await CoreRouter.identityActor(for: request, service: service) {
+                    forwardedHeaders["x-sloppy-user-context"] = actor.user.id
+                } else if let userContext = request.header("x-sloppy-user-context") {
+                    forwardedHeaders["x-sloppy-user-context"] = userContext
+                }
                 let proxyResponse = try await service.proxyMeshCoreHTTPRequest(
                     nodeId: nodeId,
                     method: payload.method,
                     path: payload.path,
                     body: payload.bodyBase64.flatMap { Data(base64Encoded: $0) },
-                    headers: payload.headers
+                    headers: forwardedHeaders,
+                    localAuthorizationHeader: request.header("authorization")
                 )
                 return CoreRouter.encodable(
                     status: HTTPStatus.ok,

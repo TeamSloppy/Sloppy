@@ -1,12 +1,33 @@
 import Foundation
+import SloppyNodeCore
 import Testing
 @testable import sloppy
 @testable import Protocols
 
 @Suite("Tool loop guard", .serialized)
 struct ToolLoopGuardTests {
+    @Test("structured recovery works for any tool without inspecting prose")
+    func recoveryUsesTypedFieldsForAnyTool() async {
+        let guardrail = ToolLoopGuard()
+        let root = FileManager.default.temporaryDirectory
+        let policy = AgentToolsPolicy()
+        let first = ToolInvocationRequest(tool: "example.update", arguments: ["target_id": .string("wrong"), "text": .string("first")])
+        await guardrail.recordResult(sessionID: "generic", request: first,
+            result: .init(tool: first.tool, ok: false, error: .init(code: "unknown_target", message: "Arbitrary localized text", retryable: false,
+                argumentRecovery: .init(invalidFields: ["target_id"]))), policy: policy, workspaceRootURL: root)
+        var retry = first
+        retry.arguments["text"] = .string("different")
+        let blocked = await guardrail.evaluate(sessionID: "generic", request: retry, policy: policy, workspaceRootURL: root)
+        guard case .block = blocked else { Issue.record("Changing unrelated text must not bypass recovery"); return }
+        retry.arguments["target_id"] = .string("correct")
+        let corrected = await guardrail.evaluate(sessionID: "generic", request: retry, policy: policy, workspaceRootURL: root)
+        guard case .allow = corrected else { Issue.record("Corrected arguments must be allowed"); return }
+    }
+
     private func makeService() -> CoreService {
-        CoreService(config: CoreConfig.test)
+        let config = CoreConfig.test
+        return CoreService(config: config,
+            nodeConfigStore: NodeConfigStore(configURL: URL(fileURLWithPath: config.sqlitePath + ".node.json")), sharedSkillsRootURLs: [])
     }
 
     private func makeAgentSession(service: CoreService, agentID: String) async throws -> String {

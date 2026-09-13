@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { fetchMemories } from "../../api";
 import type { MemoryBrowserResponse } from "../../shared/api/coreApi";
+import { MemorySourceLink, archivedSourceReference } from "./MemorySourceLink";
 
 export function MemoryBrowser({ sharedOnly = false }: { sharedOnly?: boolean }) {
   const [search, setSearch] = useState("");
@@ -30,7 +31,8 @@ export function MemoryBrowser({ sharedOnly = false }: { sharedOnly?: boolean }) 
       <div className="memory-records">{response.items.map((item) => <details key={item.id} className="memory-record">
         <summary><strong>{item.summary || item.note.slice(0, 140)}</strong><span>{item.scope.type} · {item.scope.id}</span></summary>
         <p className="memory-record-note">{item.note}</p>
-        <small>{item.kind} · {item.id}{item.source ? ` · Source: ${item.source.type}${item.source.id ? ` / ${item.source.id}` : ""}` : ""}</small>
+        <small>{item.kind} · {item.id}{item.source && !archivedSourceReference(item.source) ? ` · Source: ${item.source.type}${item.source.id ? ` / ${item.source.id}` : ""}` : ""}</small>
+        <MemorySourceLink source={item.source} memoryId={item.id} agentId={item.scope.type === "agent" ? item.scope.id : undefined} />
       </details>)}</div>
       <div className="memory-browser-tools"><button type="button" disabled={!offset} onClick={() => setOffset(Math.max(0, offset - 20))}>Previous</button>
         <span>{response.total ? `${offset + 1}–${offset + response.items.length}` : "0"} of {response.total}</span>

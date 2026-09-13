@@ -831,6 +831,7 @@ public struct ProjectAutopilotSettings: Codable, Sendable, Equatable {
     public var includedTags: [String]
     public var ignoredTags: [String]
     public var trustedAuthors: [String]
+    public var pickupRules: ProjectTaskPickupRules
     public var maxParallelTasks: Int
     public var canUseWeb: Bool
     public var canEditFiles: Bool
@@ -853,7 +854,8 @@ public struct ProjectAutopilotSettings: Codable, Sendable, Equatable {
         canRunCommands: Bool = false,
         canStartLocalhost: Bool = false,
         canCommit: Bool = false,
-        canPush: Bool = false
+        canPush: Bool = false,
+        pickupRules: ProjectTaskPickupRules = .init()
     ) {
         self.enabled = enabled
         self.mode = mode
@@ -862,6 +864,7 @@ public struct ProjectAutopilotSettings: Codable, Sendable, Equatable {
         self.includedTags = Self.normalizedTags(includedTags)
         self.ignoredTags = Self.normalizedTags(ignoredTags)
         self.trustedAuthors = trustedAuthors
+        self.pickupRules = pickupRules
         self.maxParallelTasks = max(1, maxParallelTasks)
         self.canUseWeb = canUseWeb
         self.canEditFiles = canEditFiles
@@ -879,6 +882,7 @@ public struct ProjectAutopilotSettings: Codable, Sendable, Equatable {
         case includedTags
         case ignoredTags
         case trustedAuthors
+        case pickupRules
         case maxParallelTasks
         case canUseWeb
         case canEditFiles
@@ -898,6 +902,7 @@ public struct ProjectAutopilotSettings: Codable, Sendable, Equatable {
         includedTags = Self.normalizedTags(tags)
         ignoredTags = Self.normalizedTags(try container.decodeIfPresent([String].self, forKey: .ignoredTags) ?? [])
         trustedAuthors = try container.decodeIfPresent([String].self, forKey: .trustedAuthors) ?? []
+        pickupRules = try container.decodeIfPresent(ProjectTaskPickupRules.self, forKey: .pickupRules) ?? .init()
         maxParallelTasks = max(1, try container.decodeIfPresent(Int.self, forKey: .maxParallelTasks) ?? 1)
         canUseWeb = try container.decodeIfPresent(Bool.self, forKey: .canUseWeb) ?? false
         canEditFiles = try container.decodeIfPresent(Bool.self, forKey: .canEditFiles) ?? false
@@ -1001,6 +1006,8 @@ public struct ProjectTask: Codable, Sendable, Equatable {
     public var actorId: String?
     public var executionNodeId: String?
     public var teamId: String?
+    public var stageAssignments: TaskStageAssignments?
+    public var activeStage: TaskExecutionStage?
     public var claimedActorId: String?
     public var claimedAgentId: String?
     public var parentTaskId: String?
@@ -1039,6 +1046,8 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         case actorId
         case executionNodeId
         case teamId
+        case stageAssignments
+        case activeStage
         case claimedActorId
         case claimedAgentId
         case parentTaskId
@@ -1076,6 +1085,8 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         actorId: String? = nil,
         executionNodeId: String? = nil,
         teamId: String? = nil,
+        stageAssignments: TaskStageAssignments? = nil,
+        activeStage: TaskExecutionStage? = nil,
         claimedActorId: String? = nil,
         claimedAgentId: String? = nil,
         parentTaskId: String? = nil,
@@ -1112,6 +1123,8 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         self.actorId = actorId
         self.executionNodeId = executionNodeId
         self.teamId = teamId
+        self.stageAssignments = stageAssignments
+        self.activeStage = activeStage
         self.claimedActorId = claimedActorId
         self.claimedAgentId = claimedAgentId
         self.parentTaskId = parentTaskId
@@ -1152,6 +1165,8 @@ public struct ProjectTask: Codable, Sendable, Equatable {
         actorId = try container.decodeIfPresent(String.self, forKey: .actorId)
         executionNodeId = try container.decodeIfPresent(String.self, forKey: .executionNodeId)
         teamId = try container.decodeIfPresent(String.self, forKey: .teamId)
+        stageAssignments = try container.decodeIfPresent(TaskStageAssignments.self, forKey: .stageAssignments)
+        activeStage = try container.decodeIfPresent(TaskExecutionStage.self, forKey: .activeStage)
         claimedActorId = try container.decodeIfPresent(String.self, forKey: .claimedActorId)
         claimedAgentId = try container.decodeIfPresent(String.self, forKey: .claimedAgentId)
         parentTaskId = try container.decodeIfPresent(String.self, forKey: .parentTaskId)
@@ -1236,6 +1251,7 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
     public var worktreeRootPath: String?
     public var sourceControlProviderId: String?
     public var reviewSettings: ProjectReviewSettings
+    public var automaticTaskPickupEnabled: Bool
     public var autopilotSettings: ProjectAutopilotSettings
     public var taskLoopMode: ProjectLoopMode
     public var taskSyncSettings: ProjectTaskSyncSettings
@@ -1249,7 +1265,7 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
 
     private enum CodingKeys: String, CodingKey {
         case id, name, description, icon, kind, directoryPaths, channels, tasks, actors, teams, models
-        case agentFiles, heartbeat, repoPath, worktreeRootPath, sourceControlProviderId, reviewSettings, autopilotSettings, taskLoopMode, taskSyncSettings, isFavorite, isArchived, createdAt, updatedAt
+        case agentFiles, heartbeat, repoPath, worktreeRootPath, sourceControlProviderId, reviewSettings, automaticTaskPickupEnabled, autopilotSettings, taskLoopMode, taskSyncSettings, isFavorite, isArchived, createdAt, updatedAt
         case parentProjectId, worktreeBranch, isWorktree
     }
 
@@ -1271,6 +1287,7 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         worktreeRootPath: String? = nil,
         sourceControlProviderId: String? = nil,
         reviewSettings: ProjectReviewSettings = ProjectReviewSettings(),
+        automaticTaskPickupEnabled: Bool = true,
         autopilotSettings: ProjectAutopilotSettings = ProjectAutopilotSettings(),
         taskLoopMode: ProjectLoopMode = .human,
         taskSyncSettings: ProjectTaskSyncSettings = ProjectTaskSyncSettings(),
@@ -1299,6 +1316,7 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         self.worktreeRootPath = worktreeRootPath
         self.sourceControlProviderId = sourceControlProviderId
         self.reviewSettings = reviewSettings
+        self.automaticTaskPickupEnabled = automaticTaskPickupEnabled
         self.autopilotSettings = autopilotSettings
         self.taskLoopMode = taskLoopMode
         self.taskSyncSettings = taskSyncSettings
@@ -1330,6 +1348,7 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         worktreeRootPath = try container.decodeIfPresent(String.self, forKey: .worktreeRootPath)
         sourceControlProviderId = try container.decodeIfPresent(String.self, forKey: .sourceControlProviderId)
         reviewSettings = try container.decodeIfPresent(ProjectReviewSettings.self, forKey: .reviewSettings) ?? ProjectReviewSettings()
+        automaticTaskPickupEnabled = try container.decodeIfPresent(Bool.self, forKey: .automaticTaskPickupEnabled) ?? true
         autopilotSettings = try container.decodeIfPresent(ProjectAutopilotSettings.self, forKey: .autopilotSettings) ?? ProjectAutopilotSettings()
         taskLoopMode = try container.decodeIfPresent(ProjectLoopMode.self, forKey: .taskLoopMode) ?? .human
         taskSyncSettings = try container.decodeIfPresent(ProjectTaskSyncSettings.self, forKey: .taskSyncSettings) ?? ProjectTaskSyncSettings()
@@ -1340,6 +1359,20 @@ public struct ProjectRecord: Codable, Sendable, Equatable {
         isWorktree = try container.decodeIfPresent(Bool.self, forKey: .isWorktree) ?? false
         createdAt = try container.decode(Date.self, forKey: .createdAt)
         updatedAt = try container.decodeIfPresent(Date.self, forKey: .updatedAt) ?? createdAt
+    }
+}
+
+public struct ProjectEmergencyStopResponse: Codable, Sendable {
+    public var project: ProjectRecord
+    public var stoppedWorkerCount: Int
+    public var interruptedSessionCount: Int
+    public var warnings: [String]
+
+    public init(project: ProjectRecord, stoppedWorkerCount: Int, interruptedSessionCount: Int, warnings: [String]) {
+        self.project = project
+        self.stoppedWorkerCount = stoppedWorkerCount
+        self.interruptedSessionCount = interruptedSessionCount
+        self.warnings = warnings
     }
 }
 
@@ -1759,6 +1792,7 @@ public struct ProjectUpdateRequest: Codable, Sendable {
     public var directoryPaths: [String]?
     public var sourceControlProviderId: String?
     public var reviewSettings: ProjectReviewSettings?
+    public var automaticTaskPickupEnabled: Bool?
     public var autopilotSettings: ProjectAutopilotSettings?
     public var taskLoopMode: ProjectLoopMode?
     public var isFavorite: Bool?
@@ -1778,6 +1812,7 @@ public struct ProjectUpdateRequest: Codable, Sendable {
         directoryPaths: [String]? = nil,
         sourceControlProviderId: String? = nil,
         reviewSettings: ProjectReviewSettings? = nil,
+        automaticTaskPickupEnabled: Bool? = nil,
         autopilotSettings: ProjectAutopilotSettings? = nil,
         taskLoopMode: ProjectLoopMode? = nil,
         isFavorite: Bool? = nil,
@@ -1796,6 +1831,7 @@ public struct ProjectUpdateRequest: Codable, Sendable {
         self.directoryPaths = directoryPaths
         self.sourceControlProviderId = sourceControlProviderId
         self.reviewSettings = reviewSettings
+        self.automaticTaskPickupEnabled = automaticTaskPickupEnabled
         self.autopilotSettings = autopilotSettings
         self.taskLoopMode = taskLoopMode
         self.isFavorite = isFavorite
@@ -2066,6 +2102,7 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
     public var actorId: String?
     public var executionNodeId: String?
     public var teamId: String?
+    public var stageAssignments: TaskStageAssignments?
     public var parentTaskId: String?
     public var dependsOnTaskIds: [String]?
     public var selectedModel: String?
@@ -2086,6 +2123,7 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
         actorId: String? = nil,
         executionNodeId: String? = nil,
         teamId: String? = nil,
+        stageAssignments: TaskStageAssignments? = nil,
         parentTaskId: String? = nil,
         dependsOnTaskIds: [String]? = nil,
         selectedModel: String? = nil,
@@ -2105,6 +2143,7 @@ public struct ProjectTaskCreateRequest: Codable, Sendable {
         self.actorId = actorId
         self.executionNodeId = executionNodeId
         self.teamId = teamId
+        self.stageAssignments = stageAssignments
         self.parentTaskId = parentTaskId
         self.dependsOnTaskIds = dependsOnTaskIds
         self.selectedModel = selectedModel
@@ -2127,6 +2166,7 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
     public var actorId: String?
     public var executionNodeId: String?
     public var teamId: String?
+    public var stageAssignments: TaskStageAssignments?
     public var parentTaskId: String?
     public var dependsOnTaskIds: [String]?
     public var selectedModel: String?
@@ -2148,6 +2188,7 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
         actorId: String? = nil,
         executionNodeId: String? = nil,
         teamId: String? = nil,
+        stageAssignments: TaskStageAssignments? = nil,
         parentTaskId: String? = nil,
         dependsOnTaskIds: [String]? = nil,
         selectedModel: String? = nil,
@@ -2168,6 +2209,7 @@ public struct ProjectTaskUpdateRequest: Codable, Sendable {
         self.actorId = actorId
         self.executionNodeId = executionNodeId
         self.teamId = teamId
+        self.stageAssignments = stageAssignments
         self.parentTaskId = parentTaskId
         self.dependsOnTaskIds = dependsOnTaskIds
         self.selectedModel = selectedModel
@@ -4197,18 +4239,32 @@ extension ToolApprovalDecisionRequest {
     }
 }
 
+/// Fields that must change before a deterministic tool failure can be corrected.
+/// Context fields distinguish independent operations (for example, memory scopes).
+public struct ToolArgumentRecovery: Codable, Sendable, Equatable {
+    public var invalidFields: [String]
+    public var contextFields: [String]
+
+    public init(invalidFields: [String], contextFields: [String] = []) {
+        self.invalidFields = invalidFields
+        self.contextFields = contextFields
+    }
+}
+
 public struct ToolErrorPayload: Codable, Sendable, Equatable {
     public var code: String
     public var message: String
     public var retryable: Bool
     /// Optional guidance for the caller (e.g. how to fix path or permissions).
     public var hint: String?
+    public var argumentRecovery: ToolArgumentRecovery?
 
-    public init(code: String, message: String, retryable: Bool, hint: String? = nil) {
+    public init(code: String, message: String, retryable: Bool, hint: String? = nil, argumentRecovery: ToolArgumentRecovery? = nil) {
         self.code = code
         self.message = message
         self.retryable = retryable
         self.hint = hint
+        self.argumentRecovery = argumentRecovery
     }
 }
 
@@ -5149,11 +5205,13 @@ public struct AgentSessionControlRequest: Codable, Sendable {
     public var action: AgentRunControlAction
     public var requestedBy: String
     public var reason: String?
+    public var interruptPendingInput: Bool?
 
-    public init(action: AgentRunControlAction, requestedBy: String, reason: String? = nil) {
+    public init(action: AgentRunControlAction, requestedBy: String, reason: String? = nil, interruptPendingInput: Bool? = nil) {
         self.action = action
         self.requestedBy = requestedBy
         self.reason = reason
+        self.interruptPendingInput = interruptPendingInput
     }
 }
 
@@ -6345,22 +6403,73 @@ public struct ActorLink: Codable, Sendable, Equatable {
     }
 }
 
+/// Responsibilities belong to a team membership, independently of the agent profile.
+public enum TaskExecutionStage: String, Codable, Sendable {
+    case development
+    case review
+    case qa
+}
+
+public struct TaskStageAssignments: Codable, Sendable, Equatable {
+    public var developer: String?
+    public var reviewer: String?
+    public var qa: String?
+
+    public init(developer: String? = nil, reviewer: String? = nil, qa: String? = nil) {
+        self.developer = developer
+        self.reviewer = reviewer
+        self.qa = qa
+    }
+}
+
 public struct ActorTeam: Codable, Sendable, Equatable {
     public var id: String
     public var name: String
     public var memberActorIds: [String]
+    /// An explicit empty array means no role; an absent entry preserves legacy system roles.
+    public var memberRoles: [String: [ActorSystemRole]]
     public var createdAt: Date
 
     public init(
         id: String,
         name: String,
         memberActorIds: [String],
+        memberRoles: [String: [ActorSystemRole]] = [:],
         createdAt: Date = Date()
     ) {
         self.id = id
         self.name = name
         self.memberActorIds = memberActorIds
+        self.memberRoles = memberRoles
         self.createdAt = createdAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, name, memberActorIds, memberRoles, createdAt
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        name = try container.decode(String.self, forKey: .name)
+        memberActorIds = try container.decode([String].self, forKey: .memberActorIds)
+        memberRoles = try container.decodeIfPresent([String: [ActorSystemRole]].self, forKey: .memberRoles) ?? [:]
+        createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+    }
+
+    public func roles(for actor: ActorNode) -> [ActorSystemRole] {
+        guard memberActorIds.contains(actor.id) else { return [] }
+        return memberRoles[actor.id] ?? actor.systemRole.map { [$0] } ?? []
+    }
+
+    public func defaultAssignments(nodes: [ActorNode]) -> TaskStageAssignments {
+        func first(_ role: ActorSystemRole) -> String? {
+            memberActorIds.first { id in
+                guard let node = nodes.first(where: { $0.id == id }) else { return false }
+                return roles(for: node).contains(role)
+            }
+        }
+        return TaskStageAssignments(developer: first(.developer), reviewer: first(.reviewer), qa: first(.qa))
     }
 }
 
@@ -6967,6 +7076,13 @@ public struct ReviewCommentUpdateRequest: Codable, Sendable {
     }
 }
 
+public enum TaskCommentKind: String, Codable, Sendable {
+    case userComment = "user_comment"
+    case technical
+    case result
+    case actionRequired = "action_required"
+}
+
 public struct TaskComment: Codable, Sendable, Identifiable {
     public var id: String
     public var taskId: String
@@ -6977,6 +7093,12 @@ public struct TaskComment: Codable, Sendable, Identifiable {
     public var externalMetadata: TaskExternalMetadata?
     public var sourceAuthor: String?
     public var createdAt: Date
+    /// Optional for compatibility with comments saved before semantic kinds were introduced.
+    public var kind: TaskCommentKind?
+
+    public var effectiveKind: TaskCommentKind {
+        kind ?? (authorActorId == "system" ? .technical : .userComment)
+    }
 
     public init(
         id: String,
@@ -6987,7 +7109,8 @@ public struct TaskComment: Codable, Sendable, Identifiable {
         isAgentReply: Bool = false,
         externalMetadata: TaskExternalMetadata? = nil,
         sourceAuthor: String? = nil,
-        createdAt: Date = Date()
+        createdAt: Date = Date(),
+        kind: TaskCommentKind? = nil
     ) {
         self.id = id
         self.taskId = taskId
@@ -6998,6 +7121,7 @@ public struct TaskComment: Codable, Sendable, Identifiable {
         self.externalMetadata = externalMetadata
         self.sourceAuthor = sourceAuthor
         self.createdAt = createdAt
+        self.kind = kind
     }
 }
 
@@ -7005,11 +7129,13 @@ public struct TaskCommentCreateRequest: Codable, Sendable {
     public var content: String
     public var authorActorId: String
     public var mentionedActorId: String?
+    public var kind: TaskCommentKind?
 
-    public init(content: String, authorActorId: String, mentionedActorId: String? = nil) {
+    public init(content: String, authorActorId: String, mentionedActorId: String? = nil, kind: TaskCommentKind? = nil) {
         self.content = content
         self.authorActorId = authorActorId
         self.mentionedActorId = mentionedActorId
+        self.kind = kind
     }
 }
 

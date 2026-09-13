@@ -17,6 +17,7 @@ actor StreamActivityTracker {
     private(set) var sawToolTimeout: Bool = false
     private(set) var toolRoundsUsed: Int = 0
     private(set) var hitToolRoundLimit: Bool = false
+    private(set) var toolLoopStopMessage: String?
     var toolErrors: [ToolInvocationResult] = []
     private var firstChunkAt: Date?
     private var previousChunkAt: Date?
@@ -36,6 +37,7 @@ actor StreamActivityTracker {
     }
 
     func recordChunk(content: String) {
+        guard toolLoopStopMessage == nil else { return }
         let now = Date()
         if firstChunkAt == nil {
             firstChunkAt = now
@@ -71,6 +73,7 @@ actor StreamActivityTracker {
             toolErrors.append(result)
             failedToolCalls += 1
         }
+        recordLoopBlock(result)
         if let startedAt = toolStartedAt.removeValue(forKey: id) {
             totalToolDurationMs += max(0, Int((Date().timeIntervalSince(startedAt) * 1000).rounded()))
             finishedToolCalls += 1
@@ -82,6 +85,14 @@ actor StreamActivityTracker {
     func toolFinished() {
         activeToolCalls = max(0, activeToolCalls - 1)
         lastActivityAt = Date()
+    }
+
+    func recordLoopBlock(_ result: ToolInvocationResult) {
+        guard !result.ok, result.error?.code == "tool_loop_detected", toolLoopStopMessage == nil else { return }
+        if !toolErrors.contains(where: { $0.error?.code == "tool_loop_detected" }) { toolErrors.append(result) }
+        let message = "Stopped repeated tool calls to \(result.tool). \(result.error?.message ?? "The operation needs corrected arguments.")"
+        toolLoopStopMessage = message
+        latestContent = message
     }
 
     nonisolated static func isToolTimeout(_ result: ToolInvocationResult) -> Bool {
@@ -185,11 +196,11 @@ actor StreamActivityTracker {
         NativeAgentLoopOutcome(
             toolRoundsUsed: toolRoundsUsed,
             maxToolRounds: maxToolRounds,
-            finishedNaturally: finishedNaturally && !hitToolRoundLimit,
+            finishedNaturally: finishedNaturally && !hitToolRoundLimit && toolLoopStopMessage == nil,
             hitTurnLimit: hitToolRoundLimit,
             toolErrors: toolErrors,
-            lastAssistantText: lastAssistantText,
-            turnExitReason: turnExitReason
+            lastAssistantText: toolLoopStopMessage ?? lastAssistantText,
+            turnExitReason: toolLoopStopMessage == nil ? turnExitReason : .toolLoopDetected
         )
     }
 }

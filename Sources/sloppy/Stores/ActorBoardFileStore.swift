@@ -162,6 +162,11 @@ final class ActorBoardFileStore {
             team.id = teamID
             team.name = teamName
             team.memberActorIds = memberActorIDs
+            team.memberRoles = rawTeam.memberRoles.filter { memberActorIDs.contains($0.key) }
+                .mapValues { roles in
+                    var seen = Set<String>()
+                    return roles.filter { seen.insert($0.rawValue).inserted }
+                }
             teams.append(team)
         }
 
@@ -256,6 +261,7 @@ final class ActorBoardFileStore {
                 id: team.id,
                 name: team.name,
                 memberActorIds: orderedMemberActorIDs(team.memberActorIds, validNodeIDs: allNodeIDs),
+                memberRoles: team.memberRoles.filter { team.memberActorIds.contains($0.key) && allNodeIDs.contains($0.key) },
                 createdAt: team.createdAt
             )
         }

@@ -475,6 +475,15 @@ extension CoreService {
         }
 
         do {
+            if !["system_task_worker", "memory_checkpoint", "onboarding", "goal", "goal_loop"].contains(effectiveRequest.userId.lowercased()) {
+                await toolLoopGuard.beginTurn(sessionID: normalizedSessionID)
+            }
+            if let execution = projectExecutionSessions[normalizedSessionID] {
+                let pickupEnabled = await store.project(id: execution.projectID)?.automaticTaskPickupEnabled == true
+                guard pickupEnabled, execution.generation == projectStopGenerations[execution.projectID, default: 0] else {
+                    throw CancellationError()
+                }
+            }
             let response = try await sessionOrchestrator.postMessage(
                 agentID: normalizedAgentID,
                 sessionID: normalizedSessionID,

@@ -45,8 +45,11 @@ extension CoreService {
             return
         }
 
+        let pickupGeneration = projectStopGenerations[projectID, default: 0]
         var task = project.tasks[taskIndex]
-        guard task.status == ProjectTaskStatus.ready.rawValue else {
+        guard project.automaticTaskPickupEnabled,
+              task.status == ProjectTaskStatus.ready.rawValue,
+              pickupRulesPermit(project: project, task: task) else {
             return
         }
 
@@ -97,6 +100,9 @@ extension CoreService {
         }
 
         _ = await triggerVisorBulletin()
+        guard await currentPickupRulesPermit(projectID: projectID, taskID: taskID) else {
+            return
+        }
         logger.info(
             "visor.task.approved",
             metadata: [
@@ -130,7 +136,9 @@ extension CoreService {
             delegation = await resolveTaskDelegation(project: project, task: task)
         }
         let effectiveDelegation: TaskDelegation?
-        if let delegation {
+        if task.stageAssignments != nil {
+            effectiveDelegation = delegation
+        } else if let delegation {
             let agentID = normalizeWhitespace(delegation.agentID ?? "")
             if agentID.isEmpty, let fallback = autopilotDelegationFallback(project: project, task: task) {
                 effectiveDelegation = fallback
@@ -155,7 +163,9 @@ extension CoreService {
                 )
                 return
             }
-            let blockedMessage = "Task \(task.id) is ready but no eligible actor route was resolved."
+            let blockedMessage = task.stageAssignments != nil && task.stageAssignments?.developer == nil
+                ? "Task \(task.id) needs a developer. Assign one in Stage responsibilities, then move the task to Ready."
+                : "Task \(task.id) is ready but no eligible actor route was resolved."
             await blockReadyTaskFlowProblem(
                 project: project,
                 taskIndex: taskIndex,
@@ -189,6 +199,7 @@ extension CoreService {
             return
         }
 
+        guard await currentPickupRulesPermit(projectID: projectID, taskID: taskID) else { return }
         if !isAutopilotManagedTask(project: project, task: task),
            await startSwarmIfHierarchical(projectID: project.id, taskID: task.id, delegation: delegation) {
             return
@@ -238,6 +249,7 @@ extension CoreService {
                 task.sourceControlProviderId = provider.id
                 worktreePath = result.worktreePath
             } catch {
+                guard pickupGeneration == projectStopGenerations[projectID, default: 0] else { return }
                 let failureMessage = "Worktree creation failed: \(error.localizedDescription). Task blocked before worker launch to avoid modifying the repository without an isolated worktree."
                 logger.warning(
                     "visor.task.worktree_failed",
@@ -269,7 +281,11 @@ extension CoreService {
                     to: task.status,
                     source: "system"
                 )
-                await appendSystemTaskComment(projectID: project.id, taskID: task.id, content: failureMessage)
+                await appendSystemTaskComment(
+                    projectID: project.id, taskID: task.id,
+                    content: "\(failureMessage)\nAction required: check the repository and source-control configuration, then return the task to ready.",
+                    kind: .actionRequired
+                )
                 if let channelID = resolveExecutionChannelID(project: project, task: task) {
                     await runtime.appendSystemMessage(channelId: channelID, content: failureMessage)
                 }
@@ -285,6 +301,14 @@ extension CoreService {
             }
         }
 
+        guard pickupGeneration == projectStopGenerations[projectID, default: 0],
+              let latestPickupProject = await store.project(id: projectID),
+              latestPickupProject.automaticTaskPickupEnabled,
+              let latestPickupTask = latestPickupProject.tasks.first(where: { $0.id == taskID }),
+              latestPickupTask.status == ProjectTaskStatus.ready.rawValue,
+              pickupRulesPermit(project: latestPickupProject, task: latestPickupTask) else { return }
+        // Keep settings changed while worktree preparation was awaiting I/O.
+        project.autopilotSettings = latestPickupProject.autopilotSettings
         let prevStatusForLog = task.status
         task.status = ProjectTaskStatus.inProgress.rawValue
         task.updatedAt = Date()
@@ -618,7 +642,8 @@ extension CoreService {
         let readyTasks = await store.listProjects().flatMap { project in
             project.tasks
                 .filter { task in
-                    task.status == ProjectTaskStatus.ready.rawValue &&
+                    project.automaticTaskPickupEnabled &&
+                        task.status == ProjectTaskStatus.ready.rawValue &&
                         !reclaimedIDs.contains(task.id)
                 }
                 .map { (project.id, $0.id) }
@@ -695,6 +720,7 @@ extension CoreService {
         }
 
         var task = project.tasks[taskIndex]
+        guard task.status != ProjectTaskStatus.cancelled.rawValue else { return project }
         let previousStatus = task.status
         let failureMessage = error.trimmingCharacters(in: .whitespacesAndNewlines)
         let boundedFailure = String((failureMessage.isEmpty ? "Worker spawn failed." : failureMessage).prefix(1_000))
@@ -745,7 +771,8 @@ extension CoreService {
             await appendSystemTaskComment(
                 projectID: project.id,
                 taskID: task.id,
-                content: "Task blocked after \(consecutiveFailures) consecutive spawn failures. Last error: \(boundedFailure)"
+                content: "Automatic worker launch attempts exhausted (limit: \(effectiveLimit)). Task is blocked.\nLast error: \(boundedFailure)\nAction required: resolve the launch error, then return the task to ready.",
+                kind: .actionRequired
             )
         }
 
@@ -956,7 +983,11 @@ extension CoreService {
             agentID: agentID,
             artifactPath: artifactPath
         )
-        await appendSystemTaskComment(projectID: project.id, taskID: task.id, content: "Task blocked by system flow: \(message)")
+        await appendSystemTaskComment(
+            projectID: project.id, taskID: task.id,
+            content: "Task blocked by system flow: \(message)\nAction required: review the routing blocker, then return the task to ready.",
+            kind: .actionRequired
+        )
         _ = await ensureInitiativeDecisionPacket(
             projectID: project.id,
             task: task,
@@ -1024,7 +1055,11 @@ extension CoreService {
             actorID: actorID,
             agentID: agentID
         )
-        await appendSystemTaskComment(projectID: project.id, taskID: task.id, content: note)
+        await appendSystemTaskComment(
+            projectID: project.id, taskID: task.id,
+            content: "\(note)\nAction required: resolve this flow blocker, then return the task to ready.",
+            kind: .actionRequired
+        )
         _ = await ensureInitiativeDecisionPacket(
             projectID: project.id,
             task: task,
@@ -1405,12 +1440,12 @@ extension CoreService {
 
         let board = try? getActorBoard()
         let nodesByID = Dictionary(uniqueKeysWithValues: (board?.nodes ?? []).map { ($0.id, $0) })
-        var developerActorID: String?
-        var developerAgentID: String?
-        if let teamID = task.teamId,
+        var developerActorID = task.stageAssignments?.developer
+        var developerAgentID = developerActorID.flatMap { nodesByID[$0]?.linkedAgentId }
+        if developerActorID == nil, let teamID = task.teamId,
            let team = board?.teams.first(where: { $0.id == teamID }) {
             for memberID in team.memberActorIds {
-                if let node = nodesByID[memberID], node.systemRole == .developer {
+                if let node = nodesByID[memberID], team.roles(for: node).contains(.developer) {
                     developerActorID = memberID
                     developerAgentID = node.linkedAgentId
                     break
@@ -1419,6 +1454,7 @@ extension CoreService {
         }
 
         task.status = ProjectTaskStatus.ready.rawValue
+        task.activeStage = .development
         task.claimedActorId = developerActorID ?? task.claimedActorId
         task.claimedAgentId = developerAgentID ?? task.claimedAgentId
         if let developerActorID {
@@ -1637,6 +1673,11 @@ extension CoreService {
         bypassToolApproval: Bool = false,
         explicitToolIDs: [String]? = nil
     ) async -> AgentTaskRunResult? {
+        let directProjectID = await projectID(containingTaskID: taskID)
+        let executionProjectID = directProjectID ?? parentSessionID.flatMap { projectExecutionSessions[$0]?.projectID }
+        let executionGeneration = executionProjectID.map { projectStopGenerations[$0, default: 0] }
+        if let executionProjectID,
+           await store.project(id: executionProjectID)?.automaticTaskPickupEnabled != true { return nil }
         let knownIDs = await ToolCatalog.knownToolIDs(mcpRegistry: mcpRegistry)
         guard let policy = try? await toolsAuthorization.policy(agentID: agentID) else {
             await recordProjectTaskWorkerLaunchFailure(
@@ -1745,6 +1786,10 @@ extension CoreService {
         }
         sessionEnvironmentOverrides[session.id] = workerEnvironment
 
+        if let executionProjectID {
+            registerProjectExecutionSession(sessionID: session.id, projectID: executionProjectID, taskID: taskID, agentID: agentID, generation: executionGeneration)
+        }
+        defer { projectExecutionSessions.removeValue(forKey: session.id) }
         let channelId = sessionChannelID(agentID: agentID, sessionID: session.id)
         sessionSubagentToolAllowList[session.id] = effectiveTools
         if bypassToolApproval {
@@ -2009,7 +2054,8 @@ extension CoreService {
             taskID: taskID,
             request: TaskCommentCreateRequest(
                 content: "Task delegated to subagent \(attemptNumber.map { "attempt \($0) " } ?? "")session [\(sessionName)](\(sessionURL)).",
-                authorActorId: "system"
+                authorActorId: "system",
+                kind: .technical
             )
         )
     }
@@ -2366,6 +2412,8 @@ extension CoreService {
         - If you are blocked by missing access, dependencies, or an external issue you cannot resolve, call `project.task_update` with status=`blocked`.
         - To update the task status or metadata, use tool `project.task_update`.
         - To create sub-tasks, use tool `project.task_create` with the same project ID.
+        - Task reports are shared with the user. In completionNote and final artifacts, state the concrete outcome, evidence links (PR/files/artifacts), checks actually run and their results, and any remaining work. Do not claim checks you did not run.
+        - For blocked tasks, include a completionNote explaining the blocker and the specific action needed from the user. Keep heartbeat, retry, delegation, and session status updates in the execution log.
         """)
 
         // --- Clarification flow ---
@@ -2536,7 +2584,7 @@ extension CoreService {
         _ = await addTaskComment(
             projectID: projectID,
             taskID: taskID,
-            request: TaskCommentCreateRequest(content: artifactContent, authorActorId: "system")
+            request: TaskCommentCreateRequest(content: artifactContent, authorActorId: "system", kind: .result)
         )
 
         appendTaskLifecycleLog(
@@ -2609,7 +2657,16 @@ extension CoreService {
             guard trimmed.hasPrefix("/") else {
                 throw ProjectError.invalidPayload
             }
-            candidateURL = URL(fileURLWithPath: trimmed, isDirectory: true)
+            let directURL = URL(fileURLWithPath: trimmed, isDirectory: true)
+            if trimmed.hasPrefix("/projects/"), !FileManager.default.fileExists(atPath: directURL.path) {
+                let projectsRoot = workspaceRootURL.appendingPathComponent("projects", isDirectory: true)
+                let relative = String(trimmed.dropFirst("/projects/".count))
+                let workspaceURL = projectsRoot.appendingPathComponent(relative, isDirectory: true).standardizedFileURL
+                guard isProjectURL(workspaceURL, inside: projectsRoot) else { throw ProjectError.invalidPayload }
+                candidateURL = workspaceURL
+            } else {
+                candidateURL = directURL
+            }
         }
 
         let normalizedURL = candidateURL.standardizedFileURL

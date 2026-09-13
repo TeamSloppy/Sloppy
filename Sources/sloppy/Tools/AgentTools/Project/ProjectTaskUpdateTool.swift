@@ -18,7 +18,7 @@ struct ProjectTaskUpdateTool: CoreTool {
             .init(name: "priority", description: "New priority", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "status", description: "New status", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "completionConfidence", description: "Required when setting status to done. Use done only if you verified the task is complete; otherwise use blocked, waiting_input, or unsure.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
-            .init(name: "completionNote", description: "Required when setting status to done. Brief evidence for why the task is complete.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "completionNote", description: "User-facing report. Required for done: concrete outcome, evidence links, checks actually run and remaining work. For blocked: explain the blocker and the specific action needed from the user.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "kind", description: "Task kind: planning, execution, bugfix", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "loopModeOverride", description: "Override loop mode: human or agent", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "actorId", description: "New assigned actor ID", schema: DynamicGenerationSchema(type: String.self), isOptional: true),

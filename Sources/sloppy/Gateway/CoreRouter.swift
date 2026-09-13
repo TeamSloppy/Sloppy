@@ -941,7 +941,7 @@ public actor CoreRouter {
 
                         if !isAuthenticated {
                             if message.type.lowercased() == "auth" {
-                                if await service.validateDashboardAuthToken(message.token) {
+                                if await service.validateClientAuthToken(message.token) {
                                     isAuthenticated = true
                                     authFailureCount = 0
                                     _ = await send(DashboardTerminalServerMessage(type: "authenticated"))

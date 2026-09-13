@@ -3,6 +3,16 @@ export const DASHBOARD_AUTH_REMEMBER_STORAGE_KEY = "sloppy_dashboard_auth_rememb
 export const DASHBOARD_AUTH_INVALIDATED_EVENT = "sloppy-dashboard-auth-invalidated";
 
 let inMemoryDashboardAuthToken = loadStoredDashboardAuthToken();
+let dashboardAuthRevision = 0;
+
+export interface DashboardAuthSnapshot {
+  token: string;
+  revision: number;
+}
+
+export function captureDashboardAuth(): DashboardAuthSnapshot {
+  return { token: getDashboardAuthToken(), revision: dashboardAuthRevision };
+}
 
 function normalizeDashboardAuthToken(value: string | null | undefined) {
   return typeof value === "string" ? value.trim() : "";
@@ -50,6 +60,7 @@ export function setDashboardAuthRememberPreference(remember: boolean) {
 
 export function setDashboardAuthToken(token: string, options?: { persist?: boolean }) {
   const normalized = normalizeDashboardAuthToken(token);
+  dashboardAuthRevision += 1;
   inMemoryDashboardAuthToken = normalized;
 
   try {
@@ -66,6 +77,7 @@ export function setDashboardAuthToken(token: string, options?: { persist?: boole
 }
 
 export function clearDashboardAuthToken(options?: { notify?: boolean }) {
+  dashboardAuthRevision += 1;
   inMemoryDashboardAuthToken = "";
   try {
     window.localStorage.removeItem(DASHBOARD_AUTH_TOKEN_STORAGE_KEY);
@@ -78,6 +90,11 @@ export function clearDashboardAuthToken(options?: { notify?: boolean }) {
   }
 }
 
-export function invalidateDashboardAuthToken() {
+// A rejected in-flight request only owns the session it was sent with. A later
+// login (including re-entering the same legacy token) must survive its response.
+export function invalidateDashboardAuthToken(rejected: DashboardAuthSnapshot) {
+  if (!rejected.token || rejected.revision !== dashboardAuthRevision || rejected.token !== getDashboardAuthToken()) {
+    return;
+  }
   clearDashboardAuthToken({ notify: true });
 }

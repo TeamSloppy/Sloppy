@@ -148,7 +148,7 @@ actor ManagedMCPStdioTransport: Transport {
         }
 
         let environment = childProcessEnvironment()
-        let inputPipe = Pipe()
+        let inputPipe = try makeProcessInputPipe()
         let outputPipe = Pipe()
         let errorPipe = Pipe()
         let process = Process()
@@ -246,7 +246,9 @@ actor ManagedMCPStdioTransport: Transport {
     }
 
     private func finishMessages() {
-        messageContinuation.finish()
+        // The SDK reconnects after a clean stream end. Stdio EOF is terminal;
+        // throwing prevents it from spinning on this already-finished stream.
+        messageContinuation.finish(throwing: MCPRegistryError.invalidResult("MCP server closed its output stream."))
     }
 
     private func resolveCommandURL(_ command: String, cwd: String?) -> URL {
@@ -278,6 +280,8 @@ actor MCPServerConnection {
     private let logger: Logging.Logger
     private var client: Client?
     private var transport: (any Transport)?
+    private var pendingClient: Client?
+    private var connectionTask: Task<Client, any Error>?
 
     init(config: CoreConfig.MCP.Server, logger: Logging.Logger) {
         self.config = config
@@ -285,13 +289,18 @@ actor MCPServerConnection {
     }
 
     func disconnect() async {
-        if let client {
-            await client.disconnect()
-        } else if let transport {
-            await transport.disconnect()
-        }
+        let clientToDisconnect = client ?? pendingClient
+        let transportToDisconnect = transport
+        connectionTask?.cancel()
+        connectionTask = nil
         client = nil
+        pendingClient = nil
         transport = nil
+        if let clientToDisconnect {
+            await clientToDisconnect.disconnect()
+        } else if let transportToDisconnect {
+            await transportToDisconnect.disconnect()
+        }
     }
 
     func listTools(cursor: String? = nil) async throws -> (tools: [MCP.Tool], nextCursor: String?) {
@@ -329,20 +338,39 @@ actor MCPServerConnection {
     }
 
     private func ensureClient() async throws -> Client {
-        if let client {
-            return client
-        }
+        if let client { return client }
+        if let connectionTask { return try await connectionTask.value }
 
         let transport = try makeTransport()
-        let client = Client(
-            name: "sloppy",
-            version: "1.0.0",
-            capabilities: .init()
-        )
-        _ = try await client.connect(transport: transport)
-        self.client = client
+        let candidate = Client(name: "sloppy", version: "1.0.0", capabilities: .init())
+        pendingClient = candidate
         self.transport = transport
-        return client
+        let task = Task {
+            do {
+                _ = try await candidate.connect(transport: transport)
+                try Task.checkCancellation()
+                return candidate
+            } catch {
+                await candidate.disconnect()
+                throw error
+            }
+        }
+        connectionTask = task
+        do {
+            let connected = try await task.value
+            guard pendingClient === candidate else { throw CancellationError() }
+            client = connected
+            pendingClient = nil
+            connectionTask = nil
+            return connected
+        } catch {
+            if pendingClient === candidate {
+                pendingClient = nil
+                connectionTask = nil
+                self.transport = nil
+            }
+            throw error
+        }
     }
 
     private func makeTransport() throws -> any Transport {
@@ -467,6 +495,7 @@ actor MCPClientRegistry {
                     )
                 )
             } catch {
+                await connections[server.id]?.disconnect()
                 statuses.append(
                     MCPServerStatus(
                         id: server.id,
@@ -640,7 +669,9 @@ actor MCPClientRegistry {
                 }
             } catch {
                 failedServers.append(server.id)
-                connections.removeValue(forKey: server.id)
+                if let failedConnection = connections.removeValue(forKey: server.id) {
+                    await failedConnection.disconnect()
+                }
                 logger.warning(
                     "Failed to discover MCP tools for server \(server.id): \(String(describing: error))"
                 )

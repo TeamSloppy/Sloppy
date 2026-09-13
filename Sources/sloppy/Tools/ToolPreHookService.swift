@@ -207,7 +207,7 @@ final class ToolPreHookService: @unchecked Sendable {
         process.arguments = arguments
         process.currentDirectoryURL = workspaceRootURL
 
-        let stdin = Pipe()
+        let stdin = try makeProcessInputPipe()
         let stdout = Pipe()
         let stderr = Pipe()
         process.standardInput = stdin
@@ -215,7 +215,7 @@ final class ToolPreHookService: @unchecked Sendable {
         process.standardError = stderr
 
         try process.run()
-        stdin.fileHandleForWriting.write(input)
+        try stdin.fileHandleForWriting.write(contentsOf: input)
         try? stdin.fileHandleForWriting.close()
 
         let deadline = Date().addingTimeInterval(Double(timeoutMs) / 1_000.0)
