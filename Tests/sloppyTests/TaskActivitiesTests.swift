@@ -705,6 +705,7 @@ func staleInProgressTaskWithoutActiveWorkerIsReclaimedToReady() async throws {
     let runs = await service.listTaskRuns(projectID: projectID, taskID: task.id)
     #expect(runs.last?.outcome == .reclaimed)
     #expect(runs.last?.endedAt != nil)
+    #expect(await service.listTaskComments(projectID: projectID, taskID: task.id).isEmpty)
 }
 
 @Test

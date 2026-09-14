@@ -390,7 +390,7 @@ struct ScheduledTasksScreen: View {
         return ScheduledTaskEmptyState(
             title: title,
             message: message,
-            systemImage: hasQuery ? "magnifyingglass" : (hasAgents ? "clock.badge.plus" : "person.crop.circle.badge.plus"),
+            systemImage: hasQuery ? "magnifyingglass" : (hasAgents ? "calendar.badge.plus" : "person.crop.circle.badge.plus"),
             actionTitle: hasTasks ? "Clear filters" : (hasAgents ? "Create task" : nil),
             action: hasTasks ? clearFilters : presentNewTask
         )

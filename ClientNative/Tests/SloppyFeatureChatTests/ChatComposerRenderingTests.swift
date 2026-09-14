@@ -140,15 +140,16 @@ struct ChatComposerRenderingTests {
         #expect(source.contains("Text(\"Limit\")"))
     }
 
-    @Test("reasoning and agent actions use padded plain menu rows")
-    func reasoningAndAgentActionsUsePaddedPlainMenuRows() throws {
+    @Test("reasoning picker keeps agent selection as a padded menu row")
+    func reasoningPickerKeepsAgentSelectionAsPaddedMenuRow() throws {
         let source = try chatComposerSource
 
         #expect(source.components(separatedBy: ".menuStyle(.borderlessButton)").count == 2)
-        #expect(source.contains("showsMenuIndicator: true"))
+        #expect(source.contains("private var agentPicker: some View"))
+        #expect(source.contains("Text(selectedAgent?.displayName ?? \"Agent\")"))
         #expect(source.contains(".menuIndicator(.hidden)"))
         #expect(source.contains(".buttonStyle(.plain)"))
-        #expect(source.contains(".frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)"))
+        #expect(source.contains(".frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)"))
         #expect(source.contains(".padding(.horizontal, theme.spacing.m)"))
     }
 
@@ -403,18 +404,45 @@ struct ChatComposerRenderingTests {
         #expect(!dictationSource.contains(".containerRelativeFrame(.horizontal)"))
     }
 
-    @Test("desktop composer exposes a searchable model picker")
-    func desktopComposerExposesSearchableModelPicker() throws {
+    @Test("desktop composer exposes an effort scale above a searchable model picker")
+    func desktopComposerExposesEffortScaleAndSearchableModelPicker() throws {
         let source = try chatComposerSource
 
         #expect(source.contains("private struct ComposerOptionsMenuView"))
+        #expect(source.contains("Text(supportsReasoningEffort ? \"Select effort\" : selectedModelTitle)"))
+        #expect(source.contains("private struct ComposerEffortScale"))
+        #expect(source.contains("let efforts = ChatReasoningEffort.allCases"))
+        #expect(source.contains("let thumbCenter = segmentWidth * (CGFloat(selectedIndex) + 0.5)"))
+        #expect(source.contains("private let fillTrailingSpacing: CGFloat = 8"))
+        #expect(source.contains("let isMaximumEffort = selectedIndex == efforts.count - 1"))
+        #expect(source.contains("? proxy.size.width"))
+        #expect(source.contains("thumbCenter + thumbSize / 2 + fillTrailingSpacing"))
+        #expect(source.contains("Capsule()\n                    .fill(levelColor)"))
+        #expect(source.contains(".clipShape(Capsule())"))
+        #expect(source.contains("Text(selectedEffort.title)"))
+        #expect(source.contains("Text(selectedModelTitle)"))
+        #expect(source.contains("onSelectEffort(.default)"))
+        #expect(source.contains("chat.composer.effort-picker"))
+        #expect(source.contains("chat.composer.effort-slider"))
+        #expect(source.contains("DragGesture(minimumDistance: 0, coordinateSpace: .local)"))
+        #expect(source.contains("selectEffort(at: value.location.x, width: proxy.size.width)"))
+        #expect(source.contains("private let height: CGFloat = 36"))
+        #expect(source.contains("private enum ComposerEffortPalette"))
+        #expect(source.contains("theme.colors.statusNeutral"))
+        #expect(source.contains("theme.colors.accentCyan"))
+        #expect(source.contains("theme.colors.statusWarning"))
+        #expect(!source.contains("Image(systemName: \"bolt\")"))
+        #expect(source.contains("Text(\"Select model\")"))
+        #expect(source.contains(".frame(width: isModelPickerPresented ? 440 : 360)"))
+        #expect(source.contains(".frame(minHeight: 160, maxHeight: 380)"))
+        #expect(source.contains(".frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)"))
         #expect(source.contains("TextField(\"Search models\", text: $searchText)"))
         #expect(source.contains("groupedModels"))
-        #expect(source.contains("selectedEffort.compactTitle"))
         #expect(source.contains("Constants.modelPickerRowHeight"))
-        #expect(source.contains("Refresh Models"))
+        #expect(source.contains("isRefreshing ? \"Refreshing…\" : \"Refresh\""))
         #expect(source.contains("Edit Models…"))
         #expect(source.contains("chat.composer.model-picker"))
+        #expect(source.contains("chat.composer.model-list"))
         #expect(source.contains("private struct ComposerMenuItem"))
         #expect(source.contains("private var selectedModelTitle: String"))
         #expect(source.contains(".popover(isPresented: $isPresented"))

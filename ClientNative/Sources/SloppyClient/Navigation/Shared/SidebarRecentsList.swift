@@ -127,7 +127,7 @@ struct SidebarRecentsList: View {
                 .buttonStyle(SidebarHoverButtonStyle(isHovered: isShowMoreHovered))
                 .onHover { isShowMoreHovered = $0 }
                 .foregroundColor(theme.colors.textMuted)
-                .padding(.leading, 42)
+                .padding(.leading, theme.spacing.m)
                 .padding(.vertical, theme.spacing.s)
             }
         }

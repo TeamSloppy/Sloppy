@@ -4,37 +4,12 @@ import SwiftUI
 
 @MainActor
 struct PullRequestsScreen: View {
-    private enum RoleFilter: String, CaseIterable, Identifiable {
-        case all
-        case reviewRequested
-        case authored
-
-        var id: Self { self }
-
-        var title: String {
-            switch self {
-            case .all: "All"
-            case .reviewRequested: "Reviewing"
-            case .authored: "Authored"
-            }
-        }
-
-        var roles: [CodeReviewRole] {
-            switch self {
-            case .all: CodeReviewRole.allCases
-            case .reviewRequested: [.reviewRequested]
-            case .authored: [.authored]
-            }
-        }
-    }
-
     let apiClient: SloppyAPIClient
     let onOpenChat: @MainActor (CodeReviewDetail) -> Void
+    private let filterStore: CodeReviewFilterStore
 
     @State private var response = CodeReviewInboxResponse(items: [], providers: [])
-    @State private var state: CodeReviewState = .open
-    @State private var roleFilter: RoleFilter = .all
-    @State private var selectedProviderID: String?
+    @State private var filters: CodeReviewInboxFilters
     @State private var searchText = ""
     @State private var isLoading = false
     @State private var errorMessage: String?
@@ -46,12 +21,26 @@ struct PullRequestsScreen: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 #endif
 
+    init(
+        apiClient: SloppyAPIClient,
+        onOpenChat: @escaping @MainActor (CodeReviewDetail) -> Void,
+        filterStore: CodeReviewFilterStore = CodeReviewFilterStore()
+    ) {
+        self.apiClient = apiClient
+        self.onOpenChat = onOpenChat
+        self.filterStore = filterStore
+        _filters = State(initialValue: filterStore.load(endpoint: apiClient.endpoint))
+    }
+
     var body: some View {
         reviewLayout
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .navigationTitle("Pull Requests")
             .task(id: requestKey) { await load() }
             .refreshable { await load() }
+            .onChange(of: filters) { _, filters in
+                filterStore.save(filters, endpoint: apiClient.endpoint)
+            }
             .sheet(isPresented: $isShowingArcadiaCredential) {
                 ArcadiaCredentialSheet(apiClient: apiClient)
             }
@@ -86,7 +75,7 @@ struct PullRequestsScreen: View {
 
     private var inboxPane: some View {
         VStack(spacing: 0) {
-            filters
+            filterControls
             Divider()
             content
         }
@@ -128,14 +117,14 @@ struct PullRequestsScreen: View {
     }
 
     private var requestKey: String {
-        [state.rawValue, roleFilter.rawValue, selectedProviderID ?? "all"].joined(separator: ":")
+        [filters.state.rawValue, filters.role.rawValue, filters.providerID ?? "all"].joined(separator: ":")
     }
 
-    private var filters: some View {
+    private var filterControls: some View {
         VStack(spacing: 10) {
             HStack(spacing: 10) {
-                Picker("Role", selection: $roleFilter) {
-                    ForEach(RoleFilter.allCases) { role in
+                Picker("Role", selection: $filters.role) {
+                    ForEach(CodeReviewInboxRoleFilter.allCases) { role in
                         Text(role.title).tag(role)
                     }
                 }
@@ -167,14 +156,14 @@ struct PullRequestsScreen: View {
                 .background(Color.secondary.opacity(0.11), in: RoundedRectangle(cornerRadius: 7))
 
                 Menu {
-                    Picker("State", selection: $state) {
+                    Picker("State", selection: $filters.state) {
                         ForEach(CodeReviewState.allCases) { state in
                             Text(state.title).tag(state)
                         }
                     }
                     if response.providers.count > 1 {
                         Divider()
-                        Picker("Provider", selection: $selectedProviderID) {
+                        Picker("Provider", selection: $filters.providerID) {
                             Text("All providers").tag(String?.none)
                             ForEach(response.providers) { provider in
                                 Text(provider.displayName).tag(Optional(provider.id))
@@ -300,15 +289,15 @@ struct PullRequestsScreen: View {
         defer { isLoading = false }
         do {
             response = try await apiClient.fetchCodeReviews(
-                state: state,
-                roles: roleFilter.roles,
-                providerIDs: selectedProviderID.map { [$0] } ?? []
+                state: filters.state,
+                roles: filters.role.roles,
+                providerIDs: filters.providerID.map { [$0] } ?? []
             )
             errorMessage = nil
             recoveryMessage = nil
-            if let selectedProviderID,
+            if let selectedProviderID = filters.providerID,
                !response.providers.contains(where: { $0.id == selectedProviderID }) {
-                self.selectedProviderID = nil
+                filters.providerID = nil
             }
             if let selectedReviewID,
                !response.items.contains(where: { $0.id == selectedReviewID }) {

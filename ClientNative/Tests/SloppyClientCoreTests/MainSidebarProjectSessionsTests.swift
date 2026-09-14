@@ -51,6 +51,7 @@ struct MainSidebarProjectSessionsTests {
     @Test("sidebar can display chats and projects as cards")
     func sidebarSupportsCardLayout() throws {
         let source = try source
+        let cardsSource = try sourceFile("Sources/SloppyClient/Navigation/Shared/SidebarCards.swift")
 
         #expect(source.contains("client_chat_sidebar_layout_mode"))
         #expect(source.contains("layoutMode == .cards"))
@@ -59,6 +60,9 @@ struct MainSidebarProjectSessionsTests {
         #expect(source.contains("SidebarProjectCard(viewModel: viewModel, group: $0)"))
         #expect(source.contains("Show as cards"))
         #expect(source.contains("Show as list"))
+        #expect(source.contains(".padding(.leading, theme.spacing.m)"))
+        #expect(cardsSource.contains("if group.project.isFavorite"))
+        #expect(cardsSource.contains(".accessibilityLabel(\"Pinned project\")"))
     }
 
     @Test("project and recents session rows open session-backed tabs")

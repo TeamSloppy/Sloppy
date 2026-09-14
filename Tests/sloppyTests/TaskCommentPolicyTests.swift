@@ -26,11 +26,12 @@ struct TaskCommentPolicyTests {
     func technicalCommentsStayLocalAndHumanTextIsNotClassifiedByKeywords() async throws {
         let (service, provider) = await fixture(status: .inProgress)
         _ = await service.reclaimStaleProjectTaskClaims(staleAfter: 0)
+        #expect(await service.listTaskComments(projectID: "comment-policy", taskID: "TASK-1").isEmpty)
         await service.appendSystemTaskComment(projectID: "comment-policy", taskID: "TASK-1", content: "Task flow problem: Worker timed out after 801s")
         await service.appendAutoReviewTaskComment(projectID: "comment-policy", taskID: "TASK-1", artifactPath: nil)
         #expect(await provider.delivered().isEmpty)
         let local = await service.listTaskComments(projectID: "comment-policy", taskID: "TASK-1")
-        #expect(local.count == 3)
+        #expect(local.count == 2)
         #expect(local.allSatisfy { $0.effectiveKind == .technical })
 
         _ = await service.addTaskComment(projectID: "comment-policy", taskID: "TASK-1", request: .init(

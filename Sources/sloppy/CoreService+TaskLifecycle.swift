@@ -590,11 +590,6 @@ extension CoreService {
                     actorID: task.actorId,
                     agentID: nil
                 )
-                await appendSystemTaskComment(
-                    projectID: project.id,
-                    taskID: task.id,
-                    content: "Task claim reclaimed after worker heartbeat became stale or disappeared. The task is ready for retry."
-                )
             }
 
             if changed {

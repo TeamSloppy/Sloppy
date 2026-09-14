@@ -118,6 +118,11 @@ struct SidebarProjectCard: View {
                         .font(.system(size: theme.typography.body, weight: .semibold))
                         .foregroundColor(projectColor ?? theme.colors.accentCyan)
                     Spacer(minLength: 0)
+                    if group.project.isFavorite {
+                        Icons.symbol(.pushPin, size: theme.typography.caption)
+                            .foregroundColor(theme.colors.textMuted)
+                            .accessibilityLabel("Pinned project")
+                    }
                     Text("\(group.totalSessions.count) chats")
                         .font(.system(size: theme.typography.caption, weight: .semibold))
                         .foregroundColor(theme.colors.textMuted)

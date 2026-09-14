@@ -742,6 +742,7 @@ private struct ComposerOptionsMenuView: View {
     let onEditModels: @MainActor () -> Void
 
     @State private var isPresented = false
+    @State private var isModelPickerPresented = false
     @State private var searchText = ""
     @State private var isRefreshing = false
     @FocusState private var isSearchFocused: Bool
@@ -749,17 +750,13 @@ private struct ComposerOptionsMenuView: View {
 
     var body: some View {
         Button {
+            isModelPickerPresented = !supportsReasoningEffort
             isPresented.toggle()
         } label: {
             HStack(spacing: theme.spacing.xs) {
-                Text(selectedModelTitle)
+                Text(supportsReasoningEffort ? "Select effort" : selectedModelTitle)
                     .font(.system(size: theme.typography.body, weight: .medium))
                     .foregroundColor(theme.colors.textPrimary)
-                    .lineLimit(1)
-
-                Text("· \(selectedEffort.compactTitle)")
-                    .font(.system(size: theme.typography.caption))
-                    .foregroundColor(theme.colors.textMuted)
                     .lineLimit(1)
 
                 Icons.symbol(.expandMore, size: 14)
@@ -809,7 +806,108 @@ private struct ComposerOptionsMenuView: View {
     }
 
     private var pickerContent: some View {
+        Group {
+            if isModelPickerPresented {
+                modelPickerContent
+            } else {
+                effortPickerContent
+            }
+        }
+        .frame(width: isModelPickerPresented ? 440 : 360)
+    }
+
+    private var effortPickerContent: some View {
+        VStack(spacing: 12) {
+            ZStack {
+                Button {
+                    isModelPickerPresented = true
+                } label: {
+                    VStack(spacing: theme.spacing.xs) {
+                        HStack(spacing: theme.spacing.xs) {
+                            Text(selectedEffort.title)
+                                .font(.system(size: theme.typography.heading, weight: .medium))
+                                .foregroundColor(
+                                    ComposerEffortPalette.color(for: selectedEffort, theme: theme)
+                                )
+                            Image(systemName: "chevron.right")
+                                .font(.system(size: 13, weight: .semibold))
+                                .foregroundColor(theme.colors.textMuted)
+                        }
+
+                        Text(selectedModelTitle)
+                            .font(.system(size: theme.typography.body))
+                            .foregroundColor(theme.colors.textSecondary)
+                            .lineLimit(1)
+                    }
+                    .frame(maxWidth: .infinity)
+                    .padding(.horizontal, 36)
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .disabled(models.isEmpty)
+                .accessibilityLabel("Select model, current model \(selectedModelTitle)")
+
+                HStack {
+                    Spacer(minLength: 0)
+
+                    Button {
+                        onSelectEffort(.default)
+                    } label: {
+                        Image(systemName: "arrow.counterclockwise")
+                            .font(.system(size: 16, weight: .medium))
+                            .foregroundColor(theme.colors.textMuted)
+                            .frame(width: 28, height: 28)
+                            .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(selectedEffort == .default)
+                    .help("Reset effort to Default")
+                    .accessibilityLabel("Reset effort to Default")
+                }
+            }
+
+            ComposerEffortScale(
+                selection: selectedEffort,
+                onSelect: onSelectEffort
+            )
+            .disabled(!supportsReasoningEffort)
+
+            if !agents.isEmpty {
+                Divider()
+                agentPicker
+            }
+        }
+        .padding(.horizontal, theme.spacing.m)
+        .padding(.vertical, 14)
+        .accessibilityIdentifier("chat.composer.effort-picker")
+    }
+
+    private var modelPickerContent: some View {
         VStack(spacing: 0) {
+            HStack(spacing: theme.spacing.s) {
+                Button {
+                    if supportsReasoningEffort {
+                        isModelPickerPresented = false
+                    } else {
+                        isPresented = false
+                    }
+                } label: {
+                    Image(systemName: supportsReasoningEffort ? "chevron.left" : "xmark")
+                        .frame(width: 24, height: 24)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundColor(theme.colors.textSecondary)
+
+                Text("Select model")
+                    .font(.system(size: theme.typography.heading + 2, weight: .semibold))
+                    .foregroundColor(theme.colors.textPrimary)
+
+                Spacer(minLength: 0)
+            }
+            .padding(.horizontal, theme.spacing.m)
+            .frame(height: 50)
+
             HStack(spacing: theme.spacing.s) {
                 Image(systemName: "magnifyingglass")
                     .foregroundColor(theme.colors.textMuted)
@@ -818,7 +916,7 @@ private struct ComposerOptionsMenuView: View {
                     .focused($isSearchFocused)
             }
             .padding(.horizontal, theme.spacing.m)
-            .frame(height: 42)
+            .frame(height: 46)
 
             Divider()
 
@@ -845,29 +943,31 @@ private struct ComposerOptionsMenuView: View {
                 }
                 .padding(.vertical, theme.spacing.s)
             }
-            .frame(maxHeight: 320)
+            .frame(minHeight: 160, maxHeight: 380)
 
             Divider()
-            pickerActions
+            modelPickerActions
         }
-        .frame(width: 340)
         .onAppear {
             searchText = ""
             isSearchFocused = true
         }
+        .accessibilityIdentifier("chat.composer.model-list")
     }
 
     private func modelRow(_ model: ChatModelOption) -> some View {
         Button {
             onSelectModel(model)
-            isPresented = false
+            if model.supportsReasoningEffort {
+                isModelPickerPresented = false
+            } else {
+                isPresented = false
+            }
         } label: {
             HStack(spacing: theme.spacing.s) {
                 Text(model.title)
                     .foregroundColor(theme.colors.textPrimary)
                     .lineLimit(1)
-                Text(selectedEffort.compactTitle)
-                    .foregroundColor(theme.colors.textMuted)
                 Spacer(minLength: theme.spacing.s)
                 if selectedModelId == model.id {
                     Image(systemName: "checkmark")
@@ -875,7 +975,7 @@ private struct ComposerOptionsMenuView: View {
                 }
             }
             .padding(.horizontal, theme.spacing.m)
-            .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+            .frame(maxWidth: .infinity, minHeight: 40, alignment: .leading)
             .contentShape(Rectangle())
             .background(
                 selectedModelId == model.id
@@ -886,54 +986,8 @@ private struct ComposerOptionsMenuView: View {
         .buttonStyle(.plain)
     }
 
-    private var pickerActions: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Menu {
-                ForEach(ChatReasoningEffort.allCases) { effort in
-                    Button {
-                        onSelectEffort(effort)
-                    } label: {
-                        ComposerMenuItem(title: effort.title, isSelected: selectedEffort == effort)
-                    }
-                }
-            } label: {
-                pickerActionLabel(
-                    "Reasoning: \(selectedEffort.title)",
-                    systemImage: "gauge.with.dots.needle.50percent",
-                    showsMenuIndicator: true
-                )
-            }
-            .menuIndicator(.hidden)
-            .menuStyle(.button)
-            .buttonStyle(.plain)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .disabled(!supportsReasoningEffort)
-
-            if !agents.isEmpty {
-                Menu {
-                    ForEach(agents) { agent in
-                        Button {
-                            onSelectAgent(agent)
-                        } label: {
-                            ComposerMenuItem(
-                                title: agent.displayName,
-                                isSelected: selectedAgent?.id == agent.id
-                            )
-                        }
-                    }
-                } label: {
-                    pickerActionLabel(
-                        "Agent: \(selectedAgent?.displayName ?? "Agent")",
-                        systemImage: "person",
-                        showsMenuIndicator: true
-                    )
-                }
-                .menuIndicator(.hidden)
-                .menuStyle(.button)
-                .buttonStyle(.plain)
-                .frame(maxWidth: .infinity, alignment: .leading)
-            }
-
+    private var modelPickerActions: some View {
+        HStack(spacing: theme.spacing.s) {
             Button {
                 Task {
                     isRefreshing = true
@@ -941,44 +995,58 @@ private struct ComposerOptionsMenuView: View {
                     isRefreshing = false
                 }
             } label: {
-                pickerActionLabel(
-                    isRefreshing ? "Refreshing Models…" : "Refresh Models",
+                Label(
+                    isRefreshing ? "Refreshing…" : "Refresh",
                     systemImage: "arrow.clockwise"
                 )
             }
             .buttonStyle(.plain)
             .disabled(isRefreshing)
 
+            Spacer(minLength: 0)
+
             Button {
                 isPresented = false
                 onEditModels()
             } label: {
-                pickerActionLabel("Edit Models…", systemImage: "gearshape")
+                Label("Edit Models…", systemImage: "gearshape")
             }
             .buttonStyle(.plain)
         }
-        .padding(.vertical, theme.spacing.xs)
+        .font(.system(size: theme.typography.caption, weight: .medium))
+        .foregroundColor(theme.colors.textSecondary)
+        .padding(.horizontal, theme.spacing.m)
+        .frame(height: 46)
     }
 
-    private func pickerActionLabel(
-        _ title: String,
-        systemImage: String,
-        showsMenuIndicator: Bool = false
-    ) -> some View {
-        HStack(spacing: theme.spacing.s) {
-            Image(systemName: systemImage)
-                .frame(width: 20)
-            Text(title)
-            if showsMenuIndicator {
+    private var agentPicker: some View {
+        Menu {
+            ForEach(agents) { agent in
+                Button {
+                    onSelectAgent(agent)
+                } label: {
+                    ComposerMenuItem(
+                        title: agent.displayName,
+                        isSelected: selectedAgent?.id == agent.id
+                    )
+                }
+            }
+        } label: {
+            HStack(spacing: theme.spacing.s) {
+                Image(systemName: "person")
+                    .frame(width: 20)
+                Text(selectedAgent?.displayName ?? "Agent")
+                Spacer(minLength: 0)
                 Image(systemName: "chevron.down")
                     .font(.system(size: 11, weight: .semibold))
             }
-            Spacer(minLength: 0)
+            .foregroundColor(theme.colors.textSecondary)
+            .frame(maxWidth: .infinity, minHeight: 28, alignment: .leading)
+            .contentShape(Rectangle())
         }
-        .foregroundColor(theme.colors.textSecondary)
-        .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
-        .padding(.horizontal, theme.spacing.m)
-        .contentShape(Rectangle())
+        .menuIndicator(.hidden)
+        .menuStyle(.button)
+        .buttonStyle(.plain)
     }
 
     private func providerTitle(for modelID: String) -> String {
@@ -987,6 +1055,123 @@ private struct ComposerOptionsMenuView: View {
             .replacingOccurrences(of: "-", with: " ")
             .replacingOccurrences(of: "_", with: " ")
             .uppercased()
+    }
+}
+
+private struct ComposerEffortScale: View {
+    let selection: ChatReasoningEffort
+    let onSelect: (ChatReasoningEffort) -> Void
+
+    @Environment(\.theme) private var theme
+
+    private let height: CGFloat = 36
+    private let thumbSize: CGFloat = 24
+    private let dotSize: CGFloat = 6
+    private let fillTrailingSpacing: CGFloat = 8
+
+    var body: some View {
+        GeometryReader { proxy in
+            let efforts = ChatReasoningEffort.allCases
+            let segmentWidth = proxy.size.width / CGFloat(efforts.count)
+            let selectedIndex = efforts.firstIndex(of: selection) ?? 0
+            let thumbCenter = segmentWidth * (CGFloat(selectedIndex) + 0.5)
+            let isMaximumEffort = selectedIndex == efforts.count - 1
+            let fillWidth = isMaximumEffort
+                ? proxy.size.width
+                : min(
+                    proxy.size.width,
+                    thumbCenter + thumbSize / 2 + fillTrailingSpacing
+                )
+            let levelColor = ComposerEffortPalette.color(for: selection, theme: theme)
+
+            ZStack(alignment: .leading) {
+                Capsule()
+                    .fill(theme.colors.surfaceRaised)
+
+                Capsule()
+                    .fill(levelColor)
+                    .frame(width: fillWidth)
+
+                HStack(spacing: 0) {
+                    ForEach(Array(efforts.enumerated()), id: \.element.id) { index, effort in
+                        ZStack {
+                            Circle()
+                                .fill(index < selectedIndex ? Color.white.opacity(0.36) : theme.colors.textMuted)
+                                .frame(width: dotSize, height: dotSize)
+
+                            if effort == selection {
+                                Circle()
+                                    .fill(Color.white)
+                                    .frame(width: thumbSize, height: thumbSize)
+                                    .shadow(color: Color.black.opacity(0.18), radius: 2, y: 1)
+                            }
+                        }
+                        .frame(width: segmentWidth, height: height)
+                        .accessibilityHidden(true)
+                    }
+                }
+            }
+            .clipShape(Capsule())
+            .overlay {
+                Capsule()
+                    .stroke(theme.colors.borderBold, lineWidth: theme.borders.thin)
+            }
+            .contentShape(Capsule())
+            .gesture(
+                DragGesture(minimumDistance: 0, coordinateSpace: .local)
+                    .onChanged { value in
+                        selectEffort(at: value.location.x, width: proxy.size.width)
+                    }
+                    .onEnded { value in
+                        selectEffort(at: value.location.x, width: proxy.size.width)
+                    }
+            )
+            .animation(.easeOut(duration: 0.12), value: selection)
+        }
+        .frame(height: height)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Reasoning effort")
+        .accessibilityValue(selection.title)
+        .accessibilityIdentifier("chat.composer.effort-slider")
+        .accessibilityAdjustableAction(adjustEffort)
+    }
+
+    private func selectEffort(at location: CGFloat, width: CGFloat) {
+        guard width > 0 else { return }
+        let efforts = ChatReasoningEffort.allCases
+        let normalizedLocation = min(max(location / width, 0), 0.999_999)
+        let index = min(Int(normalizedLocation * CGFloat(efforts.count)), efforts.count - 1)
+        onSelect(efforts[index])
+    }
+
+    private func adjustEffort(_ direction: AccessibilityAdjustmentDirection) {
+        let efforts = ChatReasoningEffort.allCases
+        let selectedIndex = efforts.firstIndex(of: selection) ?? 0
+        let nextIndex: Int
+        switch direction {
+        case .increment:
+            nextIndex = min(selectedIndex + 1, efforts.count - 1)
+        case .decrement:
+            nextIndex = max(selectedIndex - 1, 0)
+        @unknown default:
+            return
+        }
+        onSelect(efforts[nextIndex])
+    }
+}
+
+private enum ComposerEffortPalette {
+    static func color(for effort: ChatReasoningEffort, theme: Theme) -> Color {
+        switch effort {
+        case .default:
+            theme.colors.statusNeutral
+        case .low:
+            theme.colors.accentCyan
+        case .medium:
+            theme.colors.accent
+        case .high:
+            theme.colors.statusWarning
+        }
     }
 }
 
