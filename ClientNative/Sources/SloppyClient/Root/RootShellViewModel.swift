@@ -46,6 +46,11 @@ final class RootShellViewModel {
     var menuBarQuickActionRequest: MenuBarQuickActionRequest?
     var appDeepLinkRequest: AppDeepLinkRequest?
     var presentedSettings: ClientSettingsDestination?
+    private(set) var pendingChatApprovalTracker = PendingChatApprovalTracker()
+
+    var pendingApprovalSessionIDs: Set<String> {
+        pendingChatApprovalTracker.sessionIDs
+    }
 
     private var bannerDismissTask: Task<Void, Never>?
     private var notificationManager: NotificationSocketManager?
@@ -268,10 +273,27 @@ final class RootShellViewModel {
         let manager = NotificationSocketManager(baseURL: baseURL)
         notificationManager = manager
         notificationBaseURL = baseURL
+        pendingChatApprovalTracker = PendingChatApprovalTracker()
         notificationListenerTask = Task { @MainActor in
             let stream = await manager.connect()
+            do {
+                let pending = try await SloppyAPIClient(baseURL: baseURL).fetchPendingToolApprovals()
+                var tracker = pendingChatApprovalTracker
+                for approval in pending {
+                    tracker.apply(approval)
+                }
+                pendingChatApprovalTracker = tracker
+            } catch {
+                logger.warning(
+                    "app.notifications.pending-approvals-load-failed",
+                    metadata: ["error": .string(String(describing: error))]
+                )
+            }
             for await notification in stream {
                 guard !Task.isCancelled else { return }
+                var tracker = pendingChatApprovalTracker
+                tracker.apply(notification)
+                pendingChatApprovalTracker = tracker
                 showBanner(for: notification)
             }
         }
@@ -501,6 +523,7 @@ final class RootShellViewModel {
         }
         notificationManager = nil
         notificationBaseURL = nil
+        pendingChatApprovalTracker = PendingChatApprovalTracker()
     }
 
     private func showBanner(for notification: AppNotification) {

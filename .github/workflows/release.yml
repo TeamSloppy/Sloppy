@@ -251,6 +251,29 @@ jobs:
           test -f "$INSTALLER_PATH"
           echo "installer_path=$INSTALLER_PATH" >> "$GITHUB_OUTPUT"
 
+      - name: Package and Sign Sparkle Update
+        id: sparkle
+        env:
+          SPARKLE_PRIVATE_KEY: ${{ secrets.SPARKLE_PRIVATE_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "$SPARKLE_PRIVATE_KEY" ]; then
+            echo "SPARKLE_PRIVATE_KEY repository secret is required" >&2
+            exit 1
+          fi
+          APP_PATH="$PWD/ClientNative/.build/installer-derived-data/Build/Products/Release/SloppyClient-macOS.app"
+          ARCHIVE_PATH="$(ClientNative/script/package_sparkle_archive.sh "$APP_PATH" "${{ steps.meta.outputs.version }}" "${{ runner.temp }}")"
+          PRIVATE_KEY_FILE="${{ runner.temp }}/sparkle-private-key"
+          trap 'rm -f "$PRIVATE_KEY_FILE"' EXIT
+          printf '%s' "$SPARKLE_PRIVATE_KEY" > "$PRIVATE_KEY_FILE"
+          chmod 600 "$PRIVATE_KEY_FILE"
+          export SPARKLE_TOOLS_DIR="$PWD/ClientNative/.build/installer-derived-data/SourcePackages/artifacts/sparkle/Sparkle/bin"
+          export SPARKLE_PRIVATE_KEY_FILE="$PRIVATE_KEY_FILE"
+          APPCAST_PATH="$(ClientNative/script/generate_sparkle_appcast.sh "$ARCHIVE_PATH" "${{ steps.meta.outputs.version }}" "${{ runner.temp }}/sparkle")"
+          cp "$APPCAST_PATH" "${{ runner.temp }}/appcast.xml"
+          echo "archive_path=$ARCHIVE_PATH" >> "$GITHUB_OUTPUT"
+          echo "appcast_path=${{ runner.temp }}/appcast.xml" >> "$GITHUB_OUTPUT"
+
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
         with:
@@ -259,6 +282,8 @@ jobs:
             ${{ steps.pack.outputs.tarball_path }}
             ${{ steps.pack.outputs.node_tarball_path }}
             ${{ steps.installer.outputs.installer_path }}
+            ${{ steps.sparkle.outputs.archive_path }}
+            ${{ steps.sparkle.outputs.appcast_path }}
 
   build-windows-node:
     name: Build SloppyNode (Windows)
@@ -411,10 +436,11 @@ jobs:
           NODE_WINDOWS_EXE=$(ls SloppyNode-windows-x86_64.exe)
           NODE_WINDOWS=$(ls SloppyNode-windows-x86_64.zip)
           MACOS_INSTALLER=$(ls SloppyClient-macos-*.pkg | head -1)
+          MACOS_CLIENT_UPDATE=$(ls SloppyClient-macos-*.zip | head -1)
           LINUX_SHA=$(sha256sum "$LINUX" | awk '{print $1}')
           MACOS_SHA=$(sha256sum "$MACOS" | awk '{print $1}')
           NODE_MACOS_SHA=$(sha256sum "$NODE_MACOS" | awk '{print $1}')
-          sha256sum sloppy-version.json "$LINUX" "$MACOS" "$NODE_MACOS" "$MACOS_INSTALLER" "$NODE_WINDOWS_EXE" "$NODE_WINDOWS" > SHA256SUMS.txt
+          sha256sum sloppy-version.json "$LINUX" "$MACOS" "$NODE_MACOS" "$MACOS_INSTALLER" "$MACOS_CLIENT_UPDATE" appcast.xml "$NODE_WINDOWS_EXE" "$NODE_WINDOWS" > SHA256SUMS.txt
           {
             echo "linux_sha256=$LINUX_SHA"
             echo "macos_sha256=$MACOS_SHA"
@@ -438,6 +464,8 @@ jobs:
             release-assets/Sloppy-macos-*.tar.gz
             release-assets/SloppyNode-macos-*.tar.gz
             release-assets/SloppyClient-macos-*.pkg
+            release-assets/SloppyClient-macos-*.zip
+            release-assets/appcast.xml
             release-assets/SloppyNode-windows-x86_64.exe
             release-assets/SloppyNode-windows-x86_64.zip
 

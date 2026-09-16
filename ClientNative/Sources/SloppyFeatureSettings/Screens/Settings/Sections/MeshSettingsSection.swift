@@ -115,6 +115,13 @@ struct MeshSettingsSection: View {
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                     }
+                    if let connectionDisplayName = node.connectionDisplayName {
+                        Label(connectionDisplayName, systemImage: "network")
+                            .font(.system(size: 11, design: .monospaced))
+                            .foregroundStyle(.tertiary)
+                            .lineLimit(1)
+                            .help(node.endpoint ?? connectionDisplayName)
+                    }
                 }
                 Spacer(minLength: 8)
                 if selected {

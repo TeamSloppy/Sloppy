@@ -17,7 +17,7 @@ struct MainNavigationShellTests {
         )?
             .compactMap { $0 as? URL }
             .first(where: { $0.lastPathComponent == fileName })
-        return try String(contentsOf: #require(sourceURL), encoding: .utf8)
+        return try mainViewAwareSourceContents(at: #require(sourceURL))
     }
 
     private func featureSource(named fileName: String) throws -> String {
@@ -34,7 +34,7 @@ struct MainNavigationShellTests {
         )?
             .compactMap { $0 as? URL }
             .first(where: { $0.lastPathComponent == fileName })
-        return try String(contentsOf: #require(sourceURL), encoding: .utf8)
+        return try mainViewAwareSourceContents(at: #require(sourceURL))
     }
 
     @Test("main view defines section tabs for shell navigation")
@@ -70,8 +70,8 @@ struct MainNavigationShellTests {
     func regularLayoutUsesExtractedWorkspaceHostAndDesktopStrip() throws {
         let source = try source(named: "MainView.swift")
 
-        #expect(source.contains("private var activeDesktopTab: WorkspaceTab?"))
-        #expect(source.contains("private func workspaceContentHost(showsFloatingTabChrome: Bool) -> some View"))
+        #expect(source.contains("var activeDesktopTab: WorkspaceTab?"))
+        #expect(source.contains("func workspaceContentHost(showsFloatingTabChrome: Bool) -> some View"))
         #expect(source.contains("private func tabChromeHost() -> some View"))
         #expect(source.contains("desktopTabContent(for tab: WorkspaceTab)"))
         #expect(!source.contains("private func phoneTabLayout() -> some View"))
@@ -104,6 +104,7 @@ struct MainNavigationShellTests {
         let iosSource = try source(named: "IOSMainSidebar.swift")
         let visionSource = try source(named: "VisionMainSidebar.swift")
         let macSource = try source(named: "MacMainSidebar.swift")
+        let mainViewSource = try source(named: "MainView.swift")
         let source = iosSource + visionSource + macSource
 
         #expect(source.contains("TabView(selection: $viewModel.selectedAppSection)"))
@@ -113,6 +114,9 @@ struct MainNavigationShellTests {
         #expect(visionSource.contains("Tab(\"Workspace\""))
         #expect(macSource.contains("title: \"Workspace\""))
         #expect(macSource.contains("action: viewModel.selectWorkspace"))
+        #expect(macSource.contains("title: \"Agents\""))
+        #expect(macSource.contains("action: viewModel.selectAgents"))
+        #expect(mainViewSource.contains("AgentsScreen(apiClient: viewModel.apiClient)"))
     }
 
     @Test("phone workspace tab renders the canvas surface")
@@ -183,8 +187,9 @@ struct MainNavigationShellTests {
         let source = try source(named: "MainView.swift")
 
         #expect(source.contains(".onAppear"))
-        #expect(source.contains("viewModel.chatViewModel.loadInitialData()"))
-        #expect(source.contains("Task { await viewModel.loadProjects() }"))
+        #expect(source.contains("await viewModel.chatViewModel.waitForInitialData()"))
+        #expect(source.contains("await viewModel.loadAggregatedChatCatalogIfNeeded()"))
+        #expect(source.contains("await viewModel.loadProjects()"))
     }
 
     @Test("macOS sidebar enforces its intended layout width")
@@ -193,8 +198,8 @@ struct MainNavigationShellTests {
         let sidebarSource = try source(named: "MainSidebarView.swift")
 
         #expect(sidebarSource.contains("static let expandedWidth: CGFloat = 348"))
-        #expect(sidebarSource.contains("static let minimumWidth: CGFloat = 340"))
-        #expect(sidebarSource.contains("static let maximumWidth: CGFloat = 520"))
+        #expect(sidebarSource.contains("static let minimumWidth: CGFloat = 220"))
+        #expect(sidebarSource.contains("static let maximumWidth: CGFloat = 800"))
         #expect(mainViewSource.contains(".frame("))
         #expect(mainViewSource.contains("minWidth: viewModel.sidebarMinimumWidth"))
         #expect(mainViewSource.contains("idealWidth: viewModel.sidebarWidth"))

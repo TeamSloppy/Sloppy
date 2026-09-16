@@ -8,7 +8,7 @@ struct MobileWorkspaceTabsSourceTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        return try String(contentsOf: packageRoot.appendingPathComponent(relativePath), encoding: .utf8)
+        return try mainViewAwareSourceContents(at: packageRoot.appendingPathComponent(relativePath))
     }
 
     @Test("main view presents mobile overview from detail container")

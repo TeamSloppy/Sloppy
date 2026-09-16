@@ -24,16 +24,7 @@ struct WorkspaceTerminalMacHostView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> LocalProcessTerminalView {
-        let terminalView = LocalProcessTerminalView(frame: .zero)
-        let shell = ProcessInfo.processInfo.environment["SHELL"] ?? "/bin/zsh"
-        let execName = "-" + URL(fileURLWithPath: shell).lastPathComponent
-        terminalView.startProcess(
-            executable: shell,
-            args: [],
-            environment: nil,
-            execName: execName,
-            currentDirectory: session.workingDirectory.path
-        )
+        let terminalView = session.localTerminalView()
         context.coordinator.terminalView = terminalView
         onHostReady(context.coordinator)
         return terminalView
@@ -44,7 +35,7 @@ struct WorkspaceTerminalMacHostView: NSViewRepresentable {
     }
 
     static func dismantleNSView(_ nsView: LocalProcessTerminalView, coordinator: WorkspaceTerminalMacHostController) {
-        nsView.terminate()
+        // The owning session terminates the shell only when its tab is closed.
         coordinator.terminalView = nil
     }
 }

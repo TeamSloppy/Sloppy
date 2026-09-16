@@ -456,6 +456,7 @@ public final class ChatScreenViewModel {
     @ObservationIgnored private var activeProjectId: String?
     @ObservationIgnored private var activeTaskId: String?
     @ObservationIgnored private var isLoadingInitialData = false
+    @ObservationIgnored private var initialDataTask: Task<Void, Never>?
     @ObservationIgnored private var sessionLoadGeneration = 0
     @ObservationIgnored private var composerDraftsByKey: [String: StoredComposerDraft] = [:]
     @ObservationIgnored private var activeComposerDraftKey: String?
@@ -669,25 +670,40 @@ public final class ChatScreenViewModel {
     }
 
     public func loadInitialData() {
+        guard !didLoadInitialData, initialDataTask == nil else { return }
+
+        initialDataTask = Task { @MainActor [weak self] in
+            await self?.performInitialDataLoad()
+        }
+    }
+
+    public func waitForInitialData() async {
+        loadInitialData()
+        let task = initialDataTask
+        await task?.value
+    }
+
+    private func performInitialDataLoad() async {
         guard !didLoadInitialData, !isLoadingInitialData else { return }
 
         isLoadingInitialData = true
-        Task { @MainActor in
-            await restoreInitialDataFromCache()
+        await restoreInitialDataFromCache()
 
-            // Cached data is enough to render the workspace. Network refreshes
-            // continue after this flag releases the initial loading screen.
-            didLoadInitialData = true
-            isLoadingInitialData = false
+        // Cached data is enough to render the workspace. Network refreshes
+        // continue after this flag releases the initial loading screen.
+        didLoadInitialData = true
 
-            await revalidateInitialData()
-        }
+        await revalidateInitialData()
+        isLoadingInitialData = false
+        initialDataTask = nil
     }
 
     public func installAggregatedSessionCatalog(_ sessions: [ChatSessionSummary]) {
         sessionLoadGeneration += 1
         isLoadingSessions = false
-        sessionCatalog = sortSessions(ChatSessionCatalog.merge([sessions]))
+        sessionCatalog = sortSessions(
+            ChatSessionCatalog.mergeAggregated(existing: sessionCatalog, incoming: sessions)
+        )
     }
 
     public func removeSessionFromCatalog(_ session: ChatSessionSummary) {

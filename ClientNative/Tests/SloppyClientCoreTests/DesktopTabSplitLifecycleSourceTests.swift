@@ -9,7 +9,7 @@ struct DesktopTabSplitLifecycleSourceTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let url = path.reduce(packageRoot) { $0.appendingPathComponent($1) }
-        return try String(contentsOf: url, encoding: .utf8)
+        return try mainViewAwareSourceContents(at: url)
     }
 
     @Test("main view model exposes temporary desktop split lifecycle")

@@ -269,6 +269,19 @@ enum ToolCatalog {
                 "pageId": .object(["type": .string("string")])
             ])
         ]),
+        "browser.read": .object([
+            "type": .string("object"),
+            "properties": .object(["pageId": .object(["type": .string("string")])])
+        ]),
+        "browser.scroll": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "pageId": .object(["type": .string("string")]),
+                "selector": .object(["type": .string("string")]),
+                "x": .object(["type": .string("number")]),
+                "y": .object(["type": .string("number")])
+            ])
+        ]),
         "browser.status": .object([
             "type": .string("object"),
             "properties": .object([:])

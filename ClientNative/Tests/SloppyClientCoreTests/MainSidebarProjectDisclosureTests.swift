@@ -17,7 +17,7 @@ struct MainSidebarProjectDisclosureTests {
         )?
             .compactMap { $0 as? URL }
             .first(where: { $0.lastPathComponent == fileName })
-        return try String(contentsOf: #require(sourceURL), encoding: .utf8)
+        return try mainViewAwareSourceContents(at: #require(sourceURL))
     }
 
     @Test("project collapse state is separate from show more state")
@@ -61,16 +61,13 @@ struct MainSidebarProjectDisclosureTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        let kanbanSource = try String(
-            contentsOf: packageRoot
+        let kanbanSource = try mainViewAwareSourceContents(at: packageRoot
                 .appendingPathComponent("Sources")
                 .appendingPathComponent("SloppyFeatureProjects")
                 .appendingPathComponent("Screens")
                 .appendingPathComponent("Projects")
                 .appendingPathComponent("Kanban")
-                .appendingPathComponent("ProjectKanbanView.swift"),
-            encoding: .utf8
-        )
+                .appendingPathComponent("ProjectKanbanView.swift"))
 
         #expect(kanbanSource.contains("let onOpenTask: @MainActor (ProjectKanbanCard) -> Void"))
         #expect(kanbanSource.contains("Button {"))

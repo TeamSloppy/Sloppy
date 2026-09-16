@@ -102,7 +102,7 @@ import SwiftUI
 /// When you need to parse something other than Markdown, use ``init(_:parser:)`` with a custom
 /// ``MarkupParser`` implementation.
 public struct StructuredText: View {
-  @State private var attributedString = AttributedString()
+  @State private var attributedString: AttributedString?
 
   private let markup: String
   private let parser: any MarkupParser
@@ -120,10 +120,19 @@ public struct StructuredText: View {
   }
 
   public var body: some View {
-    WithAttachments(attributedString) {
-      BlockContent(content: $0)
-        .modifier(TextSelectionInteraction())
-        .modifier(TextSelectionCoordination())
+    Group {
+      if let attributedString {
+        WithAttachments(attributedString) {
+          BlockContent(content: $0)
+            .modifier(TextSelectionInteraction())
+            .modifier(TextSelectionCoordination())
+        }
+      } else {
+        // Native collection views measure rows before their async tasks run.
+        // Keep the text visible and measurable until the parsed blocks arrive;
+        // a zero-height row can leave the Markdown task outside the viewport.
+        Text(verbatim: markup)
+      }
     }
     .coordinateSpace(.textContainer)
     .task(id: markup) {

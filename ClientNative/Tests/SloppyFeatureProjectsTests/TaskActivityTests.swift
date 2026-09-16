@@ -175,3 +175,57 @@ private final class ActivityFixtureProtocol: URLProtocol, @unchecked Sendable {
     }
     override func stopLoading() {}
 }
+
+#if os(macOS)
+import AppKit
+import SwiftUI
+import SloppyClientUI
+
+extension TaskActivityTests {
+    @Test @MainActor func openChatRemainsAtBottomRightWhileScrolling() async throws {
+        let session = Self.session()
+        defer { session.invalidateAndCancel() }
+        let api = SloppyAPIClient(baseURL: URL(string: "https://activity.test")!, session: session,
+                                  authSessionStore: AuthSessionStore(persistence: .memory))
+        let model = TaskDetailViewModel(apiClient: api)
+        var openedTaskID: String?
+        let host = NSHostingView(rootView: TaskDetailView(viewModel: model, projectId: "p", taskId: "t",
+            onOpenChat: { openedTaskID = $0.id })
+            .environment(\.theme, .sloppyDark)
+            .preferredColorScheme(.dark))
+        let window = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 700, height: 550),
+                              styleMask: [.titled], backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        for _ in 0..<100 {
+            if model.task != nil { break }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        try await Task.sleep(for: .milliseconds(150))
+        let scroll = try #require(descendants(host).compactMap { $0 as? NSScrollView }.first)
+        let scrollFrame = scroll.convert(scroll.bounds, to: nil)
+        #expect(scrollFrame.width > 0)
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: 150))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        try await Task.sleep(for: .milliseconds(80))
+        #expect(scroll.convert(scroll.bounds, to: nil) == scrollFrame)
+
+        // The action remains in the bottom-right region outside the scroll view.
+        let point = NSPoint(x: host.bounds.width - 60, y: 44)
+        for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
+            let event = try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 1, clickCount: 1, pressure: type == .leftMouseDown ? 1 : 0))
+            window.sendEvent(event)
+            try await Task.sleep(for: .milliseconds(50))
+        }
+        #expect(openedTaskID == "t")
+    }
+
+    @MainActor private func descendants(_ view: NSView) -> [NSView] {
+        view.subviews.flatMap { [$0] + descendants($0) }
+    }
+}
+#endif

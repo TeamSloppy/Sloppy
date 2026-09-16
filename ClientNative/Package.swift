@@ -123,6 +123,11 @@ let package = Package(
             ]
         ),
         .testTarget(
+            name: "SloppyClientTests",
+            dependencies: ["SloppyClient"],
+            path: "Tests/SloppyClientTests"
+        ),
+        .testTarget(
             name: "SloppyClientCoreTests",
             dependencies: ["SloppyClientCore", "SloppyLiveActivity", "CSQLite3"],
             path: "Tests/SloppyClientCoreTests"

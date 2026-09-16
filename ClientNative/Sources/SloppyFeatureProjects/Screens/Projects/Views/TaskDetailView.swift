@@ -119,6 +119,24 @@ public struct TaskDetailView: View {
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .safeAreaInset(edge: .bottom, alignment: .leading, spacing: 0) {
+            if let task = viewModel.task, let onOpenChat {
+                Button {
+                    onOpenChat(task)
+                } label: {
+                    Label("Open Chat", systemImage: "bubble.left.and.bubble.right")
+                        .padding(.horizontal, 12)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.glassProminent)
+                .tint(theme.colors.accent)
+                .controlSize(.large)
+                .buttonBorderShape(.capsule)
+                .contentShape(Rectangle())
+                .accessibilityIdentifier("task-detail-open-chat")
+                .padding(theme.spacing.l)
+            }
+        }
         .task(id: "\(projectId):\(taskId)") {
             await viewModel.load(projectId: projectId, taskId: taskId)
         }
@@ -167,18 +185,6 @@ public struct TaskDetailView: View {
 
                 if let priority = task.priority, !priority.isEmpty {
                     TaskPriorityChip(priority: priority)
-                }
-
-                if let onOpenChat {
-                    Button("Open Chat") {
-                        onOpenChat(task)
-                    }
-                    .buttonStyle(.plain)
-                    .padding(.horizontal, theme.spacing.m)
-                    .padding(.vertical, theme.spacing.s)
-                    .background(theme.colors.surfaceRaised)
-                    .clipShape(Capsule())
-                    .foregroundColor(theme.colors.textPrimary)
                 }
             }
         }

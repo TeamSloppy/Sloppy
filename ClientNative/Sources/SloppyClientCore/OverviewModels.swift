@@ -508,6 +508,11 @@ public struct APIAgentTaskRecord: Codable, Sendable, Identifiable {
 private let activeStatuses: Set<String> = ["in_progress", "ready", "needs_review"]
 
 public extension APIProjectRecord {
+    /// Only tasks in the canonical In Progress column; nil means tasks are not loaded.
+    var inProgressTaskCount: Int? {
+        tasks.map { $0.count { $0.normalizedKanbanColumnID == .inProgress } }
+    }
+
     func toSummary() -> ProjectSummary {
         let allTasks = tasks ?? []
         let active = allTasks.filter { activeStatuses.contains($0.status) }

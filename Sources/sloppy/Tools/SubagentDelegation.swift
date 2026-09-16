@@ -35,6 +35,8 @@ enum SubagentDelegation {
             "browser.type",
             "browser.screenshot",
             "browser.status",
+            "browser.read",
+            "browser.scroll",
             "browser.close",
         ],
         "skills": ["skills.search", "skills.list", "skills.install", "skills.uninstall"],

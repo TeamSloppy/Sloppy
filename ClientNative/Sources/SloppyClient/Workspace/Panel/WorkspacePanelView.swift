@@ -78,13 +78,7 @@ struct WorkspacePanelView: View {
             case .files:
                 filesPane
             case .webBrowser:
-                VStack(spacing: 0) {
-                    webToolbar
-                    Divider()
-                    WorkspaceWebView(viewModel: viewModel.webViewModel)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                WorkspaceBrowserPanelView(viewModel: viewModel.webViewModel)
             }
         }
         .task(id: context) {
@@ -228,49 +222,6 @@ struct WorkspacePanelView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-    }
-
-    private var webToolbar: some View {
-        let c = theme.colors
-        let sp = theme.spacing
-        let ty = theme.typography
-
-        return HStack(spacing: sp.s) {
-            Button(action: { viewModel.webViewModel.goBack() }) {
-                Icons.symbol(.arrowForward, size: ty.caption)
-                    .rotationEffect(.degrees(180))
-                    .foregroundColor(viewModel.webViewModel.canGoBack ? c.textSecondary : c.textMuted)
-            }
-            .buttonStyle(.plain)
-
-            Button(action: { viewModel.webViewModel.goForward() }) {
-                Icons.symbol(.arrowForward, size: ty.caption)
-                    .foregroundColor(viewModel.webViewModel.canGoForward ? c.textSecondary : c.textMuted)
-            }
-            .buttonStyle(.plain)
-
-            Button(action: { viewModel.webViewModel.reload() }) {
-                Icons.symbol(.refresh, size: ty.caption)
-                    .foregroundColor(c.textSecondary)
-            }
-            .buttonStyle(.plain)
-
-            TextField(
-                "Open URL",
-                text: Binding(
-                    get: { viewModel.webViewModel.addressText },
-                    set: { viewModel.webViewModel.addressText = $0 }
-                )
-            )
-            .textFieldStyle(.roundedBorder)
-
-            Button("Open") {
-                viewModel.webViewModel.openAddress()
-            }
-            .buttonStyle(.plain)
-        }
-        .padding(.horizontal, sp.m)
-        .padding(.vertical, sp.s)
     }
 
     @ViewBuilder
@@ -431,8 +382,8 @@ enum WorkspaceSidePanelItem: String, CaseIterable, Identifiable {
 
     var requiresProject: Bool {
         switch self {
-        case .review, .browser, .files: true
-        case .terminal, .sideChat: false
+        case .review, .files: true
+        case .terminal, .browser, .sideChat: false
         }
     }
 }

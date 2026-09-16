@@ -8,7 +8,7 @@ struct WorkspaceEnvironmentPanelSourceTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        return try String(contentsOf: packageRoot.appendingPathComponent(path), encoding: .utf8)
+        return try mainViewAwareSourceContents(at: packageRoot.appendingPathComponent(path))
     }
 
     @Test("workspace inspector exposes an environment mode")
@@ -19,9 +19,9 @@ struct WorkspaceEnvironmentPanelSourceTests {
 
         #expect(panelViewModel.contains("case environment"))
         #expect(panelViewModel.contains("var mode: WorkspacePanelMode = .environment"))
-        #expect(mainView.contains("openWorkspacePanel(mode: .environment)"))
+        #expect(mainView.contains("viewModel.openWorkspaceDockTab(.review)"))
         #expect(mainView.contains("case .review:"))
-        #expect(mainView.contains("WorkspaceSidePanelPickerView("))
+        #expect(mainView.contains("WorkspaceDockView(state: viewModel.workspaceDockState"))
         #expect(panelView.contains("WorkspaceEnvironmentPanelView("))
     }
 

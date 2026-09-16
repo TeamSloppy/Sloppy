@@ -14,7 +14,7 @@ struct MainSidebarProjectSessionsTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        return try String(contentsOf: packageRoot.appendingPathComponent(relativePath), encoding: .utf8)
+        return try mainViewAwareSourceContents(at: packageRoot.appendingPathComponent(relativePath))
     }
 
     @Test("project groups include sessions created in workspace chat tabs")
@@ -25,15 +25,39 @@ struct MainSidebarProjectSessionsTests {
 
         #expect(source.contains("ChatSidebarSections.build("))
         #expect(source.contains("sessions: viewModel.sidebarSessionCatalog"))
-        #expect(mainViewModelSource.contains("!settings.isSessionArchived($0.id)"))
+        #expect(source.contains("defaultSourceInstanceID: viewModel.sidebarDefaultSourceInstanceID"))
+        #expect(mainViewModelSource.contains("!settings.isSessionArchived($0.storageID)"))
+        #expect(mainViewModelSource.contains("tagged.sourceInstanceID = activeInstanceID"))
+        #expect(mainViewModelSource.contains("loadedSidebarSessions ?? chatViewModel.sessionCatalog"))
+        #expect(mainViewModelSource.contains("func synchronizeSidebarSessionCatalog()"))
+        #expect(mainViewModelSource.contains("loadedSidebarSessions = chatViewModel.sessionCatalog"))
         #expect(mainViewModelSource.contains("loadsGlobalSessionCatalog: true"))
         #expect(mainViewModelSource.contains("onSessionSummaryChange: { [weak self] summary in"))
-        #expect(mainViewModelSource.contains("self?.chatViewModel.mergeSessionSummary(summary)"))
+        #expect(mainViewModelSource.contains("self?.chatViewModel.mergeSessionSummary(tagged)"))
+        #expect(mainViewModelSource.contains("self?.synchronizeSidebarSessionCatalog()"))
         #expect(chatViewModelSource.contains("public func mergeSessionSummary(_ summary: ChatSessionSummary)"))
         #expect(chatViewModelSource.contains("onSessionSummaryChange(summary)"))
         #expect(source.contains("ForEach(sections.projectGroups.prefix(viewModel.visibleProjectCount))"))
-        #expect(source.contains("ForEach(sessions)"))
+        #expect(source.contains("ForEach(sessions, id: \\.storageID)"))
         #expect(source.contains("SidebarSessionItem(viewModel: viewModel, session: $0, showsProjectName: false)"))
+    }
+
+    @Test("aggregated project chats install after the primary catalog finishes loading")
+    func aggregatedProjectChatsInstallAfterPrimaryCatalogLoad() throws {
+        let mainViewSource = try sourceFile("Sources/SloppyClient/Navigation/Main/MainView.swift")
+        let chatViewModelSource = try sourceFile("Sources/SloppyFeatureChat/Screens/Chat/ChatScreenViewModel.swift")
+        let waitIndex = try #require(
+            mainViewSource.range(of: "await viewModel.chatViewModel.waitForInitialData()")?.lowerBound
+        )
+        let aggregateIndex = try #require(
+            mainViewSource.range(of: "await viewModel.loadAggregatedChatCatalogIfNeeded()")?.lowerBound
+        )
+
+        #expect(waitIndex < aggregateIndex)
+        #expect(chatViewModelSource.contains("private var initialDataTask: Task<Void, Never>?"))
+        #expect(chatViewModelSource.contains("public func waitForInitialData() async"))
+        #expect(chatViewModelSource.contains("await task?.value"))
+        #expect(chatViewModelSource.contains("ChatSessionCatalog.mergeAggregated(existing: sessionCatalog, incoming: sessions)"))
     }
 
     @Test("project list reveals additional projects in pages")
@@ -63,6 +87,7 @@ struct MainSidebarProjectSessionsTests {
         #expect(source.contains(".padding(.leading, theme.spacing.m)"))
         #expect(cardsSource.contains("if group.project.isFavorite"))
         #expect(cardsSource.contains(".accessibilityLabel(\"Pinned project\")"))
+        #expect(cardsSource.contains("Text(\"\\(group.allSessionsCount) chats\")"))
     }
 
     @Test("project and recents session rows open session-backed tabs")
@@ -118,7 +143,7 @@ struct MainSidebarProjectSessionsTests {
         let createStart = try #require(mainViewModelSource.range(of: "func createBlankChatTab(select: Bool = true)"))
         let createEnd = try #require(
             mainViewModelSource.range(
-                of: "func showBlankChatInSelectedTab()",
+                of: "func showBlankChatInSelectedTab(endpoint:",
                 range: createStart.upperBound..<mainViewModelSource.endIndex
             )
         )
@@ -127,7 +152,8 @@ struct MainSidebarProjectSessionsTests {
         #expect(createMethod.contains("tabs.append(tab)"))
         #expect(createMethod.contains("selectedTabID = tab.id"))
 
-        #expect(mainViewModelSource.contains("private func showInSelectedTab(_ tab: WorkspaceTab, state: WorkspaceTabState)"))
+        #expect(mainViewModelSource.contains("private func showInSelectedTab("))
+        #expect(mainViewModelSource.contains("state: WorkspaceTabState,"))
         #expect(mainViewModelSource.contains("id: selectedTabID"))
         #expect(mainViewModelSource.contains("tabStates[selectedTabID] = state"))
     }

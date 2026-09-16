@@ -9,23 +9,30 @@ struct PlatformMainSidebar: View {
     let viewModel: MainViewModel
     let isOverlay: Bool
     var composerBackdropHeight: CGFloat? = nil
+    var approvalRequiredSessionIDs: Set<String> = []
+    var showsApprovalRequiredChatsOnly = false
 
     @Environment(\.theme) private var theme
     @State private var isSettingsHovered = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            MacSidebarPrimaryActions(viewModel: viewModel)
-
             ScrollView {
+                MacSidebarPrimaryActions(viewModel: viewModel)
+                
                 LazyVStack(alignment: .leading, spacing: 12) {
-                    SidebarRecentsList(viewModel: viewModel)
+                    SidebarRecentsList(
+                        viewModel: viewModel,
+                        approvalRequiredSessionIDs: approvalRequiredSessionIDs,
+                        showsApprovalRequiredOnly: showsApprovalRequiredChatsOnly
+                    )
                 }
             }
             .frame(maxHeight: .infinity)
+            .modifier(SidebarScrollFade())
             .refreshable { await viewModel.refreshContent() }
         }
-        .safeAreaInset(edge: .bottom) {
+        .safeAreaInset(edge: .bottom, spacing: 0) {
             HStack(spacing: theme.spacing.s) {
                 Menu {
                     Button {
@@ -106,14 +113,7 @@ struct PlatformMainSidebar: View {
             .padding(.horizontal, theme.spacing.m)
             .frame(maxWidth: .infinity, minHeight: 64)
             .background {
-                if composerBackdropHeight == nil {
-                    theme.colors.surfaceRaised.ignoresSafeArea(edges: .bottom)
-                }
-            }
-            .overlay(alignment: .top) {
-                Rectangle()
-                    .fill(theme.colors.borderBold)
-                    .frame(height: theme.borders.thin)
+                SidebarFooterBackground()
             }
         }
         .background(alignment: .bottom) {
@@ -196,6 +196,16 @@ private struct MacSidebarPrimaryActions: View {
                 )
             }
 
+            if !viewModel.settings.hiddenSidebarItems.contains("agents") {
+                SidebarNavigationRow(
+                    icon: .agents,
+                    title: "Agents",
+                    isSelected: viewModel.selectedAppSection == .agents,
+                    navigationValue: .agents,
+                    action: viewModel.selectAgents
+                )
+            }
+
             if !viewModel.settings.hiddenSidebarItems.contains("workspace") {
                 SidebarNavigationRow(
                     icon: .workspace,
@@ -231,6 +241,7 @@ private struct SidebarCustomizationMenu: View {
             Toggle("Sites", isOn: visibility(for: "sites"))
             Toggle("Pull Requests", isOn: visibility(for: "pullRequests"))
             Toggle("Scheduled", isOn: visibility(for: "scheduled"))
+            Toggle("Agents", isOn: visibility(for: "agents"))
             Toggle("Workspace", isOn: visibility(for: "workspace"))
             Toggle("Artifacts", isOn: visibility(for: "artifacts"))
             Divider()

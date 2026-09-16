@@ -145,8 +145,10 @@ struct ChatSidebarSectionsTests {
         #expect(sections.sessions.isEmpty)
         #expect(sections.projectGroups.map(\.project.id) == ["project-a", "project-b"])
         #expect(sections.projectGroups.first?.visibleSessions.map(\.id) == ["project-a-new"])
+        #expect(sections.projectGroups.first?.allSessionsCount == 3)
         #expect(sections.projectGroups.first?.hiddenCount == 1)
         #expect(sections.projectGroups.last?.visibleSessions.map(\.id) == ["project-b"])
+        #expect(sections.projectGroups.last?.allSessionsCount == 1)
         #expect(sections.projectGroups.last?.hiddenCount == 0)
     }
 
@@ -185,5 +187,29 @@ struct ChatSidebarSectionsTests {
 
         #expect(sections.projectGroups.map(\.project.id) == ["empty", "older", "newer"])
         #expect(sections.projectGroups.first?.totalSessions.isEmpty == true)
+    }
+
+    @Test("uses the local instance fallback when projects loaded before mesh topology")
+    func usesLocalInstanceFallbackForEarlierProjects() {
+        let project = APIProjectRecord(id: "project", name: "Project")
+        let session = ChatSessionSummary(
+            id: "chat",
+            agentId: "agent",
+            title: "Chat",
+            messageCount: 2,
+            projectId: project.id,
+            sourceInstanceID: "local-node"
+        )
+
+        let sections = ChatSidebarSections.build(
+            sessions: [session],
+            projects: [project],
+            pinnedSessionIds: [],
+            mode: .projects,
+            defaultSourceInstanceID: "local-node"
+        )
+
+        #expect(sections.projectGroups.first?.allSessionsCount == 1)
+        #expect(sections.projectGroups.first?.visibleSessions.map(\.id) == ["chat"])
     }
 }

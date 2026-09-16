@@ -7,6 +7,8 @@ struct SidebarRecentsList: View {
     let viewModel: MainViewModel
     var showsHeaderControls = true
     var sectionTitle: String? = nil
+    var approvalRequiredSessionIDs: Set<String> = []
+    var showsApprovalRequiredOnly = false
 
     @Environment(\.theme) private var theme
     @AppStorage("client_chat_sidebar_layout_mode") private var layoutMode = SidebarLayoutMode.list
@@ -14,12 +16,24 @@ struct SidebarRecentsList: View {
 
     private var sections: ChatSidebarSections {
         ChatSidebarSections.build(
-            sessions: viewModel.sidebarSessionCatalog,
-            projects: viewModel.projects,
+            sessions: visibleSessions,
+            projects: visibleProjects,
             pinnedSessionIds: viewModel.chatViewModel.pinnedSessionIds,
             mode: viewModel.chatSidebarMode,
-            projectPreviewLimit: 5
+            projectPreviewLimit: 5,
+            defaultSourceInstanceID: viewModel.sidebarDefaultSourceInstanceID
         )
+    }
+
+    private var visibleSessions: [ChatSessionSummary] {
+        guard showsApprovalRequiredOnly else { return viewModel.sidebarSessionCatalog }
+        return viewModel.sidebarSessionCatalog.filter(requiresApproval)
+    }
+
+    private var visibleProjects: [APIProjectRecord] {
+        guard showsApprovalRequiredOnly else { return viewModel.projects }
+        let projectIDs = Set(visibleSessions.compactMap(\.projectId))
+        return viewModel.projects.filter { projectIDs.contains($0.id) }
     }
 
     var body: some View {
@@ -29,7 +43,13 @@ struct SidebarRecentsList: View {
                 if layoutMode == .cards {
                     sessionCardGrid(sections.pinned)
                 } else {
-                    ForEach(sections.pinned) { SidebarSessionItem(viewModel: viewModel, session: $0) }
+                    ForEach(sections.pinned) {
+                        SidebarSessionItem(
+                            viewModel: viewModel,
+                            session: $0,
+                            requiresApproval: requiresApproval($0)
+                        )
+                    }
                 }
             }
 
@@ -87,7 +107,7 @@ struct SidebarRecentsList: View {
         if viewModel.chatViewModel.isLoadingSessions && viewModel.chatViewModel.sessionCatalog.isEmpty {
             SidebarStatusText(text: "Loading chats…")
         } else if sections.pinned.isEmpty && sections.sessions.isEmpty && sections.projectGroups.isEmpty {
-            SidebarStatusText(text: "No chats yet")
+            SidebarStatusText(text: showsApprovalRequiredOnly ? "No chats require approval" : "No chats yet")
         } else if viewModel.chatSidebarMode == .allChats {
             if layoutMode == .cards {
                 sessionCardGrid(sections.sessions)
@@ -96,7 +116,11 @@ struct SidebarRecentsList: View {
                     SidebarSectionTitle(title: daySectionTitle(for: group.day))
                         .padding(.top, theme.spacing.s)
                     ForEach(group.sessions, id: \.storageID) { session in
-                        SidebarSessionItem(viewModel: viewModel, session: session)
+                        SidebarSessionItem(
+                            viewModel: viewModel,
+                            session: session,
+                            requiresApproval: requiresApproval(session)
+                        )
                     }
                 }
             }
@@ -110,7 +134,11 @@ struct SidebarRecentsList: View {
                 .padding(.horizontal, theme.spacing.xs)
             } else {
                 ForEach(sections.projectGroups.prefix(viewModel.visibleProjectCount)) {
-                    SidebarProjectGroupView(viewModel: viewModel, group: $0)
+                    SidebarProjectGroupView(
+                        viewModel: viewModel,
+                        group: $0,
+                        approvalRequiredSessionIDs: approvalRequiredSessionIDs
+                    )
                 }
             }
 
@@ -140,10 +168,19 @@ struct SidebarRecentsList: View {
     private func sessionCardGrid(_ sessions: [ChatSessionSummary]) -> some View {
         LazyVGrid(columns: cardColumns, alignment: .leading, spacing: theme.spacing.s) {
             ForEach(sessions, id: \.storageID) { session in
-                SidebarSessionCard(viewModel: viewModel, session: session)
+                SidebarSessionCard(
+                    viewModel: viewModel,
+                    session: session,
+                    requiresApproval: requiresApproval(session)
+                )
             }
         }
         .padding(.horizontal, theme.spacing.xs)
+    }
+
+    private func requiresApproval(_ session: ChatSessionSummary) -> Bool {
+        approvalRequiredSessionIDs.contains(session.id)
+            || approvalRequiredSessionIDs.contains(session.storageID)
     }
 
     private func daySectionTitle(for day: Date) -> String {
@@ -174,6 +211,7 @@ enum SidebarLayoutMode: String {
 private struct SidebarSessionItem: View {
     let viewModel: MainViewModel
     let session: ChatSessionSummary
+    var requiresApproval = false
     var showsProjectName = true
 
     var body: some View {
@@ -186,6 +224,7 @@ private struct SidebarSessionItem: View {
             showsProjectName: showsProjectName,
             isPinned: viewModel.settings.isSessionPinned(session.storageID),
             isSelected: viewModel.selectedChatStorageID == session.storageID,
+            requiresApproval: requiresApproval,
             onOpen: { viewModel.openSessionChatTab(session) },
             onTogglePin: { viewModel.togglePinChatSession(session) },
             onCopyDebugLink: { viewModel.copyDebugSessionFileLink(session) },
@@ -198,6 +237,7 @@ private struct SidebarSessionItem: View {
 private struct SidebarProjectGroupView: View {
     let viewModel: MainViewModel
     let group: ChatSidebarProjectGroup
+    var approvalRequiredSessionIDs: Set<String> = []
 
     @Environment(\.theme) private var theme
 
@@ -298,7 +338,13 @@ private struct SidebarProjectGroupView: View {
 
             if !isCollapsed {
                 ForEach(sessions, id: \.storageID) {
-                    SidebarSessionItem(viewModel: viewModel, session: $0, showsProjectName: false)
+                    SidebarSessionItem(
+                        viewModel: viewModel,
+                        session: $0,
+                        requiresApproval: approvalRequiredSessionIDs.contains($0.id)
+                            || approvalRequiredSessionIDs.contains($0.storageID),
+                        showsProjectName: false
+                    )
                 }
 
                 if group.hiddenCount > 0 {

@@ -9,7 +9,7 @@ struct WorkspaceTerminalDrawerSourceTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let url = path.reduce(packageRoot) { $0.appendingPathComponent($1) }
-        return try String(contentsOf: url, encoding: .utf8)
+        return try mainViewAwareSourceContents(at: url)
     }
 
     @Test("main view registers cmd j and mounts the bottom panel in the detail column")
@@ -26,7 +26,7 @@ struct WorkspaceTerminalDrawerSourceTests {
         #expect(mainView.contains(".overlay(alignment: .bottom)"))
         #expect(mainView.contains("WorkspaceBottomPanelDrawerView"))
         #expect(mainView.contains("workspaceBottomPanelOverlay("))
-        #expect(mainView.contains("private func contentArea()"))
+        #expect(mainView.contains("func contentArea()"))
     }
 
     @Test("bottom panel has an observable drag resize handle and panel picker")

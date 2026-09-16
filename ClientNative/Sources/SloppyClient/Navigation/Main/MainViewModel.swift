@@ -63,7 +63,11 @@ final class MainViewModel {
     var terminalHosts: [WorkspaceTab.ID: WorkspaceTerminalHosting] = [:]
     var tabEndpoints: [WorkspaceTab.ID: SloppyInstanceEndpoint] = [:]
     var chatViewModel: ChatScreenViewModel
+    private var loadedSidebarSessions: [ChatSessionSummary]?
     var workspacePanelViewModel: WorkspacePanelViewModel
+    @ObservationIgnored let workspaceDockStore = WorkspaceDockStore()
+    var browserPresentationRequest: UUID?
+    var browserSessions: [WorkspaceTab.ID: WorkspaceBrowserSession] = [:]
     var chatNavigationSerial = 0
     var projectActionStatus: String?
     private var pendingNewChatStarterPrompt: String?
@@ -132,7 +136,32 @@ final class MainViewModel {
     }
 
     var sidebarSessionCatalog: [ChatSessionSummary] {
-        chatViewModel.sessionCatalog.filter { !settings.isSessionArchived($0.storageID) }
+        let visibleSessions = (loadedSidebarSessions ?? chatViewModel.sessionCatalog).filter {
+            !settings.isSessionArchived($0.storageID)
+        }
+        guard settings.instanceSelection == .all,
+              settings.discoveredInstances.count > 1,
+              let activeInstanceID = settings.discoveredInstances.first(where: {
+                  $0.endpoint == endpoint
+              })?.id else {
+            return visibleSessions
+        }
+        return visibleSessions.map { session in
+            guard session.sourceInstanceID == nil else { return session }
+            var tagged = session
+            tagged.sourceInstanceID = activeInstanceID
+            return tagged
+        }
+    }
+
+    var sidebarDefaultSourceInstanceID: String? {
+        guard settings.instanceSelection == .all,
+              settings.discoveredInstances.count > 1 else { return nil }
+        return settings.discoveredInstances.first(where: { $0.endpoint == endpoint })?.id
+    }
+
+    func synchronizeSidebarSessionCatalog() {
+        loadedSidebarSessions = chatViewModel.sessionCatalog
     }
 
     var chatSidebarMode: ChatSidebarListMode {
@@ -173,6 +202,91 @@ final class MainViewModel {
             .detailOnly
             #endif
         }()
+    }
+
+    var workspaceDockState: WorkspaceDockState {
+        let source = selectedTabID.flatMap { tabEndpoints[$0] } ?? endpoint
+        return workspaceDockStore.state(
+            server: source.cacheNamespace,
+            projectID: selectedTabID.flatMap { projectID(for: $0) },
+            fallbackID: selectedChatStorageID ?? selectedTabID.map { String(describing: $0) } ?? "main",
+            context: workspaceContext
+        )
+    }
+
+    @discardableResult
+    func openWorkspaceDockTab(_ kind: WorkspaceSidePanelItem, browser: WorkspaceWebViewModel? = nil) -> WorkspaceDockTab {
+        let dock = workspaceDockState
+        let tab = dock.open(kind, browser: browser)
+        let source = selectedTabID.flatMap { tabEndpoints[$0] } ?? endpoint
+        switch kind {
+        case .browser: break
+        case .sideChat:
+            if tab.chat == nil {
+                tab.chat = makeChatTabState(endpoint: source).viewModel
+                if let context = dock.context {
+                    tab.chat?.applyNavigationRequest(.init(id: 1,
+                        context: .project(projectId: context.projectId, projectName: context.projectName, agentId: nil),
+                        opensPreferredSession: false))
+                }
+            }
+        case .terminal:
+            if tab.terminal == nil {
+                let directory = selectedTabID.map { terminalWorkingDirectory(for: $0) }
+                    ?? FileManager.default.homeDirectoryForCurrentUser
+                let remote: WorkspaceTerminalSession.RemoteConfiguration?
+                if case .relay(let coordinatorBaseURL, let targetNodeID) = source {
+                    remote = .init(apiClient: SloppyAPIClient(endpoint: source), coordinatorBaseURL: coordinatorBaseURL,
+                                   targetNodeID: targetNodeID, projectID: dock.context?.projectId)
+                } else { remote = nil }
+                tab.terminal = WorkspaceTerminalSession(id: tab.id, workingDirectory: directory, remoteConfiguration: remote)
+                tab.terminal?.startIfNeeded()
+            }
+        case .review, .files:
+            if tab.panel == nil { tab.panel = WorkspacePanelViewModel(apiClient: SloppyAPIClient(endpoint: source)) }
+            tab.panel?.switchMode(kind == .files ? .files : .environment)
+        }
+        return tab
+    }
+
+    func connectWorkspaceBrowserForSelectedChat() {
+#if os(macOS)
+        let closedTabs = browserSessions.keys.filter { tabStates[$0] == nil }
+        for id in closedTabs { browserSessions.removeValue(forKey: id)?.stop() }
+        guard let tabID = selectedTabID,
+              let chat = tabStates[tabID]?.chatState?.viewModel,
+              let sessionID = chat.selectedSessionId,
+              let agentID = chat.selectedAgent?.id else { return }
+        if let existing = browserSessions[tabID], existing.binding.sessionId == sessionID {
+            workspacePanelViewModel.webViewModel = existing.viewModel
+            existing.start()
+            return
+        }
+        browserSessions.removeValue(forKey: tabID)?.stop()
+        let browserDock = workspaceDockState
+        let browser = WorkspaceBrowserSession(
+            apiClient: SloppyAPIClient(endpoint: tabEndpoints[tabID] ?? endpoint),
+            agentID: agentID,
+            sessionID: sessionID
+        ) { [weak self] in
+            guard let self, let browser = self.browserSessions[tabID], browser.binding.sessionId == sessionID else { return }
+            guard self.tabStates[tabID]?.chatState?.viewModel.selectedSessionId == sessionID else {
+                browserDock.open(.browser, browser: browser.viewModel)
+                return
+            }
+            self.selectTab(tabID)
+            self.workspacePanelViewModel.webViewModel = browser.viewModel
+            self.browserPresentationRequest = UUID()
+        }
+        browserSessions[tabID] = browser
+        workspacePanelViewModel.webViewModel = browser.viewModel
+        browser.start()
+#endif
+    }
+
+    func stopWorkspaceBrowsers() {
+        for browser in browserSessions.values { browser.stop() }
+        browserSessions.removeAll()
     }
 
     var selectedInstanceTitle: String {
@@ -636,7 +750,7 @@ final class MainViewModel {
         await loadProjects(force: true)
         await loadCurrentAccount()
         if chatViewModel.selectedAgent == nil {
-            chatViewModel.loadInitialData()
+            await chatViewModel.waitForInitialData()
         } else {
             await chatViewModel.refreshCurrentContext()
         }
@@ -693,7 +807,10 @@ final class MainViewModel {
         case .instance(let instanceID):
             catalogInstances = settings.discoveredInstances.filter { $0.id == instanceID }
         }
-        guard !catalogInstances.isEmpty else { return }
+        guard !catalogInstances.isEmpty else {
+            synchronizeSidebarSessionCatalog()
+            return
+        }
 
         let batches = await withTaskGroup(of: [ChatSessionSummary].self) { group in
             for instance in catalogInstances {
@@ -720,6 +837,7 @@ final class MainViewModel {
             return result
         }
         chatViewModel.installAggregatedSessionCatalog(ChatSessionCatalog.merge(batches))
+        synchronizeSidebarSessionCatalog()
     }
 
     private func fetchProjectsForCurrentSelection() async throws -> [APIProjectRecord] {
@@ -828,6 +946,11 @@ final class MainViewModel {
         selectAppSection(.scheduled)
     }
 
+    func selectAgents() {
+        selectedSidebarItem = .agents
+        selectAppSection(.agents)
+    }
+
     func selectPullRequests() {
         selectedSidebarItem = .pullRequests
         selectAppSection(.pullRequests)
@@ -902,7 +1025,7 @@ final class MainViewModel {
         guard var desktopSplitState else {
             return
         }
-        desktopSplitState.fraction = min(0.72, max(0.28, fraction))
+        desktopSplitState.fraction = min(0.88, max(0.12, fraction))
         self.desktopSplitState = desktopSplitState
     }
 
@@ -1121,6 +1244,7 @@ final class MainViewModel {
     }
 
     func closeTab(_ tabID: WorkspaceTab.ID) {
+        browserSessions.removeValue(forKey: tabID)?.stop()
         guard let index = tabs.firstIndex(where: { $0.id == tabID }) else {
             return
         }
@@ -1181,6 +1305,7 @@ final class MainViewModel {
                 var tagged = summary
                 tagged.sourceInstanceID = sourceInstanceID
                 self?.chatViewModel.mergeSessionSummary(tagged)
+                self?.synchronizeSidebarSessionCatalog()
             },
             onOpenSettings: { destination in self.onOpenSettings(destination) }
         )

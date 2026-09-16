@@ -10,6 +10,7 @@ struct SidebarSessionRow: View {
     var showsProjectName = true
     let isPinned: Bool
     let isSelected: Bool
+    var requiresApproval = false
     let onOpen: @MainActor () -> Void
     let onTogglePin: @MainActor () -> Void
     let onCopyDebugLink: @MainActor () -> Void
@@ -77,6 +78,12 @@ struct SidebarSessionRow: View {
             if isPinned {
                 Icons.symbol(.pushPin, size: theme.typography.caption)
                     .foregroundColor(theme.colors.textMuted)
+            }
+            if requiresApproval {
+                Image(systemName: "bell.fill")
+                    .font(.system(size: theme.typography.caption, weight: .semibold))
+                    .foregroundStyle(.orange)
+                    .accessibilityLabel("Requires approval")
             }
         }
         .padding(.horizontal, theme.spacing.s)

@@ -19,6 +19,7 @@ extension CoreRouter {
             TaskSyncAPIRouter(service: service),
             ACPAPIRouter(service: service),
             AgentsAPIRouter(service: service),
+            WorkspaceBrowserAPIRouter(service: service),
             MemoryAPIRouter(service: service),
             MemoryImportsAPIRouter(service: service),
             ActorsAPIRouter(service: service),

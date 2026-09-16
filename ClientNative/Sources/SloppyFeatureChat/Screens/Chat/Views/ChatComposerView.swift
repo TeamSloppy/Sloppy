@@ -754,10 +754,17 @@ private struct ComposerOptionsMenuView: View {
             isPresented.toggle()
         } label: {
             HStack(spacing: theme.spacing.xs) {
-                Text(supportsReasoningEffort ? "Select effort" : selectedModelTitle)
+                Text(selectedModelTitle)
                     .font(.system(size: theme.typography.body, weight: .medium))
                     .foregroundColor(theme.colors.textPrimary)
                     .lineLimit(1)
+
+                if supportsReasoningEffort {
+                    Text("· \(selectedEffort.title)")
+                        .font(.system(size: theme.typography.caption, weight: .medium))
+                        .foregroundColor(theme.colors.textSecondary)
+                        .lineLimit(1)
+                }
 
                 Icons.symbol(.expandMore, size: 14)
                     .foregroundColor(theme.colors.textSecondary)

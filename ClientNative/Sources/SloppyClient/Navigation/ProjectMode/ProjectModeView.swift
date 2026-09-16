@@ -16,9 +16,26 @@ struct ProjectModeView: View {
     @Environment(\.theme) private var theme
 
     var body: some View {
-        VStack(spacing: 0) {
-            projectModeChrome
-            projectContent
+        Group {
+#if os(macOS)
+            HStack(spacing: 0) {
+                projectContent
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .safeAreaInset(edge: .top, spacing: 0) {
+                        if state.selectedSection == .workspaces, !state.workspaceViewModel.isShowingLibrary {
+                            HStack { workspaceBackButton; Spacer() }
+                                .padding(12)
+                                .background(theme.colors.surface)
+                        }
+                    }
+                ProjectModeRail(selectedSection: state.selectedSection, onSelect: onSelectSection)
+            }
+#else
+            VStack(spacing: 0) {
+                projectModeChrome
+                projectContent
+            }
+#endif
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityIdentifier("project-mode")
@@ -34,15 +51,7 @@ struct ProjectModeView: View {
             if state.selectedSection == .workspaces,
                !state.workspaceViewModel.isShowingLibrary {
                 HStack {
-                    Button {
-                        state.workspaceViewModel.showLibrary()
-                        Task { await state.workspaceViewModel.refreshLibrary() }
-                    } label: {
-                        Label("Workspaces", systemImage: "chevron.left")
-                    }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(theme.colors.textSecondary)
-                    .accessibilityIdentifier("project-mode-workspaces-back")
+                    workspaceBackButton
 
                     Spacer()
                 }
@@ -54,6 +63,18 @@ struct ProjectModeView: View {
         .overlay(alignment: .bottom) {
             Divider()
         }
+    }
+
+    private var workspaceBackButton: some View {
+        Button {
+            state.workspaceViewModel.showLibrary()
+            Task { await state.workspaceViewModel.refreshLibrary() }
+        } label: {
+            Label("Workspaces", systemImage: "chevron.left")
+        }
+        .buttonStyle(.plain)
+        .foregroundStyle(theme.colors.textSecondary)
+        .accessibilityIdentifier("project-mode-workspaces-back")
     }
 
     private func projectModePicker(showsTitles: Bool) -> some View {

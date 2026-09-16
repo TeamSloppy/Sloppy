@@ -126,6 +126,7 @@ public struct ChatBubbleView: View {
                             .scaleEffect(x: -1)
                             .padding(.all, 4)
                     })
+
                     Button(action: {
                         // TODO: Add fork session from this message
                     }, label: {

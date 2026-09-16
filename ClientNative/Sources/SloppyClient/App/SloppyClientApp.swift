@@ -16,6 +16,7 @@ private final class SloppyAppDelegate: NSObject, NSApplicationDelegate, UNUserNo
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
         UNUserNotificationCenter.current().delegate = self
+        SloppyUpdateController.shared.start()
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
@@ -45,6 +46,7 @@ private final class SloppyAppDelegate: NSObject, NSApplicationDelegate, UNUserNo
 
 private struct WorkspaceCommands: Commands {
     @FocusedValue(\.toggleWorkspaceTerminal) private var toggleWorkspaceTerminal
+    @FocusedValue(\.projectModeCommands) private var projectModeCommands
 
     var body: some Commands {
         CommandMenu("Workspace") {
@@ -52,6 +54,19 @@ private struct WorkspaceCommands: Commands {
                 toggleWorkspaceTerminal?()
             }
             .disabled(toggleWorkspaceTerminal == nil)
+            Divider()
+            ProjectModeSelectionButtons(context: projectModeCommands)
+        }
+    }
+}
+
+private struct MainWindowChromeModifier: ViewModifier {
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        if #available(macOS 15.0, *) {
+            content.toolbarBackgroundVisibility(.hidden, for: .windowToolbar)
+        } else {
+            content.toolbarBackground(.hidden, for: .windowToolbar)
         }
     }
 }
@@ -62,6 +77,10 @@ private struct AuthenticationCommands: Commands {
 
     var body: some Commands {
         CommandGroup(after: .appInfo) {
+            Button("Check for Updates…") {
+                SloppyUpdateController.shared.checkForUpdates()
+            }
+            Divider()
             Button("Log Out") {
                 viewModel.logout()
             }
@@ -176,6 +195,7 @@ struct SloppyClientApp: App {
         #if os(macOS)
             .frame(minWidth: 1120, minHeight: 760)
             .containerBackground(.clear, for: .window)
+            .modifier(MainWindowChromeModifier())
         #endif
     }
 

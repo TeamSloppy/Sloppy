@@ -9,10 +9,7 @@ struct SloppyInstanceTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        return try String(
-            contentsOf: packageRoot.appendingPathComponent(relativePath),
-            encoding: .utf8
-        )
+        return try mainViewAwareSourceContents(at: packageRoot.appendingPathComponent(relativePath))
     }
 
     @Test("mesh topology exposes the coordinator directly and peers through relay")
@@ -49,6 +46,38 @@ struct SloppyInstanceTests {
             coordinatorBaseURL: coordinator,
             targetNodeID: "node_home"
         ))
+    }
+
+    @Test("mesh node presents its endpoint and roles compactly")
+    func meshNodeConnectionDisplayName() {
+        let relayNode = MeshNodeRecord(
+            id: "node_home",
+            name: "Home Mac",
+            publicKey: "home-key",
+            roles: ["core", "task-worker"],
+            endpoint: "wss://relay.sloppy.team:25101/mesh",
+            status: .online
+        )
+        let roleOnlyNode = MeshNodeRecord(
+            id: "node_work",
+            name: "Work Mac",
+            publicKey: "work-key",
+            roles: ["worker"],
+            status: .online
+        )
+        let directNode = MeshNodeRecord(
+            id: "node_lan",
+            name: "LAN Mac",
+            publicKey: "lan-key",
+            roles: [],
+            endpoint: "http://192.168.3.199:25101",
+            status: .online
+        )
+
+        #expect(relayNode.endpointDisplayName == "relay.sloppy.team:25101")
+        #expect(relayNode.connectionDisplayName == "relay.sloppy.team:25101 · Core, Task Worker")
+        #expect(roleOnlyNode.connectionDisplayName == "Worker")
+        #expect(directNode.connectionDisplayName == "192.168.3.199:25101")
     }
 
     @Test("instance picker uses English copy on Apple platforms")

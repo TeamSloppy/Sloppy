@@ -208,6 +208,38 @@ struct ChatModelsTests {
         #expect(Set(catalog.map(\.agentId)) == ["agent-a", "agent-b"])
     }
 
+    @Test("aggregated catalog replaces an unscoped local duplicate")
+    func aggregatedCatalogReplacesUnscopedLocalDuplicate() {
+        let unscoped = ChatSessionSummary(
+            id: "same-chat",
+            agentId: "agent",
+            title: "Cached",
+            messageCount: 1
+        )
+        let scoped = ChatSessionSummary(
+            id: "same-chat",
+            agentId: "agent",
+            title: "Live",
+            messageCount: 2,
+            sourceInstanceID: "local-node"
+        )
+        let unrelated = ChatSessionSummary(
+            id: "cached-only",
+            agentId: "agent",
+            title: "Cached only",
+            messageCount: 1
+        )
+
+        let catalog = ChatSessionCatalog.mergeAggregated(
+            existing: [unscoped, unrelated],
+            incoming: [scoped]
+        )
+
+        #expect(catalog.count == 2)
+        #expect(catalog.first(where: { $0.id == "same-chat" })?.sourceInstanceID == "local-node")
+        #expect(catalog.contains(where: { $0.id == "cached-only" }))
+    }
+
     @Test("ChatMessage decodes tool and status segment metadata from JSON")
     func chatMessageDecodesRichSegments() throws {
         let json = """
@@ -825,5 +857,68 @@ struct ChatModelsTests {
         #expect(AppNotificationType.pendingApproval.rawValue == "pending_approval")
         #expect(AppNotificationType.toolApproval.rawValue == "tool_approval")
         #expect(AppNotificationType.confirmation.rawValue == "confirmation")
+    }
+
+    @Test("pending chat approval tracker follows typed approval status events")
+    func pendingChatApprovalTrackerFollowsApprovalStatus() {
+        let requestedAt = Date(timeIntervalSince1970: 100)
+        var tracker = PendingChatApprovalTracker()
+
+        tracker.apply(AppNotification(
+            id: "notification-1",
+            type: .toolApproval,
+            title: "Approval required",
+            message: "runtime.exec",
+            timestamp: requestedAt,
+            metadata: [
+                "approvalId": "approval-1",
+                "status": "pending",
+                "sessionId": "source-session",
+                "displaySessionId": "display-session",
+            ]
+        ))
+
+        #expect(tracker.sessionIDs == ["display-session"])
+
+        tracker.apply(AppNotification(
+            id: "notification-2",
+            type: .toolApproval,
+            title: "Approved",
+            message: "runtime.exec",
+            timestamp: requestedAt.addingTimeInterval(1),
+            metadata: [
+                "approvalId": "approval-1",
+                "status": "approved",
+                "sessionId": "source-session",
+                "displaySessionId": "display-session",
+            ]
+        ))
+
+        #expect(tracker.sessionIDs.isEmpty)
+    }
+
+    @Test("pending approval snapshot cannot overwrite a newer resolved event")
+    func pendingApprovalSnapshotDoesNotOverwriteResolution() {
+        var tracker = PendingChatApprovalTracker()
+        tracker.apply(AppNotification(
+            id: "resolved",
+            type: .toolApproval,
+            title: "Rejected",
+            message: "files.write",
+            timestamp: Date(timeIntervalSince1970: 200),
+            metadata: [
+                "approvalId": "approval-2",
+                "status": "rejected",
+                "sessionId": "chat-2",
+            ]
+        ))
+        tracker.apply(PendingToolApprovalRecord(
+            id: "approval-2",
+            status: "pending",
+            sessionId: "chat-2",
+            updatedAt: Date(timeIntervalSince1970: 100)
+        ))
+
+        #expect(tracker.sessionIDs.isEmpty)
     }
 }

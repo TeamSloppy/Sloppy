@@ -82,6 +82,22 @@ public actor SloppyAPIClient {
         ])
     }
 
+    public func registerWorkspaceBrowser(_ binding: WorkspaceBrowserBinding) async throws {
+        try await http.post("/v1/workspace-browser/register", body: binding)
+    }
+
+    public func pollWorkspaceBrowser(_ binding: WorkspaceBrowserBinding) async throws -> WorkspaceBrowserCommands {
+        try await http.post("/v1/workspace-browser/poll", body: binding)
+    }
+
+    public func completeWorkspaceBrowser(_ result: WorkspaceBrowserCompletion) async throws {
+        try await http.post("/v1/workspace-browser/complete", body: result)
+    }
+
+    public func disconnectWorkspaceBrowser(_ binding: WorkspaceBrowserBinding) async throws {
+        try await http.post("/v1/workspace-browser/disconnect", body: binding)
+    }
+
     public func currentAccessToken() async -> String? {
         await http.currentAccessToken()
     }
@@ -567,6 +583,10 @@ public actor SloppyAPIClient {
             "/v1/tool-approvals/\(approvalID)/\(action)",
             body: DecisionPayload(decidedBy: "SloppyClient", scope: "once")
         )
+    }
+
+    public func fetchPendingToolApprovals() async throws -> [PendingToolApprovalRecord] {
+        try await http.get("/v1/tool-approvals/pending")
     }
 
     // MARK: - Session REST API

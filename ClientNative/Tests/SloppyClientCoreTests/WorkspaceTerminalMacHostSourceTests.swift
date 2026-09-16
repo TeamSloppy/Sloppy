@@ -9,7 +9,7 @@ struct WorkspaceTerminalMacHostSourceTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let url = path.reduce(packageRoot) { $0.appendingPathComponent($1) }
-        return try String(contentsOf: url, encoding: .utf8)
+        return try mainViewAwareSourceContents(at: url)
     }
 
     @Test("terminal runtime defines a hosting protocol")
@@ -29,10 +29,10 @@ struct WorkspaceTerminalMacHostSourceTests {
         #expect(host.contains("#if os(macOS)"))
         #expect(host.contains("import SwiftTerm"))
         #expect(host.contains("LocalProcessTerminalView"))
-        #expect(host.contains("currentDirectory: session.workingDirectory.path"))
+        #expect(host.contains("session.localTerminalView()"))
         #expect(!host.contains("terminalView.process.terminate()"))
         #expect(host.contains("static func dismantleNSView"))
-        #expect(host.contains("nsView.terminate()"))
+        #expect(!host.contains("nsView.terminate()"))
         #expect(viewModel.contains("func makeTerminalHostView(for tabID: WorkspaceTab.ID) -> AnyView"))
         #expect(mainView.contains("viewModel.makeTerminalHostView(for: selectedTabID)"))
     }

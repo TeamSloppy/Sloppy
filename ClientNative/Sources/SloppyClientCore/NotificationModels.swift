@@ -32,3 +32,78 @@ public struct AppNotification: Codable, Sendable, Identifiable {
         self.metadata = metadata
     }
 }
+
+public struct PendingToolApprovalRecord: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var status: String
+    public var sessionId: String?
+    public var displaySessionId: String?
+    public var updatedAt: Date
+
+    public init(
+        id: String,
+        status: String,
+        sessionId: String? = nil,
+        displaySessionId: String? = nil,
+        updatedAt: Date
+    ) {
+        self.id = id
+        self.status = status
+        self.sessionId = sessionId
+        self.displaySessionId = displaySessionId
+        self.updatedAt = updatedAt
+    }
+}
+
+public struct PendingChatApprovalTracker: Sendable, Equatable {
+    private struct Entry: Sendable, Equatable {
+        var sessionID: String?
+        var isPending: Bool
+        var updatedAt: Date
+    }
+
+    private var entries: [String: Entry] = [:]
+
+    public init() {}
+
+    public var sessionIDs: Set<String> {
+        Set(entries.values.compactMap { entry in
+            entry.isPending ? entry.sessionID : nil
+        })
+    }
+
+    public mutating func apply(_ record: PendingToolApprovalRecord) {
+        apply(
+            approvalID: record.id,
+            status: record.status,
+            sessionID: record.displaySessionId ?? record.sessionId,
+            updatedAt: record.updatedAt
+        )
+    }
+
+    public mutating func apply(_ notification: AppNotification) {
+        guard notification.type == .toolApproval else { return }
+        apply(
+            approvalID: notification.metadata["approvalId"] ?? notification.id,
+            status: notification.metadata["status"] ?? "pending",
+            sessionID: notification.metadata["displaySessionId"] ?? notification.metadata["sessionId"],
+            updatedAt: notification.timestamp
+        )
+    }
+
+    private mutating func apply(
+        approvalID: String,
+        status: String,
+        sessionID: String?,
+        updatedAt: Date
+    ) {
+        if let current = entries[approvalID], current.updatedAt > updatedAt {
+            return
+        }
+        entries[approvalID] = Entry(
+            sessionID: sessionID,
+            isPending: status == "pending",
+            updatedAt: updatedAt
+        )
+    }
+}

@@ -366,6 +366,7 @@ actor URLSessionBrowserCDPTransport: BrowserCDPTransport {
 }
 
 public actor BrowserCDPService {
+    nonisolated let workspaceBridge = WorkspaceBrowserBridgeService()
     private struct BrowserSession {
         var id: String
         var sessionID: String
@@ -398,11 +399,14 @@ public actor BrowserCDPService {
         self.config = config
         self.workspaceRootURL = workspaceRootURL
         if !config.enabled {
-            shutdown()
+            await shutdown()
         }
     }
 
     func open(sessionID: String, url: String?) async throws -> JSONValue {
+        if await workspaceBridge.isAssigned(sessionID: sessionID) {
+            return try await workspaceBridge.run(sessionID: sessionID, name: "open", input: .object(["url": .string(url ?? "about:blank")]))
+        }
         let session = try await ensureSession(sessionID: sessionID)
         let page = try await transport.newPage(endpoint: session.endpoint, url: normalizedURL(url))
         var updated = session
@@ -412,6 +416,9 @@ public actor BrowserCDPService {
     }
 
     func navigate(sessionID: String, pageID: String?, url: String) async throws -> JSONValue {
+        if await workspaceBridge.isAssigned(sessionID: sessionID) {
+            return try await workspaceBridge.run(sessionID: sessionID, name: "navigate", input: .object(["url": .string(url), "pageId": pageID.map(JSONValue.string) ?? .null]))
+        }
         let pageID = try resolvePageID(sessionID: sessionID, pageID: pageID)
         _ = try await transport.command(
             pageID: pageID,
@@ -424,6 +431,9 @@ public actor BrowserCDPService {
     }
 
     func click(sessionID: String, pageID: String?, selector: String) async throws -> JSONValue {
+        if await workspaceBridge.isAssigned(sessionID: sessionID) {
+            return try await workspaceBridge.run(sessionID: sessionID, name: "click", input: .object(["selector": .string(selector), "pageId": pageID.map(JSONValue.string) ?? .null]))
+        }
         let pageID = try resolvePageID(sessionID: sessionID, pageID: pageID)
         let result = try await evaluate(pageID: pageID, expression: clickExpression(selector: selector))
         try throwIfSelectorMissing(result, selector: selector)
@@ -433,6 +443,9 @@ public actor BrowserCDPService {
     }
 
     func type(sessionID: String, pageID: String?, selector: String, text: String) async throws -> JSONValue {
+        if await workspaceBridge.isAssigned(sessionID: sessionID) {
+            return try await workspaceBridge.run(sessionID: sessionID, name: "type", input: .object(["selector": .string(selector), "text": .string(text), "pageId": pageID.map(JSONValue.string) ?? .null]))
+        }
         let pageID = try resolvePageID(sessionID: sessionID, pageID: pageID)
         let result = try await evaluate(pageID: pageID, expression: typeExpression(selector: selector, text: text))
         try throwIfSelectorMissing(result, selector: selector)
@@ -441,7 +454,74 @@ public actor BrowserCDPService {
         return pagePayload(page, extra: ["selector": .string(selector)])
     }
 
+    func read(sessionID: String, pageID: String?) async throws -> JSONValue {
+        if await workspaceBridge.isAssigned(sessionID: sessionID) {
+            return try await workspaceBridge.run(sessionID: sessionID, name: "read", input: .object(["pageId": pageID.map(JSONValue.string) ?? .null]))
+        }
+        let pageID = try resolvePageID(sessionID: sessionID, pageID: pageID)
+        let result = try await evaluate(pageID: pageID, expression: """
+        (() => {
+          const selector = node => {
+            if (node.id && document.querySelectorAll('#' + CSS.escape(node.id)).length === 1) return '#' + CSS.escape(node.id);
+            const parts = [];
+            for (let current = node; current && current.nodeType === 1; current = current.parentElement) {
+              const tag = current.tagName.toLowerCase();
+              const siblings = current.parentElement ? [...current.parentElement.children].filter(n => n.tagName === current.tagName) : [current];
+              parts.unshift(tag + ':nth-of-type(' + (siblings.indexOf(current) + 1) + ')');
+            }
+            return parts.join(' > ');
+          };
+          const elements = [...document.querySelectorAll('a,button,input,textarea,select,[role="button"],[role="link"],[contenteditable="true"]')]
+            .filter(node => node.getClientRects().length && getComputedStyle(node).visibility !== 'hidden')
+            .slice(0, 150).map(node => ({
+              selector: selector(node),
+              role: node.getAttribute('role') || node.tagName.toLowerCase(),
+              name: (node.getAttribute('aria-label') || node.labels?.[0]?.innerText || node.innerText || node.getAttribute('placeholder') || node.getAttribute('name') || '').trim().slice(0, 200),
+              disabled: node.matches(':disabled') || node.getAttribute('aria-disabled') === 'true'
+            }));
+          return { url: location.href, title: document.title || '', visibleText: (document.body?.innerText || '').trim().slice(0, 12000), elements };
+        })();
+        """)
+        guard var snapshot = result.asObject?["result"]?.asObject?["result"]?.asObject?["value"]?.asObject else {
+            throw BrowserCDPError.invalidResponse
+        }
+        snapshot["pageId"] = .string(pageID)
+        return .object(snapshot)
+    }
+
+    func scroll(sessionID: String, pageID: String?, selector: String?, x: Double, y: Double) async throws -> JSONValue {
+        guard x.isFinite, y.isFinite else { throw BrowserCDPError.invalidResponse }
+        if await workspaceBridge.isAssigned(sessionID: sessionID) {
+            return try await workspaceBridge.run(sessionID: sessionID, name: "scroll", input: .object([
+                "pageId": pageID.map(JSONValue.string) ?? .null, "selector": selector.map(JSONValue.string) ?? .null,
+                "x": .number(x), "y": .number(y),
+            ]))
+        }
+        let pageID = try resolvePageID(sessionID: sessionID, pageID: pageID)
+        let expression: String
+        if let selector {
+            let encoded = String(decoding: try JSONEncoder().encode(selector), as: UTF8.self)
+            expression = "(() => { const node = document.querySelector(\(encoded)); if (!node) throw new Error('selector_not_found'); node.scrollIntoView({block:'center'}); return true; })()"
+        } else {
+            expression = "window.scrollTo(\(x), \(y)); true"
+        }
+        _ = try await evaluate(pageID: pageID, expression: expression)
+        return pagePayload(try await pageInfo(pageID: pageID))
+    }
+
     func screenshot(sessionID: String, pageID: String?, outputPath: String?) async throws -> JSONValue {
+        if await workspaceBridge.isAssigned(sessionID: sessionID) {
+            let result = try await workspaceBridge.run(sessionID: sessionID, name: "screenshot", input: .object(["pageId": pageID.map(JSONValue.string) ?? .null]))
+            guard var data = result.asObject,
+                  let base64 = data.removeValue(forKey: "imageBase64")?.asString,
+                  let image = Data(base64Encoded: base64), !image.isEmpty else { throw BrowserCDPError.invalidResponse }
+            let outputURL = URL(fileURLWithPath: outputPath ?? FileManager.default.temporaryDirectory.appendingPathComponent("sloppy-browser-\(UUID().uuidString).png").path)
+            try FileManager.default.createDirectory(at: outputURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try image.write(to: outputURL, options: .atomic)
+            data["path"] = .string(outputURL.path)
+            data["bytes"] = .number(Double(image.count))
+            return .object(data)
+        }
         let pageID = try resolvePageID(sessionID: sessionID, pageID: pageID)
         let response = try await transport.command(
             pageID: pageID,
@@ -466,7 +546,10 @@ public actor BrowserCDPService {
         ])
     }
 
-    func status(sessionID: String) -> JSONValue {
+    func status(sessionID: String) async -> JSONValue {
+        if await workspaceBridge.isAssigned(sessionID: sessionID) {
+            return await workspaceBridge.status(sessionID: sessionID)
+        }
         guard let session = sessionsByAgentSession[sessionID] else {
             return .object(["running": .bool(false), "pages": .array([])])
         }
@@ -474,6 +557,9 @@ public actor BrowserCDPService {
     }
 
     func close(sessionID: String, pageID: String?) async throws -> JSONValue {
+        if await workspaceBridge.isAssigned(sessionID: sessionID) {
+            return try await workspaceBridge.run(sessionID: sessionID, name: "close", input: .object(["pageId": pageID.map(JSONValue.string) ?? .null]))
+        }
         guard var session = sessionsByAgentSession[sessionID] else {
             return .object(["running": .bool(false)])
         }
@@ -494,10 +580,15 @@ public actor BrowserCDPService {
     }
 
     func cleanup(sessionID: String) async {
+        if await workspaceBridge.isAssigned(sessionID: sessionID) {
+            await workspaceBridge.cleanup(sessionID: sessionID)
+            return
+        }
         _ = try? await close(sessionID: sessionID, pageID: nil)
     }
 
-    func shutdown() {
+    func shutdown() async {
+        await workspaceBridge.shutdown()
         for (_, session) in sessionsByAgentSession {
             if session.process?.isRunning == true {
                 session.process?.terminate()

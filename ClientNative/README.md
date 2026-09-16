@@ -34,6 +34,30 @@ xcodegen generate
 open SloppyClient.xcodeproj
 ```
 
+## macOS updates
+
+The macOS target embeds Sparkle 2.9.6. It checks the signed feed at
+`https://github.com/TeamSloppy/Sloppy/releases/latest/download/appcast.xml` and
+also exposes **Check for Updates…** in the application menu. Updates are offered
+to the user but are not installed automatically.
+
+Tag releases package a Sparkle ZIP alongside the macOS installer and publish a
+signed `appcast.xml`. The release workflow reads the private EdDSA key from the
+`SPARKLE_PRIVATE_KEY` GitHub Actions secret. Keep that key in the `TeamSloppy`
+Sparkle Keychain account for local signing; never commit an exported key.
+
+For a local feed validation, point `SPARKLE_TOOLS_DIR` at the `bin` directory
+from the Sparkle release, then run:
+
+```bash
+./script/package_sparkle_archive.sh /path/to/SloppyClient-macOS.app 0.1.0 /tmp/sloppy-update
+SPARKLE_TOOLS_DIR=/path/to/Sparkle/bin \
+  ./script/generate_sparkle_appcast.sh \
+  /tmp/sloppy-update/SloppyClient-macos-0.1.0.zip \
+  0.1.0 \
+  /tmp/sloppy-update/feed
+```
+
 ## Workspace Notes
 
 `ClientNative` is the Apple client workspace. It is built independently from

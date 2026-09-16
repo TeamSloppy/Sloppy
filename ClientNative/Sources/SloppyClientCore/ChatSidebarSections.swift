@@ -18,6 +18,7 @@ public struct ChatSidebarProjectGroup: Sendable, Identifiable {
     public var project: APIProjectRecord
     public var visibleSessions: [ChatSessionSummary]
     public var totalSessions: [ChatSessionSummary]
+    public var allSessionsCount: Int
 
     public var id: String { project.storageID }
 
@@ -28,11 +29,13 @@ public struct ChatSidebarProjectGroup: Sendable, Identifiable {
     public init(
         project: APIProjectRecord,
         visibleSessions: [ChatSessionSummary],
-        totalSessions: [ChatSessionSummary]
+        totalSessions: [ChatSessionSummary],
+        allSessionsCount: Int? = nil
     ) {
         self.project = project
         self.visibleSessions = visibleSessions
         self.totalSessions = totalSessions
+        self.allSessionsCount = allSessionsCount ?? totalSessions.count
     }
 }
 
@@ -72,6 +75,7 @@ public struct ChatSidebarSections: Sendable {
         pinnedSessionIds: Set<String>,
         mode: ChatSidebarListMode,
         projectPreviewLimit: Int? = nil,
+        defaultSourceInstanceID: String? = nil,
         calendar: Calendar = .autoupdatingCurrent
     ) -> ChatSidebarSections {
         let sortedSessions = sessions.sorted {
@@ -101,10 +105,14 @@ public struct ChatSidebarSections: Sendable {
 
         case .projects:
             let groups = projects.map { project in
-                let projectSessions = unpinned.filter {
+                let projectSourceInstanceID = project.sourceInstanceID ?? defaultSourceInstanceID
+                let allProjectSessions = sortedSessions.filter {
                     $0.projectId == project.id
-                        && $0.sourceInstanceID == project.sourceInstanceID
+                        && ($0.sourceInstanceID ?? defaultSourceInstanceID) == projectSourceInstanceID
                         && $0.messageCount > 0
+                }
+                let projectSessions = allProjectSessions.filter {
+                    !pinnedSessionIds.contains($0.storageID)
                 }
 
                 let visibleSessions: [ChatSessionSummary]
@@ -117,7 +125,8 @@ public struct ChatSidebarSections: Sendable {
                 return ChatSidebarProjectGroup(
                     project: project,
                     visibleSessions: visibleSessions,
-                    totalSessions: projectSessions
+                    totalSessions: projectSessions,
+                    allSessionsCount: allProjectSessions.count
                 )
             }
 

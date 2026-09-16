@@ -170,17 +170,12 @@ struct WorkspaceRemoteTerminalMacHostView: NSViewRepresentable {
     let onHostReady: @MainActor (WorkspaceTerminalHosting) -> Void
 
     func makeCoordinator() -> WorkspaceRemoteTerminalMacHostController {
-        WorkspaceRemoteTerminalMacHostController()
+        _ = session.remoteTerminalView()
+        return session.remoteController ?? WorkspaceRemoteTerminalMacHostController()
     }
 
     func makeNSView(context: Context) -> TerminalView {
-        let terminalView = TerminalView(frame: .zero)
-        if let configuration = session.remoteConfiguration {
-            context.coordinator.connect(
-                terminalView: terminalView,
-                configuration: configuration
-            )
-        }
+        let terminalView = session.remoteTerminalView()
         onHostReady(context.coordinator)
         return terminalView
     }
@@ -193,7 +188,7 @@ struct WorkspaceRemoteTerminalMacHostView: NSViewRepresentable {
         _ nsView: TerminalView,
         coordinator: WorkspaceRemoteTerminalMacHostController
     ) {
-        coordinator.disconnect()
+        // Keep the socket and terminal buffer alive while the panel is hidden.
     }
 }
 

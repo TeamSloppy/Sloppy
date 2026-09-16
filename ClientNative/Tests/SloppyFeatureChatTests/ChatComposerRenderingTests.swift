@@ -409,7 +409,9 @@ struct ChatComposerRenderingTests {
         let source = try chatComposerSource
 
         #expect(source.contains("private struct ComposerOptionsMenuView"))
-        #expect(source.contains("Text(supportsReasoningEffort ? \"Select effort\" : selectedModelTitle)"))
+        #expect(source.contains("Text(selectedModelTitle)"))
+        #expect(source.contains("Text(\"· \\(selectedEffort.title)\")"))
+        #expect(!source.contains("Text(supportsReasoningEffort ? \"Select effort\" : selectedModelTitle)"))
         #expect(source.contains("private struct ComposerEffortScale"))
         #expect(source.contains("let efforts = ChatReasoningEffort.allCases"))
         #expect(source.contains("let thumbCenter = segmentWidth * (CGFloat(selectedIndex) + 0.5)"))

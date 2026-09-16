@@ -71,6 +71,41 @@ public struct MeshNodeRecord: Codable, Sendable, Equatable, Identifiable {
     public var displayName: String {
         name.isEmpty ? id : name
     }
+
+    public var connectionDisplayName: String? {
+        var details: [String] = []
+        if let endpointDisplayName {
+            details.append(endpointDisplayName)
+        }
+        if !roles.isEmpty {
+            details.append(roles.map(Self.displayRole).joined(separator: ", "))
+        }
+        return details.isEmpty ? nil : details.joined(separator: " · ")
+    }
+
+    public var endpointDisplayName: String? {
+        guard let endpoint = endpoint?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !endpoint.isEmpty else {
+            return nil
+        }
+        guard let components = URLComponents(string: endpoint),
+              let host = components.host else {
+            return endpoint
+        }
+
+        guard let port = components.port else {
+            return host
+        }
+        let displayedHost = host.contains(":") ? "[\(host)]" : host
+        return "\(displayedHost):\(port)"
+    }
+
+    private static func displayRole(_ role: String) -> String {
+        role
+            .replacingOccurrences(of: "_", with: " ")
+            .replacingOccurrences(of: "-", with: " ")
+            .capitalized
+    }
 }
 
 public struct MeshTaskRecord: Codable, Sendable, Equatable, Identifiable {

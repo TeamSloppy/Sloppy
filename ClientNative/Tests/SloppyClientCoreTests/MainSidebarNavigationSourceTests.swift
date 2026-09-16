@@ -8,7 +8,7 @@ struct MainSidebarNavigationSourceTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        return try String(contentsOf: packageRoot.appendingPathComponent(relativePath), encoding: .utf8)
+        return try mainViewAwareSourceContents(at: packageRoot.appendingPathComponent(relativePath))
     }
 
     @Test("sidebar tab actions dismiss mobile sidebar before showing detail content")

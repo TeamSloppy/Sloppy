@@ -66,9 +66,10 @@ final class SloppyDesktopOverlay {
     }
 
     func attach(window: NSWindow) {
-        guard self.window !== window else { return }
+        let isNewWindow = self.window !== window
         self.window = window
         configureTransparentWindow(window)
+        guard isNewWindow else { return }
         if let overlayPanel {
             position(panel: overlayPanel, animated: false)
         }
@@ -360,15 +361,29 @@ final class SloppyDesktopOverlay {
     }
 
     private func configureTransparentWindow(_ window: NSWindow) {
-        window.isOpaque = false
-        window.backgroundColor = .clear
+        if window.isOpaque {
+            window.isOpaque = false
+        }
+        if window.backgroundColor != .clear {
+            window.backgroundColor = .clear
+        }
         window.hasShadow = true
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.titlebarSeparatorStyle = .none
-        window.toolbarStyle = .unified
+        if window.titleVisibility != .hidden {
+            window.titleVisibility = .hidden
+        }
+        if !window.titlebarAppearsTransparent {
+            window.titlebarAppearsTransparent = true
+        }
+        if window.titlebarSeparatorStyle != .none {
+            window.titlebarSeparatorStyle = .none
+        }
+        if window.toolbarStyle != .unified {
+            window.toolbarStyle = .unified
+        }
         window.isMovableByWindowBackground = false
-        window.styleMask.insert(.fullSizeContentView)
+        if !window.styleMask.contains(.fullSizeContentView) {
+            window.styleMask.insert(.fullSizeContentView)
+        }
         window.contentView?.wantsLayer = true
         window.contentView?.layer?.backgroundColor = NSColor.clear.cgColor
     }
@@ -983,20 +998,59 @@ private struct SloppyDesktopNotchView: View {
 struct TransparentWindowConfigurationView: NSViewRepresentable {
     let onWindowAvailable: @MainActor (NSWindow) -> Void
 
+    func makeCoordinator() -> Coordinator {
+        Coordinator(onWindowAvailable: onWindowAvailable)
+    }
+
     func makeNSView(context: Context) -> NSView {
         let view = NSView(frame: .zero)
-        configureWindow(from: view)
+        configureWindow(from: view, coordinator: context.coordinator)
         return view
     }
 
     func updateNSView(_ nsView: NSView, context: Context) {
-        configureWindow(from: nsView)
+        configureWindow(from: nsView, coordinator: context.coordinator)
     }
 
-    private func configureWindow(from view: NSView) {
+    private func configureWindow(from view: NSView, coordinator: Coordinator) {
         DispatchQueue.main.async { [weak view] in
             guard let window = view?.window else { return }
+            coordinator.observe(window)
             onWindowAvailable(window)
+        }
+    }
+
+    @MainActor
+    final class Coordinator: NSObject {
+        private weak var window: NSWindow?
+        private let onWindowAvailable: @MainActor (NSWindow) -> Void
+
+        init(onWindowAvailable: @escaping @MainActor (NSWindow) -> Void) {
+            self.onWindowAvailable = onWindowAvailable
+        }
+
+        func observe(_ window: NSWindow) {
+            guard self.window !== window else { return }
+            if self.window != nil {
+                NotificationCenter.default.removeObserver(self)
+            }
+            self.window = window
+            NotificationCenter.default.addObserver(
+                self,
+                selector: #selector(windowDidUpdate(_:)),
+                name: NSWindow.didUpdateNotification,
+                object: window
+            )
+        }
+
+        @objc private func windowDidUpdate(_ notification: Notification) {
+            guard let window = notification.object as? NSWindow,
+                  window === self.window else { return }
+            onWindowAvailable(window)
+        }
+
+        deinit {
+            NotificationCenter.default.removeObserver(self)
         }
     }
 }

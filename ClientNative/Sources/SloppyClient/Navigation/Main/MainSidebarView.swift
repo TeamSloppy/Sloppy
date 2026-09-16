@@ -2,6 +2,7 @@ import SloppyClientCore
 import SwiftUI
 
 enum MainSidebarSelection: Hashable {
+    case agents
     case pullRequests
     case scheduled
     case artifacts
@@ -15,13 +16,15 @@ enum MainSidebarSelection: Hashable {
 struct MainSidebarView: View {
     static let expandedWidth: CGFloat = 348
     static let collapsedWidth: CGFloat = 150
-    static let minimumWidth: CGFloat = 340
-    static let maximumWidth: CGFloat = 520
+    static let minimumWidth: CGFloat = 220
+    static let maximumWidth: CGFloat = 800
     static let rowMinimumHeight: CGFloat = 32
 
     let viewModel: MainViewModel
     let isOverlay: Bool
     var composerBackdropHeight: CGFloat? = nil
+    var approvalRequiredSessionIDs: Set<String> = []
+    var showsApprovalRequiredChatsOnly = false
     let canvasWorkspaceViewModel: CanvasWorkspaceViewModel
     let navigationDestination: @MainActor (MainSidebarSelection) -> AnyView
 
@@ -37,7 +40,9 @@ struct MainSidebarView: View {
         PlatformMainSidebar(
             viewModel: viewModel,
             isOverlay: isOverlay,
-            composerBackdropHeight: composerBackdropHeight
+            composerBackdropHeight: composerBackdropHeight,
+            approvalRequiredSessionIDs: approvalRequiredSessionIDs,
+            showsApprovalRequiredChatsOnly: showsApprovalRequiredChatsOnly
         )
         #else
         PlatformMainSidebar(viewModel: viewModel, isOverlay: isOverlay)

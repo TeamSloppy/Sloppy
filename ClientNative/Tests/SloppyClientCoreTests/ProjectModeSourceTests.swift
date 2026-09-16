@@ -14,13 +14,15 @@ struct ProjectModeSourceTests {
         )
     }
 
-    @Test("project mode exposes a floating pill for all project sections")
+    @Test("project mode uses a right rail on macOS and a compact picker on mobile")
     func projectModePill() throws {
         let projectMode = try source(
             "Sources/SloppyClient/Navigation/ProjectMode/ProjectModeView.swift"
         )
 
-        #expect(projectMode.contains("ForEach(ProjectModeSection.allCases)"))
+        let rail = try source("Sources/SloppyClient/Navigation/ProjectMode/ProjectModeRail.swift")
+        #expect(projectMode.contains("ProjectModeRail(selectedSection: state.selectedSection"))
+        #expect(rail.contains("ForEach(ProjectModeSection.allCases)"))
         #expect(projectMode.contains(".background(.regularMaterial, in: Capsule())"))
         #expect(projectMode.contains("ProjectKanbanView("))
         #expect(projectMode.contains("CanvasWorkspaceSurface("))

@@ -1,6 +1,10 @@
 import SwiftUI
 import SloppyClientUI
 
+extension EnvironmentValues {
+    @Entry var canvasWorkspaceToolbarEnabled = true
+}
+
 @MainActor
 struct CanvasWorkspaceSurface: View {
     let viewModel: CanvasWorkspaceViewModel

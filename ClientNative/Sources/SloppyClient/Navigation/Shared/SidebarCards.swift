@@ -6,6 +6,7 @@ import SwiftUI
 struct SidebarSessionCard: View {
     let viewModel: MainViewModel
     let session: ChatSessionSummary
+    var requiresApproval = false
 
     @Environment(\.theme) private var theme
 
@@ -56,6 +57,11 @@ struct SidebarSessionCard: View {
                 if isPinned {
                     Icons.symbol(.pushPin, size: theme.typography.caption)
                         .foregroundColor(theme.colors.textMuted)
+                }
+                if requiresApproval {
+                    Image(systemName: "bell.fill")
+                        .foregroundStyle(.orange)
+                        .accessibilityLabel("Requires approval")
                 }
             }
 
@@ -123,7 +129,7 @@ struct SidebarProjectCard: View {
                             .foregroundColor(theme.colors.textMuted)
                             .accessibilityLabel("Pinned project")
                     }
-                    Text("\(group.totalSessions.count) chats")
+                    Text("\(group.allSessionsCount) chats")
                         .font(.system(size: theme.typography.caption, weight: .semibold))
                         .foregroundColor(theme.colors.textMuted)
                 }
@@ -149,9 +155,7 @@ struct SidebarProjectCard: View {
 
                 Spacer(minLength: theme.spacing.xs)
 
-                Label("\(group.project.tasks?.count ?? 0) tasks", systemImage: "checklist")
-                    .font(.system(size: theme.typography.caption))
-                    .foregroundColor(theme.colors.textMuted)
+                SidebarProjectTaskCounts(project: group.project)
             }
             .padding(theme.spacing.m)
             .frame(maxWidth: .infinity, minHeight: 180, alignment: .topLeading)

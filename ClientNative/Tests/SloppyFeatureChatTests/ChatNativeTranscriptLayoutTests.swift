@@ -175,6 +175,86 @@ struct ChatNativeTranscriptLayoutTests {
         #expect(scroll.contentView.bounds.minY >= 590)
     }
 
+    @Test("final assistant has readable content before background Markdown parsing")
+    func finalAssistantFirstLayout() {
+        let item = AppKitHostedTranscriptItem()
+        item.loadView()
+        let text = String(repeating: "A complete paragraph in the final response.\n\n", count: 10)
+        let message = ChatMessage(id: "final-answer", role: .assistant,
+                                  segments: [ChatMessageSegment(kind: .text, text: text)])
+        item.configure(rootView: AnyView(ChatBubbleView(message: message)
+            .frame(width: 400).fixedSize(horizontal: false, vertical: true)))
+        let attributes = NSCollectionViewLayoutAttributes(forItemWith: IndexPath(item: 0, section: 0))
+        attributes.size = NSSize(width: 400, height: 100)
+        #expect(item.preferredLayoutAttributesFitting(attributes).size.height > 180)
+    }
+
+    @Test("final assistant Markdown is visible after streaming ends", arguments: [0, 40])
+    func finalAssistantMarkdownIsVisible(historyCount: Int) async throws {
+        _ = NSApplication.shared
+        let text = """
+        Закрепил в постоянной памяти проекта **Promozavr**:
+
+        > Каждая новая задача из канбана выполняется в отдельном WT. До начала изменений создаём или безопасно переиспользуем worktree этой задачи; все изменения и проверки выполняем внутри него.
+
+        Здесь используется **Arcadia worktree через `ya tool kek wt`**, не Git worktree. Требование буду включать в описания новых задач и инструкции исполнителям.
+
+        Текущие задачи задним числом не переносим. Это сохранённое правило работы, не автоматическая блокировка со стороны канбана.
+        """
+        func transcript(final: Bool) -> AppKitChatTranscriptCollection {
+            let message = ChatMessage(
+                id: final ? "final-answer" : "streaming-assistant-answer",
+                role: .assistant,
+                segments: [ChatMessageSegment(kind: .text, text: final ? text : "Закрепил")]
+            )
+            return AppKitChatTranscriptCollection(
+                items: (0..<historyCount).map { index in
+                    let prior = ChatMessage(id: "history-\(index)", role: .assistant,
+                                            segments: [ChatMessageSegment(kind: .text, text: text)])
+                    return ChatTranscriptNativeItem(
+                        id: prior.id, content: .entry(.message(prior), bottomSpacing: 24,
+                                                     activeMessageIDs: [], providerRecoveryMessageIDs: [])
+                    )
+                } + [ChatTranscriptNativeItem(
+                    id: message.id,
+                    content: .entry(.message(message), bottomSpacing: 0,
+                                    activeMessageIDs: [], providerRecoveryMessageIDs: [])
+                )],
+                contentWidth: 600, topInset: 0, bottomInset: 0,
+                scrollToEndRequest: 0, renderRevision: final ? 2 : 1, reduceMotion: true
+            ) { item in
+                guard case .entry(.message(let message), _, _, _) = item.content else {
+                    return AnyView(EmptyView())
+                }
+                return AnyView(ChatBubbleView(message: message))
+            }
+        }
+        let host = NSHostingView(rootView: transcript(final: false))
+        host.frame = NSRect(x: 0, y: 0, width: 700, height: 600)
+        let window = NSWindow(contentRect: host.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = host
+        defer { window.contentView = nil }
+        for _ in 0..<20 {
+            host.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        host.rootView = transcript(final: true)
+        for _ in 0..<50 {
+            host.layoutSubtreeIfNeeded()
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        func collection(in view: NSView) -> NSCollectionView? {
+            if let collection = view as? NSCollectionView { return collection }
+            return view.subviews.lazy.compactMap { collection(in: $0) }.first
+        }
+        let collection = try #require(collection(in: host))
+        let attributes = try #require(collection.collectionViewLayout?.layoutAttributesForItem(
+            at: IndexPath(item: historyCount, section: 0)
+        ))
+        // The full response needs multiple paragraphs; an actions-only row is ~40pt.
+        #expect(attributes.size.height > 180)
+    }
+
     @Test("wrapped text reports its full height")
     func wrappedTextHeight() {
         let item = AppKitHostedTranscriptItem()

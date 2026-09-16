@@ -17,21 +17,19 @@ struct MainSidebarRefreshTests {
         )?
             .compactMap { $0 as? URL }
             .first(where: { $0.lastPathComponent == fileName })
-        return try String(
-            contentsOf: #require(sourceURL),
-            encoding: .utf8
-        )
+        return try mainViewAwareSourceContents(at: #require(sourceURL))
     }
 
     @Test("main view model exposes a unified refresh entry point")
     func mainViewModelExposesUnifiedRefreshEntryPoint() throws {
-        let source = try source(named: "MainView.swift")
+        let source = try source(named: "MainViewModel.swift")
 
         #expect(source.contains("func refreshContent() async"))
         #expect(source.contains("await loadProjects(force: true)"))
         #expect(source.contains("if chatViewModel.selectedAgent == nil"))
-        #expect(source.contains("chatViewModel.loadInitialData()"))
+        #expect(source.contains("await chatViewModel.waitForInitialData()"))
         #expect(source.contains("await chatViewModel.refreshCurrentContext()"))
+        #expect(source.contains("await loadAggregatedChatCatalogIfNeeded()"))
     }
 
     @Test("sidebar supports pull to refresh")
@@ -40,6 +38,15 @@ struct MainSidebarRefreshTests {
 
         #expect(source.contains(".refreshable"))
         #expect(source.contains("await viewModel.refreshContent()"))
+    }
+
+    @Test("sidebar remains full-height behind the transparent title bar")
+    func sidebarRemainsFullHeightBehindTransparentTitleBar() throws {
+        let source = try source(named: "MacMainSidebar.swift")
+
+        #expect(!source.contains("@Environment(\\.safeAreaInsets)"))
+        #expect(!source.contains("toolbarContentClearance"))
+        #expect(!source.contains(".padding(.top"))
     }
 
     @Test("primary sidebar actions stay outside the scrollable recents section")

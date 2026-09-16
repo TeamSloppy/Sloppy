@@ -12,6 +12,7 @@ private enum CanvasWorkspaceLibraryLayout: String {
 struct CanvasWorkspaceLibraryView: View {
     let viewModel: CanvasWorkspaceViewModel
     var allowsProjectSelection = true
+    @Environment(\.canvasWorkspaceToolbarEnabled) private var toolbarEnabled
 
     @State private var searchText = ""
     @State private var isCreateSheetPresented = false
@@ -49,15 +50,17 @@ struct CanvasWorkspaceLibraryView: View {
         .navigationBarTitleDisplayMode(.large)
 #endif
         .toolbar {
-            ToolbarItem(placement: .primaryAction) {
-                Button {
-                    isCreateSheetPresented = true
-                } label: {
-                    Label("New Workspace", systemImage: "plus")
-                        .labelStyle(.iconOnly)
+            if toolbarEnabled {
+                ToolbarItem(placement: .primaryAction) {
+                    Button {
+                        isCreateSheetPresented = true
+                    } label: {
+                        Label("New Workspace", systemImage: "plus")
+                            .labelStyle(.iconOnly)
+                    }
+                    .accessibilityLabel("New Workspace")
+                    .accessibilityIdentifier("canvas-workspace-create")
                 }
-                .accessibilityLabel("New Workspace")
-                .accessibilityIdentifier("canvas-workspace-create")
             }
         }
         .accessibilityIdentifier("canvas-workspace-library")
@@ -244,7 +247,10 @@ struct CanvasWorkspaceLibraryView: View {
                     Button("Create Workspace") {
                         isCreateSheetPresented = true
                     }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.glass)
+                    .controlSize(.large)
+                    .buttonBorderShape(.capsule)
+                    .accessibilityIdentifier("canvas-workspace-empty-create")
                 } else {
                     Button("Clear Search") {
                         searchText = ""

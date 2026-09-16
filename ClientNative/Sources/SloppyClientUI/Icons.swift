@@ -2,6 +2,7 @@ import SwiftUI
 
 public enum MaterialSymbol: String, CaseIterable, Sendable {
     case add
+    case agents
     case arrowForward
     case arrowUpward
     case autoAwesome
@@ -36,6 +37,7 @@ public enum MaterialSymbol: String, CaseIterable, Sendable {
     var systemName: String {
         switch self {
         case .add: "plus"
+        case .agents: "person.2"
         case .new: "square.and.pencil"
         case .arrowForward: "arrow.forward"
         case .arrowUpward: "arrow.up"

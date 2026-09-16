@@ -134,7 +134,8 @@ private struct RootShellContent: View {
                     menuBarQuickActionRequest: rootViewModel.menuBarQuickActionRequest,
                     onConsumeMenuBarQuickAction: rootViewModel.consumeMenuBarAction,
                     deepLinkRequest: rootViewModel.appDeepLinkRequest,
-                    onConsumeDeepLink: rootViewModel.consumeDeepLink
+                    onConsumeDeepLink: rootViewModel.consumeDeepLink,
+                    approvalRequiredSessionIDs: rootViewModel.pendingApprovalSessionIDs
                 )
                 .id(rootViewModel.settings.instanceDirectoryKey)
             }
@@ -215,4 +216,5 @@ extension ClientColorScheme {
 #Preview {
     @Previewable @State var viewModel = RootShellViewModel()
     return RootShellView(viewModel: viewModel)
+//        .frame(width: 1024, height: 860)
 }

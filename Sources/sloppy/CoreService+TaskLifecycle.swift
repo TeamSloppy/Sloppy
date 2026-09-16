@@ -2010,6 +2010,8 @@ extension CoreService {
                  "browser.type",
                  "browser.screenshot",
                  "browser.status",
+                 "browser.read",
+                 "browser.scroll",
                  "browser.close":
                 mapped = "browser"
             case "project_tasks", "project-tasks", "tasks", "task":

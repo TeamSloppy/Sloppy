@@ -46,7 +46,7 @@ struct WorkspaceBottomPanelDrawerView<Content: View>: View {
                         let startHeight = dragStartHeight ?? height
                         dragStartHeight = startHeight
                         onHeightChange(
-                            min(maximumHeight, max(180, startHeight - value.translation.height))
+                            min(maximumHeight, max(120, startHeight - value.translation.height))
                         )
                     }
                     .onEnded { _ in

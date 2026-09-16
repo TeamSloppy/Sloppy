@@ -8,7 +8,7 @@ struct MainTabsSourceTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        return try String(contentsOf: packageRoot.appendingPathComponent(relativePath), encoding: .utf8)
+        return try mainViewAwareSourceContents(at: packageRoot.appendingPathComponent(relativePath))
     }
 
     @Test("main tabs domain defines kinds payloads and semantic keys")
@@ -102,10 +102,10 @@ struct MainTabsSourceTests {
     func macOSToolbarSearchesChatsAndProjects() throws {
         let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
 
-        #expect(mainView.contains("@State private var toolbarSearchText = \"\""))
+        #expect(mainView.contains("@State var toolbarSearchText = \"\""))
         #expect(mainView.contains("ToolbarItem(placement: .principal)"))
         #expect(mainView.contains("TextField(\"Search chats and projects\""))
-        #expect(mainView.contains("@FocusState private var isToolbarSearchFocused: Bool"))
+        #expect(mainView.contains("@FocusState var isToolbarSearchFocused: Bool"))
         #expect(mainView.contains(".overlay(alignment: .top)"))
         #expect(mainView.contains("toolbarSearchResultsPanel"))
         #expect(mainView.contains(".offset(y: 38)"))
@@ -115,25 +115,39 @@ struct MainTabsSourceTests {
         #expect(mainView.contains("viewModel.openSessionChatTab(session)"))
         #expect(mainView.contains("viewModel.openProjectKanbanTab(project: project)"))
         #expect(mainView.contains("Button(action: action)"))
-        #expect(mainView.contains("@State private var toolbarSearchSelectionID"))
+        #expect(mainView.contains("@State var toolbarSearchSelectionID"))
         #expect(mainView.contains(".onKeyPress(.downArrow)"))
         #expect(mainView.contains(".onKeyPress(.upArrow)"))
         #expect(mainView.contains("openSelectedToolbarSearchResult()"))
         #expect(mainView.contains("isSelected: toolbarSearchSelectionID == result.id"))
         #expect(mainView.contains("toolbarSearchResultsOverlay"))
-        #expect(mainView.contains("private func openToolbarSearchResult("))
+        #expect(mainView.contains("func openToolbarSearchResult("))
         #expect(mainView.contains("ScrollViewReader { proxy in"))
         #expect(mainView.contains("proxy.scrollTo(selectionID, anchor: .center)"))
+    }
+
+    @Test("macOS toolbar filters chats that require approval")
+    func macOSToolbarFiltersApprovalChats() throws {
+        let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
+        let recents = try source("Sources/SloppyClient/Navigation/Shared/SidebarRecentsList.swift")
+
+        #expect(mainView.contains("toolbarApprovalButton"))
+        #expect(mainView.contains("Image(systemName: showsApprovalRequiredChatsOnly ? \"bell.fill\" : \"bell\")"))
+        #expect(mainView.contains("accessibilityIdentifier(\"toolbar.approval-chats\")"))
+        #expect(mainView.contains("showsApprovalRequiredChatsOnly.toggle()"))
+        #expect(recents.contains("showsApprovalRequiredOnly"))
+        #expect(recents.contains("approvalRequiredSessionIDs.contains(session.id)"))
+        #expect(recents.contains("No chats require approval"))
     }
 
     @Test("macOS toolbar search has no custom background")
     func macOSToolbarSearchHasNoCustomBackground() throws {
         let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
         let searchFieldStart = try #require(mainView.range(
-            of: "private var toolbarSearchField: some View"
+            of: "var toolbarSearchField: some View"
         ))
         let searchFieldEnd = try #require(mainView.range(
-            of: "private var toolbarSearchQuery: String",
+            of: "var toolbarSearchQuery: String",
             range: searchFieldStart.upperBound..<mainView.endIndex
         ))
         let searchField = mainView[searchFieldStart.lowerBound..<searchFieldEnd.lowerBound]
@@ -245,7 +259,7 @@ struct MainTabsSourceTests {
         #expect(mainView.contains("keyboardShortcut(\"w\", modifiers: [.command])"))
         #expect(mainView.contains("viewModel.createBlankChatTab()"))
         #expect(mainView.contains("viewModel.closeActiveTab()"))
-        #expect(mainView.contains("private func workspaceContentHost(showsFloatingTabChrome: Bool) -> some View"))
+        #expect(mainView.contains("func workspaceContentHost(showsFloatingTabChrome: Bool) -> some View"))
     }
 
     @Test("main view defers pager geometry writes outside scroll geometry callback")

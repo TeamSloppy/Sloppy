@@ -11,7 +11,7 @@ struct MainSidebarSelectionTests {
                 .deletingLastPathComponent()
             let sourceURL = packageRoot
                 .appendingPathComponent("Sources/SloppyClient/Navigation/Main/MainViewModel.swift")
-            return try String(contentsOf: sourceURL, encoding: .utf8)
+            return try mainViewAwareSourceContents(at: sourceURL)
         }
     }
 
@@ -27,7 +27,7 @@ struct MainSidebarSelectionTests {
                 .appendingPathComponent("Navigation")
                 .appendingPathComponent("Main")
                 .appendingPathComponent("MainView.swift")
-            return try String(contentsOf: sourceURL, encoding: .utf8)
+            return try mainViewAwareSourceContents(at: sourceURL)
         }
     }
 
@@ -39,7 +39,7 @@ struct MainSidebarSelectionTests {
             .deletingLastPathComponent()
         let sidebarURL = packageRoot
             .appendingPathComponent("Sources/SloppyClient/Navigation/Shared/SidebarRecentsList.swift")
-        let source = try String(contentsOf: sidebarURL, encoding: .utf8)
+        let source = try mainViewAwareSourceContents(at: sidebarURL)
 
         #expect(source.contains("viewModel.selectedChatSessionID == session.id"))
         #expect(!source.contains("viewModel.chatViewModel.selectedSessionId == session.id"))
@@ -53,7 +53,7 @@ struct MainSidebarSelectionTests {
             .deletingLastPathComponent()
         let rowURL = packageRoot
             .appendingPathComponent("Sources/SloppyClient/Navigation/Shared/SidebarNavigationRow.swift")
-        let source = try String(contentsOf: rowURL, encoding: .utf8)
+        let source = try mainViewAwareSourceContents(at: rowURL)
 
         #expect(source.contains("var isSelected = false"))
         #expect(source.contains("isSelected ? theme.colors.surfaceRaised : .clear"))
@@ -67,7 +67,7 @@ struct MainSidebarSelectionTests {
             .deletingLastPathComponent()
         let rowURL = packageRoot
             .appendingPathComponent("Sources/SloppyClient/Navigation/Shared/SidebarSessionRow.swift")
-        let source = try String(contentsOf: rowURL, encoding: .utf8)
+        let source = try mainViewAwareSourceContents(at: rowURL)
 
         #expect(source.contains("#if os(macOS)"))
         #expect(source.contains("Button(action: onOpen)"))
@@ -114,7 +114,7 @@ struct MainSidebarSelectionTests {
             .deletingLastPathComponent()
         let iosSidebarURL = packageRoot
             .appendingPathComponent("Sources/SloppyClient/Navigation/Platforms/iOS/IOSMainSidebar.swift")
-        let iosSidebarSource = try String(contentsOf: iosSidebarURL, encoding: .utf8)
+        let iosSidebarSource = try mainViewAwareSourceContents(at: iosSidebarURL)
         #expect(iosSidebarSource.contains(".navigationDestination(for: MainSidebarSelection.self)"))
         #expect(iosSidebarSource.contains("NavigationStack(path: $inboxNavigationPath)"))
         #expect(iosSidebarSource.contains("NavigationLink(value: InboxDestination.settings)"))
@@ -131,7 +131,7 @@ struct MainSidebarSelectionTests {
         let navigationViewStart = try #require(source.range(of: "private var navigationView: some View"))
         let contentAreaStart = try #require(
             source.range(
-                of: "private func contentArea()",
+                of: "func contentArea()",
                 range: navigationViewStart.upperBound..<source.endIndex
             )
         )
@@ -149,7 +149,7 @@ struct MainSidebarSelectionTests {
             .deletingLastPathComponent()
         let sidebarURL = packageRoot
             .appendingPathComponent("Sources/SloppyClient/Navigation/Platforms/iOS/IOSMainSidebar.swift")
-        let source = try String(contentsOf: sidebarURL, encoding: .utf8)
+        let source = try mainViewAwareSourceContents(at: sidebarURL)
 
         #expect(source.contains("isOverlay ? theme.spacing.xl"))
     }

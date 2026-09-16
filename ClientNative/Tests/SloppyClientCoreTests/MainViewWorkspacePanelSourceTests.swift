@@ -8,7 +8,7 @@ struct MainViewWorkspacePanelSourceTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        return try String(contentsOf: packageRoot.appendingPathComponent(path), encoding: .utf8)
+        return try mainViewAwareSourceContents(at: packageRoot.appendingPathComponent(path))
     }
 
     @Test("desktop main view keeps workspace inside the current window")
@@ -16,24 +16,13 @@ struct MainViewWorkspacePanelSourceTests {
         let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
         let mainViewModel = try source("Sources/SloppyClient/Navigation/Main/MainViewModel.swift")
 
-        #expect(mainViewModel.contains("var workspacePanelViewModel"))
-        #expect(mainView.contains("@State private var isWorkspacePanelPresented = false"))
-        #expect(mainView.contains("private var workspacePanelContainer: some View"))
-        #expect(mainView.contains(".frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)"))
-        #expect(mainView.contains("HStack(spacing: 0)"))
-        #expect(mainView.contains(".frame(width: 380)"))
-        #expect(mainView.contains(".frame(maxHeight: .infinity)"))
-        #expect(mainView.contains(".inspector(isPresented: $isWorkspacePanelPresented)"))
-        #expect(mainView.contains(".inspectorColumnWidth(min: 320, ideal: 380, max: 520)"))
+        #expect(mainViewModel.contains("var workspaceDockState: WorkspaceDockState"))
+        #expect(mainView.contains("WorkspaceResizableSidePanel(state: viewModel.workspaceDockState)"))
+        #expect(mainView.contains("WorkspaceDockView(state: viewModel.workspaceDockState"))
+        #expect(mainView.contains("viewModel.workspaceDockState.toggleVisibility()"))
+        #expect(mainView.contains(".inspector(isPresented: Binding("))
         #expect(mainView.contains("WorkspacePanelView("))
-        #expect(mainView.contains("private var workspaceSidePanelButton: some View"))
-        #expect(mainView.contains("Button(action: toggleWorkspaceSidePanelPicker)"))
-        #expect(mainView.contains("WorkspaceSidePanelPickerView("))
-        #expect(mainView.contains("private var workspaceSidePanel: some View"))
-        #expect(mainView.contains("private func selectWorkspaceSidePanelItem"))
-        #expect(mainView.contains("private func openWorkspacePanel(mode: WorkspacePanelMode)"))
-        #expect(mainView.contains("viewModel.workspacePanelViewModel.switchMode(mode)"))
-        #expect(mainView.contains("isWorkspacePanelPresented = true"))
+        #expect(mainView.contains("var workspaceSidePanelButton: some View"))
         #expect(mainView.contains("ToolbarItemGroup(placement: .primaryAction)"))
         #expect(mainView.contains("showsNavigationToolbar: idiom == .phone"))
     }
@@ -42,7 +31,7 @@ struct MainViewWorkspacePanelSourceTests {
     func desktopSidePanelToolbarButtonIsCircular() throws {
         let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
         let buttonStart = try #require(mainView.range(
-            of: "private var workspaceSidePanelButton: some View"
+            of: "var workspaceSidePanelButton: some View"
         ))
         let buttonEnd = try #require(mainView.range(
             of: "private func openWorkspacePanel(mode: WorkspacePanelMode)",
@@ -56,7 +45,7 @@ struct MainViewWorkspacePanelSourceTests {
         #expect(!button.contains(".buttonStyle(.plain)"))
     }
 
-    @Test("side panel opens a codex-style picker with working destinations")
+    @Test("side panel tabs expose all supported destinations")
     func sidePanelOpensCodexStylePicker() throws {
         let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
         let picker = try source("Sources/SloppyClient/Workspace/Panel/WorkspacePanelView.swift")
@@ -70,9 +59,9 @@ struct MainViewWorkspacePanelSourceTests {
         #expect(picker.contains("ForEach(WorkspaceSidePanelItem.allCases)"))
         #expect(picker.contains("workspace.side-panel.picker"))
         #expect(mainView.contains("viewModel.openBottomPanel(.terminal)"))
-        #expect(mainView.contains("workspaceSidePanelDestination = .sideChat"))
+        #expect(mainView.contains("viewModel.openWorkspaceDockTab(.sideChat)"))
         #expect(mainView.contains("ChatComposerOverlay("))
-        #expect(mainView.contains(".help(\"Close side panel\")"))
+        #expect(mainView.contains("viewModel.workspaceDockState.toggleVisibility()"))
     }
 
     @Test("chat view model exposes project workspace context")
@@ -90,10 +79,10 @@ struct MainViewWorkspacePanelSourceTests {
         let chatViewModel = try source("Sources/SloppyFeatureChat/Screens/Chat/ChatScreenViewModel.swift")
 
         #expect(mainView.contains("onAskInSideChat: askInSideChat"))
-        #expect(mainView.contains("private func askInSideChat(_ selectedText: String)"))
-        #expect(mainView.contains("sideChatViewModel?.addTextSelectionToComposer(selectedText)"))
-        #expect(mainView.contains("workspaceSidePanelDestination = .sideChat"))
-        #expect(mainView.contains("isWorkspacePanelPresented = true"))
+        #expect(mainView.contains("func askInSideChat(_ selectedText: String)"))
+        #expect(mainView.contains("tab.chat?.addTextSelectionToComposer(selectedText)"))
+        #expect(mainView.contains("viewModel.openWorkspaceDockTab(.sideChat)"))
+        #expect(mainView.contains("dock.select(existing)"))
         #expect(chatBubble.contains("TextSelectionAction(\"Ask in side chat\""))
         #expect(chatViewModel.contains("pendingComposerTextMutation"))
         #expect(chatViewModel.contains("applyComposerTextMutation(pendingComposerTextMutation)"))
@@ -104,7 +93,7 @@ struct MainViewWorkspacePanelSourceTests {
         let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
 
         #expect(mainView.contains("#if os(macOS)\n                        ChatComposerView.desktopPanelWidth\n#else\n                        10\n#endif"))
-        #expect(mainView.contains("contentWidth: 340"))
+        #expect(mainView.contains("contentWidth: geometry.size.width"))
     }
 
     @Test("chat tabs synchronize with the session created by the composer")

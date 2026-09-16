@@ -16,6 +16,9 @@ struct TransparentWindowSourceTests {
         let appSource = try source("Sources/SloppyClient/App/SloppyClientApp.swift")
 
         #expect(appSource.contains(".containerBackground(.clear, for: .window)"))
+        #expect(appSource.contains(".modifier(MainWindowChromeModifier())"))
+        #expect(appSource.contains("toolbarBackgroundVisibility(.hidden, for: .windowToolbar)"))
+        #expect(appSource.contains("toolbarBackground(.hidden, for: .windowToolbar)"))
     }
 
     @Test("root shell installs the transparent window bridge")
@@ -27,6 +30,16 @@ struct TransparentWindowSourceTests {
         #expect(rootShell.contains("max(0, safeAreaInsets.top)"))
         #expect(rootShell.contains(".allowsHitTesting(false)"))
         #expect(!rootShell.contains("WindowDragHandleStrip(height: 36)"))
+    }
+
+    @Test("window bridge reapplies transparent chrome after SwiftUI installs its toolbar")
+    func windowBridgeReappliesTransparentChrome() throws {
+        let overlay = try source("Sources/SloppyClient/Overlays/SloppyDesktopOverlay.swift")
+
+        #expect(overlay.contains("let isNewWindow = self.window !== window"))
+        #expect(overlay.contains("configureTransparentWindow(window)\n        guard isNewWindow else { return }"))
+        #expect(overlay.contains("name: NSWindow.didUpdateNotification"))
+        #expect(overlay.contains("onWindowAvailable(window)"))
     }
 
     @Test("desktop overlay configures a non-opaque titlebar-transparent window")

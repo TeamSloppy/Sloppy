@@ -22,6 +22,26 @@ final class WorkspaceWebViewModel {
     weak var controller: WorkspaceWebViewControlling?
     var browserRuntime: WorkspaceBrowserToolRuntime?
 
+#if os(macOS)
+    func ensureBrowserRuntime() -> WorkspaceBrowserToolRuntime {
+        if let browserRuntime { return browserRuntime }
+        let runtime = WorkspaceBrowserToolRuntime()
+        runtime.onStateChange = { [weak self] webView, error in
+            guard let self else { return }
+            currentURL = webView.url
+            addressText = webView.url?.absoluteString ?? addressText
+            pageTitle = webView.title
+            isLoading = webView.isLoading
+            canGoBack = webView.canGoBack
+            canGoForward = webView.canGoForward
+            lastError = error
+        }
+        browserRuntime = runtime
+        controller = runtime
+        return runtime
+    }
+#endif
+
     func openAddress() {
         controller?.open(addressText)
     }

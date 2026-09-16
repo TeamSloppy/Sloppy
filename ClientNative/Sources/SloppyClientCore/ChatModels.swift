@@ -356,6 +356,21 @@ public enum ChatSessionCatalog {
 
         return sessionsByID.values.sorted { $0.updatedAt > $1.updatedAt }
     }
+
+    public static func mergeAggregated(
+        existing: [ChatSessionSummary],
+        incoming: [ChatSessionSummary]
+    ) -> [ChatSessionSummary] {
+        let scopedIncomingIDs = Set(
+            incoming.compactMap { session in
+                session.sourceInstanceID == nil ? nil : session.id
+            }
+        )
+        let retainedExisting = existing.filter { session in
+            session.sourceInstanceID != nil || !scopedIncomingIDs.contains(session.id)
+        }
+        return merge([retainedExisting, incoming])
+    }
 }
 
 public struct ChatSessionDetail: Decodable, Sendable {

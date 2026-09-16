@@ -1,10 +1,12 @@
 import SwiftUI
+import SloppyClientUI
 
 #if os(macOS)
 import WebKit
 
 @MainActor
 struct WorkspaceWebView: NSViewRepresentable {
+    @Environment(\.theme) private var theme
     let viewModel: WorkspaceWebViewModel?
     let artifactHTML: String?
     let artifactTitle: String
@@ -26,6 +28,11 @@ struct WorkspaceWebView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> WKWebView {
+        if let viewModel {
+            let webView = viewModel.ensureBrowserRuntime().webView
+            webView.underPageBackgroundColor = NSColor(theme.colors.surface)
+            return webView
+        }
         let configuration = WKWebViewConfiguration()
         if artifactHTML != nil {
             configuration.websiteDataStore = .nonPersistent()
@@ -41,6 +48,7 @@ struct WorkspaceWebView: NSViewRepresentable {
     }
 
     func updateNSView(_ nsView: WKWebView, context: Context) {
+        nsView.underPageBackgroundColor = NSColor(theme.colors.surface)
         guard let artifactHTML,
               context.coordinator.loadedArtifactHTML != artifactHTML else { return }
         context.coordinator.loadedArtifactHTML = artifactHTML
@@ -70,7 +78,6 @@ final class Coordinator: NSObject, WKNavigationDelegate, WorkspaceWebViewControl
     func attach(_ webView: WKWebView) {
         self.webView = webView
         viewModel?.controller = self
-        viewModel?.browserRuntime = WorkspaceBrowserToolRuntime(webView: webView)
         syncState(from: webView)
     }
 

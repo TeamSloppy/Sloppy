@@ -94,6 +94,8 @@ struct ToolRegistry: Sendable {
             BrowserTypeTool(),
             BrowserScreenshotTool(),
             BrowserStatusTool(),
+            BrowserReadTool(),
+            BrowserScrollTool(),
             BrowserCloseTool(),
             SleepTool(),
             SessionCompleteTool(),

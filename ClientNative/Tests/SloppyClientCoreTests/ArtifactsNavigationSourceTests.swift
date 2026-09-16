@@ -8,10 +8,7 @@ struct ArtifactsNavigationSourceTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        return try String(
-            contentsOf: packageRoot.appendingPathComponent(relativePath),
-            encoding: .utf8
-        )
+        return try mainViewAwareSourceContents(at: packageRoot.appendingPathComponent(relativePath))
     }
 
     @Test("macOS sidebar replaces search chats with artifacts")
