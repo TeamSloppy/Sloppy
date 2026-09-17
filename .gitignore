@@ -14,12 +14,16 @@ site/
 /core.sqlite
 /core.sqlite-*
 /memory/
+/scripts/skills.sh
 
 /sloppy-client.*
 
 .zed/
 .antigravitycli/
 .superpowers/
+.cursor/
+.swiftpm/
+.vscode/
 
 artifacts/
 !Sources/sloppy/Artifacts/
