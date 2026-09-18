@@ -32,6 +32,7 @@ enum ConfigSection: String, CaseIterable, Hashable {
 
 struct ServerConfigListView: View {
     let config: SloppyConfig
+    let availableModels: [ProviderModelOption]
     let onSave: (SloppyConfig) -> Void
 
     @State private var selectedSection: ConfigSection? = nil
@@ -142,7 +143,7 @@ struct ServerConfigListView: View {
     private func configDetailView(_ section: ConfigSection) -> some View {
         switch section {
         case .providers:
-            ProvidersSection(config: config, onSave: onSave)
+            ProvidersSection(config: config, availableModels: availableModels, onSave: onSave)
         case .searchTools:
             SearchToolsSection(config: config, onSave: onSave)
         case .channels:

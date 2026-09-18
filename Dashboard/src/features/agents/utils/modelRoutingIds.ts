@@ -6,6 +6,7 @@ const ROUTED_MODEL_PREFIXES = [
   "ollama:",
   "gemini:",
   "anthropic:",
+  "opencode:",
   "mock:"
 ];
 

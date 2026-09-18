@@ -5,6 +5,7 @@ import SloppyClientUI
 public struct SettingsScreen: View {
     @State private var config: SloppyConfig? = nil
     @State private var statusText: String = "Loading config..."
+    @State private var availableModels: [ProviderModelOption] = []
     private let settings: ClientSettings
     private let onDismiss: (() -> Void)?
     @Environment(\.userInterfaceIdiom) private var idiom
@@ -29,7 +30,11 @@ public struct SettingsScreen: View {
                 ClientSettingsSection(settings: settings)
 
                 if let config {
-                    ServerConfigListView(config: config, onSave: saveConfig)
+                    ServerConfigListView(
+                        config: config,
+                        availableModels: availableModels,
+                        onSave: saveConfig
+                    )
                 } else {
                     loadingOrErrorView
                 }
@@ -91,9 +96,13 @@ public struct SettingsScreen: View {
         statusText = "Loading..."
         Task { @MainActor in
             do {
-                let loaded = try await api.fetchConfig()
+                async let configRequest = api.fetchConfig()
+                async let modelsRequest = api.fetchAvailableModels()
+                let loaded = try await configRequest
+                let models = (try? await modelsRequest) ?? []
                 self.config = loaded
-                self.statusText = "Config loaded"
+                self.availableModels = models
+                self.statusText = models.isEmpty ? "Config loaded; model catalog unavailable" : "Config loaded"
             } catch {
                 self.statusText = "Failed to load config"
             }

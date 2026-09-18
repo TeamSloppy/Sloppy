@@ -15,7 +15,11 @@ test("model pickers hide bare models and keep provider-routed ids", () => {
       { id: "sloppy:openai-oauth:gpt-5.5", title: "Remote Codex" },
       { id: "mock:test-model", title: "Mock test model" },
       { id: "openai-oauth:gpt-5.5", title: "GPT 5.5" },
-      { id: "openrouter:google/gemini-2.5-pro", title: "Gemini 2.5 Pro" }
+      { id: "openrouter:google/gemini-2.5-pro", title: "Gemini 2.5 Pro" },
+      {
+        id: "opencode:openrouter-yandex-team/deepseek/deepseek-v4.1-flash",
+        title: "DeepSeek V4.1 Flash"
+      }
     ]);
 
   assert.deepEqual(
@@ -24,7 +28,8 @@ test("model pickers hide bare models and keep provider-routed ids", () => {
       "sloppy:openai-oauth:gpt-5.5",
       "mock:test-model",
       "openai-oauth:gpt-5.5",
-      "openrouter:google/gemini-2.5-pro"
+      "openrouter:google/gemini-2.5-pro",
+      "opencode:openrouter-yandex-team/deepseek/deepseek-v4.1-flash"
     ]
   );
 });
@@ -33,11 +38,16 @@ test("model picker groups match the TUI provider and namespace sections", () => 
   assert.equal(modelPickerProviderTitle("openai-oauth"), "OpenAI Codex");
   assert.equal(modelPickerProviderTitle("openai-api"), "OpenAI API");
   assert.equal(modelPickerProviderTitle("openrouter"), "OpenRouter");
+  assert.equal(modelPickerProviderTitle("opencode"), "OpenCode");
   assert.equal(modelPickerProviderTitle("configured"), "Configured");
 
   assert.equal(modelPickerGroup("openai-oauth:gpt-5.4"), "OpenAI Codex / gpt");
   assert.equal(modelPickerGroup("openrouter:google/gemini-2.5-pro"), "OpenRouter / google");
   assert.equal(modelPickerGroup("openrouter:anthropic/claude-sonnet-4.6"), "OpenRouter / anthropic");
+  assert.equal(
+    modelPickerGroup("opencode:openrouter-yandex-team/deepseek/deepseek-v4.1-flash"),
+    "OpenCode / openrouter-yandex-team"
+  );
   assert.equal(modelPickerGroup("ollama:qwen3"), "Ollama");
   assert.equal(modelPickerGroup("mock:test-model"), "Mock / test");
 });

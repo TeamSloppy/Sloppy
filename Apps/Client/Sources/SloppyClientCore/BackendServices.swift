@@ -102,6 +102,43 @@ public actor AuthService {
     }
 }
 
+public struct ProviderModelOption: Codable, Sendable, Equatable, Identifiable {
+    public var id: String
+    public var title: String
+    public var contextWindow: Int?
+    public var capabilities: [String]
+
+    public init(
+        id: String,
+        title: String,
+        contextWindow: Int? = nil,
+        capabilities: [String] = []
+    ) {
+        self.id = id
+        self.title = title
+        self.contextWindow = contextWindow
+        self.capabilities = capabilities
+    }
+
+    public func matches(query: String) -> Bool {
+        let needle = query.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        guard !needle.isEmpty else { return true }
+        return id.lowercased().contains(needle) || title.lowercased().contains(needle)
+    }
+}
+
+public actor ProviderService {
+    private let http: BackendHTTPClient
+
+    public init(http: BackendHTTPClient) {
+        self.http = http
+    }
+
+    public func fetchAvailableModels() async throws -> [ProviderModelOption] {
+        try await http.get("/v1/providers/models")
+    }
+}
+
 public actor ProjectService {
     private let http: BackendHTTPClient
 

@@ -9,6 +9,7 @@ public actor SloppyAPIClient {
 
     private let http: BackendHTTPClient
     private let projects: ProjectService
+    private let providers: ProviderService
     private let agents: AgentService
     private let sessions: SessionService
     private let config: ConfigService
@@ -25,6 +26,7 @@ public actor SloppyAPIClient {
         let http = BackendHTTPClient(baseURL: baseURL, authToken: authToken, session: session, logger: logger)
         self.http = http
         self.projects = ProjectService(http: http)
+        self.providers = ProviderService(http: http)
         self.agents = AgentService(http: http)
         self.sessions = SessionService(http: http)
         self.config = ConfigService(http: http)
@@ -44,6 +46,10 @@ public actor SloppyAPIClient {
         let session = try await auth.loginIdentityUser(login: login, password: password)
         await setAuthToken(session.accessToken)
         return session
+    }
+
+    public func fetchAvailableModels() async throws -> [ProviderModelOption] {
+        try await providers.fetchAvailableModels()
     }
 
     public func fetchProjects() async throws -> [APIProjectRecord] {

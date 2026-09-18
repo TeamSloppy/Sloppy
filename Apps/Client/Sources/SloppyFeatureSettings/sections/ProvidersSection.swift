@@ -4,16 +4,27 @@ import SloppyClientUI
 
 struct ProvidersSection: View {
     let config: SloppyConfig
+    let availableModels: [ProviderModelOption]
     let onSave: (SloppyConfig) -> Void
 
     @State private var draft: [SloppyConfig.ModelConfig]
     @State private var selectedIndex: Int = 0
+    @State private var modelSearch: String = ""
     @Environment(\.theme) private var theme
 
-    init(config: SloppyConfig, onSave: @escaping (SloppyConfig) -> Void) {
+    init(
+        config: SloppyConfig,
+        availableModels: [ProviderModelOption],
+        onSave: @escaping (SloppyConfig) -> Void
+    ) {
         self.config = config
+        self.availableModels = availableModels
         self.onSave = onSave
         self._draft = State(initialValue: config.models)
+    }
+
+    private var filteredModels: [ProviderModelOption] {
+        availableModels.filter { $0.matches(query: modelSearch) }
     }
 
     private var hasChanges: Bool {
@@ -75,7 +86,10 @@ struct ProvidersSection: View {
 
         return VStack(alignment: .leading, spacing: 0) {
             ForEach(Array(draft.enumerated()), id: \.offset) { index, model in
-                Button(action: { selectedIndex = index }) {
+                Button(action: {
+                    selectedIndex = index
+                    modelSearch = draft[index].model
+                }) {
                     HStack {
                         VStack(alignment: .leading, spacing: 2) {
                             Text(model.title)
@@ -116,15 +130,64 @@ struct ProvidersSection: View {
                     set: { draft[index].apiKey = $0 }
                 ), isSecure: true)
                 SettingsDivider()
-                SettingsFieldRow("Model", hint: "e.g. gpt-5.4-mini, claude-sonnet-4", text: Binding(
-                    get: { draft[index].model },
-                    set: { draft[index].model = $0 }
+                SettingsFieldRow("Model", hint: "Search the shared runtime catalog or enter an ID", text: Binding(
+                    get: { modelSearch.isEmpty ? draft[index].model : modelSearch },
+                    set: { value in
+                        modelSearch = value
+                        draft[index].model = value
+                    }
                 ))
+                modelCatalog(index: index)
+            }
+        }
+    }
+
+    private func modelCatalog(index: Int) -> some View {
+        let c = theme.colors
+        let sp = theme.spacing
+        let bo = theme.borders
+        let ty = theme.typography
+        let models = Array(filteredModels.prefix(50))
+
+        return VStack(alignment: .leading, spacing: 0) {
+            if availableModels.isEmpty {
+                Text("Shared model catalog is unavailable.")
+                    .font(.system(size: ty.micro))
+                    .foregroundColor(c.textMuted)
+                    .padding(.horizontal, sp.m)
+                    .padding(.bottom, sp.s)
+            } else if models.isEmpty {
+                Text("No models match the full ID or title.")
+                    .font(.system(size: ty.micro))
+                    .foregroundColor(c.textMuted)
+                    .padding(.horizontal, sp.m)
+                    .padding(.bottom, sp.s)
+            } else {
+                ForEach(models) { model in
+                    Button(action: {
+                        draft[index].model = model.id
+                        modelSearch = model.id
+                    }) {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(model.title)
+                                .font(.system(size: ty.body))
+                                .foregroundColor(c.textPrimary)
+                            Text(model.id)
+                                .font(.system(size: ty.micro))
+                                .foregroundColor(c.textMuted)
+                        }
+                        .padding(.horizontal, sp.m)
+                        .padding(.vertical, sp.s)
+                    }
+                    .background(draft[index].model == model.id ? c.surfaceRaised : c.background)
+                    .border(c.border, lineWidth: bo.thin)
+                }
             }
         }
     }
 
     private func addProvider() {
+        modelSearch = ""
         draft.append(SloppyConfig.ModelConfig(title: "new-provider", apiKey: "", apiUrl: "", model: ""))
         selectedIndex = draft.count - 1
     }
