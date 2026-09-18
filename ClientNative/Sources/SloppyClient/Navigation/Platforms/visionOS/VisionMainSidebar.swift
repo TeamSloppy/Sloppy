@@ -20,7 +20,9 @@ struct PlatformMainSidebar: View {
             Tab("Pull Requests", systemImage: "arrow.triangle.branch", value: MainAppSection.pullRequests) {
                 PullRequestsScreen(
                     apiClient: viewModel.apiClient,
-                    onOpenChat: viewModel.openPullRequestChat
+                    onOpenChat: viewModel.openPullRequestChat,
+                    onAddToSideChat: viewModel.addToSideChat,
+                    onResolveOpenIssues: viewModel.startInSideChat
                 )
             }
             Tab("Sites", systemImage: "globe", value: MainAppSection.sites) {

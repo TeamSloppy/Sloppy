@@ -214,6 +214,14 @@ private struct SidebarSessionItem: View {
     var requiresApproval = false
     var showsProjectName = true
 
+    private var liveActivity: SidebarSessionActivity? {
+        viewModel.liveSidebarSessionActivity(for: session)
+    }
+
+    private var activityTaskID: String {
+        "\(session.storageID):\(session.updatedAt.timeIntervalSince1970)"
+    }
+
     var body: some View {
         SidebarSessionRow(
             session: session,
@@ -225,11 +233,20 @@ private struct SidebarSessionItem: View {
             isPinned: viewModel.settings.isSessionPinned(session.storageID),
             isSelected: viewModel.selectedChatStorageID == session.storageID,
             requiresApproval: requiresApproval,
+            activity: viewModel.sidebarSessionActivity(for: session),
             onOpen: { viewModel.openSessionChatTab(session) },
             onTogglePin: { viewModel.togglePinChatSession(session) },
             onCopyDebugLink: { viewModel.copyDebugSessionFileLink(session) },
             onDelete: { viewModel.deleteChatSession(session) }
         )
+        .onChange(of: liveActivity, initial: true) { _, activity in
+            if let activity {
+                viewModel.recordSidebarSessionActivity(activity, for: session)
+            }
+        }
+        .task(id: activityTaskID) {
+            await viewModel.monitorSidebarSessionActivity(for: session)
+        }
     }
 }
 

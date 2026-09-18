@@ -371,7 +371,7 @@ public actor ProjectService {
     }
 
     public func fetchTaskComments(projectId: String, taskId: String) async throws -> [TaskComment] {
-        try await http.get(
+        return try await http.get(
             "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/tasks/\(BackendHTTPClient.encodePathSegment(taskId))/comments"
         )
     }
@@ -404,10 +404,14 @@ public actor ProjectService {
     }
 
     public func fetchProjectWorkingTreeSourceControl(
-        projectId: String
+        projectId: String,
+        taskId: String? = nil
     ) async throws -> ProjectWorkingTreeSourceControlResponse {
-        try await http.get(
-            "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/source-control/working-tree"
+        let taskQuery = taskId.map {
+            "?taskId=\(BackendHTTPClient.encodeQueryValue($0))"
+        } ?? ""
+        return try await http.get(
+            "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/source-control/working-tree\(taskQuery)"
         )
     }
 }
@@ -429,6 +433,63 @@ public actor AgentService {
 
     public func fetchAgentTasks(agentId: String) async throws -> [APIAgentTaskRecord] {
         try await http.get("/v1/agents/\(BackendHTTPClient.encodePathSegment(agentId))/tasks")
+    }
+
+    public func fetchAgentFiles(agentId: String, path: String = "") async throws -> [ProjectFileEntry] {
+        let encodedAgent = BackendHTTPClient.encodePathSegment(agentId)
+        let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
+        let query = trimmedPath.isEmpty
+            ? ""
+            : "?path=\(BackendHTTPClient.encodeQueryValue(trimmedPath))"
+        return try await http.get("/v1/agents/\(encodedAgent)/files\(query)")
+    }
+
+    public func fetchAgentFileContent(agentId: String, path: String) async throws -> ProjectFileContentResponse {
+        let encodedAgent = BackendHTTPClient.encodePathSegment(agentId)
+        let encodedPath = BackendHTTPClient.encodeQueryValue(path.trimmingCharacters(in: .whitespacesAndNewlines))
+        return try await http.get("/v1/agents/\(encodedAgent)/files/content?path=\(encodedPath)")
+    }
+
+    public func fetchAgentTokenUsage(agentId: String) async throws -> AgentTokenUsageResponse {
+        try await http.get("/v1/agents/\(BackendHTTPClient.encodePathSegment(agentId))/token-usage")
+    }
+
+    public func fetchAgentSkills(agentId: String) async throws -> AgentSkillsResponse {
+        try await http.get("/v1/agents/\(BackendHTTPClient.encodePathSegment(agentId))/skills")
+    }
+
+    public func fetchSkillsRegistry(
+        search: String = "",
+        sort: String = "installs",
+        limit: Int = 40,
+        offset: Int = 0
+    ) async throws -> SkillsRegistryResponse {
+        var query = [
+            "sort=\(BackendHTTPClient.encodeQueryValue(sort))",
+            "limit=\(max(1, limit))",
+            "offset=\(max(0, offset))",
+        ]
+        let trimmedSearch = search.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !trimmedSearch.isEmpty {
+            query.insert("search=\(BackendHTTPClient.encodeQueryValue(trimmedSearch))", at: 0)
+        }
+        return try await http.get("/v1/skills/registry?\(query.joined(separator: "&"))")
+    }
+
+    public func installAgentSkill(
+        agentId: String,
+        request: AgentSkillInstallRequest
+    ) async throws -> InstalledAgentSkill {
+        try await http.post(
+            "/v1/agents/\(BackendHTTPClient.encodePathSegment(agentId))/skills",
+            body: request
+        )
+    }
+
+    public func uninstallAgentSkill(agentId: String, skillId: String) async throws {
+        try await http.delete(
+            "/v1/agents/\(BackendHTTPClient.encodePathSegment(agentId))/skills/\(BackendHTTPClient.encodePathSegment(skillId))"
+        )
     }
 
     public func fetchChatSlashCommands(agentId: String) async throws -> AgentChatSlashCommandsResponse {
@@ -478,11 +539,13 @@ public actor SessionService {
     public func createAgentSession(
         agentId: String,
         title: String? = nil,
+        parentSessionId: String? = nil,
         projectId: String? = nil,
         workspaceId: String? = nil
     ) async throws -> ChatSessionSummary {
         struct Payload: Encodable {
             var title: String?
+            var parentSessionId: String?
             var kind: String = "chat"
             var projectId: String?
             var workspaceId: String?
@@ -493,6 +556,7 @@ public actor SessionService {
             "/v1/agents/\(BackendHTTPClient.encodePathSegment(agentId))/sessions",
             body: Payload(
                 title: title,
+                parentSessionId: parentSessionId,
                 projectId: normalizedProjectId?.isEmpty == false ? normalizedProjectId : nil,
                 workspaceId: normalizedWorkspaceId?.isEmpty == false ? normalizedWorkspaceId : nil
             )

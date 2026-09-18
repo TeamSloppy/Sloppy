@@ -9,6 +9,15 @@ import Testing
 @Suite("Sidebar and project navigation", .serialized)
 @MainActor
 struct SidebarChromeRenderingTests {
+    @Test func sessionActivityUsesTypedRunState() {
+        #expect(SidebarSessionActivity.resolve(runStage: .thinking) == .working)
+        #expect(SidebarSessionActivity.resolve(runStage: .responding) == .working)
+        #expect(SidebarSessionActivity.resolve(runStage: .done) == .completed)
+        #expect(SidebarSessionActivity.resolve(runStage: .interrupted) == .failed)
+        #expect(SidebarSessionActivity.resolve(hasPendingInputRequest: true, runStage: .responding) == .waitingForInput)
+        #expect(SidebarSessionActivity.resolve(runStage: nil) == nil)
+    }
+
     @Test func sidebarFadesScrolledCardsAndFooterIsOpaque() async throws {
         let projects = (0..<4).map { index in
             APIProjectRecord(id: "sidebar-fixture-\(index)", name: "Project \(index + 1)",

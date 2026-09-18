@@ -74,7 +74,9 @@ struct PlatformMainSidebar: View {
                 NavigationStack {
                     PullRequestsScreen(
                         apiClient: viewModel.apiClient,
-                        onOpenChat: viewModel.openPullRequestChat
+                        onOpenChat: viewModel.openPullRequestChat,
+                        onAddToSideChat: viewModel.addToSideChat,
+                        onResolveOpenIssues: viewModel.startInSideChat
                     )
                 }
             }

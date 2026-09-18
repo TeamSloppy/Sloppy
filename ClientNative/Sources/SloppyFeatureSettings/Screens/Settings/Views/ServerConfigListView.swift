@@ -20,7 +20,7 @@ enum ConfigSection: String, CaseIterable, Hashable {
         case .providers: "Providers"
         case .searchTools: "Search Tools"
         case .channels: "Channels"
-        case .plugins: "Plugins"
+        case .plugins: "Agent Plugins"
         case .nodeHost: "Node Host"
         case .visor: "Visor"
         case .acp: "ACP"
@@ -182,7 +182,7 @@ struct ServerConfigListView: View {
         case .channels:
             ChannelsSection(config: config, onSave: onSave)
         case .plugins:
-            PluginsSection(config: config, onSave: onSave)
+            PluginsSection(config: config, apiClient: apiClient, onSave: onSave)
         case .nodeHost:
             NodeHostSection(config: config, onSave: onSave)
         case .visor:

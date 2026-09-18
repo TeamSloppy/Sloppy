@@ -7,6 +7,25 @@ public enum CodeReviewDiffLineKind: Sendable, Equatable {
     case empty
 }
 
+public enum CodeReviewDiffSide: String, Sendable, Equatable {
+    case old
+    case new
+}
+
+public struct CodeReviewLineContext: Sendable, Equatable {
+    public var filePath: String
+    public var line: Int
+    public var side: CodeReviewDiffSide
+    public var content: String
+
+    public init(filePath: String, line: Int, side: CodeReviewDiffSide, content: String) {
+        self.filePath = filePath
+        self.line = line
+        self.side = side
+        self.content = content
+    }
+}
+
 public struct CodeReviewDiffCell: Sendable, Equatable {
     public var lineNumber: Int?
     public var text: String
@@ -267,7 +286,7 @@ public enum CodeReviewChatPromptBuilder {
             lines.append("Branch: \(source) -> \(detail.targetBranch ?? "default")")
         }
 
-        let actionableComments = detail.comments.filter { $0.isResolved != true }
+        let actionableComments = openComments(in: detail)
         if !actionableComments.isEmpty {
             lines.append(contentsOf: ["", "Review comments:"])
             for comment in actionableComments.prefix(20) {
@@ -289,5 +308,102 @@ public enum CodeReviewChatPromptBuilder {
             "Inspect the current checkout, verify which comments still apply, implement the fixes, and run focused tests. Do not publish or merge unless I ask.",
         ])
         return lines.joined(separator: "\n")
+    }
+
+    public static func prompt(for comment: CodeReviewComment, in detail: CodeReviewDetail) -> String {
+        var lines = reviewHeader(
+            instruction: "Help me address this pull request review comment.",
+            detail: detail
+        )
+        lines.append(contentsOf: [
+            "",
+            "Selected review comment:",
+            "Comment ID: \(comment.id)",
+            "Location: \(location(for: comment))",
+            "Author: \(comment.author ?? "Reviewer")",
+        ])
+        if let parentID = comment.inReplyToId {
+            lines.append("Reply to comment: \(parentID)")
+        }
+        lines.append("Comment: \(bounded(comment.body, limit: 4_000))")
+        if let diffHunk = comment.diffHunk, !diffHunk.isEmpty {
+            lines.append(contentsOf: ["", "Relevant diff:", "```diff", bounded(diffHunk, limit: 6_000), "```"])
+        }
+        lines.append(contentsOf: [
+            "",
+            completionInstruction,
+        ])
+        return lines.joined(separator: "\n")
+    }
+
+    public static func prompt(for line: CodeReviewLineContext, in detail: CodeReviewDetail) -> String {
+        var lines = reviewHeader(
+            instruction: "Help me inspect and address this pull request diff line.",
+            detail: detail
+        )
+        lines.append(contentsOf: [
+            "",
+            "Selected diff line:",
+            "Location: \(line.filePath):\(line.line)",
+            "Side: \(line.side.rawValue)",
+            "```",
+            bounded(line.content, limit: 4_000),
+            "```",
+            "",
+            completionInstruction,
+        ])
+        return lines.joined(separator: "\n")
+    }
+
+    public static func promptForOpenIssues(in detail: CodeReviewDetail) -> String {
+        let comments = openComments(in: detail)
+        var lines = reviewHeader(
+            instruction: "Resolve all open review issues in this pull request.",
+            detail: detail
+        )
+        lines.append(contentsOf: ["", "Open review issues (\(comments.count)):"])
+        for comment in comments.prefix(50) {
+            let author = comment.author ?? "Reviewer"
+            let body = bounded(comment.body, limit: 1_500)
+                .replacingOccurrences(of: "\n", with: " ")
+            lines.append("- [\(location(for: comment))] \(author): \(body)")
+        }
+        lines.append(contentsOf: [
+            "",
+            "Work through every issue above, keeping each fix scoped to the feedback and verifying the affected behavior. \(completionInstruction)",
+        ])
+        return lines.joined(separator: "\n")
+    }
+
+    public static func openComments(in detail: CodeReviewDetail) -> [CodeReviewComment] {
+        detail.comments.filter { $0.isResolved != true && $0.isOutdated != true }
+    }
+
+    private static let completionInstruction =
+        "Inspect the current checkout, implement the fix, and run focused tests. Do not publish or merge unless I ask."
+
+    private static func reviewHeader(instruction: String, detail: CodeReviewDetail) -> [String] {
+        var lines = [
+            instruction,
+            "",
+            "Pull request: \(detail.item.title)",
+            "Repository: \(detail.item.repository)",
+            "Provider: \(detail.item.providerName)",
+            "URL: \(detail.item.url)",
+        ]
+        if let source = detail.sourceBranch, !source.isEmpty {
+            lines.append("Branch: \(source) -> \(detail.targetBranch ?? "default")")
+        }
+        return lines
+    }
+
+    private static func location(for comment: CodeReviewComment) -> String {
+        guard let filePath = comment.filePath else { return "General" }
+        guard let line = comment.line ?? comment.originalLine else { return filePath }
+        return "\(filePath):\(line)"
+    }
+
+    private static func bounded(_ value: String, limit: Int) -> String {
+        String(value.prefix(limit))
     }
 }

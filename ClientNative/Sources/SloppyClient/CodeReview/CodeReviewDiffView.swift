@@ -64,8 +64,10 @@ struct CodeReviewSideBySideDiffView: View {
     var highlightedPath: String?
     var highlightedLine: Int?
     var maximumHeight: CGFloat?
+    var onAddToChat: (@MainActor (CodeReviewLineContext) -> Void)?
 
     @State private var document: CodeReviewDiffRenderDocument?
+    @State private var hoveredCellID: String?
 
     private let codeColumnWidth: CGFloat = 620
     private let lineHeight: CGFloat = 22
@@ -142,17 +144,24 @@ struct CodeReviewSideBySideDiffView: View {
             .background(Color.accentColor.opacity(0.08))
         case .code(let row):
             HStack(spacing: 0) {
-                diffCell(row.old, isOldSide: true, filePath: item.filePath)
+                diffCell(row.old, side: .old, filePath: item.filePath, rowID: row.id)
                 Rectangle()
                     .fill(Color.secondary.opacity(0.2))
                     .frame(width: 1, height: lineHeight)
-                diffCell(row.new, isOldSide: false, filePath: item.filePath)
+                diffCell(row.new, side: .new, filePath: item.filePath, rowID: row.id)
             }
         }
     }
 
-    private func diffCell(_ cell: CodeReviewDiffCell, isOldSide: Bool, filePath: String) -> some View {
-        HStack(spacing: 0) {
+    private func diffCell(
+        _ cell: CodeReviewDiffCell,
+        side: CodeReviewDiffSide,
+        filePath: String,
+        rowID: Int
+    ) -> some View {
+        let cellID = "\(filePath):\(rowID):\(side.rawValue)"
+        let showsChatButton = showsDiffChatButton(cellID)
+        return HStack(spacing: 0) {
             Text(cell.lineNumber.map(String.init) ?? "")
                 .font(.caption2.monospacedDigit())
                 .foregroundStyle(.tertiary)
@@ -173,7 +182,42 @@ struct CodeReviewSideBySideDiffView: View {
         }
         .padding(.trailing, 8)
         .frame(width: codeColumnWidth, height: lineHeight)
-        .background(cellBackground(cell, isOldSide: isOldSide, filePath: filePath))
+        .background(cellBackground(cell, isOldSide: side == .old, filePath: filePath))
+        .contentShape(Rectangle())
+        .overlay(alignment: .leading) {
+            if let line = cell.lineNumber, cell.kind != .empty, onAddToChat != nil {
+                Button {
+                    onAddToChat?(
+                        CodeReviewLineContext(
+                            filePath: filePath,
+                            line: line,
+                            side: side,
+                            content: cell.text
+                        )
+                    )
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.system(size: 13, weight: .semibold))
+                        .symbolRenderingMode(.hierarchical)
+                }
+                .buttonStyle(.plain)
+                .frame(width: 28, height: lineHeight)
+                .background(.regularMaterial, in: Capsule())
+                .padding(.leading, 3)
+                .opacity(showsChatButton ? Double(1) : Double(0))
+                .allowsHitTesting(showsChatButton)
+                .accessibilityHidden(!showsChatButton)
+                .accessibilityLabel("Add diff line to chat")
+                .help("Add this line to the side chat")
+            }
+        }
+        .onHover { isHovered in
+            if isHovered {
+                hoveredCellID = cellID
+            } else if hoveredCellID == cellID {
+                hoveredCellID = nil
+            }
+        }
     }
 
     private func cellPrefix(_ kind: CodeReviewDiffLineKind) -> String {
@@ -231,6 +275,14 @@ struct CodeReviewSideBySideDiffView: View {
         value
             .replacingOccurrences(of: "a/", with: "", options: [.anchored])
             .replacingOccurrences(of: "b/", with: "", options: [.anchored])
+    }
+
+    private func showsDiffChatButton(_ cellID: String) -> Bool {
+#if os(macOS)
+        hoveredCellID == cellID
+#else
+        true
+#endif
     }
 
     private func prepareDiff() async {
@@ -301,7 +353,8 @@ struct CodeReviewInlineDiffView: View {
             fallbackPath: filePath,
             highlightedPath: filePath,
             highlightedLine: highlightedLine,
-            maximumHeight: 280
+            maximumHeight: 280,
+            onAddToChat: nil
         )
     }
 }

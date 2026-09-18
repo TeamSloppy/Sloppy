@@ -52,6 +52,48 @@ public struct CodeReviewItem: Codable, Sendable, Equatable, Identifiable {
     public var labels: [String]
     public var createdAt: Date?
     public var updatedAt: Date?
+    public var sourceBranch: String? = nil
+    public var targetBranch: String? = nil
+
+    public init(
+        id: String,
+        providerId: String,
+        providerName: String,
+        repository: String,
+        number: Int? = nil,
+        title: String,
+        url: String,
+        author: String? = nil,
+        state: CodeReviewState = .open,
+        isDraft: Bool = false,
+        roles: [CodeReviewRole] = [],
+        reviewDecision: String? = nil,
+        checksStatus: String? = nil,
+        labels: [String] = [],
+        createdAt: Date? = nil,
+        updatedAt: Date? = nil,
+        sourceBranch: String? = nil,
+        targetBranch: String? = nil
+    ) {
+        self.id = id
+        self.providerId = providerId
+        self.providerName = providerName
+        self.repository = repository
+        self.number = number
+        self.title = title
+        self.url = url
+        self.author = author
+        self.state = state
+        self.isDraft = isDraft
+        self.roles = roles
+        self.reviewDecision = reviewDecision
+        self.checksStatus = checksStatus
+        self.labels = labels
+        self.createdAt = createdAt
+        self.updatedAt = updatedAt
+        self.sourceBranch = sourceBranch
+        self.targetBranch = targetBranch
+    }
 }
 
 public struct CodeReviewComment: Codable, Sendable, Equatable, Identifiable {

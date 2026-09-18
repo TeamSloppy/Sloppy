@@ -2,6 +2,7 @@ import Foundation
 import Testing
 @testable import sloppy
 @testable import Protocols
+@testable import PluginSDK
 
 private func makeProjectAndDir(router: CoreRouter, config: CoreConfig) async throws -> (projectID: String, projectDir: URL) {
     let projectID = "files-test-\(UUID().uuidString.prefix(8).lowercased())"
@@ -358,6 +359,43 @@ private func runGitInProjectDir(_ cwd: URL, _ args: [String]) throws {
     }
 }
 
+private struct AutoDetectedSourceControlProvider: SourceControlProvider {
+    let id = "auto-detected-sc"
+    let displayName = "Auto Detected Source Control"
+    let capabilities: Set<SourceControlCapability> = [
+        .inspectRepository,
+        .workingTreeStatus,
+        .workingTreeDiff,
+    ]
+
+    func inspectRepository(at path: String) async -> SourceControlRepositoryInfo {
+        SourceControlRepositoryInfo(
+            providerId: id,
+            isRepository: true,
+            rootPath: path,
+            branch: "feature/auto-detected"
+        )
+    }
+
+    func workingTreeStatus(at path: String) async throws -> SourceControlWorkingTreeStatus {
+        SourceControlWorkingTreeStatus(
+            repository: await inspectRepository(at: path),
+            files: [],
+            linesAdded: 0,
+            linesDeleted: 0
+        )
+    }
+
+    func workingTreeDiff(at path: String, maxBytes: Int) async throws -> SourceControlDiffResult {
+        SourceControlDiffResult(
+            providerId: id,
+            baseRef: "HEAD",
+            headRef: "feature/auto-detected",
+            text: ""
+        )
+    }
+}
+
 @Test
 func projectWorkingTreeSourceControlReturnsDiffAndStats() async throws {
     let config = CoreConfig.test
@@ -381,6 +419,36 @@ func projectWorkingTreeSourceControlReturnsDiffAndStats() async throws {
     #expect(payload.isRepository == true)
     #expect(payload.linesAdded + payload.linesDeleted > 0)
     #expect(!payload.diff.isEmpty)
+}
+
+@Test
+func projectWorkingTreeSourceControlAutoDetectsRegisteredProvider() async throws {
+    let config = CoreConfig.test
+    let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    await service.registerSourceControlProvider(AutoDetectedSourceControlProvider())
+    let router = CoreRouter(service: service)
+    let (projectID, projectDir) = try await makeProjectAndDir(router: router, config: config)
+    try FileManager.default.createDirectory(at: projectDir, withIntermediateDirectories: true)
+    let updateBody = try JSONEncoder().encode(
+        ProjectUpdateRequest(sourceControlProviderId: "git-cli")
+    )
+    let updateResponse = await router.handle(
+        method: "PATCH",
+        path: "/v1/projects/\(projectID)",
+        body: updateBody
+    )
+    #expect(updateResponse.status == 200)
+
+    let response = await router.handle(
+        method: "GET",
+        path: "/v1/projects/\(projectID)/source-control/working-tree",
+        body: nil
+    )
+    #expect(response.status == 200)
+    let payload = try JSONDecoder().decode(ProjectWorkingTreeSourceControlResponse.self, from: response.body)
+    #expect(payload.providerId == "auto-detected-sc")
+    #expect(payload.isRepository)
+    #expect(payload.branch == "feature/auto-detected")
 }
 
 @Test

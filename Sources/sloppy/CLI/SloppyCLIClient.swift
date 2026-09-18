@@ -132,6 +132,10 @@ struct SloppyCLIClient {
         try await request(method: "POST", urlString: baseURL + path, body: body)
     }
 
+    func post(_ path: String, body: Data, contentType: String) async throws -> Data {
+        try await request(method: "POST", urlString: baseURL + path, body: body, contentType: contentType)
+    }
+
     func put(_ path: String, body: Data? = nil) async throws -> Data {
         try await request(method: "PUT", urlString: baseURL + path, body: body)
     }
@@ -207,18 +211,18 @@ struct SloppyCLIClient {
         }
     }
 
-    private func request(method: String, urlString: String, body: Data?) async throws -> Data {
+    private func request(method: String, urlString: String, body: Data?, contentType: String = "application/json") async throws -> Data {
         do {
-            return try await sendRequest(method: method, urlString: urlString, body: body, token: token)
+            return try await sendRequest(method: method, urlString: urlString, body: body, token: token, contentType: contentType)
         } catch CLIClientError.httpError(let code, _) where code == 401 && localAuthSession != nil {
             guard let refreshedToken = try await refreshLocalAuthSession() else {
                 throw CLIClientError.httpError(code, "identity session expired; run `sloppy auth login` again")
             }
-            return try await sendRequest(method: method, urlString: urlString, body: body, token: refreshedToken)
+            return try await sendRequest(method: method, urlString: urlString, body: body, token: refreshedToken, contentType: contentType)
         }
     }
 
-    private func sendRequest(method: String, urlString: String, body: Data?, token: String) async throws -> Data {
+    private func sendRequest(method: String, urlString: String, body: Data?, token: String, contentType: String) async throws -> Data {
         guard let url = URL(string: urlString) else {
             throw CLIClientError.invalidURL
         }
@@ -230,7 +234,7 @@ struct SloppyCLIClient {
         }
         if let body {
             req.httpBody = body
-            req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            req.setValue(contentType, forHTTPHeaderField: "Content-Type")
         }
 
         if verbose {

@@ -650,6 +650,8 @@ public actor InMemoryPersistenceStore: PersistenceStore {
     }
 
     private var channelPlugins: [String: ChannelPluginRecord] = [:]
+    private var agentPlugins: [String: InstalledAgentPlugin] = [:]
+    private var agentPluginRegistries: [String: AgentPluginRegistry] = [:]
 
     public func listChannelPlugins() async -> [ChannelPluginRecord] {
         channelPlugins.values.sorted { $0.createdAt < $1.createdAt }
@@ -666,6 +668,34 @@ public actor InMemoryPersistenceStore: PersistenceStore {
     public func deleteChannelPlugin(id: String) async {
         channelPlugins[id] = nil
     }
+
+    public func listAgentPlugins() async -> [InstalledAgentPlugin] {
+        agentPlugins.values.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    public func agentPlugin(id: String) async -> InstalledAgentPlugin? { agentPlugins[id] }
+
+    public func saveAgentPlugin(_ plugin: InstalledAgentPlugin) async { agentPlugins[plugin.id] = plugin }
+
+    public func deleteAgentPlugin(id: String) async { agentPlugins[id] = nil }
+
+    public func listAgentPluginRegistries() async -> [AgentPluginRegistry] {
+        agentPluginRegistries.values.sorted { lhs, rhs in
+            if lhs.isDefault != rhs.isDefault { return lhs.isDefault }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    public func saveAgentPluginRegistry(_ registry: AgentPluginRegistry) async {
+        if registry.isDefault {
+            for key in agentPluginRegistries.keys {
+                agentPluginRegistries[key]?.isDefault = false
+            }
+        }
+        agentPluginRegistries[registry.id] = registry
+    }
+
+    public func deleteAgentPluginRegistry(id: String) async { agentPluginRegistries[id] = nil }
 
     private var clarifications: [String: TaskClarificationRecord] = [:]
 
@@ -1161,6 +1191,18 @@ enum CorePersistenceFactory {
             enabled INTEGER NOT NULL DEFAULT 1,
             delivery_mode TEXT NOT NULL DEFAULT 'http',
             created_at TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS agent_plugins (
+            id TEXT PRIMARY KEY,
+            record_json TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE IF NOT EXISTS agent_plugin_registries (
+            id TEXT PRIMARY KEY,
+            record_json TEXT NOT NULL,
             updated_at TEXT NOT NULL
         );
 

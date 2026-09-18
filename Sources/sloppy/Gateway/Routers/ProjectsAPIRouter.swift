@@ -146,8 +146,12 @@ struct ProjectsAPIRouter: APIRouter {
 
         router.get("/v1/projects/:projectId/source-control/working-tree", metadata: RouteMetadata(summary: "Project working tree source-control diff", description: "Returns line add/delete counts and a unified diff from the configured source-control provider for uncommitted changes in the project workspace", tags: ["Projects"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
+            let taskId = request.queryParam("taskId")
             do {
-                let response = try await service.projectWorkingTreeSourceControl(projectID: projectId)
+                let response = try await service.projectWorkingTreeSourceControl(
+                    projectID: projectId,
+                    taskID: taskId
+                )
                 return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
             } catch let error as CoreService.ProjectError {
                 return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectNotFound)

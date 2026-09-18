@@ -447,6 +447,18 @@ CREATE TABLE IF NOT EXISTS channel_plugins (
     updated_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS agent_plugins (
+    id TEXT PRIMARY KEY,
+    record_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS agent_plugin_registries (
+    id TEXT PRIMARY KEY,
+    record_json TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS channel_access_users (
     id TEXT PRIMARY KEY,
     platform TEXT NOT NULL,

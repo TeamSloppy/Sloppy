@@ -60,7 +60,7 @@ struct ChatChangeSummarySourceTests {
 
         #expect(viewModel.contains("case .paused, .done, .interrupted:"))
         #expect(viewModel.contains("refreshWorkingTreeSourceControl()"))
-        #expect(viewModel.contains("fetchProjectWorkingTreeSourceControl(projectId: projectId)"))
-        #expect(viewModel.contains("response?.hasChanges == true ? response : nil"))
+        #expect(viewModel.contains("taskId: taskId"))
+        #expect(viewModel.contains("workingTreeSourceControl = response"))
     }
 }

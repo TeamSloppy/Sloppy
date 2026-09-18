@@ -42,6 +42,21 @@ struct MainSidebarProjectSessionsTests {
         #expect(source.contains("SidebarSessionItem(viewModel: viewModel, session: $0, showsProjectName: false)"))
     }
 
+    @Test("sidebar session rows render typed activity and monitor visible sessions")
+    func sidebarSessionRowsRenderActivity() throws {
+        let listSource = try source
+        let rowSource = try sourceFile("Sources/SloppyClient/Navigation/Shared/SidebarSessionRow.swift")
+        let mainViewModelSource = try sourceFile("Sources/SloppyClient/Navigation/Main/MainViewModel.swift")
+
+        #expect(rowSource.contains("ProgressView()"))
+        #expect(rowSource.contains("checkmark.circle.fill"))
+        #expect(rowSource.contains("sidebar.session.activity"))
+        #expect(listSource.contains("viewModel.sidebarSessionActivity(for: session)"))
+        #expect(listSource.contains("viewModel.monitorSidebarSessionActivity(for: session)"))
+        #expect(mainViewModelSource.contains("detail.latestRunStatus?.stage"))
+        #expect(mainViewModelSource.contains("detail.pendingInputRequest != nil"))
+    }
+
     @Test("aggregated project chats install after the primary catalog finishes loading")
     func aggregatedProjectChatsInstallAfterPrimaryCatalogLoad() throws {
         let mainViewSource = try sourceFile("Sources/SloppyClient/Navigation/Main/MainView.swift")

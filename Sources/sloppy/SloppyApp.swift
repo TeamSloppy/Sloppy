@@ -25,6 +25,7 @@ struct SloppyApp: AsyncParsableCommand {
             ProvidersCommand.self,
             ActorCommand.self,
             PluginCommand.self,
+            AgentPluginCommandGroup.self,
             NodeCommand.self,
             SourceControlCommand.self,
             MCPCommand.self,

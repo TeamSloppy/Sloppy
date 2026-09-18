@@ -505,9 +505,13 @@ public actor SloppyAPIClient {
     }
 
     public func fetchProjectWorkingTreeSourceControl(
-        projectId: String
+        projectId: String,
+        taskId: String? = nil
     ) async throws -> ProjectWorkingTreeSourceControlResponse {
-        try await projects.fetchProjectWorkingTreeSourceControl(projectId: projectId)
+        try await projects.fetchProjectWorkingTreeSourceControl(
+            projectId: projectId,
+            taskId: taskId
+        )
     }
 
     public func fetchAgents() async throws -> [APIAgentRecord] {
@@ -520,6 +524,42 @@ public actor SloppyAPIClient {
 
     public func fetchAgentTasks(agentId: String) async throws -> [APIAgentTaskRecord] {
         try await agents.fetchAgentTasks(agentId: agentId)
+    }
+
+    public func fetchAgentFiles(agentId: String, path: String = "") async throws -> [ProjectFileEntry] {
+        try await agents.fetchAgentFiles(agentId: agentId, path: path)
+    }
+
+    public func fetchAgentFileContent(agentId: String, path: String) async throws -> ProjectFileContentResponse {
+        try await agents.fetchAgentFileContent(agentId: agentId, path: path)
+    }
+
+    public func fetchAgentTokenUsage(agentId: String) async throws -> AgentTokenUsageResponse {
+        try await agents.fetchAgentTokenUsage(agentId: agentId)
+    }
+
+    public func fetchAgentSkills(agentId: String) async throws -> AgentSkillsResponse {
+        try await agents.fetchAgentSkills(agentId: agentId)
+    }
+
+    public func fetchSkillsRegistry(
+        search: String = "",
+        sort: String = "installs",
+        limit: Int = 40,
+        offset: Int = 0
+    ) async throws -> SkillsRegistryResponse {
+        try await agents.fetchSkillsRegistry(search: search, sort: sort, limit: limit, offset: offset)
+    }
+
+    public func installAgentSkill(
+        agentId: String,
+        request: AgentSkillInstallRequest
+    ) async throws -> InstalledAgentSkill {
+        try await agents.installAgentSkill(agentId: agentId, request: request)
+    }
+
+    public func uninstallAgentSkill(agentId: String, skillId: String) async throws {
+        try await agents.uninstallAgentSkill(agentId: agentId, skillId: skillId)
     }
 
     public func fetchChatSlashCommands(agentId: String) async throws -> AgentChatSlashCommandsResponse {
@@ -624,12 +664,14 @@ public actor SloppyAPIClient {
     public func createAgentSession(
         agentId: String,
         title: String? = nil,
+        parentSessionId: String? = nil,
         projectId: String? = nil,
         workspaceId: String? = nil
     ) async throws -> ChatSessionSummary {
         try await sessions.createAgentSession(
             agentId: agentId,
             title: title,
+            parentSessionId: parentSessionId,
             projectId: projectId,
             workspaceId: workspaceId
         )
@@ -731,6 +773,56 @@ public actor SloppyAPIClient {
 
     public func updateConfig(_ config: SloppyConfig) async throws -> SloppyConfig {
         try await self.config.updateConfig(config)
+    }
+
+    // MARK: - Agent Plugins
+
+    public func fetchAgentPlugins() async throws -> [ClientInstalledAgentPlugin] {
+        try await http.get("/v1/agent-plugins")
+    }
+
+    public func uploadAgentPluginZIP(_ data: Data) async throws -> ClientAgentPluginUpload {
+        try await http.postRaw("/v1/agent-plugins/uploads", data: data, contentType: "application/zip")
+    }
+
+    public func inspectAgentPlugin(source: ClientAgentPluginSource) async throws -> ClientAgentPluginInspection {
+        try await http.post("/v1/agent-plugins/inspections", body: ClientAgentPluginInspectionRequest(source: source))
+    }
+
+    public func planAgentPlugin(inspectionId: String, agentIds: [String], inputs: [String: String]) async throws -> ClientAgentPluginPlan {
+        try await http.post("/v1/agent-plugins/plans", body: ClientAgentPluginPlanRequest(inspectionId: inspectionId, agentIds: agentIds, inputs: inputs))
+    }
+
+    public func installAgentPlugin(plan: ClientAgentPluginPlan, trustConfirmed: Bool, commandsApproved: Bool) async throws -> ClientAgentPluginOperation {
+        try await http.post("/v1/agent-plugins/install", body: ClientAgentPluginInstallRequest(planId: plan.id, approvalHash: plan.approvalHash, trustConfirmed: trustConfirmed, commandsApproved: commandsApproved))
+    }
+
+    public func uninstallAgentPlugin(id: String, forceModifiedComponents: Bool) async throws -> ClientAgentPluginOperation {
+        struct Request: Codable { var forceModifiedComponents: Bool }
+        return try await http.post("/v1/agent-plugins/\(BackendHTTPClient.encodePathSegment(id))/uninstall", body: Request(forceModifiedComponents: forceModifiedComponents))
+    }
+
+    public func fetchAgentPluginOperation(id: String) async throws -> ClientAgentPluginOperation {
+        try await http.get("/v1/agent-plugins/operations/\(BackendHTTPClient.encodePathSegment(id))")
+    }
+
+    public func fetchAgentPluginRegistries() async throws -> [ClientAgentPluginRegistry] {
+        try await http.get("/v1/agent-plugin-registries")
+    }
+
+    public func saveAgentPluginRegistry(id: String? = nil, request: ClientAgentPluginRegistryWriteRequest) async throws -> ClientAgentPluginRegistry {
+        if let id { return try await http.put("/v1/agent-plugin-registries/\(BackendHTTPClient.encodePathSegment(id))", body: request) }
+        return try await http.post("/v1/agent-plugin-registries", body: request)
+    }
+
+    public func deleteAgentPluginRegistry(id: String) async throws {
+        try await http.delete("/v1/agent-plugin-registries/\(BackendHTTPClient.encodePathSegment(id))")
+    }
+
+    public func searchAgentPluginCatalog(query: String = "", registryId: String? = nil) async throws -> ClientAgentPluginCatalogResponse {
+        var queryItems = ["search=\(BackendHTTPClient.encodeQueryValue(query))"]
+        if let registryId { queryItems.append("registryId=\(BackendHTTPClient.encodeQueryValue(registryId))") }
+        return try await http.get("/v1/agent-plugin-catalog?\(queryItems.joined(separator: "&"))")
     }
 
     public func fetchAccessUsers(platform: String? = nil) async throws -> [AccessUser] {

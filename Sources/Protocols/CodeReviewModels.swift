@@ -57,6 +57,8 @@ public struct CodeReviewItem: Codable, Sendable, Equatable, Identifiable {
     public var labels: [String]
     public var createdAt: Date?
     public var updatedAt: Date?
+    public var sourceBranch: String?
+    public var targetBranch: String?
 
     public init(
         id: String,
@@ -74,7 +76,9 @@ public struct CodeReviewItem: Codable, Sendable, Equatable, Identifiable {
         checksStatus: String? = nil,
         labels: [String] = [],
         createdAt: Date? = nil,
-        updatedAt: Date? = nil
+        updatedAt: Date? = nil,
+        sourceBranch: String? = nil,
+        targetBranch: String? = nil
     ) {
         self.id = id
         self.providerId = providerId
@@ -92,6 +96,8 @@ public struct CodeReviewItem: Codable, Sendable, Equatable, Identifiable {
         self.labels = labels
         self.createdAt = createdAt
         self.updatedAt = updatedAt
+        self.sourceBranch = sourceBranch
+        self.targetBranch = targetBranch
     }
 }
 

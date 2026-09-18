@@ -1,10 +1,43 @@
 import Foundation
+import SloppyClientCore
 import Testing
 @testable import SloppyClient
 
 @Suite("Workspace dock state")
 @MainActor
 struct WorkspaceDockStateTests {
+    @Test func matchesArcadiaReviewToCurrentShortBranch() {
+        let matching = CodeReviewItem(
+            id: "15674740",
+            providerId: "arcadia-code-review",
+            providerName: "Arcadia",
+            repository: "arcadia",
+            number: 15_674_740,
+            title: "MOBILEDEV-88951: Test schema",
+            url: "https://a.yandex-team.ru/review/15674740",
+            author: "vlad-prusakov",
+            state: .open,
+            isDraft: false,
+            roles: [.authored],
+            reviewDecision: nil,
+            checksStatus: nil,
+            labels: [],
+            createdAt: nil,
+            updatedAt: nil,
+            sourceBranch: "users/vlad-prusakov/MOBILEDEV-88951",
+            targetBranch: "trunk"
+        )
+
+        #expect(WorkspacePanelViewModel.matchingCodeReview(
+            in: [matching],
+            branch: "MOBILEDEV-88951"
+        )?.id == matching.id)
+        #expect(WorkspacePanelViewModel.matchingCodeReview(
+            in: [matching],
+            branch: "MOBILEDEV-00000"
+        ) == nil)
+    }
+
     @Test func hideAndReopenPreservesTabsSelectionAndWidth() {
         let dock = WorkspaceDockState()
         let browser = dock.open(.browser)

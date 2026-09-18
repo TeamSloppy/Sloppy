@@ -18,6 +18,8 @@ struct SidebarSessionCard: View {
     }
     private var isPinned: Bool { viewModel.settings.isSessionPinned(session.storageID) }
     private var isSelected: Bool { viewModel.selectedChatStorageID == session.storageID }
+    private var liveActivity: SidebarSessionActivity? { viewModel.liveSidebarSessionActivity(for: session) }
+    private var activityTaskID: String { "\(session.storageID):\(session.updatedAt.timeIntervalSince1970)" }
 
     var body: some View {
         primaryAction
@@ -34,6 +36,14 @@ struct SidebarSessionCard: View {
                 }
             }
             .accessibilityHint("Project \(projectName)")
+            .onChange(of: liveActivity, initial: true) { _, activity in
+                if let activity {
+                    viewModel.recordSidebarSessionActivity(activity, for: session)
+                }
+            }
+            .task(id: activityTaskID) {
+                await viewModel.monitorSidebarSessionActivity(for: session)
+            }
     }
 
     @ViewBuilder
@@ -54,6 +64,9 @@ struct SidebarSessionCard: View {
                     .foregroundColor(theme.colors.textMuted)
                     .lineLimit(1)
                 Spacer(minLength: 0)
+                if let activity = viewModel.sidebarSessionActivity(for: session) {
+                    SidebarSessionActivityIndicator(activity: activity)
+                }
                 if isPinned {
                     Icons.symbol(.pushPin, size: theme.typography.caption)
                         .foregroundColor(theme.colors.textMuted)

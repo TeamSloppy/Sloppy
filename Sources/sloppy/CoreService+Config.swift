@@ -86,6 +86,7 @@ extension CoreService {
         await sessionOrchestrator.updateAgentsRootURL(agentsRootURL)
         await toolsAuthorization.updateAgentsRootURL(agentsRootURL)
         await mcpRegistry.updateConfig(config.mcp)
+        await agentPluginManager.update(workspaceRootURL: workspaceRootURL, store: refreshedStore)
         await acpSessionManager.updateConfig(
             config.acp,
             workspaceRootURL: workspaceRootURL,

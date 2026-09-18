@@ -38,7 +38,6 @@ extension MainView {
                 }
             }
         }
-        .buttonStyle(.borderless)
         .foregroundStyle(showsApprovalRequiredChatsOnly ? Color.accentColor : Color.primary)
         .help(showsApprovalRequiredChatsOnly ? "Show all chats" : "Show chats requiring approval")
         .accessibilityLabel("Chats requiring approval")

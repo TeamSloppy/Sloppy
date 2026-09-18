@@ -2,6 +2,35 @@ import SloppyClientCore
 import SloppyClientUI
 import SwiftUI
 
+enum SidebarSessionActivity: String, Equatable {
+    case working
+    case completed
+    case waitingForInput
+    case failed
+
+    static func resolve(
+        isSending: Bool = false,
+        isAwaitingAgentResponse: Bool = false,
+        hasPendingInputRequest: Bool = false,
+        runStage: ChatRunStage?
+    ) -> SidebarSessionActivity? {
+        if hasPendingInputRequest || runStage == .paused {
+            return .waitingForInput
+        }
+        if isSending || isAwaitingAgentResponse || runStage?.isWorking == true {
+            return .working
+        }
+        switch runStage {
+        case .done:
+            return .completed
+        case .interrupted:
+            return .failed
+        case .thinking, .searching, .responding, .paused, .none:
+            return nil
+        }
+    }
+}
+
 @MainActor
 struct SidebarSessionRow: View {
     let session: ChatSessionSummary
@@ -11,6 +40,7 @@ struct SidebarSessionRow: View {
     let isPinned: Bool
     let isSelected: Bool
     var requiresApproval = false
+    var activity: SidebarSessionActivity? = nil
     let onOpen: @MainActor () -> Void
     let onTogglePin: @MainActor () -> Void
     let onCopyDebugLink: @MainActor () -> Void
@@ -75,6 +105,9 @@ struct SidebarSessionRow: View {
                 }
             }
             Spacer(minLength: 0)
+            if let activity {
+                SidebarSessionActivityIndicator(activity: activity)
+            }
             if isPinned {
                 Icons.symbol(.pushPin, size: theme.typography.caption)
                     .foregroundColor(theme.colors.textMuted)
@@ -93,6 +126,50 @@ struct SidebarSessionRow: View {
     }
 }
 
+@MainActor
+struct SidebarSessionActivityIndicator: View {
+    let activity: SidebarSessionActivity
+
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        Group {
+            switch activity {
+            case .working:
+                ProgressView()
+                    .controlSize(.small)
+                    .tint(theme.colors.statusActive)
+                    .accessibilityLabel("Task is running")
+            case .completed:
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(theme.colors.statusReady)
+                    .accessibilityLabel("Task completed")
+            case .waitingForInput:
+                Image(systemName: "circle.fill")
+                    .foregroundStyle(theme.colors.statusWarning)
+                    .accessibilityLabel("Task is waiting for input")
+            case .failed:
+                Image(systemName: "exclamationmark.circle.fill")
+                    .foregroundStyle(theme.colors.statusBlocked)
+                    .accessibilityLabel("Task was interrupted")
+            }
+        }
+        .font(.system(size: theme.typography.caption, weight: .semibold))
+        .frame(width: 16, height: 16)
+        .accessibilityIdentifier("sidebar.session.activity.\(activity.rawValue)")
+        .help(helpText)
+    }
+
+    private var helpText: String {
+        switch activity {
+        case .working: "Working"
+        case .completed: "Completed"
+        case .waitingForInput: "Waiting for input"
+        case .failed: "Interrupted"
+        }
+    }
+}
+
 #Preview("Session Row") {
     SidebarSessionRow(
         session: ChatSessionSummary(
@@ -106,6 +183,7 @@ struct SidebarSessionRow: View {
         projectName: "Sloppy",
         isPinned: true,
         isSelected: true,
+        activity: .working,
         onOpen: {},
         onTogglePin: {},
         onCopyDebugLink: {},

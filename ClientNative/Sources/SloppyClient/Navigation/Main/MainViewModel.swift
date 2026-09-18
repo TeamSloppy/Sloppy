@@ -66,6 +66,7 @@ final class MainViewModel {
     private var loadedSidebarSessions: [ChatSessionSummary]?
     var workspacePanelViewModel: WorkspacePanelViewModel
     @ObservationIgnored let workspaceDockStore = WorkspaceDockStore()
+    private var sidebarSessionActivities: [String: SidebarSessionActivity] = [:]
     var browserPresentationRequest: UUID?
     var browserSessions: [WorkspaceTab.ID: WorkspaceBrowserSession] = [:]
     var chatNavigationSerial = 0
@@ -164,6 +165,69 @@ final class MainViewModel {
         loadedSidebarSessions = chatViewModel.sessionCatalog
     }
 
+    func sidebarSessionActivity(for session: ChatSessionSummary) -> SidebarSessionActivity? {
+        liveSidebarSessionActivity(for: session) ?? sidebarSessionActivities[session.storageID]
+    }
+
+    func liveSidebarSessionActivity(for session: ChatSessionSummary) -> SidebarSessionActivity? {
+        guard let viewModel = liveChatViewModel(for: session) else { return nil }
+        return SidebarSessionActivity.resolve(
+            isSending: viewModel.isSending,
+            isAwaitingAgentResponse: viewModel.isAwaitingAgentResponse,
+            hasPendingInputRequest: viewModel.activeInputRequest != nil,
+            runStage: viewModel.activeRunStatus?.stage
+        )
+    }
+
+    func recordSidebarSessionActivity(
+        _ activity: SidebarSessionActivity?,
+        for session: ChatSessionSummary
+    ) {
+        guard sidebarSessionActivities[session.storageID] != activity else { return }
+        if let activity {
+            sidebarSessionActivities[session.storageID] = activity
+        } else {
+            sidebarSessionActivities.removeValue(forKey: session.storageID)
+        }
+    }
+
+    func monitorSidebarSessionActivity(for session: ChatSessionSummary) async {
+        let client = apiClient(for: session)
+        while !Task.isCancelled {
+            guard let detail = try? await client.fetchAgentSession(
+                agentId: session.agentId,
+                sessionId: session.id
+            ) else {
+                return
+            }
+            let fetched = SidebarSessionActivity.resolve(
+                hasPendingInputRequest: detail.pendingInputRequest != nil,
+                runStage: detail.latestRunStatus?.stage
+            )
+            let resolved = liveSidebarSessionActivity(for: session) ?? fetched
+            recordSidebarSessionActivity(resolved, for: session)
+            guard resolved == .working else { return }
+            try? await Task.sleep(for: .seconds(2))
+        }
+    }
+
+    private func liveChatViewModel(for session: ChatSessionSummary) -> ChatScreenViewModel? {
+        let sessionEndpoint = session.sourceInstanceID.flatMap(endpoint(for:)) ?? endpoint
+        for (tabID, state) in tabStates {
+            let candidate = state.chatState?.viewModel ?? state.projectKanbanState?.chatViewModel
+            guard let candidate,
+                  candidate.selectedSessionId == session.id,
+                  (tabEndpoints[tabID] ?? endpoint) == sessionEndpoint else {
+                continue
+            }
+            return candidate
+        }
+        if sessionEndpoint == endpoint, chatViewModel.selectedSessionId == session.id {
+            return chatViewModel
+        }
+        return nil
+    }
+
     var chatSidebarMode: ChatSidebarListMode {
         get { settings.chatSidebarMode }
         set { settings.chatSidebarMode = newValue }
@@ -232,8 +296,13 @@ final class MainViewModel {
             }
         case .terminal:
             if tab.terminal == nil {
+                #if os(macOS)
+                let fallbackDirectory = FileManager.default.homeDirectoryForCurrentUser
+                #else
+                let fallbackDirectory = URL.applicationDirectory
+                #endif
                 let directory = selectedTabID.map { terminalWorkingDirectory(for: $0) }
-                    ?? FileManager.default.homeDirectoryForCurrentUser
+                    ?? fallbackDirectory
                 let remote: WorkspaceTerminalSession.RemoteConfiguration?
                 if case .relay(let coordinatorBaseURL, let targetNodeID) = source {
                     remote = .init(apiClient: SloppyAPIClient(endpoint: source), coordinatorBaseURL: coordinatorBaseURL,
@@ -876,6 +945,14 @@ final class MainViewModel {
         return SloppyAPIClient(endpoint: sourceEndpoint)
     }
 
+    private func apiClient(for session: ChatSessionSummary) -> SloppyAPIClient {
+        guard let instanceID = session.sourceInstanceID,
+              let sourceEndpoint = endpoint(for: instanceID) else {
+            return apiClient
+        }
+        return SloppyAPIClient(endpoint: sourceEndpoint)
+    }
+
     func project(for tabID: WorkspaceTab.ID, localProjectID: String) -> APIProjectRecord? {
         let sourceEndpoint = tabEndpoints[tabID] ?? endpoint
         return projects.first { project in
@@ -975,6 +1052,36 @@ final class MainViewModel {
         pendingNewChatStarterPrompt = CodeReviewChatPromptBuilder.prompt(for: detail)
         selectNewChat()
         requestSelectedComposerFocus()
+    }
+
+    func addToSideChat(_ text: String) {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+
+        sideChatViewModel()?.addTextSelectionToComposer(text)
+    }
+
+    func startInSideChat(_ text: String) {
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty, let chat = sideChatViewModel() else { return }
+
+        Task { @MainActor in
+            await chat.waitForInitialData()
+            chat.useStarterPrompt(text)
+            chat.sendMessage(content: text)
+        }
+    }
+
+    private func sideChatViewModel() -> ChatScreenViewModel? {
+        let dock = workspaceDockState
+        let tab: WorkspaceDockTab
+        if let existing = dock.tabs.first(where: { $0.kind == .sideChat }) {
+            dock.select(existing)
+            tab = existing
+        } else {
+            tab = openWorkspaceDockTab(.sideChat)
+        }
+        return tab.chat
     }
 
     private func applyPendingNewChatStarterPrompt() {

@@ -25,6 +25,7 @@ extension CoreRouter {
             ActorsAPIRouter(service: service),
             CronAPIRouter(service: service),
             SkillsAPIRouter(service: service),
+            AgentPluginsAPIRouter(service: service),
             ArtifactsAPIRouter(service: service),
             SitesAPIRouter(service: service),
             WorkspacesAPIRouter(service: service),

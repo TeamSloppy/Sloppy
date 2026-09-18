@@ -9,6 +9,7 @@ struct WorkspaceEnvironmentPanelView: View {
 
     @State private var areChangesExpanded = true
     @Environment(\.theme) private var theme
+    @Environment(\.openURL) private var openURL
 
     private var sourceControl: ProjectWorkingTreeSourceControlResponse? {
         viewModel.sourceControl
@@ -45,8 +46,8 @@ struct WorkspaceEnvironmentPanelView: View {
                 )
 
                 environmentRow(
-                    title: sourceControl?.providerId.capitalized ?? "Source control",
-                    detail: sourceControl?.isRepository == true ? "Repository detected" : "Repository unavailable",
+                    title: sourceControlProviderTitle,
+                    detail: sourceControlDetail,
                     systemImage: "point.3.connected.trianglepath.dotted"
                 )
 
@@ -69,21 +70,40 @@ struct WorkspaceEnvironmentPanelView: View {
                 .buttonStyle(.plain)
                 .disabled(onOpenTerminal == nil)
 
-                environmentRow(
-                    title: "Pull request status unavailable",
-                    detail: "No remote pull-request provider",
-                    systemImage: "arrow.triangle.pull",
-                    isEnabled: false
-                )
+                codeReviewRows
+            }
+        }
+    }
 
+    @ViewBuilder
+    private var codeReviewRows: some View {
+        if let review = viewModel.codeReview, let url = URL(string: review.url) {
+            Button { openURL(url) } label: {
                 environmentRow(
-                    title: "Compare branch",
-                    detail: "Remote comparison unavailable",
-                    systemImage: "arrow.left.arrow.right",
-                    trailingSystemImage: "arrow.up.right",
-                    isEnabled: false
+                    title: reviewTitle(review),
+                    detail: review.title,
+                    systemImage: "arrow.triangle.pull",
+                    trailingSystemImage: "arrow.up.right"
                 )
             }
+            .buttonStyle(.plain)
+
+            Button { openURL(url) } label: {
+                environmentRow(
+                    title: reviewBranchTitle(review),
+                    detail: "Open review comparison",
+                    systemImage: "arrow.left.arrow.right",
+                    trailingSystemImage: "arrow.up.right"
+                )
+            }
+            .buttonStyle(.plain)
+        } else {
+            environmentRow(
+                title: viewModel.codeReviewLoadError == nil ? "No open review" : "Review unavailable",
+                detail: viewModel.codeReviewLoadError ?? noReviewDetail,
+                systemImage: "arrow.triangle.pull",
+                isEnabled: false
+            )
         }
     }
 
@@ -262,6 +282,38 @@ struct WorkspaceEnvironmentPanelView: View {
             return "\(host):\(port)"
         }
         return host
+    }
+
+    private var sourceControlProviderTitle: String {
+        switch sourceControl?.providerId {
+        case "arcadia-source-control": "Arcadia"
+        case "git-cli": "Git"
+        case .some(let providerID): providerID.replacingOccurrences(of: "-", with: " ").capitalized
+        case nil: "Source control"
+        }
+    }
+
+    private var sourceControlDetail: String {
+        guard let sourceControl else { return "Source-control information unavailable" }
+        if sourceControl.isRepository { return "Repository detected" }
+        return sourceControl.message ?? "Repository unavailable"
+    }
+
+    private var noReviewDetail: String {
+        guard let branch = sourceControl?.branch, !branch.isEmpty else {
+            return "Current branch is unavailable"
+        }
+        return "No review found for \(branch)"
+    }
+
+    private func reviewTitle(_ review: CodeReviewItem) -> String {
+        let number = review.number.map { " #\($0)" } ?? ""
+        return "\(review.providerName) review\(number)"
+    }
+
+    private func reviewBranchTitle(_ review: CodeReviewItem) -> String {
+        let source = review.sourceBranch ?? sourceControl?.branch ?? "branch"
+        return "\(source) → \(review.targetBranch ?? "trunk")"
     }
 }
 

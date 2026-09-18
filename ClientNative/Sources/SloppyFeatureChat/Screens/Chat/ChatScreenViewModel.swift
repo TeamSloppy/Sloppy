@@ -465,6 +465,7 @@ public final class ChatScreenViewModel {
     @ObservationIgnored private var dictationMeterTask: Task<Void, Never>?
     @ObservationIgnored private var suggestionTask: Task<Void, Never>?
     @ObservationIgnored private var workingTreeSourceControlTask: Task<Void, Never>?
+    @ObservationIgnored private var isForkingSession = false
     @ObservationIgnored private var composerSuggestionCursorOffset: Int?
     @ObservationIgnored private var composerSuggestionRequestID: UInt = 0
 
@@ -1074,6 +1075,52 @@ public final class ChatScreenViewModel {
 
         pendingSessionSummary = nil
         openSession(session)
+    }
+
+    public func forkSession(from message: ChatMessage) {
+        guard !isForkingSession,
+              let agent = selectedAgent,
+              let parentSessionId = selectedSessionId else {
+            return
+        }
+
+        let parent = sessions.first { $0.id == parentSessionId }
+        let projectId = parent?.projectId ?? activeProjectId
+        let workspaceId = parent?.workspaceId
+        let responseTitle = message.textContent
+            .split(whereSeparator: \.isNewline)
+            .first
+            .map(String.init)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let title: String
+        if let responseTitle, !responseTitle.isEmpty {
+            title = "Fork: \(String(responseTitle.prefix(48)))"
+        } else {
+            title = "Fork of \(activeSessionTitle)"
+        }
+
+        isForkingSession = true
+        sendErrorMessage = nil
+        Task { @MainActor in
+            defer { isForkingSession = false }
+            do {
+                let summary = try await apiClient.createAgentSession(
+                    agentId: agent.id,
+                    title: title,
+                    parentSessionId: parentSessionId,
+                    projectId: projectId,
+                    workspaceId: workspaceId
+                )
+                upsertSessionSummary(summary)
+                selectSession(
+                    summary.id,
+                    contextTitle: activeContextTitle,
+                    projectId: projectId
+                )
+            } catch {
+                sendErrorMessage = "Could not fork session: \(error.localizedDescription)"
+            }
+        }
     }
 
     public func attachProjectFileReference(projectId: String, path: String, type: String) {
@@ -1805,15 +1852,20 @@ public final class ChatScreenViewModel {
             workingTreeSourceControl = nil
             return
         }
+        let taskId = activeTaskId
 
         workingTreeSourceControlTask = Task { @MainActor in
-            let response = try? await apiClient.fetchProjectWorkingTreeSourceControl(projectId: projectId)
+            let response = try? await apiClient.fetchProjectWorkingTreeSourceControl(
+                projectId: projectId,
+                taskId: taskId
+            )
             guard !Task.isCancelled,
                   activeProjectId == projectId,
+                  activeTaskId == taskId,
                   selectedSessionId == sessionId else {
                 return
             }
-            workingTreeSourceControl = response?.hasChanges == true ? response : nil
+            workingTreeSourceControl = response
         }
     }
 

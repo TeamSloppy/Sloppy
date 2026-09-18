@@ -110,10 +110,13 @@ extension MainView {
                 }
 #endif
 
-                ToolbarItemGroup(placement: .primaryAction) {
 #if os(macOS)
+                ToolbarItem(placement: .automatic) {
                     toolbarApprovalButton
+                }
 #endif
+                
+                ToolbarItemGroup(placement: .primaryAction) {
 #if !os(macOS)
                     if !isCanvasWorkspaceSelected,
                        viewModel.selectedAppSection != .artifacts,
@@ -200,10 +203,9 @@ extension MainView {
                 viewModel.requestChatScrollToEnd(for: newValue)
             }
         }
-        .onChange(of: activeChatViewModel?.workingTreeSourceControl?.diff) { _, diff in
-            guard diff != nil,
+        .onChange(of: activeChatViewModel?.workingTreeSourceControl) { _, sourceControl in
+            guard let sourceControl,
                   let activeChatViewModel,
-                  let sourceControl = activeChatViewModel.workingTreeSourceControl,
                   let projectID = activeChatViewModel.activeProjectIdForWorkspacePanel else { return }
             if viewModel.workspacePanelViewModel.context?.projectId == projectID {
                 viewModel.workspacePanelViewModel.synchronizeSourceControl(sourceControl)

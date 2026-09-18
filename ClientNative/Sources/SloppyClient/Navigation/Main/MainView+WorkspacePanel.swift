@@ -152,15 +152,6 @@ extension MainView {
     }
 
     func askInSideChat(_ selectedText: String) {
-        let dock = viewModel.workspaceDockState
-        let tab: WorkspaceDockTab
-        if let existing = dock.tabs.first(where: { $0.kind == .sideChat }) {
-            dock.select(existing)
-            tab = existing
-        } else {
-            tab = viewModel.openWorkspaceDockTab(.sideChat)
-        }
-        tab.chat?.addTextSelectionToComposer(selectedText)
+        viewModel.addToSideChat(selectedText)
     }
 }
-

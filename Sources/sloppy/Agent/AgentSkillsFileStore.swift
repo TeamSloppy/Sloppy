@@ -323,6 +323,52 @@ final class AgentSkillsFileStore {
         try writeManifest(manifest, agentID: normalizedAgentID)
     }
 
+    @discardableResult
+    func installManagedSkill(
+        agentID: String,
+        owner: String,
+        repo: String,
+        sourceURL: URL,
+        version: String,
+        replaceExisting: Bool
+    ) throws -> InstalledSkill {
+        let skillID = "\(owner)/\(repo)"
+        if replaceExisting, (try? getSkill(agentID: agentID, skillID: skillID)) != nil {
+            try uninstallSkill(agentID: agentID, skillID: skillID)
+        }
+        guard let destination = skillDirectoryURL(agentID: agentID, skillID: skillID) else {
+            throw StoreError.agentNotFound
+        }
+        try fileManager.createDirectory(at: destination.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try fileManager.copyItem(at: sourceURL, to: destination)
+        let skillMarkdownURL = destination.appendingPathComponent("SKILL.md")
+        guard let markdown = try? String(contentsOf: skillMarkdownURL, encoding: .utf8) else {
+            try? fileManager.removeItem(at: destination)
+            throw StoreError.manifestReadFailed
+        }
+        let frontmatter = SkillsGitHubClient.parseFrontmatter(from: markdown)
+        var installed = try installSkill(
+            agentID: agentID,
+            owner: owner,
+            repo: repo,
+            name: normalizedFrontmatterValue(frontmatter?.name) ?? repo,
+            description: normalizedFrontmatterValue(frontmatter?.description),
+            userInvocable: frontmatter?.userInvocable ?? true,
+            allowedTools: frontmatter?.allowedTools ?? [],
+            context: frontmatter?.context.flatMap(SkillContext.init(rawValue:)),
+            agent: frontmatter?.agent,
+            autoRoute: frontmatter?.autoRoute,
+            localPath: destination.path
+        )
+        installed.version = version
+        var manifest = try readManifest(agentID: agentID)
+        if let index = manifest.installedSkills.firstIndex(where: { $0.id == skillID }) {
+            manifest.installedSkills[index] = installed
+            try writeManifest(manifest, agentID: agentID)
+        }
+        return installed
+    }
+
     /// Get the path to a skill directory for external file operations
     func getSkillPath(agentID: String, skillID: String) throws -> String {
         let normalizedAgentID = try normalizedAgentID(agentID)

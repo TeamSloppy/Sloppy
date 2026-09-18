@@ -635,6 +635,7 @@ private struct ChatTranscriptRegion: View {
             providerSettingsRecoveryMessageIDs: viewModel.providerSettingsRecoveryMessageIDs,
             onSubmitInputResponse: viewModel.submitInputResponse,
             onCancelInputRequest: viewModel.cancelInputRequest,
+            onForkFromMessage: viewModel.forkSession,
             onOpenProviderSettings: { viewModel.openSettings(.providers) }
         )
     }
@@ -796,22 +797,72 @@ private struct ChatTranscriptPane: View {
     let providerSettingsRecoveryMessageIDs: Set<String>
     let onSubmitInputResponse: @MainActor ([ChatPlanInputAnswer]) -> Void
     let onCancelInputRequest: @MainActor () -> Void
+    let onForkFromMessage: @MainActor (ChatMessage) -> Void
     let onOpenProviderSettings: @MainActor () -> Void
 
     @Environment(\.theme) private var theme
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.chatTextSelectionActions) private var textSelectionActions
+    @State private var visibleTranscriptItemID: String?
+    @State private var scrollTarget: ChatTranscriptScrollTarget?
+    @State private var scrollTargetRequestID: UInt = 0
+
     var body: some View {
-        ChatNativeTranscriptView(
-            items: nativeItems,
-            contentWidth: contentWidth,
-            topInset: transcript.hasEarlierMessages ? 0 : messagesTopInset,
-            bottomInset: composerScrollInset,
-            scrollToEndRequest: scrollToEndRequest,
-            renderRevision: nativeRenderRevision,
-            reduceMotion: reduceMotion,
-            renderer: renderNativeItem
+        GeometryReader { proxy in
+            ChatNativeTranscriptView(
+                items: nativeItems,
+                contentWidth: contentWidth,
+                topInset: transcript.hasEarlierMessages ? 0 : messagesTopInset,
+                bottomInset: composerScrollInset,
+                scrollToEndRequest: scrollToEndRequest,
+                scrollTarget: scrollTarget,
+                renderRevision: nativeRenderRevision,
+                reduceMotion: reduceMotion,
+                onVisibleItemChange: { itemID in
+                    visibleTranscriptItemID = itemID
+                },
+                renderer: renderNativeItem
+            )
+#if os(macOS)
+            .overlay(alignment: .trailing) {
+                if conversationWaypoints.count > 1,
+                   proxy.size.width >= contentWidth + 112 {
+                    ChatConversationNavigator(
+                        waypoints: conversationWaypoints,
+                        activeWaypointID: activeWaypointID,
+                        onSelect: scroll(to:)
+                    )
+                    .padding(.trailing, theme.spacing.m)
+                }
+            }
+#endif
+        }
+    }
+
+    private var conversationWaypoints: [ChatConversationWaypoint] {
+        ChatConversationWaypoint.build(from: transcript.messages)
+    }
+
+    private var activeWaypointID: ChatConversationWaypoint.ID? {
+        guard let visibleTranscriptItemID,
+              let visibleIndex = nativeItems.firstIndex(where: { $0.id == visibleTranscriptItemID }) else {
+            return conversationWaypoints.last?.id
+        }
+
+        return conversationWaypoints.last { waypoint in
+            guard let waypointIndex = nativeItems.firstIndex(where: { $0.id == waypoint.targetItemID }) else {
+                return false
+            }
+            return waypointIndex <= visibleIndex
+        }?.id ?? conversationWaypoints.first?.id
+    }
+
+    private func scroll(to waypoint: ChatConversationWaypoint) {
+        scrollTargetRequestID &+= 1
+        scrollTarget = ChatTranscriptScrollTarget(
+            itemID: waypoint.targetItemID,
+            requestID: scrollTargetRequestID
         )
     }
 
@@ -942,7 +993,8 @@ private struct ChatTranscriptPane: View {
                         isActivelyWorking: activeRunMessageIDs.contains(message.id),
                         onOpenProviderSettings: recoveryMessageIDs.contains(message.id)
                             ? onOpenProviderSettings
-                            : nil
+                            : nil,
+                        onForkFromMessage: onForkFromMessage
                     )
                     .frame(minWidth: 0, maxWidth: .infinity)
                     .padding(.bottom, bottomSpacing)

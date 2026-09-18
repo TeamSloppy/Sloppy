@@ -543,6 +543,27 @@ public protocol PersistenceStore: Sendable {
     /// Deletes one channel plugin record.
     func deleteChannelPlugin(id: String) async
 
+    /// Lists installed Agent Plugin bundles.
+    func listAgentPlugins() async -> [InstalledAgentPlugin]
+
+    /// Returns one installed Agent Plugin bundle.
+    func agentPlugin(id: String) async -> InstalledAgentPlugin?
+
+    /// Creates or replaces one installed Agent Plugin bundle.
+    func saveAgentPlugin(_ plugin: InstalledAgentPlugin) async
+
+    /// Deletes one installed Agent Plugin bundle.
+    func deleteAgentPlugin(id: String) async
+
+    /// Lists configured read-only Agent Plugin registries.
+    func listAgentPluginRegistries() async -> [AgentPluginRegistry]
+
+    /// Creates or replaces one Agent Plugin registry.
+    func saveAgentPluginRegistry(_ registry: AgentPluginRegistry) async
+
+    /// Deletes one Agent Plugin registry.
+    func deleteAgentPluginRegistry(id: String) async
+
     /// Lists cron tasks for an agent.
     func listCronTasks(agentId: String) async -> [AgentCronTask]
 

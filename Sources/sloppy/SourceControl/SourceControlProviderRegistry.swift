@@ -22,6 +22,36 @@ extension CoreService {
         sourceControlProvider(id: task?.sourceControlProviderId ?? project.sourceControlProviderId)
     }
 
+    func inspectSourceControlProvider(
+        for project: ProjectRecord,
+        task: ProjectTask? = nil,
+        at path: String
+    ) async -> (provider: any SourceControlProvider, repository: SourceControlRepositoryInfo) {
+        if let requestedID = task?.sourceControlProviderId ?? project.sourceControlProviderId {
+            let provider = sourceControlProvider(id: requestedID)
+            let repository = await provider.inspectRepository(at: path)
+            if repository.isRepository || requestedID != Self.defaultSourceControlProviderID {
+                return (provider, repository)
+            }
+        }
+
+        let fallback = sourceControlProvider()
+        let fallbackRepository = await fallback.inspectRepository(at: path)
+        if fallbackRepository.isRepository {
+            return (fallback, fallbackRepository)
+        }
+
+        for provider in sourceControlProviders.values
+            .filter({ $0.id != fallback.id })
+            .sorted(by: { $0.id < $1.id }) {
+            let repository = await provider.inspectRepository(at: path)
+            if repository.isRepository {
+                return (provider, repository)
+            }
+        }
+        return (fallback, fallbackRepository)
+    }
+
     func registerSourceControlProvider(_ provider: any SourceControlProvider) {
         sourceControlProviders[provider.id] = provider
     }

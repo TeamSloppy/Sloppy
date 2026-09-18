@@ -210,7 +210,9 @@ extension MainView {
             } else if viewModel.selectedAppSection == .pullRequests {
                 PullRequestsScreen(
                     apiClient: viewModel.apiClient,
-                    onOpenChat: viewModel.openPullRequestChat
+                    onOpenChat: viewModel.openPullRequestChat,
+                    onAddToSideChat: viewModel.addToSideChat,
+                    onResolveOpenIssues: viewModel.startInSideChat
                 )
             } else if viewModel.selectedAppSection == .sites {
                 SitesScreen(
@@ -277,4 +279,3 @@ extension MainView {
         }
     }
 }
-

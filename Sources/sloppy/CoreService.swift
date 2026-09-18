@@ -229,6 +229,7 @@ public actor CoreService {
     let agentSkillsStore: AgentSkillsFileStore
     let skillsRegistryService: SkillsRegistryService
     let skillsGitHubClient: SkillsGitHubClient
+    let agentPluginManager: AgentPluginManager
     let updateChecker: UpdateCheckerService
     let swarmPlanner: SwarmPlanner
     let gitWorktreeService: GitWorktreeService
@@ -441,6 +442,10 @@ public actor CoreService {
         self.store = persistenceBuilder.makeStore(config: config)
         self.workspaceRootURL = config
             .resolvedWorkspaceRootURL(currentDirectory: currentDirectory)
+        self.agentPluginManager = AgentPluginManager(
+            workspaceRootURL: self.workspaceRootURL,
+            store: self.store
+        )
         self.nodeMeshStore = NodeMeshStore(
             stateURL: config.resolvedNodeMeshStateURL(currentDirectory: currentDirectory)
         )

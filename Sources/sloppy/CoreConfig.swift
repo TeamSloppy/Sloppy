@@ -463,6 +463,7 @@ public struct CoreConfig: Codable, Sendable {
             public var cwd: String?
             public var endpoint: String?
             public var headers: [String: String]
+            public var environment: [String: String]
             public var timeoutMs: Int
             public var enabled: Bool
             public var exposeTools: Bool
@@ -478,6 +479,7 @@ public struct CoreConfig: Codable, Sendable {
                 case cwd
                 case endpoint
                 case headers
+                case environment
                 case timeoutMs
                 case enabled
                 case exposeTools
@@ -494,6 +496,7 @@ public struct CoreConfig: Codable, Sendable {
                 cwd: String? = nil,
                 endpoint: String? = nil,
                 headers: [String: String] = [:],
+                environment: [String: String] = [:],
                 timeoutMs: Int = 15_000,
                 enabled: Bool = true,
                 exposeTools: Bool = true,
@@ -508,6 +511,7 @@ public struct CoreConfig: Codable, Sendable {
                 self.cwd = cwd
                 self.endpoint = endpoint
                 self.headers = headers
+                self.environment = environment
                 self.timeoutMs = timeoutMs
                 self.enabled = enabled
                 self.exposeTools = exposeTools
@@ -525,6 +529,7 @@ public struct CoreConfig: Codable, Sendable {
                 cwd = try container.decodeIfPresent(String.self, forKey: .cwd)
                 endpoint = try container.decodeIfPresent(String.self, forKey: .endpoint)
                 headers = try container.decodeIfPresent([String: String].self, forKey: .headers) ?? [:]
+                environment = try container.decodeIfPresent([String: String].self, forKey: .environment) ?? [:]
                 timeoutMs = try container.decodeIfPresent(Int.self, forKey: .timeoutMs) ?? 15_000
                 enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? true
                 exposeTools = try container.decodeIfPresent(Bool.self, forKey: .exposeTools) ?? true

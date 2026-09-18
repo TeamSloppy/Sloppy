@@ -32,6 +32,8 @@ struct CodeReviewSourceTests {
                 "state": "open",
                 "isDraft": false,
                 "roles": ["authored", "review_requested"],
+                "sourceBranch": "feature/pull-request-inbox",
+                "targetBranch": "main",
                 "labels": []
               }],
               "providers": [{
@@ -46,6 +48,8 @@ struct CodeReviewSourceTests {
 
         let response = try JSONDecoder().decode(CodeReviewInboxResponse.self, from: data)
         #expect(response.items.first?.roles == [.authored, .reviewRequested])
+        #expect(response.items.first?.sourceBranch == "feature/pull-request-inbox")
+        #expect(response.items.first?.targetBranch == "main")
         #expect(response.providers.first?.displayName == "GitHub")
     }
 
@@ -127,13 +131,22 @@ struct CodeReviewSourceTests {
         #expect(screen.contains("maxHeight: .infinity, alignment: .topLeading"))
         #expect(screen.contains("Button(\"Try Again\")"))
         #expect(detail.contains("Label(\"Open chat\""))
+        #expect(detail.contains("Resolve Opened Issues"))
+        #expect(detail.contains("Add comment to chat"))
+        #expect(detail.contains("promptForOpenIssues"))
         #expect(detail.contains("case code = \"Code\""))
         #expect(diff.contains("CodeReviewSideBySideDiffView"))
+        #expect(diff.contains("Add diff line to chat"))
+        #expect(diff.contains("onAddToChat?("))
         #expect(diff.contains("Task.detached(priority: .userInitiated)"))
         #expect(diff.contains("CodeReviewDiffSkeletonView"))
         #expect(diff.contains("LazyVStack(alignment: .leading, spacing: 0)"))
         #expect(!diff.contains("private var files: [CodeReviewDiffFile]"))
         #expect(model.contains("CodeReviewChatPromptBuilder.prompt"))
+        #expect(model.contains("func addToSideChat(_ text: String)"))
+        #expect(model.contains("func startInSideChat(_ text: String)"))
+        #expect(model.contains("sideChatViewModel()?.addTextSelectionToComposer(text)"))
+        #expect(model.contains("chat.sendMessage(content: text)"))
         #expect(model.contains("case pullRequests"))
         #expect(macSidebar.contains("title: \"Pull Requests\""))
         #expect(iosSidebar.contains("Tab(\"Pull Requests\""))

@@ -5,80 +5,270 @@ import SloppyClientUI
 
 struct AgentListView: View {
     let agents: [APIAgentRecord]
+    let snapshots: [String: AgentListSnapshot]
     let isLoading: Bool
-    let onRefresh: () -> Void
+    let errorMessage: String?
+    let onRefresh: () async -> Void
 
     @Environment(\.theme) private var theme
+    @State private var searchText = ""
+
+    private var filteredAgents: [APIAgentRecord] {
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !query.isEmpty else { return agents }
+        return agents.filter {
+            $0.displayName.localizedCaseInsensitiveContains(query)
+                || $0.role.localizedCaseInsensitiveContains(query)
+                || $0.id.localizedCaseInsensitiveContains(query)
+        }
+    }
 
     var body: some View {
         let c = theme.colors
         let sp = theme.spacing
         let ty = theme.typography
 
-        return ScrollView {
+        ScrollView {
             VStack(alignment: .leading, spacing: sp.l) {
-                if isLoading && agents.isEmpty {
-                    LoadingSkeleton("Loading agents…")
-                } else if agents.isEmpty {
-                    EmptyStateView("No agents registered")
-                        .padding(sp.l)
-                } else {
-                    LazyVStack(alignment: .leading, spacing: sp.s) {
-                        ForEach(agents) { agent in
-                            NavigationLink(value: agent.id) {
-                                EntityCard(
-                                    title: agent.displayName,
-                                    subtitle: agent.role.isEmpty ? "No role" : agent.role,
-                                    trailing: agent.isSystem == true ? "SYS" : nil,
-                                    accentColor: c.accentCyan
-                                )
-                            }
+                summaryHeader
+
+                if let errorMessage, agents.isEmpty {
+                    ContentUnavailableView(
+                        "Couldn’t load agents",
+                        systemImage: "wifi.exclamationmark",
+                        description: Text(errorMessage)
+                    )
+                    .frame(maxWidth: .infinity, minHeight: 280)
+                } else if isLoading && agents.isEmpty {
+                    LazyVGrid(columns: gridColumns, spacing: sp.m) {
+                        ForEach(0..<4, id: \.self) { _ in
+                            AgentCardPlaceholder()
                         }
-                        .buttonStyle(.plain)
+                    }
+                } else if filteredAgents.isEmpty {
+                    ContentUnavailableView(
+                        searchText.isEmpty ? "No agents yet" : "No matching agents",
+                        systemImage: searchText.isEmpty ? "person.2.slash" : "magnifyingglass",
+                        description: Text(searchText.isEmpty ? "Agents will appear here after they are registered." : "Try another name, role, or identifier.")
+                    )
+                    .frame(maxWidth: .infinity, minHeight: 280)
+                } else {
+                    LazyVGrid(columns: gridColumns, spacing: sp.m) {
+                        ForEach(filteredAgents) { agent in
+                            NavigationLink(value: agent.id) {
+                                AgentCard(agent: agent, snapshot: snapshots[agent.id])
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityIdentifier("agents.card.\(agent.id)")
+                        }
                     }
                 }
             }
+            .padding(sp.l)
         }
+        .background(c.background)
         .navigationTitle("Agents")
         .navigationTitlePosition(.leading)
+        .searchable(text: $searchText, prompt: "Search agents")
         .navigationBarTrailingItems {
-            Button("REFRESH") { onRefresh() }
-                .foregroundColor(c.accentCyan)
-                .font(.system(size: ty.caption))
+            Button {
+                Task { await onRefresh() }
+            } label: {
+                if isLoading {
+                    ProgressView().controlSize(.small)
+                } else {
+                    Label("Refresh", systemImage: "arrow.clockwise")
+                }
+            }
+            .disabled(isLoading)
+            .foregroundColor(c.accentCyan)
+            .font(.system(size: ty.caption, weight: .medium))
+            .accessibilityIdentifier("agents.refresh")
+        }
+        .refreshable { await onRefresh() }
+    }
+
+    private var gridColumns: [GridItem] {
+        [GridItem(.adaptive(minimum: 300, maximum: 460), spacing: theme.spacing.m, alignment: .top)]
+    }
+
+    private var summaryHeader: some View {
+        let c = theme.colors
+        let sp = theme.spacing
+        let activeAgents = snapshots.values.count { $0.activeTaskCount > 0 }
+        let totalRuns = snapshots.values.reduce(0) { $0 + $1.sessionCount }
+
+        return HStack(alignment: .center, spacing: sp.m) {
+            VStack(alignment: .leading, spacing: sp.xs) {
+                Text("Your agent team")
+                    .font(.title2.weight(.semibold))
+                    .foregroundStyle(c.textPrimary)
+                Text("Track work, usage, skills, and files in one place.")
+                    .font(.subheadline)
+                    .foregroundStyle(c.textSecondary)
+            }
+            Spacer(minLength: sp.m)
+            HStack(spacing: sp.s) {
+                HeaderMetric(value: "\(activeAgents)", label: "Active", color: c.statusActive)
+                HeaderMetric(value: "\(totalRuns)", label: "Runs", color: c.accent)
+            }
         }
     }
 }
 
+private struct AgentCard: View {
+    let agent: APIAgentRecord
+    let snapshot: AgentListSnapshot?
 
-#Preview {
-    AgentListView(
-        agents: [
-            APIAgentRecord.random(),
-            APIAgentRecord.random(),
-            APIAgentRecord.random(),
-            APIAgentRecord.random()
-        ],
-        isLoading: false,
-        onRefresh: {
+    @Environment(\.theme) private var theme
 
+    private var status: (label: String, color: Color) {
+        let c = theme.colors
+        switch snapshot?.currentTaskStatus {
+        case "in_progress": return ("Working", c.statusActive)
+        case "needs_review", "pending_approval": return ("Review", c.statusWarning)
+        case "ready": return ("Ready", c.statusReady)
+        case "blocked": return ("Blocked", c.statusBlocked)
+        default: return ("Idle", c.statusNeutral)
         }
-    )
+    }
+
+    var body: some View {
+        let c = theme.colors
+        let sp = theme.spacing
+
+        VStack(alignment: .leading, spacing: sp.m) {
+            HStack(spacing: sp.m) {
+                AgentAvatar(name: agent.displayName, color: status.color)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(agent.displayName)
+                        .font(.headline)
+                        .foregroundStyle(c.textPrimary)
+                        .lineLimit(1)
+                    Text(agent.role.isEmpty ? agent.id : agent.role)
+                        .font(.caption)
+                        .foregroundStyle(c.textSecondary)
+                        .lineLimit(1)
+                }
+                Spacer()
+                StatusBadge(status.label, color: status.color)
+            }
+
+            Divider().overlay(c.border)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text("CURRENT TASK")
+                    .font(.caption2.weight(.semibold))
+                    .foregroundStyle(c.textMuted)
+                Text(snapshot?.currentTaskTitle ?? "No assigned work")
+                    .font(.subheadline.weight(.medium))
+                    .foregroundStyle(snapshot?.currentTaskTitle == nil ? c.textMuted : c.textPrimary)
+                    .lineLimit(2)
+                    .frame(maxWidth: .infinity, minHeight: 36, alignment: .topLeading)
+            }
+
+            HStack(spacing: sp.m) {
+                AgentMiniMetric(icon: "checklist", value: "\(snapshot?.activeTaskCount ?? 0)/\(snapshot?.totalTaskCount ?? 0)", label: "tasks")
+                AgentMiniMetric(icon: "play.circle", value: "\(snapshot?.sessionCount ?? 0)", label: "runs")
+                AgentMiniMetric(icon: "sum", value: abbreviated(snapshot?.totalTokens ?? 0), label: "tokens")
+                Spacer(minLength: 0)
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(c.textMuted)
+            }
+        }
+        .padding(sp.m)
+        .background {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .fill(c.surfaceRaised.opacity(0.72))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 18, style: .continuous)
+                        .stroke(c.border, lineWidth: 1)
+                }
+        }
+        .contentShape(.rect)
+    }
+
+    private func abbreviated(_ value: Int) -> String {
+        switch value {
+        case 1_000_000...: String(format: "%.1fM", Double(value) / 1_000_000)
+        case 1_000...: String(format: "%.1fK", Double(value) / 1_000)
+        default: "\(value)"
+        }
+    }
 }
 
-#Preview {
-    AgentListView(
-        agents: [
-            APIAgentRecord.random()
-        ],
-        isLoading: true,
-        onRefresh: {
+struct AgentAvatar: View {
+    let name: String
+    let color: Color
+    var size: CGFloat = 46
 
+    var body: some View {
+        ZStack(alignment: .bottomTrailing) {
+            Circle()
+                .fill(color.opacity(0.16))
+                .overlay { Circle().stroke(color.opacity(0.35), lineWidth: 1) }
+                .frame(width: size, height: size)
+                .overlay {
+                    Text(initials)
+                        .font(.system(size: size * 0.34, weight: .semibold, design: .rounded))
+                        .foregroundStyle(color)
+                }
+            Circle()
+                .fill(color)
+                .frame(width: max(9, size * 0.22), height: max(9, size * 0.22))
+                .overlay { Circle().stroke(.black.opacity(0.45), lineWidth: 2) }
         }
-    )
+        .accessibilityHidden(true)
+    }
+
+    private var initials: String {
+        let words = name.split(whereSeparator: \.isWhitespace)
+        return words.prefix(2).compactMap(\.first).map(String.init).joined().uppercased()
+    }
 }
 
-extension APIAgentRecord {
-    static func random() -> APIAgentRecord {
-        .init(id: UUID().uuidString, displayName: String(UUID().uuidString.prefix(5)))
+private struct AgentMiniMetric: View {
+    let icon: String
+    let value: String
+    let label: String
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        HStack(spacing: 5) {
+            Image(systemName: icon).foregroundStyle(theme.colors.textMuted)
+            Text(value).foregroundStyle(theme.colors.textPrimary)
+            Text(label).foregroundStyle(theme.colors.textMuted)
+        }
+        .font(.caption.monospacedDigit())
+    }
+}
+
+private struct HeaderMetric: View {
+    let value: String
+    let label: String
+    let color: Color
+
+    var body: some View {
+        VStack(spacing: 2) {
+            Text(value).font(.headline.monospacedDigit()).foregroundStyle(color)
+            Text(label).font(.caption2).foregroundStyle(.secondary)
+        }
+        .frame(minWidth: 62)
+        .padding(.vertical, 8)
+        .padding(.horizontal, 10)
+        .background(color.opacity(0.09), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+}
+
+private struct AgentCardPlaceholder: View {
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
+            .fill(theme.colors.surfaceRaised)
+            .frame(height: 190)
+            .redacted(reason: .placeholder)
+            .opacity(0.55)
     }
 }

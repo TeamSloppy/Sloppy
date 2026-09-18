@@ -6,6 +6,8 @@ import SwiftUI
 struct PullRequestsScreen: View {
     let apiClient: SloppyAPIClient
     let onOpenChat: @MainActor (CodeReviewDetail) -> Void
+    let onAddToSideChat: @MainActor (String) -> Void
+    let onResolveOpenIssues: @MainActor (String) -> Void
     private let filterStore: CodeReviewFilterStore
 
     @State private var response = CodeReviewInboxResponse(items: [], providers: [])
@@ -24,10 +26,14 @@ struct PullRequestsScreen: View {
     init(
         apiClient: SloppyAPIClient,
         onOpenChat: @escaping @MainActor (CodeReviewDetail) -> Void,
+        onAddToSideChat: @escaping @MainActor (String) -> Void,
+        onResolveOpenIssues: @escaping @MainActor (String) -> Void,
         filterStore: CodeReviewFilterStore = CodeReviewFilterStore()
     ) {
         self.apiClient = apiClient
         self.onOpenChat = onOpenChat
+        self.onAddToSideChat = onAddToSideChat
+        self.onResolveOpenIssues = onResolveOpenIssues
         self.filterStore = filterStore
         _filters = State(initialValue: filterStore.load(endpoint: apiClient.endpoint))
     }
@@ -89,7 +95,9 @@ struct PullRequestsScreen: View {
                 item: selectedItem,
                 showsBackButton: showsBackButton,
                 onBack: { selectedReviewID = nil },
-                onOpenChat: onOpenChat
+                onOpenChat: onOpenChat,
+                onAddToSideChat: onAddToSideChat,
+                onResolveOpenIssues: onResolveOpenIssues
             )
             .id(selectedItem.id)
         } else {

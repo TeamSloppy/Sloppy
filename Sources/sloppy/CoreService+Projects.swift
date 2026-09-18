@@ -330,16 +330,37 @@ extension CoreService {
     }
 
     /// Line stats and unified diff for the project workspace from its configured source-control provider.
-    public func projectWorkingTreeSourceControl(projectID: String) async throws -> ProjectWorkingTreeSourceControlResponse {
+    public func projectWorkingTreeSourceControl(
+        projectID: String,
+        taskID: String? = nil
+    ) async throws -> ProjectWorkingTreeSourceControlResponse {
         guard let normalizedID = normalizedProjectID(projectID) else {
             throw ProjectError.invalidProjectID
         }
         guard let project = await store.project(id: normalizedID) else {
             throw ProjectError.notFound
         }
-        let rootPath = try await resolveProjectWorkspaceRoot(projectID: normalizedID).path
-        let provider = sourceControlProvider(for: project)
-        let repository = await provider.inspectRepository(at: rootPath)
+        let task = taskID.flatMap { requestedID in
+            project.tasks.first { $0.id == requestedID }
+        }
+        if taskID != nil, task == nil {
+            throw ProjectError.invalidTaskID
+        }
+        let rootPath: String
+        if let task,
+           task.worktreeBranch != nil,
+           let repoPath = project.repoPath {
+            rootPath = sourceControlProvider(for: project, task: task).worktreePath(
+                repoPath: repoPath,
+                taskId: task.id,
+                worktreeRootPath: defaultWorktreeRootPath(projectID: project.id)
+            )
+        } else {
+            rootPath = try await resolveProjectWorkspaceRoot(projectID: normalizedID).path
+        }
+        let selection = await inspectSourceControlProvider(for: project, task: task, at: rootPath)
+        let provider = selection.provider
+        let repository = selection.repository
 
         guard repository.isRepository else {
             return ProjectWorkingTreeSourceControlResponse(

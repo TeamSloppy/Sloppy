@@ -133,6 +133,7 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
     private let logger: Logger
     private var requestHead: HTTPRequestHead?
     private var requestBody: ByteBuffer?
+    private var requestBodyTooLarge = false
     private var streamTask: Task<Void, Never>?
 
     init(router: CoreRouter, logger: Logger) {
@@ -149,8 +150,15 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
             streamTask = nil
             requestHead = head
             requestBody = context.channel.allocator.buffer(capacity: 0)
+            requestBodyTooLarge = false
 
         case .body(var bodyPart):
+            if requestHead?.uri.hasPrefix("/v1/agent-plugins/uploads") == true,
+               (requestBody?.readableBytes ?? 0) + bodyPart.readableBytes > 100 * 1_024 * 1_024 {
+                requestBodyTooLarge = true
+                return
+            }
+            guard !requestBodyTooLarge else { return }
             if requestBody == nil {
                 requestBody = context.channel.allocator.buffer(capacity: bodyPart.readableBytes)
             }
@@ -164,6 +172,19 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
             requestHead = nil
             var bodyBuffer = requestBody
             requestBody = nil
+
+            if requestBodyTooLarge {
+                requestBodyTooLarge = false
+                writeResponse(
+                    context: context,
+                    requestHead: head,
+                    response: CoreRouter.json(
+                        status: 413,
+                        payload: ["error": "agent_plugin_archive_too_large", "message": "Agent Plugin ZIP exceeds 100 MiB."]
+                    )
+                )
+                return
+            }
 
             if head.method == .OPTIONS {
                 writePreflightResponse(context: context, requestHead: head)

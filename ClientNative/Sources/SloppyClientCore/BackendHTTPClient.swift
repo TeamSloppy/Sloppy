@@ -138,6 +138,11 @@ public actor BackendHTTPClient {
         _ = try await data(method: "POST", path: path, body: body)
     }
 
+    public func postRaw<T: Decodable>(_ path: String, data bodyData: Data, contentType: String) async throws -> T {
+        let data = try await data(method: "POST", path: path, bodyData: bodyData, contentType: contentType)
+        return try decode(T.self, from: data)
+    }
+
     public func put<Body: Encodable, T: Decodable>(_ path: String, body: Body) async throws -> T {
         let data = try await data(method: "PUT", path: path, body: body)
         return try decode(T.self, from: data)
@@ -206,13 +211,24 @@ public actor BackendHTTPClient {
         timeout: TimeInterval? = nil
     ) async throws -> Data {
         let bodyData = try body.map { try encoder.encode($0) }
+        return try await data(method: method, path: path, bodyData: bodyData, timeout: timeout)
+    }
+
+    private func data(
+        method: String,
+        path: String,
+        bodyData: Data?,
+        timeout: TimeInterval? = nil,
+        contentType: String = "application/json"
+    ) async throws -> Data {
         let initialToken = await resolvedAuthToken()
         let initial = try await send(
             method: method,
             path: path,
             bodyData: bodyData,
             timeout: timeout,
-            authToken: initialToken
+            authToken: initialToken,
+            contentType: contentType
         )
 
         guard statusCode(for: initial.response) == 401,
@@ -254,7 +270,8 @@ public actor BackendHTTPClient {
                 path: path,
                 bodyData: bodyData,
                 timeout: timeout,
-                authToken: refreshedSession.accessToken
+                authToken: refreshedSession.accessToken,
+                contentType: contentType
             )
             if statusCode(for: retried.response) == 401 {
                 authToken = ""
@@ -295,7 +312,8 @@ public actor BackendHTTPClient {
         path: String,
         bodyData: Data?,
         timeout: TimeInterval?,
-        authToken: String?
+        authToken: String?,
+        contentType: String
     ) async throws -> (data: Data, response: URLResponse) {
         let targetURL = url(for: path)
         let request = try await makeURLRequest(
@@ -304,7 +322,8 @@ public actor BackendHTTPClient {
             targetURL: targetURL,
             bodyData: bodyData,
             timeout: timeout,
-            authToken: authToken
+            authToken: authToken,
+            contentType: contentType
         )
 
         let requestID = String(UUID().uuidString.prefix(8)).lowercased()
@@ -359,7 +378,8 @@ public actor BackendHTTPClient {
         targetURL: URL,
         bodyData: Data?,
         timeout: TimeInterval?,
-        authToken: String?
+        authToken: String?,
+        contentType: String
     ) async throws -> URLRequest {
         let requestURL: URL
         switch endpoint {
@@ -386,11 +406,12 @@ public actor BackendHTTPClient {
         switch endpoint {
         case .direct:
             if let bodyData {
-                request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+                request.setValue(contentType, forHTTPHeaderField: "Content-Type")
                 request.httpBody = bodyData
             }
         case .relay:
             var forwardedHeaders: [String: String] = [:]
+            forwardedHeaders["content-type"] = contentType
             if let userID = await authSessionStore.session(for: baseURL)?.user?.id,
                !userID.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                 forwardedHeaders["x-sloppy-user-context"] = userID
@@ -461,7 +482,8 @@ public actor BackendHTTPClient {
                 path: "/v1/auth/refresh",
                 bodyData: bodyData,
                 timeout: nil,
-                authToken: nil
+                authToken: nil,
+                contentType: "application/json"
             )
             try validate(response: result.response, data: result.data)
             return try decode(AuthSession.self, from: result.data)

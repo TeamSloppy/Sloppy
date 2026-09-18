@@ -27,7 +27,7 @@ packages:
 targets:
   SloppyClient-macOS:
     type: application
-    productName: SloppyClient
+    productName: Sloppy
     platform: macOS
     deploymentTarget: "26.0"
     sources:
@@ -315,7 +315,7 @@ targets:
     type: application
     platform: watchOS
     deploymentTarget: "26.0"
-    sources: 
+    sources:
       - Sources/SloppyClientWatch
       - sloppy.icon
     info:

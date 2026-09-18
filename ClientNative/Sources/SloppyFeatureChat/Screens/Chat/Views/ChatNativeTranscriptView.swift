@@ -38,8 +38,10 @@ struct ChatNativeTranscriptView: View {
     let topInset: CGFloat
     let bottomInset: CGFloat
     let scrollToEndRequest: Int
+    let scrollTarget: ChatTranscriptScrollTarget?
     let renderRevision: UInt
     let reduceMotion: Bool
+    let onVisibleItemChange: @MainActor (String?) -> Void
     let renderer: @MainActor (ChatTranscriptNativeItem) -> AnyView
 
     var body: some View {
@@ -50,8 +52,10 @@ struct ChatNativeTranscriptView: View {
             topInset: topInset,
             bottomInset: bottomInset,
             scrollToEndRequest: scrollToEndRequest,
+            scrollTarget: scrollTarget,
             renderRevision: renderRevision,
             reduceMotion: reduceMotion,
+            onVisibleItemChange: onVisibleItemChange,
             renderer: renderer
         )
         #else
@@ -61,8 +65,10 @@ struct ChatNativeTranscriptView: View {
             topInset: topInset,
             bottomInset: bottomInset,
             scrollToEndRequest: scrollToEndRequest,
+            scrollTarget: scrollTarget,
             renderRevision: renderRevision,
             reduceMotion: reduceMotion,
+            onVisibleItemChange: onVisibleItemChange,
             renderer: renderer
         )
         #endif
@@ -76,9 +82,35 @@ private struct UIKitChatTranscriptCollection: UIViewRepresentable {
     let topInset: CGFloat
     let bottomInset: CGFloat
     let scrollToEndRequest: Int
+    let scrollTarget: ChatTranscriptScrollTarget?
     let renderRevision: UInt
     let reduceMotion: Bool
+    let onVisibleItemChange: @MainActor (String?) -> Void
     let renderer: @MainActor (ChatTranscriptNativeItem) -> AnyView
+
+    init(
+        items: [ChatTranscriptNativeItem],
+        contentWidth: CGFloat,
+        topInset: CGFloat,
+        bottomInset: CGFloat,
+        scrollToEndRequest: Int,
+        scrollTarget: ChatTranscriptScrollTarget? = nil,
+        renderRevision: UInt,
+        reduceMotion: Bool,
+        onVisibleItemChange: @escaping @MainActor (String?) -> Void = { _ in },
+        renderer: @escaping @MainActor (ChatTranscriptNativeItem) -> AnyView
+    ) {
+        self.items = items
+        self.contentWidth = contentWidth
+        self.topInset = topInset
+        self.bottomInset = bottomInset
+        self.scrollToEndRequest = scrollToEndRequest
+        self.scrollTarget = scrollTarget
+        self.renderRevision = renderRevision
+        self.reduceMotion = reduceMotion
+        self.onVisibleItemChange = onVisibleItemChange
+        self.renderer = renderer
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -126,8 +158,10 @@ private struct UIKitChatTranscriptCollection: UIViewRepresentable {
         private var previousTopInset: CGFloat = 0
         private var previousBottomInset: CGFloat = 0
         private var previousScrollRequest: Int?
+        private var previousScrollTarget: ChatTranscriptScrollTarget?
         private var previousRenderRevision: UInt?
         private var cellRegistration: UICollectionView.CellRegistration<UICollectionViewCell, String>?
+        private var visibleItemID: String?
 
         init(parent: UIKitChatTranscriptCollection) {
             self.parent = parent
@@ -170,6 +204,7 @@ private struct UIKitChatTranscriptCollection: UIViewRepresentable {
             let oldTopInset = previousTopInset
             let didPrepend = didPrependItems(from: previousItems, to: parent.items)
             let explicitScroll = previousScrollRequest != parent.scrollToEndRequest
+            let targetedScroll = previousScrollTarget != parent.scrollTarget
             let contentChanged = previousRenderRevision != parent.renderRevision
             let widthChanged = abs(previousContentWidth - parent.contentWidth) > 0.5
             let bottomInsetChanged = abs(previousBottomInset - parent.bottomInset) > 0.5
@@ -212,12 +247,15 @@ private struct UIKitChatTranscriptCollection: UIViewRepresentable {
                         x: oldOffset.x,
                         y: oldOffset.y + delta + topInsetDelta
                     )
+                } else if targetedScroll, let target = parent.scrollTarget {
+                    self.scroll(to: target.itemID, in: collectionView, animated: !parent.reduceMotion)
                 } else if explicitScroll || (wasNearBottom && (contentChanged || bottomInsetChanged)) || initial {
                     self.scrollToBottom(
                         collectionView,
                         animated: explicitScroll && !initial && !parent.reduceMotion
                     )
                 }
+                self.updateVisibleItem(in: collectionView)
             }
 
             previousItems = parent.items
@@ -225,7 +263,13 @@ private struct UIKitChatTranscriptCollection: UIViewRepresentable {
             previousTopInset = parent.topInset
             previousBottomInset = parent.bottomInset
             previousScrollRequest = parent.scrollToEndRequest
+            previousScrollTarget = parent.scrollTarget
             previousRenderRevision = parent.renderRevision
+        }
+
+        func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            guard let collectionView = scrollView as? UICollectionView else { return }
+            updateVisibleItem(in: collectionView)
         }
 
         private func didPrependItems(
@@ -257,6 +301,24 @@ private struct UIKitChatTranscriptCollection: UIViewRepresentable {
             )
             collectionView.setContentOffset(CGPoint(x: 0, y: y), animated: animated)
         }
+
+        private func scroll(to itemID: String, in collectionView: UICollectionView, animated: Bool) {
+            guard let indexPath = dataSource?.indexPath(for: itemID) else { return }
+            collectionView.scrollToItem(at: indexPath, at: .centeredVertically, animated: animated)
+        }
+
+        private func updateVisibleItem(in collectionView: UICollectionView) {
+            let focusY = collectionView.contentOffset.y + min(collectionView.bounds.height * 0.25, 120)
+            let visible = collectionView.indexPathsForVisibleItems.compactMap { indexPath -> (String, CGFloat)? in
+                guard let itemID = dataSource?.itemIdentifier(for: indexPath),
+                      let attributes = collectionView.layoutAttributesForItem(at: indexPath) else { return nil }
+                return (itemID, abs(attributes.frame.midY - focusY))
+            }
+            let nextID = visible.min { $0.1 < $1.1 }?.0
+            guard nextID != visibleItemID else { return }
+            visibleItemID = nextID
+            parent.onVisibleItemChange(nextID)
+        }
     }
 }
 #endif
@@ -268,9 +330,35 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
     let topInset: CGFloat
     let bottomInset: CGFloat
     let scrollToEndRequest: Int
+    let scrollTarget: ChatTranscriptScrollTarget?
     let renderRevision: UInt
     let reduceMotion: Bool
+    let onVisibleItemChange: @MainActor (String?) -> Void
     let renderer: @MainActor (ChatTranscriptNativeItem) -> AnyView
+
+    init(
+        items: [ChatTranscriptNativeItem],
+        contentWidth: CGFloat,
+        topInset: CGFloat,
+        bottomInset: CGFloat,
+        scrollToEndRequest: Int,
+        scrollTarget: ChatTranscriptScrollTarget? = nil,
+        renderRevision: UInt,
+        reduceMotion: Bool,
+        onVisibleItemChange: @escaping @MainActor (String?) -> Void = { _ in },
+        renderer: @escaping @MainActor (ChatTranscriptNativeItem) -> AnyView
+    ) {
+        self.items = items
+        self.contentWidth = contentWidth
+        self.topInset = topInset
+        self.bottomInset = bottomInset
+        self.scrollToEndRequest = scrollToEndRequest
+        self.scrollTarget = scrollTarget
+        self.renderRevision = renderRevision
+        self.reduceMotion = reduceMotion
+        self.onVisibleItemChange = onVisibleItemChange
+        self.renderer = renderer
+    }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -337,10 +425,12 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
         private var previousTopInset: CGFloat = 0
         private var previousBottomInset: CGFloat = 0
         private var previousScrollRequest: Int?
+        private var previousScrollTarget: ChatTranscriptScrollTarget?
         private var previousRenderRevision: UInt?
         private var scrollObserver: NSObjectProtocol?
         private var isNearBottom = true
         private var heightUpdateScheduled = false
+        private var visibleItemID: String?
 
         init(parent: AppKitChatTranscriptCollection) {
             self.parent = parent
@@ -394,6 +484,7 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
                     self.scrollToBottom(animated: false)
                 }
                 self.updateNearBottom()
+                self.updateVisibleItem()
             }
         }
 
@@ -406,6 +497,7 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
             ) { [weak self] _ in
                 MainActor.assumeIsolated {
                     self?.updateNearBottom()
+                    self?.updateVisibleItem()
                 }
             }
         }
@@ -425,6 +517,7 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
             let oldTopInset = previousTopInset
             let didPrepend = didPrependItems(from: previousItems, to: parent.items)
             let explicitScroll = previousScrollRequest != parent.scrollToEndRequest
+            let targetedScroll = previousScrollTarget != parent.scrollTarget
             let contentChanged = previousRenderRevision != parent.renderRevision
             let widthChanged = abs(previousContentWidth - parent.contentWidth) > 0.5
             let bottomInsetChanged = abs(previousBottomInset - parent.bottomInset) > 0.5
@@ -478,10 +571,13 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
                         )
                     )
                     scrollView.reflectScrolledClipView(scrollView.contentView)
+                } else if targetedScroll, let target = parent.scrollTarget {
+                    self.scroll(to: target.itemID, animated: !parent.reduceMotion)
                 } else if explicitScroll || (wasNearBottom && (contentChanged || bottomInsetChanged)) || initial {
                     self.scrollToBottom(animated: explicitScroll && !parent.reduceMotion)
                 }
                 self.updateNearBottom()
+                self.updateVisibleItem()
             }
 
             previousItems = parent.items
@@ -489,6 +585,7 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
             previousTopInset = parent.topInset
             previousBottomInset = parent.bottomInset
             previousScrollRequest = parent.scrollToEndRequest
+            previousScrollTarget = parent.scrollTarget
             previousRenderRevision = parent.renderRevision
         }
 
@@ -542,6 +639,34 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
             } else {
                 collectionView.scrollToItems(at: [indexPath], scrollPosition: .bottom)
             }
+        }
+
+        private func scroll(to itemID: String, animated: Bool) {
+            guard let collectionView,
+                  let indexPath = dataSource?.indexPath(for: itemID) else { return }
+            if animated {
+                NSAnimationContext.runAnimationGroup { context in
+                    context.duration = 0.16
+                    collectionView.animator().scrollToItems(at: [indexPath], scrollPosition: .centeredVertically)
+                }
+            } else {
+                collectionView.scrollToItems(at: [indexPath], scrollPosition: .centeredVertically)
+            }
+        }
+
+        private func updateVisibleItem() {
+            guard let collectionView, let scrollView else { return }
+            let focusY = scrollView.contentView.bounds.minY
+                + min(scrollView.contentView.bounds.height * 0.25, 120)
+            let visible = collectionView.indexPathsForVisibleItems().compactMap { indexPath -> (String, CGFloat)? in
+                guard let itemID = dataSource?.itemIdentifier(for: indexPath),
+                      let attributes = collectionView.layoutAttributesForItem(at: indexPath) else { return nil }
+                return (itemID, abs(attributes.frame.midY - focusY))
+            }
+            let nextID = visible.min { $0.1 < $1.1 }?.0
+            guard nextID != visibleItemID else { return }
+            visibleItemID = nextID
+            parent.onVisibleItemChange(nextID)
         }
     }
 }

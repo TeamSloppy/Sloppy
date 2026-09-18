@@ -34,4 +34,16 @@ struct ChatBubbleViewSourceTests {
         #expect(source.contains("message.role == .assistant"))
         #expect(source.contains("message.segments.allSatisfy { $0.kind == .text || $0.kind == .status }"))
     }
+
+    @Test("message actions copy text and delegate session forks")
+    func messageActionsAreImplemented() throws {
+        let source = try source("Sources", "SloppyFeatureChat", "Screens", "Chat", "Views", "ChatBubbleView.swift")
+
+        #expect(source.contains("UIClipboard.setString(message.textContent)"))
+        #expect(source.contains("onForkFromMessage?(message)"))
+        #expect(source.contains(".accessibilityLabel(\"Copy response\")"))
+        #expect(source.contains(".accessibilityLabel(\"Fork session from this response\")"))
+        #expect(!source.contains("TODO: Add copy to clipboard"))
+        #expect(!source.contains("TODO: Add fork session from this message"))
+    }
 }

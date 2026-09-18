@@ -58,8 +58,11 @@ final class WorkspacePanelViewModel {
     private(set) var actionStatus: String?
     private(set) var project: APIProjectRecord?
     private(set) var sourceControl: ProjectWorkingTreeSourceControlResponse?
+    private(set) var codeReview: CodeReviewItem?
+    private(set) var codeReviewLoadError: String?
     private(set) var isLoadingEnvironment = false
     private(set) var environmentLoadError: String?
+    private var availableCodeReviews: [CodeReviewItem] = []
 
     init(apiClient: SloppyAPIClient) {
         self.apiClient = apiClient
@@ -83,26 +86,85 @@ final class WorkspacePanelViewModel {
 
         isLoadingEnvironment = true
         environmentLoadError = nil
+        codeReviewLoadError = nil
 
         async let sourceControlResult = try? apiClient.fetchProjectWorkingTreeSourceControl(
             projectId: context.projectId
         )
         async let projectResult = try? apiClient.fetchProject(id: context.projectId)
-        let (nextSourceControl, nextProject) = await (sourceControlResult, projectResult)
+        async let codeReviewsResult = try? apiClient.fetchCodeReviews(
+            state: .open,
+            roles: CodeReviewRole.allCases,
+            limit: 200
+        )
+        let (nextSourceControl, nextProject, nextCodeReviews) = await (
+            sourceControlResult,
+            projectResult,
+            codeReviewsResult
+        )
 
         guard self.context == expectedContext else { return }
         sourceControl = nextSourceControl
         project = nextProject
+        availableCodeReviews = nextCodeReviews?.items ?? []
+        codeReview = Self.matchingCodeReview(
+            in: availableCodeReviews,
+            branch: nextSourceControl?.branch
+        )
         if nextSourceControl == nil {
             environmentLoadError = "Could not load source-control information."
+        }
+        if let providerID = Self.codeReviewProviderID(for: nextSourceControl?.providerId),
+           let failure = nextCodeReviews?.failures[providerID] {
+            codeReviewLoadError = failure
+        } else if nextCodeReviews == nil {
+            codeReviewLoadError = "Could not load code-review information."
         }
         isLoadingEnvironment = false
     }
 
     func synchronizeSourceControl(_ sourceControl: ProjectWorkingTreeSourceControlResponse) {
         self.sourceControl = sourceControl
+        codeReview = Self.matchingCodeReview(
+            in: availableCodeReviews,
+            branch: sourceControl.branch
+        )
         environmentLoadError = nil
         isLoadingEnvironment = false
+    }
+
+    nonisolated static func matchingCodeReview(
+        in reviews: [CodeReviewItem],
+        branch: String?
+    ) -> CodeReviewItem? {
+        guard let branch = normalizedBranch(branch, providerID: nil) else { return nil }
+        return reviews.first { review in
+            normalizedBranch(review.sourceBranch, providerID: review.providerId) == branch
+        }
+    }
+
+    nonisolated private static func normalizedBranch(
+        _ rawValue: String?,
+        providerID: String?
+    ) -> String? {
+        guard var value = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !value.isEmpty else {
+            return nil
+        }
+        if providerID == "arcadia-code-review" {
+            let components = value.split(separator: "/", omittingEmptySubsequences: true)
+            if components.count > 2, components[0] == "users" {
+                value = components.dropFirst(2).joined(separator: "/")
+            }
+        }
+        return value
+    }
+
+    nonisolated private static func codeReviewProviderID(for sourceControlProviderID: String?) -> String? {
+        switch sourceControlProviderID {
+        case "arcadia-source-control": "arcadia-code-review"
+        default: nil
+        }
     }
 
     func refresh() async {

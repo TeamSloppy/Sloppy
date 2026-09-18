@@ -55,7 +55,7 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
         case .providers: "Providers"
         case .searchTools: "Search Tools"
         case .channels: "Channels"
-        case .plugins: "Plugins"
+        case .plugins: "Agent Plugins"
         case .nodeHost: "Node Host"
         case .visor: "Visor"
         case .acp: "ACP"
@@ -85,7 +85,7 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
         case .providers: "Model providers, API URLs, auth, and defaults."
         case .searchTools: "Web search provider routing and credentials."
         case .channels: "Telegram and Discord gateway settings."
-        case .plugins: "Plugin connections and delivery endpoints."
+        case .plugins: "Install and manage packaged skills, MCP servers, software, and Sloppy plugins."
         case .nodeHost: "Remote and local node host configuration."
         case .visor: "Scheduler, runtime maintenance, and merge settings."
         case .acp: "ACP targets and agent communication settings."
@@ -123,7 +123,7 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
         case .channels:
             ["telegram", "discord", "bot token", "guild", "channels"]
         case .plugins:
-            ["plugins", "extension", "api url", "delivery"]
+            ["agent plugins", "plugins", "store", "registry", "zip", "skills", "mcp", "extension"]
         case .nodeHost:
             ["node host", "nodes", "gateway", "host", "token"]
         case .visor:
@@ -383,7 +383,7 @@ public struct SettingsScreen: View {
             }
         case .plugins:
             configBackedSection { config in
-                PluginsSection(config: config, onSave: saveConfig)
+                PluginsSection(config: config, apiClient: api, onSave: saveConfig)
             }
         case .nodeHost:
             configBackedSection { config in

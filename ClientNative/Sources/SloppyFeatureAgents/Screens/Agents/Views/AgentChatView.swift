@@ -37,7 +37,8 @@ struct AgentChatView: View {
                         isSending: isSending,
                         onSend: { content in
                             sendMessage(agentId: agent.id, sessionId: sessionId, content: content)
-                        }
+                        },
+                        onForkFromMessage: forkSession
                     )
                 }
             }
@@ -198,6 +199,39 @@ struct AgentChatView: View {
             sessions.insert(summary, at: 0)
             sessions = sortSessions(sessions)
             selectSession(summary.id)
+        }
+    }
+
+    private func forkSession(from message: ChatMessage) {
+        guard let parentSessionId = selectedSessionId else { return }
+        let parent = sessions.first { $0.id == parentSessionId }
+        let responseTitle = message.textContent
+            .split(whereSeparator: \.isNewline)
+            .first
+            .map(String.init)?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let title: String
+        if let responseTitle, !responseTitle.isEmpty {
+            title = "Fork: \(String(responseTitle.prefix(48)))"
+        } else {
+            title = "Fork of \(parent.map(displayTitle(for:)) ?? "Session")"
+        }
+
+        Task { @MainActor in
+            do {
+                let summary = try await apiClient.createAgentSession(
+                    agentId: agent.id,
+                    title: title,
+                    parentSessionId: parentSessionId,
+                    projectId: parent?.projectId,
+                    workspaceId: parent?.workspaceId
+                )
+                sessions.insert(summary, at: 0)
+                sessions = sortSessions(sessions)
+                selectSession(summary.id)
+            } catch {
+                showSessionStatus("Could not fork session")
+            }
         }
     }
 
@@ -390,6 +424,7 @@ struct ChatTranscriptView: View {
     let composerDraft: ChatComposerDraft
     let isSending: Bool
     let onSend: (String) -> Void
+    let onForkFromMessage: @MainActor @Sendable (ChatMessage) -> Void
 
     @Environment(\.dismiss) private var dismiss
     @Environment(\.theme) private var theme
@@ -429,7 +464,8 @@ struct ChatTranscriptView: View {
                                         ForEach(messages) { msg in
                                             ChatBubbleView(
                                                 message: msg,
-                                                isActivelyWorking: msg.id == "streaming-assistant-\(sessionId)"
+                                                isActivelyWorking: msg.id == "streaming-assistant-\(sessionId)",
+                                                onForkFromMessage: onForkFromMessage
                                             )
                                                 .frame(minWidth: 0, maxWidth: .infinity)
                                         }

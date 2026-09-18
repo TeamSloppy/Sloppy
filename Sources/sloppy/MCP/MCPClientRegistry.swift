@@ -123,6 +123,7 @@ actor ManagedMCPStdioTransport: Transport {
     private let command: String
     private let arguments: [String]
     private let cwd: String?
+    private let configuredEnvironment: [String: String]
     private var process: Process?
     private var inputPipe: Pipe?
     private var outputPipe: Pipe?
@@ -132,10 +133,11 @@ actor ManagedMCPStdioTransport: Transport {
     private let messageStream: AsyncThrowingStream<Data, Error>
     private let messageContinuation: AsyncThrowingStream<Data, Error>.Continuation
 
-    init(command: String, arguments: [String], cwd: String?, logger: Logging.Logger) {
+    init(command: String, arguments: [String], cwd: String?, environment: [String: String] = [:], logger: Logging.Logger) {
         self.command = command
         self.arguments = arguments
         self.cwd = cwd
+        self.configuredEnvironment = environment
         self.logger = logger
         var continuation: AsyncThrowingStream<Data, Error>.Continuation!
         self.messageStream = AsyncThrowingStream { continuation = $0 }
@@ -176,7 +178,7 @@ actor ManagedMCPStdioTransport: Transport {
             process.currentDirectoryURL = URL(fileURLWithPath: cwd, isDirectory: true)
         }
 
-        process.environment = environment
+        process.environment = environment.merging(configuredEnvironment) { _, configured in configured }
 
         do {
             try process.run()
@@ -384,6 +386,7 @@ actor MCPServerConnection {
                 command: command,
                 arguments: config.arguments,
                 cwd: config.cwd,
+                environment: config.environment,
                 logger: logger
             )
         case .http:

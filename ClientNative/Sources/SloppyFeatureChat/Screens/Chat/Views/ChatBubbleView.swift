@@ -34,15 +34,18 @@ public struct ChatBubbleView: View {
     public let message: ChatMessage
     public let isActivelyWorking: Bool
     public let onOpenProviderSettings: (@MainActor () -> Void)?
+    public let onForkFromMessage: (@MainActor (ChatMessage) -> Void)?
 
     public init(
         message: ChatMessage,
         isActivelyWorking: Bool = false,
-        onOpenProviderSettings: (@MainActor () -> Void)? = nil
+        onOpenProviderSettings: (@MainActor () -> Void)? = nil,
+        onForkFromMessage: (@MainActor (ChatMessage) -> Void)? = nil
     ) {
         self.message = message
         self.isActivelyWorking = isActivelyWorking
         self.onOpenProviderSettings = onOpenProviderSettings
+        self.onForkFromMessage = onForkFromMessage
     }
 
     @Environment(\.userInterfaceIdiom) private var idiom
@@ -120,20 +123,23 @@ public struct ChatBubbleView: View {
             if showsMessageActions {
                 HStack {
                     Button(action: {
-                        // TODO: Add copy to clipboard
+                        UIClipboard.setString(message.textContent)
                     }, label: {
                         Image(systemName: "rectangle.on.rectangle")
                             .scaleEffect(x: -1)
                             .padding(.all, 4)
                     })
+                    .accessibilityLabel("Copy response")
 
                     Button(action: {
-                        // TODO: Add fork session from this message
+                        onForkFromMessage?(message)
                     }, label: {
                         Image(systemName: "arrow.trianglehead.branch")
                             .rotationEffect(.degrees(90))
                             .padding(.all, 4)
                     })
+                    .disabled(onForkFromMessage == nil)
+                    .accessibilityLabel("Fork session from this response")
                 }
                 .font(.system(size: theme.typography.body, weight: .semibold))
                 .foregroundStyle(theme.colors.textSecondary)

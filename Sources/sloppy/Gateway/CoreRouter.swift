@@ -685,6 +685,12 @@ public actor CoreRouter {
         if request.segments.dropFirst().first == "config" {
             return true
         }
+        if request.segments.dropFirst().first == "agent-plugins", request.method != .get {
+            return true
+        }
+        if request.segments.dropFirst().first == "agent-plugin-registries", request.method != .get {
+            return true
+        }
         if request.segments.starts(with: ["v1", "auth", "invites"]) {
             return true
         }

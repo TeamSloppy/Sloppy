@@ -17,6 +17,8 @@ struct PullRequestDetailView: View {
     let showsBackButton: Bool
     let onBack: @MainActor () -> Void
     let onOpenChat: @MainActor (CodeReviewDetail) -> Void
+    let onAddToSideChat: @MainActor (String) -> Void
+    let onResolveOpenIssues: @MainActor (String) -> Void
 
     @Environment(\.openURL) private var openURL
     @State private var mode = Mode.summary
@@ -24,6 +26,7 @@ struct PullRequestDetailView: View {
     @State private var isLoading = false
     @State private var errorMessage: String?
     @State private var focusedComment: CodeReviewComment?
+    @State private var hoveredCommentID: String?
     @State private var replyingCommentID: String?
     @State private var replyDrafts: [String: String] = [:]
     @State private var postingReplyCommentIDs: Set<String> = []
@@ -126,7 +129,16 @@ struct PullRequestDetailView: View {
                     }
                 }
 
-                reviewSection("Comments", count: detail.comments.count) {
+                reviewSection(
+                    "Comments",
+                    count: detail.comments.count,
+                    actionTitle: "Resolve Opened Issues",
+                    actionSystemImage: "sparkles",
+                    actionDisabled: CodeReviewChatPromptBuilder.openComments(in: detail).isEmpty,
+                    action: {
+                        onResolveOpenIssues(CodeReviewChatPromptBuilder.promptForOpenIssues(in: detail))
+                    }
+                ) {
                     comments(detail)
                 }
 
@@ -236,31 +248,7 @@ struct PullRequestDetailView: View {
 
     private func commentCard(_ comment: CodeReviewComment) -> some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
-                Image(systemName: "person.crop.circle.fill")
-                    .foregroundStyle(.secondary)
-                Text(comment.author ?? "Unknown reviewer")
-                    .font(.subheadline.weight(.semibold))
-
-                if comment.isResolved == true {
-                    statusBadge("Resolved", color: .green)
-                } else if comment.isOutdated == true {
-                    statusBadge("Outdated", color: .secondary)
-                } else if let status = comment.status, !status.isEmpty {
-                    statusBadge(status.replacingOccurrences(of: "_", with: " ").capitalized, color: .orange)
-                }
-
-                Spacer(minLength: 8)
-
-                if let createdAt = comment.createdAt {
-                    Text(createdAt, format: .relative(presentation: .named))
-                        .font(.caption)
-                        .foregroundStyle(.tertiary)
-                }
-            }
-            .padding(.horizontal, 14)
-            .frame(minHeight: 42)
-            .background(Color.secondary.opacity(0.055))
+            commentHeader(comment)
 
             if let filePath = comment.filePath {
                 HStack(spacing: 6) {
@@ -307,6 +295,58 @@ struct PullRequestDetailView: View {
             RoundedRectangle(cornerRadius: 10, style: .continuous)
                 .stroke(Color.secondary.opacity(0.18), lineWidth: 1)
         }
+        .contentShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+        .onHover { isHovered in
+            if isHovered {
+                hoveredCommentID = comment.id
+            } else if hoveredCommentID == comment.id {
+                hoveredCommentID = nil
+            }
+        }
+    }
+
+    private func commentHeader(_ comment: CodeReviewComment) -> some View {
+        let showsChatButton = showsCommentChatButton(comment.id)
+        return HStack(spacing: 8) {
+            Image(systemName: "person.crop.circle.fill")
+                .foregroundStyle(.secondary)
+            Text(comment.author ?? "Unknown reviewer")
+                .font(.subheadline.weight(.semibold))
+
+            if comment.isResolved == true {
+                statusBadge("Resolved", color: .green)
+            } else if comment.isOutdated == true {
+                statusBadge("Outdated", color: .secondary)
+            } else if let status = comment.status, !status.isEmpty {
+                statusBadge(status.replacingOccurrences(of: "_", with: " ").capitalized, color: .orange)
+            }
+
+            Spacer(minLength: 8)
+
+            Button { addCommentToSideChat(comment) } label: {
+                Image(systemName: "plus.bubble")
+            }
+            .buttonStyle(.borderless)
+            .opacity(showsChatButton ? Double(1) : Double(0))
+            .allowsHitTesting(showsChatButton)
+            .accessibilityHidden(!showsChatButton)
+            .accessibilityLabel("Add comment to chat")
+            .help("Add this comment to the side chat")
+
+            if let createdAt = comment.createdAt {
+                Text(createdAt, format: .relative(presentation: .named))
+                    .font(.caption)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .padding(.horizontal, 14)
+        .frame(minHeight: 42)
+        .background(Color.secondary.opacity(0.055))
+    }
+
+    private func addCommentToSideChat(_ comment: CodeReviewComment) {
+        guard let detail else { return }
+        onAddToSideChat(CodeReviewChatPromptBuilder.prompt(for: comment, in: detail))
     }
 
     @ViewBuilder
@@ -322,7 +362,10 @@ struct PullRequestDetailView: View {
             CodeReviewSideBySideDiffView(
                 diff: detail.diff,
                 highlightedPath: focusedComment?.filePath,
-                highlightedLine: focusedComment?.line ?? focusedComment?.originalLine
+                highlightedLine: focusedComment?.line ?? focusedComment?.originalLine,
+                onAddToChat: { line in
+                    onAddToSideChat(CodeReviewChatPromptBuilder.prompt(for: line, in: detail))
+                }
             )
         }
     }
@@ -431,6 +474,10 @@ struct PullRequestDetailView: View {
     private func reviewSection<Content: View>(
         _ title: String,
         count: Int? = nil,
+        actionTitle: String? = nil,
+        actionSystemImage: String? = nil,
+        actionDisabled: Bool = false,
+        action: (@MainActor () -> Void)? = nil,
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 12) {
@@ -444,6 +491,19 @@ struct PullRequestDetailView: View {
                         .padding(.horizontal, 7)
                         .padding(.vertical, 2)
                         .background(Color.secondary.opacity(0.12), in: Capsule())
+                }
+                Spacer(minLength: 8)
+                if let actionTitle, let action {
+                    Button(action: action) {
+                        if let actionSystemImage {
+                            Label(actionTitle, systemImage: actionSystemImage)
+                        } else {
+                            Text(actionTitle)
+                        }
+                    }
+                    .buttonStyle(.bordered)
+                    .controlSize(.small)
+                    .disabled(actionDisabled)
                 }
             }
             Divider()
@@ -475,6 +535,14 @@ struct PullRequestDetailView: View {
             .padding(.horizontal, 7)
             .padding(.vertical, 2)
             .background(color.opacity(0.12), in: Capsule())
+    }
+
+    private func showsCommentChatButton(_ commentID: String) -> Bool {
+#if os(macOS)
+        hoveredCommentID == commentID
+#else
+        true
+#endif
     }
 
     private func branchTitle(_ detail: CodeReviewDetail) -> String {

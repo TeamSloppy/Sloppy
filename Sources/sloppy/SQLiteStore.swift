@@ -29,6 +29,8 @@ public actor SQLiteStore: PersistenceStore {
     private var fallbackWorkspaceMembers: [String: [WorkspaceMember]] = [:]
     private var fallbackWorkspaceTemplates: [String: WorkspaceTemplate] = [:]
     private var fallbackPlugins: [String: ChannelPluginRecord] = [:]
+    private var fallbackAgentPlugins: [String: InstalledAgentPlugin] = [:]
+    private var fallbackAgentPluginRegistries: [String: AgentPluginRegistry] = [:]
     private var fallbackCronTasks: [String: AgentCronTask] = [:]
     private var fallbackAccessUsers: [String: ChannelAccessUser] = [:]
     private var fallbackSelfImprovementProposalReviewJobs: [String: SelfImprovementProposalReviewJob] = [:]
@@ -2997,6 +2999,141 @@ public actor SQLiteStore: PersistenceStore {
         _ = sqlite3_step(statement)
 #endif
     }
+
+    // MARK: - Agent Plugins
+
+    public func listAgentPlugins() async -> [InstalledAgentPlugin] {
+#if canImport(CSQLite3)
+        if let db {
+            return loadAgentPluginJSONRows(db: db, table: "agent_plugins", as: InstalledAgentPlugin.self)
+                .sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+        }
+#endif
+        return fallbackAgentPlugins.values.sorted { $0.name.localizedCaseInsensitiveCompare($1.name) == .orderedAscending }
+    }
+
+    public func agentPlugin(id: String) async -> InstalledAgentPlugin? {
+#if canImport(CSQLite3)
+        if let db {
+            return loadAgentPluginJSONRow(db: db, table: "agent_plugins", id: id, as: InstalledAgentPlugin.self)
+        }
+#endif
+        return fallbackAgentPlugins[id]
+    }
+
+    public func saveAgentPlugin(_ plugin: InstalledAgentPlugin) async {
+        fallbackAgentPlugins[plugin.id] = plugin
+#if canImport(CSQLite3)
+        if let db { saveAgentPluginJSONRow(db: db, table: "agent_plugins", id: plugin.id, value: plugin) }
+#endif
+    }
+
+    public func deleteAgentPlugin(id: String) async {
+        fallbackAgentPlugins[id] = nil
+#if canImport(CSQLite3)
+        if let db { deleteAgentPluginJSONRow(db: db, table: "agent_plugins", id: id) }
+#endif
+    }
+
+    public func listAgentPluginRegistries() async -> [AgentPluginRegistry] {
+#if canImport(CSQLite3)
+        let values: [AgentPluginRegistry]
+        if let db {
+            values = loadAgentPluginJSONRows(db: db, table: "agent_plugin_registries", as: AgentPluginRegistry.self)
+        } else {
+            values = Array(fallbackAgentPluginRegistries.values)
+        }
+#else
+        let values = Array(fallbackAgentPluginRegistries.values)
+#endif
+        return values.sorted { lhs, rhs in
+            if lhs.isDefault != rhs.isDefault { return lhs.isDefault }
+            return lhs.name.localizedCaseInsensitiveCompare(rhs.name) == .orderedAscending
+        }
+    }
+
+    public func saveAgentPluginRegistry(_ registry: AgentPluginRegistry) async {
+        if registry.isDefault {
+            for key in fallbackAgentPluginRegistries.keys { fallbackAgentPluginRegistries[key]?.isDefault = false }
+            for existing in await listAgentPluginRegistries() where existing.id != registry.id && existing.isDefault {
+                var updated = existing
+                updated.isDefault = false
+                fallbackAgentPluginRegistries[updated.id] = updated
+#if canImport(CSQLite3)
+                if let db { saveAgentPluginJSONRow(db: db, table: "agent_plugin_registries", id: updated.id, value: updated) }
+#endif
+            }
+        }
+        fallbackAgentPluginRegistries[registry.id] = registry
+#if canImport(CSQLite3)
+        if let db { saveAgentPluginJSONRow(db: db, table: "agent_plugin_registries", id: registry.id, value: registry) }
+#endif
+    }
+
+    public func deleteAgentPluginRegistry(id: String) async {
+        fallbackAgentPluginRegistries[id] = nil
+#if canImport(CSQLite3)
+        if let db { deleteAgentPluginJSONRow(db: db, table: "agent_plugin_registries", id: id) }
+#endif
+    }
+
+#if canImport(CSQLite3)
+    private func loadAgentPluginJSONRows<T: Decodable>(db: OpaquePointer, table: String, as type: T.Type) -> [T] {
+        let allowedTables = ["agent_plugins", "agent_plugin_registries"]
+        guard allowedTables.contains(table) else { return [] }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT record_json FROM \(table);", -1, &statement, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+        var result: [T] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let pointer = sqlite3_column_text(statement, 0),
+                  let data = String(cString: pointer).data(using: .utf8),
+                  let value = try? JSONDecoder().decode(T.self, from: data)
+            else { continue }
+            result.append(value)
+        }
+        return result
+    }
+
+    private func loadAgentPluginJSONRow<T: Decodable>(db: OpaquePointer, table: String, id: String, as type: T.Type) -> T? {
+        let allowedTables = ["agent_plugins", "agent_plugin_registries"]
+        guard allowedTables.contains(table) else { return nil }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "SELECT record_json FROM \(table) WHERE id = ? LIMIT 1;", -1, &statement, nil) == SQLITE_OK else { return nil }
+        defer { sqlite3_finalize(statement) }
+        bindText(id, at: 1, statement: statement)
+        guard sqlite3_step(statement) == SQLITE_ROW,
+              let pointer = sqlite3_column_text(statement, 0),
+              let data = String(cString: pointer).data(using: .utf8)
+        else { return nil }
+        return try? JSONDecoder().decode(T.self, from: data)
+    }
+
+    private func saveAgentPluginJSONRow<T: Encodable>(db: OpaquePointer, table: String, id: String, value: T) {
+        let allowedTables = ["agent_plugins", "agent_plugin_registries"]
+        guard allowedTables.contains(table),
+              let data = try? JSONEncoder().encode(value),
+              let json = String(data: data, encoding: .utf8)
+        else { return }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "INSERT OR REPLACE INTO \(table)(id, record_json, updated_at) VALUES(?, ?, ?);", -1, &statement, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(statement) }
+        bindText(id, at: 1, statement: statement)
+        bindText(json, at: 2, statement: statement)
+        bindText(isoFormatter.string(from: Date()), at: 3, statement: statement)
+        _ = sqlite3_step(statement)
+    }
+
+    private func deleteAgentPluginJSONRow(db: OpaquePointer, table: String, id: String) {
+        let allowedTables = ["agent_plugins", "agent_plugin_registries"]
+        guard allowedTables.contains(table) else { return }
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, "DELETE FROM \(table) WHERE id = ?;", -1, &statement, nil) == SQLITE_OK else { return }
+        defer { sqlite3_finalize(statement) }
+        bindText(id, at: 1, statement: statement)
+        _ = sqlite3_step(statement)
+    }
+#endif
 
     private func persistFallbackProjectsToDisk() {
         let projects = fallbackProjects.values.sorted { left, right in
