@@ -74,5 +74,16 @@ struct ChatNativeTextEditorTests {
         #expect(textView.placeholderLabel.hitTest(NSPoint(x: 2, y: 2)) == nil)
         #expect(textView.acceptsFirstResponder)
     }
+
+    @Test("AppKit paste interception distinguishes images from plain text")
+    func appKitPasteInterceptionDistinguishesImagesFromPlainText() {
+        let pasteboard = NSPasteboard.withUniqueName()
+        pasteboard.setString("plain text", forType: .string)
+        #expect(!ComposerNSTextView.pasteboardContainsAttachment(pasteboard))
+
+        pasteboard.clearContents()
+        pasteboard.setData(Data([0x89, 0x50, 0x4E, 0x47]), forType: .png)
+        #expect(ComposerNSTextView.pasteboardContainsAttachment(pasteboard))
+    }
     #endif
 }

@@ -5,6 +5,15 @@ import Testing
 @Suite("Client cache store")
 @MainActor
 struct ClientCacheStoreTests {
+    @Test("cache dates accept ISO 8601 values with and without fractional seconds")
+    func cacheDateFormats() throws {
+        let wholeSeconds = try #require(ClientCacheStore.cachedDate(from: "2026-09-18T08:00:00Z"))
+        let fractional = try #require(ClientCacheStore.cachedDate(from: "2026-09-18T08:00:00.125Z"))
+
+        #expect(wholeSeconds.timeIntervalSince1970 == 1_789_718_400)
+        #expect(abs(fractional.timeIntervalSince1970 - 1_789_718_400.125) < 0.001)
+    }
+
     @Test("sqlite cache roundtrips agents projects sessions and details")
     func sqliteCacheRoundtripsCoreOfflineRecords() async throws {
         let tempURL = FileManager.default.temporaryDirectory

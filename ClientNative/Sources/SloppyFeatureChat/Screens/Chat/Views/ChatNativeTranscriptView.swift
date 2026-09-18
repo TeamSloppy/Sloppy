@@ -467,7 +467,8 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
                     .id(item.id)
                     .frame(width: max(scrollView?.contentSize.width ?? parent.contentWidth, 1))
                     .fixedSize(horizontal: false, vertical: true)
-                )
+                ),
+                measurementKey: item.id
             )
         }
 
@@ -686,21 +687,31 @@ final class AppKitHostedTranscriptItem: NSCollectionViewItem {
     static let identifier = NSUserInterfaceItemIdentifier("chat.native-transcript.hosted-item")
     private var hostingView: NSHostingView<AnyView>?
     private var measuredHeight: CGFloat = 0
+    private var measurementKey: String?
     private var measurementGeneration: UInt = 0
+    private var needsSynchronousMeasurement = true
+    private(set) var synchronousMeasurementPasses = 0
     var onHeightChange: (@MainActor () -> Void)?
 
     override func loadView() {
         view = NSView()
     }
 
-    func configure(rootView: AnyView) {
+    func configure(rootView: AnyView, measurementKey: String? = nil) {
+        if measurementKey == nil || measurementKey != self.measurementKey {
+            self.measurementKey = measurementKey
+            measuredHeight = 0
+            needsSynchronousMeasurement = true
+        }
         measurementGeneration &+= 1
         let generation = measurementGeneration
         let measuredRoot = AnyView(rootView.onGeometryChange(for: CGFloat.self) { geometry in
             ceil(geometry.size.height)
         } action: { [weak self] height in
-            guard let self, height.isFinite, height > 0,
-                  abs(self.measuredHeight - height) > 0.5 else { return }
+            guard let self, self.measurementGeneration == generation,
+                  height.isFinite, height > 0 else { return }
+            self.needsSynchronousMeasurement = false
+            guard abs(self.measuredHeight - height) > 0.5 else { return }
             self.measuredHeight = height
             // Geometry callbacks run inside SwiftUI layout; invalidate on the next turn.
             DispatchQueue.main.async { [weak self] in
@@ -732,11 +743,20 @@ final class AppKitHostedTranscriptItem: NSCollectionViewItem {
     override func preferredLayoutAttributesFitting(
         _ layoutAttributes: NSCollectionViewLayoutAttributes
     ) -> NSCollectionViewLayoutAttributes {
-        guard let attributes = layoutAttributes.copy() as? NSCollectionViewLayoutAttributes,
-              let hostingView else { return layoutAttributes }
+        guard let attributes = layoutAttributes.copy() as? NSCollectionViewLayoutAttributes else {
+            return layoutAttributes
+        }
+        if !needsSynchronousMeasurement, measuredHeight > 0 {
+            attributes.size.height = measuredHeight
+            return attributes
+        }
+        guard let hostingView else { return layoutAttributes }
+        synchronousMeasurementPasses += 1
         hostingView.layoutSubtreeIfNeeded()
         let height = ceil(hostingView.fittingSize.height)
         if height.isFinite && height > 0 {
+            measuredHeight = height
+            needsSynchronousMeasurement = false
             attributes.size.height = height
         }
         return attributes

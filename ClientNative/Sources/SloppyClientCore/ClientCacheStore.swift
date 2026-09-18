@@ -42,6 +42,9 @@ public actor ClientCacheStore {
     private let encoder: JSONEncoder
     private let decoder: JSONDecoder
 
+    private static let cacheDateFormat = Date.ISO8601FormatStyle(includingFractionalSeconds: false)
+    private static let fractionalCacheDateFormat = Date.ISO8601FormatStyle(includingFractionalSeconds: true)
+
     private var fallbackAgents: [String: APIAgentRecord] = [:]
     private var fallbackProjects: [String: APIProjectRecord] = [:]
     private var fallbackSessions: [String: [String: ChatSessionSummary]] = [:]
@@ -57,12 +60,7 @@ public actor ClientCacheStore {
         decoder.dateDecodingStrategy = .custom { decoder in
             let container = try decoder.singleValueContainer()
             let str = try container.decode(String.self)
-            if let date = ISO8601DateFormatter().date(from: str) {
-                return date
-            }
-            let formatter = ISO8601DateFormatter()
-            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-            if let date = formatter.date(from: str) {
+            if let date = Self.cachedDate(from: str) {
                 return date
             }
             throw DecodingError.dataCorruptedError(in: container, debugDescription: "Cannot decode date: \(str)")
@@ -72,6 +70,13 @@ public actor ClientCacheStore {
 #if canImport(CSQLite3)
         self.db = Self.openDatabase(path: path ?? Self.defaultDatabasePath(namespace: namespace)).0
 #endif
+    }
+
+    static func cachedDate(from string: String) -> Date? {
+        if string.contains("."), let date = try? fractionalCacheDateFormat.parse(string) {
+            return date
+        }
+        return try? cacheDateFormat.parse(string)
     }
 
     public func cacheAgents(_ agents: [APIAgentRecord]) async {

@@ -24,6 +24,33 @@ struct ChatNativeTranscriptLayoutTests {
         }
     }
 
+    @Test("stable transcript rows reuse their measured height")
+    func stableTranscriptRowsReuseMeasuredHeight() {
+        let item = AppKitHostedTranscriptItem()
+        item.loadView()
+        let attributes = NSCollectionViewLayoutAttributes(forItemWith: IndexPath(item: 0, section: 0))
+        attributes.size = NSSize(width: 480, height: 100)
+
+        item.configure(
+            rootView: AnyView(Color.clear.frame(width: 480, height: 120)),
+            measurementKey: "message-1"
+        )
+        #expect(item.preferredLayoutAttributesFitting(attributes).size.height == 120)
+        #expect(item.synchronousMeasurementPasses == 1)
+
+        for _ in 0..<5 {
+            #expect(item.preferredLayoutAttributesFitting(attributes).size.height == 120)
+        }
+        #expect(item.synchronousMeasurementPasses == 1)
+
+        item.configure(
+            rootView: AnyView(Color.clear.frame(width: 480, height: 80)),
+            measurementKey: "message-2"
+        )
+        #expect(item.preferredLayoutAttributesFitting(attributes).size.height == 80)
+        #expect(item.synchronousMeasurementPasses == 2)
+    }
+
     @Test("streaming updates preserve the hosting view")
     func streamingPreservesHostingView() throws {
         let item = AppKitHostedTranscriptItem()

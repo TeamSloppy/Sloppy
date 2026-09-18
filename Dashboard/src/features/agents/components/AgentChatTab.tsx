@@ -2414,6 +2414,7 @@ function DeepResearchProcessPanel({ process }) {
 }
 
 function AgentChatEvents({
+  scrollKey,
   isLoadingSession,
   isSending,
   timelineItems,
@@ -2433,6 +2434,15 @@ function AgentChatEvents({
   const wasNearBottomRef = useRef(true);
   const [timeNowMs, setTimeNowMs] = useState(() => Date.now());
   const [emptySessionTips] = useState(() => rotatedEmptySessionTips());
+
+  useLayoutEffect(() => {
+    const el = scrollRef.current;
+    if (!el) {
+      return;
+    }
+    wasNearBottomRef.current = true;
+    el.scrollTop = el.scrollHeight;
+  }, [scrollKey]);
 
   useEffect(() => {
     const el = scrollRef.current;
@@ -6855,6 +6865,7 @@ export function AgentChatTab({
           <div className={`agent-chat-workspace-inner ${subagentPanel.isOpen ? "has-subagent" : ""}`}>
             <div className="agent-chat-thread">
               <AgentChatEvents
+                scrollKey={activeSessionId}
                 isLoadingSession={isLoadingSession}
                 isSending={isActiveSessionBusy}
                 timelineItems={timelineItems}
@@ -6965,6 +6976,7 @@ export function AgentChatTab({
                   <p className="placeholder-text">{subagentPanel.error}</p>
                 ) : (
                   <AgentChatEvents
+                    scrollKey={subagentPanel.sessionId}
                     isLoadingSession={subagentPanel.loading}
                     isSending={isSubagentBusy}
                     timelineItems={subagentTimelineItems}

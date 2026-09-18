@@ -881,6 +881,16 @@ final class ComposerNSScrollView: NSScrollView {
 
 @MainActor
 final class ComposerNSTextView: NSTextView {
+    static func pasteboardContainsAttachment(_ pasteboard: NSPasteboard) -> Bool {
+        if pasteboard.canReadObject(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]
+        ) {
+            return true
+        }
+        return pasteboard.availableType(from: [.png, .tiff]) != nil
+    }
+
     let placeholderLabel = ComposerPlaceholderLabel(labelWithString: "")
     var placeholder: String? {
         didSet {
@@ -937,7 +947,10 @@ final class ComposerNSTextView: NSTextView {
     }
 
     override func paste(_ sender: Any?) {
-        if onPasteAttachment?() == true { return }
+        if Self.pasteboardContainsAttachment(.general),
+           onPasteAttachment?() == true {
+            return
+        }
         super.paste(sender)
     }
 

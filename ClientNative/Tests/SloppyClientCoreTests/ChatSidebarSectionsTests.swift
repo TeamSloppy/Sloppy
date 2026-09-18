@@ -152,6 +152,29 @@ struct ChatSidebarSectionsTests {
         #expect(sections.projectGroups.last?.hiddenCount == 0)
     }
 
+    @Test("project groups include newly created sessions before the first message is persisted")
+    func projectGroupsIncludeZeroMessageSessions() {
+        let project = APIProjectRecord(id: "project", name: "Project")
+        let session = ChatSessionSummary(
+            id: "active-task-chat",
+            agentId: "agent",
+            title: "Task chat",
+            messageCount: 0,
+            updatedAt: Date(timeIntervalSince1970: 300),
+            projectId: project.id
+        )
+
+        let sections = ChatSidebarSections.build(
+            sessions: [session],
+            projects: [project],
+            pinnedSessionIds: [],
+            mode: .projects
+        )
+
+        #expect(sections.projectGroups.first?.visibleSessions.map(\.id) == [session.id])
+        #expect(sections.projectGroups.first?.allSessionsCount == 1)
+    }
+
     @Test("projects include empty groups and preserve the supplied order")
     func projectsIncludeEmptyGroupsAndPreserveTheSuppliedOrder() {
         let projects = [

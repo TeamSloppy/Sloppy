@@ -109,7 +109,6 @@ public struct ChatSidebarSections: Sendable {
                 let allProjectSessions = sortedSessions.filter {
                     $0.projectId == project.id
                         && ($0.sourceInstanceID ?? defaultSourceInstanceID) == projectSourceInstanceID
-                        && $0.messageCount > 0
                 }
                 let projectSessions = allProjectSessions.filter {
                     !pinnedSessionIds.contains($0.storageID)
