@@ -1,11 +1,27 @@
 import Foundation
 import SwiftUI
+import UniformTypeIdentifiers
 
 #if os(macOS)
 import AppKit
 #elseif canImport(UIKit)
 import UIKit
 #endif
+
+enum ChatComposerPasteboard {
+    static func containsAttachmentType(_ typeIdentifiers: [String]) -> Bool {
+        typeIdentifiers.compactMap(UTType.init).contains(where: isAttachmentType)
+    }
+
+    static func isAttachmentType(_ type: UTType) -> Bool {
+        if type.conforms(to: .fileURL) || type.conforms(to: .directory) {
+            return true
+        }
+        return type.conforms(to: .data)
+            && !type.conforms(to: .text)
+            && !type.conforms(to: .url)
+    }
+}
 
 enum ChatComposerNativeSelection {
     static func nativeRange(
@@ -352,6 +368,19 @@ struct UIKitComposerTextStyle: Equatable {
 
 @MainActor
 final class ComposerUITextView: UITextView {
+    static func pasteboardContainsAttachment(_ pasteboard: UIPasteboard) -> Bool {
+        pasteboard.itemProviders.contains {
+            ChatComposerPasteboard.containsAttachmentType($0.registeredTypeIdentifiers)
+        }
+    }
+
+    static func shouldEnableAttachmentPaste(
+        action: Selector?,
+        pasteboard: UIPasteboard
+    ) -> Bool {
+        action == #selector(paste(_:)) && pasteboardContainsAttachment(pasteboard)
+    }
+
     let placeholderLabel = UILabel()
     var placeholder: String? {
         didSet {
@@ -428,11 +457,21 @@ final class ComposerUITextView: UITextView {
     }
 
     override func paste(_ sender: Any?) {
-        let providers = UIPasteboard.general.itemProviders
-        if !providers.isEmpty, onPasteItemProviders?(providers) == true {
+        let attachmentProviders = UIPasteboard.general.itemProviders.filter {
+            ChatComposerPasteboard.containsAttachmentType($0.registeredTypeIdentifiers)
+        }
+        if !attachmentProviders.isEmpty,
+           onPasteItemProviders?(attachmentProviders) == true {
             return
         }
         super.paste(sender)
+    }
+
+    override func canPerformAction(_ action: Selector, withSender sender: Any?) -> Bool {
+        if Self.shouldEnableAttachmentPaste(action: action, pasteboard: .general) {
+            return true
+        }
+        return super.canPerformAction(action, withSender: sender)
     }
 
     func setStyledText(_ text: String, style: UIKitComposerTextStyle) {
@@ -888,7 +927,16 @@ final class ComposerNSTextView: NSTextView {
         ) {
             return true
         }
-        return pasteboard.availableType(from: [.png, .tiff]) != nil
+        return ChatComposerPasteboard.containsAttachmentType(
+            pasteboard.types?.map(\.rawValue) ?? []
+        )
+    }
+
+    static func shouldEnableAttachmentPaste(
+        action: Selector?,
+        pasteboard: NSPasteboard
+    ) -> Bool {
+        action == #selector(paste(_:)) && pasteboardContainsAttachment(pasteboard)
     }
 
     let placeholderLabel = ComposerPlaceholderLabel(labelWithString: "")
@@ -952,6 +1000,20 @@ final class ComposerNSTextView: NSTextView {
             return
         }
         super.paste(sender)
+    }
+
+    override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
+        if Self.shouldEnableAttachmentPaste(action: item.action, pasteboard: .general) {
+            return true
+        }
+        return super.validateUserInterfaceItem(item)
+    }
+
+    override func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if Self.shouldEnableAttachmentPaste(action: menuItem.action, pasteboard: .general) {
+            return true
+        }
+        return super.validateMenuItem(menuItem)
     }
 
     func setStyledText(_ text: String, style: AppKitComposerTextStyle) {

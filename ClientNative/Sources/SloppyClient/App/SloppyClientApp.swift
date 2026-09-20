@@ -23,6 +23,10 @@ private final class SloppyAppDelegate: NSObject, NSApplicationDelegate, UNUserNo
         false
     }
 
+    func applicationWillTerminate(_ notification: Notification) {
+        LocalBackendLauncher.shared.stop()
+    }
+
     nonisolated func userNotificationCenter(
         _ center: UNUserNotificationCenter,
         willPresent notification: UNNotification

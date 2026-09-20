@@ -174,7 +174,8 @@ extension CoreService {
         let existingContext = await toolContextForSession(
             sessionID: normalizedSessionID,
             sessionTitle: detail.summary.title,
-            projectID: detail.summary.projectId
+            projectID: detail.summary.projectId,
+            taskID: detail.summary.taskId
         )
         let resolvedPath = try resolvedSessionDirectoryPath(
             request.path,

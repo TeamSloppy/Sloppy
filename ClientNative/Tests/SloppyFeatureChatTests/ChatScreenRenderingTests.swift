@@ -84,6 +84,14 @@ struct ChatScreenRenderingTests {
         #expect(!source.contains("allowedContentTypes: []"))
     }
 
+    @Test("connection failures do not cover the chat with a banner")
+    func connectionFailuresDoNotCoverChatWithBanner() throws {
+        let source = try chatScreenSource
+
+        #expect(!source.contains("ChatConnectionBar"))
+        #expect(!source.contains("ConnectionBanner"))
+    }
+
     @Test("empty mobile chat keeps composer pinned to bottom")
     func emptyMobileChatKeepsComposerPinnedToBottom() throws {
         let source = try chatScreenSource

@@ -541,6 +541,7 @@ public actor SessionService {
         title: String? = nil,
         parentSessionId: String? = nil,
         projectId: String? = nil,
+        taskId: String? = nil,
         workspaceId: String? = nil
     ) async throws -> ChatSessionSummary {
         struct Payload: Encodable {
@@ -548,9 +549,11 @@ public actor SessionService {
             var parentSessionId: String?
             var kind: String = "chat"
             var projectId: String?
+            var taskId: String?
             var workspaceId: String?
         }
         let normalizedProjectId = projectId?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let normalizedTaskId = taskId?.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedWorkspaceId = workspaceId?.trimmingCharacters(in: .whitespacesAndNewlines)
         return try await http.post(
             "/v1/agents/\(BackendHTTPClient.encodePathSegment(agentId))/sessions",
@@ -558,6 +561,7 @@ public actor SessionService {
                 title: title,
                 parentSessionId: parentSessionId,
                 projectId: normalizedProjectId?.isEmpty == false ? normalizedProjectId : nil,
+                taskId: normalizedTaskId?.isEmpty == false ? normalizedTaskId : nil,
                 workspaceId: normalizedWorkspaceId?.isEmpty == false ? normalizedWorkspaceId : nil
             )
         )

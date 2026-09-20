@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import Testing
+import UniformTypeIdentifiers
 @testable import SloppyFeatureChat
 
 #if os(macOS)
@@ -36,6 +37,28 @@ struct ChatNativeTextEditorTests {
         }
         #expect(range.isEmpty)
         #expect(text.distance(from: text.startIndex, to: range.lowerBound) == 2)
+    }
+
+    @Test("plain text paste stays native instead of becoming an attachment")
+    func plainTextPasteStaysNative() {
+        #expect(!ChatComposerPasteboard.containsAttachmentType([UTType.plainText.identifier]))
+        #expect(!ChatComposerPasteboard.containsAttachmentType([UTType.html.identifier]))
+        #expect(!ChatComposerPasteboard.containsAttachmentType([UTType.url.identifier]))
+    }
+
+    @Test("binary and file paste is routed to attachments")
+    func attachmentPasteIsIntercepted() {
+        #expect(ChatComposerPasteboard.containsAttachmentType([UTType.png.identifier]))
+        #expect(ChatComposerPasteboard.containsAttachmentType([UTType.pdf.identifier]))
+        #expect(ChatComposerPasteboard.containsAttachmentType([UTType.zip.identifier]))
+        #expect(ChatComposerPasteboard.containsAttachmentType([UTType.folder.identifier]))
+        #expect(ChatComposerPasteboard.containsAttachmentType([UTType.fileURL.identifier]))
+        #expect(
+            ChatComposerPasteboard.containsAttachmentType([
+                UTType.plainText.identifier,
+                UTType.png.identifier,
+            ])
+        )
     }
 
     @Test("changing draft text clears indices owned by the previous string")
@@ -84,6 +107,43 @@ struct ChatNativeTextEditorTests {
         pasteboard.clearContents()
         pasteboard.setData(Data([0x89, 0x50, 0x4E, 0x47]), forType: .png)
         #expect(ComposerNSTextView.pasteboardContainsAttachment(pasteboard))
+
+        pasteboard.clearContents()
+        pasteboard.setData(Data("%PDF".utf8), forType: .pdf)
+        #expect(ComposerNSTextView.pasteboardContainsAttachment(pasteboard))
+    }
+
+    @Test("AppKit enables native Paste commands for image attachments")
+    func appKitEnablesAttachmentPasteCommand() {
+        let pasteboard = NSPasteboard.withUniqueName()
+        pasteboard.setData(Data([0x89, 0x50, 0x4E, 0x47]), forType: .png)
+        let pasteMenuItem = NSMenuItem(
+            title: "Paste",
+            action: #selector(NSText.paste(_:)),
+            keyEquivalent: "v"
+        )
+
+        #expect(
+            ComposerNSTextView.shouldEnableAttachmentPaste(
+                action: pasteMenuItem.action,
+                pasteboard: pasteboard
+            )
+        )
+        #expect(
+            !ComposerNSTextView.shouldEnableAttachmentPaste(
+                action: #selector(NSText.copy(_:)),
+                pasteboard: pasteboard
+            )
+        )
+
+        pasteboard.clearContents()
+        pasteboard.setString("plain text", forType: .string)
+        #expect(
+            !ComposerNSTextView.shouldEnableAttachmentPaste(
+                action: #selector(NSText.paste(_:)),
+                pasteboard: pasteboard
+            )
+        )
     }
     #endif
 }

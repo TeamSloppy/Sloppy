@@ -55,41 +55,62 @@ struct SplashScreen: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        .onAppear { attemptConnection() }
+        .task { await attemptConnection() }
     }
 
-    private func attemptConnection() {
-        Task { @MainActor in
-            // 1. Try configured host:port (includes default localhost:25101 on first launch).
-            status = "Trying \(settings.serverHost):\(settings.serverPort)..."
-            let url = settings.baseURL
-            if await HealthService(baseURL: url).isHealthy() {
+    @MainActor
+    private func attemptConnection() async {
+        // 1. Try configured host:port (includes default localhost:25101 on first launch).
+        status = "Trying \(settings.serverHost):\(settings.serverPort)..."
+        let url = settings.baseURL
+        if await HealthService(baseURL: url).isHealthy() {
+            guard !Task.isCancelled else { return }
+            onResult(.connected(url))
+            return
+        }
+
+        #if os(macOS)
+        // The TUI owns a local CoreService. The native macOS client reaches the
+        // same local workspace through HTTP, so start an installed backend when
+        // localhost is not already serving it.
+        if ServerAddress.isLoopbackHost(url.host) {
+            status = "Starting local Sloppy..."
+            switch await LocalBackendLauncher.shared.ensureRunning(at: url) {
+            case .alreadyRunning, .started:
+                guard !Task.isCancelled else { return }
                 onResult(.connected(url))
                 return
-            }
-
-            // 2. Scan local network
-            status = "Scanning network..."
-            isScanning = true
-            let scanner = LocalNetworkScanner()
-            var found: SavedServer?
-            for await server in await scanner.scan() {
-                found = server
+            case .unavailable, .failed:
                 break
             }
-            isScanning = false
-
-            if let server = found {
-                status = "Found \(server.host)"
-                settings.useServer(server)
-                onResult(.connected(server.baseURL))
-                return
-            }
-
-            // 3. Give up -- show setup
-            status = "No server found"
-            try? await Task.sleep(nanoseconds: 800_000_000)
-            onResult(.needsSetup)
         }
+        #endif
+
+        guard !Task.isCancelled else { return }
+
+        // 2. Scan local network
+        status = "Scanning network..."
+        isScanning = true
+        let scanner = LocalNetworkScanner()
+        var found: SavedServer?
+        for await server in await scanner.scan() {
+            guard !Task.isCancelled else { return }
+            found = server
+            break
+        }
+        isScanning = false
+
+        if let server = found {
+            status = "Found \(server.host)"
+            settings.useServer(server)
+            onResult(.connected(server.baseURL))
+            return
+        }
+
+        // 3. Give up -- show setup
+        status = "No server found"
+        try? await Task.sleep(for: .milliseconds(800))
+        guard !Task.isCancelled else { return }
+        onResult(.needsSetup)
     }
 }

@@ -288,7 +288,7 @@ public final class ChatScreenViewModel {
         Task { @MainActor in
             guard let summary = try? await apiClient.createAgentSession(
                 agentId: agent.id,
-                title: contextTitle ?? "Chat with \(agent.displayName)",
+                title: nil,
                 projectId: projectId
             ) else { return }
             sessions.insert(summary, at: 0)
@@ -705,7 +705,7 @@ public final class ChatScreenViewModel {
             Task { @MainActor in
                 guard let summary = try? await apiClient.createAgentSession(
                     agentId: agent.id,
-                    title: activeContextTitle ?? "Chat with \(agent.displayName)",
+                    title: nil,
                     projectId: activeProjectId
                 ) else { return }
                 sessions.insert(summary, at: 0)

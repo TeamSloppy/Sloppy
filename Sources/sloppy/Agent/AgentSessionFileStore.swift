@@ -113,14 +113,23 @@ final class AgentSessionFileStore: @unchecked Sendable {
             let sessionID = "session-\(UUID().uuidString.lowercased())"
             let trimmedTitle = request.title?.trimmingCharacters(in: .whitespacesAndNewlines)
             let title: String
+            let titleIsAutomatic: Bool
             if let trimmedTitle, !trimmedTitle.isEmpty {
                 title = trimmedTitle
+                titleIsAutomatic = false
             } else {
-                title = "Session \(Self.shortSessionID(sessionID))"
+                title = AgentSessionTitleGenerator.fallbackTitle
+                titleIsAutomatic = true
             }
 
             let projectIdMeta: String? = {
                 guard let raw = request.projectId?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
+                    return nil
+                }
+                return raw
+            }()
+            let taskIdMeta: String? = {
+                guard let raw = request.taskId?.trimmingCharacters(in: .whitespacesAndNewlines), !raw.isEmpty else {
                     return nil
                 }
                 return raw
@@ -142,7 +151,9 @@ final class AgentSessionFileStore: @unchecked Sendable {
                     parentSessionId: normalizedParentSessionID,
                     kind: request.kind,
                     projectId: projectIdMeta,
-                    workspaceId: workspaceIdMeta
+                    taskId: taskIdMeta,
+                    workspaceId: workspaceIdMeta,
+                    titleIsAutomatic: titleIsAutomatic
                 )
             )
 
@@ -545,7 +556,10 @@ final class AgentSessionFileStore: @unchecked Sendable {
         var parentSessionID: String?
         var kind: AgentSessionKind = .chat
         var projectID: String?
+        var taskID: String?
         var workspaceID: String?
+        var titleIsAutomatic = false
+        var userMessages: [AgentSessionMessage] = []
         var createdAt = events.first?.createdAt ?? Date()
         var updatedAt = createdAt
         var messageCount = 0
@@ -560,15 +574,24 @@ final class AgentSessionFileStore: @unchecked Sendable {
                 parentSessionID = metadata.parentSessionId
                 kind = metadata.kind
                 projectID = metadata.projectId
+                taskID = metadata.taskId
                 workspaceID = metadata.workspaceId
+                titleIsAutomatic = metadata.titleIsAutomatic
             }
 
             if let message = event.message {
+                if message.role == .user {
+                    userMessages.append(message)
+                }
                 messageCount += 1
                 if let preview = previewText(for: message), !preview.isEmpty {
                     lastPreview = preview
                 }
             }
+        }
+
+        if titleIsAutomatic {
+            title = AgentSessionTitleGenerator.title(for: userMessages)
         }
 
         let userTurnCount = (try? readUserTurnCount(agentID: agentID, sessionID: sessionID)) ?? 0
@@ -585,6 +608,7 @@ final class AgentSessionFileStore: @unchecked Sendable {
             kind: kind,
             userTurnCount: userTurnCount,
             projectId: projectID,
+            taskId: taskID,
             workspaceId: workspaceID
         )
     }

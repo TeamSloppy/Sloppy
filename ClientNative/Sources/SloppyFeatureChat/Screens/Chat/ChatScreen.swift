@@ -89,9 +89,6 @@ public struct ChatScreen: View {
                 askInSideChat: onAskInSideChat
             )
         )
-        .overlay(anchor: .top, content: {
-            ChatConnectionBar(connectionMonitor: viewModel.connectionMonitor)
-        })
         .fileImporter(
             isPresented: $viewModel.isAttachmentPickerShown,
             allowedContentTypes: [.item],
@@ -586,22 +583,6 @@ private struct ChatNavigationLeadingItems: View {
                     .foregroundColor(.white.opacity(0.7 as CGFloat))
                     .lineLimit(1)
             }
-        }
-    }
-}
-
-@MainActor
-private struct ChatConnectionBar: View {
-    let connectionMonitor: ConnectionMonitor
-
-    @ViewBuilder
-    var body: some View {
-        if connectionMonitor.state != .connected {
-            ConnectionBanner(
-                state: connectionMonitor.state,
-                endpoint: connectionMonitor.checkedURL?.absoluteString,
-                message: connectionMonitor.lastFailureMessage
-            )
         }
     }
 }

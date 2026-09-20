@@ -229,13 +229,19 @@ final class SloppyDesktopOverlay {
             })
             let activeTasks = projects.flatMap { project in
                 (project.tasks ?? []).compactMap { task -> SloppyDesktopTask? in
+                    let requiresInput = task.status == "waiting_input"
+                        || task.status == "pending_approval"
+                    let isError = task.status == "blocked"
                     guard task.normalizedKanbanColumnID == .inProgress
-                        || task.normalizedKanbanColumnID == .needsReview else { return nil }
+                        || task.normalizedKanbanColumnID == .needsReview
+                        || requiresInput
+                        || isError else { return nil }
                     return SloppyDesktopTask(
                         id: "\(project.id)/\(task.id)",
                         title: task.title,
                         projectName: project.name,
-                        status: task.normalizedKanbanColumnID
+                        status: task.normalizedKanbanColumnID,
+                        rawStatus: task.status
                     )
                 }
             }
@@ -305,14 +311,25 @@ final class SloppyDesktopOverlay {
                             agentId: agent.id,
                             sessionId: session.id
                         ),
-                        let status = detail.latestRunStatus,
-                        status.stage.isWorking else {
+                        let status = detail.latestRunStatus else {
                             return SloppyDesktopAgentRunLookup(
                                 id: cacheID,
                                 updatedAt: session.updatedAt,
                                 run: nil
                             )
                         }
+                        let inputRequest = detail.pendingInputRequest
+                        let isRecentError = status.stage == .interrupted
+                            && abs(Date().timeIntervalSince(session.updatedAt)) < 600
+                        guard status.stage.isWorking || inputRequest != nil || isRecentError else {
+                            return SloppyDesktopAgentRunLookup(
+                                id: cacheID,
+                                updatedAt: session.updatedAt,
+                                run: nil
+                            )
+                        }
+                        let inputPrompt = inputRequest?.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+                        let fallbackPrompt = inputRequest?.questions.first?.question
                         return SloppyDesktopAgentRunLookup(
                             id: cacheID,
                             updatedAt: session.updatedAt,
@@ -322,8 +339,11 @@ final class SloppyDesktopOverlay {
                                 sessionID: session.id,
                                 sessionTitle: session.title,
                                 agentName: agent.displayName,
+                                stage: status.stage,
                                 statusLabel: status.label,
                                 statusDetails: status.details,
+                                needsInput: inputRequest != nil,
+                                inputPrompt: inputPrompt?.isEmpty == false ? inputPrompt : fallbackPrompt,
                                 updatedAt: session.updatedAt
                             )
                         )
@@ -403,6 +423,7 @@ private struct SloppyDesktopNotchView: View {
     static let collapsedSize = CGSize(width: 164, height: 32)
     static let expandedSize = CGSize(width: 340, height: 148)
     static let wideWidth: CGFloat = 480
+    static let expandedHeroHeight: CGFloat = 104
 
     static func size(for state: SloppyDesktopOverlayState) -> CGSize {
         guard state.isExpanded else {
@@ -434,14 +455,17 @@ private struct SloppyDesktopNotchView: View {
             width: wideWidth,
             height: min(
                 520,
-                64 + rowHeight + chatComposerHeight + taskComposerHeight + approvalHeight + sectionSpacing
+                64 + expandedHeroHeight + rowHeight + chatComposerHeight
+                    + taskComposerHeight + approvalHeight + sectionSpacing
             )
         )
     }
 
     let state: SloppyDesktopOverlayState
     let isPointerInsidePanel: @MainActor () -> Bool
+    @Namespace private var petTransitionNamespace
     @State private var isHovered = false
+    @State private var isPetExpanded = false
     @State private var hoverCollapseTask: Task<Void, Never>?
     @FocusState private var focusedRecentChatID: String?
     @FocusState private var isTaskComposerFocused: Bool
@@ -476,6 +500,9 @@ private struct SloppyDesktopNotchView: View {
         .onDisappear {
             hoverCollapseTask?.cancel()
         }
+        .onAppear {
+            isPetExpanded = state.isExpanded
+        }
         .task(id: state.activityRevealToken) {
             await autoCollapseActiveContent()
         }
@@ -486,6 +513,13 @@ private struct SloppyDesktopNotchView: View {
             }
         }
         .onChange(of: state.isExpanded) { _, expanded in
+            if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+                isPetExpanded = expanded
+            } else {
+                withAnimation(.spring(response: expanded ? 0.30 : 0.22, dampingFraction: 0.82)) {
+                    isPetExpanded = expanded
+                }
+            }
             if !expanded {
                 focusedRecentChatID = nil
                 isTaskComposerFocused = false
@@ -498,11 +532,19 @@ private struct SloppyDesktopNotchView: View {
     private var headerContent: some View {
         HStack(spacing: 7) {
             if state.toolApproval == nil {
-                SloppyAssets.projectLogo
-                    .resizable()
-                    .scaledToFit()
-                    .frame(width: 16, height: 16)
-                    .accessibilityHidden(true)
+                ZStack {
+                    if !isPetExpanded {
+                        SloppyNotchPetView(state: state.mascotState)
+                            .matchedGeometryEffect(
+                                id: "notch-mascot",
+                                in: petTransitionNamespace
+                            )
+                            .transition(.identity)
+                    }
+                }
+                .frame(width: 18, height: 18)
+                .allowsHitTesting(false)
+                .accessibilityHidden(true)
             } else {
                 Image(systemName: "exclamationmark.shield.fill")
                     .font(.system(size: 12))
@@ -576,16 +618,27 @@ private struct SloppyDesktopNotchView: View {
     }
 
     private var compactTitle: String {
-        if let tool = state.toolApproval?.metadata["tool"] {
-            return tool
+        switch state.mascotState {
+        case .error:
+            return "Something went wrong"
+        case .needsInput:
+            if state.toolApproval != nil {
+                return "Approval needed"
+            }
+            return state.mascotPrimaryRun.map { "\($0.agentName) needs input" } ?? "Input needed"
+        case .thinking:
+            return state.mascotPrimaryRun.map { "\($0.agentName) is thinking" } ?? "Thinking"
+        case .working:
+            if state.activeAgentRuns.count == 1 {
+                return "\(state.activeAgentRuns[0].agentName) is working"
+            }
+            if state.activeAgentRuns.count > 1 {
+                return "\(state.activeAgentRuns.count) agents working"
+            }
+            return "Sloppy is working"
+        case .idle:
+            return "Sloppy"
         }
-        if state.activeAgentRuns.count == 1 {
-            return "\(state.activeAgentRuns[0].agentName) is working"
-        }
-        if state.activeAgentRuns.count > 1 {
-            return "\(state.activeAgentRuns.count) agents working"
-        }
-        return state.toolApproval == nil ? "Sloppy" : "Approval required"
     }
 
     private func handleHoverChange(_ hovering: Bool) {
@@ -645,33 +698,19 @@ private struct SloppyDesktopNotchView: View {
     @ViewBuilder
     private var expandedContent: some View {
         if state.usesWideLayout {
-            VStack(alignment: .leading, spacing: 10) {
-                if let approval = state.toolApproval {
-                    approvalContent(approval)
+            VStack(spacing: 10) {
+                SloppyDesktopNotchHeroView(
+                    state: state,
+                    showsMascot: isPetExpanded,
+                    petNamespace: petTransitionNamespace
+                )
+                Divider().opacity(0.35)
+                ScrollView(.vertical) {
+                    expandedSections
+                        .padding(.horizontal, 1)
+                        .padding(.bottom, 2)
                 }
-                if state.toolApproval != nil && state.activityCount > 0 {
-                    Divider().opacity(0.35)
-                }
-                if !state.activeAgentRuns.isEmpty {
-                    activeAgentRunsContent
-                }
-                if !state.activeAgentRuns.isEmpty && !state.activeTasks.isEmpty {
-                    Divider().opacity(0.35)
-                }
-                if !state.activeTasks.isEmpty {
-                    activeTasksContent
-                }
-                if (!state.activeAgentRuns.isEmpty || !state.activeTasks.isEmpty)
-                    && !state.recentChats.isEmpty {
-                    Divider().opacity(0.35)
-                }
-                if !state.recentChats.isEmpty {
-                    recentChatsContent
-                }
-                if state.hasContentBeforeTaskComposer {
-                    Divider().opacity(0.35)
-                }
-                taskComposerContent
+                .scrollIndicators(.hidden)
             }
             .padding(12)
         } else {
@@ -687,6 +726,37 @@ private struct SloppyDesktopNotchView: View {
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .padding(12)
+        }
+    }
+
+    private var expandedSections: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            if let approval = state.toolApproval {
+                approvalContent(approval)
+            }
+            if state.toolApproval != nil && state.activityCount > 0 {
+                Divider().opacity(0.35)
+            }
+            if !state.activeAgentRuns.isEmpty {
+                activeAgentRunsContent
+            }
+            if !state.activeAgentRuns.isEmpty && !state.activeTasks.isEmpty {
+                Divider().opacity(0.35)
+            }
+            if !state.activeTasks.isEmpty {
+                activeTasksContent
+            }
+            if (!state.activeAgentRuns.isEmpty || !state.activeTasks.isEmpty)
+                && !state.recentChats.isEmpty {
+                Divider().opacity(0.35)
+            }
+            if !state.recentChats.isEmpty {
+                recentChatsContent
+            }
+            if state.hasContentBeforeTaskComposer {
+                Divider().opacity(0.35)
+            }
+            taskComposerContent
         }
     }
 
@@ -769,9 +839,9 @@ private struct SloppyDesktopNotchView: View {
     private var activeAgentRunsContent: some View {
         VStack(alignment: .leading, spacing: 6) {
             HStack {
-                Label("Agents working", systemImage: "sparkles")
+                Label(agentSectionTitle, systemImage: agentSectionSystemImage)
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(.green)
+                    .foregroundStyle(agentSectionColor)
                 Spacer()
                 Text("\(state.activeAgentRuns.count)")
                     .font(.caption.monospacedDigit())
@@ -803,6 +873,30 @@ private struct SloppyDesktopNotchView: View {
                 .buttonStyle(.plain)
                 .help("Open chat with \(run.agentName)")
             }
+        }
+    }
+
+    private var agentSectionTitle: String {
+        switch state.mascotState {
+        case .error: "Needs attention"
+        case .needsInput: "Needs input"
+        case .idle, .working, .thinking: "Agents working"
+        }
+    }
+
+    private var agentSectionSystemImage: String {
+        switch state.mascotState {
+        case .error: "exclamationmark.triangle.fill"
+        case .needsInput: "questionmark.bubble.fill"
+        case .idle, .working, .thinking: "sparkles"
+        }
+    }
+
+    private var agentSectionColor: Color {
+        switch state.mascotState {
+        case .error: .red
+        case .needsInput: .orange
+        case .idle, .working, .thinking: .green
         }
     }
 
@@ -1121,7 +1215,7 @@ final class SloppyDesktopOverlayState {
     }
 
     var usesWideCollapsedLayout: Bool {
-        toolApproval != nil || activityCount > 0
+        toolApproval != nil || activityCount > 0 || mascotState == .error
     }
 
     var activityCount: Int {
@@ -1131,6 +1225,46 @@ final class SloppyDesktopOverlayState {
     var primaryAgentRun: SloppyDesktopAgentRun? {
         guard toolApproval == nil, activeAgentRuns.count == 1 else { return nil }
         return activeAgentRuns[0]
+    }
+
+    var mascotState: SloppyNotchPetState {
+        if mascotErrorMessage != nil
+            || activeAgentRuns.contains(where: { $0.stage == .interrupted })
+            || activeTasks.contains(where: \.isError) {
+            return .error
+        }
+        if toolApproval != nil
+            || activeAgentRuns.contains(where: \.needsInput)
+            || activeTasks.contains(where: \.requiresInput) {
+            return .needsInput
+        }
+        if activeAgentRuns.contains(where: { $0.stage == .thinking }) {
+            return .thinking
+        }
+        return activityCount > 0 ? .working : .idle
+    }
+
+    var mascotPrimaryRun: SloppyDesktopAgentRun? {
+        activeAgentRuns.first(where: { $0.stage == .interrupted })
+            ?? activeAgentRuns.first(where: \.needsInput)
+            ?? activeAgentRuns.first(where: { $0.stage == .thinking })
+            ?? primaryAgentRun
+            ?? activeAgentRuns.first
+    }
+
+    var mascotErrorMessage: String? {
+        [errorMessage, promptError, taskCreationError]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first(where: { !$0.isEmpty })
+            ?? activeAgentRuns.first(where: { $0.stage == .interrupted })?.statusDetails
+            ?? activeTasks.first(where: \.isError).map { "\($0.title) · \($0.projectName)" }
+    }
+
+    var mascotNeedsInputMessage: String? {
+        toolApproval?.message
+            ?? activeAgentRuns.first(where: \.needsInput)?.inputPrompt
+            ?? activeAgentRuns.first(where: \.needsInput)?.statusDetails
+            ?? activeTasks.first(where: \.requiresInput).map { "\($0.title) · \($0.projectName)" }
     }
 
     var canSendPrompt: Bool {
@@ -1330,14 +1464,29 @@ struct SloppyDesktopTask: Identifiable, Equatable {
     let title: String
     let projectName: String
     let status: ProjectKanbanColumnID
+    let rawStatus: String
+
+    var requiresInput: Bool {
+        rawStatus == "waiting_input" || rawStatus == "pending_approval"
+    }
+
+    var isError: Bool {
+        rawStatus == "blocked"
+    }
 
     var statusTitle: String {
+        if requiresInput {
+            return "Waiting for input"
+        }
+        if isError {
+            return "Blocked"
+        }
         switch status {
-        case .inProgress: "In progress"
-        case .needsReview: "Needs review"
-        case .todo: "To do"
-        case .done: "Done"
-        case .other: "Other"
+        case .inProgress: return "In progress"
+        case .needsReview: return "Needs review"
+        case .todo: return "To do"
+        case .done: return "Done"
+        case .other: return "Other"
         }
     }
 }
@@ -1354,8 +1503,11 @@ struct SloppyDesktopAgentRun: Identifiable, Equatable, Sendable {
     let sessionID: String
     let sessionTitle: String
     let agentName: String
+    let stage: ChatRunStage
     let statusLabel: String
     let statusDetails: String?
+    let needsInput: Bool
+    let inputPrompt: String?
     let updatedAt: Date
 
     var subtitle: String {
@@ -1490,8 +1642,11 @@ private struct SloppyDesktopOverlayPreviewCase {
                 sessionID: "preview-session",
                 sessionTitle: "Fix the desktop Notch status",
                 agentName: "Sloppy",
+                stage: .responding,
                 statusLabel: "Working",
                 statusDetails: "Inspecting runtime state",
+                needsInput: false,
+                inputPrompt: nil,
                 updatedAt: Date()
             )
         ]
@@ -1532,13 +1687,15 @@ private struct SloppyDesktopOverlayPreviewCase {
                 id: "preview-task-1",
                 title: "Implement backend installer",
                 projectName: "Sloppy Client",
-                status: .inProgress
+                status: .inProgress,
+                rawStatus: "in_progress"
             ),
             SloppyDesktopTask(
                 id: "preview-task-2",
                 title: "Review desktop overlay changes",
                 projectName: "Sloppy Client",
-                status: .needsReview
+                status: .needsReview,
+                rawStatus: "needs_review"
             ),
         ]
     }

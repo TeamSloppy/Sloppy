@@ -628,9 +628,9 @@ public actor CoreService {
                     createdAt: createdAt
                 )
             }
-            await self.sessionOrchestrator.setProjectBootstrapProvider { [weak self] projectID in
+            await self.sessionOrchestrator.setProjectBootstrapProvider { [weak self] projectID, taskID in
                 guard let self else { return nil }
-                return await self.projectBootstrapMarkdownForAgentSession(projectID: projectID)
+                return await self.projectBootstrapMarkdownForAgentSession(projectID: projectID, taskID: taskID)
             }
             await self.provisionBuiltInSkillsForAllAgents()
             await self.acpSessionManager.updatePermissionNotificationSink { [weak self] agentID, sessionID, summary in

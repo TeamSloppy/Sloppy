@@ -38,13 +38,17 @@ func agentSessionWorkspaceScopeIsBackwardCompatible() throws {
     let request = AgentSessionCreateRequest(
         title: "Canvas agent",
         projectId: "project-1",
+        taskId: "SLOPPY-42",
         workspaceId: "ws-1"
     )
     let encoded = try JSONEncoder().encode(request)
     let decoded = try JSONDecoder().decode(AgentSessionCreateRequest.self, from: encoded)
+    #expect(decoded.projectId == "project-1")
+    #expect(decoded.taskId == "SLOPPY-42")
     #expect(decoded.workspaceId == "ws-1")
 
     let legacy = Data(#"{"title":"Legacy","kind":"chat"}"#.utf8)
     let legacyDecoded = try JSONDecoder().decode(AgentSessionCreateRequest.self, from: legacy)
+    #expect(legacyDecoded.taskId == nil)
     #expect(legacyDecoded.workspaceId == nil)
 }

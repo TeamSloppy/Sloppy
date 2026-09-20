@@ -7,13 +7,13 @@ struct PlanningProgressUpdateTool: CoreTool {
     let title = "Update build progress"
     let status = "fully_functional"
     let name = "planning.progress_update"
-    let description = "Record a compact Build-mode progress checklist with Definition of Done items."
+    let description = "Publish the complete current Build-mode checklist for structured client rendering. Reuse stable item ids on later calls and do not duplicate the checklist in assistant text."
 
     var parameters: GenerationSchema {
         let itemSchema = DynamicGenerationSchema(
             name: "BuildProgressItem",
             properties: [
-                .init(name: "id", description: "Stable item id", schema: DynamicGenerationSchema(type: String.self)),
+                .init(name: "id", description: "Stable item id reused across progress updates", schema: DynamicGenerationSchema(type: String.self)),
                 .init(name: "title", description: "Short work item title", schema: DynamicGenerationSchema(type: String.self)),
                 .init(name: "status", description: "pending, in_progress, done, blocked, or skipped", schema: DynamicGenerationSchema(type: String.self)),
                 .init(name: "definitionOfDone", description: "Observable completion criteria for this item", schema: DynamicGenerationSchema(type: String.self)),
@@ -24,7 +24,7 @@ struct PlanningProgressUpdateTool: CoreTool {
             .init(name: "title", description: "Short checklist title", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(
                 name: "items",
-                description: "Array of 1-12 checklist items with id, title, status, definitionOfDone, and optional details.",
+                description: "Complete current snapshot of 1-12 checklist items with id, title, status, definitionOfDone, and optional details.",
                 schema: DynamicGenerationSchema(arrayOf: itemSchema)
             )
         ])

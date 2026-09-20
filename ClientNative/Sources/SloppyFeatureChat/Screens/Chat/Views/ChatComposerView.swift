@@ -1513,13 +1513,32 @@ struct ChatTextField: View {
               let tiffData = image.tiffRepresentation,
               let bitmap = NSBitmapImageRep(data: tiffData),
               let pngData = bitmap.representation(using: .png, properties: [:]) else {
-            return false
+            return pasteGenericAttachment(from: pasteboard)
         }
 
         viewModel.attachData(
             pngData,
             suggestedName: "Pasted Image.png",
             mimeType: "image/png"
+        )
+        return true
+    }
+
+    private func pasteGenericAttachment(from pasteboard: NSPasteboard) -> Bool {
+        guard let pasteboardType = pasteboard.types?.first(where: { pasteboardType in
+            guard let contentType = UTType(pasteboardType.rawValue) else { return false }
+            return ChatComposerPasteboard.isAttachmentType(contentType)
+        }),
+        let data = pasteboard.data(forType: pasteboardType),
+        let contentType = UTType(pasteboardType.rawValue) else {
+            return false
+        }
+
+        let fileExtension = contentType.preferredFilenameExtension ?? "bin"
+        viewModel.attachData(
+            data,
+            suggestedName: "Pasted Attachment.\(fileExtension)",
+            mimeType: contentType.preferredMIMEType ?? "application/octet-stream"
         )
         return true
     }

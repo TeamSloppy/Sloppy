@@ -21,7 +21,7 @@ struct SessionCreationTests {
                 )
             )
             let body = Data(
-                #"{"id":"child-session","agentId":"agent/one","title":"Fork: response","messageCount":0,"updatedAt":"2026-09-17T08:00:00Z","kind":"chat","projectId":"project-1","workspaceId":"workspace-1"}"#.utf8
+                #"{"id":"child-session","agentId":"agent/one","title":"Fork: response","messageCount":0,"updatedAt":"2026-09-17T08:00:00Z","kind":"chat","projectId":"project-1","taskId":"SLOPPY-42","workspaceId":"workspace-1"}"#.utf8
             )
             return (response, body)
         }
@@ -40,6 +40,7 @@ struct SessionCreationTests {
             title: "Fork: response",
             parentSessionId: "parent-session",
             projectId: "project-1",
+            taskId: "SLOPPY-42",
             workspaceId: "workspace-1"
         )
 
@@ -52,6 +53,7 @@ struct SessionCreationTests {
         #expect(payload["title"] as? String == "Fork: response")
         #expect(payload["parentSessionId"] as? String == "parent-session")
         #expect(payload["projectId"] as? String == "project-1")
+        #expect(payload["taskId"] as? String == "SLOPPY-42")
         #expect(payload["workspaceId"] as? String == "workspace-1")
         #expect(payload["kind"] as? String == "chat")
     }

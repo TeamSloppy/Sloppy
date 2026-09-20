@@ -21,14 +21,15 @@ struct RootShellView: View {
     }
 
     var body: some View {
-        ZStack {
-            RootShellContent(viewModel: viewModel)
+        Group {
             #if os(macOS)
             if backendInstallation.blocksApp {
                 BackendInstallationView(model: backendInstallation)
-                    .transition(.opacity)
-                    .zIndex(100)
+            } else {
+                RootShellContent(viewModel: viewModel)
             }
+            #else
+            RootShellContent(viewModel: viewModel)
             #endif
         }
             .environment(viewModel)

@@ -32,5 +32,40 @@ struct BackendInstallationTests {
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
         #expect(BackendInstaller.isInstalled(installationRoot: root))
     }
+
+    @Test("Local backend locator prefers the app-managed executable")
+    func localBackendLocatorPrefersManagedExecutable() throws {
+        let root = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString, directoryHint: .isDirectory)
+        let managedRoot = root.appending(path: "managed", directoryHint: .isDirectory)
+        let managedBinary = BackendInstaller.installedExecutableURL(installationRoot: managedRoot)
+        let pathBinary = root.appending(path: "path/sloppy")
+        for binary in [managedBinary, pathBinary] {
+            try FileManager.default.createDirectory(at: binary.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try Data().write(to: binary)
+            try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: binary.path)
+        }
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let located = LocalBackendExecutableLocator.installedExecutableURL(
+            homeDirectory: root,
+            environment: ["PATH": pathBinary.deletingLastPathComponent().path],
+            managedInstallationRoot: managedRoot
+        )
+
+        #expect(located?.standardizedFileURL == managedBinary.standardizedFileURL)
+    }
+
+    @Test("Local backend launcher does not start for a remote server")
+    @MainActor
+    func localBackendLauncherRejectsRemoteServer() async throws {
+        let launcher = LocalBackendLauncher(
+            managedInstallationRoot: FileManager.default.temporaryDirectory.appending(path: UUID().uuidString),
+            healthProbe: { _, _ in false }
+        )
+
+        let result = await launcher.ensureRunning(at: try #require(URL(string: "https://sloppy.example")))
+
+        #expect(result == .unavailable)
+    }
 }
 #endif

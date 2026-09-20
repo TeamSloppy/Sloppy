@@ -168,7 +168,8 @@ extension CoreService {
         let sessionToolContext = await toolContextForSession(
             sessionID: normalizedSessionID,
             sessionTitle: sessionDetail.summary.title,
-            projectID: sessionDetail.summary.projectId
+            projectID: sessionDetail.summary.projectId,
+            taskID: sessionDetail.summary.taskId
         )
         await ensureDebugDirectoryForSessionIfNeeded(
             chatMode: chatMode,
@@ -1107,8 +1108,19 @@ extension CoreService {
     func toolContextForSession(
         sessionID: String,
         sessionTitle: String,
-        projectID: String?
+        projectID: String?,
+        taskID: String? = nil
     ) async -> (workingDirectory: String?, extraRoots: [String]) {
+        if let taskContext = await toolContextForTask(projectID: projectID, taskID: taskID) {
+            var roots = taskContext.extraRoots
+            for addedRoot in sessionAddedRoots[sessionID] ?? [] where !roots.contains(addedRoot) {
+                roots.append(addedRoot)
+            }
+            sessionExtraRoots[sessionID] = roots
+            sessionWorkingDirectories[sessionID] = taskContext.workingDirectory
+            return (taskContext.workingDirectory, roots)
+        }
+
         if let projectContext = await toolContextForProject(projectID: projectID) {
             var roots = projectContext.extraRoots
             for addedRoot in sessionAddedRoots[sessionID] ?? [] where !roots.contains(addedRoot) {
@@ -1166,6 +1178,40 @@ extension CoreService {
         }
 
         return (nil, [])
+    }
+
+    private func toolContextForTask(
+        projectID: String?,
+        taskID: String?
+    ) async -> (workingDirectory: String?, extraRoots: [String])? {
+        guard let projectID = projectID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !projectID.isEmpty,
+              let taskID = taskID?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !taskID.isEmpty,
+              let normalizedID = normalizedProjectID(projectID),
+              let project = await store.project(id: normalizedID),
+              let task = project.tasks.first(where: { $0.id == taskID }),
+              let repoPath = project.repoPath?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !repoPath.isEmpty
+        else {
+            return nil
+        }
+
+        let workingDirectory: String
+        if task.worktreeBranch != nil {
+            workingDirectory = sourceControlProvider(for: project, task: task).worktreePath(
+                repoPath: repoPath,
+                taskId: task.id,
+                worktreeRootPath: defaultWorktreeRootPath(projectID: project.id)
+            )
+        } else {
+            workingDirectory = repoPath
+        }
+        var roots = sessionToolRoots(forWorkingDirectory: workingDirectory)
+        for root in effectiveProjectDirectoryURLs(project).map(\.path) where !roots.contains(root) {
+            roots.append(root)
+        }
+        return (workingDirectory, roots)
     }
 
     private func toolContextForProject(projectID: String?) async -> (workingDirectory: String?, extraRoots: [String])? {

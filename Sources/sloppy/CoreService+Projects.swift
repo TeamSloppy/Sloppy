@@ -648,7 +648,7 @@ extension CoreService {
     }
 
     /// Same markdown as channel `refreshProjectContext`, for merging into agent session bootstrap (no channel writes).
-    func projectBootstrapMarkdownForAgentSession(projectID: String) async -> String? {
+    func projectBootstrapMarkdownForAgentSession(projectID: String, taskID: String? = nil) async -> String? {
         await waitForStartup()
         guard let normalizedID = normalizedProjectID(projectID) else {
             return nil
@@ -659,7 +659,41 @@ extension CoreService {
         let rootPaths = effectiveProjectDirectoryURLs(project).map(\.path)
         let loader = ProjectContextLoader()
         let loaded = loader.load(repoPaths: rootPaths, projectMemoryURL: projectMetaMemoryFileURL(projectID: normalizedID))
-        return renderProjectContextBootstrap(projectID: normalizedID, projectName: project.name, loaded: loaded)
+        var context = renderProjectContextBootstrap(projectID: normalizedID, projectName: project.name, loaded: loaded)
+
+        if let taskID = taskID?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !taskID.isEmpty,
+           let task = project.tasks.first(where: { $0.id == taskID }) {
+            var taskLines = [
+                "[Project task context]",
+                "Task: \(task.title) (\(task.id))",
+                "Status: \(task.status)",
+                "Priority: \(task.priority)",
+            ]
+            if !task.description.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                taskLines.append("Description:\n\(task.description)")
+            }
+            if let parentTaskID = task.parentTaskId, !parentTaskID.isEmpty {
+                taskLines.append("Parent task: \(parentTaskID)")
+            }
+            if !task.dependsOnTaskIds.isEmpty {
+                taskLines.append("Dependencies: \(task.dependsOnTaskIds.joined(separator: ", "))")
+            }
+            if let branch = task.worktreeBranch, !branch.isEmpty {
+                taskLines.append("Worktree branch: \(branch)")
+                if let repoPath = project.repoPath?.trimmingCharacters(in: .whitespacesAndNewlines), !repoPath.isEmpty {
+                    let worktreePath = sourceControlProvider(for: project, task: task).worktreePath(
+                        repoPath: repoPath,
+                        taskId: task.id,
+                        worktreeRootPath: defaultWorktreeRootPath(projectID: project.id)
+                    )
+                    taskLines.append("Task working directory: \(worktreePath)")
+                }
+            }
+            context += "\n\n" + taskLines.joined(separator: "\n")
+        }
+
+        return context
     }
 
     private func renderProjectContextBootstrap(

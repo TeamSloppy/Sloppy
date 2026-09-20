@@ -254,7 +254,7 @@ struct ChatComposerRenderingTests {
         #expect(source.contains("pasteItemProviders: viewModel.attachItemProviders"))
         #expect(nativeSource.contains("override func paste(_ sender: Any?)"))
         #expect(nativeSource.contains("UIPasteboard.general.itemProviders"))
-        #expect(nativeSource.contains("onPasteItemProviders?(providers)"))
+        #expect(nativeSource.contains("onPasteItemProviders?(attachmentProviders)"))
         #expect(nativeSource.contains("onPasteAttachment?()"))
         #expect(source.contains("NSPasteboard.general"))
         #expect(source.contains("pasteboard.data(forType: .png)"))

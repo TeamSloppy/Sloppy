@@ -437,6 +437,7 @@ public final class ChatScreenViewModel {
     @ObservationIgnored private let restoresLastSession: Bool
     @ObservationIgnored private let loadsGlobalSessionCatalog: Bool
     @ObservationIgnored private let onSessionSummaryChange: @MainActor (ChatSessionSummary) -> Void
+    @ObservationIgnored private let onPlanArtifact: @MainActor (ChatPlanArtifactPresentation) -> Void
     @ObservationIgnored private let responseNotificationScheduler: any AgentResponseNotificationScheduling
     public let connectionMonitor: ConnectionMonitor
     @ObservationIgnored private let onOpenSettings: @MainActor (ClientSettingsDestination) -> Void
@@ -468,6 +469,7 @@ public final class ChatScreenViewModel {
     @ObservationIgnored private var isForkingSession = false
     @ObservationIgnored private var composerSuggestionCursorOffset: Int?
     @ObservationIgnored private var composerSuggestionRequestID: UInt = 0
+    @ObservationIgnored private var presentedPlanArtifactEventIDs: Set<String> = []
 
     public init(
         apiClient: SloppyAPIClient,
@@ -477,6 +479,7 @@ public final class ChatScreenViewModel {
         restoresLastSession: Bool = true,
         loadsGlobalSessionCatalog: Bool = false,
         onSessionSummaryChange: @escaping @MainActor (ChatSessionSummary) -> Void = { _ in },
+        onPlanArtifact: @escaping @MainActor (ChatPlanArtifactPresentation) -> Void = { _ in },
         responseNotificationScheduler: any AgentResponseNotificationScheduling = LocalAgentResponseNotificationScheduler.shared,
         onOpenSettings: @escaping @MainActor (ClientSettingsDestination) -> Void
     ) {
@@ -487,6 +490,7 @@ public final class ChatScreenViewModel {
         self.restoresLastSession = restoresLastSession
         self.loadsGlobalSessionCatalog = loadsGlobalSessionCatalog
         self.onSessionSummaryChange = onSessionSummaryChange
+        self.onPlanArtifact = onPlanArtifact
         self.responseNotificationScheduler = responseNotificationScheduler
         self.onOpenSettings = onOpenSettings
     }
@@ -1137,24 +1141,20 @@ public final class ChatScreenViewModel {
     }
 
     public func attachFileURLs(_ urls: [URL]) {
-        for url in urls {
-            let didAccessSecurityScopedResource = url.startAccessingSecurityScopedResource()
-            defer {
-                if didAccessSecurityScopedResource {
-                    url.stopAccessingSecurityScopedResource()
+        guard !urls.isEmpty else { return }
+        let maximumAttachmentSize = Self.maximumAttachmentSize
+        Task { @MainActor in
+            let results = await Task.detached(priority: .userInitiated) {
+                urls.map { url in
+                    Self.loadAttachmentResult(
+                        from: url,
+                        maximumSize: maximumAttachmentSize
+                    )
                 }
-            }
+            }.value
 
-            do {
-                let data = try Data(contentsOf: url, options: .mappedIfSafe)
-                let contentType = UTType(filenameExtension: url.pathExtension)
-                attachData(
-                    data,
-                    suggestedName: url.lastPathComponent,
-                    mimeType: contentType?.preferredMIMEType ?? "application/octet-stream"
-                )
-            } catch {
-                sendErrorMessage = "Could not attach \(url.lastPathComponent): \(error.localizedDescription)"
+            for result in results {
+                acceptAttachmentLoadResult(result)
             }
         }
     }
@@ -1190,22 +1190,43 @@ public final class ChatScreenViewModel {
     @discardableResult
     public func attachItemProviders(_ providers: [NSItemProvider]) -> Bool {
         var didAcceptProvider = false
+        let maximumAttachmentSize = Self.maximumAttachmentSize
 
         for provider in providers {
             if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
                 didAcceptProvider = true
                 provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { [weak self] item, _ in
                     guard let url = Self.fileURL(from: item) else { return }
-                    Task { @MainActor in
-                        self?.attachFileURLs([url])
+                    let result = Self.loadAttachmentResult(
+                        from: url,
+                        maximumSize: maximumAttachmentSize
+                    )
+                    Task { @MainActor [weak self] in
+                        self?.acceptAttachmentLoadResult(result)
                     }
                 }
                 continue
             }
 
-            guard let contentType = provider.registeredTypeIdentifiers
-                .compactMap(UTType.init)
-                .first(where: { $0.conforms(to: .data) || $0.conforms(to: .url) }) else {
+            let registeredTypes = provider.registeredTypeIdentifiers.compactMap(UTType.init)
+            if let directoryType = registeredTypes.first(where: { $0.conforms(to: .directory) }) {
+                didAcceptProvider = true
+                provider.loadFileRepresentation(forTypeIdentifier: directoryType.identifier) { [weak self] url, _ in
+                    guard let url else { return }
+                    let result = Self.loadAttachmentResult(
+                        from: url,
+                        maximumSize: maximumAttachmentSize
+                    )
+                    Task { @MainActor [weak self] in
+                        self?.acceptAttachmentLoadResult(result)
+                    }
+                }
+                continue
+            }
+
+            guard let contentType = registeredTypes.first(where: { $0.conforms(to: .image) })
+                ?? registeredTypes.first(where: ChatComposerPasteboard.isAttachmentType)
+                ?? registeredTypes.first(where: { $0.conforms(to: .data) || $0.conforms(to: .url) }) else {
                 continue
             }
 
@@ -1242,6 +1263,37 @@ public final class ChatScreenViewModel {
         }
 
         return didAcceptProvider
+    }
+
+    private nonisolated static func loadAttachmentResult(
+        from url: URL,
+        maximumSize: Int
+    ) -> ChatComposerAttachmentLoadResult {
+        do {
+            return .success(
+                try ChatComposerAttachmentLoader.load(
+                    url: url,
+                    maximumSize: maximumSize
+                )
+            )
+        } catch {
+            return .failure(
+                "Could not attach \(url.lastPathComponent): \(error.localizedDescription)"
+            )
+        }
+    }
+
+    private func acceptAttachmentLoadResult(_ result: ChatComposerAttachmentLoadResult) {
+        switch result {
+        case .success(let attachment):
+            attachData(
+                attachment.data,
+                suggestedName: attachment.name,
+                mimeType: attachment.mimeType
+            )
+        case .failure(let message):
+            sendErrorMessage = message
+        }
     }
 
     private nonisolated static func fileURL(from item: NSSecureCoding?) -> URL? {
@@ -1349,11 +1401,12 @@ public final class ChatScreenViewModel {
         activeTaskId = taskId
         syncComposerDraft(toSessionId: nil, projectId: projectId, taskId: taskId, agentId: agent.id)
         Task { @MainActor in
-            let sessionTitle = taskId.map(taskSessionTitle(for:)) ?? contextTitle ?? "Chat with \(agent.displayName)"
+            let sessionTitle = taskId.map(taskSessionTitle(for:))
             guard let summary = try? await apiClient.createAgentSession(
                 agentId: agent.id,
                 title: sessionTitle,
-                projectId: projectId
+                projectId: projectId,
+                taskId: taskId
             ) else { return }
             upsertSessionSummary(summary)
             selectedSessionId = summary.id
@@ -1372,7 +1425,12 @@ public final class ChatScreenViewModel {
             settings.lastAgentId = nextAgent.id
         }
 
-        selectSession(session.id, contextTitle: displayTitle(for: session), projectId: session.projectId, taskId: nil)
+        selectSession(
+            session.id,
+            contextTitle: displayTitle(for: session),
+            projectId: session.projectId,
+            taskId: session.taskId
+        )
     }
 
     private func selectSession(
@@ -1615,6 +1673,14 @@ public final class ChatScreenViewModel {
         if activeInputRequest != nil {
             isAwaitingAgentResponse = false
         }
+        for presentation in detail.planArtifactPresentations {
+            presentPlanArtifactIfNeeded(presentation)
+        }
+    }
+
+    private func presentPlanArtifactIfNeeded(_ presentation: ChatPlanArtifactPresentation) {
+        guard presentedPlanArtifactEventIDs.insert(presentation.eventID).inserted else { return }
+        onPlanArtifact(presentation)
     }
 
     private func handleStreamUpdate(
@@ -1982,7 +2048,8 @@ public final class ChatScreenViewModel {
             normalizedTaskTitles = normalizedTaskTitles.map { $0.lowercased() }
 
             if let taskSession = candidates.first(where: { session in
-                normalizedTaskTitles.contains(session.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
+                session.taskId?.caseInsensitiveCompare(taskId) == .orderedSame
+                    || normalizedTaskTitles.contains(session.title.trimmingCharacters(in: .whitespacesAndNewlines).lowercased())
             }) {
                 return taskSession
             }
@@ -2094,8 +2161,9 @@ public final class ChatScreenViewModel {
                 do {
                     let summary = try await apiClient.createAgentSession(
                         agentId: agent.id,
-                        title: activeTaskId.map(taskSessionTitle(for:)) ?? activeContextTitle ?? "Chat with \(agent.displayName)",
-                        projectId: activeProjectId
+                        title: activeTaskId.map(taskSessionTitle(for:)),
+                        projectId: activeProjectId,
+                        taskId: activeTaskId
                     )
                     upsertSessionSummary(summary)
                     selectedSessionId = summary.id

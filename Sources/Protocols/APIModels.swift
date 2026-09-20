@@ -4325,6 +4325,8 @@ public struct AgentSessionCreateRequest: Codable, Sendable {
     public var checkpointSessionId: String?
     /// When set, project repo/docs context is merged into the agent session bootstrap (Dashboard project chats).
     public var projectId: String?
+    /// When set, the session is scoped to a project task and inherits its task/worktree context.
+    public var taskId: String?
     /// When set, the session is scoped to a canvas workspace.
     public var workspaceId: String?
 
@@ -4334,6 +4336,7 @@ public struct AgentSessionCreateRequest: Codable, Sendable {
         kind: AgentSessionKind = .chat,
         checkpointSessionId: String? = nil,
         projectId: String? = nil,
+        taskId: String? = nil,
         workspaceId: String? = nil
     ) {
         self.title = title
@@ -4341,6 +4344,7 @@ public struct AgentSessionCreateRequest: Codable, Sendable {
         self.kind = kind
         self.checkpointSessionId = checkpointSessionId
         self.projectId = projectId
+        self.taskId = taskId
         self.workspaceId = workspaceId
     }
 
@@ -4350,6 +4354,7 @@ public struct AgentSessionCreateRequest: Codable, Sendable {
         case kind
         case checkpointSessionId
         case projectId
+        case taskId
         case workspaceId
     }
 
@@ -4360,6 +4365,7 @@ public struct AgentSessionCreateRequest: Codable, Sendable {
         kind = try container.decodeIfPresent(AgentSessionKind.self, forKey: .kind) ?? .chat
         checkpointSessionId = try container.decodeIfPresent(String.self, forKey: .checkpointSessionId)
         projectId = try container.decodeIfPresent(String.self, forKey: .projectId)
+        taskId = try container.decodeIfPresent(String.self, forKey: .taskId)
         workspaceId = try container.decodeIfPresent(String.self, forKey: .workspaceId)
     }
 }
@@ -4396,6 +4402,8 @@ public struct AgentSessionSummary: Codable, Sendable, Equatable {
     public var userTurnCount: Int
     /// Optional project scope (Dashboard project chats).
     public var projectId: String?
+    /// Optional task scope for task-aware chats.
+    public var taskId: String?
     /// Optional workspace scope (Dashboard workspace chats).
     public var workspaceId: String?
 
@@ -4411,6 +4419,7 @@ public struct AgentSessionSummary: Codable, Sendable, Equatable {
         kind: AgentSessionKind = .chat,
         userTurnCount: Int = 0,
         projectId: String? = nil,
+        taskId: String? = nil,
         workspaceId: String? = nil
     ) {
         self.id = id
@@ -4424,6 +4433,7 @@ public struct AgentSessionSummary: Codable, Sendable, Equatable {
         self.kind = kind
         self.userTurnCount = userTurnCount
         self.projectId = projectId
+        self.taskId = taskId
         self.workspaceId = workspaceId
     }
 
@@ -4439,6 +4449,7 @@ public struct AgentSessionSummary: Codable, Sendable, Equatable {
         case kind
         case userTurnCount
         case projectId
+        case taskId
         case workspaceId
     }
 
@@ -4455,6 +4466,7 @@ public struct AgentSessionSummary: Codable, Sendable, Equatable {
         kind = try container.decodeIfPresent(AgentSessionKind.self, forKey: .kind) ?? .chat
         userTurnCount = try container.decodeIfPresent(Int.self, forKey: .userTurnCount) ?? 0
         projectId = try container.decodeIfPresent(String.self, forKey: .projectId)
+        taskId = try container.decodeIfPresent(String.self, forKey: .taskId)
         workspaceId = try container.decodeIfPresent(String.self, forKey: .workspaceId)
     }
 
@@ -4471,6 +4483,7 @@ public struct AgentSessionSummary: Codable, Sendable, Equatable {
         try container.encode(kind, forKey: .kind)
         try container.encode(userTurnCount, forKey: .userTurnCount)
         try container.encodeIfPresent(projectId, forKey: .projectId)
+        try container.encodeIfPresent(taskId, forKey: .taskId)
         try container.encodeIfPresent(workspaceId, forKey: .workspaceId)
     }
 }
@@ -4695,6 +4708,49 @@ public typealias AgentSessionGoalPauseResponse = AgentSessionGoalResponse
 public typealias AgentSessionGoalResumeResponse = AgentSessionGoalResponse
 public typealias AgentSessionGoalClearResponse = AgentSessionGoalResponse
 
+public struct AgentRunDiagnostics: Codable, Sendable, Equatable {
+    public var durationMs: Int
+    public var toolRoundsUsed: Int
+    public var maxToolRounds: Int
+    public var finishedNaturally: Bool
+    public var hitToolRoundLimit: Bool
+    public var toolErrorCount: Int
+    public var retryableToolErrorCount: Int
+    public var nonRetryableToolErrorCount: Int
+    public var turnExitReason: String
+    public var wasInterrupted: Bool
+    public var didResetContext: Bool
+    public var explicitSessionCompletion: Bool
+
+    public init(
+        durationMs: Int,
+        toolRoundsUsed: Int,
+        maxToolRounds: Int,
+        finishedNaturally: Bool,
+        hitToolRoundLimit: Bool,
+        toolErrorCount: Int,
+        retryableToolErrorCount: Int,
+        nonRetryableToolErrorCount: Int,
+        turnExitReason: String,
+        wasInterrupted: Bool,
+        didResetContext: Bool,
+        explicitSessionCompletion: Bool
+    ) {
+        self.durationMs = max(0, durationMs)
+        self.toolRoundsUsed = max(0, toolRoundsUsed)
+        self.maxToolRounds = max(0, maxToolRounds)
+        self.finishedNaturally = finishedNaturally
+        self.hitToolRoundLimit = hitToolRoundLimit
+        self.toolErrorCount = max(0, toolErrorCount)
+        self.retryableToolErrorCount = max(0, retryableToolErrorCount)
+        self.nonRetryableToolErrorCount = max(0, nonRetryableToolErrorCount)
+        self.turnExitReason = turnExitReason
+        self.wasInterrupted = wasInterrupted
+        self.didResetContext = didResetContext
+        self.explicitSessionCompletion = explicitSessionCompletion
+    }
+}
+
 public struct AgentRunStatusEvent: Codable, Sendable, Equatable {
     public var id: String
     public var stage: AgentRunStage
@@ -4702,6 +4758,7 @@ public struct AgentRunStatusEvent: Codable, Sendable, Equatable {
     public var details: String?
     public var expandedText: String?
     public var tokenUsage: TokenUsage?
+    public var diagnostics: AgentRunDiagnostics?
     public var createdAt: Date
 
     public init(
@@ -4711,6 +4768,7 @@ public struct AgentRunStatusEvent: Codable, Sendable, Equatable {
         details: String? = nil,
         expandedText: String? = nil,
         tokenUsage: TokenUsage? = nil,
+        diagnostics: AgentRunDiagnostics? = nil,
         createdAt: Date = Date()
     ) {
         self.id = id
@@ -4719,6 +4777,7 @@ public struct AgentRunStatusEvent: Codable, Sendable, Equatable {
         self.details = details
         self.expandedText = expandedText
         self.tokenUsage = tokenUsage
+        self.diagnostics = diagnostics
         self.createdAt = createdAt
     }
 }
@@ -5017,20 +5076,27 @@ public struct AgentSessionMetadataEvent: Codable, Sendable, Equatable {
     public var parentSessionId: String?
     public var kind: AgentSessionKind
     public var projectId: String?
+    public var taskId: String?
     public var workspaceId: String?
+    /// True when Sloppy may derive the display title from session messages.
+    public var titleIsAutomatic: Bool
 
     public init(
         title: String,
         parentSessionId: String? = nil,
         kind: AgentSessionKind = .chat,
         projectId: String? = nil,
-        workspaceId: String? = nil
+        taskId: String? = nil,
+        workspaceId: String? = nil,
+        titleIsAutomatic: Bool = false
     ) {
         self.title = title
         self.parentSessionId = parentSessionId
         self.kind = kind
         self.projectId = projectId
+        self.taskId = taskId
         self.workspaceId = workspaceId
+        self.titleIsAutomatic = titleIsAutomatic
     }
 
     enum CodingKeys: String, CodingKey {
@@ -5038,7 +5104,9 @@ public struct AgentSessionMetadataEvent: Codable, Sendable, Equatable {
         case parentSessionId
         case kind
         case projectId
+        case taskId
         case workspaceId
+        case titleIsAutomatic
     }
 
     public init(from decoder: Decoder) throws {
@@ -5047,7 +5115,9 @@ public struct AgentSessionMetadataEvent: Codable, Sendable, Equatable {
         parentSessionId = try container.decodeIfPresent(String.self, forKey: .parentSessionId)
         kind = try container.decodeIfPresent(AgentSessionKind.self, forKey: .kind) ?? .chat
         projectId = try container.decodeIfPresent(String.self, forKey: .projectId)
+        taskId = try container.decodeIfPresent(String.self, forKey: .taskId)
         workspaceId = try container.decodeIfPresent(String.self, forKey: .workspaceId)
+        titleIsAutomatic = try container.decodeIfPresent(Bool.self, forKey: .titleIsAutomatic) ?? false
     }
 }
 

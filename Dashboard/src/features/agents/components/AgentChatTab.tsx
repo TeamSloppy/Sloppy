@@ -1892,27 +1892,38 @@ function setEditorContentFromText(root, text, slashCommandNames) {
   root.replaceChildren(fragment);
 }
 
-function getCaretOffsetInEditor(root) {
+function getEditorSelectionOffsets(root) {
   const selection = window.getSelection?.();
   if (!root || !selection || selection.rangeCount === 0) {
-    return 0;
+    const end = readEditorTextFromElement(root).length;
+    return { start: end, end };
   }
 
-  const range = selection.getRangeAt(0).cloneRange();
-  range.selectNodeContents(root);
-  const focusNode = selection.focusNode;
-  const focusOffset = selection.focusOffset;
-  if (!focusNode) {
-    return 0;
+  const selectedRange = selection.getRangeAt(0);
+  if (!root.contains(selectedRange.startContainer) || !root.contains(selectedRange.endContainer)) {
+    const end = readEditorTextFromElement(root).length;
+    return { start: end, end };
   }
 
+  const startRange = selectedRange.cloneRange();
+  startRange.selectNodeContents(root);
+  const endRange = startRange.cloneRange();
   try {
-    range.setEnd(focusNode, focusOffset);
+    startRange.setEnd(selectedRange.startContainer, selectedRange.startOffset);
+    endRange.setEnd(selectedRange.endContainer, selectedRange.endOffset);
   } catch {
-    return 0;
+    const end = readEditorTextFromElement(root).length;
+    return { start: end, end };
   }
 
-  return normalizeEditorText(range.toString()).length;
+  return {
+    start: normalizeEditorText(startRange.toString()).length,
+    end: normalizeEditorText(endRange.toString()).length
+  };
+}
+
+function getCaretOffsetInEditor(root) {
+  return getEditorSelectionOffsets(root).end;
 }
 
 function setCaretOffsetInEditor(root, offset) {
@@ -3712,9 +3723,14 @@ function AgentChatComposer({
                 }
               }}
               onPaste={(event) => {
-                event.preventDefault();
                 const text = event.clipboardData?.getData("text/plain") || "";
-                document.execCommand("insertText", false, text);
+                if (!text) {
+                  return;
+                }
+                event.preventDefault();
+                const { start, end } = getEditorSelectionOffsets(event.currentTarget);
+                const nextValue = `${inputText.slice(0, start)}${text}${inputText.slice(end)}`;
+                applyInputValue(nextValue, start + text.length);
               }}
             />
 

@@ -349,7 +349,7 @@ schemes:
       targets:
         SloppyClient-macOS: all
     run:
-      config: Debug
+      config: Release
       executable: SloppyClient-macOS
     profile:
       config: Release

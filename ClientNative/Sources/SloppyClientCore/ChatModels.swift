@@ -305,6 +305,7 @@ public struct ChatSessionSummary: Codable, Sendable, Equatable, Identifiable {
     public var updatedAt: Date
     public var kind: String
     public var projectId: String?
+    public var taskId: String?
     public var workspaceId: String?
     public var sourceInstanceID: String?
 
@@ -316,6 +317,7 @@ public struct ChatSessionSummary: Codable, Sendable, Equatable, Identifiable {
         updatedAt: Date = Date(),
         kind: String = "chat",
         projectId: String? = nil,
+        taskId: String? = nil,
         workspaceId: String? = nil,
         sourceInstanceID: String? = nil
     ) {
@@ -326,6 +328,7 @@ public struct ChatSessionSummary: Codable, Sendable, Equatable, Identifiable {
         self.updatedAt = updatedAt
         self.kind = kind
         self.projectId = projectId
+        self.taskId = taskId
         self.workspaceId = workspaceId
         self.sourceInstanceID = sourceInstanceID
     }
@@ -405,6 +408,14 @@ public struct ChatSessionDetail: Decodable, Sendable {
         let answeredRequestIDs = Set(events.compactMap(\.inputResponse?.requestId))
         return events.reversed().compactMap(\.inputRequest).first {
             !answeredRequestIDs.contains($0.id)
+        }
+    }
+
+    public var planArtifactPresentations: [ChatPlanArtifactPresentation] {
+        events.compactMap { event in
+            event.planArtifact.map {
+                ChatPlanArtifactPresentation(eventID: event.id, artifact: $0.artifact)
+            }
         }
     }
 
@@ -550,6 +561,33 @@ public enum ChatReasoningEffort: String, CaseIterable, Codable, Sendable, Equata
     }
 }
 
+public struct ChatPlanArtifactRecord: Codable, Sendable, Equatable {
+    public var projectId: String
+    public var projectName: String
+    public var agentId: String
+    public var sessionId: String
+    public var messageEventId: String
+    public var planName: String
+    public var createdAt: Date
+    public var storageKind: String
+    public var markdownPath: String
+    public var webUrl: String
+}
+
+public struct ChatPlanArtifactEvent: Codable, Sendable, Equatable {
+    public var artifact: ChatPlanArtifactRecord
+}
+
+public struct ChatPlanArtifactPresentation: Sendable, Equatable {
+    public var eventID: String
+    public var artifact: ChatPlanArtifactRecord
+
+    public init(eventID: String, artifact: ChatPlanArtifactRecord) {
+        self.eventID = eventID
+        self.artifact = artifact
+    }
+}
+
 public struct ChatEventEnvelope: Decodable, Sendable {
     public var id: String
     public var type: String
@@ -559,10 +597,11 @@ public struct ChatEventEnvelope: Decodable, Sendable {
     public var runStatus: ChatRunStatusEvent?
     public var inputRequest: ChatPlanInputRequest?
     public var inputResponse: ChatPlanInputResponse?
+    public var planArtifact: ChatPlanArtifactEvent?
 
     private enum CodingKeys: String, CodingKey {
         case id, type, createdAt, message, buildProgress, runStatus, toolCall, toolResult
-        case inputRequest, inputResponse, event
+        case inputRequest, inputResponse, planArtifact, event
     }
 
     private struct EmbeddedEvent: Decodable {
@@ -574,6 +613,7 @@ public struct ChatEventEnvelope: Decodable, Sendable {
         var toolResult: ChatToolResultPayload?
         var inputRequest: ChatPlanInputRequest?
         var inputResponse: ChatPlanInputResponse?
+        var planArtifact: ChatPlanArtifactEvent?
     }
 
     public init(
@@ -584,7 +624,8 @@ public struct ChatEventEnvelope: Decodable, Sendable {
         buildProgress: ChatBuildProgress? = nil,
         runStatus: ChatRunStatusEvent? = nil,
         inputRequest: ChatPlanInputRequest? = nil,
-        inputResponse: ChatPlanInputResponse? = nil
+        inputResponse: ChatPlanInputResponse? = nil,
+        planArtifact: ChatPlanArtifactEvent? = nil
     ) {
         self.id = id
         self.type = type
@@ -593,6 +634,7 @@ public struct ChatEventEnvelope: Decodable, Sendable {
         self.runStatus = runStatus
         self.inputRequest = inputRequest
         self.inputResponse = inputResponse
+        self.planArtifact = planArtifact
         self.message = message ?? buildProgress?.timelineMessage
     }
 
@@ -617,6 +659,8 @@ public struct ChatEventEnvelope: Decodable, Sendable {
             ?? embeddedEvent?.inputRequest
         inputResponse = try container.decodeIfPresent(ChatPlanInputResponse.self, forKey: .inputResponse)
             ?? embeddedEvent?.inputResponse
+        planArtifact = try container.decodeIfPresent(ChatPlanArtifactEvent.self, forKey: .planArtifact)
+            ?? embeddedEvent?.planArtifact
         let toolCall = try container.decodeIfPresent(ChatToolCallPayload.self, forKey: .toolCall)
             ?? embeddedEvent?.toolCall
         let toolResult = try container.decodeIfPresent(ChatToolResultPayload.self, forKey: .toolResult)
@@ -634,6 +678,7 @@ public enum ChatStreamEventType: String, Codable, Sendable {
     case runStatus = "run_status"
     case inputRequest = "input_request"
     case buildProgress = "build_progress"
+    case planArtifact = "plan_artifact"
     case toolCall = "tool_call"
     case toolResult = "tool_result"
 }
@@ -732,6 +777,7 @@ public struct ChatStreamEvent: Decodable, Sendable, Equatable {
     public var buildProgress: ChatBuildProgress?
     public var inputRequest: ChatPlanInputRequest?
     public var inputResponse: ChatPlanInputResponse?
+    public var planArtifact: ChatPlanArtifactEvent?
 
     public init(
         id: String,
@@ -740,7 +786,8 @@ public struct ChatStreamEvent: Decodable, Sendable, Equatable {
         runStatus: ChatRunStatusEvent? = nil,
         buildProgress: ChatBuildProgress? = nil,
         inputRequest: ChatPlanInputRequest? = nil,
-        inputResponse: ChatPlanInputResponse? = nil
+        inputResponse: ChatPlanInputResponse? = nil,
+        planArtifact: ChatPlanArtifactEvent? = nil
     ) {
         self.id = id
         self.type = type
@@ -749,11 +796,12 @@ public struct ChatStreamEvent: Decodable, Sendable, Equatable {
         self.buildProgress = buildProgress
         self.inputRequest = inputRequest
         self.inputResponse = inputResponse
+        self.planArtifact = planArtifact
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, type, createdAt, message, runStatus, buildProgress, toolCall, toolResult
-        case inputRequest, inputResponse
+        case inputRequest, inputResponse, planArtifact
     }
 
     public init(from decoder: Decoder) throws {
@@ -764,6 +812,7 @@ public struct ChatStreamEvent: Decodable, Sendable, Equatable {
         buildProgress = try container.decodeIfPresent(ChatBuildProgress.self, forKey: .buildProgress)
         inputRequest = try container.decodeIfPresent(ChatPlanInputRequest.self, forKey: .inputRequest)
         inputResponse = try container.decodeIfPresent(ChatPlanInputResponse.self, forKey: .inputResponse)
+        planArtifact = try container.decodeIfPresent(ChatPlanArtifactEvent.self, forKey: .planArtifact)
 
         let createdAt = try container.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
         let toolCall = try container.decodeIfPresent(ChatToolCallPayload.self, forKey: .toolCall)

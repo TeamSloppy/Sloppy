@@ -370,3 +370,71 @@ private func datedSessionDirectoryURL(rootURL: URL, agentID: String, sessionID: 
         .appendingPathComponent(String(format: "%02d", components.day ?? 1), isDirectory: true)
         .appendingPathComponent(sessionID, isDirectory: true)
 }
+
+@Test
+func agentSessionStoreDerivesAutomaticTitleFromUserContext() throws {
+    let rootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("agent-session-auto-title-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: rootURL) }
+
+    let agentID = "auto-title-agent"
+    let catalog = AgentCatalogFileStore(agentsRootURL: rootURL)
+    _ = try catalog.createAgent(
+        AgentCreateRequest(id: agentID, displayName: "Title Agent", role: "Testing"),
+        availableModels: []
+    )
+
+    let store = AgentSessionFileStore(agentsRootURL: rootURL)
+    let session = try store.createSession(agentID: agentID, request: AgentSessionCreateRequest())
+    #expect(session.title == "New session")
+
+    let event = AgentSessionEvent(
+        agentId: agentID,
+        sessionId: session.id,
+        type: .message,
+        message: AgentSessionMessage(
+            role: .user,
+            segments: [AgentMessageSegment(
+                kind: .text,
+                text: "Есть проблема\nЗаголовки сессий не отражают содержание работы"
+            )],
+            userId: "tester"
+        )
+    )
+    let updated = try store.appendEvents(agentID: agentID, sessionID: session.id, events: [event])
+
+    #expect(updated.title == "Есть проблема — Заголовки сессий не отражают содержание работы")
+}
+
+@Test
+func agentSessionStorePreservesExplicitTitle() throws {
+    let rootURL = FileManager.default.temporaryDirectory
+        .appendingPathComponent("agent-session-explicit-title-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: rootURL) }
+
+    let agentID = "explicit-title-agent"
+    let catalog = AgentCatalogFileStore(agentsRootURL: rootURL)
+    _ = try catalog.createAgent(
+        AgentCreateRequest(id: agentID, displayName: "Title Agent", role: "Testing"),
+        availableModels: []
+    )
+
+    let store = AgentSessionFileStore(agentsRootURL: rootURL)
+    let session = try store.createSession(
+        agentID: agentID,
+        request: AgentSessionCreateRequest(title: "Manual session title")
+    )
+    let event = AgentSessionEvent(
+        agentId: agentID,
+        sessionId: session.id,
+        type: .message,
+        message: AgentSessionMessage(
+            role: .user,
+            segments: [AgentMessageSegment(kind: .text, text: "Другой контекст")],
+            userId: "tester"
+        )
+    )
+    let updated = try store.appendEvents(agentID: agentID, sessionID: session.id, events: [event])
+
+    #expect(updated.title == "Manual session title")
+}

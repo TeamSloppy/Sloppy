@@ -50,7 +50,8 @@ final class BackendInstallationModel {
     func checkIfNeeded() {
         guard !didCheck else { return }
         didCheck = true
-        state = BackendInstaller.isInstalled() || defaults.bool(forKey: Self.declinedKey) ? .dismissed : .offer
+        state = LocalBackendExecutableLocator.installedExecutableURL() != nil
+            || defaults.bool(forKey: Self.declinedKey) ? .dismissed : .offer
     }
 
     func decline() {

@@ -195,7 +195,7 @@ actor AgentSessionOrchestrator {
     private var tokenUsageObserver: TokenUsageObserver?
     private var planArtifactRecorder: PlanArtifactRecorder?
     /// Loads `[project_context_bootstrap_v1]` markdown for a project id (agent session dashboard).
-    private var projectBootstrapProvider: (@Sendable (String) async -> String?)?
+    private var projectBootstrapProvider: (@Sendable (String, String?) async -> String?)?
 
     private var activeSessionRunChannels: Set<String> = []
     private var activeSessionRunIDsByChannel: [String: UUID] = [:]
@@ -251,7 +251,7 @@ actor AgentSessionOrchestrator {
         self.logger = logger
     }
 
-    func setProjectBootstrapProvider(_ provider: (@Sendable (String) async -> String?)?) {
+    func setProjectBootstrapProvider(_ provider: (@Sendable (String, String?) async -> String?)?) {
         projectBootstrapProvider = provider
     }
 
@@ -800,7 +800,7 @@ actor AgentSessionOrchestrator {
             }
         }
 
-        let completionStatus: AgentRunStatusEvent
+        var completionStatus: AgentRunStatusEvent
         let effectiveMode = runtimeOutcome.selectedAutoRouteMode ?? requestMode
         if runtimeOutcome.wasInterrupted {
             completionStatus = AgentRunStatusEvent(
@@ -863,6 +863,22 @@ actor AgentSessionOrchestrator {
                 tokenUsage: runtimeOutcome.tokenUsage
             )
         }
+        completionStatus.diagnostics = AgentRunDiagnostics(
+            durationMs: Int(Date().timeIntervalSince(turnStartedAt) * 1000),
+            toolRoundsUsed: runtimeOutcome.toolRoundsUsed,
+            maxToolRounds: runtimeOutcome.maxToolRounds,
+            finishedNaturally: runtimeOutcome.finishedNaturally,
+            hitToolRoundLimit: runtimeOutcome.hitTurnLimit,
+            toolErrorCount: runtimeOutcome.toolErrors.count,
+            retryableToolErrorCount: runtimeOutcome.toolErrors.filter { $0.error?.retryable == true }.count,
+            nonRetryableToolErrorCount: runtimeOutcome.toolErrors.filter {
+                $0.error?.retryable == false || $0.error == nil
+            }.count,
+            turnExitReason: runtimeOutcome.turnExitReason.rawValue,
+            wasInterrupted: runtimeOutcome.wasInterrupted,
+            didResetContext: runtimeOutcome.didResetContext,
+            explicitSessionCompletion: runtimeOutcome.didExplicitlyComplete
+        )
         finalEvents.append(
             AgentSessionEvent(
                 agentId: agentID,
@@ -2548,7 +2564,8 @@ actor AgentSessionOrchestrator {
            let pid = detail.summary.projectId?.trimmingCharacters(in: .whitespacesAndNewlines),
            !pid.isEmpty,
            let provider = projectBootstrapProvider {
-            if let extra = await provider(pid) {
+            let taskID = detail.summary.taskId?.trimmingCharacters(in: .whitespacesAndNewlines)
+            if let extra = await provider(pid, taskID?.isEmpty == false ? taskID : nil) {
                 let trimmed = extra.trimmingCharacters(in: .whitespacesAndNewlines)
                 if !trimmed.isEmpty {
                     bootstrapContent += "\n\n" + extra

@@ -4,7 +4,7 @@ import Testing
 @Test func tuiSessionTitleUsesFirstUserLine() {
     let title = SloppyTUISessionTitleGenerator.title(for: "надо еще добавить автогенерацию заголовка\n\nподробности ниже")
 
-    #expect(title == "надо еще добавить автогенерацию заголовка")
+    #expect(title == "надо еще добавить автогенерацию заголовка — подробности ниже")
 }
 
 @Test func tuiSessionTitleStripsSkillInvocationPrefix() {
@@ -26,5 +26,21 @@ import Testing
 @Test func tuiSessionTitleTruncatesLongInput() {
     let title = SloppyTUISessionTitleGenerator.title(for: "one two three four five six seven eight nine ten eleven twelve")
 
-    #expect(title == "one two three four five six seven eight nine")
+    #expect(title == "one two three four five six seven eight nine ten eleven")
+}
+
+@Test func sessionTitleUsesMoreThanTheFirstLineForContext() {
+    let title = AgentSessionTitleGenerator.title(
+        for: "Есть проблема\nЗаголовки сессий не отражают содержание работы"
+    )
+
+    #expect(title == "Есть проблема — Заголовки сессий не отражают содержание работы")
+}
+
+@Test func sessionTitleSkipsRuntimeAndMarkdownNoise() {
+    let title = AgentSessionTitleGenerator.title(
+        for: "[Sloppy runtime mode]\n# Исправить заголовки\n```swift\nlet ignored = true\n```"
+    )
+
+    #expect(title == "Исправить заголовки")
 }

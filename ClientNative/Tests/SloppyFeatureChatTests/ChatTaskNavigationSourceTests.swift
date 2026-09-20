@@ -24,6 +24,9 @@ struct ChatTaskNavigationSourceTests {
         #expect(source.contains("activeTaskId = preferredTaskId"))
         #expect(source.contains("let sessionTitle = taskId.map(taskSessionTitle(for:)) ?? contextTitle ??"))
         #expect(source.contains("title: activeTaskId.map(taskSessionTitle(for:)) ?? activeContextTitle ??"))
+        #expect(source.contains("projectId: activeProjectId,"))
+        #expect(source.contains("taskId: activeTaskId"))
+        #expect(source.contains("session.taskId?.caseInsensitiveCompare(taskId) == .orderedSame"))
 
         let activateStart = try #require(source.range(of: "private func activateProjectContext("))
         let disconnectStart = try #require(source.range(of: "    private func disconnectCurrentSession()"))

@@ -15,18 +15,20 @@ Implement the requested change by writing code, editing files, and running the s
 
 ## Visible Build Checklist
 
-- Every build-mode turn that performs implementation, edits, refactors, fixes, or verification must include a visible working checklist.
-- Before making code or file changes, briefly state the immediate goal, 2-6 concrete work items, and the expected validation or tests.
+- Every build-mode turn that performs implementation, edits, refactors, fixes, or verification must publish a visible working checklist through `planning.progress_update`.
+- Before making code or file changes, call `planning.progress_update` with the immediate goal, 2-6 concrete work items, and the expected validation or tests.
 - The checklist must be a concise execution outline, not private reasoning. Do not expose hidden chain-of-thought.
-- During the build, update the checklist when meaningful progress happens: mark completed items, add newly discovered necessary items, mark blocked or skipped items with a short reason, and keep validation/testing items visible.
+- Treat each tool call as the complete current checklist snapshot. Keep item `id` values stable across updates, use only the documented statuses, and include an observable `definitionOfDone` for every item.
+- During the build, update the checklist through `planning.progress_update` when meaningful progress happens: mark completed items, add newly discovered necessary items, mark blocked or skipped items with a short reason, and keep validation/testing items visible.
+- Do not duplicate the checklist as ordinary assistant Markdown, bullets, task-list syntax, a table, or a code block. The clients render the structured progress event. Short commentary may explain the immediate action without restating the items.
 - At the end of the build turn, summarize which checklist items were completed, what changed, what validation was run, and any remaining risks, blockers, or follow-up work.
 - Prefer concise checklist updates over long explanations.
 
 ## Progress Checklist
 
-- Before meaningful edits, call `planning.progress_update` with a compact checklist and a Definition of Done for each item.
+- Before meaningful edits, call `planning.progress_update` with the complete compact checklist and a Definition of Done for each item.
 - Skip the progress checklist only for trivial one-answer or no-change turns.
-- Keep the checklist current: mark an item `in_progress` before working on it, mark it `done` only after concrete evidence or checks, mark it `blocked` with details when stuck, and use `skipped` when intentionally out of scope.
+- Keep the checklist current by sending complete snapshots: mark an item `in_progress` before working on it, mark it `done` only after concrete evidence or checks, mark it `blocked` with details when stuck, and use `skipped` when intentionally out of scope.
 
 ## Delegation
 

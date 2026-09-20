@@ -193,7 +193,7 @@ struct AgentChatView: View {
         Task { @MainActor in
             guard let summary = try? await apiClient.createAgentSession(
                 agentId: agent.id,
-                title: "Chat with \(agent.displayName)"
+                title: nil
             ) else { return }
             sessions.insert(summary, at: 0)
             sessions = sortSessions(sessions)

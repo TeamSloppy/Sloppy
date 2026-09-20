@@ -460,21 +460,16 @@ extension SloppyTUIScreen {
         }.sorted()
     }
 
-    func ensurePersistedSessionForMessage(titleSource: String? = nil) async throws -> Bool {
+    func ensurePersistedSessionForMessage(titleSource _: String? = nil) async throws -> Bool {
         guard !hasPersistedSession else {
             return false
         }
         let draftDirectoryKey = currentSessionDirectoryKey()
         let draftDirectories = persistedDirectoriesForCurrentSession()
         let checkpointSessionID = pendingDraftCheckpointSessionID
-        let generatedTitle = SloppyTUISessionTitleGenerator.title(
-            for: titleSource ?? "",
-            fallback: "New session"
-        )
         session = try await service.createAgentSession(
             agentID: agent.id,
             request: AgentSessionCreateRequest(
-                title: generatedTitle,
                 checkpointSessionId: checkpointSessionID,
                 projectId: project.id
             )
