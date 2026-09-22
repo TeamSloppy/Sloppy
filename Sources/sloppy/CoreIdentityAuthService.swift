@@ -23,6 +23,7 @@ enum CoreIdentityAuthError: Error, Sendable {
     case invalidApplicationTokenName
     case applicationTokenNotFound
     case invalidDevicePairing
+    case invalidDevicePairingConfiguration
     case forbidden
     case lastAdmin
 }

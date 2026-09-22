@@ -1788,7 +1788,20 @@ export function ConfigView({
     }
 
     if (selectedSettings === "connect-client") {
-      return <ClientConnectView listenPort={draftConfig.listen.port} />;
+      return (
+        <ClientConnectView
+          listenPort={draftConfig.listen.port}
+          clientPublicURL={String(draftConfig.clientPublicURL || "")}
+          clientAlternateURLs={Array.isArray(draftConfig.clientAlternateURLs) ? draftConfig.clientAlternateURLs : []}
+          clientTLSFingerprint={String(draftConfig.clientTLSFingerprint || "")}
+          onConfigChange={(patch) => mutateDraft((draft) => {
+            draft.clientPublicURL = patch.clientPublicURL || null;
+            draft.clientAlternateURLs = patch.clientAlternateURLs;
+            draft.clientTLSFingerprint = patch.clientTLSFingerprint || null;
+          })}
+          onSave={async () => { await saveConfig(); }}
+        />
+      );
     }
 
     if (selectedSettings === "config") {

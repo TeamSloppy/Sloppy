@@ -270,7 +270,7 @@ struct ChatComposerRenderingTests {
     func attachmentOnlyDraftsCanSubmit() throws {
         let source = try chatComposerSource
 
-        #expect(source.contains("trimmedDraftText.isEmpty && viewModel.composerAttachments.isEmpty"))
+        #expect(source.contains("!trimmedDraftText.isEmpty || !viewModel.composerAttachments.isEmpty"))
         #expect(source.contains("!trimmed.isEmpty || !viewModel.composerAttachments.isEmpty"))
     }
 

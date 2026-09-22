@@ -36,21 +36,30 @@ public struct AppNotification: Codable, Sendable, Identifiable {
 public struct PendingToolApprovalRecord: Codable, Sendable, Equatable, Identifiable {
     public var id: String
     public var status: String
+    public var agentId: String?
     public var sessionId: String?
     public var displaySessionId: String?
+    public var tool: String?
+    public var reason: String?
     public var updatedAt: Date
 
     public init(
         id: String,
         status: String,
+        agentId: String? = nil,
         sessionId: String? = nil,
         displaySessionId: String? = nil,
+        tool: String? = nil,
+        reason: String? = nil,
         updatedAt: Date
     ) {
         self.id = id
         self.status = status
+        self.agentId = agentId
         self.sessionId = sessionId
         self.displaySessionId = displaySessionId
+        self.tool = tool
+        self.reason = reason
         self.updatedAt = updatedAt
     }
 }

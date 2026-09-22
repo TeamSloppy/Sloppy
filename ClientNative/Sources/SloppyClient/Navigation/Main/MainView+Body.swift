@@ -45,6 +45,11 @@ extension MainView {
             if sessionIDs.isEmpty {
                 showsApprovalRequiredChatsOnly = false
             }
+            if let activeChatViewModel {
+                Task {
+                    await activeChatViewModel.refreshPendingToolApproval()
+                }
+            }
         }
         .background {
             Group {

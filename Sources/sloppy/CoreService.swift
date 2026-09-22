@@ -286,6 +286,8 @@ public actor CoreService {
     var toolApprovalSessionAllowances: [String: Set<ToolApprovalGrant>] = [:]
     /// Optional interactive surface for approvals created by an embedded protocol client such as ACP.
     var toolApprovalPresenter: (@Sendable (ToolApprovalRecord) async -> ToolApprovalPresentationDecision?)?
+    /// Test seam for deterministic agent approval decisions; production uses the configured reviewer's model.
+    var toolApprovalAgentReviewOverride: (@Sendable (ToolApprovalRecord, String) async -> ToolApprovalAgentReviewDecision?)?
     /// Prevents overlapping memory checkpoints per agent/session pair.
     var memoryCheckpointLocks: Set<String> = []
     /// Background sessions started by TUI `/bg`; owned by CoreService so screen teardown does not cancel them.

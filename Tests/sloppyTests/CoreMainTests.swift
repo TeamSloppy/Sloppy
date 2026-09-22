@@ -39,6 +39,7 @@ func relayStartupOptionsStorePublicURLAndDisableDashboard() throws {
 
     #expect(config.nodeMeshPublicURL == "https://sloppy.example.com")
     #expect(!shouldStartDashboard(guiOverride: nil, dashboardOverride: nil, relayOnly: true))
+    #expect(shouldStartDashboard(guiOverride: true, dashboardOverride: nil, relayOnly: true))
     let metadata = try #require(relayStartupMetadata(config: config))
     #expect(metadata.publicWebSocketURL == "wss://sloppy.example.com/v1/node/mesh/ws")
 }

@@ -335,7 +335,8 @@ extension CoreService {
                         requireApproval: !missingAccessApprovalGranted &&
                             !sessionToolApprovalBypass.contains(normalizedSessionID) &&
                             (requireApproval || effectivePolicy.approval.enabled ||
-                                sessionToolApprovalRequired.contains(normalizedSessionID))
+                                sessionToolApprovalRequired.contains(normalizedSessionID)),
+                        approvalSettings: effectivePolicy.approval
                     ), let deniedResult = toolApprovalDeniedResult(tool: effectiveRequest.tool, approval: approval) {
                         result = deniedResult
                         break
@@ -700,7 +701,8 @@ extension CoreService {
                         channelID: channelID,
                         topicID: topicID,
                         request: effectiveRequest,
-                        requireApproval: !missingAccessApprovalGranted && (requireApproval || effectivePolicy.approval.enabled)
+                        requireApproval: !missingAccessApprovalGranted && (requireApproval || effectivePolicy.approval.enabled),
+                        approvalSettings: effectivePolicy.approval
                     ), let deniedResult = toolApprovalDeniedResult(tool: effectiveRequest.tool, approval: approval) {
                         result = deniedResult
                         break
@@ -1068,12 +1070,21 @@ extension CoreService {
 
     /// Updates agent tools policy.
     public func updateAgentToolsPolicy(agentID: String, request: AgentToolsUpdateRequest) async throws -> AgentToolsPolicy {
-        guard let normalizedAgentID = normalizedAgentID(agentID) else {
+        guard let targetAgentID = normalizedAgentID(agentID) else {
             throw AgentToolsError.invalidAgentID
         }
-        _ = try getAgent(id: normalizedAgentID)
+        _ = try getAgent(id: targetAgentID)
+        if request.approval.policy == .approveForMe {
+            guard let reviewerAgentID = normalizedAgentID(request.approval.reviewerAgentId ?? ""),
+                  reviewerAgentID != targetAgentID,
+                  let reviewer = try? getAgent(id: reviewerAgentID),
+                  reviewer.runtime.type == .native
+            else {
+                throw AgentToolsError.invalidPayload
+            }
+        }
         do {
-            return try await toolsAuthorization.updatePolicy(agentID: normalizedAgentID, request: request)
+            return try await toolsAuthorization.updatePolicy(agentID: targetAgentID, request: request)
         } catch {
             throw mapAgentToolsError(error)
         }

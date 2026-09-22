@@ -22,13 +22,15 @@ public actor SloppyAPIClient {
     public init(
         baseURL: URL = URL(string: "http://localhost:25101")!,
         authToken: String = "",
-        session: URLSession = .shared,
+        tlsFingerprint: String? = nil,
+        session: URLSession? = nil,
         authSessionStore: AuthSessionStore = .shared,
         logger: Logger = Logger(label: "sloppy.api-client")
     ) {
         self.init(
             endpoint: .direct(baseURL: baseURL),
             authToken: authToken,
+            tlsFingerprint: tlsFingerprint,
             session: session,
             authSessionStore: authSessionStore,
             logger: logger
@@ -38,7 +40,8 @@ public actor SloppyAPIClient {
     public init(
         endpoint: SloppyInstanceEndpoint,
         authToken: String = "",
-        session: URLSession = .shared,
+        tlsFingerprint: String? = nil,
+        session: URLSession? = nil,
         authSessionStore: AuthSessionStore = .shared,
         logger: Logger = Logger(label: "sloppy.api-client")
     ) {
@@ -47,6 +50,7 @@ public actor SloppyAPIClient {
         let http = BackendHTTPClient(
             endpoint: endpoint,
             authToken: authToken,
+            tlsFingerprint: tlsFingerprint,
             session: session,
             authSessionStore: authSessionStore,
             logger: logger

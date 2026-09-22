@@ -211,12 +211,13 @@ struct ChatScreenRenderingTests {
         let nativeSource = try nativeTranscriptSource
 
         #expect(source.contains("ChatNativeTranscriptView("))
-        #expect(nativeSource.contains("let wasNearBottom = isNearBottom"))
+        #expect(nativeSource.contains("private struct ViewportAnchor"))
+        #expect(nativeSource.contains("followsBottom: isNearBottom"))
         #expect(nativeSource.contains("contentBottom - 44"))
-        #expect(nativeSource.contains("visibleBottom >= contentHeight - 44"))
-        #expect(nativeSource.contains("wasNearBottom && (contentChanged || bottomInsetChanged)"))
-        #expect(nativeSource.contains("didPrependItems"))
-        #expect(nativeSource.contains("oldOffset.y + delta"))
+        #expect(nativeSource.contains("visibleBottom >= contentHeight + parent.bottomInset - 44"))
+        #expect(nativeSource.contains("self.restoreViewport(viewportAnchor)"))
+        #expect(nativeSource.contains("attributes.frame.minY - anchor.itemOffset"))
+        #expect(nativeSource.contains("self.parentUpdateGeneration == generation"))
     }
 
     @Test("opening a chat always starts at the end of the transcript")

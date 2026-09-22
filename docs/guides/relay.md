@@ -45,12 +45,59 @@ The relay is transport infrastructure. Each computer keeps its own Sloppy data a
 ## Requirements
 
 - A Linux VPS with Docker, or Swift 6.2 for a native build.
-- A DNS name such as `relay.example.com` pointing to the VPS.
+- A DNS name such as `relay.example.com`, or a stable IP with a pinned TLS certificate.
 - Public TCP ports `80` and `443` for certificate issuance and TLS traffic.
 - Sloppy builds on the work and home computers that include mesh remote-Core support.
 - One persistent disk or Docker volume for relay state.
 
 External relay URLs must use `https://` or `wss://`. Sloppy intentionally rejects plaintext `http://` and `ws://` relay URLs outside loopback.
+
+## IP-only Mobile Pairing
+
+A DNS name is optional when every native client can reach the relay by a stable IP address. The relay still requires TLS; advertise the IP endpoint in the runtime config:
+
+```json
+{
+  "nodeMeshPublicURL": "https://203.0.113.10",
+  "clientPublicURL": "https://203.0.113.10",
+  "clientAlternateURLs": [
+    "http://192.168.1.10:25101"
+  ],
+  "clientTLSFingerprint": "<sha256 fingerprint without separators>"
+}
+```
+
+`clientPublicURL` is the Core endpoint placed in mobile setup codes. When it is absent, Sloppy falls back to `nodeMeshPublicURL`. `clientAlternateURLs` provides ordered fallback routes, and `clientTLSFingerprint` pins a directly exposed certificate so an iPhone, iPad, or Mac can authenticate a certificate issued by a private CA or for a raw IP.
+
+For a Caddy-managed private certificate:
+
+```text
+https://203.0.113.10 {
+    tls internal
+    reverse_proxy 127.0.0.1:25101
+}
+```
+
+Read the leaf-certificate SHA-256 fingerprint from a trusted machine and compare it with the certificate installed on the relay before saving it:
+
+```bash
+openssl s_client -connect 203.0.113.10:443 </dev/null 2>/dev/null \
+  | openssl x509 -outform der \
+  | shasum -a 256
+```
+
+Start the coordinator normally with `--relay-only`. To generate a QR from its Dashboard during setup, explicitly add `--gui`; an explicit GUI override wins over relay-only's default headless behavior:
+
+```bash
+sloppy run \
+  --relay-only \
+  --gui \
+  --relay-public-url https://203.0.113.10
+```
+
+In **Settings → Connect Client**, save the public URL and optional fingerprint, then generate the QR. The versioned setup code contains the primary URL, alternate URLs, expiry, certificate fingerprint, and a short-lived single-use bootstrap token. The native client exchanges that token for its own user session and stores the TLS pin for subsequent HTTP and WebSocket connections.
+
+The certificate pin protects transport identity; it does not make the current mesh discovery endpoint safe for unrestricted public exposure. Keep the IP endpoint behind the private-network or source-allowlist boundary described below until authenticated redacted discovery is implemented.
 
 ## Recommended Deployment: Docker and Caddy
 

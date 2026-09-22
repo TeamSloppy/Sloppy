@@ -4,22 +4,38 @@ import { prepareClientConnection, type DevicePairingRecord } from "../../../shar
 
 interface ClientConnectViewProps {
   listenPort: number;
+  clientPublicURL: string;
+  clientAlternateURLs: string[];
+  clientTLSFingerprint: string;
+  onConfigChange: (patch: {
+    clientPublicURL: string;
+    clientAlternateURLs: string[];
+    clientTLSFingerprint: string;
+  }) => void;
+  onSave: () => Promise<void>;
 }
 
 function deriveServerHost(): string {
   return window.location.hostname;
 }
 
-export function ClientConnectView({ listenPort }: ClientConnectViewProps) {
-  const [customHost, setCustomHost] = useState("");
+export function ClientConnectView({
+  listenPort,
+  clientPublicURL,
+  clientAlternateURLs,
+  clientTLSFingerprint,
+  onConfigChange,
+  onSave
+}: ClientConnectViewProps) {
   const [pairing, setPairing] = useState<DevicePairingRecord | null>(null);
   const [pairingError, setPairingError] = useState("");
   const [isTokenMode, setIsTokenMode] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
 
   const defaultHost = deriveServerHost();
-  const host = customHost.trim() || defaultHost;
+  const host = defaultHost;
   const port = listenPort || 25101;
   const transportScheme = window.location.protocol === "https:" ? "https" : "http";
 
@@ -64,6 +80,7 @@ export function ClientConnectView({ listenPort }: ClientConnectViewProps) {
 
   const deepLink = useMemo(() => {
     if (!pairing) return "";
+    if (pairing.setupCode) return pairing.setupCode;
     const query = new URLSearchParams({
       host,
       port: String(port),
@@ -73,6 +90,16 @@ export function ClientConnectView({ listenPort }: ClientConnectViewProps) {
     });
     return `sloppy://connect?${query.toString()}`;
   }, [host, pairing, port, transportScheme]);
+
+  async function saveAndGenerate() {
+    setIsSaving(true);
+    try {
+      await onSave();
+      await issuePairing();
+    } finally {
+      setIsSaving(false);
+    }
+  }
 
   function handleCopy() {
     if (!deepLink) return;
@@ -130,23 +157,62 @@ export function ClientConnectView({ listenPort }: ClientConnectViewProps) {
 
           <div className="entry-form-grid">
             <label style={{ gridColumn: "1 / -1" }}>
-              Server Host
+              Public Client URL
               <input
                 type="text"
-                value={customHost}
-                onChange={(event) => setCustomHost(event.target.value)}
-                placeholder={defaultHost}
+                value={clientPublicURL}
+                onChange={(event) => onConfigChange({
+                  clientPublicURL: event.target.value,
+                  clientAlternateURLs,
+                  clientTLSFingerprint
+                })}
+                placeholder="https://81.26.176.106"
                 autoComplete="off"
               />
               <span className="entry-form-hint">
-                Use a LAN address or Tailscale hostname reachable from the client device. Never use localhost for a physical device.
+                External addresses require HTTPS. If empty, Sloppy uses nodeMeshPublicURL and then the current Dashboard address as a legacy fallback.
               </span>
             </label>
 
             <label style={{ gridColumn: "1 / -1" }}>
-              Port
-              <input type="text" value={port} readOnly style={{ color: "var(--text-muted)", cursor: "default" }} />
+              Alternate Client URLs
+              <textarea
+                value={clientAlternateURLs.join("\n")}
+                onChange={(event) => onConfigChange({
+                  clientPublicURL,
+                  clientAlternateURLs: event.target.value.split(/\r?\n/).map((value) => value.trim()).filter(Boolean),
+                  clientTLSFingerprint
+                })}
+                placeholder={"http://192.168.1.10:25101\nhttps://secondary.example.com"}
+                rows={3}
+                spellCheck={false}
+              />
             </label>
+
+            <label style={{ gridColumn: "1 / -1" }}>
+              TLS Certificate SHA-256 Fingerprint
+              <input
+                type="text"
+                value={clientTLSFingerprint}
+                onChange={(event) => onConfigChange({
+                  clientPublicURL,
+                  clientAlternateURLs,
+                  clientTLSFingerprint: event.target.value
+                })}
+                placeholder="64 hexadecimal characters"
+                autoComplete="off"
+                spellCheck={false}
+              />
+              <span className="entry-form-hint">
+                Optional certificate pin for HTTPS on a raw IP or private CA. It is embedded in the short-lived setup code.
+              </span>
+            </label>
+          </div>
+
+          <div>
+            <button type="button" className="btn btn-primary" onClick={() => void saveAndGenerate()} disabled={isSaving || isLoading}>
+              {isSaving ? "Saving…" : "Save connection settings & generate QR"}
+            </button>
           </div>
 
           {pairing ? (

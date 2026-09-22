@@ -19,6 +19,8 @@ export interface DevicePairingRecord {
   createdAt: string;
   expiresAt: string;
   user: { id: string; login: string; name: string };
+  setupCode?: string;
+  serverURL?: string;
 }
 
 export type ClientConnection =

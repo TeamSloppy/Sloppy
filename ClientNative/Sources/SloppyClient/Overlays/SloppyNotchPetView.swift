@@ -15,13 +15,19 @@ enum SloppyNotchPetState: String, Equatable, Sendable {
 struct SloppyNotchPetView: NSViewRepresentable {
     var presentationScale: CGFloat = 1
     var state: SloppyNotchPetState = .idle
+    var onClick: (@MainActor () -> Void)?
 
     func makeNSView(context: Context) -> SloppyNotchPetSpriteView {
-        SloppyNotchPetSpriteView(presentationScale: presentationScale, state: state)
+        SloppyNotchPetSpriteView(
+            presentationScale: presentationScale,
+            state: state,
+            onClick: onClick
+        )
     }
 
     func updateNSView(_ nsView: SloppyNotchPetSpriteView, context: Context) {
         nsView.setCommunicationState(state)
+        nsView.onClick = onClick
     }
 
     static func dismantleNSView(_ nsView: SloppyNotchPetSpriteView, coordinator: Void) {
@@ -34,13 +40,19 @@ final class SloppyNotchPetSpriteView: SKView {
     private let petScene: SloppyNotchPetScene
     private var animationTimer: Timer?
     private var petTrackingArea: NSTrackingArea?
+    var onClick: (@MainActor () -> Void)?
 
-    init(presentationScale: CGFloat, state: SloppyNotchPetState) {
+    init(
+        presentationScale: CGFloat,
+        state: SloppyNotchPetState,
+        onClick: (@MainActor () -> Void)?
+    ) {
         petScene = SloppyNotchPetScene(
             size: CGSize(width: 24, height: 24),
             presentationScale: presentationScale,
             communicationState: state
         )
+        self.onClick = onClick
         super.init(frame: .zero)
         allowsTransparency = true
         wantsLayer = true
@@ -101,6 +113,7 @@ final class SloppyNotchPetSpriteView: SKView {
 
     override func mouseDown(with event: NSEvent) {
         petScene.handlePoke(at: scenePoint(for: event))
+        onClick?()
     }
 
     func setCommunicationState(_ state: SloppyNotchPetState) {

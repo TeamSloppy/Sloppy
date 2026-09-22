@@ -196,7 +196,7 @@ private final class WindowDragGestureShieldHostingView<Content: View>: NSHosting
     override var mouseDownCanMoveWindow: Bool { false }
 }
 
-private struct MiddleClickCloseArea: NSViewRepresentable {
+struct MiddleClickCloseArea: NSViewRepresentable {
     let onMiddleClick: @MainActor () -> Void
 
     func makeNSView(context: Context) -> MiddleClickCloseNSView {
@@ -210,7 +210,7 @@ private struct MiddleClickCloseArea: NSViewRepresentable {
     }
 }
 
-private final class MiddleClickCloseNSView: NSView {
+final class MiddleClickCloseNSView: NSView {
     var onMiddleClick: (@MainActor () -> Void)?
 
     override init(frame frameRect: NSRect) {
@@ -229,11 +229,12 @@ private final class MiddleClickCloseNSView: NSView {
             return nil
         }
 
+        guard event.buttonNumber == 2 else { return nil }
         switch event.type {
         case .otherMouseDown, .otherMouseUp, .otherMouseDragged:
-            return event.buttonNumber == 2 ? self : nil
+            return self
         default:
-            return super.hitTest(point)
+            return nil
         }
     }
 

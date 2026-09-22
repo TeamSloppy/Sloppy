@@ -430,7 +430,15 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
         private var scrollObserver: NSObjectProtocol?
         private var isNearBottom = true
         private var heightUpdateScheduled = false
+        private var parentUpdateGeneration: UInt = 0
         private var visibleItemID: String?
+
+        private struct ViewportAnchor {
+            let followsBottom: Bool
+            let itemID: String?
+            let itemOffset: CGFloat
+            let fallbackOrigin: NSPoint
+        }
 
         init(parent: AppKitChatTranscriptCollection) {
             self.parent = parent
@@ -475,15 +483,13 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
         private func scheduleHeightUpdate() {
             guard !heightUpdateScheduled else { return }
             heightUpdateScheduled = true
+            let viewportAnchor = captureViewportAnchor()
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
                 self.heightUpdateScheduled = false
-                let shouldFollow = self.isNearBottom
                 self.collectionView?.collectionViewLayout?.invalidateLayout()
                 self.collectionView?.layoutSubtreeIfNeeded()
-                if shouldFollow {
-                    self.scrollToBottom(animated: false)
-                }
+                self.restoreViewport(viewportAnchor)
                 self.updateNearBottom()
                 self.updateVisibleItem()
             }
@@ -512,11 +518,7 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
 
         func update(parent: AppKitChatTranscriptCollection, initial: Bool) {
             guard let collectionView, let scrollView else { return }
-            let wasNearBottom = isNearBottom
-            let oldContentHeight = collectionView.collectionViewLayout?.collectionViewContentSize.height ?? 0
-            let oldOrigin = scrollView.contentView.bounds.origin
-            let oldTopInset = previousTopInset
-            let didPrepend = didPrependItems(from: previousItems, to: parent.items)
+            let viewportAnchor = captureViewportAnchor()
             let explicitScroll = previousScrollRequest != parent.scrollToEndRequest
             let targetedScroll = previousScrollTarget != parent.scrollTarget
             let contentChanged = previousRenderRevision != parent.renderRevision
@@ -559,26 +561,30 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
                 collectionView.collectionViewLayout?.invalidateLayout()
             }
 
-            DispatchQueue.main.async { [weak self, weak collectionView, weak scrollView] in
-                guard let self, let collectionView, let scrollView else { return }
-                collectionView.layoutSubtreeIfNeeded()
-                if didPrepend && !wasNearBottom {
-                    let newHeight = collectionView.collectionViewLayout?.collectionViewContentSize.height ?? 0
-                    let topInsetDelta = parent.topInset - oldTopInset
-                    scrollView.contentView.scroll(
-                        to: NSPoint(
-                            x: oldOrigin.x,
-                            y: oldOrigin.y + newHeight - oldContentHeight + topInsetDelta
-                        )
-                    )
-                    scrollView.reflectScrolledClipView(scrollView.contentView)
-                } else if targetedScroll, let target = parent.scrollTarget {
-                    self.scroll(to: target.itemID, animated: !parent.reduceMotion)
-                } else if explicitScroll || (wasNearBottom && (contentChanged || bottomInsetChanged)) || initial {
-                    self.scrollToBottom(animated: explicitScroll && !parent.reduceMotion)
+            let requiresViewportUpdate = initial
+                || targetedScroll
+                || explicitScroll
+                || contentChanged
+                || bottomInsetChanged
+                || widthChanged
+                || identitiesChanged
+            if requiresViewportUpdate {
+                parentUpdateGeneration &+= 1
+                let generation = parentUpdateGeneration
+                DispatchQueue.main.async { [weak self, weak collectionView] in
+                    guard let self, let collectionView,
+                          self.parentUpdateGeneration == generation else { return }
+                    collectionView.layoutSubtreeIfNeeded()
+                    if targetedScroll, let target = parent.scrollTarget {
+                        self.scroll(to: target.itemID, animated: !parent.reduceMotion)
+                    } else if explicitScroll || initial {
+                        self.scrollToBottom(animated: explicitScroll && !parent.reduceMotion)
+                    } else {
+                        self.restoreViewport(viewportAnchor)
+                    }
+                    self.updateNearBottom()
+                    self.updateVisibleItem()
                 }
-                self.updateNearBottom()
-                self.updateVisibleItem()
             }
 
             previousItems = parent.items
@@ -606,16 +612,51 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
             layout.invalidateLayout()
         }
 
-        private func didPrependItems(
-            from oldItems: [ChatTranscriptNativeItem],
-            to newItems: [ChatTranscriptNativeItem]
-        ) -> Bool {
-            guard let oldFirst = oldItems.first(where: { $0.id.hasPrefix("entry:") }),
-                  let oldIndex = oldItems.firstIndex(where: { $0.id == oldFirst.id }),
-                  let newIndex = newItems.firstIndex(where: { $0.id == oldFirst.id }) else {
-                return false
+        private func captureViewportAnchor() -> ViewportAnchor {
+            guard let collectionView, let scrollView else {
+                return ViewportAnchor(
+                    followsBottom: true,
+                    itemID: nil,
+                    itemOffset: 0,
+                    fallbackOrigin: .zero
+                )
             }
-            return newIndex > oldIndex
+            let bounds = scrollView.contentView.bounds
+            let anchor = collectionView.indexPathsForVisibleItems().compactMap {
+                indexPath -> (id: String, frame: NSRect)? in
+                guard let id = dataSource?.itemIdentifier(for: indexPath),
+                      let attributes = collectionView.layoutAttributesForItem(at: indexPath) else {
+                    return nil
+                }
+                return (id, attributes.frame)
+            }.filter { candidate in
+                candidate.frame.maxY >= bounds.minY - 0.5
+            }.min { lhs, rhs in
+                lhs.frame.minY < rhs.frame.minY
+            }
+            return ViewportAnchor(
+                followsBottom: isNearBottom,
+                itemID: anchor?.id,
+                itemOffset: (anchor?.frame.minY ?? bounds.minY) - bounds.minY,
+                fallbackOrigin: bounds.origin
+            )
+        }
+
+        private func restoreViewport(_ anchor: ViewportAnchor) {
+            guard let collectionView, let scrollView else { return }
+            if anchor.followsBottom {
+                scrollToBottom(animated: false)
+                return
+            }
+
+            var origin = anchor.fallbackOrigin
+            if let itemID = anchor.itemID,
+               let indexPath = dataSource?.indexPath(for: itemID),
+               let attributes = collectionView.layoutAttributesForItem(at: indexPath) {
+                origin.y = attributes.frame.minY - anchor.itemOffset
+            }
+            scrollView.contentView.scroll(to: origin)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
         }
 
         private func updateNearBottom() {
@@ -626,7 +667,7 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
             let contentHeight = collectionView.collectionViewLayout?.collectionViewContentSize.height ?? 0
             let visibleBottom = scrollView.contentView.bounds.maxY
             isNearBottom = contentHeight <= scrollView.contentView.bounds.height
-                || visibleBottom >= contentHeight - 44
+                || visibleBottom >= contentHeight + parent.bottomInset - 44
         }
 
         private func scrollToBottom(animated: Bool) {

@@ -105,26 +105,32 @@ actor ToolApprovalService {
         }
     }
 
-    func approve(id: String, decidedBy: String?) async -> ToolApprovalRecord? {
-        await resolve(id: id, status: .approved, decidedBy: decidedBy)
+    func approve(id: String, decidedBy: String?, decisionReason: String? = nil) async -> ToolApprovalRecord? {
+        await resolve(id: id, status: .approved, decidedBy: decidedBy, decisionReason: decisionReason)
     }
 
-    func reject(id: String, decidedBy: String?) async -> ToolApprovalRecord? {
-        await resolve(id: id, status: .rejected, decidedBy: decidedBy)
+    func reject(id: String, decidedBy: String?, decisionReason: String? = nil) async -> ToolApprovalRecord? {
+        await resolve(id: id, status: .rejected, decidedBy: decidedBy, decisionReason: decisionReason)
     }
 
     @discardableResult
     func timeout(id: String) async -> ToolApprovalRecord? {
-        await resolve(id: id, status: .timedOut, decidedBy: nil)
+        await resolve(id: id, status: .timedOut, decidedBy: nil, decisionReason: nil)
     }
 
-    private func resolve(id: String, status: ToolApprovalStatus, decidedBy: String?) async -> ToolApprovalRecord? {
+    private func resolve(
+        id: String,
+        status: ToolApprovalStatus,
+        decidedBy: String?,
+        decisionReason: String?
+    ) async -> ToolApprovalRecord? {
         guard var entry = pending[id], entry.record.status == .pending else {
             return pending[id]?.record
         }
 
         entry.record.status = status
         entry.record.decidedBy = decidedBy
+        entry.record.decisionReason = decisionReason
         entry.record.updatedAt = Date()
         pending[id] = entry
 
@@ -191,6 +197,7 @@ actor ToolApprovalService {
         if let reason = record.reason { payload["reason"] = .string(reason) }
         if let requestedBy = record.requestedBy { payload["requestedBy"] = .string(requestedBy) }
         if let decidedBy = record.decidedBy { payload["decidedBy"] = .string(decidedBy) }
+        if let decisionReason = record.decisionReason { payload["decisionReason"] = .string(decisionReason) }
 
         await eventBus.publish(EventEnvelope(
             messageType: messageType,

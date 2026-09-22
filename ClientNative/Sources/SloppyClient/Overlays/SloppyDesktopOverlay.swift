@@ -14,7 +14,6 @@ final class SloppyDesktopOverlay {
     private weak var window: NSWindow?
     private var overlayPanel: SloppyNotchPanel?
     private var screenObserver: NSObjectProtocol?
-    private var applicationActivationObserver: NSObjectProtocol?
     private var apiClient = SloppyAPIClient()
     private var closeBehavior: ClientWindowCloseBehavior = .keepProcess
     private var activityRefreshTask: Task<Void, Never>?
@@ -29,14 +28,14 @@ final class SloppyDesktopOverlay {
             agentRunCache.removeAll()
         }
         apiClient = SloppyAPIClient(baseURL: resolvedBaseURL)
-        state.onDecision = { [weak self] approvalID, approved in
-            await self?.resolveApproval(id: approvalID, approved: approved)
-        }
         state.onOpenAgentRun = { [weak self] run in
             self?.onOpenAgentRun?(run.agentID, run.sessionID)
         }
         state.onOpenRecentChat = { [weak self] chat in
             self?.onOpenAgentRun?(chat.agentID, chat.sessionID)
+        }
+        state.onOpenDeepLink = { url in
+            NSWorkspace.shared.open(url)
         }
         state.onSendPrompt = { [weak self] chat, prompt in
             guard let self else { return }
@@ -126,10 +125,6 @@ final class SloppyDesktopOverlay {
         overlayPanel = panel
         state.onExpansionChanged = { [weak self] in
             guard let self, let panel = self.overlayPanel else { return }
-            guard !NSApp.isActive || !self.state.isExpanded else {
-                self.state.setExpanded(false)
-                return
-            }
             self.position(panel: panel, animated: true)
         }
         position(panel: panel, animated: false)
@@ -143,16 +138,6 @@ final class SloppyDesktopOverlay {
             Task { @MainActor in
                 guard let self, let panel = self.overlayPanel else { return }
                 self.position(panel: panel, animated: false)
-            }
-        }
-
-        applicationActivationObserver = NotificationCenter.default.addObserver(
-            forName: NSApplication.didBecomeActiveNotification,
-            object: NSApp,
-            queue: .main
-        ) { [weak self] _ in
-            Task { @MainActor in
-                self?.state.setExpanded(false)
             }
         }
     }
@@ -238,6 +223,8 @@ final class SloppyDesktopOverlay {
                         || isError else { return nil }
                     return SloppyDesktopTask(
                         id: "\(project.id)/\(task.id)",
+                        projectID: project.id,
+                        taskID: task.id,
                         title: task.title,
                         projectName: project.name,
                         status: task.normalizedKanbanColumnID,
@@ -367,19 +354,6 @@ final class SloppyDesktopOverlay {
         )
     }
 
-    private func resolveApproval(id: String, approved: Bool) async {
-        state.isResolving = true
-        defer { state.isResolving = false }
-        do {
-            try await apiClient.resolveToolApproval(id: id, approved: approved)
-            state.toolApproval = nil
-            state.isExpanded = !state.activeTasks.isEmpty
-            state.onExpansionChanged?()
-        } catch {
-            state.errorMessage = error.localizedDescription
-        }
-    }
-
     private func configureTransparentWindow(_ window: NSWindow) {
         if window.isOpaque {
             window.isOpaque = false
@@ -445,18 +419,16 @@ private struct SloppyDesktopNotchView: View {
             ? 0
             : (state.promptError == nil ? 40 : 58)
         let taskComposerHeight: CGFloat = state.taskCreationError == nil ? 70 : 86
-        let approvalHeight: CGFloat = state.toolApproval == nil ? 0 : 132
         let sectionCount = (state.activeAgentRuns.isEmpty ? 0 : 1)
             + (state.activeTasks.isEmpty ? 0 : 1)
             + (state.recentChats.isEmpty ? 0 : 1)
         let sectionSpacing = CGFloat(max(0, sectionCount - 1)) * 10
-            + (state.toolApproval != nil && state.activityCount > 0 ? 14 : 0)
         return CGSize(
             width: wideWidth,
             height: min(
                 520,
                 64 + expandedHeroHeight + rowHeight + chatComposerHeight
-                    + taskComposerHeight + approvalHeight + sectionSpacing
+                    + taskComposerHeight + sectionSpacing
             )
         )
     }
@@ -534,7 +506,10 @@ private struct SloppyDesktopNotchView: View {
             if state.toolApproval == nil {
                 ZStack {
                     if !isPetExpanded {
-                        SloppyNotchPetView(state: state.mascotState)
+                        SloppyNotchPetView(
+                            state: state.mascotState,
+                            onClick: { _ = state.openMascotDestination() }
+                        )
                             .matchedGeometryEffect(
                                 id: "notch-mascot",
                                 in: petTransitionNamespace
@@ -543,7 +518,6 @@ private struct SloppyDesktopNotchView: View {
                     }
                 }
                 .frame(width: 18, height: 18)
-                .allowsHitTesting(false)
                 .accessibilityHidden(true)
             } else {
                 Image(systemName: "exclamationmark.shield.fill")
@@ -562,7 +536,9 @@ private struct SloppyDesktopNotchView: View {
                 .help("Open chat with \(run.agentName)")
             } else {
                 Button {
-                    state.toggleExpanded()
+                    if !state.openMascotDestination() {
+                        state.toggleExpanded()
+                    }
                 } label: {
                     Text(compactTitle)
                         .font(.system(size: 12, weight: .semibold))
@@ -655,8 +631,7 @@ private struct SloppyDesktopNotchView: View {
     }
 
     private func scheduleHoverCollapse() {
-        guard state.toolApproval == nil,
-              state.selectedRecentChatID == nil,
+        guard state.selectedRecentChatID == nil,
               !state.hasTaskDraft,
               !isTaskComposerFocused else { return }
 
@@ -664,7 +639,6 @@ private struct SloppyDesktopNotchView: View {
             while !Task.isCancelled {
                 try? await Task.sleep(for: .milliseconds(120))
                 guard !Task.isCancelled else { return }
-                guard state.toolApproval == nil else { return }
                 guard state.selectedRecentChatID == nil else { return }
                 guard !state.hasTaskDraft, !isTaskComposerFocused else { return }
                 guard !isPointerInsidePanel() else { continue }
@@ -686,8 +660,7 @@ private struct SloppyDesktopNotchView: View {
             guard !Task.isCancelled else { return }
         }
 
-        guard state.toolApproval == nil,
-              state.activityCount > 0,
+        guard state.activityCount > 0,
               state.selectedRecentChatID == nil,
               !state.hasTaskDraft,
               !isTaskComposerFocused else { return }
@@ -720,7 +693,7 @@ private struct SloppyDesktopNotchView: View {
                     .foregroundStyle(.green)
                 Text("Sloppy is running")
                     .font(.system(size: 12, weight: .semibold))
-                Text("Tool approvals will appear here.")
+                Text("Activity will appear here.")
                     .font(.system(size: 10))
                     .foregroundStyle(.secondary)
             }
@@ -731,12 +704,6 @@ private struct SloppyDesktopNotchView: View {
 
     private var expandedSections: some View {
         VStack(alignment: .leading, spacing: 10) {
-            if let approval = state.toolApproval {
-                approvalContent(approval)
-            }
-            if state.toolApproval != nil && state.activityCount > 0 {
-                Divider().opacity(0.35)
-            }
             if !state.activeAgentRuns.isEmpty {
                 activeAgentRunsContent
             }
@@ -757,47 +724,6 @@ private struct SloppyDesktopNotchView: View {
                 Divider().opacity(0.35)
             }
             taskComposerContent
-        }
-    }
-
-    private func approvalContent(_ approval: AppNotification) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            HStack(spacing: 7) {
-                Image(systemName: "exclamationmark.shield.fill")
-                    .foregroundStyle(.orange)
-                Text(approval.title)
-                    .font(.system(size: 12, weight: .semibold))
-                Spacer()
-                if state.isResolving {
-                    ProgressView()
-                        .controlSize(.small)
-                }
-            }
-                Text(approval.message)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                if let errorMessage = state.errorMessage {
-                    Text(errorMessage)
-                        .font(.caption)
-                        .foregroundStyle(.red)
-                        .lineLimit(1)
-                }
-                HStack {
-                    Spacer()
-                    Button("Deny", role: .destructive) {
-                        state.decide(approved: false)
-                    }
-                    .buttonStyle(.glass)
-                    Button("Allow") {
-                        state.decide(approved: true)
-                    }
-                    .keyboardShortcut(.defaultAction)
-                    .buttonStyle(.glassProminent)
-                }
-                .buttonBorderShape(.capsule)
-                .controlSize(.small)
-                .disabled(state.isResolving)
         }
     }
 
@@ -1192,7 +1118,6 @@ final class SloppyDesktopOverlayState {
     var recentChats: [SloppyDesktopRecentChat] = []
     var projects: [SloppyDesktopProject] = []
     var isExpanded = false
-    var isResolving = false
     var errorMessage: String?
     var activityRevealToken = 0
     var selectedRecentChatID: String?
@@ -1204,9 +1129,9 @@ final class SloppyDesktopOverlayState {
     var isCreatingTask = false
     var taskCreationError: String?
     var onExpansionChanged: (@MainActor () -> Void)?
-    var onDecision: (@MainActor (String, Bool) async -> Void)?
     var onOpenAgentRun: (@MainActor (SloppyDesktopAgentRun) -> Void)?
     var onOpenRecentChat: (@MainActor (SloppyDesktopRecentChat) -> Void)?
+    var onOpenDeepLink: (@MainActor (URL) -> Void)?
     var onSendPrompt: (@MainActor (SloppyDesktopRecentChat, String) async throws -> Void)?
     var onCreateTask: (@MainActor (SloppyDesktopProject, String) async throws -> Void)?
 
@@ -1267,6 +1192,10 @@ final class SloppyDesktopOverlayState {
             ?? activeTasks.first(where: \.requiresInput).map { "\($0.title) · \($0.projectName)" }
     }
 
+    var hasMascotDestination: Bool {
+        mascotDeepLink != nil
+    }
+
     var canSendPrompt: Bool {
         !promptText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             && !isSendingPrompt
@@ -1283,7 +1212,7 @@ final class SloppyDesktopOverlayState {
     }
 
     var hasContentBeforeTaskComposer: Bool {
-        toolApproval != nil || activityCount > 0 || !recentChats.isEmpty
+        activityCount > 0 || !recentChats.isEmpty
     }
 
     private var selectedProject: SloppyDesktopProject? {
@@ -1301,14 +1230,6 @@ final class SloppyDesktopOverlayState {
         onExpansionChanged?()
     }
 
-    func decide(approved: Bool) {
-        guard let approvalID = toolApproval?.metadata["approvalId"], !isResolving else { return }
-        errorMessage = nil
-        Task { @MainActor in
-            await onDecision?(approvalID, approved)
-        }
-    }
-
     func openAgentRun(_ run: SloppyDesktopAgentRun) {
         setExpanded(false)
         onOpenAgentRun?(run)
@@ -1318,6 +1239,30 @@ final class SloppyDesktopOverlayState {
         selectedRecentChatID = nil
         setExpanded(false)
         onOpenRecentChat?(chat)
+    }
+
+    @discardableResult
+    func openMascotDestination() -> Bool {
+        guard let url = mascotDeepLink else { return false }
+        setExpanded(false)
+        onOpenDeepLink?(url)
+        return true
+    }
+
+    private var mascotDeepLink: URL? {
+        if let approval = toolApproval,
+           let agentID = approval.metadata["agentId"],
+           let sessionID = approval.metadata["displaySessionId"] ?? approval.metadata["sessionId"] {
+            return DeepLink.session(agentId: agentID, sessionId: sessionID).url
+        }
+        if let run = mascotPrimaryRun {
+            return DeepLink.session(agentId: run.agentID, sessionId: run.sessionID).url
+        }
+        if let task = activeTasks.first(where: { $0.isError || $0.requiresInput })
+            ?? activeTasks.first {
+            return DeepLink.task(projectId: task.projectID, taskId: task.taskID).url
+        }
+        return nil
     }
 
     func togglePromptComposer(for chat: SloppyDesktopRecentChat) {
@@ -1447,13 +1392,11 @@ final class SloppyDesktopOverlayState {
         if status == "pending" {
             toolApproval = notification
             errorMessage = nil
-            isExpanded = true
             onExpansionChanged?()
             return
         }
         if toolApproval?.metadata["approvalId"] == notification.metadata["approvalId"] {
             toolApproval = nil
-            isExpanded = !activeTasks.isEmpty
             onExpansionChanged?()
         }
     }
@@ -1461,6 +1404,8 @@ final class SloppyDesktopOverlayState {
 
 struct SloppyDesktopTask: Identifiable, Equatable {
     let id: String
+    let projectID: String
+    let taskID: String
     let title: String
     let projectName: String
     let status: ProjectKanbanColumnID
@@ -1570,7 +1515,6 @@ private struct SloppyDesktopOverlayPreviewCase {
             .init(
                 title: "Tool approval",
                 state: makeState(
-                    isExpanded: true,
                     approval: makeApproval()
                 )
             ),
@@ -1582,28 +1526,11 @@ private struct SloppyDesktopOverlayPreviewCase {
                     activeTasks: makeTasks()
                 )
             ),
-            .init(
-                title: "Resolving approval",
-                state: makeState(
-                    isExpanded: true,
-                    isResolving: true,
-                    approval: makeApproval()
-                )
-            ),
-            .init(
-                title: "Approval error",
-                state: makeState(
-                    isExpanded: true,
-                    errorMessage: "The backend did not respond. Try again.",
-                    approval: makeApproval()
-                )
-            ),
         ]
     }
 
     private static func makeState(
         isExpanded: Bool = false,
-        isResolving: Bool = false,
         errorMessage: String? = nil,
         approval: AppNotification? = nil,
         activeAgentRuns: [SloppyDesktopAgentRun] = [],
@@ -1612,7 +1539,6 @@ private struct SloppyDesktopOverlayPreviewCase {
     ) -> SloppyDesktopOverlayState {
         let state = SloppyDesktopOverlayState()
         state.isExpanded = isExpanded
-        state.isResolving = isResolving
         state.errorMessage = errorMessage
         state.toolApproval = approval
         state.activeAgentRuns = activeAgentRuns
@@ -1685,6 +1611,8 @@ private struct SloppyDesktopOverlayPreviewCase {
         [
             SloppyDesktopTask(
                 id: "preview-task-1",
+                projectID: "sloppy-client",
+                taskID: "preview-task-1",
                 title: "Implement backend installer",
                 projectName: "Sloppy Client",
                 status: .inProgress,
@@ -1692,6 +1620,8 @@ private struct SloppyDesktopOverlayPreviewCase {
             ),
             SloppyDesktopTask(
                 id: "preview-task-2",
+                projectID: "sloppy-client",
+                taskID: "preview-task-2",
                 title: "Review desktop overlay changes",
                 projectName: "Sloppy Client",
                 status: .needsReview,

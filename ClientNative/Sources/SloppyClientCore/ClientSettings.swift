@@ -171,6 +171,7 @@ public final class ClientSettings {
         serverScheme = server.scheme
         serverHost = server.host
         serverPort = server.port
+        ClientTLSFingerprintStore.set(server.tlsFingerprint, for: server.baseURL)
         if !savedServers.contains(where: { $0.id == server.id }) {
             savedServers.append(server)
         }

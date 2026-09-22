@@ -27,9 +27,14 @@ extension CoreService: ToolApprovalBridge {
     public func approveToolApproval(
         id: String,
         decidedBy: String?,
-        scope: ToolApprovalDecisionScope
+        scope: ToolApprovalDecisionScope,
+        decisionReason: String? = nil
     ) async -> ToolApprovalRecord? {
-        guard let record = await toolApprovalService.approve(id: id, decidedBy: decidedBy) else {
+        guard let record = await toolApprovalService.approve(
+            id: id,
+            decidedBy: decidedBy,
+            decisionReason: decisionReason
+        ) else {
             return nil
         }
         if scope == .session {
@@ -40,7 +45,19 @@ extension CoreService: ToolApprovalBridge {
     }
 
     public func rejectToolApproval(id: String, decidedBy: String?) async -> ToolApprovalRecord? {
-        guard let record = await toolApprovalService.reject(id: id, decidedBy: decidedBy) else {
+        await rejectToolApproval(id: id, decidedBy: decidedBy, decisionReason: nil)
+    }
+
+    func rejectToolApproval(
+        id: String,
+        decidedBy: String?,
+        decisionReason: String?
+    ) async -> ToolApprovalRecord? {
+        guard let record = await toolApprovalService.reject(
+            id: id,
+            decidedBy: decidedBy,
+            decisionReason: decisionReason
+        ) else {
             return nil
         }
         _ = await channelDelivery.updateToolApproval(record)
@@ -61,7 +78,8 @@ extension CoreService: ToolApprovalBridge {
         topicID: String?,
         request: ToolInvocationRequest,
         toolCallID: String? = nil,
-        requireApproval: Bool
+        requireApproval: Bool,
+        approvalSettings: AgentToolApprovalSettings? = nil
     ) async -> ToolApprovalWaitResult? {
         guard requireApproval, requiresHumanApproval(toolID: request.tool, arguments: request.arguments) else {
             return nil
@@ -86,22 +104,24 @@ extension CoreService: ToolApprovalBridge {
             request: request,
             approvalKind: .riskyTool
         )
-        await appendToolApprovalPausedStatusIfNeeded(
-            agentID: agentID,
-            sessionID: sessionID,
-            displaySessionID: displaySessionID,
-            record: record
-        )
-        if let waitingSessionID = displaySessionID ?? sessionID {
-            await markTaskWaitingInputForAgentSession(
+        if approvalSettings?.policy != .approveForMe {
+            await appendToolApprovalPausedStatusIfNeeded(
                 agentID: agentID,
-                sessionID: waitingSessionID,
-                reason: "Tool approval required for \(request.tool).",
-                source: "agent"
+                sessionID: sessionID,
+                displaySessionID: displaySessionID,
+                record: record
             )
+            if let waitingSessionID = displaySessionID ?? sessionID {
+                await markTaskWaitingInputForAgentSession(
+                    agentID: agentID,
+                    sessionID: waitingSessionID,
+                    reason: "Tool approval required for \(request.tool).",
+                    source: "agent"
+                )
+            }
         }
         _ = await channelDelivery.presentToolApproval(record)
-        await resolveToolApprovalThroughPresenter(record)
+        await resolveToolApproval(record, approvalSettings: approvalSettings)
         let result = await toolApprovalService.waitForDecision(id: record.id)
         if case .timedOut(let timedOut) = result {
             _ = await channelDelivery.updateToolApproval(timedOut)
@@ -114,16 +134,23 @@ extension CoreService: ToolApprovalBridge {
         case .approved:
             return nil
         case .rejected(let record):
+            var data: [String: JSONValue] = [
+                "approvalId": .string(record.id),
+                "status": .string(record.status.rawValue),
+            ]
+            if let decidedBy = record.decidedBy {
+                data["decidedBy"] = .string(decidedBy)
+            }
+            if let decisionReason = record.decisionReason {
+                data["decisionReason"] = .string(decisionReason)
+            }
             return ToolInvocationResult(
                 tool: tool,
                 ok: false,
-                data: .object([
-                    "approvalId": .string(record.id),
-                    "status": .string(record.status.rawValue)
-                ]),
+                data: .object(data),
                 error: ToolErrorPayload(
                     code: "tool_approval_rejected",
-                    message: "Tool call was rejected by a human approver.",
+                    message: "Tool call was rejected by the approval reviewer.",
                     retryable: false
                 )
             )
@@ -243,22 +270,25 @@ extension CoreService: ToolApprovalBridge {
             approvalKind: .missingAccess,
             grants: grants
         )
-        await appendToolApprovalPausedStatusIfNeeded(
-            agentID: agentID,
-            sessionID: sessionID,
-            displaySessionID: displaySessionID,
-            record: record
-        )
-        if let waitingSessionID = displaySessionID ?? sessionID {
-            await markTaskWaitingInputForAgentSession(
+        let approvalSettings = try? await toolsAuthorization.policy(agentID: agentID).approval
+        if approvalSettings?.policy != .approveForMe {
+            await appendToolApprovalPausedStatusIfNeeded(
                 agentID: agentID,
-                sessionID: waitingSessionID,
-                reason: "Access approval required for \(request.tool).",
-                source: "agent"
+                sessionID: sessionID,
+                displaySessionID: displaySessionID,
+                record: record
             )
+            if let waitingSessionID = displaySessionID ?? sessionID {
+                await markTaskWaitingInputForAgentSession(
+                    agentID: agentID,
+                    sessionID: waitingSessionID,
+                    reason: "Access approval required for \(request.tool).",
+                    source: "agent"
+                )
+            }
         }
         _ = await channelDelivery.presentToolApproval(record)
-        await resolveToolApprovalThroughPresenter(record)
+        await resolveToolApproval(record, approvalSettings: approvalSettings)
         let result = await toolApprovalService.waitForDecision(id: record.id)
         if case .timedOut(let timedOut) = result {
             _ = await channelDelivery.updateToolApproval(timedOut)
@@ -278,6 +308,81 @@ extension CoreService: ToolApprovalBridge {
         case .reject:
             _ = await rejectToolApproval(id: record.id, decidedBy: "acp")
         }
+    }
+
+    private func resolveToolApproval(
+        _ record: ToolApprovalRecord,
+        approvalSettings: AgentToolApprovalSettings?
+    ) async {
+        guard approvalSettings?.policy == .approveForMe,
+              let reviewerAgentID = approvalSettings?.reviewerAgentId
+        else {
+            await resolveToolApprovalThroughPresenter(record)
+            return
+        }
+
+        let decision = await reviewToolApproval(record, reviewerAgentID: reviewerAgentID)
+        switch decision {
+        case .approve(let reason):
+            _ = await approveToolApproval(
+                id: record.id,
+                decidedBy: "agent:\(reviewerAgentID)",
+                scope: .once,
+                decisionReason: reason
+            )
+        case .reject(let reason):
+            _ = await rejectToolApproval(
+                id: record.id,
+                decidedBy: "agent:\(reviewerAgentID)",
+                decisionReason: reason
+            )
+        case nil:
+            _ = await rejectToolApproval(
+                id: record.id,
+                decidedBy: "agent:\(reviewerAgentID)",
+                decisionReason: "Reviewer failed to return a valid decision."
+            )
+        }
+    }
+
+    private func reviewToolApproval(
+        _ record: ToolApprovalRecord,
+        reviewerAgentID: String
+    ) async -> ToolApprovalAgentReviewDecision? {
+        if let toolApprovalAgentReviewOverride {
+            return await toolApprovalAgentReviewOverride(record, reviewerAgentID)
+        }
+        guard let provider = modelProvider,
+              let reviewer = try? getAgentConfig(agentID: reviewerAgentID),
+              reviewer.runtime.type == .native,
+              let model = reviewer.selectedModel ?? provider.supportedModels.first
+        else {
+            logger.warning("Tool approval agent reviewer is unavailable", metadata: [
+                "reviewer_agent_id": .string(reviewerAgentID),
+                "approval_id": .string(record.id),
+            ])
+            return nil
+        }
+        do {
+            return try await ToolApprovalAgentReviewer(
+                provider: provider,
+                model: model,
+                reviewer: reviewer
+            ).review(record)
+        } catch {
+            logger.warning("Tool approval agent review failed", metadata: [
+                "reviewer_agent_id": .string(reviewerAgentID),
+                "approval_id": .string(record.id),
+                "error": .string(error.localizedDescription),
+            ])
+            return nil
+        }
+    }
+
+    func setToolApprovalAgentReviewOverride(
+        _ reviewer: (@Sendable (ToolApprovalRecord, String) async -> ToolApprovalAgentReviewDecision?)?
+    ) {
+        toolApprovalAgentReviewOverride = reviewer
     }
 
     func applyApprovalGrants(

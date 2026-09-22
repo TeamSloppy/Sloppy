@@ -310,6 +310,8 @@ private func authErrorResponse(_ error: Error) -> CoreRouterResponse {
         return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "invalid_role"])
     case CoreIdentityAuthError.invalidApplicationTokenName:
         return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "invalid_application_token_name"])
+    case CoreIdentityAuthError.invalidDevicePairingConfiguration:
+        return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "invalid_device_pairing_configuration"])
     case CoreIdentityAuthError.invalidCurrentPassword:
         return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "invalid_current_password"])
     case CoreIdentityAuthError.invalidNewPassword:

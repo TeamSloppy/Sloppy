@@ -73,6 +73,19 @@ extension MainView {
                 }
                 onConsumeDeepLink(request)
             }
+        case .task(let projectId, let taskId):
+            Task { @MainActor in
+                await viewModel.loadProjects(force: true)
+                if let project = viewModel.projects.first(where: { $0.id == projectId }),
+                   let task = project.tasks?.first(where: { $0.id == taskId }) {
+                    viewModel.openTaskDetailTab(
+                        project: project,
+                        task: task,
+                        fallbackAgentId: task.actorId
+                    )
+                }
+                onConsumeDeepLink(request)
+            }
         case .session(let agentId, let sessionId):
             Task { @MainActor in
                 if let detail = try? await viewModel.apiClient.fetchAgentSession(

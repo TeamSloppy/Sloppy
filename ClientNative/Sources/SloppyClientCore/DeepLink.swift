@@ -4,6 +4,7 @@ public enum DeepLink: Equatable, Sendable {
     case connect(host: String, port: Int, label: String?)
     case open
     case project(id: String)
+    case task(projectId: String, taskId: String)
     case session(agentId: String, sessionId: String)
     case dictationToggle(agentId: String, sessionId: String)
 
@@ -24,6 +25,10 @@ public enum DeepLink: Equatable, Sendable {
         case "project":
             guard let id = components.nonEmptyQueryValue(named: "id") else { return nil }
             return .project(id: id)
+        case "task":
+            guard let projectId = components.nonEmptyQueryValue(named: "project"),
+                  let taskId = components.nonEmptyQueryValue(named: "id") else { return nil }
+            return .task(projectId: projectId, taskId: taskId)
         case "session":
             guard let agentId = components.nonEmptyQueryValue(named: "agent"),
                   let sessionId = components.nonEmptyQueryValue(named: "id") else { return nil }
@@ -41,7 +46,7 @@ public enum DeepLink: Equatable, Sendable {
         switch self {
         case .connect(let host, let port, _):
             return ServerAddress(host: host, port: port).baseURL
-        case .open, .project, .session, .dictationToggle:
+        case .open, .project, .task, .session, .dictationToggle:
             return nil
         }
     }
@@ -55,9 +60,50 @@ public enum DeepLink: Equatable, Sendable {
                 port: port,
                 isAutoDiscovered: false
             )
-        case .open, .project, .session, .dictationToggle:
+        case .open, .project, .task, .session, .dictationToggle:
             return nil
         }
+    }
+
+    public var url: URL? {
+        var components = URLComponents()
+        components.scheme = "sloppy"
+
+        switch self {
+        case .connect(let host, let port, let label):
+            components.host = "connect"
+            components.queryItems = [
+                URLQueryItem(name: "host", value: host),
+                URLQueryItem(name: "port", value: String(port)),
+                label.map { URLQueryItem(name: "label", value: $0) },
+            ].compactMap { $0 }
+        case .open:
+            components.host = "open"
+        case .project(let id):
+            components.host = "project"
+            components.queryItems = [URLQueryItem(name: "id", value: id)]
+        case .task(let projectId, let taskId):
+            components.host = "task"
+            components.queryItems = [
+                URLQueryItem(name: "project", value: projectId),
+                URLQueryItem(name: "id", value: taskId),
+            ]
+        case .session(let agentId, let sessionId):
+            components.host = "session"
+            components.queryItems = [
+                URLQueryItem(name: "agent", value: agentId),
+                URLQueryItem(name: "id", value: sessionId),
+            ]
+        case .dictationToggle(let agentId, let sessionId):
+            components.host = "dictation"
+            components.path = "/toggle"
+            components.queryItems = [
+                URLQueryItem(name: "agent", value: agentId),
+                URLQueryItem(name: "session", value: sessionId),
+            ]
+        }
+
+        return components.url
     }
 }
 

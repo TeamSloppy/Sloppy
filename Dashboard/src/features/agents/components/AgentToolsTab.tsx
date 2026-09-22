@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { fetchAgentToolsCatalog, fetchAgentToolsPolicy, updateAgentToolsPolicy } from "../../../api";
+import { fetchAgents, fetchAgentToolsCatalog, fetchAgentToolsPolicy, updateAgentToolsPolicy } from "../../../api";
 
 // MARK: - Presets
 
@@ -95,7 +95,8 @@ function defaultDraft() {
     tools: {},
     approval: {
       policy: "never",
-      enabled: false
+      enabled: false,
+      reviewerAgentId: null
     },
     sandbox: {
       mode: "workspace_write"
@@ -235,6 +236,9 @@ const NUMERIC_GUARDRAILS = [
 
 export function AgentToolsTab({ agentId }) {
   const [catalog, setCatalog] = useState([]);
+  const [agents, setAgents] = useState([]);
+  const [reviewerSearch, setReviewerSearch] = useState("");
+  const [reviewerDropdownOpen, setReviewerDropdownOpen] = useState(false);
   const [draft, setDraft] = useState(defaultDraft);
   const [savedPolicy, setSavedPolicy] = useState(defaultDraft);
   const [statusText, setStatusText] = useState("Loading tools policy...");
@@ -247,9 +251,10 @@ export function AgentToolsTab({ agentId }) {
     async function load() {
       setIsLoading(true);
       setStatusText("Loading tools policy...");
-      const [catalogResponse, policyResponse] = await Promise.all([
+      const [catalogResponse, policyResponse, agentsResponse] = await Promise.all([
         fetchAgentToolsCatalog(agentId),
-        fetchAgentToolsPolicy(agentId)
+        fetchAgentToolsPolicy(agentId),
+        fetchAgents({ includeSystem: true })
       ]);
       if (cancelled) {
         return;
@@ -289,6 +294,10 @@ export function AgentToolsTab({ agentId }) {
         }
       };
       setCatalog(Array.isArray(catalogResponse) ? catalogResponse : []);
+      const loadedAgents = Array.isArray(agentsResponse) ? agentsResponse : [];
+      setAgents(loadedAgents);
+      const selectedReviewer = loadedAgents.find((agent) => agent.id === loaded.approval.reviewerAgentId);
+      setReviewerSearch(selectedReviewer ? String(selectedReviewer.displayName || selectedReviewer.id || "") : "");
       setDraft(loaded);
       setSavedPolicy(loaded);
       setStatusText("Tools policy loaded.");
@@ -351,7 +360,7 @@ export function AgentToolsTab({ agentId }) {
       approval: {
         ...previous.approval,
         [field]: value,
-        ...(field === "policy" ? { enabled: value === "on_request" } : {})
+        ...(field === "policy" ? { enabled: value !== "never" } : {})
       }
     }));
   }
@@ -412,6 +421,10 @@ export function AgentToolsTab({ agentId }) {
 
   async function savePolicy() {
     if (isSaving) return;
+    if (draft.approval?.policy === "approve_for_me" && !draft.approval?.reviewerAgentId) {
+      setStatusText("Choose a reviewer agent before saving.");
+      return;
+    }
 
     setIsSaving(true);
     const payload = {
@@ -419,8 +432,13 @@ export function AgentToolsTab({ agentId }) {
       defaultPolicy: draft.defaultPolicy === "deny" ? "deny" : "allow",
       tools: draft.tools,
       approval: {
-        policy: draft.approval?.policy === "on_request" ? "on_request" : "never",
-        enabled: draft.approval?.policy === "on_request"
+        policy: ["on_request", "approve_for_me"].includes(draft.approval?.policy)
+          ? draft.approval.policy
+          : "never",
+        enabled: draft.approval?.policy !== "never",
+        reviewerAgentId: draft.approval?.policy === "approve_for_me"
+          ? draft.approval?.reviewerAgentId || null
+          : null
       },
       sandbox: {
         mode: draft.sandbox?.mode === "full_access" ? "full_access" : "workspace_write"
@@ -525,7 +543,8 @@ export function AgentToolsTab({ agentId }) {
               <div className="review-approval-options" style={{ marginTop: 8 }}>
                 {[
                   { id: "never", label: "Never", icon: "lock_open" },
-                  { id: "on_request", label: "On Request", icon: "fact_check" }
+                  { id: "on_request", label: "On Request", icon: "fact_check" },
+                  { id: "approve_for_me", label: "Approve for me", icon: "smart_toy" }
                 ].map((option) => (
                   <button
                     key={option.id}
@@ -539,8 +558,59 @@ export function AgentToolsTab({ agentId }) {
                 ))}
               </div>
               <p className="placeholder-text" style={{ marginTop: 8 }}>
-                On Request pauses risky tools and missing access requests until a human approves them.
+                On Request waits for a human. Approve for me asks the selected agent for a one-call decision and rejects if review fails.
               </p>
+              {draft.approval?.policy === "approve_for_me" ? (
+                <div style={{ marginTop: 12 }}>
+                  <span className="agent-tools-guardrail-title">Reviewer Agent</span>
+                  <div className="actor-team-search-wrap" style={{ marginTop: 8 }}>
+                    <input
+                      className="actor-team-search"
+                      value={reviewerSearch}
+                      onChange={(event) => {
+                        setReviewerSearch(event.target.value);
+                        setReviewerDropdownOpen(true);
+                      }}
+                      onFocus={(event) => {
+                        event.currentTarget.select();
+                        setReviewerDropdownOpen(true);
+                      }}
+                      onBlur={() => setTimeout(() => setReviewerDropdownOpen(false), 150)}
+                      placeholder="Search agents…"
+                      autoComplete="off"
+                      role="combobox"
+                      aria-expanded={reviewerDropdownOpen}
+                    />
+                    {reviewerDropdownOpen ? (
+                      <ul className="actor-team-dropdown" role="listbox" aria-label="Reviewer agent">
+                        {agents
+                          .filter((agent) => agent.id !== agentId && String(agent.runtime?.type || "native") === "native")
+                          .filter((agent) => {
+                            const query = reviewerSearch.toLowerCase();
+                            return !query || String(agent.displayName || "").toLowerCase().includes(query) || String(agent.id || "").toLowerCase().includes(query);
+                          })
+                          .map((agent) => (
+                            <li
+                              key={agent.id}
+                              className={`actor-team-dropdown-item ${draft.approval?.reviewerAgentId === agent.id ? "selected" : ""}`}
+                              onMouseDown={(event) => {
+                                event.preventDefault();
+                                updateApproval("reviewerAgentId", String(agent.id || ""));
+                                setReviewerSearch(String(agent.displayName || agent.id || ""));
+                                setReviewerDropdownOpen(false);
+                              }}
+                              role="option"
+                              aria-selected={draft.approval?.reviewerAgentId === agent.id}
+                            >
+                              <span className="actor-team-dropdown-name">{agent.displayName || agent.id}</span>
+                              <span className="actor-team-dropdown-id">{agent.id}</span>
+                            </li>
+                          ))}
+                      </ul>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
             </div>
 
             <div style={{ marginTop: 18 }}>

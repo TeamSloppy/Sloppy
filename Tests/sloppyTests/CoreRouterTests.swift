@@ -2142,7 +2142,11 @@ func identityAuthRefreshRotatesRefreshToken() async throws {
 
 @Test
 func identityDevicePairingIsUserBoundShortLivedAndSingleUse() async throws {
-    let service = CoreService(config: .test, identityPasswordHashIterations: 1)
+    var config = CoreConfig.test
+    config.clientPublicURL = "https://81.26.176.106"
+    config.clientAlternateURLs = ["http://192.168.1.10:25101"]
+    config.clientTLSFingerprint = String(repeating: "ab", count: 32)
+    let service = CoreService(config: config, identityPasswordHashIterations: 1)
     await service.setIdentityAuthEnabled(true)
     let router = CoreRouter(service: service)
     let encoder = JSONEncoder()
@@ -2175,6 +2179,22 @@ func identityDevicePairingIsUserBoundShortLivedAndSingleUse() async throws {
     #expect(pairing.clientName == "Sloppy Rokid")
     #expect(pairing.user.id == dashboardSession.user.id)
     #expect(pairing.expiresAt > pairing.createdAt)
+    #expect(pairing.serverURL == "https://81.26.176.106")
+    let setupURL = try #require(pairing.setupCode.flatMap(URL.init(string:)))
+    let setupComponents = try #require(URLComponents(url: setupURL, resolvingAgainstBaseURL: false))
+    let encodedSetup = try #require(setupComponents.queryItems?.first(where: { $0.name == "code" })?.value)
+    var base64 = encodedSetup.replacingOccurrences(of: "-", with: "+")
+        .replacingOccurrences(of: "_", with: "/")
+    if base64.count % 4 != 0 {
+        base64 += String(repeating: "=", count: 4 - base64.count % 4)
+    }
+    let setupData = try #require(Data(base64Encoded: base64))
+    let setup = try decoder.decode(AuthDevicePairingSetupPayload.self, from: setupData)
+    #expect(setup.version == 1)
+    #expect(setup.url == "https://81.26.176.106")
+    #expect(setup.urls == ["https://81.26.176.106", "http://192.168.1.10:25101"])
+    #expect(setup.bootstrapToken == pairing.token)
+    #expect(setup.tlsFingerprint == String(repeating: "ab", count: 32))
 
     let redeemBody = try encoder.encode(AuthDevicePairingRedeemRequest(token: pairing.token))
     let redeem = await router.handle(

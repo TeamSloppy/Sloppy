@@ -726,6 +726,26 @@ public struct ChatComposerOverlay: View {
     @ViewBuilder
     private var composerBar: some View {
         VStack(spacing: theme.spacing.s) {
+            if let approval = viewModel.pendingToolApproval {
+                ChatToolApprovalCard(
+                    approval: approval,
+                    isResolving: viewModel.isResolvingToolApproval,
+                    errorMessage: viewModel.toolApprovalErrorMessage,
+                    decide: viewModel.resolvePendingToolApproval
+                )
+                .frame(maxWidth: maximumComposerWidth)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+
+            if !viewModel.queuedMessages.isEmpty {
+                ChatQueuedMessagesCard(
+                    messages: viewModel.queuedMessages,
+                    cancel: viewModel.cancelQueuedMessage
+                )
+                .frame(maxWidth: maximumComposerWidth)
+                .transition(.opacity.combined(with: .move(edge: .bottom)))
+            }
+
             #if os(macOS)
             if let sourceControl = viewModel.workingTreeSourceControl {
                 ChatComposerChangeSummaryView(sourceControl: sourceControl)
@@ -749,6 +769,8 @@ public struct ChatComposerOverlay: View {
             .easeInOut(duration: 0.18),
             value: viewModel.workingTreeSourceControl?.diff
         )
+        .animation(.easeInOut(duration: 0.18), value: viewModel.pendingToolApproval?.id)
+        .animation(.easeInOut(duration: 0.18), value: viewModel.queuedMessages.map(\.id))
     }
 
     private var maximumComposerWidth: CGFloat {
@@ -757,6 +779,119 @@ public struct ChatComposerOverlay: View {
 #else
         contentWidth
 #endif
+    }
+}
+
+@MainActor
+private struct ChatToolApprovalCard: View {
+    let approval: PendingToolApprovalRecord
+    let isResolving: Bool
+    let errorMessage: String?
+    let decide: @MainActor (Bool) -> Void
+
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: theme.spacing.s) {
+            HStack(spacing: theme.spacing.s) {
+                Image(systemName: "exclamationmark.shield.fill")
+                    .foregroundStyle(theme.colors.statusWarning)
+                VStack(alignment: .leading, spacing: 2) {
+                    Text("Action required")
+                        .font(.system(size: theme.typography.caption, weight: .semibold))
+                    Text(summary)
+                        .font(.system(size: theme.typography.caption))
+                        .foregroundStyle(theme.colors.textSecondary)
+                        .lineLimit(2)
+                }
+                Spacer(minLength: theme.spacing.s)
+                if isResolving {
+                    ProgressView()
+                        .controlSize(.small)
+                } else {
+                    Button("Deny", role: .destructive) {
+                        decide(false)
+                    }
+                    .buttonStyle(.borderless)
+                    Button("Allow") {
+                        decide(true)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .controlSize(.small)
+                }
+            }
+            if let errorMessage, !errorMessage.isEmpty {
+                Text(errorMessage)
+                    .font(.caption)
+                    .foregroundStyle(theme.colors.statusBlocked)
+                    .lineLimit(2)
+            }
+        }
+        .padding(.horizontal, theme.spacing.m)
+        .padding(.vertical, theme.spacing.s)
+        .background(theme.colors.surfaceRaised.opacity(0.96), in: RoundedRectangle(cornerRadius: 14))
+        .overlay {
+            RoundedRectangle(cornerRadius: 14)
+                .stroke(theme.colors.statusWarning.opacity(0.5), lineWidth: 1)
+        }
+        .accessibilityIdentifier("chat.tool-approval")
+    }
+
+    private var summary: String {
+        let reason = approval.reason?.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let reason, !reason.isEmpty {
+            return reason
+        }
+        if let tool = approval.tool, !tool.isEmpty {
+            return "Allow \(tool) to continue this chat."
+        }
+        return "The agent is waiting for your approval."
+    }
+}
+
+@MainActor
+private struct ChatQueuedMessagesCard: View {
+    let messages: [ChatQueuedMessage]
+    let cancel: @MainActor (UUID) -> Void
+
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: theme.spacing.xs) {
+            HStack {
+                Label(
+                    messages.count == 1 ? "Message queued" : "\(messages.count) messages queued",
+                    systemImage: "clock.arrow.circlepath"
+                )
+                .font(.system(size: theme.typography.caption, weight: .semibold))
+                Spacer()
+            }
+            ForEach(messages.prefix(3)) { message in
+                HStack(spacing: theme.spacing.s) {
+                    Text(message.displayText)
+                        .font(.system(size: theme.typography.caption))
+                        .foregroundStyle(theme.colors.textSecondary)
+                        .lineLimit(1)
+                    if !message.attachments.isEmpty {
+                        Text("+\(message.attachments.count)")
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(theme.colors.textMuted)
+                    }
+                    Spacer(minLength: 0)
+                    Button {
+                        cancel(message.id)
+                    } label: {
+                        Image(systemName: "xmark")
+                    }
+                    .buttonStyle(.plain)
+                    .help("Remove queued message")
+                }
+            }
+        }
+        .padding(.horizontal, theme.spacing.m)
+        .padding(.vertical, theme.spacing.s)
+        .background(theme.colors.surfaceRaised.opacity(0.9), in: RoundedRectangle(cornerRadius: 14))
+        .accessibilityIdentifier("chat.message-queue")
     }
 }
 

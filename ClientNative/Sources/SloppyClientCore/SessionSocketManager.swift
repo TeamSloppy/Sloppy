@@ -109,7 +109,7 @@ public actor SessionSocketManager {
            !token.isEmpty {
             request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
         }
-        let wsTask = URLSession.shared.webSocketTask(with: request)
+        let wsTask = ClientURLSessionFactory.session(for: baseURL).webSocketTask(with: request)
         self.task = wsTask
         wsTask.resume()
 

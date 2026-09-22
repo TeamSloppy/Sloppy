@@ -30,7 +30,101 @@ extension CoreService {
         _ request: AuthDevicePairingCreateRequest,
         actor: AuthenticatedUserContext
     ) async throws -> AuthDevicePairingRecord {
-        try await identityAuthService.createDevicePairing(request, actor: actor)
+        var pairing = try await identityAuthService.createDevicePairing(request, actor: actor)
+        guard let primaryURL = try resolvedClientPairingURL() else {
+            return pairing
+        }
+
+        let alternateURLs = try currentConfig.clientAlternateURLs
+            .map(normalizedClientPairingURL)
+            .filter { $0 != primaryURL }
+        let fingerprint = try normalizedClientTLSFingerprint(currentConfig.clientTLSFingerprint)
+        let payload = AuthDevicePairingSetupPayload(
+            url: primaryURL,
+            urls: alternateURLs.isEmpty ? nil : [primaryURL] + alternateURLs,
+            bootstrapToken: pairing.token,
+            expiresAt: pairing.expiresAt,
+            tlsFingerprint: fingerprint,
+            label: "Sloppy @ \(URL(string: primaryURL)?.host ?? primaryURL)"
+        )
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(payload)
+        let code = data.base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        var components = URLComponents()
+        components.scheme = "sloppy"
+        components.host = "pair"
+        components.queryItems = [URLQueryItem(name: "code", value: code)]
+        pairing.setupCode = components.url?.absoluteString
+        pairing.serverURL = primaryURL
+        return pairing
+    }
+
+    private func resolvedClientPairingURL() throws -> String? {
+        let configured = [currentConfig.clientPublicURL, currentConfig.nodeMeshPublicURL]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        guard let configured else { return nil }
+        return try normalizedClientPairingURL(configured)
+    }
+
+    private func normalizedClientPairingURL(_ rawValue: String) throws -> String {
+        let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard var components = URLComponents(string: trimmed),
+              let scheme = components.scheme?.lowercased(),
+              components.host != nil else {
+            throw CoreIdentityAuthError.invalidDevicePairingConfiguration
+        }
+        switch scheme {
+        case "https":
+            break
+        case "wss":
+            components.scheme = "https"
+        case "http":
+            guard Self.isPrivateClientPairingHost(components.host) else {
+                throw CoreIdentityAuthError.invalidDevicePairingConfiguration
+            }
+        case "ws":
+            guard Self.isPrivateClientPairingHost(components.host) else {
+                throw CoreIdentityAuthError.invalidDevicePairingConfiguration
+            }
+            components.scheme = "http"
+        default:
+            throw CoreIdentityAuthError.invalidDevicePairingConfiguration
+        }
+        guard components.path.isEmpty || components.path == "/" else {
+            throw CoreIdentityAuthError.invalidDevicePairingConfiguration
+        }
+        components.path = ""
+        components.query = nil
+        components.fragment = nil
+        guard let url = components.url else {
+            throw CoreIdentityAuthError.invalidDevicePairingConfiguration
+        }
+        return url.absoluteString.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+    }
+
+    private func normalizedClientTLSFingerprint(_ rawValue: String?) throws -> String? {
+        guard let rawValue = rawValue?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !rawValue.isEmpty else { return nil }
+        let normalized = rawValue.lowercased()
+            .replacingOccurrences(of: "sha256:", with: "")
+            .replacingOccurrences(of: ":", with: "")
+        guard normalized.count == 64, normalized.allSatisfy(\.isHexDigit) else {
+            throw CoreIdentityAuthError.invalidDevicePairingConfiguration
+        }
+        return normalized
+    }
+
+    private static func isPrivateClientPairingHost(_ host: String?) -> Bool {
+        guard let host = host?.lowercased() else { return false }
+        if host == "localhost" || host == "::1" || host.hasSuffix(".local") { return true }
+        if host == "127.0.0.1" || host.hasPrefix("10.") || host.hasPrefix("192.168.") { return true }
+        let parts = host.split(separator: ".").compactMap { Int($0) }
+        return parts.count == 4 && parts[0] == 172 && (16...31).contains(parts[1])
     }
 
     func redeemIdentityDevicePairing(_ request: AuthDevicePairingRedeemRequest) async throws -> AuthSessionResponse {

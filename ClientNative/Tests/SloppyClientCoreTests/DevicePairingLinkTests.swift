@@ -4,6 +4,34 @@ import Testing
 
 @Suite("Device pairing link")
 struct DevicePairingLinkTests {
+    @Test("parses versioned setup code with alternate routes and TLS pin")
+    func parsesVersionedSetupCode() throws {
+        struct Payload: Encodable {
+            var version = 1
+            var url = "https://81.26.176.106"
+            var urls = ["https://81.26.176.106", "http://192.168.1.10:25101"]
+            var bootstrapToken = "slp_pair_secret"
+            var expiresAt = Date().addingTimeInterval(120)
+            var tlsFingerprint = String(repeating: "ab", count: 32)
+            var label = "Home Sloppy"
+        }
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let code = try encoder.encode(Payload()).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .replacingOccurrences(of: "=", with: "")
+        let url = try #require(URL(string: "sloppy://pair?code=\(code)"))
+
+        let pairing = try #require(DevicePairingLink.parse(url))
+
+        #expect(pairing.serverURL == URL(string: "https://81.26.176.106"))
+        #expect(pairing.alternateServerURLs == [URL(string: "http://192.168.1.10:25101")!])
+        #expect(pairing.token == "slp_pair_secret")
+        #expect(pairing.label == "Home Sloppy")
+        #expect(pairing.tlsFingerprint == String(repeating: "ab", count: 32))
+    }
+
     @Test("parses Dashboard QR payload including HTTPS server and one-time token")
     func parsesDashboardPairingLink() throws {
         let url = try #require(URL(
@@ -34,7 +62,14 @@ struct DevicePairingLinkTests {
 
     @Test("saved servers preserve HTTPS and decode legacy entries as HTTP")
     func savedServerSchemeCompatibility() throws {
-        let secure = SavedServer(label: "Remote", scheme: "https", host: "core.example.com", port: 443)
+        let fingerprint = String(repeating: "ab", count: 32)
+        let secure = SavedServer(
+            label: "Remote",
+            scheme: "https",
+            host: "core.example.com",
+            port: 443,
+            tlsFingerprint: fingerprint
+        )
         let roundTripped = try JSONDecoder().decode(
             SavedServer.self,
             from: JSONEncoder().encode(secure)
@@ -45,6 +80,7 @@ struct DevicePairingLinkTests {
         let legacy = try JSONDecoder().decode(SavedServer.self, from: legacyData)
 
         #expect(roundTripped.baseURL == URL(string: "https://core.example.com:443"))
+        #expect(roundTripped.tlsFingerprint == fingerprint)
         #expect(legacy.scheme == "http")
         #expect(legacy.baseURL == URL(string: "http://192.168.1.2:25101"))
     }

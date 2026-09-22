@@ -171,7 +171,9 @@ private final class SloppyAppDelegate: NSObject, UIApplicationDelegate, UNUserNo
               let url = URL(string: deepLink) else {
             return
         }
-        _ = await UIApplication.shared.open(url)
+        await MainActor.run {
+            UIApplication.shared.open(url)
+        }
     }
 }
 #endif

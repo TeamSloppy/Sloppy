@@ -127,6 +127,52 @@ struct ChatStreamingTurnTracker {
     }
 }
 
+struct ChatQueuedMessage: Identifiable, Equatable, Sendable {
+    let id: UUID
+    let content: String
+    let attachments: [ChatComposerAttachment]
+
+    init(
+        id: UUID = UUID(),
+        content: String,
+        attachments: [ChatComposerAttachment]
+    ) {
+        self.id = id
+        self.content = content
+        self.attachments = attachments
+    }
+
+    var displayText: String {
+        let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty ? "Attachments only" : trimmed
+    }
+}
+
+struct ChatMessageQueue {
+    private(set) var messages: [ChatQueuedMessage] = []
+
+    var isEmpty: Bool { messages.isEmpty }
+
+    @discardableResult
+    mutating func enqueue(
+        content: String,
+        attachments: [ChatComposerAttachment]
+    ) -> ChatQueuedMessage {
+        let message = ChatQueuedMessage(content: content, attachments: attachments)
+        messages.append(message)
+        return message
+    }
+
+    mutating func dequeue() -> ChatQueuedMessage? {
+        guard !messages.isEmpty else { return nil }
+        return messages.removeFirst()
+    }
+
+    mutating func cancel(id: UUID) {
+        messages.removeAll { $0.id == id }
+    }
+}
+
 @Observable
 @MainActor
 public final class ChatTranscriptState {
@@ -317,6 +363,9 @@ public final class ChatScreenViewModel {
     public private(set) var isSending = false
     public private(set) var isAwaitingAgentResponse = false
     public private(set) var isStopping = false
+    public private(set) var pendingToolApproval: PendingToolApprovalRecord?
+    public private(set) var isResolvingToolApproval = false
+    public private(set) var toolApprovalErrorMessage: String?
     public private(set) var activeInputRequest: ChatPlanInputRequest?
     public private(set) var isSubmittingInputResponse = false
     public private(set) var inputRequestErrorMessage: String?
@@ -335,6 +384,7 @@ public final class ChatScreenViewModel {
     public let transcript = ChatTranscriptState()
     public let composerDraft = ChatComposerDraft()
     public private(set) var composerAttachments: [ChatComposerAttachment] = []
+    private(set) var queuedMessages: [ChatQueuedMessage] = []
     public var isAttachmentPickerShown = false
     public var isCameraPickerShown = false
     public var isPhotoPickerShown = false
@@ -385,8 +435,6 @@ public final class ChatScreenViewModel {
     public var canSubmitMessage: Bool {
         selectedAgent != nil
             && activeInputRequest == nil
-            && !isSending
-            && !isStopping
     }
 
     public var activeRunStatusLabel: String {
@@ -470,6 +518,10 @@ public final class ChatScreenViewModel {
     @ObservationIgnored private var composerSuggestionCursorOffset: Int?
     @ObservationIgnored private var composerSuggestionRequestID: UInt = 0
     @ObservationIgnored private var presentedPlanArtifactEventIDs: Set<String> = []
+    @ObservationIgnored private var messageQueue = ChatMessageQueue()
+    @ObservationIgnored private var isDrainingQueuedMessages = false
+    @ObservationIgnored private var queuedMessageInterruptRequested = false
+    @ObservationIgnored private var resolvedToolApprovalIDs: Set<String> = []
 
     public init(
         apiClient: SloppyAPIClient,
@@ -1596,11 +1648,17 @@ public final class ChatScreenViewModel {
         activeInputRequest = nil
         isSubmittingInputResponse = false
         inputRequestErrorMessage = nil
+        pendingToolApproval = nil
+        toolApprovalErrorMessage = nil
         activeRunStatus = nil
         contextTokenUsage = nil
         computerUseActivity = nil
         isComputerUsePreviewHidden = false
         clearWorkingTreeSourceControl()
+        messageQueue = ChatMessageQueue()
+        queuedMessages = []
+        queuedMessageInterruptRequested = false
+        resolvedToolApprovalIDs = []
         if let manager {
             Task { await manager.disconnect() }
         }
@@ -1655,6 +1713,7 @@ public final class ChatScreenViewModel {
         }
         guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
         applyHydratedSession(detail)
+        await refreshPendingToolApproval(agentId: agentId, sessionId: sessionId)
         await cacheStore.cacheSessionDetail(agentId: agentId, detail: detail)
     }
 
@@ -1865,6 +1924,9 @@ public final class ChatScreenViewModel {
         if status.stage.isWorking {
             _ = ensureActiveStreamingAssistantTurn(for: sessionId)
             clearWorkingTreeSourceControl()
+            Task { @MainActor in
+                await refreshPendingToolApproval()
+            }
         }
         activeRunStatus = status
         if status.stage == .interrupted,
@@ -1901,6 +1963,18 @@ public final class ChatScreenViewModel {
                     sessionId: sessionId,
                     messageId: completedMessageId
                 )
+            }
+            queuedMessageInterruptRequested = false
+            if status.stage == .paused {
+                Task { @MainActor in
+                    await refreshPendingToolApproval()
+                    await sendNextQueuedMessageIfIdle()
+                }
+            } else {
+                pendingToolApproval = nil
+                Task { @MainActor in
+                    await sendNextQueuedMessageIfIdle()
+                }
             }
         }
     }
@@ -2122,13 +2196,47 @@ public final class ChatScreenViewModel {
 
     public func sendMessage(content: String) {
         guard let agent = selectedAgent,
-              activeInputRequest == nil,
-              !isSending,
-              !isStopping else {
+              activeInputRequest == nil else {
             return
         }
         let attachments = composerAttachments
         guard !content.isEmpty || !attachments.isEmpty else { return }
+
+        if isSending || isAwaitingAgentResponse || isStopping || pendingToolApproval != nil {
+            enqueueMessage(content: content, attachments: attachments)
+            if isAwaitingAgentResponse,
+               !isStopping,
+               pendingToolApproval == nil,
+               !queuedMessageInterruptRequested {
+                queuedMessageInterruptRequested = true
+                stopActiveRun()
+            }
+            return
+        }
+
+        sendMessageImmediately(content: content, attachments: attachments, agent: agent)
+    }
+
+    public func cancelQueuedMessage(id: UUID) {
+        messageQueue.cancel(id: id)
+        queuedMessages = messageQueue.messages
+    }
+
+    private func enqueueMessage(
+        content: String,
+        attachments: [ChatComposerAttachment]
+    ) {
+        messageQueue.enqueue(content: content, attachments: attachments)
+        queuedMessages = messageQueue.messages
+        clearActiveComposerDraft()
+        dismissComposerFocus()
+    }
+
+    private func sendMessageImmediately(
+        content: String,
+        attachments: [ChatComposerAttachment],
+        agent: APIAgentRecord
+    ) {
         sendErrorMessage = nil
         clearWorkingTreeSourceControl()
         clearActiveComposerDraft()
@@ -2300,6 +2408,77 @@ public final class ChatScreenViewModel {
             activeRunStatus = nil
             restoreComposerDraft(content: content, attachments: attachments)
             sendErrorMessage = "Message was not sent: \(error.localizedDescription)"
+            Task { @MainActor in
+                await sendNextQueuedMessageIfIdle()
+            }
+        }
+    }
+
+    private func sendNextQueuedMessageIfIdle() async {
+        guard !isSending,
+              !isAwaitingAgentResponse,
+              !isStopping,
+              !isDrainingQueuedMessages,
+              activeInputRequest == nil,
+              pendingToolApproval == nil,
+              let agent = selectedAgent,
+              let message = messageQueue.dequeue() else {
+            return
+        }
+
+        isDrainingQueuedMessages = true
+        queuedMessages = messageQueue.messages
+        sendMessageImmediately(
+            content: message.content,
+            attachments: message.attachments,
+            agent: agent
+        )
+        isDrainingQueuedMessages = false
+    }
+
+    public func refreshPendingToolApproval() async {
+        guard let agentId = selectedAgent?.id,
+              let sessionId = selectedSessionId else {
+            pendingToolApproval = nil
+            return
+        }
+        await refreshPendingToolApproval(agentId: agentId, sessionId: sessionId)
+    }
+
+    private func refreshPendingToolApproval(agentId: String, sessionId: String) async {
+        guard let approvals = try? await apiClient.fetchPendingToolApprovals(),
+              isCurrentSession(agentId: agentId, sessionId: sessionId) else {
+            return
+        }
+        pendingToolApproval = approvals.first { approval in
+            approval.status == "pending"
+                && !resolvedToolApprovalIDs.contains(approval.id)
+                && (approval.displaySessionId == sessionId || approval.sessionId == sessionId)
+                && (approval.agentId == nil || approval.agentId == agentId)
+        }
+        if pendingToolApproval == nil {
+            toolApprovalErrorMessage = nil
+        }
+    }
+
+    public func resolvePendingToolApproval(approved: Bool) {
+        guard let approval = pendingToolApproval,
+              !isResolvingToolApproval else {
+            return
+        }
+        isResolvingToolApproval = true
+        toolApprovalErrorMessage = nil
+        Task { @MainActor in
+            defer { isResolvingToolApproval = false }
+            do {
+                try await apiClient.resolveToolApproval(id: approval.id, approved: approved)
+                resolvedToolApprovalIDs.insert(approval.id)
+                guard pendingToolApproval?.id == approval.id else { return }
+                pendingToolApproval = nil
+                isAwaitingAgentResponse = true
+            } catch {
+                toolApprovalErrorMessage = error.localizedDescription
+            }
         }
     }
 

@@ -117,6 +117,90 @@ func toolsPolicyCanEnableToolApprovalWithOnRequestPolicy() async throws {
 }
 
 @Test
+func approveForMeUsesConfiguredReviewerAgentDecision() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let session = try await makeApprovalSession(service: service, agentID: "approval-agent-reviewed")
+    _ = try await service.createAgent(AgentCreateRequest(
+        id: "security-reviewer",
+        displayName: "Security Reviewer",
+        role: "Review tool calls"
+    ))
+    _ = try await service.updateAgentToolsPolicy(
+        agentID: "approval-agent-reviewed",
+        request: AgentToolsUpdateRequest(
+            approval: AgentToolApprovalSettings(
+                policy: .approveForMe,
+                reviewerAgentId: "security-reviewer"
+            )
+        )
+    )
+    await service.setToolApprovalAgentReviewOverride { record, reviewerAgentID in
+        #expect(record.tool == "runtime.exec")
+        #expect(reviewerAgentID == "security-reviewer")
+        return .approve(reason: "The read-only command is scoped and justified.")
+    }
+
+    let result = await service.invokeToolFromRuntime(
+        agentID: "approval-agent-reviewed",
+        sessionID: session.id,
+        request: ToolInvocationRequest(
+            tool: "runtime.exec",
+            arguments: [
+                "command": .string("/bin/echo"),
+                "arguments": .array([.string("agent-approved")])
+            ],
+            reason: "Verify the command output"
+        ),
+        recordSessionEvents: false
+    )
+
+    #expect(result.ok == true)
+    #expect(await service.listPendingToolApprovals().isEmpty)
+}
+
+@Test
+func approveForMeFailsClosedWhenReviewerRejects() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let session = try await makeApprovalSession(service: service, agentID: "approval-agent-rejected")
+    _ = try await service.createAgent(AgentCreateRequest(
+        id: "cautious-reviewer",
+        displayName: "Cautious Reviewer",
+        role: "Reject unsafe tool calls"
+    ))
+    _ = try await service.updateAgentToolsPolicy(
+        agentID: "approval-agent-rejected",
+        request: AgentToolsUpdateRequest(
+            approval: AgentToolApprovalSettings(
+                policy: .approveForMe,
+                reviewerAgentId: "cautious-reviewer"
+            )
+        )
+    )
+    await service.setToolApprovalAgentReviewOverride { _, _ in
+        .reject(reason: "The write is not justified.")
+    }
+
+    let target = FileManager.default.temporaryDirectory
+        .appendingPathComponent("agent-review-rejected-\(UUID().uuidString).txt")
+    let result = await service.invokeToolFromRuntime(
+        agentID: "approval-agent-rejected",
+        sessionID: session.id,
+        request: ToolInvocationRequest(
+            tool: "files.write",
+            arguments: ["path": .string(target.path), "content": .string("blocked")]
+        ),
+        recordSessionEvents: false
+    )
+
+    #expect(result.ok == false)
+    #expect(result.error?.code == "tool_approval_rejected")
+    #expect(result.data?.asObject?["decidedBy"]?.asString == "agent:cautious-reviewer")
+    #expect(result.data?.asObject?["decisionReason"]?.asString == "The write is not justified.")
+    #expect(FileManager.default.fileExists(atPath: target.path) == false)
+    #expect(await service.listPendingToolApprovals().isEmpty)
+}
+
+@Test
 func autonomousSessionBypassesRiskyToolApprovalPrompt() async throws {
     let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
     let session = try await makeApprovalSession(service: service, agentID: "approval-autonomous-session")

@@ -74,7 +74,7 @@ public actor NotificationSocketManager {
 
         socketAttempt += 1
         logger.info("Opening notification socket attempt \(socketAttempt): \(wsURL.absoluteString)")
-        let wsTask = URLSession.shared.webSocketTask(with: wsURL)
+        let wsTask = ClientURLSessionFactory.session(for: baseURL).webSocketTask(with: wsURL)
         self.task = wsTask
         wsTask.resume()
 

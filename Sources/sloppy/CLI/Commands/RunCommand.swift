@@ -218,16 +218,13 @@ func shouldStartDashboard(guiOverride: Bool?, dashboardOverride: Bool?) -> Bool 
 }
 
 func shouldStartDashboard(guiOverride: Bool?, dashboardOverride: Bool?, relayOnly: Bool) -> Bool {
-    if relayOnly {
-        return false
-    }
     if let guiOverride {
         return guiOverride
     }
     if let dashboardOverride {
         return dashboardOverride
     }
-    return true
+    return !relayOnly
 }
 
 struct RelayStartupMetadata: Equatable, Sendable {
@@ -346,6 +343,20 @@ func applyServerEnvironmentOverrides(
         .first { !$0.isEmpty }
     if let publicURLOverride {
         config.nodeMeshPublicURL = publicURLOverride
+    }
+    let clientPublicURLOverride = [
+        environment["SLOPPY_CLIENT_PUBLIC_URL"],
+        envConfig.string(forKey: "core.client.public_url", default: ""),
+        envConfig.string(forKey: "core.clientPublicURL", default: ""),
+    ]
+        .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+        .first { !$0.isEmpty }
+    if let clientPublicURLOverride {
+        config.clientPublicURL = clientPublicURLOverride
+    }
+    if let fingerprint = environment["SLOPPY_CLIENT_TLS_FINGERPRINT"]?
+        .trimmingCharacters(in: .whitespacesAndNewlines), !fingerprint.isEmpty {
+        config.clientTLSFingerprint = fingerprint
     }
     config.sqlitePath = envConfig.string(forKey: "core.sqlite.path", default: config.sqlitePath)
 }

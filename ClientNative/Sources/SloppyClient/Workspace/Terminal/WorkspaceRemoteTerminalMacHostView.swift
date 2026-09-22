@@ -30,7 +30,9 @@ final class WorkspaceRemoteTerminalMacHostController: NSObject, WorkspaceTermina
             }
             var request = URLRequest(url: url)
             request.timeoutInterval = 30
-            let socket = URLSession.shared.webSocketTask(with: request)
+            let socket = ClientURLSessionFactory.session(
+                for: configuration.apiClient.baseURL
+            ).webSocketTask(with: request)
             self.socket = socket
             socket.resume()
             await self.send(RemoteTerminalClientFrame(type: "auth", token: token))

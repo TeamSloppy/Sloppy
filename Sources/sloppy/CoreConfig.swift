@@ -1974,6 +1974,9 @@ public struct CoreConfig: Codable, Sendable {
     public var toolHooks: ToolHooks
     public var toolBudgetExhausted: Int
     public var nodeMeshPublicURL: String?
+    public var clientPublicURL: String?
+    public var clientAlternateURLs: [String]
+    public var clientTLSFingerprint: String?
     public var nodeMeshStatePath: String
     public var sqlitePath: String
     /// Optional aliases for model ids (e.g. `"fast"` -> `"openai-api:gpt-5.4-mini"`) used when resolving `model` from SKILL.md or tools.
@@ -2012,6 +2015,9 @@ public struct CoreConfig: Codable, Sendable {
         toolHooks: ToolHooks = ToolHooks(),
         toolBudgetExhausted: Int = CoreConfig.defaultToolBudgetExhausted,
         nodeMeshPublicURL: String? = nil,
+        clientPublicURL: String? = nil,
+        clientAlternateURLs: [String] = [],
+        clientTLSFingerprint: String? = nil,
         nodeMeshStatePath: String = CoreConfig.defaultNodeMeshStateFileName,
         sqlitePath: String,
         modelRouting: [String: String] = [:],
@@ -2049,6 +2055,9 @@ public struct CoreConfig: Codable, Sendable {
         self.toolHooks = toolHooks
         self.toolBudgetExhausted = max(0, toolBudgetExhausted)
         self.nodeMeshPublicURL = nodeMeshPublicURL
+        self.clientPublicURL = clientPublicURL
+        self.clientAlternateURLs = clientAlternateURLs
+        self.clientTLSFingerprint = clientTLSFingerprint
         self.nodeMeshStatePath = nodeMeshStatePath
         self.sqlitePath = sqlitePath
         self.modelRouting = modelRouting
@@ -2098,6 +2107,9 @@ public struct CoreConfig: Codable, Sendable {
             toolHooks: .init(),
             toolBudgetExhausted: CoreConfig.defaultToolBudgetExhausted,
             nodeMeshPublicURL: nil,
+            clientPublicURL: nil,
+            clientAlternateURLs: [],
+            clientTLSFingerprint: nil,
             nodeMeshStatePath: CoreConfig.defaultNodeMeshStateFileName,
             sqlitePath: CoreConfig.defaultSQLiteFileName,
             modelRouting: [:]
@@ -2179,6 +2191,9 @@ public struct CoreConfig: Codable, Sendable {
         case toolHooks
         case toolBudgetExhausted
         case nodeMeshPublicURL
+        case clientPublicURL
+        case clientAlternateURLs
+        case clientTLSFingerprint
         case nodeMeshStatePath
         case sqlitePath
         case modelRouting
@@ -2220,6 +2235,9 @@ public struct CoreConfig: Codable, Sendable {
             try container.decodeIfPresent(Int.self, forKey: .toolBudgetExhausted) ?? Self.defaultToolBudgetExhausted
         )
         nodeMeshPublicURL = try container.decodeIfPresent(String.self, forKey: .nodeMeshPublicURL)
+        clientPublicURL = try container.decodeIfPresent(String.self, forKey: .clientPublicURL)
+        clientAlternateURLs = try container.decodeIfPresent([String].self, forKey: .clientAlternateURLs) ?? []
+        clientTLSFingerprint = try container.decodeIfPresent(String.self, forKey: .clientTLSFingerprint)
         nodeMeshStatePath = try container.decodeIfPresent(String.self, forKey: .nodeMeshStatePath) ?? Self.defaultNodeMeshStateFileName
         sqlitePath = try container.decode(String.self, forKey: .sqlitePath)
         models = try container.decodeIfPresent([ModelConfig].self, forKey: .models) ?? []
@@ -2263,6 +2281,11 @@ public struct CoreConfig: Codable, Sendable {
         try container.encode(toolHooks, forKey: .toolHooks)
         try container.encode(toolBudgetExhausted, forKey: .toolBudgetExhausted)
         try container.encodeIfPresent(nodeMeshPublicURL, forKey: .nodeMeshPublicURL)
+        try container.encodeIfPresent(clientPublicURL, forKey: .clientPublicURL)
+        if !clientAlternateURLs.isEmpty {
+            try container.encode(clientAlternateURLs, forKey: .clientAlternateURLs)
+        }
+        try container.encodeIfPresent(clientTLSFingerprint, forKey: .clientTLSFingerprint)
         try container.encode(nodeMeshStatePath, forKey: .nodeMeshStatePath)
         try container.encode(sqlitePath, forKey: .sqlitePath)
         if !modelRouting.isEmpty {

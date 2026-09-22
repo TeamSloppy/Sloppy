@@ -91,11 +91,11 @@ struct DesktopWorkspaceTabButton: View {
             }
             .frame(width: 36, alignment: .leading)
         }
-        //#if os(macOS)
-        //        .overlay {
-        //            MiddleClickCloseArea(onMiddleClick: onClose)
-        //        }
-        //#endif
+#if os(macOS)
+        .overlay {
+            MiddleClickCloseArea(onMiddleClick: onClose)
+        }
+#endif
         .onHover {
             self.isHovered = $0
         }

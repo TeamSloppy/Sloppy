@@ -121,6 +121,125 @@ struct ChatNativeTranscriptLayoutTests {
         #expect(secondFrame.minY >= firstFrame.maxY - 0.5)
     }
 
+    @Test("streaming growth preserves the reader's visible row")
+    func streamingGrowthPreservesVisibleRow() async throws {
+        _ = NSApplication.shared
+        func parent(firstHeight: Int, revision: UInt) -> AppKitChatTranscriptCollection {
+            AppKitChatTranscriptCollection(
+                items: [firstHeight, 200, 200, 200].enumerated().map { index, height in
+                    ChatTranscriptNativeItem(id: "row-\(index)", content: .revealEarlier(count: height))
+                },
+                contentWidth: 400, topInset: 0, bottomInset: 0,
+                scrollToEndRequest: 0, renderRevision: revision, reduceMotion: true
+            ) { item in
+                guard case .revealEarlier(let height) = item.content else { return AnyView(EmptyView()) }
+                return AnyView(Color.clear.frame(height: CGFloat(height)))
+            }
+        }
+
+        let initial = parent(firstHeight: 200, revision: 1)
+        let coordinator = initial.makeCoordinator()
+        let layout = NSCollectionViewCompositionalLayout { _, _ in
+            let size = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .estimated(100))
+            let item = NSCollectionLayoutItem(layoutSize: size)
+            return NSCollectionLayoutSection(group: .vertical(layoutSize: size, subitems: [item]))
+        }
+        let collection = NSCollectionView()
+        collection.collectionViewLayout = layout
+        collection.register(AppKitHostedTranscriptItem.self,
+                            forItemWithIdentifier: AppKitHostedTranscriptItem.identifier)
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 500, height: 300))
+        scroll.documentView = collection
+        scroll.contentView.postsBoundsChangedNotifications = true
+        let window = NSWindow(contentRect: scroll.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = scroll
+        defer {
+            coordinator.stopObservingScroll()
+            window.contentView = nil
+        }
+        coordinator.collectionView = collection
+        coordinator.scrollView = scroll
+        coordinator.installDataSource(on: collection)
+        coordinator.startObservingScroll()
+        coordinator.update(parent: initial, initial: true)
+        for _ in 0..<6 {
+            await Task.yield()
+            window.contentView?.layoutSubtreeIfNeeded()
+        }
+
+        scroll.contentView.scroll(to: NSPoint(x: 0, y: 220))
+        scroll.reflectScrolledClipView(scroll.contentView)
+        await Task.yield()
+        let secondPath = IndexPath(item: 1, section: 0)
+        let oldFrame = try #require(layout.layoutAttributesForItem(at: secondPath)).frame
+        let oldOffset = oldFrame.minY - scroll.contentView.bounds.minY
+
+        coordinator.update(parent: parent(firstHeight: 400, revision: 2), initial: false)
+        for _ in 0..<8 {
+            await Task.yield()
+            window.contentView?.layoutSubtreeIfNeeded()
+        }
+
+        let newFrame = try #require(layout.layoutAttributesForItem(at: secondPath)).frame
+        let newOffset = newFrame.minY - scroll.contentView.bounds.minY
+        #expect(abs(newOffset - oldOffset) <= 1)
+    }
+
+    @Test("rapid streaming updates leave the transcript pinned to the final bottom")
+    func rapidStreamingUpdatesStayPinnedToBottom() async throws {
+        _ = NSApplication.shared
+        func parent(lastHeight: Int, revision: UInt) -> AppKitChatTranscriptCollection {
+            AppKitChatTranscriptCollection(
+                items: [200, 200, lastHeight].enumerated().map { index, height in
+                    ChatTranscriptNativeItem(id: "row-\(index)", content: .revealEarlier(count: height))
+                },
+                contentWidth: 400, topInset: 0, bottomInset: 80,
+                scrollToEndRequest: 0, renderRevision: revision, reduceMotion: true
+            ) { item in
+                guard case .revealEarlier(let height) = item.content else { return AnyView(EmptyView()) }
+                return AnyView(Color.clear.frame(height: CGFloat(height)))
+            }
+        }
+
+        let initial = parent(lastHeight: 100, revision: 1)
+        let coordinator = initial.makeCoordinator()
+        let layout = NSCollectionViewCompositionalLayout { _, _ in
+            let size = NSCollectionLayoutSize(widthDimension: .fractionalWidth(1), heightDimension: .estimated(100))
+            let item = NSCollectionLayoutItem(layoutSize: size)
+            return NSCollectionLayoutSection(group: .vertical(layoutSize: size, subitems: [item]))
+        }
+        let collection = NSCollectionView()
+        collection.collectionViewLayout = layout
+        collection.register(AppKitHostedTranscriptItem.self,
+                            forItemWithIdentifier: AppKitHostedTranscriptItem.identifier)
+        let scroll = NSScrollView(frame: NSRect(x: 0, y: 0, width: 500, height: 300))
+        scroll.documentView = collection
+        let window = NSWindow(contentRect: scroll.frame, styleMask: [.borderless], backing: .buffered, defer: false)
+        window.contentView = scroll
+        defer { window.contentView = nil }
+        coordinator.collectionView = collection
+        coordinator.scrollView = scroll
+        coordinator.installDataSource(on: collection)
+        coordinator.update(parent: initial, initial: true)
+        for _ in 0..<6 {
+            await Task.yield()
+            window.contentView?.layoutSubtreeIfNeeded()
+        }
+
+        coordinator.update(parent: parent(lastHeight: 260, revision: 2), initial: false)
+        coordinator.update(parent: parent(lastHeight: 520, revision: 3), initial: false)
+        for _ in 0..<10 {
+            await Task.yield()
+            window.contentView?.layoutSubtreeIfNeeded()
+        }
+
+        let contentHeight = layout.collectionViewContentSize.height
+        let bottomGap = contentHeight + 80 - scroll.contentView.bounds.maxY
+        #expect(abs(bottomGap) <= 1)
+        let lastFrame = try #require(layout.layoutAttributesForItem(at: IndexPath(item: 2, section: 0))).frame
+        #expect(lastFrame.height >= 520)
+    }
+
     @Test("streamed markdown and code blocks grow without retaining the previous height")
     func markdownGrowth() async {
         let item = AppKitHostedTranscriptItem()

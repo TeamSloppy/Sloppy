@@ -13,7 +13,8 @@ struct SloppyDesktopNotchHeroView: View {
                 if showsMascot {
                     SloppyNotchPetView(
                         presentationScale: 3.4,
-                        state: state.mascotState
+                        state: state.mascotState,
+                        onClick: { _ = state.openMascotDestination() }
                     )
                         .matchedGeometryEffect(
                             id: "notch-mascot",
@@ -23,8 +24,9 @@ struct SloppyDesktopNotchHeroView: View {
                 }
             }
             .frame(width: 82, height: 82)
-            .accessibilityHidden(true)
-            .help("Move over or click the mascot")
+            .accessibilityElement()
+            .accessibilityLabel("Open related activity")
+            .help(state.hasMascotDestination ? "Open related activity" : "Move over the mascot")
 
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 5) {

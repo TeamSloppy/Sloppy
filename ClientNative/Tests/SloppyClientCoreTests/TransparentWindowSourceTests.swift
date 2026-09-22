@@ -69,9 +69,8 @@ struct TransparentWindowSourceTests {
 
         #expect(overlay.contains("SloppyNotchPanel"))
         #expect(overlay.contains("SloppyDesktopNotchView"))
-        #expect(overlay.contains("SloppyNotchPetView(state: state.mascotState)"))
+        #expect(overlay.contains("onClick: { _ = state.openMascotDestination() }"))
         #expect(!overlay.contains("SloppyAssets.projectLogo"))
-        #expect(overlay.contains(".allowsHitTesting(false)"))
         #expect(pet.contains("NSViewRepresentable"))
         #expect(pet.contains("SKView"))
         #expect(pet.contains("pointerPositionInScene()"))
@@ -82,6 +81,7 @@ struct TransparentWindowSourceTests {
         #expect(pet.contains("case error"))
         #expect(pet.contains("handlePointerMove"))
         #expect(pet.contains("handlePoke"))
+        #expect(pet.contains("onClick?()"))
         #expect(pet.contains("case happy"))
         #expect(pet.contains("case angry"))
         #expect(!pet.contains("truncatingRemainder(dividingBy: 18)"))
@@ -108,22 +108,22 @@ struct TransparentWindowSourceTests {
         #expect(hero.contains("Watching your workspace"))
         #expect(overlay.contains("panel.level = .statusBar"))
         #expect(overlay.contains(".canJoinAllSpaces"))
-        #expect(overlay.contains("Button(\"Allow\")"))
-        #expect(overlay.contains("Button(\"Deny\""))
+        #expect(!overlay.contains("private func approvalContent"))
+        #expect(overlay.contains("DeepLink.session(agentId: run.agentID, sessionId: run.sessionID).url"))
+        #expect(overlay.contains("DeepLink.task(projectId: task.projectID, taskId: task.taskID).url"))
         #expect(overlay.contains(".onHover(perform: handleHoverChange)"))
         #expect(overlay.contains("state.setExpanded(true)"))
-        #expect(overlay.contains("state.toolApproval == nil"))
         #expect(overlay.contains("state.setExpanded(false)"))
         #expect(rootModel.contains("desktopOverlay.start(settings: settings)"))
     }
 
-    @Test("desktop overlay stays collapsed while Sloppy Client is active")
-    func desktopOverlayStaysCollapsedWhileSloppyClientIsActive() throws {
+    @Test("desktop overlay can expand while Sloppy Client is active")
+    func desktopOverlayCanExpandWhileSloppyClientIsActive() throws {
         let overlay = try source("Sources/SloppyClient/Overlays/SloppyDesktopOverlay.swift")
 
-        #expect(overlay.contains("!NSApp.isActive || !self.state.isExpanded"))
-        #expect(overlay.contains("NSApplication.didBecomeActiveNotification"))
-        #expect(overlay.contains("self?.state.setExpanded(false)"))
+        #expect(!overlay.contains("NSApp.isActive"))
+        #expect(!overlay.contains("NSApplication.didBecomeActiveNotification"))
+        #expect(overlay.contains("self.position(panel: panel, animated: true)"))
     }
 
     @Test("desktop overlay shows typed active agent run status")

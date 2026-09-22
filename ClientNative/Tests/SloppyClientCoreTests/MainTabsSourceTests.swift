@@ -240,13 +240,12 @@ struct MainTabsSourceTests {
     @Test("desktop workspace tabs close on middle mouse click")
     func desktopWorkspaceTabsCloseOnMiddleMouseClick() throws {
         let strip = try source("Sources/SloppyClient/Navigation/Tabs/DesktopWorkspaceTabStrip.swift")
+        let button = try source("Sources/SloppyClient/Navigation/Tabs/DesktopWorkspaceTabButton.swift")
 
         #expect(strip.contains("MiddleClickCloseArea"))
-        #expect(strip.contains(".overlay {\n#if os(macOS)"))
-        #expect(strip.contains("onMiddleClick: onClose"))
+        #expect(button.contains(".overlay {\n            MiddleClickCloseArea(onMiddleClick: onClose)"))
         #expect(strip.contains("override func hitTest(_ point: NSPoint) -> NSView?"))
-        #expect(strip.contains("return super.hitTest(point)"))
-        #expect(!strip.contains("override func hitTest(_ point: NSPoint) -> NSView? {\n        self\n    }"))
+        #expect(strip.contains("guard event.buttonNumber == 2 else { return nil }"))
         #expect(strip.contains("override func otherMouseUp(with event: NSEvent)"))
         #expect(strip.contains("event.buttonNumber == 2"))
     }

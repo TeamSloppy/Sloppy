@@ -355,19 +355,17 @@ public struct ChatComposerView: View {
     }
 
     private var trailingActionSymbol: MaterialSymbol {
-        if viewModel.shouldShowStopButton {
-            return .stop
+        if !trimmedDraftText.isEmpty || !viewModel.composerAttachments.isEmpty {
+            return .arrowUpward
         }
 
-        if trimmedDraftText.isEmpty && viewModel.composerAttachments.isEmpty {
-            return .microphone
-        }
-
-        return .arrowUpward
+        return viewModel.shouldShowStopButton ? .stop : .microphone
     }
 
     private var trailingActionForegroundColor: Color {
-        if viewModel.shouldShowStopButton {
+        if viewModel.shouldShowStopButton,
+           trimmedDraftText.isEmpty,
+           viewModel.composerAttachments.isEmpty {
             return theme.colors.textPrimary
         }
 
@@ -436,17 +434,14 @@ public struct ChatComposerView: View {
 
     private func handleTrailingAction() {
         guard viewModel.activeInputRequest == nil else { return }
-        if viewModel.shouldShowStopButton {
+        let hasMessage = !trimmedDraftText.isEmpty || !viewModel.composerAttachments.isEmpty
+        if hasMessage {
+            submit()
+        } else if viewModel.shouldShowStopButton {
             viewModel.stopActiveRun()
-            return
-        }
-
-        if trimmedDraftText.isEmpty && viewModel.composerAttachments.isEmpty {
+        } else {
             viewModel.startDictation()
-            return
         }
-
-        submit()
     }
 }
 

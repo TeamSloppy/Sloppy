@@ -73,13 +73,15 @@ public actor BackendHTTPClient {
     public init(
         baseURL: URL = URL(string: "http://localhost:25101")!,
         authToken: String = "",
-        session: URLSession = .shared,
+        tlsFingerprint: String? = nil,
+        session: URLSession? = nil,
         authSessionStore: AuthSessionStore = .shared,
         logger: Logger = Logger(label: "sloppy.backend-http")
     ) {
         self.init(
             endpoint: .direct(baseURL: baseURL),
             authToken: authToken,
+            tlsFingerprint: tlsFingerprint,
             session: session,
             authSessionStore: authSessionStore,
             logger: logger
@@ -89,13 +91,17 @@ public actor BackendHTTPClient {
     public init(
         endpoint: SloppyInstanceEndpoint,
         authToken: String = "",
-        session: URLSession = .shared,
+        tlsFingerprint: String? = nil,
+        session: URLSession? = nil,
         authSessionStore: AuthSessionStore = .shared,
         logger: Logger = Logger(label: "sloppy.backend-http")
     ) {
         self.endpoint = endpoint
         self.baseURL = endpoint.coordinatorBaseURL
-        self.session = session
+        self.session = session ?? ClientURLSessionFactory.session(
+            for: endpoint.coordinatorBaseURL,
+            tlsFingerprint: tlsFingerprint
+        )
         self.authSessionStore = authSessionStore
         self.logger = logger
         self.authToken = authToken.trimmingCharacters(in: .whitespacesAndNewlines)

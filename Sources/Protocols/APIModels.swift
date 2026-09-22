@@ -3886,27 +3886,32 @@ public struct AgentToolsPolicy: Codable, Sendable, Equatable {
 public enum AgentToolApprovalPolicy: String, Codable, Sendable, Equatable {
     case never
     case onRequest = "on_request"
+    case approveForMe = "approve_for_me"
 }
 
 public struct AgentToolApprovalSettings: Codable, Sendable, Equatable {
     public var policy: AgentToolApprovalPolicy
+    public var reviewerAgentId: String?
 
     public var enabled: Bool {
-        get { policy == .onRequest }
+        get { policy != .never }
         set { policy = newValue ? .onRequest : .never }
     }
 
-    public init(policy: AgentToolApprovalPolicy = .never) {
+    public init(policy: AgentToolApprovalPolicy = .never, reviewerAgentId: String? = nil) {
         self.policy = policy
+        self.reviewerAgentId = reviewerAgentId
     }
 
     public init(enabled: Bool) {
         self.policy = enabled ? .onRequest : .never
+        self.reviewerAgentId = nil
     }
 
     private enum CodingKeys: String, CodingKey {
         case enabled
         case policy
+        case reviewerAgentId
     }
 
     public init(from decoder: any Decoder) throws {
@@ -3917,12 +3922,14 @@ public struct AgentToolApprovalSettings: Codable, Sendable, Equatable {
             let enabled = try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false
             self.policy = enabled ? .onRequest : .never
         }
+        self.reviewerAgentId = try container.decodeIfPresent(String.self, forKey: .reviewerAgentId)
     }
 
     public func encode(to encoder: any Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         try container.encode(policy, forKey: .policy)
         try container.encode(enabled, forKey: .enabled)
+        try container.encodeIfPresent(reviewerAgentId, forKey: .reviewerAgentId)
     }
 }
 
@@ -4123,6 +4130,7 @@ public struct ToolApprovalRecord: Codable, Sendable, Equatable, Identifiable {
     public var reason: String?
     public var requestedBy: String?
     public var decidedBy: String?
+    public var decisionReason: String?
     public var createdAt: Date
     public var updatedAt: Date
     public var expiresAt: Date
@@ -4143,6 +4151,7 @@ public struct ToolApprovalRecord: Codable, Sendable, Equatable, Identifiable {
         case reason
         case requestedBy
         case decidedBy
+        case decisionReason
         case createdAt
         case updatedAt
         case expiresAt
@@ -4164,6 +4173,7 @@ public struct ToolApprovalRecord: Codable, Sendable, Equatable, Identifiable {
         reason: String? = nil,
         requestedBy: String? = nil,
         decidedBy: String? = nil,
+        decisionReason: String? = nil,
         createdAt: Date = Date(),
         updatedAt: Date = Date(),
         expiresAt: Date
@@ -4183,6 +4193,7 @@ public struct ToolApprovalRecord: Codable, Sendable, Equatable, Identifiable {
         self.reason = reason
         self.requestedBy = requestedBy
         self.decidedBy = decidedBy
+        self.decisionReason = decisionReason
         self.createdAt = createdAt
         self.updatedAt = updatedAt
         self.expiresAt = expiresAt
@@ -4205,6 +4216,7 @@ public struct ToolApprovalRecord: Codable, Sendable, Equatable, Identifiable {
         self.reason = try container.decodeIfPresent(String.self, forKey: .reason)
         self.requestedBy = try container.decodeIfPresent(String.self, forKey: .requestedBy)
         self.decidedBy = try container.decodeIfPresent(String.self, forKey: .decidedBy)
+        self.decisionReason = try container.decodeIfPresent(String.self, forKey: .decisionReason)
         self.createdAt = try container.decode(Date.self, forKey: .createdAt)
         self.updatedAt = try container.decode(Date.self, forKey: .updatedAt)
         self.expiresAt = try container.decode(Date.self, forKey: .expiresAt)
@@ -5909,6 +5921,8 @@ public struct AuthDevicePairingRecord: Codable, Sendable, Equatable {
     public var createdAt: Date
     public var expiresAt: Date
     public var user: AuthUserProfile
+    public var setupCode: String?
+    public var serverURL: String?
 
     public init(
         id: String,
@@ -5916,7 +5930,9 @@ public struct AuthDevicePairingRecord: Codable, Sendable, Equatable {
         clientName: String,
         createdAt: Date = Date(),
         expiresAt: Date,
-        user: AuthUserProfile
+        user: AuthUserProfile,
+        setupCode: String? = nil,
+        serverURL: String? = nil
     ) {
         self.id = id
         self.token = token
@@ -5924,6 +5940,36 @@ public struct AuthDevicePairingRecord: Codable, Sendable, Equatable {
         self.createdAt = createdAt
         self.expiresAt = expiresAt
         self.user = user
+        self.setupCode = setupCode
+        self.serverURL = serverURL
+    }
+}
+
+public struct AuthDevicePairingSetupPayload: Codable, Sendable, Equatable {
+    public var version: Int
+    public var url: String
+    public var urls: [String]?
+    public var bootstrapToken: String
+    public var expiresAt: Date
+    public var tlsFingerprint: String?
+    public var label: String?
+
+    public init(
+        version: Int = 1,
+        url: String,
+        urls: [String]? = nil,
+        bootstrapToken: String,
+        expiresAt: Date,
+        tlsFingerprint: String? = nil,
+        label: String? = nil
+    ) {
+        self.version = version
+        self.url = url
+        self.urls = urls
+        self.bootstrapToken = bootstrapToken
+        self.expiresAt = expiresAt
+        self.tlsFingerprint = tlsFingerprint
+        self.label = label
     }
 }
 

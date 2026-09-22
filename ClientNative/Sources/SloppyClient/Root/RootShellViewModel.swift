@@ -463,33 +463,49 @@ final class RootShellViewModel {
         )
 
         Task { @MainActor in
-            let apiClient = SloppyAPIClient(baseURL: baseURL)
-            do {
-                _ = try await apiClient.redeemDevicePairing(token: pairing.token)
-                if let host = baseURL.host {
-                    settings.useServer(
-                        SavedServer(
-                            label: pairing.label ?? "Sloppy @ \(host)",
-                            scheme: baseURL.scheme ?? "http",
-                            host: host,
-                            port: baseURL.port ?? 25101
-                        )
-                    )
-                }
-                logger.info(
-                    "app.authentication.device-pairing-succeeded",
-                    metadata: ["server": .string(Self.serverDescription(baseURL))]
+            var lastError: Error?
+            for candidateURL in pairing.serverURLs {
+                let apiClient = SloppyAPIClient(
+                    baseURL: candidateURL,
+                    tlsFingerprint: pairing.tlsFingerprint
                 )
-                startConnected(url: baseURL)
-            } catch {
+                do {
+                    _ = try await apiClient.redeemDevicePairing(token: pairing.token)
+                    ClientTLSFingerprintStore.set(pairing.tlsFingerprint, for: candidateURL)
+                    if let host = candidateURL.host {
+                        settings.useServer(
+                            SavedServer(
+                                label: pairing.label ?? "Sloppy @ \(host)",
+                                scheme: candidateURL.scheme ?? "http",
+                                host: host,
+                                port: candidateURL.port ?? (candidateURL.scheme == "https" ? 443 : 25101),
+                                tlsFingerprint: pairing.tlsFingerprint
+                            )
+                        )
+                    }
+                    logger.info(
+                        "app.authentication.device-pairing-succeeded",
+                        metadata: ["server": .string(Self.serverDescription(candidateURL))]
+                    )
+                    startConnected(url: candidateURL)
+                    return
+                } catch {
+                    lastError = error
+                }
+            }
+            if let lastError {
                 logger.warning(
                     "app.authentication.device-pairing-failed",
                     metadata: [
-                        "error": .string(Self.errorDescription(error)),
+                        "error": .string(Self.errorDescription(lastError)),
                         "server": .string(Self.serverDescription(baseURL)),
                     ]
                 )
-                let challenge = (try? await apiClient.fetchConnectionAuthChallenge())
+                let fallbackClient = SloppyAPIClient(
+                    baseURL: baseURL,
+                    tlsFingerprint: pairing.tlsFingerprint
+                )
+                let challenge = (try? await fallbackClient.fetchConnectionAuthChallenge())
                     ?? AuthChallenge(mode: "login_password", bootstrapRequired: false)
                 appState = .authentication(
                     baseURL,
@@ -537,6 +553,7 @@ final class RootShellViewModel {
         #if os(macOS)
         if notification.type == .toolApproval {
             desktopOverlay.updateToolApproval(notification)
+            return
         }
         #endif
         #if os(iOS)
