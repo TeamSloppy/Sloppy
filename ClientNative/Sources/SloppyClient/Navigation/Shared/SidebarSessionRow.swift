@@ -31,6 +31,19 @@ enum SidebarSessionActivity: String, Equatable {
     }
 }
 
+struct SidebarSessionActivityRecord: Equatable {
+    let activity: SidebarSessionActivity
+    let eventID: String?
+
+    func visibleActivity(readEventID: String?) -> SidebarSessionActivity? {
+        if (activity == .completed || activity == .failed),
+           let eventID, eventID == readEventID {
+            return nil
+        }
+        return activity
+    }
+}
+
 @MainActor
 struct SidebarSessionRow: View {
     let session: ChatSessionSummary

@@ -66,7 +66,7 @@ final class MainViewModel {
     private var loadedSidebarSessions: [ChatSessionSummary]?
     var workspacePanelViewModel: WorkspacePanelViewModel
     @ObservationIgnored let workspaceDockStore = WorkspaceDockStore()
-    private var sidebarSessionActivities: [String: SidebarSessionActivity] = [:]
+    private var sidebarSessionActivities: [String: SidebarSessionActivityRecord] = [:]
     var browserPresentationRequest: UUID?
     var browserSessions: [WorkspaceTab.ID: WorkspaceBrowserSession] = [:]
     var chatNavigationSerial = 0
@@ -166,7 +166,12 @@ final class MainViewModel {
     }
 
     func sidebarSessionActivity(for session: ChatSessionSummary) -> SidebarSessionActivity? {
-        liveSidebarSessionActivity(for: session) ?? sidebarSessionActivities[session.storageID]
+        if let liveActivity = liveSidebarSessionActivity(for: session),
+           liveActivity == .working || liveActivity == .waitingForInput {
+            return liveActivity
+        }
+        return sidebarSessionActivities[session.storageID]?
+            .visibleActivity(readEventID: settings.viewedSessionResultEvents[session.storageID])
     }
 
     func liveSidebarSessionActivity(for session: ChatSessionSummary) -> SidebarSessionActivity? {
@@ -181,14 +186,31 @@ final class MainViewModel {
 
     func recordSidebarSessionActivity(
         _ activity: SidebarSessionActivity?,
-        for session: ChatSessionSummary
+        for session: ChatSessionSummary,
+        eventID: String? = nil
     ) {
-        guard sidebarSessionActivities[session.storageID] != activity else { return }
-        if let activity {
-            sidebarSessionActivities[session.storageID] = activity
+        let record = activity.map { SidebarSessionActivityRecord(activity: $0, eventID: eventID) }
+        guard sidebarSessionActivities[session.storageID] != record else { return }
+        if let record {
+            sidebarSessionActivities[session.storageID] = record
         } else {
             sidebarSessionActivities.removeValue(forKey: session.storageID)
         }
+        if selectedChatStorageID == session.storageID || selectedSessionTabKey == .chatSession(session.storageID) {
+            markSidebarSessionResultViewed(session)
+        }
+    }
+
+    private var selectedSessionTabKey: WorkspaceTabKey? {
+        tabs.first(where: { $0.id == selectedTabID })?.key
+    }
+
+    private func markSidebarSessionResultViewed(_ session: ChatSessionSummary) {
+        guard let record = sidebarSessionActivities[session.storageID],
+              record.activity == .completed || record.activity == .failed,
+              let eventID = record.eventID,
+              settings.viewedSessionResultEvents[session.storageID] != eventID else { return }
+        settings.viewedSessionResultEvents[session.storageID] = eventID
     }
 
     func monitorSidebarSessionActivity(for session: ChatSessionSummary) async {
@@ -200,12 +222,14 @@ final class MainViewModel {
             ) else {
                 return
             }
+            let latestStatusEvent = detail.events.last { $0.runStatus != nil }
             let fetched = SidebarSessionActivity.resolve(
                 hasPendingInputRequest: detail.pendingInputRequest != nil,
                 runStage: detail.latestRunStatus?.stage
             )
-            let resolved = liveSidebarSessionActivity(for: session) ?? fetched
-            recordSidebarSessionActivity(resolved, for: session)
+            let live = liveSidebarSessionActivity(for: session)
+            let resolved = live == .working || live == .waitingForInput ? live : fetched
+            recordSidebarSessionActivity(resolved, for: session, eventID: latestStatusEvent?.id)
             guard resolved == .working else { return }
             try? await Task.sleep(for: .seconds(2))
         }
@@ -306,7 +330,10 @@ final class MainViewModel {
                 let remote: WorkspaceTerminalSession.RemoteConfiguration?
                 if case .relay(let coordinatorBaseURL, let targetNodeID) = source {
                     remote = .init(apiClient: SloppyAPIClient(endpoint: source), coordinatorBaseURL: coordinatorBaseURL,
-                                   targetNodeID: targetNodeID, projectID: dock.context?.projectId)
+                                   targetNodeID: targetNodeID, managedDeviceID: nil, projectID: dock.context?.projectId)
+                } else if case .managed(let relayURL, let targetDeviceID) = source {
+                    remote = .init(apiClient: SloppyAPIClient(endpoint: source), coordinatorBaseURL: relayURL,
+                                   targetNodeID: "", managedDeviceID: targetDeviceID, projectID: dock.context?.projectId)
                 } else { remote = nil }
                 tab.terminal = WorkspaceTerminalSession(id: tab.id, workingDirectory: directory, remoteConfiguration: remote)
                 tab.terminal?.startIfNeeded()
@@ -502,6 +529,7 @@ final class MainViewModel {
             state: WorkspaceTabState(contentState: .chat(chatState)),
             endpoint: sourceEndpoint
         )
+        markSidebarSessionResultViewed(session)
     }
 
     func selectProject(_ project: APIProjectRecord) {
@@ -1303,6 +1331,15 @@ final class MainViewModel {
                 apiClient: apiClient,
                 coordinatorBaseURL: coordinatorBaseURL,
                 targetNodeID: targetNodeID,
+                managedDeviceID: nil,
+                projectID: projectID(for: tabID)
+            )
+        } else if case .managed(let relayURL, let targetDeviceID) = tabEndpoint {
+            remoteConfiguration = WorkspaceTerminalSession.RemoteConfiguration(
+                apiClient: apiClient,
+                coordinatorBaseURL: relayURL,
+                targetNodeID: "",
+                managedDeviceID: targetDeviceID,
                 projectID: projectID(for: tabID)
             )
         } else {

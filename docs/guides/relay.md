@@ -95,7 +95,7 @@ sloppy run \
   --relay-public-url https://203.0.113.10
 ```
 
-In **Settings → Connect Client**, save the public URL and optional fingerprint, then generate the QR. The versioned setup code contains the primary URL, alternate URLs, expiry, certificate fingerprint, and a short-lived single-use bootstrap token. The native client exchanges that token for its own user session and stores the TLS pin for subsequent HTTP and WebSocket connections.
+In **Settings → Connect Client**, enter the public HTTPS URL, then use **Detect & save** to let the relay read the endpoint's leaf certificate, calculate SHA-256, and persist the fingerprint. Review the detected value before generating the QR. The versioned setup code contains the primary URL, alternate URLs, expiry, certificate fingerprint, and a short-lived single-use bootstrap token. The native client exchanges that token for its own user session and stores the TLS pin for subsequent HTTP and WebSocket connections. Fingerprint detection requires `openssl`; the relay Docker image includes it.
 
 The certificate pin protects transport identity; it does not make the current mesh discovery endpoint safe for unrestricted public exposure. Keep the IP endpoint behind the private-network or source-allowlist boundary described below until authenticated redacted discovery is implemented.
 

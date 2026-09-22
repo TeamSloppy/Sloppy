@@ -18,6 +18,17 @@ struct SidebarChromeRenderingTests {
         #expect(SidebarSessionActivity.resolve(runStage: nil) == nil)
     }
 
+    @Test func completedAndFailedIndicatorsClearOnlyForViewedEvent() {
+        for activity in [SidebarSessionActivity.completed, .failed] {
+            let result = SidebarSessionActivityRecord(activity: activity, eventID: "run-2")
+            #expect(result.visibleActivity(readEventID: nil) == activity)
+            #expect(result.visibleActivity(readEventID: "run-1") == activity)
+            #expect(result.visibleActivity(readEventID: "run-2") == nil)
+        }
+        let waiting = SidebarSessionActivityRecord(activity: .waitingForInput, eventID: "run-2")
+        #expect(waiting.visibleActivity(readEventID: "run-2") == .waitingForInput)
+    }
+
     @Test func sidebarFadesScrolledCardsAndFooterIsOpaque() async throws {
         let projects = (0..<4).map { index in
             APIProjectRecord(id: "sidebar-fixture-\(index)", name: "Project \(index + 1)",

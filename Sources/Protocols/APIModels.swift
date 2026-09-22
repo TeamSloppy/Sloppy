@@ -5973,6 +5973,18 @@ public struct AuthDevicePairingSetupPayload: Codable, Sendable, Equatable {
     }
 }
 
+public struct AuthTLSCertificateFingerprintResponse: Codable, Sendable, Equatable {
+    public var url: String
+    public var algorithm: String
+    public var fingerprint: String
+
+    public init(url: String, algorithm: String = "sha256", fingerprint: String) {
+        self.url = url
+        self.algorithm = algorithm
+        self.fingerprint = fingerprint
+    }
+}
+
 public struct AuthDevicePairingRedeemRequest: Codable, Sendable, Equatable {
     public var token: String
 
@@ -6965,6 +6977,8 @@ public struct TokenUsageResponse: Codable, Sendable {
     public var totalCachedInputTokens: Int
     public var totalCacheCreationInputTokens: Int
     public var totalReasoningTokens: Int
+    /// Optional spend from semantic-decision calls associated with this channel.
+    public var semanticDecisionUsage: SemanticDecisionUsage?
 
     public init(
         items: [TokenUsageRecord],
@@ -6973,7 +6987,8 @@ public struct TokenUsageResponse: Codable, Sendable {
         totalTokens: Int = 0,
         totalCachedInputTokens: Int = 0,
         totalCacheCreationInputTokens: Int = 0,
-        totalReasoningTokens: Int = 0
+        totalReasoningTokens: Int = 0,
+        semanticDecisionUsage: SemanticDecisionUsage? = nil
     ) {
         self.items = items
         self.totalPromptTokens = totalPromptTokens
@@ -6982,6 +6997,7 @@ public struct TokenUsageResponse: Codable, Sendable {
         self.totalCachedInputTokens = totalCachedInputTokens
         self.totalCacheCreationInputTokens = totalCacheCreationInputTokens
         self.totalReasoningTokens = totalReasoningTokens
+        self.semanticDecisionUsage = semanticDecisionUsage
     }
 }
 

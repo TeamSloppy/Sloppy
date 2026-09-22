@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily Sloppy managed relay %i backup
+
+[Timer]
+OnCalendar=*-*-* 02:15:00 UTC
+RandomizedDelaySec=2h
+Persistent=true
+Unit=sloppy-relay-backup@%i.service
+
+[Install]
+WantedBy=timers.target

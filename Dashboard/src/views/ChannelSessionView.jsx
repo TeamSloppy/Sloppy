@@ -244,6 +244,9 @@ function ContextPanel({ tokenUsage, channelModelInfo }) {
   const promptTokens = tokenUsage?.totalPromptTokens ?? 0;
   const completionTokens = tokenUsage?.totalCompletionTokens ?? 0;
   const totalTokens = tokenUsage?.totalTokens ?? (promptTokens + completionTokens);
+  const semanticDecisionUsage = tokenUsage?.semanticDecisionUsage || null;
+  const semanticDecisionCost = Number(semanticDecisionUsage?.totalCostUSD || 0);
+  const semanticDecisionCostPrefix = Number(semanticDecisionUsage?.estimatedCostUSD || 0) > 0 ? "~" : "";
 
   const usagePercent = contextWindowTokens > 0
     ? Math.min(100, Math.round((totalTokens / contextWindowTokens) * 100))
@@ -282,6 +285,14 @@ function ContextPanel({ tokenUsage, channelModelInfo }) {
           <dt>Total Tokens Used</dt>
           <dd>{totalTokens.toLocaleString()}</dd>
         </div>
+        {semanticDecisionUsage ? (
+          <div>
+            <dt>JEV Decisions</dt>
+            <dd>
+              {Number(semanticDecisionUsage.requestCount || 0).toLocaleString()} calls · {Number(semanticDecisionUsage.inputTokens || 0).toLocaleString()} input tokens · {semanticDecisionCostPrefix}${semanticDecisionCost.toFixed(4)}
+            </dd>
+          </div>
+        ) : null}
         {contextWindowTokens > 0 ? (
           <div className="context-usage-bar-wrapper">
             <dt>Usage</dt>

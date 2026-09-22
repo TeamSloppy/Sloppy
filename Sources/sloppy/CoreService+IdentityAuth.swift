@@ -127,6 +127,24 @@ extension CoreService {
         return parts.count == 4 && parts[0] == 172 && (16...31).contains(parts[1])
     }
 
+    func detectClientTLSFingerprint(
+        actor: AuthenticatedUserContext
+    ) async throws -> AuthTLSCertificateFingerprintResponse {
+        guard actor.user.role == .admin else {
+            throw CoreIdentityAuthError.forbidden
+        }
+        guard let rawURL = try resolvedClientPairingURL(),
+              let url = URL(string: rawURL),
+              url.scheme?.lowercased() == "https" else {
+            throw CoreIdentityAuthError.invalidDevicePairingConfiguration
+        }
+        let fingerprint = try await TLSCertificateFingerprintProbe.fingerprint(for: url)
+        return AuthTLSCertificateFingerprintResponse(
+            url: rawURL,
+            fingerprint: fingerprint
+        )
+    }
+
     func redeemIdentityDevicePairing(_ request: AuthDevicePairingRedeemRequest) async throws -> AuthSessionResponse {
         try await identityAuthService.redeemDevicePairing(request)
     }

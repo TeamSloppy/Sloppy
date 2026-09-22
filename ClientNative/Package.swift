@@ -21,6 +21,7 @@ let package = Package(
         .library(name: "SloppyLiveActivity", targets: ["SloppyLiveActivity"])
     ],
     dependencies: [
+        .package(path: "../Packages/SloppyRemoteProtocol"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.6.0"),
         .package(path: "Vendor/Textual"),
         .package(url: "https://github.com/migueldeicaza/SwiftTerm", from: "1.0.0"),
@@ -30,6 +31,7 @@ let package = Package(
             name: "SloppyClientCore",
             dependencies: [
                 "CSQLite3",
+                .product(name: "SloppyRemoteProtocol", package: "SloppyRemoteProtocol"),
                 .product(name: "Logging", package: "swift-log")
             ],
             path: "Sources/SloppyClientCore"
@@ -74,7 +76,8 @@ let package = Package(
             name: "SloppyFeatureSettings",
             dependencies: [
                 "SloppyClientCore",
-                "SloppyClientUI"
+                "SloppyClientUI",
+                .product(name: "SloppyRemoteProtocol", package: "SloppyRemoteProtocol")
             ],
             path: "Sources/SloppyFeatureSettings"
         ),
@@ -106,6 +109,7 @@ let package = Package(
             name: "SloppyClient",
             dependencies: [
                 "SloppyClientCore",
+                .product(name: "SloppyRemoteProtocol", package: "SloppyRemoteProtocol"),
                 "SloppyClientUI",
                 "SloppyFeatureOverview",
                 "SloppyFeatureProjects",

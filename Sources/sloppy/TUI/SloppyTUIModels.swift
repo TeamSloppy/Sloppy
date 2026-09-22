@@ -663,6 +663,7 @@ struct SloppyTUIContextUsageSummary: Equatable {
     var contextWindowTokens: Int
     var pendingContextAttached: Bool
     var pendingUploadCount: Int
+    var semanticDecisionUsage: SemanticDecisionUsage? = nil
     var ledgerCategories: [SloppyTUIContextCategorySummary] = []
     var lastTurnInputTokens: Int = 0
     var lastTurnCachedInputTokens: Int = 0

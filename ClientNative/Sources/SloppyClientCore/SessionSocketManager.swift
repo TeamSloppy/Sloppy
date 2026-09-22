@@ -3,6 +3,7 @@ import Foundation
 import FoundationNetworking
 #endif
 import Logging
+import SloppyRemoteProtocol
 
 public actor SessionSocketManager {
     private let baseURL: URL
@@ -13,6 +14,7 @@ public actor SessionSocketManager {
     private let decoder: JSONDecoder
 
     private var task: URLSessionWebSocketTask?
+    private var managedTask: Task<Void, Never>?
     private var continuation: AsyncStream<ChatStreamUpdate>.Continuation?
     private var disposed = false
     private var reconnectDelay: Double = 1.0
@@ -79,12 +81,30 @@ public actor SessionSocketManager {
         logger.info("Disconnecting session socket for agent=\(agentId) session=\(sessionId) baseURL=\(baseURL.absoluteString)")
         task?.cancel(with: .goingAway, reason: nil)
         task = nil
+        managedTask?.cancel()
+        managedTask = nil
         continuation?.finish()
         continuation = nil
     }
 
     private func openSocket() async {
         guard !disposed else { return }
+
+        if case .managed(_, let targetDeviceID) = endpoint {
+            let path = "/v1/agents/\(Self.encodePathSegment(agentId))/sessions/\(Self.encodePathSegment(sessionId))/ws"
+            do {
+                let (_, frames) = try await ManagedRemoteConnection.shared.openStream(
+                    to: targetDeviceID,
+                    kind: "session.stream",
+                    path: path
+                )
+                managedTask = Task { await managedReceiveLoop(frames) }
+            } catch {
+                logger.warning("Managed session stream failed: \(error)")
+                await reconnectManaged()
+            }
+            return
+        }
 
         var components = URLComponents(url: baseURL, resolvingAgainstBaseURL: false)
         components?.scheme = baseURL.scheme == "https" ? "wss" : "ws"
@@ -114,6 +134,29 @@ public actor SessionSocketManager {
         wsTask.resume()
 
         Task { await receiveLoop(task: wsTask) }
+    }
+
+    private func managedReceiveLoop(_ frames: AsyncStream<RemoteStreamFrame>) async {
+        for await frame in frames {
+            guard !disposed, !Task.isCancelled else { return }
+            if frame.action == .data, let data = frame.data {
+                if let update = try? decoder.decode(ChatStreamUpdate.self, from: data) {
+                    continuation?.yield(update)
+                } else {
+                    logger.warning("Failed to decode managed session stream payload.")
+                }
+            }
+        }
+        guard !disposed, !Task.isCancelled else { return }
+        continuation?.yield(ChatStreamUpdate(kind: .sessionReady, cursor: 0))
+        await reconnectManaged()
+    }
+
+    private func reconnectManaged() async {
+        let delay = reconnectDelay
+        reconnectDelay = min(delay * 2, 30)
+        try? await Task.sleep(for: .seconds(delay))
+        if !disposed { await openSocket() }
     }
 
     private func receiveLoop(task: URLSessionWebSocketTask) async {

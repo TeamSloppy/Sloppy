@@ -21,6 +21,7 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
     case account
     case client
     case backend
+    case remote
     case mesh
     case providers
     case searchTools
@@ -51,6 +52,7 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
         case .account: "Account"
         case .client: "General"
         case .backend: "Sloppy Backend"
+        case .remote: "Remote"
         case .mesh: "Mesh"
         case .providers: "Providers"
         case .searchTools: "Search Tools"
@@ -81,6 +83,7 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
         case .account: "Profile, password, recovery codes, application tokens, and sign out."
         case .client: "Connection, appearance, accent, and desktop behavior."
         case .backend: "Install or update the local Sloppy backend from GitHub Releases."
+        case .remote: "Connect your devices with a private Sloppy Remote space."
         case .mesh: "Connect your machines and choose where to work."
         case .providers: "Model providers, API URLs, auth, and defaults."
         case .searchTools: "Web search provider routing and credentials."
@@ -114,6 +117,8 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
             ["general", "connection", "appearance", "accent", "desktop", "window"]
         case .backend:
             ["backend", "install", "installation", "release", "update", "github", "local"]
+        case .remote:
+            ["remote", "pair", "qr", "phone", "host", "invite"]
         case .mesh:
             ["mesh", "invite", "node", "sharing", "target"]
         case .providers:
@@ -163,7 +168,7 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
 
     var group: SettingsScreenSectionGroup {
         switch self {
-        case .account, .client, .backend, .mesh:
+        case .account, .client, .backend, .remote, .mesh:
             .client
         case .providers, .searchTools, .channels, .plugins, .nodeHost, .visor, .acp, .proxy, .gitSync, .rawConfig:
             .config
@@ -343,7 +348,8 @@ public struct SettingsScreen: View {
                 .font(.system(size: ty.body))
                 .foregroundColor(c.textSecondary)
             if displayedSection != .backend, displayedSection != .account,
-               displayedSection != .client, displayedSection != .mesh, !statusText.isEmpty {
+               displayedSection != .client, displayedSection != .remote,
+               displayedSection != .mesh, !statusText.isEmpty {
                 Text(statusText)
                     .font(.system(size: ty.caption))
                     .foregroundColor(c.textMuted)
@@ -367,6 +373,8 @@ public struct SettingsScreen: View {
             #else
             UnsupportedSettingsSectionView(section: section)
             #endif
+        case .remote:
+            RemoteSettingsSection(settings: settings)
         case .mesh:
             MeshSettingsSection(settings: settings)
         case .providers:
@@ -535,6 +543,7 @@ private extension SettingsScreenSection {
         case .account: "person.crop.circle"
         case .client: "gearshape"
         case .backend: "shippingbox.and.arrow.backward"
+        case .remote: "iphone.gen3.radiowaves.left.and.right"
         case .mesh: "point.3.connected.trianglepath.dotted"
         case .providers: "sparkles"
         case .searchTools: "magnifyingglass"

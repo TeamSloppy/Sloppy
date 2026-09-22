@@ -1,6 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
-import { prepareClientConnection, type DevicePairingRecord } from "../../../shared/api/coreApi";
+import {
+  detectClientTLSFingerprint,
+  prepareClientConnection,
+  type DevicePairingRecord
+} from "../../../shared/api/coreApi";
 
 interface ClientConnectViewProps {
   listenPort: number;
@@ -12,7 +16,8 @@ interface ClientConnectViewProps {
     clientAlternateURLs: string[];
     clientTLSFingerprint: string;
   }) => void;
-  onSave: () => Promise<void>;
+  onSave: () => Promise<boolean>;
+  onFingerprintDetected: (fingerprint: string) => Promise<boolean>;
 }
 
 function deriveServerHost(): string {
@@ -25,7 +30,8 @@ export function ClientConnectView({
   clientAlternateURLs,
   clientTLSFingerprint,
   onConfigChange,
-  onSave
+  onSave,
+  onFingerprintDetected
 }: ClientConnectViewProps) {
   const [pairing, setPairing] = useState<DevicePairingRecord | null>(null);
   const [pairingError, setPairingError] = useState("");
@@ -33,6 +39,8 @@ export function ClientConnectView({
   const [isLoading, setIsLoading] = useState(false);
   const [copied, setCopied] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  const [isDetectingFingerprint, setIsDetectingFingerprint] = useState(false);
+  const [fingerprintStatus, setFingerprintStatus] = useState("");
 
   const defaultHost = deriveServerHost();
   const host = defaultHost;
@@ -94,10 +102,26 @@ export function ClientConnectView({
   async function saveAndGenerate() {
     setIsSaving(true);
     try {
-      await onSave();
-      await issuePairing();
+      if (await onSave()) {
+        await issuePairing();
+      }
     } finally {
       setIsSaving(false);
+    }
+  }
+
+  async function detectFingerprint() {
+    setIsDetectingFingerprint(true);
+    setFingerprintStatus("");
+    try {
+      if (!await onSave()) return;
+      const detected = await detectClientTLSFingerprint();
+      if (!await onFingerprintDetected(detected.fingerprint)) return;
+      setFingerprintStatus(`Detected and saved from ${detected.url}.`);
+    } catch (error) {
+      setFingerprintStatus(error instanceof Error ? error.message : "Could not detect the TLS fingerprint.");
+    } finally {
+      setIsDetectingFingerprint(false);
     }
   }
 
@@ -191,21 +215,36 @@ export function ClientConnectView({
 
             <label style={{ gridColumn: "1 / -1" }}>
               TLS Certificate SHA-256 Fingerprint
-              <input
-                type="text"
-                value={clientTLSFingerprint}
-                onChange={(event) => onConfigChange({
-                  clientPublicURL,
-                  clientAlternateURLs,
-                  clientTLSFingerprint: event.target.value
-                })}
-                placeholder="64 hexadecimal characters"
-                autoComplete="off"
-                spellCheck={false}
-              />
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                <input
+                  type="text"
+                  value={clientTLSFingerprint}
+                  onChange={(event) => onConfigChange({
+                    clientPublicURL,
+                    clientAlternateURLs,
+                    clientTLSFingerprint: event.target.value
+                  })}
+                  placeholder="64 hexadecimal characters"
+                  autoComplete="off"
+                  spellCheck={false}
+                  style={{ flex: 1 }}
+                />
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => void detectFingerprint()}
+                  disabled={isDetectingFingerprint || isSaving || !clientPublicURL.trim().startsWith("https://")}
+                  style={{ whiteSpace: "nowrap" }}
+                >
+                  {isDetectingFingerprint ? "Detecting…" : "Detect & save"}
+                </button>
+              </div>
               <span className="entry-form-hint">
                 Optional certificate pin for HTTPS on a raw IP or private CA. It is embedded in the short-lived setup code.
               </span>
+              {fingerprintStatus ? (
+                <span className="entry-form-hint" role="status">{fingerprintStatus}</span>
+              ) : null}
             </label>
           </div>
 

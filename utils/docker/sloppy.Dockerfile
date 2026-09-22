@@ -32,6 +32,7 @@ ENV DEBIAN_FRONTEND=noninteractive
 ENV SLOPPY_DEPLOYMENT_KIND=docker
 RUN apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
+    openssl \
     tzdata \
     libsqlite3-dev \
     libcurl4 \

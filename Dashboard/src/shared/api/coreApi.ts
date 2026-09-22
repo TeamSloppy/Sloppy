@@ -52,6 +52,24 @@ export async function prepareClientConnection(signal?: AbortSignal): Promise<Cli
   return { mode: "login_password", pairing: response.data };
 }
 
+export interface TLSCertificateFingerprintResponse {
+  url: string;
+  algorithm: "sha256";
+  fingerprint: string;
+}
+
+export async function detectClientTLSFingerprint(): Promise<TLSCertificateFingerprintResponse> {
+  const response = await requestJson<TLSCertificateFingerprintResponse>({
+    path: "/v1/auth/device-pairing/tls-fingerprint",
+    method: "POST",
+    body: {}
+  });
+  if (!response.ok || !response.data) {
+    throw new Error(formatHttpError(response.status, response.data));
+  }
+  return response.data;
+}
+
 export interface MemoryBrowserItem {
   id: string;
   note: string;

@@ -4,6 +4,7 @@ import Observation
 import SwiftUI
 import SloppyClientCore
 import SloppyClientUI
+import SloppyRemoteProtocol
 
 #if os(iOS)
 import SloppyLiveActivity
@@ -77,6 +78,10 @@ final class RootShellViewModel {
     }
 
     func handleDeepLink(_ url: URL) {
+        if let code = try? RemotePairingCode.decode(url) {
+            claimManagedRemote(code)
+            return
+        }
         if let pairing = DevicePairingLink.parse(url) {
             redeemDevicePairing(pairing)
             return
@@ -98,6 +103,59 @@ final class RootShellViewModel {
             connect(to: settings.baseURL)
         }
         appDeepLinkRequest = AppDeepLinkRequest(deepLink: deepLink)
+    }
+
+    func connectManagedRemote() {
+        guard let credential = ManagedRemoteCredentialStore.load(),
+              credential.device.kind == .mobile else {
+            showConnectionSetup()
+            return
+        }
+        appState = .pairing(credential.relayURL)
+        Task { @MainActor in
+            do {
+                let client = ManagedRemoteClient(relayURL: credential.relayURL)
+                let hosts = try await client.hosts()
+                settings.installManagedHosts(hosts, relayURL: credential.relayURL)
+                try await ManagedRemoteConnection.shared.connect()
+                connectionMonitor.start(baseURL: credential.relayURL)
+                appState = .chat(credential.relayURL)
+            } catch {
+                showConnectionSetup()
+                showBanner(for: AppNotification(
+                    type: .systemError,
+                    title: "Remote unavailable",
+                    message: Self.errorDescription(error)
+                ))
+            }
+        }
+    }
+
+    private func claimManagedRemote(_ code: RemotePairingCode) {
+        let priorState = appState
+        appState = .pairing(code.relayURL)
+        Task { @MainActor in
+            do {
+                let client = ManagedRemoteClient(relayURL: code.relayURL)
+                #if os(iOS)
+                let name = UIDevice.current.name
+                _ = try await client.claimPhonePairing(code, name: name)
+                connectManagedRemote()
+                #else
+                let name = Host.current().localizedName ?? "Sloppy Mac"
+                _ = try await client.claimHostPairing(code, name: name)
+                await ManagedRemoteHostManager.shared.startIfNeeded(localCoreURL: settings.baseURL)
+                appState = priorState
+                #endif
+            } catch {
+                showConnectionSetup()
+                showBanner(for: AppNotification(
+                    type: .systemError,
+                    title: "Pairing failed",
+                    message: Self.errorDescription(error)
+                ))
+            }
+        }
     }
 
     func startDesktopWindowIntegration() {

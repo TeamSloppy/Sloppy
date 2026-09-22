@@ -227,6 +227,21 @@ public actor BackendHTTPClient {
         timeout: TimeInterval? = nil,
         contentType: String = "application/json"
     ) async throws -> Data {
+        if case .managed(_, let targetDeviceID) = endpoint {
+            let response = try await ManagedRemoteConnection.shared.sendCoreRequest(
+                to: targetDeviceID,
+                method: method,
+                path: normalizedTargetPath(path),
+                body: bodyData
+            )
+            guard (200..<300).contains(response.status) else {
+                throw APIError.httpError(
+                    statusCode: response.status,
+                    body: String(data: response.body, encoding: .utf8)
+                )
+            }
+            return response.body
+        }
         let initialToken = await resolvedAuthToken()
         let initial = try await send(
             method: method,
@@ -397,6 +412,8 @@ public actor BackendHTTPClient {
                 string: "/v1/node/mesh/nodes/\(encodedNodeID)/core",
                 relativeTo: coordinatorBaseURL
             )?.absoluteURL ?? coordinatorBaseURL
+        case .managed:
+            throw APIError.invalidResponse
         }
 
         var request = URLRequest(url: requestURL)
@@ -430,6 +447,8 @@ public actor BackendHTTPClient {
             )
             request.setValue("application/json", forHTTPHeaderField: "Content-Type")
             request.httpBody = try encoder.encode(payload)
+        case .managed:
+            throw APIError.invalidResponse
         }
         return request
     }

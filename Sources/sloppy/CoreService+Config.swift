@@ -69,6 +69,7 @@ extension CoreService {
 
         let previousChannels = currentConfig.channels
         currentConfig = config
+        await semanticModelRouter.updateConfig(config.semanticDecisions)
         let refreshedStore = persistenceBuilder.makeStore(config: config)
         store = refreshedStore
         workspaceRootURL = config

@@ -185,6 +185,7 @@ actor AgentSessionOrchestrator {
     private let agentSkillsStore: AgentSkillsFileStore?
     private let acpSessionManager: ACPSessionManager?
     private let promptComposer: AgentPromptComposer
+    private let semanticModelRouter: SemanticModelRouter?
     private var availableModels: [ProviderModelOption]
     private var persistedModelContext: (config: CoreConfig, hasOAuthCredentials: Bool)
     private let logger: Logger
@@ -224,6 +225,7 @@ actor AgentSessionOrchestrator {
         agentSkillsStore: AgentSkillsFileStore? = nil,
         acpSessionManager: ACPSessionManager? = nil,
         promptComposer: AgentPromptComposer = AgentPromptComposer(),
+        semanticModelRouter: SemanticModelRouter? = nil,
         availableModels: [ProviderModelOption],
         persistedModelContext: (config: CoreConfig, hasOAuthCredentials: Bool) = (CoreConfig.default, false),
         toolInvoker: ToolInvoker? = nil,
@@ -240,6 +242,7 @@ actor AgentSessionOrchestrator {
         self.agentSkillsStore = agentSkillsStore
         self.acpSessionManager = acpSessionManager
         self.promptComposer = promptComposer
+        self.semanticModelRouter = semanticModelRouter
         self.availableModels = availableModels
         self.persistedModelContext = persistedModelContext
         self.toolInvoker = toolInvoker
@@ -392,12 +395,38 @@ actor AgentSessionOrchestrator {
             throw OrchestratorError.storageFailure
         }
 
+        let content = effectiveRequest.content.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !content.isEmpty || !effectiveRequest.attachments.isEmpty else {
+            throw OrchestratorError.invalidPayload
+        }
+
         let catalogModel = agentConfig.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
         let availableModelIDs = Set(agentConfig.availableModels.map(\.id))
         let overrideRaw = effectiveRequest.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
         let selectedModel: String?
         if let raw = overrideRaw, !raw.isEmpty, availableModelIDs.contains(raw) {
             selectedModel = raw
+        } else if overrideRaw?.isEmpty != false,
+                  let semanticModelRouter,
+                  let route = await semanticModelRouter.route(
+                    channelID: sessionChannelID(agentID: agentID, sessionID: sessionID),
+                    userRequest: content,
+                    chatMode: effectiveRequest.mode,
+                    attachmentTypes: effectiveRequest.attachments.map(\.mimeType),
+                    availableModelIDs: availableModelIDs
+                  ) {
+            selectedModel = route.shouldApply
+                ? route.model
+                : ((catalogModel?.isEmpty == false) ? catalogModel : nil)
+            logger.info("Semantic executor model route evaluated", metadata: [
+                "agent_id": .string(agentID),
+                "session_id": .string(sessionID),
+                "profile": .string(route.profile),
+                "model": .string(route.model),
+                "confidence": .stringConvertible(route.confidence),
+                "mode": .string(route.mode.rawValue),
+                "applied": .stringConvertible(route.shouldApply),
+            ])
         } else {
             selectedModel = (catalogModel?.isEmpty == false) ? catalogModel : nil
         }
@@ -412,11 +441,6 @@ actor AgentSessionOrchestrator {
         let reasoningEffort = agentConfig.runtime.type == .native && selectedModelCapabilities.contains("reasoning")
             ? (effectiveRequest.reasoningEffort ?? agentConfig.reasoningEffort)
             : nil
-
-        let content = effectiveRequest.content.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !content.isEmpty || !effectiveRequest.attachments.isEmpty else {
-            throw OrchestratorError.invalidPayload
-        }
 
         let verificationChannelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
         sessionVerificationEvidenceByChannel[verificationChannelID] = []

@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import SloppyRemoteProtocol
 
 @Observable
 @MainActor
@@ -19,6 +20,7 @@ public final class ClientSettings {
         static let lastSessionId = "client_last_session_id"
         static let pinnedSessionIds = "client_pinned_session_ids"
         static let archivedSessionIds = "client_archived_session_ids"
+        static let viewedSessionResultEvents = "client_viewed_session_result_events"
         static let savedServers = "client_saved_servers"
         static let meshTargetNodeId = "client_mesh_target_node_id"
         static let instanceSelection = "client_instance_selection"
@@ -92,6 +94,10 @@ public final class ClientSettings {
         }
     }
 
+    public var viewedSessionResultEvents: [String: String] {
+        didSet { UserDefaults.standard.set(viewedSessionResultEvents, forKey: Keys.viewedSessionResultEvents) }
+    }
+
     public var meshTargetNodeId: String? {
         didSet {
             UserDefaults.standard.set(meshTargetNodeId, forKey: Keys.meshTargetNodeId)
@@ -150,6 +156,7 @@ public final class ClientSettings {
         lastSessionId = defaults.string(forKey: Keys.lastSessionId)
         pinnedSessionIds = Set(defaults.stringArray(forKey: Keys.pinnedSessionIds) ?? [])
         archivedSessionIds = Set(defaults.stringArray(forKey: Keys.archivedSessionIds) ?? [])
+        viewedSessionResultEvents = defaults.dictionary(forKey: Keys.viewedSessionResultEvents) as? [String: String] ?? [:]
 
         if let data = defaults.data(forKey: Keys.savedServers),
            let servers = try? JSONDecoder().decode([SavedServer].self, from: data) {
@@ -194,6 +201,28 @@ public final class ClientSettings {
             isLocal: true
         )
         discoveredInstances = [instance]
+    }
+
+    public func installManagedHosts(_ hosts: [RemoteDevice], relayURL: URL) {
+        let existing = discoveredInstances.filter {
+            if case .managed = $0.endpoint { return false }
+            return true
+        }
+        let managed = hosts.filter { $0.kind == .host && $0.status == .active }
+            .map { host in
+                SloppyInstance(
+                    id: "managed:\(host.spaceID):\(host.id)",
+                    name: host.name,
+                    endpoint: .managed(relayURL: relayURL, targetDeviceID: host.id),
+                    status: host.online == true ? .online : .offline,
+                    isLocal: false
+                )
+            }
+        discoveredInstances = existing + managed
+        if selectedInstance == nil, !existing.contains(where: \.isLocal),
+           let first = managed.first {
+            instanceSelection = .instance(first.id)
+        }
     }
 
     public var selectedInstance: SloppyInstance? {

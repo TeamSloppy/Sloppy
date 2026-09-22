@@ -15,10 +15,13 @@ let package = Package(
         .library(name: "ChannelPluginTelegram", targets: ["ChannelPluginTelegram"]),
         .library(name: "ChannelPluginDiscord", targets: ["ChannelPluginDiscord"]),
         .library(name: "SloppyNodeCore", targets: ["SloppyNodeCore"]),
+        .library(name: "ManagedRelayCore", targets: ["ManagedRelayCore"]),
         .executable(name: "sloppy", targets: ["sloppy"]),
         .executable(name: "SloppyNode", targets: ["SloppyNode"]),
+        .executable(name: "SloppyRelay", targets: ["SloppyRelay"]),
     ],
     dependencies: [
+        .package(path: "Packages/SloppyRemoteProtocol"),
         .package(path: "Packages/SloppyComputerControl"),
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
         .package(url: "https://github.com/apple/swift-configuration.git", from: "0.2.0"),
@@ -32,6 +35,7 @@ let package = Package(
         .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.11.0"),
         .package(url: "https://github.com/TeamSloppy/swift-acp.git", branch: "main"),
         .package(url: "https://github.com/swiftlang/swift-tools-protocols.git", branch: "main"),
+        .package(url: "https://github.com/vapor/postgres-nio.git", from: "1.21.0"),
     ],
     targets: [
         .target(
@@ -137,6 +141,31 @@ let package = Package(
             path: "Sources/NodeCore"
         ),
         .target(
+            name: "ManagedRelayCore",
+            dependencies: [
+                .product(name: "SloppyRemoteProtocol", package: "SloppyRemoteProtocol"),
+                .product(name: "PostgresNIO", package: "postgres-nio"),
+                .product(name: "Logging", package: "swift-log"),
+            ],
+            path: "Sources/ManagedRelayCore",
+            resources: [.process("schema.sql")]
+        ),
+        .executableTarget(
+            name: "SloppyRelay",
+            dependencies: [
+                "ManagedRelayCore",
+                .product(name: "SloppyRemoteProtocol", package: "SloppyRemoteProtocol"),
+                .product(name: "ArgumentParser", package: "swift-argument-parser"),
+                .product(name: "Logging", package: "swift-log"),
+                .product(name: "NIOCore", package: "swift-nio"),
+                .product(name: "NIOPosix", package: "swift-nio"),
+                .product(name: "NIOHTTP1", package: "swift-nio"),
+                .product(name: "NIOWebSocket", package: "swift-nio"),
+                .product(name: "PostgresNIO", package: "postgres-nio"),
+            ],
+            path: "Sources/SloppyRelay"
+        ),
+        .target(
             name: "ChannelPluginTelegram",
             dependencies: [
                 "ChannelPluginSupport",
@@ -197,6 +226,14 @@ let package = Package(
                 "Protocols",
             ],
             path: "Tests/SloppyNodeCoreTests"
+        ),
+        .testTarget(
+            name: "ManagedRelayCoreTests",
+            dependencies: [
+                "ManagedRelayCore",
+                .product(name: "SloppyRemoteProtocol", package: "SloppyRemoteProtocol"),
+            ],
+            path: "Tests/ManagedRelayCoreTests"
         ),
         .target(
             name: "CSQLite3",

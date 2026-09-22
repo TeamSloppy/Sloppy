@@ -185,21 +185,28 @@ private final class RemoteInferenceURLProtocol: URLProtocol, @unchecked Sendable
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
         let handler = Self.handler
+        let request = self.request
+        let capturedProtocol = RemoteInferenceProtocolBox(value: self)
         loadingTask = Task<Void, Never> {
+            let protocolInstance = capturedProtocol.value
             do {
                 guard let handler else { throw URLError(.unknown) }
                 let response = try await handler(request)
                 let http = HTTPURLResponse(url: request.url!, statusCode: response.status, httpVersion: nil, headerFields: ["Content-Type": response.contentType])!
-                client?.urlProtocol(self, didReceive: http, cacheStoragePolicy: .notAllowed)
+                protocolInstance.client?.urlProtocol(protocolInstance, didReceive: http, cacheStoragePolicy: .notAllowed)
                 if let stream = response.sseStream {
                     for await event in stream {
                         let frame = "event: \(event.event)\ndata: \(String(decoding: event.data, as: UTF8.self))\n\n"
-                        client?.urlProtocol(self, didLoad: Data(frame.utf8))
+                        protocolInstance.client?.urlProtocol(protocolInstance, didLoad: Data(frame.utf8))
                     }
-                } else { client?.urlProtocol(self, didLoad: response.body) }
-                client?.urlProtocolDidFinishLoading(self)
-            } catch { client?.urlProtocol(self, didFailWithError: error) }
+                } else { protocolInstance.client?.urlProtocol(protocolInstance, didLoad: response.body) }
+                protocolInstance.client?.urlProtocolDidFinishLoading(protocolInstance)
+            } catch { protocolInstance.client?.urlProtocol(protocolInstance, didFailWithError: error) }
         }
     }
     override func stopLoading() { loadingTask?.cancel() }
+}
+
+private struct RemoteInferenceProtocolBox<Value>: @unchecked Sendable {
+    let value: Value
 }

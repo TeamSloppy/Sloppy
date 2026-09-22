@@ -1,0 +1,89 @@
+name: sloppy-relay-${RELAY_ENV:?Set test or prod}
+
+services:
+  postgres:
+    image: ${RELAY_POSTGRES_IMAGE:?Set an immutable postgres image digest}
+    environment:
+      POSTGRES_USER: relay_service
+      POSTGRES_DB: relay
+      POSTGRES_PASSWORD_FILE: /run/secrets/postgres_password
+    secrets:
+      - postgres_password
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - database
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U relay_service -d relay"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+    restart: unless-stopped
+
+  relay:
+    image: ${RELAY_IMAGE:?Set an immutable SloppyRelay image digest}
+    command:
+      - serve
+      - --database-url-file
+      - /run/secrets/relay_database_url
+      - --public-url
+      - ${RELAY_PUBLIC_URL:?Set HTTPS public URL}
+      - --host
+      - 0.0.0.0
+      - --port
+      - "25111"
+    environment:
+      SLOPPY_RELAY_PEPPER_FILE: /run/secrets/relay_pepper
+    secrets:
+      - relay_database_url
+      - relay_pepper
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - frontend
+      - database
+    expose:
+      - "25111"
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://127.0.0.1:25111/readyz"]
+      interval: 15s
+      timeout: 4s
+      retries: 8
+    restart: unless-stopped
+
+  backup:
+    profiles: ["maintenance"]
+    image: ${RELAY_POSTGRES_IMAGE:?Set an immutable postgres image digest}
+    entrypoint: ["/bin/sh", "/scripts/relay-backup-entrypoint.sh"]
+    environment:
+      PGHOST: postgres
+    secrets:
+      - postgres_password
+    volumes:
+      - relay_backups:/backups
+      - ../../scripts/relay-backup.sh:/scripts/relay-backup.sh:ro
+      - ../../scripts/relay-backup-entrypoint.sh:/scripts/relay-backup-entrypoint.sh:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - database
+
+secrets:
+  postgres_password:
+    file: ${RELAY_POSTGRES_PASSWORD_FILE:?Set postgres password secret file}
+  relay_database_url:
+    file: ${RELAY_DATABASE_URL_FILE:?Set database URL secret file}
+  relay_pepper:
+    file: ${RELAY_PEPPER_FILE:?Set relay pepper secret file}
+
+volumes:
+  postgres_data:
+  relay_backups:
+
+networks:
+  frontend:
+    name: sloppy-relay-${RELAY_ENV:?Set test or prod}-frontend
+  database:
+    internal: true

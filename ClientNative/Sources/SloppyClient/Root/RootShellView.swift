@@ -56,6 +56,13 @@ struct RootShellView: View {
             }
             #if os(macOS)
             .task {
+                await ManagedRemoteHostManager.shared.startIfNeeded(
+                    localCoreURL: viewModel.settings.baseURL
+                )
+            }
+            #endif
+            #if os(macOS)
+            .task {
                 viewModel.configureMainWindowOpener {
                     openWindow(id: "main")
                 }
@@ -89,6 +96,8 @@ private struct RootShellContent: View {
                     switch result {
                     case .connected(let url):
                         rootViewModel.connect(to: url)
+                    case .managed:
+                        rootViewModel.connectManagedRemote()
                     case .needsSetup:
                         rootViewModel.showConnectionSetup()
                     }

@@ -4,6 +4,7 @@ import Vision
 import VisionKit
 import SloppyClientCore
 import SloppyClientUI
+import SloppyRemoteProtocol
 
 @MainActor
 struct QRCodeScannerButton: View {
@@ -85,8 +86,10 @@ private struct QRCodeScannerSheet: View {
     }
 
     private func handlePayload(_ payload: String) {
-        guard let url = URL(string: payload), DevicePairingLink.parse(url) != nil else {
-            errorMessage = "This is not a Sloppy Dashboard pairing code."
+        guard let url = URL(string: payload),
+              DevicePairingLink.parse(url) != nil ||
+              (try? RemotePairingCode.decode(url)) != nil else {
+            errorMessage = "This is not a Sloppy pairing code."
             return
         }
         dismiss()

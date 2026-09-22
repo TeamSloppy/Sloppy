@@ -1,0 +1,13 @@
+[Unit]
+Description=Sloppy managed relay %i PostgreSQL backup and restore smoke
+Requires=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+Environment=RELAY_ENV=%i
+EnvironmentFile=/etc/sloppy-relay/%i.env
+WorkingDirectory=/opt/sloppy-relay/current
+ExecStart=/usr/bin/docker compose -f utils/docker/relay-compose.yml --profile maintenance run --rm backup
+TimeoutStartSec=3h
+NoNewPrivileges=true

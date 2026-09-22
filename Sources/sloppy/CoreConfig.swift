@@ -69,6 +69,61 @@ public struct CoreConfig: Codable, Sendable {
         }
     }
 
+    public struct SemanticDecisions: Codable, Sendable, Equatable {
+        public enum Provider: String, Codable, Sendable, Equatable {
+            case typeSafe = "typesafe"
+            case vercel
+        }
+
+        public enum Mode: String, Codable, Sendable, Equatable {
+            case disabled
+            case shadow
+            case active
+        }
+
+        public struct ModelProfile: Codable, Sendable, Equatable {
+            public var model: String
+            public var description: String
+
+            public init(model: String, description: String) {
+                self.model = model
+                self.description = description
+            }
+        }
+
+        public var provider: Provider?
+        public var apiKeyEnvironmentVariable: String
+        public var baseURL: String?
+        public var model: String
+        public var timeoutMs: Int
+        public var executorModelRouting: Mode
+        public var minimumConfidence: Double
+        public var inputCostPerMillionTokensUSD: Double
+        public var modelProfiles: [String: ModelProfile]
+
+        public init(
+            provider: Provider? = nil,
+            apiKeyEnvironmentVariable: String = "",
+            baseURL: String? = nil,
+            model: String = "",
+            timeoutMs: Int = 2_000,
+            executorModelRouting: Mode = .disabled,
+            minimumConfidence: Double = 0.75,
+            inputCostPerMillionTokensUSD: Double = 0.042,
+            modelProfiles: [String: ModelProfile] = [:]
+        ) {
+            self.provider = provider
+            self.apiKeyEnvironmentVariable = apiKeyEnvironmentVariable
+            self.baseURL = baseURL
+            self.model = model
+            self.timeoutMs = max(100, timeoutMs)
+            self.executorModelRouting = executorModelRouting
+            self.minimumConfidence = min(1, max(0, minimumConfidence))
+            self.inputCostPerMillionTokensUSD = max(0, inputCostPerMillionTokensUSD)
+            self.modelProfiles = modelProfiles
+        }
+    }
+
     public struct PluginConfig: Codable, Sendable, Equatable {
         public var title: String
         public var apiKey: String
@@ -1949,6 +2004,7 @@ public struct CoreConfig: Codable, Sendable {
     public var tui: TUI
     public var coffeeMode: CoffeeMode
     public var models: [ModelConfig]
+    public var semanticDecisions: SemanticDecisions
     public var opencode: OpenCode
     public var disableModelInference: Bool
     public var sessionRetention: SessionRetention
@@ -1991,6 +2047,7 @@ public struct CoreConfig: Codable, Sendable {
         tui: TUI = TUI(),
         coffeeMode: CoffeeMode = CoffeeMode(),
         models: [ModelConfig],
+        semanticDecisions: SemanticDecisions = SemanticDecisions(),
         opencode: OpenCode = OpenCode(),
         sessionRetention: SessionRetention = SessionRetention(),
         agentRuntimeContext: AgentRuntimeContextConfig = AgentRuntimeContextConfig(),
@@ -2031,6 +2088,7 @@ public struct CoreConfig: Codable, Sendable {
         self.tui = tui
         self.coffeeMode = coffeeMode
         self.models = models
+        self.semanticDecisions = semanticDecisions
         self.opencode = opencode
         self.sessionRetention = sessionRetention
         self.agentRuntimeContext = agentRuntimeContext
@@ -2167,6 +2225,7 @@ public struct CoreConfig: Codable, Sendable {
         case tui
         case coffeeMode
         case models
+        case semanticDecisions
         case opencode
         case sessionRetention
         case agentRuntimeContext
@@ -2241,6 +2300,7 @@ public struct CoreConfig: Codable, Sendable {
         nodeMeshStatePath = try container.decodeIfPresent(String.self, forKey: .nodeMeshStatePath) ?? Self.defaultNodeMeshStateFileName
         sqlitePath = try container.decode(String.self, forKey: .sqlitePath)
         models = try container.decodeIfPresent([ModelConfig].self, forKey: .models) ?? []
+        semanticDecisions = try container.decodeIfPresent(SemanticDecisions.self, forKey: .semanticDecisions) ?? .init()
         opencode = try container.decodeIfPresent(OpenCode.self, forKey: .opencode) ?? .init()
         plugins = try container.decodeIfPresent([PluginConfig].self, forKey: .plugins) ?? []
         modelRouting = try container.decodeIfPresent([String: String].self, forKey: .modelRouting) ?? [:]
@@ -2257,6 +2317,9 @@ public struct CoreConfig: Codable, Sendable {
         try container.encode(tui, forKey: .tui)
         try container.encode(coffeeMode, forKey: .coffeeMode)
         try container.encode(models, forKey: .models)
+        if semanticDecisions != SemanticDecisions() {
+            try container.encode(semanticDecisions, forKey: .semanticDecisions)
+        }
         try container.encode(opencode, forKey: .opencode)
         try container.encode(sessionRetention, forKey: .sessionRetention)
         try container.encode(agentRuntimeContext, forKey: .agentRuntimeContext)

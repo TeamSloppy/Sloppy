@@ -430,9 +430,10 @@ export function ConfigView({
   async function saveConfig() {
     try {
       const payload = isRawMode ? normalizeConfig(JSON.parse(rawConfig)) : draftConfig;
-      await persistConfig(payload);
+      return await persistConfig(payload);
     } catch {
       setStatusText("Invalid raw JSON");
+      return false;
     }
   }
 
@@ -1799,7 +1800,12 @@ export function ConfigView({
             draft.clientAlternateURLs = patch.clientAlternateURLs;
             draft.clientTLSFingerprint = patch.clientTLSFingerprint || null;
           })}
-          onSave={async () => { await saveConfig(); }}
+          onSave={saveConfig}
+          onFingerprintDetected={async (fingerprint) => {
+            const next = clone(draftConfig);
+            next.clientTLSFingerprint = fingerprint;
+            return await persistConfig(next);
+          }}
         />
       );
     }

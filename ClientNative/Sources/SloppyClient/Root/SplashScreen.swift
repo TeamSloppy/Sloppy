@@ -5,6 +5,7 @@ import SloppyClientUI
 
 enum SplashResult {
     case connected(URL)
+    case managed
     case needsSetup
 }
 
@@ -60,6 +61,12 @@ struct SplashScreen: View {
 
     @MainActor
     private func attemptConnection() async {
+        #if !os(macOS)
+        if ManagedRemoteCredentialStore.load()?.device.kind == .mobile {
+            onResult(.managed)
+            return
+        }
+        #endif
         // 1. Try configured host:port (includes default localhost:25101 on first launch).
         status = "Trying \(settings.serverHost):\(settings.serverPort)..."
         let url = settings.baseURL

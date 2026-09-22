@@ -11,6 +11,7 @@ final class WorkspaceTerminalSession {
         let apiClient: SloppyAPIClient
         let coordinatorBaseURL: URL
         let targetNodeID: String
+        let managedDeviceID: UUID?
         let projectID: String?
     }
 

@@ -196,6 +196,8 @@ public actor CoreService {
     /// Retained for checkpoint / one-off model sessions (also held inside `runtime`).
     var modelProvider: (any ModelProvider)?
     let runtime: RuntimeSystem
+    let semanticDecisionUsageMeter: SemanticDecisionUsageMeter
+    let semanticModelRouter: SemanticModelRouter
     let memoryStore: any MemoryStore
     lazy var memoryImports = MemoryImportService(root: workspaceRootURL.appendingPathComponent("memory-imports", isDirectory: true), memoryStore: memoryStore)
     let hybridMemoryStore: HybridMemoryStore?
@@ -523,12 +525,18 @@ public actor CoreService {
             workspaceRootURL: self.workspaceRootURL,
             agentsRootURL: self.agentsRootURL
         )
+        self.semanticDecisionUsageMeter = SemanticDecisionUsageMeter()
+        self.semanticModelRouter = SemanticModelRouter(
+            config: config.semanticDecisions,
+            usageMeter: self.semanticDecisionUsageMeter
+        )
         self.sessionOrchestrator = AgentSessionOrchestrator(
             runtime: self.runtime,
             sessionStore: orchestratorSessionStore,
             agentCatalogStore: orchestratorCatalogStore,
             agentSkillsStore: orchestratorSkillsStore,
             acpSessionManager: self.acpSessionManager,
+            semanticModelRouter: self.semanticModelRouter,
             availableModels: initialAvailableAgentModels,
             persistedModelContext: (config, hasOAuth),
             logger: .sloppy(label: "sloppy.core.sessions")

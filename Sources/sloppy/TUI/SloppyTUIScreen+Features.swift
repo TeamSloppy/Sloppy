@@ -34,6 +34,7 @@ enum SloppyTUIContextUsageSummaryBuilder {
             contextWindowTokens: contextWindowTokens,
             pendingContextAttached: pendingContextAttached,
             pendingUploadCount: pendingUploadCount,
+            semanticDecisionUsage: usage.semanticDecisionUsage,
             ledgerCategories: ledgerCategories,
             lastTurnInputTokens: ledger?.lastTurnInputTokens ?? 0,
             lastTurnCachedInputTokens: ledger?.lastTurnCachedInputTokens ?? 0,

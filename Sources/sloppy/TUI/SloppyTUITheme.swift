@@ -763,6 +763,14 @@ enum SloppyTUITheme {
         }
         let pendingContext = summary.pendingContextAttached ? "yes" : "no"
         let pendingUploads = summary.pendingUploadCount > 0 ? "\(summary.pendingUploadCount)" : "none"
+        let semanticDecisionLine: String
+        if let usage = summary.semanticDecisionUsage {
+            let estimatedMarker = usage.includesEstimatedCost ? "~" : ""
+            let details = "\(usage.requestCount) calls · \(formatTokenCountShort(usage.inputTokens)) input tokens · \(estimatedMarker)\(formatUSD(usage.totalCostUSD))"
+            semanticDecisionLine = muted("JEV decisions:") + " " + foreground(details)
+        } else {
+            semanticDecisionLine = muted("JEV decisions:") + " " + foreground("disabled or unused")
+        }
         let categoryLines = summary.ledgerCategories.isEmpty
             ? "\(muted("No context ledger yet; using token usage fallback."))"
             : summary.ledgerCategories.map { item in
@@ -807,6 +815,7 @@ enum SloppyTUITheme {
 
         \(muted("Pending next-message context:")) \(foreground(pendingContext))
         \(muted("Pending uploads:")) \(foreground(pendingUploads))
+        \(semanticDecisionLine)
         ```
 
         Attach workspace context with `/context changes` or `/context diff`.

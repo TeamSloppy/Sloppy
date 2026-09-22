@@ -3,16 +3,19 @@ import Foundation
 public enum SloppyInstanceEndpoint: Codable, Equatable, Sendable {
     case direct(baseURL: URL)
     case relay(coordinatorBaseURL: URL, targetNodeID: String)
+    case managed(relayURL: URL, targetDeviceID: UUID)
 
     private enum CodingKeys: String, CodingKey {
         case kind
         case baseURL
         case targetNodeID
+        case targetDeviceID
     }
 
     private enum Kind: String, Codable {
         case direct
         case relay
+        case managed
     }
 
     public var coordinatorBaseURL: URL {
@@ -21,6 +24,8 @@ public enum SloppyInstanceEndpoint: Codable, Equatable, Sendable {
             baseURL
         case .relay(let coordinatorBaseURL, _):
             coordinatorBaseURL
+        case .managed(let relayURL, _):
+            relayURL
         }
     }
 
@@ -40,6 +45,8 @@ public enum SloppyInstanceEndpoint: Codable, Equatable, Sendable {
             return "direct:\(baseURL.absoluteString)"
         case .relay(let coordinatorBaseURL, let targetNodeID):
             return "relay:\(coordinatorBaseURL.absoluteString):\(targetNodeID)"
+        case .managed(let relayURL, let targetDeviceID):
+            return "managed:\(relayURL.absoluteString):\(targetDeviceID)"
         }
     }
 
@@ -52,6 +59,11 @@ public enum SloppyInstanceEndpoint: Codable, Equatable, Sendable {
             self = .relay(
                 coordinatorBaseURL: try container.decode(URL.self, forKey: .baseURL),
                 targetNodeID: try container.decode(String.self, forKey: .targetNodeID)
+            )
+        case .managed:
+            self = .managed(
+                relayURL: try container.decode(URL.self, forKey: .baseURL),
+                targetDeviceID: try container.decode(UUID.self, forKey: .targetDeviceID)
             )
         }
     }
@@ -66,6 +78,10 @@ public enum SloppyInstanceEndpoint: Codable, Equatable, Sendable {
             try container.encode(Kind.relay, forKey: .kind)
             try container.encode(coordinatorBaseURL, forKey: .baseURL)
             try container.encode(targetNodeID, forKey: .targetNodeID)
+        case .managed(let relayURL, let targetDeviceID):
+            try container.encode(Kind.managed, forKey: .kind)
+            try container.encode(relayURL, forKey: .baseURL)
+            try container.encode(targetDeviceID, forKey: .targetDeviceID)
         }
     }
 }

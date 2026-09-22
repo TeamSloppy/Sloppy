@@ -94,6 +94,17 @@ private actor SessionCapturingModelProvider: ModelProvider {
     func requestedTranscriptsSnapshot() -> [[String]] { callStore.transcripts }
 }
 
+private struct OrchestratorSemanticDecisionProvider: SemanticDecisionProvider {
+    func choose(_ request: SemanticChoiceRequest) async throws -> SemanticChoiceResponse {
+        SemanticChoiceResponse(
+            choice: "senior",
+            confidence: 0.99,
+            probabilities: ["fast": 0.01, "senior": 0.99],
+            usage: .init(inputTokens: 100, outputTokens: 10, costUSD: 0.0000042, costIsEstimated: true)
+        )
+    }
+}
+
 @Test
 func nativeLoopConfigUsesConfiguredToolBudget() {
     var config = CoreConfig.test
@@ -477,6 +488,111 @@ func nativeAgentRunPlansWithPlannerModelThenExecutesWithExecutorModel() async th
     #expect(prompts.count == 2)
     #expect(prompts.last?.contains("[Planner output]") == true)
     #expect(prompts.last?.contains("Captured.") == true)
+}
+
+@Test
+func explicitTurnModelOverrideWinsOverSemanticRouting() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "mock:fast", title: "Fast"),
+        ProviderModelOption(id: "mock:senior", title: "Senior"),
+    ]
+    let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
+        agentID: "semantic-override-agent",
+        selectedModel: "mock:senior",
+        availableModels: availableModels
+    )
+    let modelProvider = SessionCapturingModelProvider(models: availableModels.map(\.id))
+    let runtime = RuntimeSystem(modelProvider: modelProvider, defaultModel: "mock:senior")
+    let usageMeter = SemanticDecisionUsageMeter()
+    let semanticRouter = SemanticModelRouter(
+        config: .init(
+            provider: .typeSafe,
+            executorModelRouting: .active,
+            modelProfiles: [
+                "fast": .init(model: "mock:fast", description: "Routine"),
+                "senior": .init(model: "mock:senior", description: "Complex"),
+            ]
+        ),
+        usageMeter: usageMeter,
+        providerFactory: { _ in OrchestratorSemanticDecisionProvider() }
+    )
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        semanticModelRouter: semanticRouter,
+        availableModels: availableModels
+    )
+
+    let session = try await orchestrator.createSession(
+        agentID: "semantic-override-agent",
+        request: AgentSessionCreateRequest()
+    )
+    _ = try await orchestrator.postMessage(
+        agentID: "semantic-override-agent",
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(
+            userId: "dashboard",
+            content: "Use the explicitly selected model",
+            selectedModel: "mock:fast"
+        )
+    )
+
+    #expect(await modelProvider.requestedModelsSnapshot() == ["mock:fast", "mock:fast"])
+    #expect(await usageMeter.snapshot(channelID: "agent:semantic-override-agent:session:\(session.id)") == nil)
+}
+
+@Test
+func semanticRoutingSelectsExecutorModelForTurn() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "mock:fast", title: "Fast"),
+        ProviderModelOption(id: "mock:senior", title: "Senior"),
+    ]
+    let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
+        agentID: "semantic-route-agent",
+        selectedModel: "mock:fast",
+        availableModels: availableModels
+    )
+    let modelProvider = SessionCapturingModelProvider(models: availableModels.map(\.id))
+    let runtime = RuntimeSystem(modelProvider: modelProvider, defaultModel: "mock:fast")
+    let usageMeter = SemanticDecisionUsageMeter()
+    let semanticRouter = SemanticModelRouter(
+        config: .init(
+            provider: .typeSafe,
+            executorModelRouting: .active,
+            modelProfiles: [
+                "fast": .init(model: "mock:fast", description: "Routine"),
+                "senior": .init(model: "mock:senior", description: "Complex"),
+            ]
+        ),
+        usageMeter: usageMeter,
+        providerFactory: { _ in OrchestratorSemanticDecisionProvider() }
+    )
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        semanticModelRouter: semanticRouter,
+        availableModels: availableModels
+    )
+
+    let session = try await orchestrator.createSession(
+        agentID: "semantic-route-agent",
+        request: AgentSessionCreateRequest()
+    )
+    _ = try await orchestrator.postMessage(
+        agentID: "semantic-route-agent",
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(
+            userId: "dashboard",
+            content: "Diagnose a difficult concurrency failure"
+        )
+    )
+
+    #expect(await modelProvider.requestedModelsSnapshot() == ["mock:senior", "mock:senior"])
+    let usage = await usageMeter.snapshot(channelID: "agent:semantic-route-agent:session:\(session.id)")
+    #expect(usage?.requestCount == 1)
+    #expect(usage?.totalCostUSD == 0.0000042)
 }
 
 @Test

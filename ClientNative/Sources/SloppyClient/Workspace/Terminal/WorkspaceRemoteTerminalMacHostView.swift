@@ -2,6 +2,7 @@
 import AppKit
 import Foundation
 import SloppyClientCore
+import SloppyRemoteProtocol
 import SwiftTerm
 import SwiftUI
 
@@ -11,6 +12,7 @@ final class WorkspaceRemoteTerminalMacHostController: NSObject, WorkspaceTermina
     private var socket: URLSessionWebSocketTask?
     private var receiveTask: Task<Void, Never>?
     private var configuration: WorkspaceTerminalSession.RemoteConfiguration?
+    private var managedStreamID: UUID?
     private var isReady = false
 
     func connect(
@@ -23,6 +25,20 @@ final class WorkspaceRemoteTerminalMacHostController: NSObject, WorkspaceTermina
 
         receiveTask = Task { [weak self] in
             guard let self else { return }
+            if let deviceID = configuration.managedDeviceID {
+                do {
+                    let stream = try await ManagedRemoteConnection.shared.openStream(
+                        to: deviceID,
+                        kind: "terminal.stream",
+                        path: "/v1/dashboard/terminal/ws"
+                    )
+                    self.managedStreamID = stream.id
+                    await self.receiveManaged(stream.frames)
+                } catch {
+                    self.terminalView?.feed(byteArray: Array("\r\nManaged terminal unavailable.\r\n".utf8)[...])
+                }
+                return
+            }
             let token = await configuration.apiClient.currentAccessToken()
             guard !Task.isCancelled,
                   let url = Self.webSocketURL(configuration: configuration) else {
@@ -48,6 +64,7 @@ final class WorkspaceRemoteTerminalMacHostController: NSObject, WorkspaceTermina
         receiveTask = nil
         socket?.cancel(with: .goingAway, reason: nil)
         socket = nil
+        managedStreamID = nil
         terminalView = nil
         configuration = nil
         isReady = false
@@ -140,7 +157,54 @@ final class WorkspaceRemoteTerminalMacHostController: NSObject, WorkspaceTermina
         }
     }
 
+    private func receiveManaged(_ frames: AsyncStream<RemoteStreamFrame>) async {
+        for await frame in frames {
+            guard !Task.isCancelled else { return }
+            if frame.action == .data, let data = frame.data,
+               let terminalFrame = try? JSONDecoder().decode(RemoteTerminalServerFrame.self, from: data) {
+                await handleServerFrame(terminalFrame)
+            } else if frame.action == .close {
+                isReady = false
+                return
+            }
+        }
+        isReady = false
+    }
+
+    private func handleServerFrame(_ frame: RemoteTerminalServerFrame) async {
+        switch frame.type.lowercased() {
+        case "authenticated":
+            guard let configuration else { return }
+            await send(RemoteTerminalClientFrame(
+                type: "start", projectId: configuration.projectID, cols: 120, rows: 32
+            ))
+        case "ready":
+            isReady = true
+        case "output":
+            if let output = frame.data {
+                terminalView?.feed(byteArray: Array(output.utf8)[...])
+            }
+        case "closed", "exit":
+            isReady = false
+        case "error":
+            let message = frame.message ?? frame.code ?? "Remote terminal error"
+            terminalView?.feed(byteArray: Array("\r\n\(message)\r\n".utf8)[...])
+        default:
+            break
+        }
+    }
+
     private func send(_ frame: RemoteTerminalClientFrame) async {
+        if let managedStreamID, let deviceID = configuration?.managedDeviceID,
+           let data = try? JSONEncoder().encode(frame) {
+            try? await ManagedRemoteConnection.shared.sendStreamData(
+                id: managedStreamID,
+                hostID: deviceID,
+                kind: "terminal.stream",
+                data: data
+            )
+            return
+        }
         guard let socket,
               let data = try? JSONEncoder().encode(frame),
               let text = String(data: data, encoding: .utf8) else {
