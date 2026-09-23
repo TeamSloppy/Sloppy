@@ -358,11 +358,32 @@ export function UIEditor({ draftConfig, mutateDraft }: UIEditorProps) {
           <span style={{ fontSize: "0.85rem", color: "var(--muted)", display: "block", marginBottom: "8px" }}>
             Tool Budget
           </span>
+          <div className="settings-toggle-row">
+            <label className="agent-tools-guardrail agent-tools-guardrail-toggle">
+              <span className="agent-tools-guardrail-copy">
+                <span className="agent-tools-guardrail-title">Enable tool budget</span>
+                <span className="agent-tools-guardrail-note">Limit tool rounds in each native agent response.</span>
+              </span>
+              <span className="agent-tools-switch">
+                <input
+                  type="checkbox"
+                  checked={draftConfig?.toolBudgetEnabled === true}
+                  onChange={(event) => {
+                    mutateDraft((draft) => {
+                      draft.toolBudgetEnabled = event.target.checked;
+                    });
+                  }}
+                />
+                <span className="agent-tools-switch-track" />
+              </span>
+            </label>
+          </div>
           <label>
             Max tool rounds before budget exhaustion
             <input
               type="number"
               min={0}
+              disabled={draftConfig?.toolBudgetEnabled !== true}
               value={toolBudgetExhausted}
               onChange={(event) => {
                 mutateDraft((draft) => {

@@ -79,6 +79,32 @@ struct SemanticDecisionTests {
         #expect(decoded.semanticDecisions.modelProfiles.isEmpty)
     }
 
+    @Test("semantic decision config accepts a Dashboard API key and older payloads without it")
+    func configAPIKeyRoundTripAndCompatibility() throws {
+        let configured = CoreConfig.SemanticDecisions(
+            provider: .typeSafe,
+            apiKey: "dashboard-key",
+            executorModelRouting: .shadow,
+            modelProfiles: [
+                "fast": .init(model: "mock:fast", description: "Routine"),
+                "senior": .init(model: "mock:senior", description: "Complex"),
+            ]
+        )
+        let encoded = try JSONEncoder().encode(configured)
+        let decoded = try JSONDecoder().decode(CoreConfig.SemanticDecisions.self, from: encoded)
+        #expect(decoded.apiKey == "dashboard-key")
+        #expect(SemanticModelRouter.defaultProvider(config: decoded) != nil)
+
+        var object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        object.removeValue(forKey: "apiKey")
+        let legacy = try JSONDecoder().decode(
+            CoreConfig.SemanticDecisions.self,
+            from: JSONSerialization.data(withJSONObject: object)
+        )
+        #expect(legacy.apiKey.isEmpty)
+        #expect(legacy.executorModelRouting == .shadow)
+    }
+
     @Test("JEV adapter reads a typed choice and provider-reported Vercel cost")
     func jevChoiceAndReportedCost() async throws {
         JevMockURLProtocol.requestHandler = { request in

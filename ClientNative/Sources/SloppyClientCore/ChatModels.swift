@@ -521,13 +521,39 @@ public struct ChatModelOption: Codable, Sendable, Equatable, Identifiable {
     }
 }
 
+public enum ChatModelSelection {
+    public static let automaticJEVId = "auto:jev"
+
+    public static var automaticJEVOption: ChatModelOption {
+        ChatModelOption(
+            id: automaticJEVId,
+            title: "Auto (JEV)",
+            capabilities: []
+        )
+    }
+
+    public static func requestOverride(for selectedModelId: String) -> String? {
+        let normalized = selectedModelId.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !normalized.isEmpty, normalized != automaticJEVId else {
+            return nil
+        }
+        return normalized
+    }
+}
+
 public struct ChatContextUsage: Sendable, Equatable {
     public var usedTokens: Int
     public var limitTokens: Int
+    public var semanticDecisionUsage: ChatSemanticDecisionUsage?
 
-    public init(usedTokens: Int, limitTokens: Int) {
+    public init(
+        usedTokens: Int,
+        limitTokens: Int,
+        semanticDecisionUsage: ChatSemanticDecisionUsage? = nil
+    ) {
         self.usedTokens = max(0, usedTokens)
         self.limitTokens = max(1, limitTokens)
+        self.semanticDecisionUsage = semanticDecisionUsage
     }
 
     public var fraction: Double {
@@ -536,6 +562,40 @@ public struct ChatContextUsage: Sendable, Equatable {
 
     public var percentage: Int {
         Int((fraction * 100).rounded())
+    }
+}
+
+public struct ChatSemanticDecisionUsage: Codable, Sendable, Equatable {
+    public var requestCount: Int
+    public var inputTokens: Int
+    public var outputTokens: Int
+    public var totalCostUSD: Double
+    public var estimatedCostUSD: Double
+
+    public init(
+        requestCount: Int = 0,
+        inputTokens: Int = 0,
+        outputTokens: Int = 0,
+        totalCostUSD: Double = 0,
+        estimatedCostUSD: Double = 0
+    ) {
+        self.requestCount = max(0, requestCount)
+        self.inputTokens = max(0, inputTokens)
+        self.outputTokens = max(0, outputTokens)
+        self.totalCostUSD = max(0, totalCostUSD)
+        self.estimatedCostUSD = max(0, estimatedCostUSD)
+    }
+
+    public var includesEstimatedCost: Bool {
+        estimatedCostUSD > 0
+    }
+}
+
+public struct ChatTokenUsageResponse: Codable, Sendable, Equatable {
+    public var semanticDecisionUsage: ChatSemanticDecisionUsage?
+
+    public init(semanticDecisionUsage: ChatSemanticDecisionUsage? = nil) {
+        self.semanticDecisionUsage = semanticDecisionUsage
     }
 }
 
@@ -707,6 +767,7 @@ public struct ChatRunStatusEvent: Codable, Sendable, Equatable {
     public var details: String?
     public var expandedText: String?
     public var tokenUsage: ChatTokenUsage?
+    public var selectedModel: String?
     public var createdAt: Date?
 
     public init(
@@ -715,6 +776,7 @@ public struct ChatRunStatusEvent: Codable, Sendable, Equatable {
         details: String? = nil,
         expandedText: String? = nil,
         tokenUsage: ChatTokenUsage? = nil,
+        selectedModel: String? = nil,
         createdAt: Date? = nil
     ) {
         self.stage = stage
@@ -722,6 +784,7 @@ public struct ChatRunStatusEvent: Codable, Sendable, Equatable {
         self.details = details
         self.expandedText = expandedText
         self.tokenUsage = tokenUsage
+        self.selectedModel = selectedModel
         self.createdAt = createdAt
     }
 }

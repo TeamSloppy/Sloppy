@@ -19,13 +19,13 @@ actor SemanticModelRouter {
 
     private var config: CoreConfig.SemanticDecisions
     private let usageMeter: SemanticDecisionUsageMeter
-    private let providerFactory: ProviderFactory
+    private let providerFactory: ProviderFactory?
     private let logger: Logger
 
     init(
         config: CoreConfig.SemanticDecisions,
         usageMeter: SemanticDecisionUsageMeter,
-        providerFactory: @escaping ProviderFactory = SemanticModelRouter.defaultProvider,
+        providerFactory: ProviderFactory? = nil,
         logger: Logger = .sloppy(label: "sloppy.semantic-model-router")
     ) {
         self.config = config
@@ -45,11 +45,16 @@ actor SemanticModelRouter {
         attachmentTypes: [String],
         availableModelIDs: Set<String>
     ) async -> SemanticModelRoute? {
-        guard config.executorModelRouting != .disabled,
-              let provider = providerFactory(config)
-        else {
+        guard config.executorModelRouting != .disabled else {
             return nil
         }
+        let provider: (any SemanticDecisionProvider)?
+        if let providerFactory {
+            provider = providerFactory(config)
+        } else {
+            provider = Self.defaultProvider(config: config)
+        }
+        guard let provider else { return nil }
 
         let profiles = config.modelProfiles.filter { _, profile in
             availableModelIDs.contains(profile.model)
@@ -116,10 +121,13 @@ actor SemanticModelRouter {
         } else {
             environmentName = configuredEnvironmentName
         }
-        guard !environmentName.isEmpty,
-              let apiKey = ProcessInfo.processInfo.environment[environmentName]?.trimmingCharacters(in: .whitespacesAndNewlines),
-              !apiKey.isEmpty
-        else {
+        let environmentAPIKey = ProcessInfo.processInfo.environment[environmentName]?
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        let configuredAPIKey = config.apiKey.trimmingCharacters(in: .whitespacesAndNewlines)
+        let apiKey = [configuredAPIKey, environmentAPIKey]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .first { !$0.isEmpty }
+        guard let apiKey else {
             return nil
         }
         let defaultURL: String

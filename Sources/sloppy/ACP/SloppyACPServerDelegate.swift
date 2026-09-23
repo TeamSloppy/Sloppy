@@ -145,7 +145,7 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
             let response = NewSessionResponse(
                 sessionId: SessionId(summary.id),
                 modes: nil,
-                models: try await modelsInfo(),
+                models: try await modelsInfo(sessionID: summary.id),
                 configOptions: try await configOptions(sessionID: summary.id)
             )
 
@@ -215,7 +215,7 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
                     content: prompt.content,
                     attachments: prompt.attachments,
                     reasoningEffort: sessionOptions.reasoningEffort,
-                    selectedModel: sessionOptions.modelID,
+                    selectedModel: Self.requestModelOverride(for: sessionOptions.modelID),
                     mode: sessionOptions.mode
                 )
             )
@@ -299,9 +299,18 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
             _ = try await service.getAgentSession(agentID: agentID, sessionID: request.sessionId.value)
             let config = try await service.getAgentConfig(agentID: agentID)
             guard config.runtime.type == .native,
-                  Self.modelIDs(from: config.availableModels).contains(request.modelId)
+                  request.modelId == Self.automaticJEVModelID || Self.modelIDs(from: config.availableModels).contains(request.modelId)
             else {
                 return SetModelResponse(success: false)
+            }
+
+            if request.modelId == Self.automaticJEVModelID {
+                let defaults = Self.defaultSessionOptions(config: config)
+                _ = await sessionConfiguration.update(sessionID: request.sessionId.value, defaults: defaults) {
+                    $0.modelID = Self.automaticJEVModelID
+                    $0.reasoningEffort = nil
+                }
+                return SetModelResponse(success: true)
             }
 
             _ = try await service.updateAgentConfig(
@@ -315,6 +324,12 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
                     runtime: config.runtime
                 )
             )
+            let defaults = Self.defaultSessionOptions(config: config)
+            _ = await sessionConfiguration.update(sessionID: request.sessionId.value, defaults: defaults) {
+                $0.modelID = request.modelId
+                $0.reasoningEffort = Self.modelSupportsReasoning(request.modelId, models: config.availableModels)
+                    ? (config.reasoningEffort ?? .medium) : nil
+            }
 
             let response = SetModelResponse(success: true)
             logger.info(
@@ -360,7 +375,7 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
                     $0.mode = mode
                 }
             } else if request.configId == Self.modelConfigID {
-                guard Self.modelIDs(from: config.availableModels).contains(value) else {
+                guard value == Self.automaticJEVModelID || Self.modelIDs(from: config.availableModels).contains(value) else {
                     throw ServerError.invalidConfigOption
                 }
                 _ = await sessionConfiguration.update(sessionID: sessionID, defaults: defaults) {
@@ -477,7 +492,7 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
             let response = LoadSessionResponse(
                 sessionId: request.sessionId,
                 modes: nil,
-                models: try await modelsInfo(),
+                models: try await modelsInfo(sessionID: request.sessionId.value),
                 configOptions: try await configOptions(sessionID: request.sessionId.value)
             )
 
@@ -601,17 +616,18 @@ extension SloppyACPServerDelegate {
         return resolved.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func modelsInfo() async throws -> ModelsInfo? {
+    private func modelsInfo(sessionID: String) async throws -> ModelsInfo? {
         let config = try await service.getAgentConfig(agentID: agentID)
         guard config.runtime.type == .native else {
             return nil
         }
-        let models = Self.modelInfo(from: config.availableModels)
-        guard !models.isEmpty else {
+        let availableModels = Self.modelInfo(from: config.availableModels)
+        guard !availableModels.isEmpty else {
             return nil
         }
-        let selected = config.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let current = selected?.isEmpty == false ? selected! : models[0].modelId
+        let models = [Self.automaticJEVModel] + availableModels
+        let values = await sessionConfiguration.values(sessionID: sessionID, defaults: Self.defaultSessionOptions(config: config))
+        let current = values.modelID ?? Self.automaticJEVModelID
         return ModelsInfo(currentModelId: current, availableModels: models)
     }
 
@@ -633,7 +649,7 @@ extension SloppyACPServerDelegate {
         )
         var options = [Self.modeConfigOption(current: values.mode)]
 
-        let models = Self.modelInfo(from: config.availableModels)
+        let models = [Self.automaticJEVModel] + Self.modelInfo(from: config.availableModels)
         if let currentModelID = values.modelID, !models.isEmpty {
             options.append(Self.modelConfigOption(current: currentModelID, models: models))
             if Self.modelSupportsReasoning(currentModelID, models: config.availableModels),
@@ -750,6 +766,14 @@ extension SloppyACPServerDelegate {
                 description: modelDescription(model)
             )
         }
+    }
+
+    private static var automaticJEVModel: ModelInfo {
+        ModelInfo(modelId: automaticJEVModelID, name: "Auto (JEV)", description: "Choose the executor model for each request")
+    }
+
+    static func requestModelOverride(for selection: String?) -> String? {
+        selection == automaticJEVModelID ? nil : selection
     }
 
     private static func modelIDs(from models: [ProviderModelOption]) -> Set<String> {

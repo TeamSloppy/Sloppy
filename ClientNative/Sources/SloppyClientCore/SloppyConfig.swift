@@ -788,6 +788,7 @@ public struct SloppyConfig: Codable, Sendable {
     public var ui: UI
     public var tui: TUI
     public var toolHooks: ToolHooks
+    public var toolBudgetEnabled: Bool
     public var toolBudgetExhausted: Int
     public var modelRouting: [String: String]
     public var compactor: Compactor
@@ -813,6 +814,7 @@ public struct SloppyConfig: Codable, Sendable {
         ui: UI = UI(),
         tui: TUI = TUI(),
         toolHooks: ToolHooks = ToolHooks(),
+        toolBudgetEnabled: Bool = false,
         toolBudgetExhausted: Int = 60,
         modelRouting: [String: String] = [:],
         compactor: Compactor = Compactor(),
@@ -837,6 +839,7 @@ public struct SloppyConfig: Codable, Sendable {
         self.ui = ui
         self.tui = tui
         self.toolHooks = toolHooks
+        self.toolBudgetEnabled = toolBudgetEnabled
         self.toolBudgetExhausted = toolBudgetExhausted
         self.modelRouting = modelRouting
         self.compactor = compactor
@@ -844,7 +847,7 @@ public struct SloppyConfig: Codable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case listen, workspace, auth, onboarding, models, memory, nodes, plugins, channels, searchTools, browser, proxy, mcp, visor, gitSync, acp, ui, tui, toolHooks, toolBudgetExhausted, modelRouting, compactor, sqlitePath
+        case listen, workspace, auth, onboarding, models, memory, nodes, plugins, channels, searchTools, browser, proxy, mcp, visor, gitSync, acp, ui, tui, toolHooks, toolBudgetEnabled, toolBudgetExhausted, modelRouting, compactor, sqlitePath
     }
 
     public init(from decoder: Decoder) throws {
@@ -868,6 +871,7 @@ public struct SloppyConfig: Codable, Sendable {
         ui = try container.decodeIfPresent(UI.self, forKey: .ui) ?? UI()
         tui = try container.decodeIfPresent(TUI.self, forKey: .tui) ?? TUI()
         toolHooks = try container.decodeIfPresent(ToolHooks.self, forKey: .toolHooks) ?? ToolHooks()
+        toolBudgetEnabled = try container.decodeIfPresent(Bool.self, forKey: .toolBudgetEnabled) ?? false
         toolBudgetExhausted = try container.decodeIfPresent(Int.self, forKey: .toolBudgetExhausted) ?? 60
         modelRouting = try container.decodeIfPresent([String: String].self, forKey: .modelRouting) ?? [:]
         compactor = try container.decodeIfPresent(Compactor.self, forKey: .compactor) ?? Compactor()

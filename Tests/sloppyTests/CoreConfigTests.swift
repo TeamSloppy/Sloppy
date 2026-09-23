@@ -85,6 +85,7 @@ func missingToolBudgetExhaustedFallsBackToDefaultLimit() throws {
     let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
 
     #expect(decoded.toolBudgetExhausted == 60)
+    #expect(!decoded.toolBudgetEnabled)
 }
 
 @Test
@@ -161,6 +162,7 @@ func toolBudgetExhaustedDecodesAndEncodesAsCamelCase() throws {
           "nodes": ["local"],
           "gateways": [],
           "plugins": [],
+          "toolBudgetEnabled": true,
           "toolBudgetExhausted": 0,
           "sqlitePath": "core.sqlite"
         }
@@ -169,10 +171,12 @@ func toolBudgetExhaustedDecodesAndEncodesAsCamelCase() throws {
     let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
 
     #expect(decoded.toolBudgetExhausted == 0)
+    #expect(decoded.toolBudgetEnabled)
 
     let encoded = try JSONEncoder().encode(decoded)
     let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
     #expect(object["toolBudgetExhausted"] as? Int == 0)
+    #expect(object["toolBudgetEnabled"] as? Bool == true)
     #expect(object["tool_budget_exhausted"] == nil)
 }
 

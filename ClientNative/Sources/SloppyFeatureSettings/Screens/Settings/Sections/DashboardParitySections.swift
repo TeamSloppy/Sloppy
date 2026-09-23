@@ -282,6 +282,7 @@ struct UISection: View {
 
     @State private var draft: SloppyConfig.UI
     @State private var preTools: SloppyConfig.ToolHooks.PreTools
+    @State private var toolBudgetEnabled: Bool
     @State private var toolBudgetExhausted: Int
 
     init(config: SloppyConfig, onSave: @escaping (SloppyConfig) -> Void) {
@@ -289,6 +290,7 @@ struct UISection: View {
         self.onSave = onSave
         _draft = State(initialValue: config.ui)
         _preTools = State(initialValue: config.toolHooks.preTools)
+        _toolBudgetEnabled = State(initialValue: config.toolBudgetEnabled)
         _toolBudgetExhausted = State(initialValue: config.toolBudgetExhausted)
     }
 
@@ -330,7 +332,9 @@ struct UISection: View {
                     set: { preTools.failurePolicy = $0 }
                 ))
                 SettingsDivider()
-                SettingsFieldRow("Tool Budget Exhausted (s)", text: Binding(
+                SettingsToggleRow(label: "Tool Budget", value: toolBudgetEnabled) { toolBudgetEnabled.toggle() }
+                SettingsDivider()
+                SettingsFieldRow("Max Tool Rounds", text: Binding(
                     get: { String(toolBudgetExhausted) },
                     set: { toolBudgetExhausted = Int($0) ?? 60 }
                 ))
@@ -340,6 +344,7 @@ struct UISection: View {
                         var updated = config
                         updated.ui = draft
                         updated.toolHooks = SloppyConfig.ToolHooks(preTools: preTools)
+                        updated.toolBudgetEnabled = toolBudgetEnabled
                         updated.toolBudgetExhausted = toolBudgetExhausted
                         onSave(updated)
                     }

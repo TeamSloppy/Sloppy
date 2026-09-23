@@ -4770,6 +4770,7 @@ public struct AgentRunStatusEvent: Codable, Sendable, Equatable {
     public var details: String?
     public var expandedText: String?
     public var tokenUsage: TokenUsage?
+    public var selectedModel: String?
     public var diagnostics: AgentRunDiagnostics?
     public var createdAt: Date
 
@@ -4780,6 +4781,7 @@ public struct AgentRunStatusEvent: Codable, Sendable, Equatable {
         details: String? = nil,
         expandedText: String? = nil,
         tokenUsage: TokenUsage? = nil,
+        selectedModel: String? = nil,
         diagnostics: AgentRunDiagnostics? = nil,
         createdAt: Date = Date()
     ) {
@@ -4789,6 +4791,7 @@ public struct AgentRunStatusEvent: Codable, Sendable, Equatable {
         self.details = details
         self.expandedText = expandedText
         self.tokenUsage = tokenUsage
+        self.selectedModel = selectedModel
         self.diagnostics = diagnostics
         self.createdAt = createdAt
     }

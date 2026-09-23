@@ -82,7 +82,9 @@ extension CoreService {
         let totalCachedInput = records.reduce(0) { $0 + $1.cachedInputTokens }
         let totalCacheCreationInput = records.reduce(0) { $0 + $1.cacheCreationInputTokens }
         let totalReasoning = records.reduce(0) { $0 + $1.reasoningTokens }
-        let semanticDecisionUsage = await semanticDecisionUsageMeter.snapshot(channelID: channelId)
+        let measuredSemanticDecisionUsage = await semanticDecisionUsageMeter.snapshot(channelID: channelId)
+        let semanticDecisionUsage = measuredSemanticDecisionUsage
+            ?? (currentConfig.semanticDecisions.provider == nil ? nil : SemanticDecisionUsage())
         return TokenUsageResponse(
             items: records,
             totalPromptTokens: totalPrompt,

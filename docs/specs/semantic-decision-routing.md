@@ -21,7 +21,7 @@ The initial provider is JEV through either:
 - TypeSafe: `POST https://api.typesafe.ai/v1/systemone`;
 - Vercel AI Gateway's TypeSafe-compatible endpoint: `POST https://ai-gateway.vercel.sh/typesafe/v1/systemone`.
 
-Both transports use the same normalized internal choice contract. Credentials are read from a configured environment-variable name and are never written to `sloppy.json`, logs, receipts, or session events.
+Both transports use the same normalized internal choice contract. A credential may be entered in Dashboard and stored in local `sloppy.json`, or read from a configured environment-variable name. The config value wins. Credentials must never be logged, included in receipts/session events, or committed to source control.
 
 ## Executor model routing
 
@@ -41,6 +41,8 @@ Selection precedence is:
 4. existing runtime/provider default.
 
 An explicit but unavailable per-turn override preserves the existing fallback behavior and does not invoke JEV. The selected model is fixed for the complete turn and its tool loop.
+
+Native clients expose `Auto (JEV)` beside concrete models. Selecting a concrete model sends that model as the per-turn override. Selecting `Auto (JEV)` omits `selectedModel`, allowing Core routing to run. Run-status events include the resolved executor model so clients can show which model actually handled an automatic turn.
 
 ### Modes
 
@@ -76,6 +78,7 @@ Vercel's `provider_metadata.gateway.cost` is treated as provider-reported cost. 
 The initial counter is process-lifetime telemetry. Persistence across Core restarts is intentionally deferred until a general inference-spend ledger is specified.
 
 The `/v1/token-usage` response includes optional `semanticDecisionUsage`. The TUI `/context` card displays JEV calls, input tokens, and cost for the current session channel.
+The Native Client context-usage popover shows the same decision count, JEV input tokens, and reported or estimated cost whenever a semantic-decision provider is configured.
 
 ## Configuration
 
@@ -83,6 +86,7 @@ The `/v1/token-usage` response includes optional `semanticDecisionUsage`. The TU
 {
   "semanticDecisions": {
     "provider": "vercel",
+    "apiKey": "YOUR_JEV_API_KEY",
     "apiKeyEnvironmentVariable": "AI_GATEWAY_API_KEY",
     "executorModelRouting": "shadow",
     "minimumConfidence": 0.75,
@@ -105,7 +109,7 @@ The `/v1/token-usage` response includes optional `semanticDecisionUsage`. The TU
 }
 ```
 
-For direct TypeSafe use, set `provider` to `typesafe` and expose `TYPESAFE_API_KEY`. `baseURL` and `model` are optional escape hatches; provider-specific defaults are used when omitted.
+For direct TypeSafe use, set `provider` to `typesafe`. Enter the key in Dashboard or expose `TYPESAFE_API_KEY`. `baseURL` and `model` are optional escape hatches; provider-specific defaults are used when omitted.
 
 ## Future use cases
 
@@ -117,4 +121,3 @@ The shared provider contract may later support:
 - recovery: `retry_changed`, `alternate_tool`, `ask_user`, `stop`.
 
 Permissions, sandbox checks, path validation, rate limits, actual test/build results, and side effects remain deterministic responsibilities of Sloppy.
-

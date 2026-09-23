@@ -192,7 +192,7 @@ public struct ChatComposerView: View {
 
                     ComposerOptionsMenuView(
                         selectedModelId: viewModel.selectedModelId,
-                        models: viewModel.availableModels,
+                        models: viewModel.modelPickerOptions,
                         selectedEffort: viewModel.selectedReasoningEffort,
                         supportsReasoningEffort: selectedModelSupportsReasoningEffort,
                         selectedAgent: viewModel.selectedAgent,
@@ -254,7 +254,7 @@ public struct ChatComposerView: View {
 
                     MobileComposerModelPicker(
                         selectedModelId: viewModel.selectedModelId,
-                        models: viewModel.availableModels,
+                        models: viewModel.modelPickerOptions,
                         selectedEffort: viewModel.selectedReasoningEffort,
                         supportsReasoningEffort: selectedModelSupportsReasoningEffort,
                         onSelectModel: viewModel.pickModel,
@@ -686,7 +686,11 @@ private struct ComposerContextUsageView: View {
 
     private var accessibilityValue: String {
         guard let usage else { return "Unavailable" }
-        return "\(usage.percentage) percent, \(usage.usedTokens) of \(usage.limitTokens) tokens"
+        var value = "\(usage.percentage) percent, \(usage.usedTokens) of \(usage.limitTokens) tokens"
+        if let jev = usage.semanticDecisionUsage {
+            value += ", JEV \(jev.requestCount) decisions, \(formattedJEVCost(jev))"
+        }
+        return value
     }
 
     private func contextDetails(_ usage: ChatContextUsage) -> some View {
@@ -717,9 +721,51 @@ private struct ComposerContextUsageView: View {
                 }
             }
             .font(.system(size: theme.typography.caption))
+
+            if let jev = usage.semanticDecisionUsage {
+                Divider()
+
+                Text("JEV usage")
+                    .font(.system(size: theme.typography.caption, weight: .semibold))
+                    .foregroundColor(theme.colors.textSecondary)
+
+                Grid(alignment: .leading, horizontalSpacing: theme.spacing.l, verticalSpacing: theme.spacing.xs) {
+                    GridRow {
+                        Text("Decisions")
+                            .foregroundColor(theme.colors.textMuted)
+                        Text(jev.requestCount.formatted(.number.grouping(.automatic)))
+                            .foregroundColor(theme.colors.textPrimary)
+                            .monospacedDigit()
+                    }
+                    GridRow {
+                        Text("Input")
+                            .foregroundColor(theme.colors.textMuted)
+                        Text("\(jev.inputTokens.formatted(.number.grouping(.automatic))) tokens")
+                            .foregroundColor(theme.colors.textPrimary)
+                            .monospacedDigit()
+                    }
+                    GridRow {
+                        Text("Cost")
+                            .foregroundColor(theme.colors.textMuted)
+                        Text(formattedJEVCost(jev))
+                            .foregroundColor(theme.colors.textPrimary)
+                            .monospacedDigit()
+                    }
+                }
+                .font(.system(size: theme.typography.caption))
+            }
         }
         .padding(theme.spacing.m)
-        .frame(minWidth: 180, alignment: .leading)
+        .frame(minWidth: 210, alignment: .leading)
+    }
+
+    private func formattedJEVCost(_ usage: ChatSemanticDecisionUsage) -> String {
+        let prefix = usage.includesEstimatedCost ? "~" : ""
+        let amount = usage.totalCostUSD
+        if amount > 0, amount < 0.01 {
+            return prefix + String(format: "$%.4f", amount)
+        }
+        return prefix + String(format: "$%.2f", amount)
     }
 }
 

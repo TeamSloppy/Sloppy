@@ -160,6 +160,35 @@ struct ChatModelsTests {
         #expect(context.percentage == 100)
     }
 
+    @Test("token usage response decodes JEV decisions and estimated cost")
+    func tokenUsageResponseDecodesJEVUsage() throws {
+        let json = """
+        {
+            "totalPromptTokens": 1000,
+            "semanticDecisionUsage": {
+                "requestCount": 3,
+                "inputTokens": 1200,
+                "outputTokens": 60,
+                "totalCostUSD": 0.0042,
+                "estimatedCostUSD": 0.0042
+            }
+        }
+        """.data(using: .utf8)!
+
+        let response = try isoDecoder.decode(ChatTokenUsageResponse.self, from: json)
+        let usage = try #require(response.semanticDecisionUsage)
+        let context = ChatContextUsage(
+            usedTokens: 1_000,
+            limitTokens: 272_000,
+            semanticDecisionUsage: usage
+        )
+
+        #expect(context.semanticDecisionUsage?.requestCount == 3)
+        #expect(context.semanticDecisionUsage?.inputTokens == 1_200)
+        #expect(context.semanticDecisionUsage?.totalCostUSD == 0.0042)
+        #expect(context.semanticDecisionUsage?.includesEstimatedCost == true)
+    }
+
     @Test("run stages expose typed working state")
     func runStagesExposeTypedWorkingState() {
         #expect(ChatRunStage.thinking.isWorking)

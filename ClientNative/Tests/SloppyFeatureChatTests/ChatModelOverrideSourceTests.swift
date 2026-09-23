@@ -30,11 +30,12 @@ struct ChatModelOverrideSourceTests {
 
         #expect(source.contains("public private(set) var availableModels: [ChatModelOption] = []"))
         #expect(source.contains("public private(set) var selectedModelId: String = \"\""))
+        #expect(source.contains("[ChatModelSelection.automaticJEVOption] + availableModels"))
         #expect(source.contains("public private(set) var selectedReasoningEffort: ChatReasoningEffort = .default"))
         #expect(source.contains("apiClient.fetchAvailableModels()"))
         #expect(source.contains("public func pickModel(_ model: ChatModelOption)"))
         #expect(source.contains("public func pickReasoningEffort(_ effort: ChatReasoningEffort)"))
-        #expect(source.contains("selectedModel: selectedModelId"))
+        #expect(source.contains("selectedModel: ChatModelSelection.requestOverride(for: selectedModelId)"))
         #expect(source.contains("selectedModelSupportsReasoningEffort ? selectedReasoningEffort.payloadValue : nil"))
         #expect(source.contains("private var selectedModelSupportsReasoningEffort: Bool"))
     }

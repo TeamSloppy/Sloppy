@@ -108,6 +108,7 @@ private struct OrchestratorSemanticDecisionProvider: SemanticDecisionProvider {
 @Test
 func nativeLoopConfigUsesConfiguredToolBudget() {
     var config = CoreConfig.test
+    config.toolBudgetEnabled = true
     config.toolBudgetExhausted = 7
 
     let nativeLoopConfig = AgentSessionOrchestrator.nativeLoopConfig(
@@ -123,6 +124,7 @@ func nativeLoopConfigUsesConfiguredToolBudget() {
 @Test
 func nativeLoopConfigTreatsZeroToolBudgetAsUnlimited() {
     var config = CoreConfig.test
+    config.toolBudgetEnabled = true
     config.toolBudgetExhausted = 0
 
     let nativeLoopConfig = AgentSessionOrchestrator.nativeLoopConfig(
@@ -133,6 +135,21 @@ func nativeLoopConfigTreatsZeroToolBudgetAsUnlimited() {
 
     #expect(nativeLoopConfig.maxToolRounds == 0)
     #expect(nativeLoopConfig.enforceToolRoundLimit == false)
+}
+
+@Test
+func nativeLoopConfigDisablesToolBudgetByDefault() {
+    var config = CoreConfig.test
+    config.toolBudgetExhausted = 7
+
+    let nativeLoopConfig = AgentSessionOrchestrator.nativeLoopConfig(
+        coreConfig: config,
+        userID: "operator",
+        isDelegatedSubagent: true
+    )
+
+    #expect(nativeLoopConfig.maxToolRounds == 0)
+    #expect(!nativeLoopConfig.enforceToolRoundLimit)
 }
 
 private actor FixedOutputModelProvider: ModelProvider {
@@ -580,7 +597,7 @@ func semanticRoutingSelectsExecutorModelForTurn() async throws {
         agentID: "semantic-route-agent",
         request: AgentSessionCreateRequest()
     )
-    _ = try await orchestrator.postMessage(
+    let response = try await orchestrator.postMessage(
         agentID: "semantic-route-agent",
         sessionID: session.id,
         request: AgentSessionPostMessageRequest(
@@ -590,6 +607,8 @@ func semanticRoutingSelectsExecutorModelForTurn() async throws {
     )
 
     #expect(await modelProvider.requestedModelsSnapshot() == ["mock:senior", "mock:senior"])
+    #expect(response.appendedEvents.compactMap(\.runStatus).first?.selectedModel == "mock:senior")
+    #expect(response.appendedEvents.compactMap(\.runStatus).last?.selectedModel == "mock:senior")
     let usage = await usageMeter.snapshot(channelID: "agent:semantic-route-agent:session:\(session.id)")
     #expect(usage?.requestCount == 1)
     #expect(usage?.totalCostUSD == 0.0000042)
@@ -1486,11 +1505,14 @@ func agentSessionMarksTurnIncompleteWhenNativeToolRoundLimitIsReached() async th
         finalText: "This should not become the handoff."
     )
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
+    var config = CoreConfig.default
+    config.toolBudgetEnabled = true
     let orchestrator = AgentSessionOrchestrator(
         runtime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels,
+        persistedModelContext: (config, false),
         toolInvoker: { _, _, request, _ in
             ToolInvocationResult(tool: request.tool, ok: true, data: .object(["count": .number(1)]))
         }
@@ -1538,11 +1560,14 @@ func tuiAgentSessionDoesNotEnforceNativeToolRoundLimit() async throws {
         finalText: "TUI finished after extended tool use."
     )
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
+    var config = CoreConfig.default
+    config.toolBudgetEnabled = true
     let orchestrator = AgentSessionOrchestrator(
         runtime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels,
+        persistedModelContext: (config, false),
         toolInvoker: { _, _, request, _ in
             ToolInvocationResult(tool: request.tool, ok: true, data: .object(["count": .number(1)]))
         }
@@ -1585,11 +1610,14 @@ func delegatedSubagentCanFinishAfterToolBudgetRecovery() async throws {
         finalText: "Delegated subagent finished after budget recovery."
     )
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
+    var config = CoreConfig.default
+    config.toolBudgetEnabled = true
     let orchestrator = AgentSessionOrchestrator(
         runtime: runtime,
         sessionStore: sessionStore,
         agentCatalogStore: catalogStore,
         availableModels: availableModels,
+        persistedModelContext: (config, false),
         toolInvoker: { _, _, request, _ in
             if request.tool == "agent_delegate.finish" {
                 return ToolInvocationResult(

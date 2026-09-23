@@ -32,6 +32,7 @@ actor ACPServerSessionConfiguration {
 }
 
 extension SloppyACPServerDelegate {
+    static let automaticJEVModelID = "auto:jev"
     static let modeConfigID = SessionConfigId("mode")
     static let modelConfigID = SessionConfigId("model")
     static let reasoningEffortConfigID = SessionConfigId("reasoning_effort")

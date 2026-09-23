@@ -505,7 +505,8 @@ actor AgentSessionOrchestrator {
             stage: .thinking,
             label: "Thinking",
             details: "Planning response strategy.",
-            expandedText: thinkingText
+            expandedText: thinkingText,
+            selectedModel: selectedModel
         )
 
         var initialEvents: [AgentSessionEvent] = [
@@ -887,6 +888,7 @@ actor AgentSessionOrchestrator {
                 tokenUsage: runtimeOutcome.tokenUsage
             )
         }
+        completionStatus.selectedModel = selectedModel
         completionStatus.diagnostics = AgentRunDiagnostics(
             durationMs: Int(Date().timeIntervalSince(turnStartedAt) * 1000),
             toolRoundsUsed: runtimeOutcome.toolRoundsUsed,
@@ -2361,7 +2363,7 @@ actor AgentSessionOrchestrator {
         userID: String,
         isDelegatedSubagent: Bool
     ) -> NativeAgentLoopConfig {
-        let maxToolRounds = max(0, coreConfig.toolBudgetExhausted)
+        let maxToolRounds = coreConfig.toolBudgetEnabled ? max(0, coreConfig.toolBudgetExhausted) : 0
         let enforceToolRoundLimit = maxToolRounds > 0 && !shouldBypassToolUsageLimits(userID: userID)
         guard isDelegatedSubagent else {
             return NativeAgentLoopConfig(

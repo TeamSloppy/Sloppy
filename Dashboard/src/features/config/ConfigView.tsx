@@ -56,6 +56,7 @@ import { ChannelsEditor } from "./components/ChannelsEditor";
 import { GitHubAccessCard } from "./components/GitHubAccessCard";
 import { GitSyncEditor } from "./components/GitSyncEditor";
 import { ModelRoutingEditor } from "./components/ModelRoutingEditor";
+import { SemanticDecisionsEditor } from "./components/SemanticDecisionsEditor";
 import { UpdatesView } from "../updates/UpdatesView";
 import { useUpdateCheck } from "../updates/useUpdateCheck";
 import {
@@ -192,7 +193,7 @@ export function ConfigView({
   );
 
   useEffect(() => {
-    if (!["model-routing", "visor", "memory", "memory-dreams"].includes(selectedSettings)) {
+    if (!["model-routing", "semantic-decisions", "visor", "memory", "memory-dreams"].includes(selectedSettings)) {
       return;
     }
     let cancelled = false;
@@ -1766,6 +1767,17 @@ export function ConfigView({
           mutateDraft={mutateDraft}
           modelRoutingCatalog={modelRoutingCatalog}
           modelRoutingCatalogStatus={modelRoutingCatalogStatus}
+        />
+      );
+    }
+
+    if (selectedSettings === "semantic-decisions") {
+      return (
+        <SemanticDecisionsEditor
+          draftConfig={draftConfig}
+          mutateDraft={mutateDraft}
+          modelCatalog={modelRoutingCatalog}
+          modelCatalogStatus={modelRoutingCatalogStatus}
         />
       );
     }

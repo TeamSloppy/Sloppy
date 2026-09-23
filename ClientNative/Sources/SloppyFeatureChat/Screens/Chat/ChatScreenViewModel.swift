@@ -351,6 +351,7 @@ public final class ChatScreenViewModel {
     public private(set) var selectedModelId: String = ""
     public private(set) var selectedReasoningEffort: ChatReasoningEffort = .default
     public private(set) var contextTokenUsage: ChatTokenUsage?
+    public private(set) var semanticDecisionUsage: ChatSemanticDecisionUsage?
     public internal(set) var sessions: [ChatSessionSummary] = []
     public private(set) var sessionCatalog: [ChatSessionSummary] = []
     public var selectedSessionId: String?
@@ -396,6 +397,14 @@ public final class ChatScreenViewModel {
         transcript.messages
     }
 
+    public var modelPickerOptions: [ChatModelOption] {
+        [ChatModelSelection.automaticJEVOption] + availableModels
+    }
+
+    public var isAutomaticModelSelection: Bool {
+        selectedModelId == ChatModelSelection.automaticJEVId
+    }
+
     public var isShowingDictationComposer: Bool {
         dictationPhase != .idle
     }
@@ -422,13 +431,17 @@ public final class ChatScreenViewModel {
     }
 
     public var contextUsage: ChatContextUsage? {
-        guard let model = availableModels.first(where: { $0.id == selectedModelId }),
+        let contextModelId = isAutomaticModelSelection
+            ? activeRunStatus?.selectedModel ?? availableModels.first?.id
+            : selectedModelId
+        guard let model = availableModels.first(where: { $0.id == contextModelId }),
               let limitTokens = model.contextWindowTokens else {
             return nil
         }
         return ChatContextUsage(
             usedTokens: contextTokenUsage?.total ?? 0,
-            limitTokens: limitTokens
+            limitTokens: limitTokens,
+            semanticDecisionUsage: semanticDecisionUsage
         )
     }
 
@@ -441,11 +454,21 @@ public final class ChatScreenViewModel {
         if isStopping {
             return "Stopping"
         }
-        if let label = activeRunStatus?.label.trimmingCharacters(in: .whitespacesAndNewlines),
-           !label.isEmpty {
-            return label
+        let label = activeRunStatus?.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base: String
+        if let label, !label.isEmpty {
+            base = label
+        } else {
+            base = isSending ? "Processing" : "Thinking"
         }
-        return isSending ? "Processing" : "Thinking"
+        guard isAutomaticModelSelection,
+              let modelID = activeRunStatus?.selectedModel,
+              !modelID.isEmpty
+        else {
+            return base
+        }
+        let title = availableModels.first(where: { $0.id == modelID })?.title ?? modelID
+        return "\(base) · \(title)"
     }
 
     public var activeRunStatusDetails: String? {
@@ -1652,6 +1675,7 @@ public final class ChatScreenViewModel {
         toolApprovalErrorMessage = nil
         activeRunStatus = nil
         contextTokenUsage = nil
+        semanticDecisionUsage = nil
         computerUseActivity = nil
         isComputerUsePreviewHidden = false
         clearWorkingTreeSourceControl()
@@ -1714,6 +1738,7 @@ public final class ChatScreenViewModel {
         guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
         applyHydratedSession(detail)
         await refreshPendingToolApproval(agentId: agentId, sessionId: sessionId)
+        await refreshSemanticDecisionUsage(agentId: agentId, sessionId: sessionId)
         await cacheStore.cacheSessionDetail(agentId: agentId, detail: detail)
     }
 
@@ -1759,6 +1784,9 @@ public final class ChatScreenViewModel {
             }
             if let runStatus = update.streamEvent?.runStatus {
                 handleRunStatus(runStatus, sessionId: sessionId)
+                if runStatus.selectedModel != nil {
+                    await refreshSemanticDecisionUsage(agentId: agentId, sessionId: sessionId)
+                }
             }
             if let inputRequest = update.streamEvent?.inputRequest {
                 flushPendingStreamingAssistantText()
@@ -1977,6 +2005,18 @@ public final class ChatScreenViewModel {
                 }
             }
         }
+    }
+
+    private func refreshSemanticDecisionUsage(agentId: String, sessionId: String) async {
+        guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
+        guard let response = try? await apiClient.fetchSessionTokenUsage(
+            agentId: agentId,
+            sessionId: sessionId
+        ) else {
+            return
+        }
+        guard isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
+        semanticDecisionUsage = response.semanticDecisionUsage
     }
 
     private func clearWorkingTreeSourceControl() {
@@ -2390,7 +2430,7 @@ public final class ChatScreenViewModel {
                 sessionId: sessionId,
                 content: content,
                 attachments: attachments.map(\.upload),
-                selectedModel: selectedModelId,
+                selectedModel: ChatModelSelection.requestOverride(for: selectedModelId),
                 reasoningEffort: selectedModelSupportsReasoningEffort ? selectedReasoningEffort.payloadValue : nil
             )
             upsertSessionSummary(summary)
@@ -2561,6 +2601,10 @@ public final class ChatScreenViewModel {
         guard !models.isEmpty else {
             selectedModelId = ""
             selectedReasoningEffort = .default
+            return
+        }
+
+        if selectedModelId == ChatModelSelection.automaticJEVId {
             return
         }
 

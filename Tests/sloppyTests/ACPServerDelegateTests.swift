@@ -210,6 +210,38 @@ func sloppyACPServerUpdatesSessionConfigOptions() async throws {
 }
 
 @Test
+func sloppyACPServerOffersAutomaticJEVModelSelection() async throws {
+    let service = try await makeACPServerService()
+    let recorder = ACPServerUpdateRecorder()
+    let delegate = SloppyACPServerDelegate(
+        service: service,
+        agentID: "dev",
+        defaultCwd: "/tmp",
+        sendUpdate: { sessionId, update in await recorder.append(sessionId: sessionId, update: update) }
+    )
+
+    let created = try await delegate.handleNewSession(NewSessionRequest(cwd: "/tmp"))
+    #expect(created.models?.availableModels.first?.modelId == SloppyACPServerDelegate.automaticJEVModelID)
+    #expect(created.models?.availableModels.first?.name == "Auto (JEV)")
+    let selected = try await delegate.handleSetSessionConfigOption(
+        SetSessionConfigOptionRequest(
+            sessionId: created.sessionId,
+            configId: SloppyACPServerDelegate.modelConfigID,
+            value: SessionConfigValueId(SloppyACPServerDelegate.automaticJEVModelID)
+        )
+    )
+    let option = try #require(selected.configOptions.first(where: { $0.id == SloppyACPServerDelegate.modelConfigID }))
+    guard case .select(let model) = option.kind else {
+        Issue.record("Expected model selection")
+        return
+    }
+    #expect(model.currentValue.value == SloppyACPServerDelegate.automaticJEVModelID)
+    #expect(SloppyACPServerDelegate.requestModelOverride(for: model.currentValue.value) == nil)
+    #expect(SloppyACPServerDelegate.requestModelOverride(for: "mock:test-model") == "mock:test-model")
+    #expect(!selected.configOptions.contains { $0.id == SloppyACPServerDelegate.reasoningEffortConfigID })
+}
+
+@Test
 func sloppyACPServerRequestsRiskyToolPermissionFromClient() async throws {
     let service = try await makeACPServerService()
     let updates = ACPServerUpdateRecorder()

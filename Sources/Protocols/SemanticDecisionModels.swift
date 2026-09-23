@@ -26,4 +26,3 @@ public struct SemanticDecisionUsage: Codable, Sendable, Equatable {
         estimatedCostUSD > 0
     }
 }
-

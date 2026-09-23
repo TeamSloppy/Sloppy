@@ -92,6 +92,7 @@ public struct CoreConfig: Codable, Sendable {
         }
 
         public var provider: Provider?
+        public var apiKey: String
         public var apiKeyEnvironmentVariable: String
         public var baseURL: String?
         public var model: String
@@ -103,6 +104,7 @@ public struct CoreConfig: Codable, Sendable {
 
         public init(
             provider: Provider? = nil,
+            apiKey: String = "",
             apiKeyEnvironmentVariable: String = "",
             baseURL: String? = nil,
             model: String = "",
@@ -113,6 +115,7 @@ public struct CoreConfig: Codable, Sendable {
             modelProfiles: [String: ModelProfile] = [:]
         ) {
             self.provider = provider
+            self.apiKey = apiKey
             self.apiKeyEnvironmentVariable = apiKeyEnvironmentVariable
             self.baseURL = baseURL
             self.model = model
@@ -121,6 +124,35 @@ public struct CoreConfig: Codable, Sendable {
             self.minimumConfidence = min(1, max(0, minimumConfidence))
             self.inputCostPerMillionTokensUSD = max(0, inputCostPerMillionTokensUSD)
             self.modelProfiles = modelProfiles
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case provider
+            case apiKey
+            case apiKeyEnvironmentVariable
+            case baseURL
+            case model
+            case timeoutMs
+            case executorModelRouting
+            case minimumConfidence
+            case inputCostPerMillionTokensUSD
+            case modelProfiles
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.init(
+                provider: try container.decodeIfPresent(Provider.self, forKey: .provider),
+                apiKey: try container.decodeIfPresent(String.self, forKey: .apiKey) ?? "",
+                apiKeyEnvironmentVariable: try container.decodeIfPresent(String.self, forKey: .apiKeyEnvironmentVariable) ?? "",
+                baseURL: try container.decodeIfPresent(String.self, forKey: .baseURL),
+                model: try container.decodeIfPresent(String.self, forKey: .model) ?? "",
+                timeoutMs: try container.decodeIfPresent(Int.self, forKey: .timeoutMs) ?? 2_000,
+                executorModelRouting: try container.decodeIfPresent(Mode.self, forKey: .executorModelRouting) ?? .disabled,
+                minimumConfidence: try container.decodeIfPresent(Double.self, forKey: .minimumConfidence) ?? 0.75,
+                inputCostPerMillionTokensUSD: try container.decodeIfPresent(Double.self, forKey: .inputCostPerMillionTokensUSD) ?? 0.042,
+                modelProfiles: try container.decodeIfPresent([String: ModelProfile].self, forKey: .modelProfiles) ?? [:]
+            )
         }
     }
 
@@ -2028,6 +2060,7 @@ public struct CoreConfig: Codable, Sendable {
     public var kanban: Kanban
     public var ui: UI
     public var toolHooks: ToolHooks
+    public var toolBudgetEnabled: Bool
     public var toolBudgetExhausted: Int
     public var nodeMeshPublicURL: String?
     public var clientPublicURL: String?
@@ -2070,6 +2103,7 @@ public struct CoreConfig: Codable, Sendable {
         kanban: Kanban = Kanban(),
         ui: UI = UI(),
         toolHooks: ToolHooks = ToolHooks(),
+        toolBudgetEnabled: Bool = false,
         toolBudgetExhausted: Int = CoreConfig.defaultToolBudgetExhausted,
         nodeMeshPublicURL: String? = nil,
         clientPublicURL: String? = nil,
@@ -2111,6 +2145,7 @@ public struct CoreConfig: Codable, Sendable {
         self.kanban = kanban
         self.ui = ui
         self.toolHooks = toolHooks
+        self.toolBudgetEnabled = toolBudgetEnabled
         self.toolBudgetExhausted = max(0, toolBudgetExhausted)
         self.nodeMeshPublicURL = nodeMeshPublicURL
         self.clientPublicURL = clientPublicURL
@@ -2163,6 +2198,7 @@ public struct CoreConfig: Codable, Sendable {
             kanban: .init(),
             ui: .init(),
             toolHooks: .init(),
+            toolBudgetEnabled: false,
             toolBudgetExhausted: CoreConfig.defaultToolBudgetExhausted,
             nodeMeshPublicURL: nil,
             clientPublicURL: nil,
@@ -2248,6 +2284,7 @@ public struct CoreConfig: Codable, Sendable {
         case kanban
         case ui
         case toolHooks
+        case toolBudgetEnabled
         case toolBudgetExhausted
         case nodeMeshPublicURL
         case clientPublicURL
@@ -2289,6 +2326,7 @@ public struct CoreConfig: Codable, Sendable {
         kanban = try container.decodeIfPresent(Kanban.self, forKey: .kanban) ?? .init()
         ui = try container.decodeIfPresent(UI.self, forKey: .ui) ?? .init()
         toolHooks = try container.decodeIfPresent(ToolHooks.self, forKey: .toolHooks) ?? .init()
+        toolBudgetEnabled = try container.decodeIfPresent(Bool.self, forKey: .toolBudgetEnabled) ?? false
         toolBudgetExhausted = max(
             0,
             try container.decodeIfPresent(Int.self, forKey: .toolBudgetExhausted) ?? Self.defaultToolBudgetExhausted
@@ -2342,6 +2380,7 @@ public struct CoreConfig: Codable, Sendable {
         try container.encode(kanban, forKey: .kanban)
         try container.encode(ui, forKey: .ui)
         try container.encode(toolHooks, forKey: .toolHooks)
+        try container.encode(toolBudgetEnabled, forKey: .toolBudgetEnabled)
         try container.encode(toolBudgetExhausted, forKey: .toolBudgetExhausted)
         try container.encodeIfPresent(nodeMeshPublicURL, forKey: .nodeMeshPublicURL)
         try container.encodeIfPresent(clientPublicURL, forKey: .clientPublicURL)

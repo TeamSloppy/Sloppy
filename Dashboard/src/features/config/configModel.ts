@@ -34,6 +34,12 @@ export const SETTINGS_ITEMS = [
     searchTerms: ["routing", "routes", "model aliases", "default model", "agent models", "task model", "available models"]
   },
   {
+    id: "semantic-decisions",
+    title: "Semantic Decisions",
+    icon: "route",
+    searchTerms: ["jev", "typesafe", "vercel", "decision", "model routing", "executor", "api key", "shadow"]
+  },
+  {
     id: "channels",
     title: "Channels",
     icon: "forum",
@@ -389,6 +395,18 @@ export const EMPTY_CONFIG = {
   onboarding: { completed: false },
   sessionRetention: { enabled: true, days: 30 },
   models: [emptyModel()],
+  semanticDecisions: {
+    provider: null,
+    apiKey: "",
+    apiKeyEnvironmentVariable: "",
+    baseURL: "",
+    model: "",
+    timeoutMs: 2000,
+    executorModelRouting: "disabled",
+    minimumConfidence: 0.75,
+    inputCostPerMillionTokensUSD: 0.042,
+    modelProfiles: {}
+  },
   opencode: {
     enabled: false,
     useResolvedConfigCommand: true,
@@ -616,6 +634,7 @@ export const EMPTY_CONFIG = {
       failurePolicy: "block"
     }
   },
+  toolBudgetEnabled: false,
   toolBudgetExhausted: 60,
   modelRouting: {},
   sqlitePath: "core.sqlite"
@@ -1004,10 +1023,51 @@ export function normalizeConfig(config) {
   );
   normalized.toolHooks.preTools.failurePolicy =
     String(config?.toolHooks?.preTools?.failurePolicy || "block") === "allow" ? "allow" : "block";
+  normalized.toolBudgetEnabled = config?.toolBudgetEnabled === true;
   normalized.toolBudgetExhausted = Math.max(
     0,
     parseInteger(config?.toolBudgetExhausted ?? normalized.toolBudgetExhausted, normalized.toolBudgetExhausted)
   );
+
+  const semantic = config?.semanticDecisions;
+  const semanticProvider = String(semantic?.provider || "").trim().toLowerCase();
+  normalized.semanticDecisions.provider = semanticProvider === "typesafe" || semanticProvider === "vercel"
+    ? semanticProvider
+    : null;
+  normalized.semanticDecisions.apiKey = String(semantic?.apiKey || "");
+  normalized.semanticDecisions.apiKeyEnvironmentVariable = String(semantic?.apiKeyEnvironmentVariable || "").trim();
+  normalized.semanticDecisions.baseURL = String(semantic?.baseURL || "").trim();
+  normalized.semanticDecisions.model = String(semantic?.model || "").trim();
+  normalized.semanticDecisions.timeoutMs = Math.max(100, parseInteger(semantic?.timeoutMs ?? 2000, 2000));
+  const semanticMode = String(semantic?.executorModelRouting || "disabled").trim().toLowerCase();
+  normalized.semanticDecisions.executorModelRouting = ["disabled", "shadow", "active"].includes(semanticMode)
+    ? semanticMode
+    : "disabled";
+  normalized.semanticDecisions.minimumConfidence = normalizeNumberRange(
+    semantic?.minimumConfidence,
+    0.75,
+    0,
+    1
+  );
+  normalized.semanticDecisions.inputCostPerMillionTokensUSD = Math.max(
+    0,
+    Number(semantic?.inputCostPerMillionTokensUSD ?? 0.042) || 0
+  );
+  normalized.semanticDecisions.modelProfiles = {};
+  if (semantic?.modelProfiles && typeof semantic.modelProfiles === "object" && !Array.isArray(semantic.modelProfiles)) {
+    for (const [profileId, rawProfile] of Object.entries(semantic.modelProfiles)) {
+      const id = String(profileId || "").trim();
+      const profile = rawProfile && typeof rawProfile === "object"
+        ? rawProfile as Record<string, unknown>
+        : {};
+      const model = String(profile.model || "").trim();
+      if (!id || !model) continue;
+      normalized.semanticDecisions.modelProfiles[id] = {
+        model,
+        description: String(profile.description || "").trim()
+      };
+    }
+  }
 
   const mr = config?.modelRouting;
   normalized.modelRouting = {};
