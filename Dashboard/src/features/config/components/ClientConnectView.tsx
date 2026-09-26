@@ -190,7 +190,7 @@ export function ClientConnectView({
                   clientAlternateURLs,
                   clientTLSFingerprint
                 })}
-                placeholder="https://81.26.176.106"
+                placeholder="https://your-domain.example"
                 autoComplete="off"
               />
               <span className="entry-form-hint">

@@ -226,10 +226,12 @@ public struct ChatBubbleView: View {
 }
 
 struct ChatSystemMessageGroupView: View {
+    private static let activityHeight: CGFloat = 260
+
     let messages: [ChatMessage]
     var activeRunMessageIDs: Set<ChatMessage.ID> = []
 
-    @State private var isExpanded = false
+    @State private var isExpanded = true
     @Environment(\.theme) private var theme
 
     var body: some View {
@@ -242,10 +244,21 @@ struct ChatSystemMessageGroupView: View {
         VStack(alignment: .leading, spacing: theme.spacing.s) {
             groupHeader(items: items)
 
-            if !visibleItems.isEmpty {
+            if isExpanded && !visibleItems.isEmpty {
+                ScrollView(.vertical) {
+                    LazyVStack(alignment: .leading, spacing: theme.spacing.xs) {
+                        ForEach(visibleItems) { item in
+                            segmentRow(item, insideScroll: true)
+                        }
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .frame(height: Self.activityHeight)
+                .padding(.leading, 28)
+            } else if !visibleItems.isEmpty {
                 VStack(alignment: .leading, spacing: theme.spacing.xs) {
                     ForEach(visibleItems) { item in
-                        segmentRow(item)
+                        segmentRow(item, insideScroll: false)
                     }
                 }
                 .padding(.leading, 28)
@@ -277,11 +290,12 @@ struct ChatSystemMessageGroupView: View {
         .accessibilityLabel(isExpanded ? "Collapse activity" : "Expand activity")
     }
 
-    private func segmentRow(_ item: ChatSystemSegmentItem) -> some View {
+    private func segmentRow(_ item: ChatSystemSegmentItem, insideScroll: Bool) -> some View {
         ChatSegmentCollapsibleCard(
             message: item.message,
             segment: item.segment,
-            isRunning: item.isRunning
+            isRunning: item.isRunning,
+            isInsideActivityScroll: insideScroll
         )
     }
 
@@ -430,15 +444,17 @@ private struct ChatMarkdownTextStack: View {
 }
 
 private struct ChatSegmentCollapsibleCard: View {
+    private static let detailHeight: CGFloat = 260
+
     let message: ChatMessage
     let segment: ChatMessageSegment
     let isRunning: Bool
+    var isInsideActivityScroll = false
 
     @State private var isExpanded = false
     @Environment(\.theme) private var theme
 
     var body: some View {
-        let c = theme.colors
         let sp = theme.spacing
 
         VStack(alignment: .leading, spacing: sp.s) {
@@ -451,31 +467,95 @@ private struct ChatSegmentCollapsibleCard: View {
             }
 
             if isExpanded {
-                VStack(alignment: .leading, spacing: sp.s) {
-                    if let text = segment.text, !text.isEmpty {
-                        ChatMarkdownTextStack(
-                            text: text,
-                            allowsTextSelection: !isRunning
-                        )
-                    }
-
-                    if let metadata = segment.metadata, !metadata.isEmpty {
-                        VStack(alignment: .leading, spacing: sp.xs) {
-                            ForEach(metadata.keys.sorted(), id: \.self) { key in
-                                HStack(alignment: .top, spacing: sp.xs) {
-                                    Text(key)
-                                        .font(.system(size: theme.typography.micro, design: .monospaced))
-                                        .foregroundColor(c.textMuted)
-                                    metadataValue(metadata[key] ?? "")
-                                }
-                            }
+                Group {
+                    if isInsideActivityScroll {
+                        detailContent
+                    } else {
+                        ScrollView(.vertical) {
+                            detailContent
                         }
+                        .frame(height: Self.detailHeight)
                     }
                 }
                 .padding(.leading, 28)
             }
         }
         .padding(.vertical, sp.xs)
+    }
+
+    @ViewBuilder
+    private var detailContent: some View {
+        if segment.kind == .toolCall || segment.kind == .toolResult {
+            terminalDetail
+        } else {
+            VStack(alignment: .leading, spacing: theme.spacing.s) {
+                if let text = segment.text, !text.isEmpty {
+                    ChatMarkdownTextStack(text: text, allowsTextSelection: !isRunning)
+                }
+                metadataRows
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    private var terminalDetail: some View {
+        let c = theme.colors
+        let sp = theme.spacing
+        let metadata = segment.metadata ?? [:]
+        let inputKey = ["cmd", "command", "script", "input"].first { metadata[$0] != nil }
+
+        return VStack(alignment: .leading, spacing: sp.s) {
+            Text(segment.kind == .toolCall ? "input" : "output")
+                .font(.system(size: theme.typography.micro, design: .monospaced))
+                .foregroundColor(c.textMuted)
+
+            if let inputKey, let input = metadata[inputKey] {
+                Text(verbatim: "$ \(input)")
+                    .foregroundColor(c.textPrimary)
+                    .textSelection(.enabled)
+            }
+
+            if let text = segment.text, !text.isEmpty {
+                Text(verbatim: text)
+                    .foregroundColor(c.textSecondary)
+                    .textSelection(.enabled)
+            }
+
+            metadataRows(excluding: inputKey)
+        }
+        .font(.system(size: theme.typography.caption, design: .monospaced))
+        .lineSpacing(4)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(sp.m)
+        .background {
+            RoundedRectangle(cornerRadius: 12)
+                .fill(c.surfaceGlow)
+                .overlay {
+                    RoundedRectangle(cornerRadius: 12)
+                        .stroke(c.borderBold, lineWidth: theme.borders.thin)
+                }
+        }
+    }
+
+    @ViewBuilder
+    private var metadataRows: some View {
+        metadataRows(excluding: nil)
+    }
+
+    @ViewBuilder
+    private func metadataRows(excluding excludedKey: String?) -> some View {
+        if let metadata = segment.metadata, !metadata.isEmpty {
+            VStack(alignment: .leading, spacing: theme.spacing.xs) {
+                ForEach(metadata.keys.sorted().filter { $0 != excludedKey }, id: \.self) { key in
+                    HStack(alignment: .top, spacing: theme.spacing.xs) {
+                        Text(key)
+                            .font(.system(size: theme.typography.micro, design: .monospaced))
+                            .foregroundColor(theme.colors.textMuted)
+                        metadataValue(metadata[key] ?? "")
+                    }
+                }
+            }
+        }
     }
 
     @ViewBuilder

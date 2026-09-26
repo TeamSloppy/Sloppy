@@ -156,9 +156,15 @@ final class MainViewModel {
     }
 
     var sidebarDefaultSourceInstanceID: String? {
-        guard settings.instanceSelection == .all,
-              settings.discoveredInstances.count > 1 else { return nil }
-        return settings.discoveredInstances.first(where: { $0.endpoint == endpoint })?.id
+        switch settings.instanceSelection {
+        case .all:
+            if settings.discoveredInstances.count == 1 {
+                return settings.discoveredInstances[0].id
+            }
+            return settings.discoveredInstances.first(where: { $0.endpoint == endpoint })?.id
+        case .instance(let instanceID):
+            return instanceID
+        }
     }
 
     func projectName(for session: ChatSessionSummary) -> String? {
@@ -945,26 +951,46 @@ final class MainViewModel {
     }
 
     private func fetchProjectsForCurrentSelection() async throws -> [APIProjectRecord] {
-        guard settings.instanceSelection == .all,
-              settings.discoveredInstances.count > 1 else {
-            return try await apiClient.fetchProjects()
-        }
-
-        return await withTaskGroup(of: [APIProjectRecord].self) { group in
-            for instance in settings.discoveredInstances {
-                group.addTask {
-                    let client = SloppyAPIClient(endpoint: instance.endpoint)
-                    guard let projects = try? await client.fetchProjects() else { return [] }
-                    return projects.map { project in
-                        var tagged = project
-                        tagged.sourceInstanceID = instance.id
-                        return tagged
-                    }
+        switch settings.instanceSelection {
+        case .all:
+            guard settings.discoveredInstances.count > 1 else {
+                let projects = try await apiClient.fetchProjects()
+                guard let instanceID = settings.discoveredInstances.first(where: { $0.endpoint == endpoint })?.id else {
+                    return projects
+                }
+                return projects.map { project in
+                    var tagged = project
+                    tagged.sourceInstanceID = instanceID
+                    return tagged
                 }
             }
-            var result: [APIProjectRecord] = []
-            for await projects in group { result += projects }
-            return result
+
+            return await withTaskGroup(of: [APIProjectRecord].self) { group in
+                for instance in settings.discoveredInstances {
+                    group.addTask {
+                        let client = SloppyAPIClient(endpoint: instance.endpoint)
+                        guard let projects = try? await client.fetchProjects() else { return [] }
+                        return projects.map { project in
+                            var tagged = project
+                            tagged.sourceInstanceID = instance.id
+                            return tagged
+                        }
+                    }
+                }
+                var result: [APIProjectRecord] = []
+                for await projects in group { result += projects }
+                return result
+            }
+        case .instance(let instanceID):
+            guard let instance = settings.discoveredInstances.first(where: { $0.id == instanceID }) else {
+                return try await apiClient.fetchProjects()
+            }
+            let client = SloppyAPIClient(endpoint: instance.endpoint)
+            return try await client.fetchProjects().map { project in
+                var tagged = project
+                tagged.sourceInstanceID = instance.id
+                return tagged
+            }
         }
     }
 
