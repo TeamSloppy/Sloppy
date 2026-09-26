@@ -168,4 +168,9 @@ struct WidgetArtifactService {
             options: .atomic
         )
     }
+
+    static func deleteBundle(id: String, currentRootURL: URL, fileManager: FileManager = .default) {
+        guard UUID(uuidString: id) != nil else { return }
+        try? fileManager.removeItem(at: bundleDirectoryURL(id: id, currentRootURL: currentRootURL))
+    }
 }

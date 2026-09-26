@@ -53,8 +53,9 @@
 
 .actor-team-group {
   position: absolute;
-  border: 1.5px solid var(--line);
+  border: 1.5px solid var(--team-border, var(--line));
   border-radius: 0;
+  background: var(--team-bg, transparent);
   pointer-events: auto;
   cursor: grab;
   transition: transform 0.1s steps(2), box-shadow 0.1s steps(2);
@@ -85,7 +86,8 @@
   align-items: center;
   justify-content: center;
   background: var(--bg);
-  border: 1px solid var(--line);
+  border: 1px solid var(--team-border, var(--line));
+  color: var(--team-dot, var(--text));
   border-radius: 0;
   font-size: 0.9rem;
   cursor: pointer;
@@ -107,6 +109,7 @@
   align-items: center;
   gap: 6px;
   font-size: 0.78rem;
+  color: var(--team-dot, var(--text));
   font-weight: 600;
   letter-spacing: 0.03em;
   text-transform: uppercase;
@@ -118,6 +121,7 @@
   width: 8px;
   height: 8px;
   border-radius: 0;
+  background: var(--team-dot, var(--accent));
   flex-shrink: 0;
 }
 

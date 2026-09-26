@@ -1164,34 +1164,6 @@ export function NodesView({ coreApi }: { coreApi: CoreApi }) {
         </aside>
 
         <div className="nodes-main">
-          <section className="nodes-workflow">
-            <button type="button" onClick={() => setActiveModal("network")}>
-              <span className="material-symbols-rounded" aria-hidden="true">settings_input_component</span>
-              <strong>1. System</strong>
-              <small>Name the mesh coordinator and inspect known systems.</small>
-            </button>
-            <button type="button" onClick={() => setActiveModal("invite")}>
-              <span className="material-symbols-rounded" aria-hidden="true">vpn_key</span>
-              <strong>2. Invite</strong>
-              <small>Issue one token with URL and public key.</small>
-            </button>
-            <button type="button" onClick={() => setActiveModal("node")}>
-              <span className="material-symbols-rounded" aria-hidden="true">badge</span>
-              <strong>3. Register</strong>
-              <small>Manual fallback for existing worker keys.</small>
-            </button>
-            <button type="button" onClick={() => setActiveModal("accept")}>
-              <span className="material-symbols-rounded" aria-hidden="true">move_to_inbox</span>
-              <strong>4. Accept Here</strong>
-              <small>Consume an invite owned by this coordinator.</small>
-            </button>
-            <button type="button" onClick={() => setActiveModal("join")}>
-              <span className="material-symbols-rounded" aria-hidden="true">hub</span>
-              <strong>Join Remote</strong>
-              <small>Keep this dashboard local and connect to another relay.</small>
-            </button>
-          </section>
-
           {latestInvite ? (
             <section className="nodes-token-banner">
               <div>

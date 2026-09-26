@@ -24,7 +24,8 @@ struct MainSidebarProjectSessionsTests {
         let chatViewModelSource = try sourceFile("Sources/SloppyFeatureChat/Screens/Chat/ChatScreenViewModel.swift")
 
         #expect(source.contains("ChatSidebarSections.build("))
-        #expect(source.contains("sessions: viewModel.sidebarSessionCatalog"))
+        #expect(source.contains("sessions: visibleSessions"))
+        #expect(source.contains("return viewModel.sidebarSessionCatalog.filter(requiresApproval)"))
         #expect(source.contains("defaultSourceInstanceID: viewModel.sidebarDefaultSourceInstanceID"))
         #expect(mainViewModelSource.contains("!settings.isSessionArchived($0.storageID)"))
         #expect(mainViewModelSource.contains("tagged.sourceInstanceID = activeInstanceID"))
@@ -39,7 +40,8 @@ struct MainSidebarProjectSessionsTests {
         #expect(chatViewModelSource.contains("onSessionSummaryChange(summary)"))
         #expect(source.contains("ForEach(sections.projectGroups.prefix(viewModel.visibleProjectCount))"))
         #expect(source.contains("ForEach(sessions, id: \\.storageID)"))
-        #expect(source.contains("SidebarSessionItem(viewModel: viewModel, session: $0, showsProjectName: false)"))
+        #expect(source.contains("SidebarSessionItem(\n                        viewModel: viewModel,\n                        session: $0,"))
+        #expect(source.contains("showsProjectName: false"))
     }
 
     @Test("sidebar session rows render typed activity and monitor visible sessions")
@@ -95,7 +97,8 @@ struct MainSidebarProjectSessionsTests {
         #expect(source.contains("client_chat_sidebar_layout_mode"))
         #expect(source.contains("layoutMode == .cards"))
         #expect(source.contains("LazyVGrid(columns: cardColumns"))
-        #expect(source.contains("SidebarSessionCard(viewModel: viewModel, session: session)"))
+        #expect(source.contains("SidebarSessionCard("))
+        #expect(source.contains("requiresApproval: requiresApproval(session)"))
         #expect(source.contains("SidebarProjectCard(viewModel: viewModel, group: $0)"))
         #expect(source.contains("Show as cards"))
         #expect(source.contains("Show as list"))

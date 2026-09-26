@@ -5,7 +5,7 @@ import Testing
 @testable import sloppy
 @testable import Protocols
 
-@Suite("artifacts.widget.generate")
+@Suite("HTML artifact tools")
 struct WidgetArtifactGenerateToolTests {
     private func makeContext(workspaceRootURL: URL) -> ToolContext {
         let guardrails = AgentToolsGuardrails()
@@ -61,6 +61,47 @@ struct WidgetArtifactGenerateToolTests {
             .appendingPathComponent(id, isDirectory: true)
             .appendingPathComponent("index.html", isDirectory: false)
         #expect(FileManager.default.fileExists(atPath: htmlURL.path))
+    }
+
+    @Test("chat web visuals keep prior versions available")
+    func webVisualsAreImmutable() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("web-artifact-tool-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let context = makeContext(workspaceRootURL: root)
+        let tool = WebArtifactCreateTool()
+
+        let first = await tool.invoke(arguments: [
+            "title": .string("Comparison"),
+            "summary": .string("Original values"),
+            "html": .string("<!doctype html><html><body>First</body></html>")
+        ], context: context)
+        let second = await tool.invoke(arguments: [
+            "title": .string("Comparison"),
+            "summary": .string("Updated values"),
+            "html": .string("<!doctype html><html><body>Second</body></html>")
+        ], context: context)
+
+        let firstID = try #require(first.data?.asObject?["artifact"]?.asObject?["id"]?.asString)
+        let secondID = try #require(second.data?.asObject?["artifact"]?.asObject?["id"]?.asString)
+        #expect(first.ok && second.ok)
+        #expect(firstID != secondID)
+        #expect(await context.store.persistedArtifact(id: firstID)?.content.contains("First") == true)
+        #expect(await context.store.persistedArtifact(id: secondID)?.content.contains("Second") == true)
+    }
+
+    @Test("chat web visuals reject external resources")
+    func webVisualRejectsExternalResources() async {
+        let context = makeContext(workspaceRootURL: FileManager.default.temporaryDirectory)
+        let result = await WebArtifactCreateTool().invoke(arguments: [
+            "title": .string("External chart"),
+            "summary": .string("Loads remote code"),
+            "html": .string("<!doctype html><html><body><script src='https://example.com/chart.js'></script></body></html>")
+        ], context: context)
+
+        #expect(result.ok == false)
+        #expect(result.error?.code == "invalid_arguments")
+        #expect(await context.store.listPersistedArtifacts().isEmpty)
     }
 
     @Test("widget editor session blocks files.write and allows widget artifact tool")

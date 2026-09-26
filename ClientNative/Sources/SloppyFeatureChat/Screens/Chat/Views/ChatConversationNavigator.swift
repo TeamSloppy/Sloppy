@@ -73,13 +73,13 @@ struct ChatConversationNavigator: View {
     }
 
     var body: some View {
-        HStack(spacing: theme.spacing.s) {
+        HStack(spacing: theme.spacing.xs) {
+            markerRail
+
             if let hoveredWaypoint {
                 previewCard(hoveredWaypoint)
                     .transition(.opacity)
             }
-
-            markerRail
         }
         .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: hoveredWaypointID)
         .accessibilityElement(children: .contain)
@@ -88,28 +88,23 @@ struct ChatConversationNavigator: View {
 
     private var markerRail: some View {
         ScrollView(.vertical) {
-            VStack(spacing: 5) {
+            VStack(spacing: 0) {
                 ForEach(Array(waypoints.enumerated()), id: \.element.id) { index, waypoint in
                     marker(for: waypoint, index: index)
                 }
             }
-            .padding(.vertical, theme.spacing.s)
-            .frame(width: 38)
+            .padding(.vertical, 2)
+            .frame(width: 26, alignment: .leading)
         }
         .scrollIndicators(.hidden)
-        .frame(width: 42)
+        .frame(width: 30)
         .frame(height: railHeight)
-        .background {
-            Capsule(style: .continuous)
-                .fill(theme.colors.borderBold.opacity(0.42))
-                .frame(width: 1)
-        }
     }
 
     private func marker(for waypoint: ChatConversationWaypoint, index: Int) -> some View {
         let isActive = waypoint.id == activeWaypointID
         let isHovered = waypoint.id == hoveredWaypointID
-        let markerWidth: CGFloat = isActive ? 28 : isHovered ? 22 : idleMarkerWidth(at: index)
+        let markerWidth: CGFloat = isActive ? 18 : isHovered ? 14 : idleMarkerWidth(at: index)
 
         return Button {
             onSelect(waypoint)
@@ -117,7 +112,7 @@ struct ChatConversationNavigator: View {
             Capsule(style: .continuous)
                 .fill(isActive ? theme.colors.textPrimary : theme.colors.textMuted.opacity(isHovered ? 0.82 : 0.50))
                 .frame(width: markerWidth, height: isActive ? 3 : 2)
-                .frame(width: 36, height: 18, alignment: .center)
+                .frame(width: 26, height: 4, alignment: .leading)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -134,11 +129,11 @@ struct ChatConversationNavigator: View {
     }
 
     private func previewCard(_ waypoint: ChatConversationWaypoint) -> some View {
-        VStack(alignment: .leading, spacing: theme.spacing.s) {
+        VStack(alignment: .leading, spacing: theme.spacing.xs) {
             Text(waypoint.title)
-                .font(.system(size: theme.typography.body, weight: .semibold))
+                .font(.system(size: theme.typography.caption, weight: .semibold))
                 .foregroundStyle(theme.colors.textPrimary)
-                .lineLimit(2)
+                .lineLimit(1)
 
             if let responsePreview = waypoint.responsePreview {
                 Divider()
@@ -147,35 +142,35 @@ struct ChatConversationNavigator: View {
                 Text(responsePreview)
                     .font(.system(size: theme.typography.caption))
                     .foregroundStyle(theme.colors.textSecondary)
-                    .lineLimit(4)
+                    .lineLimit(3)
             }
         }
-        .padding(theme.spacing.m)
-        .frame(width: 320, alignment: .leading)
+        .padding(theme.spacing.s)
+        .frame(width: 260, alignment: .leading)
         .background {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .fill(theme.colors.surfaceRaised.opacity(0.96))
         }
         .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
+            RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(theme.colors.borderBold.opacity(0.72), lineWidth: theme.borders.thin)
         }
-        .shadow(color: .black.opacity(0.24), radius: 24, y: 10)
+        .shadow(color: .black.opacity(0.24), radius: 18, y: 8)
         .allowsHitTesting(false)
         .accessibilityHidden(true)
     }
 
     private func idleMarkerWidth(at index: Int) -> CGFloat {
         switch index % 4 {
-        case 0: 12
-        case 1: 18
-        case 2: 10
-        default: 15
+        case 0: 8
+        case 1: 12
+        case 2: 7
+        default: 10
         }
     }
 
     private var railHeight: CGFloat {
-        min(420, max(54, CGFloat(waypoints.count * 23 + 16)))
+        min(240, max(20, CGFloat(waypoints.count * 4 + 4)))
     }
 }
 #endif

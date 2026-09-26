@@ -201,7 +201,7 @@ struct ChatScreenRenderingTests {
 
         #expect(source.contains("viewModel.isLoadingTranscript, viewModel.transcript.isEmpty"))
         #expect(source.contains("private struct ChatTranscriptLoadingView"))
-        #expect(source.contains("Text(\"Loading conversation…\")"))
+        #expect(source.contains("LoadingSkeleton(\"Loading conversation…\", style: .detail)"))
         #expect(source.contains("chat.transcript.loading"))
     }
 
@@ -212,7 +212,7 @@ struct ChatScreenRenderingTests {
 
         #expect(source.contains("ChatNativeTranscriptView("))
         #expect(nativeSource.contains("private struct ViewportAnchor"))
-        #expect(nativeSource.contains("followsBottom: isNearBottom"))
+        #expect(nativeSource.contains("followsBottom: isNearBottom && followsBottom"))
         #expect(nativeSource.contains("contentBottom - 44"))
         #expect(nativeSource.contains("visibleBottom >= contentHeight + parent.bottomInset - 44"))
         #expect(nativeSource.contains("self.restoreViewport(viewportAnchor)"))

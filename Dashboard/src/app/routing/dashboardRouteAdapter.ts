@@ -5,6 +5,7 @@ export const TOP_LEVEL_SECTIONS = [
   "artifacts",
   "sessions",
   "overview",
+  "costs",
   "actors",
   "agents",
   "memory",
@@ -33,6 +34,7 @@ export const DEFAULT_AGENT_TAB: AgentTab = "overview";
 export const DEFAULT_PROJECT_TAB: ProjectTab = "overview";
 
 export interface DashboardRoute {
+  artifactId?: string | null;
   memoryTab?: string;
   memoryScopeType?: string;
   memoryScopeId?: string | null;
@@ -184,6 +186,7 @@ export function parseRouteFromPath(pathname: string): DashboardRoute {
 
   const configSection = section === "config" && sectionArg ? sectionArg : null;
   const workspaceId = section === "workspaces" && sectionArg ? sectionArg : null;
+  const artifactId = section === "artifacts" && sectionArg ? sectionArg : null;
   const projectId = section === "projects" && sectionArg ? sectionArg : null;
   const isWorkflowRunRoute = section === "projects" && Boolean(projectId) && sectionArg2Lower === "workflow-runs";
   const projectTab = isWorkflowRunRoute
@@ -220,6 +223,7 @@ export function parseRouteFromPath(pathname: string): DashboardRoute {
     projectWorkflowId,
     projectWorkflowRunId,
     workspaceId,
+    artifactId,
     agentId,
     agentTab,
     agentInitialChatSessionId,
@@ -286,6 +290,10 @@ export function buildPathFromRoute(route: DashboardRoute) {
 
   if (route.section === "workspaces" && route.workspaceId) {
     nextPathname = `/workspaces/${encodeURIComponent(route.workspaceId)}`;
+  }
+
+  if (route.section === "artifacts" && route.artifactId) {
+    nextPathname = `/artifacts/${encodeURIComponent(route.artifactId)}`;
   }
 
   if (route.section === "agents") {

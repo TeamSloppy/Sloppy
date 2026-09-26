@@ -29,6 +29,9 @@ extension CoreService {
         if deleted, record?.kind == "image" {
             ImageArtifactService.deleteBundle(id: id, workspaceRootURL: workspaceRootURL)
         }
+        if deleted, record?.kind == "widget" {
+            WidgetArtifactService.deleteBundle(id: id, currentRootURL: workspaceRootURL)
+        }
         return deleted
     }
 

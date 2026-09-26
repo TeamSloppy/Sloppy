@@ -46,6 +46,7 @@ import {
   parseDeepResearchCommand
 } from "../deepResearch";
 import { imageArtifactFromToolResult } from "../imageArtifactTimeline";
+import { webArtifactFromToolResult } from "../webArtifactTimeline";
 
 const INLINE_ATTACHMENT_MAX_BYTES = 2 * 1024 * 1024;
 const ACTIVE_RUN_STATUS_REFRESH_AFTER_MS = 30 * 1000;
@@ -1632,6 +1633,21 @@ function ImageArtifactCard({ artifact }) {
   );
 }
 
+function WebArtifactCard({ artifact }) {
+  return (
+    <section className="agent-chat-web-artifact" aria-label="Web visual artifact">
+      <span className="material-symbols-rounded" aria-hidden="true">interests</span>
+      <div>
+        <strong>{artifact.title}</strong>
+        {artifact.summary ? <p>{artifact.summary}</p> : null}
+      </div>
+      <a href={`/artifacts/${encodeURIComponent(artifact.id)}`} className="agent-chat-technical-link">
+        Open visual
+      </a>
+    </section>
+  );
+}
+
 function answeredInputRequestIds(events) {
   return new Set(
     (Array.isArray(events) ? events : [])
@@ -2219,6 +2235,14 @@ function buildTimelineItems({
         artifact: imageArtifact
       });
     }
+    const webArtifact = webArtifactFromToolResult(eventItem);
+    if (webArtifact) {
+      timelineItems.push({
+        id: `${extractEventKey(eventItem, index)}-web-artifact`,
+        kind: "web_artifact",
+        artifact: webArtifact
+      });
+    }
   }
 
   if (optimisticUserEvent) {
@@ -2436,7 +2460,6 @@ function AgentChatEvents({
   onCopyMessage,
   onOpenSubagent,
   getSubagentStatusLabel,
-  onAnswerInputRequest = null,
   onTaskTagClick,
   onTaskTagHoverStart,
   onTaskTagHoverEnd
@@ -2653,16 +2676,12 @@ function AgentChatEvents({
               return <ImageArtifactCard key={timelineItem.id} artifact={timelineItem.artifact} />;
             }
 
+            if (timelineItem.kind === "web_artifact" && timelineItem.artifact) {
+              return <WebArtifactCard key={timelineItem.id} artifact={timelineItem.artifact} />;
+            }
+
             if (timelineItem.kind === "input_request") {
-              const request = timelineItem.event?.inputRequest || {};
-              return (
-                <PlanInputPanel
-                  key={timelineItem.id}
-                  request={request}
-                  disabled={Boolean(timelineItem.isAnswered)}
-                  onSubmit={(payload) => onAnswerInputRequest?.(String(request.id || ""), payload)}
-                />
-              );
+              return null;
             }
 
             if (timelineItem.kind === "build_progress") {
@@ -5243,7 +5262,7 @@ export function AgentChatTab({
     const response = await answerAgentSessionInputRequest(agentId, sessionId, requestId, payload);
     if (!response) {
       setStatusText("Failed to submit plan input.");
-      return;
+      throw new Error("Failed to submit plan input.");
     }
     await syncSessionDetail(sessionId);
     setStatusText("Plan input submitted.");
@@ -6892,7 +6911,6 @@ export function AgentChatTab({
                 onCopyMessage={handleCopyMessage}
                 onOpenSubagent={openSubagentPanel}
                 getSubagentStatusLabel={getSubagentStatusLabel}
-                onAnswerInputRequest={handleAnswerInputRequest}
                 onTaskTagClick={openTaskReference}
                 onTaskTagHoverStart={handleTaskTagHoverStart}
                 onTaskTagHoverEnd={handleTaskTagHoverEnd}
@@ -6911,6 +6929,7 @@ export function AgentChatTab({
                 {activePendingInputRequest ? (
                   <div className="agent-chat-pending-input-callout">
                     <PlanInputPanel
+                      key={String(activePendingInputRequest.id || "")}
                       request={activePendingInputRequest}
                       onSubmit={(payload) => handleAnswerInputRequest(String(activePendingInputRequest.id || ""), payload)}
                     />

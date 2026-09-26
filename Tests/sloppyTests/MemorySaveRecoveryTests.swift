@@ -7,7 +7,8 @@ import Testing
 @Suite
 struct MemorySaveRecoveryTests {
     private func fixture() async throws -> (CoreService, String) {
-        let config = CoreConfig.test
+        var config = CoreConfig.test
+        config.experimentalFlags.disableToolBudgetAndLoopGuard = false
         let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder(),
             nodeConfigStore: NodeConfigStore(configURL: URL(fileURLWithPath: config.sqlitePath + ".node.json")), sharedSkillsRootURLs: [])
         _ = try await service.createAgent(.init(id: "memory-recovery", displayName: "Memory recovery", role: "Test"))

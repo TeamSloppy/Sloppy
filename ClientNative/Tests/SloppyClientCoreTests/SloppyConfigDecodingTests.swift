@@ -51,6 +51,7 @@ struct SloppyConfigDecodingTests {
                   { "id": "filesystem", "transport": "stdio", "arguments": [], "headers": {}, "timeoutMs": 15000, "enabled": true, "exposeTools": true, "exposeResources": true, "exposePrompts": true }
                 ]
               },
+              "experimentalFlags": { "disableToolBudgetAndLoopGuard": true, "toolBudgetEnabled": true },
               "sqlitePath": "memory/core.sqlite"
             }
             """#.utf8
@@ -63,6 +64,15 @@ struct SloppyConfigDecodingTests {
         #expect(config.mcp.servers.first?.command.isEmpty == true)
         #expect(config.channels.discord?.allowedGuildIds == ["guild-1"])
         #expect(config.channels.telegram?.botToken == "telegram-token")
+        #expect(config.experimentalFlags.disableToolBudgetAndLoopGuard)
+        #expect(config.experimentalFlags.toolBudgetEnabled)
+
+        let encoded = try JSONEncoder().encode(config)
+        let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+        let flags = try #require(object["experimentalFlags"] as? [String: Any])
+        #expect(flags["disableToolBudgetAndLoopGuard"] as? Bool == true)
+        #expect(flags["toolBudgetEnabled"] as? Bool == true)
+        #expect(object["toolBudgetEnabled"] == nil)
     }
 
     @Test("continues to decode legacy string nodes")
@@ -78,6 +88,7 @@ struct SloppyConfigDecodingTests {
                 "retention": { "episodicDays": 90, "todoCompletedDays": 30, "bulletinDays": 180 }
               },
               "nodes": ["local"],
+              "toolBudgetEnabled": true,
               "sqlitePath": "memory/core.sqlite"
             }
             """#.utf8
@@ -86,5 +97,22 @@ struct SloppyConfigDecodingTests {
         let config = try JSONDecoder().decode(SloppyConfig.self, from: data)
 
         #expect(config.nodes == [SloppyConfig.Node(id: "local", title: "local", kind: "local")])
+        #expect(config.experimentalFlags.disableToolBudgetAndLoopGuard)
+        #expect(config.experimentalFlags.toolBudgetEnabled)
+    }
+
+    @Test("nested tool budget setting overrides the legacy root value")
+    func nestedToolBudgetTakesPrecedence() throws {
+        var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(SloppyConfig())) as? [String: Any])
+        object["toolBudgetEnabled"] = true
+
+        let decoded = try JSONDecoder().decode(SloppyConfig.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(!decoded.experimentalFlags.toolBudgetEnabled)
+
+        var flags = try #require(object["experimentalFlags"] as? [String: Any])
+        flags.removeValue(forKey: "toolBudgetEnabled")
+        object["experimentalFlags"] = flags
+        let migrated = try JSONDecoder().decode(SloppyConfig.self, from: JSONSerialization.data(withJSONObject: object))
+        #expect(migrated.experimentalFlags.toolBudgetEnabled)
     }
 }

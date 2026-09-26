@@ -407,6 +407,7 @@ actor AgentSessionOrchestrator {
         if let raw = overrideRaw, !raw.isEmpty, availableModelIDs.contains(raw) {
             selectedModel = raw
         } else if overrideRaw?.isEmpty != false,
+                  agentConfig.automaticModelRouting,
                   let semanticModelRouter,
                   let route = await semanticModelRouter.route(
                     channelID: sessionChannelID(agentID: agentID, sessionID: sessionID),
@@ -532,7 +533,8 @@ actor AgentSessionOrchestrator {
                 runStatus: AgentRunStatusEvent(
                     stage: .responding,
                     label: "Responding",
-                    details: "Generating response..."
+                    details: "Generating response...",
+                    selectedModel: selectedModel
                 )
             )
         )
@@ -1294,7 +1296,8 @@ actor AgentSessionOrchestrator {
                     runStatus: AgentRunStatusEvent(
                         stage: .thinking,
                         label: "Planning",
-                        details: "Generating execution plan..."
+                        details: "Generating execution plan...",
+                        selectedModel: plannerModel
                     )
                 )
             ]
@@ -1441,7 +1444,8 @@ actor AgentSessionOrchestrator {
                     runStatus: AgentRunStatusEvent(
                         stage: .searching,
                         label: "Executing tool",
-                        details: "Tool: \(toolRequest.tool)"
+                        details: "Tool: \(toolRequest.tool)",
+                        selectedModel: selectedModel
                     )
                 )
                 let toolCallEvent = AgentSessionEvent(
@@ -2363,7 +2367,8 @@ actor AgentSessionOrchestrator {
         userID: String,
         isDelegatedSubagent: Bool
     ) -> NativeAgentLoopConfig {
-        let maxToolRounds = coreConfig.toolBudgetEnabled ? max(0, coreConfig.toolBudgetExhausted) : 0
+        let maxToolRounds = coreConfig.experimentalFlags.toolBudgetEnabled && !coreConfig.experimentalFlags.disableToolBudgetAndLoopGuard
+            ? max(0, coreConfig.toolBudgetExhausted) : 0
         let enforceToolRoundLimit = maxToolRounds > 0 && !shouldBypassToolUsageLimits(userID: userID)
         guard isDelegatedSubagent else {
             return NativeAgentLoopConfig(

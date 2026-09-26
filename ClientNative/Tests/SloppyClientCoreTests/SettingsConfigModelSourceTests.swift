@@ -30,6 +30,7 @@ struct SettingsConfigModelSourceTests {
         #expect(sourceText.contains("public var ui: UI"))
         #expect(sourceText.contains("public var tui: TUI"))
         #expect(sourceText.contains("public var toolHooks: ToolHooks"))
+        #expect(sourceText.contains("public var experimentalFlags: ExperimentalFlags"))
         #expect(sourceText.contains("public var toolBudgetEnabled: Bool"))
         #expect(sourceText.contains("public var toolBudgetExhausted: Int"))
         #expect(sourceText.contains("public var modelRouting: [String: String]"))

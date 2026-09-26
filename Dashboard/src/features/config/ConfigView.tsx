@@ -1846,6 +1846,12 @@ export function ConfigView({
     return <SettingsPlaceholder title={section?.title} />;
   }
 
+  const selectedSectionTitle = selectedSettings === "memory"
+    ? "Memory"
+    : selectedSettings === "memory-dreams"
+      ? "Dreams"
+      : SETTINGS_ITEMS.find((item) => item.id === selectedSettings)?.title || "Configuration";
+
   return (
     <main className={embedded ? "memory-settings-editor" : "settings-shell"}>
       {!embedded && <SettingsSidebar
@@ -1859,6 +1865,7 @@ export function ConfigView({
 
       <section className="settings-main">
         <SettingsMainHeader
+          title={selectedSectionTitle}
           hasChanges={(!embedded || configLoaded) && hasManualChanges}
           statusText={statusText}
           onReload={cancelChanges}

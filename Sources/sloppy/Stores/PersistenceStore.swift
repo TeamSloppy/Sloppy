@@ -314,6 +314,12 @@ public protocol PersistenceStore: Sendable {
     /// Lists token usage records across a set of channels (used for project analytics).
     func listTokenUsage(channelIds: [String], from: Date?, to: Date?) async -> [TokenUsageRecord]
 
+    /// Persists the billed usage of one semantic-decision request.
+    func persistSemanticDecisionUsage(record: SemanticDecisionUsageRecord) async
+
+    /// Lists semantic-decision calls for a channel or time range.
+    func listSemanticDecisionUsage(channelId: String?, from: Date?, to: Date?) async -> [SemanticDecisionUsageRecord]
+
     /// Persists a tool invocation analytics row (duration, ok/error, tracing correlation).
     func persistToolInvocation(
         id: String,

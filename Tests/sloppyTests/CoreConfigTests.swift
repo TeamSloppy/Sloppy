@@ -85,7 +85,34 @@ func missingToolBudgetExhaustedFallsBackToDefaultLimit() throws {
     let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
 
     #expect(decoded.toolBudgetExhausted == 60)
-    #expect(!decoded.toolBudgetEnabled)
+    #expect(!decoded.experimentalFlags.toolBudgetEnabled)
+    #expect(decoded.experimentalFlags.disableToolBudgetAndLoopGuard)
+}
+
+@Test
+func experimentalToolFlagsDecodeAndEncode() throws {
+    let json =
+        """
+        {
+          "listen": { "host": "0.0.0.0", "port": 25101 },
+          "auth": { "token": "dev-token" },
+          "models": [],
+          "memory": { "backend": "sqlite-local-vectors" },
+          "experimentalFlags": { "disableToolBudgetAndLoopGuard": true, "toolBudgetEnabled": true },
+          "sqlitePath": "core.sqlite"
+        }
+        """
+
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
+    #expect(decoded.experimentalFlags.disableToolBudgetAndLoopGuard)
+    #expect(decoded.experimentalFlags.toolBudgetEnabled)
+
+    let encoded = try JSONEncoder().encode(decoded)
+    let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
+    let flags = try #require(object["experimentalFlags"] as? [String: Any])
+    #expect(flags["disableToolBudgetAndLoopGuard"] as? Bool == true)
+    #expect(flags["toolBudgetEnabled"] as? Bool == true)
+    #expect(object["toolBudgetEnabled"] == nil)
 }
 
 @Test
@@ -151,7 +178,7 @@ func compactorEconomyFieldsMapToRuntimeConfiguration() throws {
 }
 
 @Test
-func toolBudgetExhaustedDecodesAndEncodesAsCamelCase() throws {
+func legacyToolBudgetEnabledMigratesIntoExperimentalFlags() throws {
     let json =
         """
         {
@@ -171,13 +198,32 @@ func toolBudgetExhaustedDecodesAndEncodesAsCamelCase() throws {
     let decoded = try JSONDecoder().decode(CoreConfig.self, from: Data(json.utf8))
 
     #expect(decoded.toolBudgetExhausted == 0)
-    #expect(decoded.toolBudgetEnabled)
+    #expect(decoded.experimentalFlags.toolBudgetEnabled)
 
     let encoded = try JSONEncoder().encode(decoded)
     let object = try #require(JSONSerialization.jsonObject(with: encoded) as? [String: Any])
     #expect(object["toolBudgetExhausted"] as? Int == 0)
-    #expect(object["toolBudgetEnabled"] as? Bool == true)
+    let flags = try #require(object["experimentalFlags"] as? [String: Any])
+    #expect(flags["toolBudgetEnabled"] as? Bool == true)
+    #expect(object["toolBudgetEnabled"] == nil)
     #expect(object["tool_budget_exhausted"] == nil)
+}
+
+@Test
+func nestedToolBudgetEnabledOverridesLegacyValue() throws {
+    var config = CoreConfig.default
+    config.experimentalFlags.toolBudgetEnabled = false
+    var object = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(config)) as? [String: Any])
+    object["toolBudgetEnabled"] = true
+
+    let decoded = try JSONDecoder().decode(CoreConfig.self, from: JSONSerialization.data(withJSONObject: object))
+    #expect(!decoded.experimentalFlags.toolBudgetEnabled)
+
+    var partialFlags = try #require(object["experimentalFlags"] as? [String: Any])
+    partialFlags.removeValue(forKey: "toolBudgetEnabled")
+    object["experimentalFlags"] = partialFlags
+    let migrated = try JSONDecoder().decode(CoreConfig.self, from: JSONSerialization.data(withJSONObject: object))
+    #expect(migrated.experimentalFlags.toolBudgetEnabled)
 }
 
 @Test

@@ -788,7 +788,28 @@ public struct SloppyConfig: Codable, Sendable {
     public var ui: UI
     public var tui: TUI
     public var toolHooks: ToolHooks
-    public var toolBudgetEnabled: Bool
+    public struct ExperimentalFlags: Codable, Sendable, Equatable {
+        public var disableToolBudgetAndLoopGuard: Bool
+        public var toolBudgetEnabled: Bool
+
+        public init(disableToolBudgetAndLoopGuard: Bool = true, toolBudgetEnabled: Bool = false) {
+            self.disableToolBudgetAndLoopGuard = disableToolBudgetAndLoopGuard
+            self.toolBudgetEnabled = toolBudgetEnabled
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case disableToolBudgetAndLoopGuard
+            case toolBudgetEnabled
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            disableToolBudgetAndLoopGuard = try container.decodeIfPresent(Bool.self, forKey: .disableToolBudgetAndLoopGuard) ?? true
+            toolBudgetEnabled = try container.decodeIfPresent(Bool.self, forKey: .toolBudgetEnabled) ?? false
+        }
+    }
+
+    public var experimentalFlags: ExperimentalFlags
     public var toolBudgetExhausted: Int
     public var modelRouting: [String: String]
     public var compactor: Compactor
@@ -814,7 +835,7 @@ public struct SloppyConfig: Codable, Sendable {
         ui: UI = UI(),
         tui: TUI = TUI(),
         toolHooks: ToolHooks = ToolHooks(),
-        toolBudgetEnabled: Bool = false,
+        experimentalFlags: ExperimentalFlags = ExperimentalFlags(),
         toolBudgetExhausted: Int = 60,
         modelRouting: [String: String] = [:],
         compactor: Compactor = Compactor(),
@@ -839,7 +860,7 @@ public struct SloppyConfig: Codable, Sendable {
         self.ui = ui
         self.tui = tui
         self.toolHooks = toolHooks
-        self.toolBudgetEnabled = toolBudgetEnabled
+        self.experimentalFlags = experimentalFlags
         self.toolBudgetExhausted = toolBudgetExhausted
         self.modelRouting = modelRouting
         self.compactor = compactor
@@ -847,7 +868,11 @@ public struct SloppyConfig: Codable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case listen, workspace, auth, onboarding, models, memory, nodes, plugins, channels, searchTools, browser, proxy, mcp, visor, gitSync, acp, ui, tui, toolHooks, toolBudgetEnabled, toolBudgetExhausted, modelRouting, compactor, sqlitePath
+        case listen, workspace, auth, onboarding, models, memory, nodes, plugins, channels, searchTools, browser, proxy, mcp, visor, gitSync, acp, ui, tui, toolHooks, experimentalFlags, toolBudgetExhausted, modelRouting, compactor, sqlitePath
+    }
+
+    private enum LegacyCodingKeys: String, CodingKey {
+        case toolBudgetEnabled
     }
 
     public init(from decoder: Decoder) throws {
@@ -871,7 +896,20 @@ public struct SloppyConfig: Codable, Sendable {
         ui = try container.decodeIfPresent(UI.self, forKey: .ui) ?? UI()
         tui = try container.decodeIfPresent(TUI.self, forKey: .tui) ?? TUI()
         toolHooks = try container.decodeIfPresent(ToolHooks.self, forKey: .toolHooks) ?? ToolHooks()
-        toolBudgetEnabled = try container.decodeIfPresent(Bool.self, forKey: .toolBudgetEnabled) ?? false
+        experimentalFlags = try container.decodeIfPresent(ExperimentalFlags.self, forKey: .experimentalFlags) ?? .init()
+        let legacyContainer = try decoder.container(keyedBy: LegacyCodingKeys.self)
+        if let legacyToolBudgetEnabled = try legacyContainer.decodeIfPresent(Bool.self, forKey: .toolBudgetEnabled) {
+            let hasNestedBudget: Bool
+            if container.contains(.experimentalFlags) {
+                let flags = try container.nestedContainer(keyedBy: ExperimentalFlags.CodingKeys.self, forKey: .experimentalFlags)
+                hasNestedBudget = flags.contains(.toolBudgetEnabled)
+            } else {
+                hasNestedBudget = false
+            }
+            if !hasNestedBudget {
+                experimentalFlags.toolBudgetEnabled = legacyToolBudgetEnabled
+            }
+        }
         toolBudgetExhausted = try container.decodeIfPresent(Int.self, forKey: .toolBudgetExhausted) ?? 60
         modelRouting = try container.decodeIfPresent([String: String].self, forKey: .modelRouting) ?? [:]
         compactor = try container.decodeIfPresent(Compactor.self, forKey: .compactor) ?? Compactor()

@@ -338,6 +338,24 @@ struct SystemAPIRouter: APIRouter {
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
         }
 
+        router.get("/v1/semantic-decisions/spending", metadata: RouteMetadata(
+            summary: "Get JEV spending",
+            description: "Returns persisted semantic-decision cost, calls, and token usage grouped by UTC day",
+            tags: ["System"]
+        )) { request in
+            let rawFrom = request.queryParam("from")
+            let rawTo = request.queryParam("to")
+            let from = rawFrom.flatMap { CoreRouter.isoDate(from: $0) }
+            let to = rawTo.flatMap { CoreRouter.isoDate(from: $0) }
+            guard (rawFrom == nil || from != nil), (rawTo == nil || to != nil) else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "invalid_date_range"])
+            }
+            if let from, let to, from > to {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "invalid_date_range"])
+            }
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: await service.semanticDecisionSpending(from: from, to: to))
+        }
+
         router.get("/v1/updates/check", metadata: RouteMetadata(summary: "Get update status", description: "Returns the current and latest available version of Sloppy", tags: ["System"])) { _ in
             let status = await service.getUpdateStatus()
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: UpdateStatusResponse(status))

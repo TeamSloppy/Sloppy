@@ -11,6 +11,27 @@ import AppKit
 @Suite("Native chat composer editor")
 @MainActor
 struct ChatNativeTextEditorTests {
+    @Test("fenced code spans stay separate from surrounding prose")
+    func codeFenceRanges() throws {
+        let text = "Intro 🙂\n```swift\nlet value = 1\n```\nAfter"
+        let range = try #require(ChatComposerCodeFence.ranges(in: text).first)
+        let code = (text as NSString).substring(with: range)
+
+        #expect(code.hasPrefix("```swift\n"))
+        #expect(code.contains("let value = 1"))
+        #expect(!code.contains("After"))
+        #expect(ChatComposerCodeFence.ranges(in: text).count == 1)
+    }
+
+    @Test("unfinished code fences remain styled while typing")
+    func unfinishedCodeFenceRange() throws {
+        let text = "~~~swift\nlet value = 1"
+        let range = try #require(ChatComposerCodeFence.ranges(in: text).first)
+
+        #expect(range == NSRange(location: 0, length: (text as NSString).length))
+        #expect(ChatComposerCodeFence.ranges(in: "ordinary text").isEmpty)
+    }
+
     @Test("selection converts through native UTF-16 ranges without losing emoji offsets")
     func selectionRoundTripsThroughUTF16() throws {
         let text = "A🙂B"
@@ -86,6 +107,32 @@ struct ChatNativeTextEditorTests {
         textView.insertText("Hello", replacementRange: NSRange(location: 0, length: 0))
 
         #expect(textView.string == "Hello")
+    }
+
+    @Test("AppKit composer gives fenced code a monospaced face and background")
+    func appKitFencedCodeIsStyled() throws {
+        let textView = AppKitChatComposerTextEditor.makeTextView()
+        let style = AppKitComposerTextStyle(
+            font: .systemFont(ofSize: 14),
+            primaryColor: .white,
+            placeholderColor: .gray,
+            commandColor: .red,
+            mentionColor: .blue,
+            tagColor: .green,
+            codeBackgroundColor: .black
+        )
+        let text = "Prose\n```swift\nlet value = 1\n```"
+        textView.setStyledText(text, style: style)
+        let storage = try #require(textView.textStorage)
+        let codeLocation = (text as NSString).range(of: "let value").location
+        let codeFont = try #require(storage.attribute(.font, at: codeLocation, effectiveRange: nil) as? NSFont)
+        let codeBackground = try #require(
+            storage.attribute(.backgroundColor, at: codeLocation, effectiveRange: nil) as? NSColor
+        )
+
+        #expect(codeFont.isFixedPitch)
+        #expect(codeBackground.isEqual(NSColor.black))
+        #expect(storage.attribute(.backgroundColor, at: 0, effectiveRange: nil) == nil)
     }
 
     @Test("AppKit placeholder passes clicks through to the native editor")

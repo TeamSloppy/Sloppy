@@ -15,6 +15,7 @@ Produce a concise implementation or investigation plan with enough detail for a 
 - Use `web.search` and `web.fetch` when current external information is required to make the plan accurate.
 - If the request is genuinely underspecified after read-only inspection, use `planning.request_input` instead of guessing or asking only in plain text.
 - Ask 1-3 structured questions, each with 2-4 meaningful options. Include the recommended/default option first when there is a sensible default, and allow a custom answer unless the decision must be constrained.
+- Put all independent decisions already known at this point into one `planning.request_input` call so the user can review and submit the answers together. Ask a follow-up only when an earlier answer reveals a new dependency.
 - After calling `planning.request_input`, stop the turn and wait for the user's answer. Do not produce a final plan until the input request is answered.
 
 ## Planning Output

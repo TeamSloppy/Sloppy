@@ -18,7 +18,8 @@ struct ChatMarkdownRenderingSourceTests {
         let supportSource = try source("Sources", "SloppyFeatureChat", "Support", "ChatMessageRenderingSupport.swift")
 
         #expect(bubbleSource.contains("import Textual"))
-        #expect(bubbleSource.contains("StructuredText(markdown: text)"))
+        #expect(bubbleSource.contains("StructuredText(markdown: text, renderImmediately: renderImmediately)"))
+        #expect(bubbleSource.contains("renderImmediately: !isStreamingAssistant"))
         #expect(bubbleSource.contains(".textual.structuredTextStyle(.gitHub)"))
         #expect(!bubbleSource.contains("ChatMarkdownRenderer.blocks(for: text)"))
         #expect(!bubbleSource.contains("ChatMarkdownRenderer.attributedString(for: text)"))
@@ -62,6 +63,9 @@ struct ChatMarkdownRenderingSourceTests {
         #expect(structuredTextSource.contains("actor BackgroundMarkdownParser"))
         #expect(structuredTextSource.contains(".task(id: markup)"))
         #expect(structuredTextSource.contains("guard !Task.isCancelled else { return }"))
+        #expect(structuredTextSource.contains("renderImmediately, let parsed = try? parser.attributedString(for: markdown)"))
+        #expect(structuredTextSource.contains("State(initialValue: parsed)"))
+        #expect(structuredTextSource.contains("guard parsedMarkup != markup else { return }"))
         #expect(!structuredTextSource.contains(".onChange(of: markup, initial: true)"))
     }
 }

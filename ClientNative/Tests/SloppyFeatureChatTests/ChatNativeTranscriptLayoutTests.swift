@@ -185,8 +185,8 @@ struct ChatNativeTranscriptLayoutTests {
         #expect(abs(newOffset - oldOffset) <= 1)
     }
 
-    @Test("rapid streaming updates leave the transcript pinned to the final bottom")
-    func rapidStreamingUpdatesStayPinnedToBottom() async throws {
+    @Test("opening history holds its position while a live reply follows the bottom", arguments: [false, true])
+    func automaticBottomFollowRequiresLiveReply(followsLiveTail: Bool) async throws {
         _ = NSApplication.shared
         func parent(lastHeight: Int, revision: UInt) -> AppKitChatTranscriptCollection {
             AppKitChatTranscriptCollection(
@@ -194,7 +194,9 @@ struct ChatNativeTranscriptLayoutTests {
                     ChatTranscriptNativeItem(id: "row-\(index)", content: .revealEarlier(count: height))
                 },
                 contentWidth: 400, topInset: 0, bottomInset: 80,
-                scrollToEndRequest: 0, renderRevision: revision, reduceMotion: true
+                scrollToEndRequest: 0,
+                autoFollowChangingTail: followsLiveTail,
+                renderRevision: revision, reduceMotion: true
             ) { item in
                 guard case .revealEarlier(let height) = item.content else { return AnyView(EmptyView()) }
                 return AnyView(Color.clear.frame(height: CGFloat(height)))
@@ -225,6 +227,7 @@ struct ChatNativeTranscriptLayoutTests {
             await Task.yield()
             window.contentView?.layoutSubtreeIfNeeded()
         }
+        let initialOrigin = scroll.contentView.bounds.minY
 
         coordinator.update(parent: parent(lastHeight: 260, revision: 2), initial: false)
         coordinator.update(parent: parent(lastHeight: 520, revision: 3), initial: false)
@@ -235,9 +238,14 @@ struct ChatNativeTranscriptLayoutTests {
 
         let contentHeight = layout.collectionViewContentSize.height
         let bottomGap = contentHeight + 80 - scroll.contentView.bounds.maxY
-        #expect(abs(bottomGap) <= 1)
-        let lastFrame = try #require(layout.layoutAttributesForItem(at: IndexPath(item: 2, section: 0))).frame
-        #expect(lastFrame.height >= 520)
+        if followsLiveTail {
+            #expect(abs(bottomGap) <= 1)
+            let lastFrame = try #require(layout.layoutAttributesForItem(at: IndexPath(item: 2, section: 0))).frame
+            #expect(lastFrame.height >= 520)
+        } else {
+            #expect(abs(scroll.contentView.bounds.minY - initialOrigin) <= 1)
+            #expect(bottomGap > 100)
+        }
     }
 
     @Test("streamed markdown and code blocks grow without retaining the previous height")

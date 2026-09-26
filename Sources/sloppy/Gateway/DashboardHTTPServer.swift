@@ -14,6 +14,7 @@ struct DashboardClientConfig: Codable, Equatable, Sendable {
     var apiBase: String?
     var accentColor: String?
     var theme: String?
+    var features: [String: Bool]?
 }
 
 struct DashboardContentResolver: Sendable {

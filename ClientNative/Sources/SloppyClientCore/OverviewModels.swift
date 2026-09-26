@@ -274,12 +274,30 @@ public struct APIProjectTaskCreateRequest: Codable, Sendable, Equatable {
 }
 
 public struct APIProjectTaskUpdateRequest: Codable, Sendable, Equatable {
+    public var title: String?
+    public var description: String?
+    public var priority: String?
     public var status: String?
+    public var actorId: String?
     public var executionNodeId: String?
+    public var tags: [String]?
 
-    public init(status: String? = nil, executionNodeId: String? = nil) {
+    public init(
+        title: String? = nil,
+        description: String? = nil,
+        priority: String? = nil,
+        status: String? = nil,
+        actorId: String? = nil,
+        executionNodeId: String? = nil,
+        tags: [String]? = nil
+    ) {
+        self.title = title
+        self.description = description
+        self.priority = priority
         self.status = status
+        self.actorId = actorId
         self.executionNodeId = executionNodeId
+        self.tags = tags
     }
 }
 

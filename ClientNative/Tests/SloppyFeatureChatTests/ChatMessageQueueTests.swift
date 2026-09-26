@@ -21,6 +21,22 @@ struct ChatMessageQueueTests {
         #expect(queue.isEmpty)
     }
 
+    @Test("queued quotes keep their identity and send as Markdown blockquotes")
+    func preservesQuotes() {
+        let quote = ChatComposerQuote(text: "first line\r\nsecond line")
+        var queue = ChatMessageQueue()
+
+        let message = queue.enqueue(content: "My question", attachments: [], quotes: [quote])
+
+        #expect(queue.dequeue()?.quotes == [quote])
+        #expect(message.displayText == "My question")
+        #expect(
+            ChatComposerQuote.messageContent(message.content, quotes: message.quotes)
+                == "> first line\n> second line\n\nMy question"
+        )
+        #expect(ChatComposerQuote.messageContent("", quotes: [quote]) == "> first line\n> second line")
+    }
+
     @Test("queued message can be cancelled by identity")
     func cancelsByIdentity() throws {
         var queue = ChatMessageQueue()

@@ -40,6 +40,7 @@ export function useDashboardRoute(): DashboardRouteController {
   useEffect(() => {
     pushRouteToHistory(route);
   }, [
+    route.artifactId,
     route.agentId,
     route.agentTab,
     route.agentInitialChatSessionId,
@@ -66,6 +67,7 @@ export function useDashboardRoute(): DashboardRouteController {
     setRoute((current) => ({
       ...current,
       section: nextSection,
+      artifactId: null,
       agentInitialChatSessionId: nextSection === "agents" ? current.agentInitialChatSessionId : null,
       ...(nextSection !== "projects"
         ? { chatProjectId: null, chatAgentId: null, chatSessionId: null }

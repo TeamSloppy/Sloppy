@@ -239,6 +239,7 @@ export function AgentToolsTab({ agentId }) {
   const [agents, setAgents] = useState([]);
   const [reviewerSearch, setReviewerSearch] = useState("");
   const [reviewerDropdownOpen, setReviewerDropdownOpen] = useState(false);
+  const [presetDropdownOpen, setPresetDropdownOpen] = useState(false);
   const [draft, setDraft] = useState(defaultDraft);
   const [savedPolicy, setSavedPolicy] = useState(defaultDraft);
   const [statusText, setStatusText] = useState("Loading tools policy...");
@@ -511,22 +512,47 @@ export function AgentToolsTab({ agentId }) {
               <h4>Policy Preset</h4>
               <p>Quick configuration template. Selecting a preset rewrites the default policy and tool overrides.</p>
             </div>
-            <label className="agent-tools-field">
-              <span>Preset</span>
-              <select
-                value={activePreset}
-                onChange={(event) => {
-                  const id = event.target.value;
-                  if (id !== "custom") {
-                    applyPreset(id);
-                  }
-                }}
-              >
-                {PRESETS.map((preset) => (
-                  <option key={preset.id} value={preset.id}>{preset.label}</option>
-                ))}
-              </select>
-            </label>
+            <div className="agent-tools-field">
+              <span id="agent-tools-preset-label">Preset</span>
+              <div className="actor-team-search-wrap">
+                <button
+                  type="button"
+                  className="actor-team-search agent-tools-preset-button"
+                  aria-labelledby="agent-tools-preset-label"
+                  aria-haspopup="listbox"
+                  aria-controls="agent-tools-preset-options"
+                  aria-expanded={presetDropdownOpen}
+                  onClick={() => setPresetDropdownOpen((open) => !open)}
+                  onBlur={() => setTimeout(() => setPresetDropdownOpen(false), 150)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Escape") setPresetDropdownOpen(false);
+                  }}
+                >
+                  {activePresetMeta?.label || "Custom"}
+                  <span className="material-symbols-rounded" aria-hidden="true">expand_more</span>
+                </button>
+                {presetDropdownOpen ? (
+                  <ul className="actor-team-dropdown" id="agent-tools-preset-options" role="listbox" aria-labelledby="agent-tools-preset-label">
+                    {PRESETS.filter((preset) => preset.id !== "custom").map((preset) => (
+                      <li key={preset.id} role="presentation">
+                        <button
+                          type="button"
+                          className="agent-tools-preset-option"
+                          role="option"
+                          aria-selected={activePreset === preset.id}
+                          onClick={() => {
+                            applyPreset(preset.id);
+                            setPresetDropdownOpen(false);
+                          }}
+                        >
+                          {preset.label}
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                ) : null}
+              </div>
+            </div>
             {activePresetMeta && (
               <p className="placeholder-text" style={{ marginTop: 6 }}>{activePresetMeta.description}</p>
             )}

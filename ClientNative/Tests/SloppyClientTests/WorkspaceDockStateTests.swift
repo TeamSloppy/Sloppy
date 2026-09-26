@@ -99,6 +99,25 @@ struct WorkspaceDockStateTests {
         #expect(dock.selectedID == third.id)
     }
 
+    @Test func closingSelectedSidePanelTabsLeavesThePickerVisible() {
+        let dock = WorkspaceDockState()
+        let first = dock.open(.browser)
+        dock.open(.sideChat)
+
+        dock.closeSelectedTabOrHide()
+        #expect(dock.tabs.map(\.id) == [first.id])
+        #expect(dock.selectedID == first.id)
+        #expect(dock.isPresented)
+
+        dock.closeSelectedTabOrHide()
+        #expect(dock.tabs.isEmpty)
+        #expect(dock.selectedID == nil)
+        #expect(dock.isPresented)
+
+        dock.closeSelectedTabOrHide()
+        #expect(!dock.isPresented)
+    }
+
     @Test func widthCanGrowBeyondOldLimitAndFitsSmallWindows() {
         #expect(WorkspaceDockState.visibleWidth(preferred: 900, available: 1600) == 900)
         #expect(WorkspaceDockState.visibleWidth(preferred: 900, available: 700) < 700)

@@ -27,28 +27,29 @@ struct MainViewWorkspacePanelSourceTests {
         #expect(mainView.contains("showsNavigationToolbar: idiom == .phone"))
     }
 
-    @Test("desktop side panel toolbar button is circular")
-    func desktopSidePanelToolbarButtonIsCircular() throws {
+    @Test("desktop side panel toolbar button remains accessible")
+    func desktopSidePanelToolbarButtonIsAccessible() throws {
         let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
         let buttonStart = try #require(mainView.range(
             of: "var workspaceSidePanelButton: some View"
         ))
         let buttonEnd = try #require(mainView.range(
-            of: "private func openWorkspacePanel(mode: WorkspacePanelMode)",
+            of: "func openWorkspacePanel(mode: WorkspacePanelMode)",
             range: buttonStart.upperBound..<mainView.endIndex
         ))
         let button = mainView[buttonStart.lowerBound..<buttonEnd.lowerBound]
 
         #expect(button.contains(".frame(width: 24, height: 24)"))
-        #expect(button.contains(".buttonStyle(.glass)"))
-        #expect(button.contains(".buttonBorderShape(.circle)"))
-        #expect(!button.contains(".buttonStyle(.plain)"))
+        #expect(button.contains(".accessibilityIdentifier(\"workspace.dock.toggle\")"))
+        #expect(button.contains(".accessibilityLabel(\"Side panel\")"))
     }
 
     @Test("side panel tabs expose all supported destinations")
     func sidePanelOpensCodexStylePicker() throws {
         let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
+        let mainViewModel = try source("Sources/SloppyClient/Navigation/Main/MainViewModel.swift")
         let picker = try source("Sources/SloppyClient/Workspace/Panel/WorkspacePanelView.swift")
+        let dock = try source("Sources/SloppyClient/Workspace/Panel/WorkspaceDockView.swift")
 
         #expect(picker.contains("enum WorkspaceSidePanelItem"))
         #expect(picker.contains("case review"))
@@ -56,12 +57,27 @@ struct MainViewWorkspacePanelSourceTests {
         #expect(picker.contains("case browser"))
         #expect(picker.contains("case files"))
         #expect(picker.contains("case sideChat"))
-        #expect(picker.contains("ForEach(WorkspaceSidePanelItem.allCases)"))
+        #expect(picker.contains("ForEach([WorkspaceSidePanelItem.terminal, .browser])"))
+        #expect(picker.contains("What would you like to open?"))
+        #expect(dock.contains("ForEach(WorkspaceSidePanelItem.allCases)"))
+        #expect(dock.contains("WorkspaceSidePanelPickerView(onSelect: onOpen)"))
+        #expect(dock.contains("MiddleClickCloseArea(onMiddleClick: { state.close(tab.id) })"))
         #expect(picker.contains("workspace.side-panel.picker"))
         #expect(mainView.contains("viewModel.openBottomPanel(.terminal)"))
-        #expect(mainView.contains("viewModel.openWorkspaceDockTab(.sideChat)"))
+        #expect(mainViewModel.contains("openWorkspaceDockTab(.sideChat)"))
         #expect(mainView.contains("ChatComposerOverlay("))
         #expect(mainView.contains("viewModel.workspaceDockState.toggleVisibility()"))
+    }
+
+    @Test("command W targets the open side panel")
+    func commandWTargetsOpenSidePanel() throws {
+        let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
+        let mainViewModel = try source("Sources/SloppyClient/Navigation/Main/MainViewModel.swift")
+
+        #expect(mainView.contains("viewModel.closeActivePanelTabOrMainTab()"))
+        #expect(mainView.contains(".keyboardShortcut(\"w\", modifiers: [.command])"))
+        #expect(mainViewModel.contains("func closeActivePanelTabOrMainTab()"))
+        #expect(mainViewModel.contains("dock.closeSelectedTabOrHide()"))
     }
 
     @Test("chat view model exposes project workspace context")
@@ -106,7 +122,7 @@ struct MainViewWorkspacePanelSourceTests {
         #expect(mainView.contains(".onChange(of: chatState.viewModel.selectedSessionId)"))
         #expect(mainView.contains("viewModel.synchronizeChatTab(tab.id)"))
         #expect(mainViewModel.contains("func synchronizeChatTab(_ tabID: WorkspaceTab.ID)"))
-        #expect(mainViewModel.contains("key: .chatSession(sessionID)"))
+        #expect(mainViewModel.contains("key: .chatSession(storageSessionID)"))
         #expect(mainView.contains("if let activeChatViewModel"))
         #expect(mainView.contains("ChatComposerOverlay(\n                    viewModel: activeChatViewModel"))
         #expect(!mainView.contains("ChatComposerOverlay(\n                viewModel: viewModel.chatViewModel"))

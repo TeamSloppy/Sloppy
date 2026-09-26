@@ -294,6 +294,13 @@ extension MainView {
                         let project = viewModel.project(for: tab.id, localProjectID: context.projectId)
                             ?? APIProjectRecord(id: context.projectId, name: context.projectName)
                         viewModel.openTaskDetailTab(project: project, task: task, fallbackAgentId: task.actorId)
+                    },
+                    onTaskChanged: {
+                        await viewModel.loadProjects(force: true)
+                        if let project = viewModel.project(for: tab.id, localProjectID: context.projectId),
+                           let board = viewModel.projectModeStates[project.storageID] {
+                            await board.viewModel.load(projectId: context.projectId)
+                        }
                     }
                 )
             )
@@ -324,4 +331,3 @@ extension MainView {
         )
     }
 }
-

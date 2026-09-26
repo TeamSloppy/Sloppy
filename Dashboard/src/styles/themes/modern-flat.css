@@ -1,0 +1,189 @@
+/* Modern uses flat color fields throughout the dashboard. Keep content images intact. */
+:root[data-theme="modern"] :is(
+  .actors-board-scroller,
+  .nodes-graph,
+  .project-workflows-board-scroller,
+  .onboarding-micrograph,
+  .workspace-card-cover,
+  .workspaces-empty-visual
+) {
+  background-image: none;
+}
+
+:root[data-theme="modern"] .onboarding-visual::before {
+  background-image: none;
+}
+
+:root[data-theme="modern"] .actors-board-scroller,
+:root[data-theme="modern"] .nodes-graph,
+:root[data-theme="modern"] .project-workflows-board-scroller {
+  background-color: var(--surface);
+}
+
+:root[data-theme="modern"] .border-march {
+  background-image: none;
+  border: 1px dashed var(--accent);
+  animation: none;
+}
+
+:root[data-theme="modern"] .agent-chat-tech-trigger.shimmer .agent-chat-tech-trigger-label {
+  background: none;
+  color: var(--muted);
+  -webkit-text-fill-color: currentColor;
+  animation: none;
+}
+
+:root[data-theme="modern"] :is(
+  .agent-tools-panel,
+  .agent-pet-card,
+  .performance-telemetry-section,
+  .config-plugin-install-panel,
+  .auth-panel,
+  .config-voice-hero,
+  .tutorial-coachmark
+) {
+  background: var(--surface-2);
+}
+
+:root[data-theme="modern"] .terminal-drawer {
+  background: var(--surface);
+}
+
+:root[data-theme="modern"] .agent-pet-stat-fill {
+  background: #52cbe9;
+}
+
+:root[data-theme="modern"] .agent-usage-day {
+  background: color-mix(in srgb, var(--accent) 62%, var(--surface-3));
+}
+
+:root[data-theme="modern"] .agent-usage-trend-bar {
+  background: #7895eb;
+}
+
+:root[data-theme="modern"] .project-kanban-column-head--backlog {
+  background: rgba(71, 85, 105, 0.52);
+}
+
+:root[data-theme="modern"] .project-kanban-column-head--ready {
+  background: rgba(59, 130, 246, 0.38);
+}
+
+:root[data-theme="modern"] .project-kanban-column-head--in_progress {
+  background: rgba(245, 158, 11, 0.38);
+}
+
+:root[data-theme="modern"] .project-kanban-column-head--blocked {
+  background: rgba(239, 68, 68, 0.36);
+}
+
+:root[data-theme="modern"] .project-kanban-column-head--done {
+  background: rgba(34, 197, 94, 0.36);
+}
+
+:root[data-theme="modern"] .task-side-view-resize-handle {
+  background: rgba(148, 163, 184, 0.2);
+}
+
+:root[data-theme="modern"] .onboarding-shell,
+:root[data-theme="modern"] .onboarding-panel {
+  background: var(--bg);
+}
+
+:root[data-theme="modern"] .onboarding-visual {
+  background: var(--surface);
+}
+
+:root[data-theme="modern"] .onboarding-visual::after {
+  background: none;
+}
+
+:root[data-theme="modern"] .onboarding-micrograph {
+  background-color: var(--surface-2);
+}
+
+:root[data-theme="modern"] :is(.workspaces-app-icon, .workspace-sheet-icon, .workspace-agent-avatar) {
+  background: var(--workspace-accent);
+}
+
+:root[data-theme="modern"] .workspace-card-cover,
+:root[data-theme="modern"] .workspaces-empty-visual {
+  background-color: var(--workspace-canvas);
+}
+
+:root[data-theme="modern"] .workspace-image-placeholder {
+  background: var(--workspace-surface-hover);
+}
+
+/* One quiet skeleton language for cards, tables, code and graphs. */
+:root[data-theme="modern"] .loading-skeleton {
+  --skeleton-base: #2b3040;
+  --skeleton-surface: #151922;
+  gap: 13px;
+  color: var(--muted);
+}
+
+:root[data-theme="modern"] .loading-skeleton__label {
+  color: var(--muted);
+  font-size: 0.82rem;
+  font-weight: 500;
+}
+
+:root[data-theme="modern"] .loading-skeleton__label::before {
+  display: none;
+}
+
+:root[data-theme="modern"] :is(
+  .loading-skeleton__row,
+  .loading-skeleton__card,
+  .loading-skeleton__panel,
+  .loading-skeleton__hero,
+  .loading-skeleton--code,
+  .loading-skeleton__graph-canvas
+) {
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--skeleton-surface);
+  box-shadow: none;
+}
+
+:root[data-theme="modern"] .loading-skeleton__card {
+  min-height: 136px;
+}
+
+:root[data-theme="modern"] .loading-skeleton__card-grid {
+  gap: 12px;
+}
+
+:root[data-theme="modern"] .loading-skeleton__chips {
+  display: none;
+}
+
+:root[data-theme="modern"] :is(
+  .loading-skeleton__line,
+  .loading-skeleton__avatar,
+  .loading-skeleton__node,
+  .loading-skeleton__edge
+) {
+  background: var(--skeleton-base);
+  box-shadow: none;
+}
+
+:root[data-theme="modern"] .loading-skeleton__line {
+  border-radius: 4px;
+}
+
+:root[data-theme="modern"] .loading-skeleton__avatar {
+  border-radius: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root[data-theme="modern"] :is(
+    .loading-skeleton__line,
+    .loading-skeleton__avatar,
+    .loading-skeleton__node,
+    .loading-skeleton__edge
+  ) {
+    animation: none;
+  }
+}

@@ -84,7 +84,7 @@ public struct ChatScreen: View {
         .environment(
             \.chatTextSelectionActions,
             ChatTextSelectionActions(
-                addToChat: viewModel.addTextSelectionToComposer,
+                addToChat: viewModel.addQuoteToComposer,
                 moreDetails: viewModel.askForMoreDetails,
                 askInSideChat: onAskInSideChat
             )
@@ -601,6 +601,7 @@ private struct ChatTranscriptRegion: View {
     var body: some View {
         ChatTranscriptPane(
             transcript: viewModel.transcript,
+            isLoadingTranscript: viewModel.isLoadingTranscript,
             scrollToEndRequest: viewModel.transcriptScrollToEndRequest,
             contentWidth: contentWidth,
             messagesTopInset: messagesTopInset,
@@ -898,6 +899,7 @@ private struct ChatQueuedMessagesCard: View {
 @MainActor
 private struct ChatTranscriptPane: View {
     let transcript: ChatTranscriptState
+    let isLoadingTranscript: Bool
     let scrollToEndRequest: Int
     let contentWidth: CGFloat
     let messagesTopInset: CGFloat
@@ -932,6 +934,8 @@ private struct ChatTranscriptPane: View {
                 topInset: transcript.hasEarlierMessages ? 0 : messagesTopInset,
                 bottomInset: composerScrollInset,
                 scrollToEndRequest: scrollToEndRequest,
+                autoFollowAppendedItems: !isLoadingTranscript,
+                autoFollowChangingTail: isRunActive && !isLoadingTranscript,
                 scrollTarget: scrollTarget,
                 renderRevision: nativeRenderRevision,
                 reduceMotion: reduceMotion,
@@ -941,15 +945,15 @@ private struct ChatTranscriptPane: View {
                 renderer: renderNativeItem
             )
 #if os(macOS)
-            .overlay(alignment: .trailing) {
-                if conversationWaypoints.count > 1,
-                   proxy.size.width >= contentWidth + 112 {
+            .overlay(alignment: .leading) {
+                if !conversationWaypoints.isEmpty,
+                   proxy.size.width >= contentWidth + 2 * (30 + theme.spacing.m) {
                     ChatConversationNavigator(
                         waypoints: conversationWaypoints,
                         activeWaypointID: activeWaypointID,
                         onSelect: scroll(to:)
                     )
-                    .padding(.trailing, theme.spacing.m)
+                    .padding(.leading, theme.spacing.m)
                 }
             }
 #endif

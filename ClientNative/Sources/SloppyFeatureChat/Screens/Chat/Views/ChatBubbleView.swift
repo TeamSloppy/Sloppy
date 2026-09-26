@@ -12,10 +12,19 @@ struct ChatTextSelectionActions {
     var textualActions: [TextSelectionAction] {
         [
             addToChat.map { handler in
-                TextSelectionAction("Add to chat", handler: handler)
+                TextSelectionAction("Add to chat") { text in
+                    // The selection menu still owns first responder while its action runs.
+                    DispatchQueue.main.async {
+                        handler(text)
+                    }
+                }
             },
             moreDetails.map { handler in
-                TextSelectionAction("More details", handler: handler)
+                TextSelectionAction("More details") { text in
+                    DispatchQueue.main.async {
+                        handler(text)
+                    }
+                }
             },
             askInSideChat.map { handler in
                 TextSelectionAction("Ask in side chat", handler: handler)
@@ -175,18 +184,23 @@ public struct ChatBubbleView: View {
                             || (isActivelyWorking && segment.kind == .thinking)
                     )
                 } else if message.role == .user {
-                    // User input has an intrinsic size immediately, including in a
-                    // newly inserted native collection row before markdown parses.
-                    Text(verbatim: segment.text ?? "…")
-                        .font(.system(size: theme.typography.body))
-                        .foregroundStyle(theme.colors.textPrimary)
-                        .lineSpacing(4)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if let text = segment.text,
+                       text.hasPrefix("> ") || !ChatComposerCodeFence.ranges(in: text).isEmpty {
+                        ChatMarkdownTextStack(text: text)
+                    } else {
+                        // Plain user input has an intrinsic size before markdown parses.
+                        Text(verbatim: segment.text ?? "…")
+                            .font(.system(size: theme.typography.body))
+                            .foregroundStyle(theme.colors.textPrimary)
+                            .lineSpacing(4)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                 } else {
                     ChatMarkdownTextStack(
                         text: segment.text ?? "…",
-                        allowsTextSelection: !isStreamingAssistant && !isActivelyWorking
+                        allowsTextSelection: !isStreamingAssistant && !isActivelyWorking,
+                        renderImmediately: !isStreamingAssistant
                     )
                 }
             }
@@ -377,6 +391,7 @@ struct ChatThinkingIndicator: View {
 private struct ChatMarkdownTextStack: View {
     let text: String
     var allowsTextSelection = true
+    var renderImmediately = true
 
     @Environment(\.theme) private var theme
     @Environment(\.chatTextSelectionActions) private var selectionActions
@@ -404,7 +419,7 @@ private struct ChatMarkdownTextStack: View {
     private var structuredText: some View {
         let ty = theme.typography
 
-        return StructuredText(markdown: text)
+        return StructuredText(markdown: text, renderImmediately: renderImmediately)
             .textual.structuredTextStyle(.gitHub)
             .font(.system(size: ty.body))
             .lineSpacing(4)

@@ -36,10 +36,7 @@
 }
 
 :root[data-theme="modern"] body {
-  background:
-    radial-gradient(circle at 82% -10%, color-mix(in srgb, var(--accent) 12%, transparent), transparent 34rem),
-    radial-gradient(circle at 18% 110%, rgba(76, 108, 186, 0.08), transparent 42rem),
-    var(--bg);
+  background: var(--bg);
   letter-spacing: -0.008em;
 }
 
@@ -48,10 +45,7 @@
 }
 
 :root[data-theme="modern"] .onboarding-loading-shell {
-  background:
-    radial-gradient(circle at 18% 8%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 34%),
-    radial-gradient(circle at 86% 92%, rgba(76, 108, 186, 0.08), transparent 36%),
-    var(--bg);
+  background: var(--bg);
 }
 
 :root[data-theme="modern"] .onboarding-loading-card {

@@ -35,18 +35,25 @@ private struct ProjectContextMenuModifier: ViewModifier {
                 }
 
                 Menu {
-                    Button("Default") {
+                    Button {
                         viewModel.settings.projectColors.removeValue(forKey: project.storageID)
+                    } label: {
+                        SidebarColorMenuOption(
+                            title: "Default",
+                            color: nil,
+                            isSelected: viewModel.settings.projectColors[project.storageID] == nil
+                        )
                     }
                     Divider()
                     ForEach(SidebarProjectColor.allCases, id: \.self) { tint in
                         Button {
                             viewModel.settings.projectColors[project.storageID] = tint.rawValue
                         } label: {
-                            Label(tint.rawValue.capitalized, systemImage:
-                                viewModel.settings.projectColors[project.storageID] == tint.rawValue
-                                    ? "checkmark.circle.fill" : "circle.fill")
-                                .foregroundStyle(tint.color)
+                            SidebarColorMenuOption(
+                                title: tint.rawValue.capitalized,
+                                color: tint,
+                                isSelected: viewModel.settings.projectColors[project.storageID] == tint.rawValue
+                            )
                         }
                     }
                 } label: {

@@ -256,8 +256,8 @@ struct MainTabsSourceTests {
 
         #expect(mainView.contains("keyboardShortcut(\"t\", modifiers: [.command])"))
         #expect(mainView.contains("keyboardShortcut(\"w\", modifiers: [.command])"))
-        #expect(mainView.contains("viewModel.createBlankChatTab()"))
-        #expect(mainView.contains("viewModel.closeActiveTab()"))
+        #expect(mainView.contains("viewModel.selectNewChat()"))
+        #expect(mainView.contains("viewModel.closeActivePanelTabOrMainTab()"))
         #expect(mainView.contains("func workspaceContentHost(showsFloatingTabChrome: Bool) -> some View"))
     }
 
@@ -283,7 +283,7 @@ struct MainTabsSourceTests {
 
     @Test("main view model exposes active-tab close helper")
     func mainViewModelExposesActiveTabCloseHelper() throws {
-        let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
+        let mainView = try source("Sources/SloppyClient/Navigation/Main/MainViewModel.swift")
 
         #expect(mainView.contains("func closeActiveTab()"))
         #expect(mainView.contains("guard let selectedTabID else"))

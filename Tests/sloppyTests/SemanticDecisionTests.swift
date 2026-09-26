@@ -63,6 +63,84 @@ private func jevRequestBody(_ request: URLRequest) -> Data? {
 
 @Suite("Semantic decisions", .serialized)
 struct SemanticDecisionTests {
+    @Test("JEV spending survives metering and aggregates within a selected period")
+    func spendingByPeriod() async throws {
+        let store = InMemoryPersistenceStore()
+        let meter = SemanticDecisionUsageMeter(store: store)
+        let older = try #require(ISO8601DateFormatter().date(from: "2026-09-20T10:00:00Z"))
+        let first = try #require(ISO8601DateFormatter().date(from: "2026-09-24T10:00:00Z"))
+        let second = try #require(ISO8601DateFormatter().date(from: "2026-09-24T12:00:00Z"))
+
+        await meter.record(channelID: "old", usage: .init(inputTokens: 20, outputTokens: 2, costUSD: 0.02, costIsEstimated: false), at: older)
+        await meter.record(channelID: "current", usage: .init(inputTokens: 100, outputTokens: 5, costUSD: 0.001, costIsEstimated: false), at: first)
+        await meter.record(channelID: "current", usage: .init(inputTokens: 50, outputTokens: 3, costUSD: 0.0005, costIsEstimated: true), at: second)
+
+        let records = await store.listSemanticDecisionUsage(channelId: nil, from: first, to: second)
+        let current = await meter.snapshot(channelID: "current")
+        #expect(records.count == 2)
+        #expect(current?.requestCount == 2)
+        #expect(abs((current?.totalCostUSD ?? 0) - 0.0015) < 0.000000001)
+        #expect(abs((current?.estimatedCostUSD ?? 0) - 0.0005) < 0.000000001)
+
+        let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+        for record in records {
+            await service.store.persistSemanticDecisionUsage(record: record)
+        }
+        let report = await service.semanticDecisionSpending(from: first, to: second)
+        #expect(report.total.requestCount == 2)
+        #expect(report.total.inputTokens == 150)
+        #expect(report.total.outputTokens == 8)
+        #expect(report.days.map(\.day) == ["2026-09-24"])
+        #expect(report.days.first?.usage.estimatedCostUSD == 0.0005)
+    }
+
+    @Test("JEV call costs remain available after reopening SQLite")
+    func spendingSurvivesStoreReopen() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("sloppy-jev-spending-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let path = directory.appendingPathComponent("usage.sqlite").path
+        let schema = """
+            CREATE TABLE IF NOT EXISTS semantic_decision_usage (
+                id TEXT PRIMARY KEY, channel_id TEXT NOT NULL,
+                input_tokens INTEGER NOT NULL, output_tokens INTEGER NOT NULL,
+                cost_usd REAL NOT NULL, cost_is_estimated INTEGER NOT NULL,
+                created_at TEXT NOT NULL
+            );
+            """
+        let timestamp = try #require(ISO8601DateFormatter().date(from: "2026-09-24T10:00:00Z"))
+        let firstStore = SQLiteStore(path: path, schemaSQL: schema)
+        await firstStore.persistSemanticDecisionUsage(record: .init(
+            id: "jev-1", channelId: "agent:a:session:s", inputTokens: 88, outputTokens: 4,
+            costUSD: 0.00001155, costIsEstimated: false, createdAt: timestamp
+        ))
+
+        let reopenedStore = SQLiteStore(path: path, schemaSQL: schema)
+        let records = await reopenedStore.listSemanticDecisionUsage(channelId: "agent:a:session:s", from: timestamp, to: timestamp)
+        #expect(records.count == 1)
+        #expect(records.first?.id == "jev-1")
+        #expect(records.first?.costUSD == 0.00001155)
+    }
+
+    @Test("spending endpoint filters JEV calls by date")
+    func spendingEndpointFiltersDates() async throws {
+        let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+        let timestamp = try #require(ISO8601DateFormatter().date(from: "2026-09-24T10:00:00Z"))
+        await service.store.persistSemanticDecisionUsage(record: .init(
+            id: "jev-http-1", channelId: "agent:a:session:s", inputTokens: 88, outputTokens: 4,
+            costUSD: 0.00001155, costIsEstimated: false, createdAt: timestamp
+        ))
+        let router = CoreRouter(service: service)
+        let response = await router.handle(
+            method: "GET",
+            path: "/v1/semantic-decisions/spending?from=2026-09-24T00:00:00Z&to=2026-09-24T23:59:59Z",
+            body: nil
+        )
+        let payload = try JSONDecoder().decode(SemanticDecisionSpendingResponse.self, from: response.body)
+        #expect(response.status == 200)
+        #expect(payload.total.requestCount == 1)
+        #expect(payload.days.map(\.day) == ["2026-09-24"])
+    }
+
     @Test("legacy configs keep semantic decisions disabled")
     func legacyConfigDefaults() throws {
         let encoded = try JSONEncoder().encode(CoreConfig.test)

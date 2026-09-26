@@ -181,20 +181,34 @@ export function NotificationBell({
 
   useLayoutEffect(() => {
     if (!open || !containerRef.current || !dropdownRef.current) return;
-    const rect = containerRef.current.getBoundingClientRect();
-    const dropdown = dropdownRef.current;
-    const placement = getNotificationDropdownPlacement({
-      triggerLeft: rect.left,
-      triggerRight: rect.right,
-      triggerBottom: rect.bottom,
-      dropdownWidth: dropdown.getBoundingClientRect().width,
-      viewportWidth: window.innerWidth,
-      viewportHeight: window.innerHeight
-    });
-    dropdown.style.left = `${placement.left}px`;
-    dropdown.style.right = "auto";
-    dropdown.style.bottom = `${placement.bottom}px`;
-  }, [open]);
+    function positionDropdown() {
+      if (!containerRef.current || !dropdownRef.current) return;
+      const rect = containerRef.current.getBoundingClientRect();
+      const dropdown = dropdownRef.current;
+      const dropdownRect = dropdown.getBoundingClientRect();
+      const placement = getNotificationDropdownPlacement({
+        triggerLeft: rect.left,
+        triggerRight: rect.right,
+        triggerTop: rect.top,
+        triggerBottom: rect.bottom,
+        dropdownWidth: dropdownRect.width,
+        dropdownHeight: dropdownRect.height,
+        viewportWidth: window.innerWidth,
+        viewportHeight: window.innerHeight
+      });
+      dropdown.style.left = `${placement.left}px`;
+      dropdown.style.top = `${placement.top}px`;
+      dropdown.style.right = "auto";
+      dropdown.style.bottom = "auto";
+    }
+    positionDropdown();
+    window.addEventListener("resize", positionDropdown);
+    window.addEventListener("scroll", positionDropdown, true);
+    return () => {
+      window.removeEventListener("resize", positionDropdown);
+      window.removeEventListener("scroll", positionDropdown, true);
+    };
+  }, [open, notifications.length]);
 
   return (
     <div className="notif-bell-container" ref={containerRef}>

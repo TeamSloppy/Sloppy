@@ -1,0 +1,218 @@
+/* The back action remains usable in every theme. */
+.workspace-back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 0 10px;
+  border: 1px solid var(--workspace-separator);
+  border-radius: 8px;
+  background: var(--workspace-surface-raised);
+  color: var(--workspace-text);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.workspace-back-button:hover {
+  border-color: var(--workspace-separator-strong);
+  background: var(--workspace-surface-hover);
+}
+
+.workspace-back-button:focus-visible {
+  outline: 2px solid var(--workspace-accent);
+  outline-offset: 2px;
+}
+
+.workspace-back-button .material-symbols-rounded { font-size: 18px; }
+
+/* Minimal workspace canvas: a quiet toolbar, legible note editing, and a compact map. */
+:root[data-theme="minimal"] .workspace-editor-topbar {
+  top: 0;
+  right: 0;
+  left: 0;
+  min-height: 62px;
+  gap: 10px;
+  padding: 8px 18px;
+  border: 0;
+  border-bottom: 1px solid var(--workspace-separator);
+  border-radius: 0;
+  background: #090909;
+}
+
+:root[data-theme="minimal"] .workspace-back-button {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--workspace-text-secondary);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 560;
+  cursor: pointer;
+}
+
+:root[data-theme="minimal"] .workspace-back-button:hover,
+:root[data-theme="minimal"] .workspace-back-button:focus-visible {
+  border-color: var(--workspace-separator);
+  background: var(--workspace-surface-hover);
+  color: var(--workspace-text);
+}
+
+:root[data-theme="minimal"] .workspace-back-button .material-symbols-rounded { font-size: 18px; }
+:root[data-theme="minimal"] .workspace-editor-topbar .workspace-toolbar-divider { height: 25px; }
+:root[data-theme="minimal"] .workspace-editor-topbar .workspace-title-block strong { font-size: 15px; font-weight: 610; }
+:root[data-theme="minimal"] .workspace-editor-topbar .workspace-title-block span { font-size: 10px; }
+:root[data-theme="minimal"] .workspace-editor-topbar .workspace-live-state { background: transparent; }
+
+:root[data-theme="minimal"] .workspace-editor-topbar .workspace-toolbar-action,
+:root[data-theme="minimal"] .workspace-editor-topbar .workspace-icon-button {
+  min-height: 34px;
+  border-color: transparent;
+  background: transparent;
+}
+
+:root[data-theme="minimal"] .workspace-editor-topbar .workspace-toolbar-action:hover,
+:root[data-theme="minimal"] .workspace-editor-topbar .workspace-icon-button:hover {
+  border-color: var(--workspace-separator);
+  background: var(--workspace-surface-hover);
+}
+
+:root[data-theme="minimal"] .workspace-node-sticky {
+  border: 1px solid rgba(105, 77, 17, 0.35);
+  border-radius: 7px;
+  box-shadow: none;
+}
+
+:root[data-theme="minimal"] .workspace-node-sticky .workspace-node-text {
+  padding: 16px;
+  border: 0;
+  background: transparent;
+  color: #322810;
+  font-family: var(--font-ui);
+  font-size: 15px;
+  font-weight: 500;
+  line-height: 1.45;
+  box-shadow: none;
+}
+
+:root[data-theme="minimal"] .workspace-node-sticky textarea.workspace-node-text:focus {
+  outline: 2px solid rgba(77, 57, 16, 0.5);
+  outline-offset: -2px;
+}
+
+:root[data-theme="minimal"] .workspace-agent-dock {
+  bottom: 16px;
+  width: min(720px, calc(100% - var(--workspace-inspector-offset) - 48px));
+  min-width: 0;
+  min-height: 86px;
+  gap: 7px 10px;
+  grid-template-columns: minmax(120px, 150px) minmax(0, 1fr);
+  padding: 9px 11px 7px;
+  border-radius: 9px;
+  background: #0d0d0d;
+}
+
+:root[data-theme="minimal"] .workspace-agent-picker > button {
+  width: 100%;
+  min-width: 0;
+  max-width: none;
+  min-height: 44px;
+  padding: 0 8px 0 0;
+  border: 0;
+  border-right: 1px solid var(--workspace-separator);
+  border-radius: 0;
+  background: transparent;
+  font-size: 12px;
+}
+
+:root[data-theme="minimal"] .workspace-agent-avatar {
+  border: 1px solid var(--workspace-separator);
+  background: #202020;
+  color: var(--workspace-text);
+}
+
+:root[data-theme="minimal"] .workspace-agent-input {
+  min-height: 58px;
+  padding: 4px;
+  border: 1px solid var(--workspace-separator);
+  border-radius: 7px;
+  background: #080808;
+  box-shadow: none;
+}
+
+:root[data-theme="minimal"] .workspace-agent-input:focus-within {
+  border-color: var(--workspace-text-secondary);
+  box-shadow: none;
+}
+
+:root[data-theme="minimal"] .workspace-agent-input textarea {
+  min-height: 48px;
+  max-height: 160px;
+  padding: 8px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--workspace-text);
+  font-family: var(--font-ui);
+  font-size: 13px;
+  line-height: 1.45;
+  box-shadow: none;
+  outline: none;
+}
+
+:root[data-theme="minimal"] .workspace-agent-input button {
+  width: 34px;
+  height: 34px;
+  border-radius: 5px;
+  background: var(--workspace-text);
+  color: #090909;
+}
+
+:root[data-theme="minimal"] .workspace-agent-input button:disabled {
+  background: #292929;
+  color: #858585;
+  opacity: 1;
+}
+
+:root[data-theme="minimal"] .workspace-agent-meta { padding: 0 2px; font-size: 10px; }
+
+:root[data-theme="minimal"] .workspace-editor .react-flow__minimap {
+  right: calc(16px + var(--workspace-inspector-offset));
+  bottom: 16px;
+  border: 1px solid #414141;
+  border-radius: 7px;
+  background: #0b0b0b;
+  box-shadow: none;
+}
+
+:root[data-theme="minimal"] .workspace-editor .react-flow__minimap-svg {
+  background: #0b0b0b;
+}
+
+@media (max-width: 760px) {
+  :root[data-theme="minimal"] .workspace-editor-topbar {
+    left: 52px;
+    padding: 8px;
+  }
+
+  :root[data-theme="minimal"] .workspace-embed .workspace-editor-topbar { left: 0; }
+  :root[data-theme="minimal"] .workspace-back-button { padding: 0 6px; }
+  :root[data-theme="minimal"] .workspace-back-button > span:last-child { display: none; }
+  :root[data-theme="minimal"] .workspace-agent-dock {
+    bottom: 70px;
+    left: 50%;
+    width: calc(100% - 16px);
+    grid-template-columns: minmax(100px, 130px) minmax(0, 1fr);
+  }
+}
+
+@media (max-width: 480px) {
+  :root[data-theme="minimal"] .workspace-agent-dock { grid-template-columns: 1fr; }
+  :root[data-theme="minimal"] .workspace-agent-picker > button { min-height: 34px; border-right: 0; border-bottom: 1px solid var(--workspace-separator); }
+}

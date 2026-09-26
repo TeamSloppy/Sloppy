@@ -13,16 +13,17 @@ const DEFAULT_TRANSCRIPTION_MODELS = [
   { id: "whisper-1", title: "Whisper 1" }
 ];
 
-function ChoiceGroup({ label, value, options, onChange, columns = 2 }) {
+function ChoiceGroup({ label, value, options, onChange }) {
   return (
     <div className="config-voice-field">
       <span>{label}</span>
-      <div className={`provider-auth-mode-segmented config-segmented config-voice-segmented ${columns === 3 ? "is-three" : ""}`} role="tablist" aria-label={label}>
+      <div className="provider-auth-mode-segmented config-segmented config-voice-segmented" role="group" aria-label={label}>
         {options.map((option) => (
           <button
             key={option.value}
             type="button"
             className={value === option.value ? "active" : ""}
+            aria-pressed={value === option.value}
             onClick={() => onChange(option.value)}
           >
             {option.label}
@@ -66,22 +67,29 @@ function CapabilityChoiceList({ label, value, options, onSelect, getId = (option
   return (
     <div className="config-voice-field config-voice-field-wide">
       <span>{label}</span>
-      <div className="actor-team-search-wrap config-voice-choice-list">
-        {options.map((option) => {
-          const id = getId(option);
-          const title = getTitle(option);
-          return (
-            <button
-              key={id}
-              type="button"
-              className={`actor-team-search-option ${value === id ? "active" : ""}`}
-              onClick={() => onSelect(id)}
-            >
-              {title}
-            </button>
-          );
-        })}
-      </div>
+      <details className="config-voice-options">
+        <summary>Browse available options <span className="material-symbols-rounded" aria-hidden="true">expand_more</span></summary>
+        <div className="actor-team-search-wrap config-voice-choice-list">
+          {options.map((option) => {
+            const id = getId(option);
+            const title = getTitle(option);
+            return (
+              <button
+                key={id}
+                type="button"
+                className={`actor-team-search-option ${value === id ? "active" : ""}`}
+                aria-pressed={value === id}
+                onClick={(event) => {
+                  onSelect(id);
+                  event.currentTarget.closest("details")?.removeAttribute("open");
+                }}
+              >
+                {title}
+              </button>
+            );
+          })}
+        </div>
+      </details>
     </div>
   );
 }
@@ -116,8 +124,6 @@ export function VoiceModeEditor({ voiceMode, onUpdate, fetchVoiceCapabilities = 
   const openAI = voiceMode?.openAI || {};
   const local = voiceMode?.local || {};
   const isEnabled = Boolean(voiceMode?.enabled);
-  const providerLabel = provider === "openai" ? "OpenAI" : provider === "local" ? "Local" : "Auto";
-  const inputModeLabel = input.mode === "auto_submit" ? "Auto submit" : "Push to talk";
   const ttsModel = openAI.ttsModel || "gpt-4o-mini-tts";
   const voice = openAI.voice || "coral";
   const speechModels = capabilities?.speechModels?.length ? capabilities.speechModels : DEFAULT_TTS_MODELS;
@@ -135,7 +141,8 @@ export function VoiceModeEditor({ voiceMode, onUpdate, fetchVoiceCapabilities = 
 
   React.useEffect(() => {
     let cancelled = false;
-    if (!fetchVoiceCapabilities) {
+    if (!fetchVoiceCapabilities || !isEnabled || provider === "local" || !openAI.enabled) {
+      setCapabilityStatus("");
       return () => {
         cancelled = true;
       };
@@ -157,7 +164,7 @@ export function VoiceModeEditor({ voiceMode, onUpdate, fetchVoiceCapabilities = 
     return () => {
       cancelled = true;
     };
-  }, [fetchVoiceCapabilities]);
+  }, [fetchVoiceCapabilities, isEnabled, provider, openAI.enabled]);
 
   function update(patch) {
     onUpdate?.({ ...voiceMode, ...patch });
@@ -176,185 +183,149 @@ export function VoiceModeEditor({ voiceMode, onUpdate, fetchVoiceCapabilities = 
   }
 
   return (
-    <div className="config-voice-shell">
-      <section className="config-voice-hero" aria-labelledby="voice-mode-title">
-        <div className="config-voice-hero-copy">
-          <span className={`config-voice-status ${isEnabled ? "is-on" : "is-off"}`}>{isEnabled ? "Enabled" : "Disabled"}</span>
-          <h3 id="voice-mode-title">Voice Mode</h3>
-          <p>Speak to the agent from Dashboard and Safari. Auto prefers OpenAI audio when configured, with local browser speech as the fallback.</p>
+    <div className="config-voice-shell config-voice-editor">
+      <section className="config-voice-intro" aria-labelledby="voice-mode-title">
+        <div>
+          <span className="config-voice-eyebrow">VOICE</span>
+          <h3 id="voice-mode-title">Speak with Sloppy</h3>
+          <p>Talk to agents in the dashboard. Choose where speech is processed and how messages are sent.</p>
         </div>
-        <div className="config-voice-summary">
-          <div>
-            <span>Provider</span>
-            <strong>{providerLabel}</strong>
-          </div>
-          <div>
-            <span>Input</span>
-            <strong>{inputModeLabel}</strong>
-          </div>
-          <ToggleField
-            id="voice-mode-enabled"
-            title="Voice mode"
-            description="Turns microphone workflows on or off."
-            checked={isEnabled}
-            onChange={(checked) => update({ enabled: checked })}
-          />
-        </div>
+        <ToggleField
+          id="voice-mode-enabled"
+          title="Voice mode"
+          description={isEnabled ? "On" : "Off"}
+          checked={isEnabled}
+          onChange={(checked) => update({ enabled: checked })}
+        />
       </section>
 
-      <section className="config-voice-panel" aria-labelledby="voice-routing-title">
-        <div className="config-voice-panel-head">
-          <div>
-            <span className="entry-editor-kicker">Routing</span>
-            <h4 id="voice-routing-title">How voice is handled</h4>
+      {!isEnabled ? (
+        <p className="config-voice-disabled-note">Turn on Voice Mode to set up the microphone and speech options.</p>
+      ) : <>
+        <section className="config-voice-section" aria-labelledby="voice-provider-title">
+          <div className="config-voice-section-head">
+            <span>01</span>
+            <div><h4 id="voice-provider-title">Voice source</h4><p>Where speech is recognized and played.</p></div>
           </div>
-        </div>
-        <div className="config-voice-two-column">
-          <ChoiceGroup
-            label="Provider"
-            value={provider}
-            columns={3}
-            options={[
-              { value: "auto", label: "Auto" },
-              { value: "openai", label: "OpenAI" },
-              { value: "local", label: "Local" }
-            ]}
-            onChange={(value) => update({ provider: value })}
-          />
-          <ChoiceGroup
-            label="Input mode"
-            value={input.mode || "push_to_talk"}
-            options={[
-              { value: "push_to_talk", label: "Push to talk" },
-              { value: "auto_submit", label: "Auto submit" }
-            ]}
-            onChange={(value) => updateInput({ mode: value })}
-          />
-          <TextField
-            id="voice-mode-language"
-            label="Language"
-            value={input.language || "auto"}
-            hint="Use auto, en-US, ru-RU, or any browser/OpenAI language code."
-            onChange={(value) => updateInput({ language: value })}
-          />
-          <ToggleField
-            id="voice-preview-before-send"
-            title="Preview before send"
-            description="Review recognized text before it goes to the agent."
-            checked={input.previewBeforeSend !== false}
-            onChange={(checked) => updateInput({ previewBeforeSend: checked })}
-          />
-        </div>
-      </section>
+          <div className="config-voice-provider-options" role="group" aria-label="Voice source">
+            {[
+              { value: "auto", label: "Automatic", description: "Use OpenAI when ready, otherwise browser speech." },
+              { value: "openai", label: "OpenAI", description: "Use OpenAI audio models." },
+              { value: "local", label: "Browser", description: "Keep voice processing in this browser." }
+            ].map((option) => (
+              <button key={option.value} type="button" aria-pressed={provider === option.value}
+                className={`config-voice-provider-option ${provider === option.value ? "active" : ""}`}
+                onClick={() => update({ provider: option.value })}>
+                <strong>{option.label}</strong><small>{option.description}</small>
+              </button>
+            ))}
+          </div>
+        </section>
 
-      <div className="config-voice-columns">
-        <section className="config-voice-panel" aria-labelledby="voice-openai-title">
-          <div className="config-voice-panel-head">
-            <div>
-              <span className="entry-editor-kicker">OpenAI</span>
-              <h4 id="voice-openai-title">Agent voice</h4>
-            </div>
+        <section className="config-voice-section" aria-labelledby="voice-input-title">
+          <div className="config-voice-section-head">
+            <span>02</span>
+            <div><h4 id="voice-input-title">Input</h4><p>How spoken messages reach the agent.</p></div>
+          </div>
+          <div className="config-voice-main-controls">
+            <ChoiceGroup
+              label="Send message"
+              value={input.mode || "push_to_talk"}
+              options={[
+                { value: "push_to_talk", label: "Push to talk" },
+                { value: "auto_submit", label: "Auto submit" }
+              ]}
+              onChange={(value) => updateInput({ mode: value })}
+            />
             <ToggleField
-              id="voice-openai-enabled"
-              title="Use OpenAI"
-              checked={Boolean(openAI.enabled)}
-              onChange={(checked) => updateOpenAI({ enabled: checked })}
+              id="voice-preview-before-send"
+              title="Preview before send"
+              description="Review the transcript first."
+              checked={input.previewBeforeSend !== false}
+              onChange={(checked) => updateInput({ previewBeforeSend: checked })}
             />
           </div>
-          <div className="config-voice-form">
-            <TextField
-              id="voice-transcription-model"
-              label="Transcription model"
-              value={openAI.transcriptionModel || ""}
-              onChange={(value) => updateOpenAI({ transcriptionModel: value })}
-            />
-            <CapabilityChoiceList
-              label="Available transcription models"
-              value={openAI.transcriptionModel || "gpt-4o-mini-transcribe"}
-              options={transcriptionModels}
-              onSelect={(value) => updateOpenAI({ transcriptionModel: value })}
-            />
-            <TextField
-              id="voice-tts-model"
-              label="TTS model"
-              value={openAI.ttsModel || ""}
-              onChange={(value) => updateOpenAI({ ttsModel: value })}
-            />
-            <CapabilityChoiceList
-              label="Available TTS models"
-              value={ttsModel}
-              options={speechModels}
-              onSelect={(value) => updateOpenAI({ ttsModel: value })}
-            />
-            <TextField
-              id="voice-openai-voice"
-              label="Voice"
-              value={voice}
-              onChange={(value) => updateOpenAI({ voice: value })}
-            />
-            <CapabilityChoiceList
-              label={ttsModel === "gpt-4o-mini-tts" ? "Available voices" : "Compatible voices"}
-              value={voice}
-              options={displayedVoiceOptions}
-              onSelect={(value) => updateOpenAI({ voice: value })}
-              getTitle={(option) => option.recommended ? `${option.title || option.id} - recommended` : option.title || option.id}
-            />
-            {capabilityStatus ? <p className="config-voice-capability-status">{capabilityStatus}</p> : null}
-            <label className="config-voice-field config-voice-field-wide" htmlFor="voice-openai-instructions">
-              <span>Voice instructions</span>
-              <textarea
-                id="voice-openai-instructions"
-                value={openAI.instructions || ""}
-                onChange={(event) => updateOpenAI({ instructions: event.target.value })}
+          <details className="config-voice-disclosure">
+            <summary><span>Recognition language</span><small>{input.language || "auto"}</small><span className="material-symbols-rounded" aria-hidden="true">expand_more</span></summary>
+            <div className="config-voice-disclosure-body">
+              <TextField
+                id="voice-mode-language"
+                label="Language"
+                value={input.language || "auto"}
+                hint="Use auto or a language code such as en-US or ru-RU."
+                onChange={(value) => updateInput({ language: value })}
               />
-              <small>Tone and speaking style for generated audio.</small>
-            </label>
-          </div>
+            </div>
+          </details>
         </section>
 
-        <section className="config-voice-panel" aria-labelledby="voice-local-title">
-          <div className="config-voice-panel-head">
-            <div>
-              <span className="entry-editor-kicker">Local</span>
-              <h4 id="voice-local-title">Browser fallback</h4>
-            </div>
-            <ToggleField
-              id="voice-local-enabled"
-              title="Use local"
-              checked={local.enabled !== false}
-              onChange={(checked) => updateLocal({ enabled: checked })}
-            />
+        <section className="config-voice-section" aria-labelledby="voice-output-title">
+          <div className="config-voice-section-head">
+            <span>03</span>
+            <div><h4 id="voice-output-title">Audio</h4><p>Configure only the sources selected above.</p></div>
           </div>
-          <div className="config-voice-form">
-            <TextField
-              id="voice-local-name"
-              label="Voice name"
-              value={local.voiceName || ""}
-              hint="Leave empty for the browser default."
-              wide
-              onChange={(value) => updateLocal({ voiceName: value })}
-            />
-            <SliderField
-              id="voice-local-rate"
-              label="Rate"
-              min="0.5"
-              max="2"
-              step="0.1"
-              value={local.rate ?? 1}
-              onChange={(value) => updateLocal({ rate: value })}
-            />
-            <SliderField
-              id="voice-local-pitch"
-              label="Pitch"
-              min="0"
-              max="2"
-              step="0.1"
-              value={local.pitch ?? 1}
-              onChange={(value) => updateLocal({ pitch: value })}
-            />
+          <div className="config-voice-sources">
+            {provider !== "local" ? <div className="config-voice-source">
+              <ToggleField
+                id="voice-openai-enabled"
+                title="OpenAI audio"
+                description="Transcription and generated voice."
+                checked={Boolean(openAI.enabled)}
+                onChange={(checked) => updateOpenAI({ enabled: checked })}
+              />
+              {openAI.enabled ? <details className="config-voice-disclosure config-voice-source-details">
+                <summary><span>Models &amp; voice</span><small>{ttsModel} · {voice}</small><span className="material-symbols-rounded" aria-hidden="true">expand_more</span></summary>
+                <div className="config-voice-disclosure-body config-voice-form">
+                  <TextField id="voice-transcription-model" label="Transcription model" value={openAI.transcriptionModel || ""}
+                    onChange={(value) => updateOpenAI({ transcriptionModel: value })} />
+                  <CapabilityChoiceList label="Transcription models" value={openAI.transcriptionModel || "gpt-4o-mini-transcribe"}
+                    options={transcriptionModels} onSelect={(value) => updateOpenAI({ transcriptionModel: value })} />
+                  <TextField id="voice-tts-model" label="Speech model" value={openAI.ttsModel || ""}
+                    onChange={(value) => updateOpenAI({ ttsModel: value })} />
+                  <CapabilityChoiceList label="Speech models" value={ttsModel} options={speechModels}
+                    onSelect={(value) => updateOpenAI({ ttsModel: value })} />
+                  <TextField id="voice-openai-voice" label="Voice" value={voice}
+                    onChange={(value) => updateOpenAI({ voice: value })} />
+                  <CapabilityChoiceList label={ttsModel === "gpt-4o-mini-tts" ? "Voices" : "Compatible voices"}
+                    value={voice} options={displayedVoiceOptions} onSelect={(value) => updateOpenAI({ voice: value })}
+                    getTitle={(option) => option.recommended ? `${option.title || option.id} · recommended` : option.title || option.id} />
+                  <label className="config-voice-field config-voice-field-wide" htmlFor="voice-openai-instructions">
+                    <span>Voice instructions</span>
+                    <textarea id="voice-openai-instructions" value={openAI.instructions || ""}
+                      onChange={(event) => updateOpenAI({ instructions: event.target.value })} />
+                    <small>Tone and speaking style for generated audio.</small>
+                  </label>
+                </div>
+              </details> : null}
+              {openAI.enabled && capabilityStatus ? <p className="config-voice-capability-status">{capabilityStatus}</p> : null}
+            </div> : null}
+
+            {provider !== "openai" ? <div className="config-voice-source">
+              <ToggleField
+                id="voice-local-enabled"
+                title="Browser speech"
+                description={provider === "auto" ? "Fallback when OpenAI is unavailable." : "Use this browser's speech services."}
+                checked={local.enabled !== false}
+                onChange={(checked) => updateLocal({ enabled: checked })}
+              />
+              {local.enabled !== false ? <details className="config-voice-disclosure config-voice-source-details">
+                <summary><span>Browser voice</span><small>{local.voiceName || "Browser default"} · {Number(local.rate ?? 1).toFixed(1)}×</small><span className="material-symbols-rounded" aria-hidden="true">expand_more</span></summary>
+                <div className="config-voice-disclosure-body config-voice-form">
+                  <TextField id="voice-local-name" label="Voice name" value={local.voiceName || ""}
+                    hint="Leave empty for the browser default." wide onChange={(value) => updateLocal({ voiceName: value })} />
+                  <SliderField id="voice-local-rate" label="Rate" min="0.5" max="2" step="0.1"
+                    value={local.rate ?? 1} onChange={(value) => updateLocal({ rate: value })} />
+                  <SliderField id="voice-local-pitch" label="Pitch" min="0" max="2" step="0.1"
+                    value={local.pitch ?? 1} onChange={(value) => updateLocal({ pitch: value })} />
+                </div>
+              </details> : null}
+            </div> : null}
           </div>
+          {provider === "openai" && !openAI.enabled ? <p className="config-voice-warning">Enable OpenAI audio to use this source.</p> : null}
+          {provider === "local" && local.enabled === false ? <p className="config-voice-warning">Enable browser speech to use this source.</p> : null}
+          {provider === "auto" && !openAI.enabled && local.enabled === false ? <p className="config-voice-warning">Enable at least one audio source.</p> : null}
         </section>
-      </div>
+      </>}
     </div>
   );
 }

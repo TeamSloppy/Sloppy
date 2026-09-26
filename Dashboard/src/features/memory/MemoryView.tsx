@@ -58,10 +58,10 @@ export function MemoryView({ tab = "overview", scopeType = "all", scopeId = null
         className={tab === item ? "active" : ""} onClick={() => onRouteChange(item, scopeType, scopeId)}>{item[0].toUpperCase() + item.slice(1)}</button>)}</nav>
     </header>
     {tab === "overview" && <section className="memory-overview">
-      <div className="memory-hero"><span className="material-symbols-rounded" aria-hidden="true">neurology</span><div><h2>Memory across conversations</h2>
-        <p>Preferences, decisions and project context in one place.</p>
-        <button type="button" onClick={() => onRouteChange("memories", "all")}>Browse memory</button>
-        <button type="button" disabled={!firstAgent} onClick={() => onRouteChange("memories", "agent", firstAgent?.id)}>Import from another assistant</button></div></div>
+      <div className="memory-overview-intro"><div><h2>Across conversations</h2>
+        <p>Preferences, decisions and project context in one place.</p></div>
+        <div className="memory-overview-actions"><button type="button" onClick={() => onRouteChange("memories", "all")}>Browse memory</button>
+        <button type="button" disabled={!firstAgent} onClick={() => onRouteChange("memories", "agent", firstAgent?.id)}>Import memory</button></div></div>
       <div className="memory-overview-head"><h2>Current configuration</h2><button type="button" disabled={loading} onClick={() => setRevision((value) => value + 1)}>Refresh</button></div>
       {loading ? <p role="status">Loading memory overview…</p> : <>
         <dl className="memory-summary"><div><dt>Saved records</dt><dd>{total ?? "Unavailable"}</dd></div>

@@ -68,6 +68,53 @@ enum ChatComposerNativeSelection {
     }
 }
 
+enum ChatComposerCodeFence {
+    static func ranges(in text: String) -> [NSRange] {
+        let source = text as NSString
+        guard source.length > 0 else { return [] }
+
+        var ranges: [NSRange] = []
+        var openLocation: Int?
+        var openingMarker: Character?
+        var openingCount = 0
+
+        source.enumerateSubstrings(
+            in: NSRange(location: 0, length: source.length),
+            options: .byLines
+        ) { line, lineRange, enclosingRange, _ in
+            guard let line else { return }
+            let leadingSpaces = line.prefix(while: { $0 == " " }).count
+            guard leadingSpaces <= 3 else { return }
+            let markerText = line.dropFirst(leadingSpaces)
+            guard let marker = markerText.first, marker == "`" || marker == "~" else { return }
+            let count = markerText.prefix(while: { $0 == marker }).count
+            guard count >= 3 else { return }
+
+            if let start = openLocation {
+                guard marker == openingMarker,
+                      count >= openingCount,
+                      markerText.dropFirst(count).allSatisfy(\.isWhitespace) else { return }
+                ranges.append(NSRange(
+                    location: start,
+                    length: NSMaxRange(enclosingRange) - start
+                ))
+                openingMarker = nil
+                openingCount = 0
+                openLocation = nil
+            } else {
+                openLocation = lineRange.location
+                openingMarker = marker
+                openingCount = count
+            }
+        }
+
+        if let openLocation {
+            ranges.append(NSRange(location: openLocation, length: source.length - openLocation))
+        }
+        return ranges
+    }
+}
+
 #if canImport(UIKit) && !os(macOS)
 struct UIKitChatComposerTextEditor: UIViewRepresentable {
     @Binding var text: String
@@ -598,6 +645,7 @@ struct AppKitChatComposerTextEditor: NSViewRepresentable {
     let commandColor: Color
     let mentionColor: Color
     let tagColor: Color
+    let codeBackgroundColor: Color
     let maximumVisibleLines: Int
     let textContainerInset: CGSize
     let lineFragmentPadding: CGFloat
@@ -713,7 +761,8 @@ struct AppKitChatComposerTextEditor: NSViewRepresentable {
             placeholderColor: NSColor(placeholderColor),
             commandColor: NSColor(commandColor),
             mentionColor: NSColor(mentionColor),
-            tagColor: NSColor(tagColor)
+            tagColor: NSColor(tagColor),
+            codeBackgroundColor: NSColor(codeBackgroundColor)
         )
     }
 
@@ -890,6 +939,7 @@ struct AppKitComposerTextStyle: Equatable {
     let commandColor: NSColor
     let mentionColor: NSColor
     let tagColor: NSColor
+    let codeBackgroundColor: NSColor
 
     static func == (lhs: Self, rhs: Self) -> Bool {
         lhs.font.isEqual(rhs.font)
@@ -898,6 +948,7 @@ struct AppKitComposerTextStyle: Equatable {
             && lhs.commandColor.isEqual(rhs.commandColor)
             && lhs.mentionColor.isEqual(rhs.mentionColor)
             && lhs.tagColor.isEqual(rhs.tagColor)
+            && lhs.codeBackgroundColor.isEqual(rhs.codeBackgroundColor)
     }
 
     var baseAttributes: [NSAttributedString.Key: Any] {
@@ -953,6 +1004,7 @@ final class ComposerNSTextView: NSTextView {
     var onPasteAttachment: (@MainActor () -> Bool)?
 
     private var appliedStyle: AppKitComposerTextStyle?
+    private var codeBlockRanges: [NSRange] = []
 
     override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
         super.init(frame: frameRect, textContainer: container)
@@ -968,6 +1020,48 @@ final class ComposerNSTextView: NSTextView {
         super.layout()
         layoutPlaceholder()
         onLayout?()
+    }
+
+    override func drawBackground(in rect: NSRect) {
+        super.drawBackground(in: rect)
+        guard let appliedStyle, let layoutManager, let textContainer else { return }
+        layoutManager.ensureLayout(for: textContainer)
+        let origin = textContainerOrigin
+
+        for range in codeBlockRanges {
+            let glyphRange = layoutManager.glyphRange(
+                forCharacterRange: range,
+                actualCharacterRange: nil
+            )
+            guard glyphRange.length > 0 else { continue }
+
+            var glyphIndex = glyphRange.location
+            var minY = CGFloat.greatestFiniteMagnitude
+            var maxY = -CGFloat.greatestFiniteMagnitude
+            while glyphIndex < NSMaxRange(glyphRange) {
+                var lineRange = NSRange(location: 0, length: 0)
+                let fragment = layoutManager.lineFragmentRect(
+                    forGlyphAt: glyphIndex,
+                    effectiveRange: &lineRange
+                )
+                minY = min(minY, fragment.minY)
+                maxY = max(maxY, fragment.maxY)
+                let nextIndex = NSMaxRange(lineRange)
+                guard nextIndex > glyphIndex else { break }
+                glyphIndex = nextIndex
+            }
+
+            let x = max(2, origin.x - 4)
+            let background = NSRect(
+                x: x,
+                y: origin.y + minY - 2,
+                width: max(0, bounds.width - 2 * x),
+                height: max(0, maxY - minY + 4)
+            )
+            guard background.intersects(rect) else { continue }
+            appliedStyle.codeBackgroundColor.setFill()
+            NSBezierPath(roundedRect: background, xRadius: 7, yRadius: 7).fill()
+        }
     }
 
     override func mouseDown(with event: NSEvent) {
@@ -1018,11 +1112,13 @@ final class ComposerNSTextView: NSTextView {
 
     func setStyledText(_ text: String, style: AppKitComposerTextStyle) {
         let selectedRange = selectedRange()
+        codeBlockRanges = ChatComposerCodeFence.ranges(in: text)
         textStorage?.setAttributedString(styledText(text, style: style))
         appliedStyle = style
         typingAttributes = style.baseAttributes
         setSelectedRange(clamped(selectedRange, for: text))
         updatePlaceholderVisibility()
+        needsDisplay = true
     }
 
     func applyStyle(_ style: AppKitComposerTextStyle, force: Bool = false) {
@@ -1030,6 +1126,7 @@ final class ComposerNSTextView: NSTextView {
               let textStorage else { return }
         let selectedRange = selectedRange()
         let text = string
+        codeBlockRanges = ChatComposerCodeFence.ranges(in: text)
         textStorage.beginEditing()
         textStorage.setAttributes(
             style.baseAttributes,
@@ -1041,6 +1138,7 @@ final class ComposerNSTextView: NSTextView {
         typingAttributes = style.baseAttributes
         setSelectedRange(clamped(selectedRange, for: text))
         updatePlaceholderVisibility()
+        needsDisplay = true
     }
 
     private func setUp() {
@@ -1094,6 +1192,13 @@ final class ComposerNSTextView: NSTextView {
                 value: color,
                 range: NSRange(token.range, in: text)
             )
+        }
+        for range in codeBlockRanges {
+            result.addAttributes([
+                .font: NSFont.monospacedSystemFont(ofSize: style.font.pointSize, weight: .regular),
+                .foregroundColor: style.primaryColor,
+                .backgroundColor: style.codeBackgroundColor,
+            ], range: range)
         }
     }
 

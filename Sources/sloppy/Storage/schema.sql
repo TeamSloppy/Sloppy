@@ -241,6 +241,21 @@ CREATE TABLE IF NOT EXISTS token_usage (
     created_at TEXT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS semantic_decision_usage (
+    id TEXT PRIMARY KEY,
+    channel_id TEXT NOT NULL,
+    input_tokens INTEGER NOT NULL,
+    output_tokens INTEGER NOT NULL,
+    cost_usd REAL NOT NULL,
+    cost_is_estimated INTEGER NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_semantic_decision_usage_created_at
+ON semantic_decision_usage(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_semantic_decision_usage_channel_created_at
+ON semantic_decision_usage(channel_id, created_at DESC);
+
 CREATE TABLE IF NOT EXISTS tool_invocations (
     id TEXT PRIMARY KEY,
     project_id TEXT,

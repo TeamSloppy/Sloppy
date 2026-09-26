@@ -24,7 +24,8 @@ struct ChatBubbleRenderingTests {
         #expect(source.contains("ChatSegmentCollapsibleCard"))
         #expect(source.contains("ChatBuildProgressView(progress: progress)"))
         #expect(source.contains("ChatMarkdownTextStack"))
-        #expect(source.contains("StructuredText(markdown: text)"))
+        #expect(source.contains("StructuredText(markdown: text, renderImmediately: renderImmediately)"))
+        #expect(source.contains("renderImmediately: !isStreamingAssistant"))
         #expect(!source.contains("rendersMarkdown: !isStreamingAssistant"))
         #expect(source.contains(".textual.textSelection(.enabled)"))
         #expect(source.contains("allowsTextSelection: !isStreamingAssistant && !isActivelyWorking"))
@@ -34,7 +35,7 @@ struct ChatBubbleRenderingTests {
     func richTranscriptIncludesCodeBlockAndRunningStateAffordances() throws {
         let source = try source
 
-        #expect(source.contains("StructuredText(markdown: text)"))
+        #expect(source.contains("StructuredText(markdown: text, renderImmediately: renderImmediately)"))
         #expect(source.contains("ChatCompactDurationFormatter.string"))
         #expect(source.contains("ChatShimmerText(text: segmentTitle)"))
         #expect(source.contains("isActivelyWorking && segment.kind == .thinking"))

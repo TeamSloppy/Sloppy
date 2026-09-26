@@ -20,13 +20,11 @@ struct PlatformMainSidebar: View {
             ScrollView {
                 MacSidebarPrimaryActions(viewModel: viewModel)
                 
-                LazyVStack(alignment: .leading, spacing: 12) {
-                    SidebarRecentsList(
-                        viewModel: viewModel,
-                        approvalRequiredSessionIDs: approvalRequiredSessionIDs,
-                        showsApprovalRequiredOnly: showsApprovalRequiredChatsOnly
-                    )
-                }
+                SidebarRecentsList(
+                    viewModel: viewModel,
+                    approvalRequiredSessionIDs: approvalRequiredSessionIDs,
+                    showsApprovalRequiredOnly: showsApprovalRequiredChatsOnly
+                )
             }
             .frame(maxHeight: .infinity)
             .modifier(SidebarScrollFade())

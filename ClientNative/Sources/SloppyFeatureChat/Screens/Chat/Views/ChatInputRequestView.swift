@@ -204,28 +204,38 @@ struct ChatInputRequestView: View {
             }
         )
 
-        return TextField("Or type your own answer", text: text, axis: .vertical)
+        let field = TextField("Or type your own answer", text: text, axis: .vertical)
             .lineLimit(1...4)
             .textFieldStyle(.plain)
             .font(.system(size: theme.typography.body))
             .foregroundStyle(theme.colors.textPrimary)
             .padding(.horizontal, theme.spacing.m)
             .padding(.vertical, theme.spacing.s)
-            .background(theme.colors.surface.opacity(0.74 as CGFloat))
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .stroke(theme.colors.border, lineWidth: theme.borders.thin)
+
+        return Group {
+            if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *) {
+                field.glassEffect(
+                    .regular.interactive(),
+                    in: RoundedRectangle(cornerRadius: 12, style: .continuous)
+                )
+            } else {
+                field
+                    .background(theme.colors.surface.opacity(0.74 as CGFloat))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(theme.colors.border, lineWidth: theme.borders.thin)
+                    }
             }
-            .disabled(isSubmitting)
-            .accessibilityLabel("Custom answer for \(question.question)")
-            .accessibilityIdentifier("chat.input-request.\(request.id).\(question.id).custom")
+        }
+        .disabled(isSubmitting)
+        .accessibilityLabel("Custom answer for \(question.question)")
+        .accessibilityIdentifier("chat.input-request.\(request.id).\(question.id).custom")
     }
 
     private var actions: some View {
         HStack(spacing: theme.spacing.s) {
-            Button("Cancel request", role: .cancel, action: onCancel)
-                .buttonStyle(.bordered)
+            cancelButton
 
             Spacer(minLength: 0)
 
@@ -243,6 +253,17 @@ struct ChatInputRequestView: View {
             .accessibilityIdentifier("chat.input-request.submit")
         }
         .disabled(isSubmitting)
+    }
+
+    @ViewBuilder
+    private var cancelButton: some View {
+        if #available(iOS 26.0, macOS 26.0, visionOS 26.0, *) {
+            Button("Cancel request", role: .cancel, action: onCancel)
+                .buttonStyle(.glass)
+        } else {
+            Button("Cancel request", role: .cancel, action: onCancel)
+                .buttonStyle(.bordered)
+        }
     }
 
     private var visibleErrorMessage: String? {

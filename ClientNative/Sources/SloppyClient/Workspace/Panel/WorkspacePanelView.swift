@@ -390,7 +390,6 @@ enum WorkspaceSidePanelItem: String, CaseIterable, Identifiable {
 
 @MainActor
 struct WorkspaceSidePanelPickerView: View {
-    let hasProject: Bool
     let onSelect: @MainActor (WorkspaceSidePanelItem) -> Void
 
     @Environment(\.theme) private var theme
@@ -400,10 +399,15 @@ struct WorkspaceSidePanelPickerView: View {
             Spacer(minLength: theme.spacing.xxl)
 
             VStack(spacing: theme.spacing.s) {
-                ForEach(WorkspaceSidePanelItem.allCases) { item in
+                Text("What would you like to open?")
+                    .font(.system(size: theme.typography.title, weight: .semibold))
+                    .foregroundStyle(theme.colors.textPrimary)
+                    .padding(.bottom, theme.spacing.s)
+
+                ForEach([WorkspaceSidePanelItem.terminal, .browser]) { item in
                     WorkspaceSidePanelPickerRow(
                         item: item,
-                        isEnabled: hasProject || !item.requiresProject,
+                        isEnabled: true,
                         action: { onSelect(item) }
                     )
                 }

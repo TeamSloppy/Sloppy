@@ -75,7 +75,8 @@ struct TaskActivityView: View {
         case .comments, .technical:
             if tab == .comments {
                 TextField("Write a comment…", text: $commentDraft, axis: .vertical)
-                    .lineLimit(3...6).textFieldStyle(.roundedBorder)
+                    .lineLimit(3...6)
+                    .taskActivityGlassField()
                 Button(model.isSubmitting ? "Sending…" : "Comment") {
                     Task { if await model.addComment(commentDraft, projectId: projectId, taskId: task.id) { commentDraft = "" } }
                 }
@@ -85,7 +86,8 @@ struct TaskActivityView: View {
                     .font(.caption).foregroundStyle(theme.colors.textMuted)
             }
             HStack {
-                TextField("Search comments or author", text: $query).textFieldStyle(.roundedBorder)
+                TextField("Search comments or author", text: $query)
+                    .taskActivityGlassField()
                 Button(newestFirst ? "Newest first" : "Oldest first") { newestFirst.toggle() }.font(.caption)
             }
             Text("\(visibleComments.count) comments").font(.caption).foregroundStyle(theme.colors.textMuted)
@@ -154,6 +156,13 @@ struct TaskActivityView: View {
 }
 
 extension View {
+    func taskActivityGlassField() -> some View {
+        textFieldStyle(.plain)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 9)
+            .backportGlassEffect(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
     func activityCard(_ theme: Theme) -> some View {
         padding(12).frame(maxWidth: .infinity, alignment: .leading)
             .background(theme.colors.surfaceRaised.opacity(0.45), in: RoundedRectangle(cornerRadius: 12))

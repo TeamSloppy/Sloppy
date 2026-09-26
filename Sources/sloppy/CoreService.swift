@@ -525,7 +525,7 @@ public actor CoreService {
             workspaceRootURL: self.workspaceRootURL,
             agentsRootURL: self.agentsRootURL
         )
-        self.semanticDecisionUsageMeter = SemanticDecisionUsageMeter()
+        self.semanticDecisionUsageMeter = SemanticDecisionUsageMeter(store: self.store)
         self.semanticModelRouter = SemanticModelRouter(
             config: config.semanticDecisions,
             usageMeter: self.semanticDecisionUsageMeter

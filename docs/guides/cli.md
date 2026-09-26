@@ -78,6 +78,21 @@ When the server starts, `SLOPPY_TOKEN` is used as:
 
 This is useful for local runs, launch agents, CI, or container deployments where secrets should come from the environment instead of the checked-in config file.
 
+### Experimental tool flags
+
+Add this top-level section to `sloppy.json` to disable both the Tool Budget and Tool Loop Guard for agent and channel tool calls:
+
+```json
+{
+  "experimentalFlags": {
+    "disableToolBudgetAndLoopGuard": true,
+    "toolBudgetEnabled": false
+  }
+}
+```
+
+`toolBudgetEnabled` also lives in `experimentalFlags`; an older top-level value is read for compatibility and moved into this section on the next save. When omitted, `toolBudgetEnabled` defaults to `false` and `disableToolBudgetAndLoopGuard` defaults to `true`. The disable flag bypasses the tool-round budget and repeated-call detection, including the block after repeated `runtime.exec` timeouts. Individual commands still obey their execution timeouts and the normal tool authorization policy. Restart Sloppy after editing `sloppy.json` directly; changes saved through the Dashboard apply to the running service.
+
 ## Terminal UI
 
 The default interactive terminal experience is the Sloppy TUI:

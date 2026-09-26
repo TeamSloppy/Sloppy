@@ -108,7 +108,8 @@ private struct OrchestratorSemanticDecisionProvider: SemanticDecisionProvider {
 @Test
 func nativeLoopConfigUsesConfiguredToolBudget() {
     var config = CoreConfig.test
-    config.toolBudgetEnabled = true
+    config.experimentalFlags.toolBudgetEnabled = true
+    config.experimentalFlags.disableToolBudgetAndLoopGuard = false
     config.toolBudgetExhausted = 7
 
     let nativeLoopConfig = AgentSessionOrchestrator.nativeLoopConfig(
@@ -122,9 +123,27 @@ func nativeLoopConfigUsesConfiguredToolBudget() {
 }
 
 @Test
+func experimentalFlagDisablesConfiguredToolBudget() {
+    var config = CoreConfig.test
+    config.experimentalFlags.toolBudgetEnabled = true
+    config.toolBudgetExhausted = 7
+    config.experimentalFlags.disableToolBudgetAndLoopGuard = true
+
+    let nativeLoopConfig = AgentSessionOrchestrator.nativeLoopConfig(
+        coreConfig: config,
+        userID: "operator",
+        isDelegatedSubagent: true
+    )
+
+    #expect(nativeLoopConfig.maxToolRounds == 0)
+    #expect(!nativeLoopConfig.enforceToolRoundLimit)
+}
+
+@Test
 func nativeLoopConfigTreatsZeroToolBudgetAsUnlimited() {
     var config = CoreConfig.test
-    config.toolBudgetEnabled = true
+    config.experimentalFlags.toolBudgetEnabled = true
+    config.experimentalFlags.disableToolBudgetAndLoopGuard = false
     config.toolBudgetExhausted = 0
 
     let nativeLoopConfig = AgentSessionOrchestrator.nativeLoopConfig(
@@ -491,7 +510,7 @@ func nativeAgentRunPlansWithPlannerModelThenExecutesWithExecutorModel() async th
     )
 
     let session = try await orchestrator.createSession(agentID: "planner-executor-agent", request: AgentSessionCreateRequest())
-    _ = try await orchestrator.postMessage(
+    let response = try await orchestrator.postMessage(
         agentID: "planner-executor-agent",
         sessionID: session.id,
         request: AgentSessionPostMessageRequest(
@@ -501,6 +520,9 @@ func nativeAgentRunPlansWithPlannerModelThenExecutesWithExecutorModel() async th
     )
 
     #expect(await provider.requestedModelsSnapshot() == ["mock:planner", "mock:executor"])
+    let runStatuses = response.appendedEvents.compactMap(\.runStatus)
+    #expect(runStatuses.first(where: { $0.label == "Planning" })?.selectedModel == "mock:planner")
+    #expect(runStatuses.first(where: { $0.label == "Responding" })?.selectedModel == "mock:executor")
     let prompts = await provider.requestedPromptsSnapshot()
     #expect(prompts.count == 2)
     #expect(prompts.last?.contains("[Planner output]") == true)
@@ -612,6 +634,68 @@ func semanticRoutingSelectsExecutorModelForTurn() async throws {
     let usage = await usageMeter.snapshot(channelID: "agent:semantic-route-agent:session:\(session.id)")
     #expect(usage?.requestCount == 1)
     #expect(usage?.totalCostUSD == 0.0000042)
+}
+
+@Test
+func fixedAgentModelSkipsJEVRouting() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "mock:fast", title: "Fast"),
+        ProviderModelOption(id: "mock:senior", title: "Senior"),
+    ]
+    let agentID = "fixed-model-agent"
+    let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
+        agentID: agentID,
+        selectedModel: "mock:fast",
+        availableModels: availableModels
+    )
+    let original = try catalogStore.getAgentConfig(agentID: agentID, availableModels: availableModels)
+    let updated = try catalogStore.updateAgentConfig(
+        agentID: agentID,
+        request: AgentConfigUpdateRequest(
+            role: original.role,
+            selectedModel: original.selectedModel,
+            documents: original.documents,
+            heartbeat: original.heartbeat,
+            channelSessions: original.channelSessions,
+            automaticModelRouting: false,
+            runtime: original.runtime,
+            skills: original.skills
+        ),
+        availableModels: availableModels
+    )
+    #expect(updated.automaticModelRouting == false)
+    #expect(try catalogStore.getAgentConfig(agentID: agentID, availableModels: availableModels).automaticModelRouting == false)
+
+    let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "mock:fast")
+    let usageMeter = SemanticDecisionUsageMeter()
+    let router = SemanticModelRouter(
+        config: .init(
+            provider: .typeSafe,
+            executorModelRouting: .active,
+            modelProfiles: [
+                "fast": .init(model: "mock:fast", description: "Routine"),
+                "senior": .init(model: "mock:senior", description: "Complex"),
+            ]
+        ),
+        usageMeter: usageMeter,
+        providerFactory: { _ in OrchestratorSemanticDecisionProvider() }
+    )
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        semanticModelRouter: router,
+        availableModels: availableModels
+    )
+    let session = try await orchestrator.createSession(agentID: agentID, request: AgentSessionCreateRequest())
+    _ = try await orchestrator.postMessage(
+        agentID: agentID,
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(userId: "dashboard", content: "Diagnose a difficult concurrency failure")
+    )
+    #expect(await provider.requestedModelsSnapshot() == ["mock:fast", "mock:fast"])
+    #expect(await usageMeter.snapshot(channelID: "agent:\(agentID):session:\(session.id)") == nil)
 }
 
 @Test
@@ -1506,7 +1590,8 @@ func agentSessionMarksTurnIncompleteWhenNativeToolRoundLimitIsReached() async th
     )
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
     var config = CoreConfig.default
-    config.toolBudgetEnabled = true
+    config.experimentalFlags.toolBudgetEnabled = true
+    config.experimentalFlags.disableToolBudgetAndLoopGuard = false
     let orchestrator = AgentSessionOrchestrator(
         runtime: runtime,
         sessionStore: sessionStore,
@@ -1561,7 +1646,8 @@ func tuiAgentSessionDoesNotEnforceNativeToolRoundLimit() async throws {
     )
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
     var config = CoreConfig.default
-    config.toolBudgetEnabled = true
+    config.experimentalFlags.toolBudgetEnabled = true
+    config.experimentalFlags.disableToolBudgetAndLoopGuard = false
     let orchestrator = AgentSessionOrchestrator(
         runtime: runtime,
         sessionStore: sessionStore,
@@ -1611,7 +1697,8 @@ func delegatedSubagentCanFinishAfterToolBudgetRecovery() async throws {
     )
     let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "openai-api:gpt-5.4-mini")
     var config = CoreConfig.default
-    config.toolBudgetEnabled = true
+    config.experimentalFlags.toolBudgetEnabled = true
+    config.experimentalFlags.disableToolBudgetAndLoopGuard = false
     let orchestrator = AgentSessionOrchestrator(
         runtime: runtime,
         sessionStore: sessionStore,

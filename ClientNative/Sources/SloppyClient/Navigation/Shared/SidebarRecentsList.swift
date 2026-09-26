@@ -37,69 +37,89 @@ struct SidebarRecentsList: View {
     }
 
     var body: some View {
-        LazyVStack(alignment: .leading, spacing: theme.spacing.s) {
-            if !sections.pinned.isEmpty {
-                SidebarSectionTitle(title: "Priority")
-                if layoutMode == .cards {
-                    sessionCardGrid(sections.pinned)
-                } else {
-                    ForEach(sections.pinned) {
-                        SidebarSessionItem(
-                            viewModel: viewModel,
-                            session: $0,
-                            requiresApproval: requiresApproval($0)
-                        )
-                    }
+        Group {
+            #if os(macOS)
+            if viewModel.chatSidebarMode == .projects {
+                VStack(alignment: .leading, spacing: theme.spacing.s) {
+                    sectionsContent
+                }
+            } else {
+                LazyVStack(alignment: .leading, spacing: theme.spacing.s) {
+                    sectionsContent
                 }
             }
-
-            HStack {
-                SidebarSectionTitle(title: sectionTitle ?? viewModel.chatSidebarMode.title)
-                Spacer()
-                if showsHeaderControls, viewModel.chatSidebarMode == .projects {
-                    Button {
-                        viewModel.presentProjectCreator()
-                    } label: {
-                        Image(systemName: "plus")
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel("New project")
-                    .help("New project")
-                }
-                if showsHeaderControls, !viewModel.chatViewModel.sessionCatalog.isEmpty {
-                    SidebarListModeMenu(viewModel: viewModel)
-                }
-                if showsHeaderControls {
-                    Button {
-                        withAnimation(.easeInOut(duration: 0.2)) {
-                            layoutMode = layoutMode == .list ? .cards : .list
-                        }
-                    } label: {
-                        Image(systemName: layoutMode == .list ? "rectangle.grid.2x2" : "list.bullet")
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityLabel(layoutMode == .list ? "Show as cards" : "Show as list")
-                    .help(layoutMode == .list ? "Card view" : "List view")
-                }
+            #else
+            LazyVStack(alignment: .leading, spacing: theme.spacing.s) {
+                sectionsContent
             }
-            .padding(.trailing, theme.spacing.m)
-
-            content
-
-            if let status = viewModel.chatViewModel.sessionActionStatus {
-                Text(status)
-                    .font(.system(size: theme.typography.micro))
-                    .foregroundColor(theme.colors.textMuted)
-                    .padding(.horizontal, theme.spacing.m)
-            }
-            if let status = viewModel.projectActionStatus {
-                Text(status)
-                    .font(.system(size: theme.typography.micro))
-                    .foregroundColor(theme.colors.textMuted)
-                    .padding(.horizontal, theme.spacing.m)
-            }
+            #endif
         }
         .padding(.horizontal, theme.spacing.xs)
+    }
+
+    @ViewBuilder
+    private var sectionsContent: some View {
+        if !sections.pinned.isEmpty {
+            SidebarSectionTitle(title: "Priority")
+            if layoutMode == .cards {
+                sessionCardGrid(sections.pinned)
+            } else {
+                ForEach(sections.pinned) {
+                    SidebarSessionItem(
+                        viewModel: viewModel,
+                        session: $0,
+                        requiresApproval: requiresApproval($0)
+                    )
+                }
+            }
+        }
+
+        HStack {
+            SidebarSectionTitle(title: sectionTitle ?? viewModel.chatSidebarMode.title)
+            Spacer()
+            if showsHeaderControls, viewModel.chatSidebarMode == .projects {
+                Button {
+                    viewModel.presentProjectCreator()
+                } label: {
+                    Image(systemName: "plus")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel("New project")
+                .help("New project")
+            }
+            if showsHeaderControls, !viewModel.chatViewModel.sessionCatalog.isEmpty {
+                SidebarListModeMenu(viewModel: viewModel)
+            }
+            if showsHeaderControls {
+                Button {
+                    withAnimation(.easeInOut(duration: 0.2)) {
+                        layoutMode = layoutMode == .list ? .cards : .list
+                    }
+                } label: {
+                    Image(systemName: layoutMode == .list ? "rectangle.grid.2x2" : "list.bullet")
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(layoutMode == .list ? "Show as cards" : "Show as list")
+                .help(layoutMode == .list ? "Card view" : "List view")
+            }
+        }
+        .padding(.trailing, theme.spacing.m)
+        .padding(.top, theme.spacing.s)
+
+        content
+
+        if let status = viewModel.chatViewModel.sessionActionStatus {
+            Text(status)
+                .font(.system(size: theme.typography.micro))
+                .foregroundColor(theme.colors.textMuted)
+                .padding(.horizontal, theme.spacing.m)
+        }
+        if let status = viewModel.projectActionStatus {
+            Text(status)
+                .font(.system(size: theme.typography.micro))
+                .foregroundColor(theme.colors.textMuted)
+                .padding(.horizontal, theme.spacing.m)
+        }
     }
 
     @ViewBuilder
@@ -221,19 +241,25 @@ private struct SidebarSessionItem: View {
     var body: some View {
         SidebarSessionRow(
             session: session,
-            projectName: viewModel.projects.first {
-                $0.id == session.projectId && $0.sourceInstanceID == session.sourceInstanceID
-            }?.name,
+            projectName: viewModel.projectName(for: session),
             instanceName: viewModel.instanceTitle(for: session.sourceInstanceID),
             showsProjectName: showsProjectName,
             isPinned: viewModel.settings.isSessionPinned(session.storageID),
             isSelected: viewModel.selectedChatStorageID == session.storageID,
             requiresApproval: requiresApproval,
             activity: viewModel.sidebarSessionActivity(for: session),
+            chatColor: viewModel.settings.sidebarChatColor(for: session),
             onOpen: { viewModel.openSessionChatTab(session) },
             onTogglePin: { viewModel.togglePinChatSession(session) },
             onCopyDebugLink: { viewModel.copyDebugSessionFileLink(session) },
-            onDelete: { viewModel.deleteChatSession(session) }
+            onDelete: { viewModel.deleteChatSession(session) },
+            onSetChatColor: { color in
+                if let color {
+                    viewModel.settings.chatColors[session.storageID] = color
+                } else {
+                    viewModel.settings.chatColors.removeValue(forKey: session.storageID)
+                }
+            }
         )
         .task(id: activityTaskID) {
             await viewModel.monitorSidebarSessionActivity(for: session)
@@ -293,6 +319,7 @@ private struct SidebarProjectGroupView: View {
                 )
                 .buttonStyle(.plain)
                 .frame(maxWidth: .infinity)
+                .contentShape(Rectangle())
 
                 Button {
                     viewModel.showNewProjectChat(project: group.project)
@@ -313,6 +340,8 @@ private struct SidebarProjectGroupView: View {
                     .frame(width: 18, height: 22)
                     .contentShape(Rectangle())
                     .draggable(group.id)
+                    .opacity(isHovered ? 1.0 : 0.0)
+                    .allowsHitTesting(isHovered)
                     .accessibilityLabel("Reorder \(group.project.name)")
                     .help("Drag to reorder")
 
@@ -325,11 +354,14 @@ private struct SidebarProjectGroupView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundColor(theme.colors.textMuted)
+                .opacity(isHovered ? 1.0 : 0.0)
+                .allowsHitTesting(isHovered)
                 .accessibilityLabel(isCollapsed ? "Expand \(group.project.name)" : "Collapse \(group.project.name)")
             }
             .padding(.vertical, 6)
             .padding(.horizontal, 4)
-            .frame(minHeight: MainSidebarView.rowMinimumHeight)
+            .frame(maxWidth: .infinity, minHeight: MainSidebarView.rowMinimumHeight, alignment: .leading)
+            .contentShape(Rectangle())
             .background {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(isHovered || isSelected || isDropTarget ? theme.colors.surfaceRaised : .clear)

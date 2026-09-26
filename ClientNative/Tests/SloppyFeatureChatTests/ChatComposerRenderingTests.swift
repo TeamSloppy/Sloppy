@@ -272,6 +272,7 @@ struct ChatComposerRenderingTests {
 
         #expect(source.contains("!trimmedDraftText.isEmpty || !viewModel.composerAttachments.isEmpty"))
         #expect(source.contains("!trimmed.isEmpty || !viewModel.composerAttachments.isEmpty"))
+        #expect(source.contains("|| !viewModel.composerQuotes.isEmpty"))
     }
 
     @Test("composer text fields submit on enter")
@@ -369,7 +370,8 @@ struct ChatComposerRenderingTests {
         #expect(source.contains("viewModel.startDictation()"))
         #expect(source.contains("stop: viewModel.stopDictation"))
         #expect(source.contains("viewModel.stopActiveRun()"))
-        #expect(source.contains("guard (!trimmed.isEmpty || !viewModel.composerAttachments.isEmpty), viewModel.canSubmitMessage else { return }"))
+        #expect(source.contains("guard (!trimmed.isEmpty || !viewModel.composerAttachments.isEmpty"))
+        #expect(source.contains("|| !viewModel.composerQuotes.isEmpty), viewModel.canSubmitMessage else { return }"))
     }
 
     @Test("composer dictation bar replaces controls with waveform timer and stop button")

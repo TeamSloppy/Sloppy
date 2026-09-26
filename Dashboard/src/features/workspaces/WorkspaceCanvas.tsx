@@ -626,6 +626,7 @@ export function WorkspaceCanvas({ coreApi, workspace, templates, onBack, showsBa
             if (element) patchElement({ ...element, bounds: { ...element.bounds, x: node.position.x, y: node.position.y } });
           }}
           fitView
+          fitViewOptions={{ maxZoom: 1.25, padding: 0.16 }}
           minZoom={0.08}
           maxZoom={3}
           deleteKeyCode={null}
@@ -636,7 +637,15 @@ export function WorkspaceCanvas({ coreApi, workspace, templates, onBack, showsBa
           <MiniMap
             pannable
             zoomable
-            nodeColor={(node) => (node.data as CanvasNode["data"]).element.kind === "sticky" ? "#d7ad35" : "#8b8b93"}
+            ariaLabel="Workspace map"
+            bgColor="#0b0b0b"
+            maskColor="rgba(5, 5, 5, 0.62)"
+            maskStrokeColor="#b0b0b0"
+            maskStrokeWidth={1.5}
+            nodeBorderRadius={3}
+            nodeStrokeWidth={0}
+            nodeColor={(node) => (node.data as CanvasNode["data"]).element.kind === "sticky" ? "#d7b75f" : "#a1a1a1"}
+            style={{ width: 170, height: 112 }}
           />
         </ReactFlow>
       </main>
@@ -644,8 +653,9 @@ export function WorkspaceCanvas({ coreApi, workspace, templates, onBack, showsBa
       <header className="workspace-editor-topbar">
         {showsBackButton && (
           <>
-            <button className="workspace-icon-button" type="button" onClick={onBack} aria-label="Back to workspaces">
+            <button className="workspace-back-button" type="button" onClick={onBack} aria-label="Back to workspaces">
               <span className="material-symbols-rounded" aria-hidden="true">arrow_back</span>
+              <span>Workspaces</span>
             </button>
             <span className="workspace-toolbar-divider" aria-hidden="true" />
           </>
@@ -786,7 +796,7 @@ export function WorkspaceCanvas({ coreApi, workspace, templates, onBack, showsBa
         <div className="workspace-agent-input">
           <textarea
             ref={agentPromptRef}
-            rows={1}
+            rows={2}
             value={agentPrompt}
             onChange={(event) => setAgentPrompt(event.target.value)}
             onKeyDown={(event) => {

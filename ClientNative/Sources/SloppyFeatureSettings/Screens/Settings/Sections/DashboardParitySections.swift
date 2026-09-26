@@ -290,7 +290,7 @@ struct UISection: View {
         self.onSave = onSave
         _draft = State(initialValue: config.ui)
         _preTools = State(initialValue: config.toolHooks.preTools)
-        _toolBudgetEnabled = State(initialValue: config.toolBudgetEnabled)
+        _toolBudgetEnabled = State(initialValue: config.experimentalFlags.toolBudgetEnabled)
         _toolBudgetExhausted = State(initialValue: config.toolBudgetExhausted)
     }
 
@@ -344,7 +344,7 @@ struct UISection: View {
                         var updated = config
                         updated.ui = draft
                         updated.toolHooks = SloppyConfig.ToolHooks(preTools: preTools)
-                        updated.toolBudgetEnabled = toolBudgetEnabled
+                        updated.experimentalFlags.toolBudgetEnabled = toolBudgetEnabled
                         updated.toolBudgetExhausted = toolBudgetExhausted
                         onSave(updated)
                     }

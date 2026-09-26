@@ -253,8 +253,9 @@ extension CoreService {
             }
         }
 
+        let loopGuardEnabled = !currentConfig.experimentalFlags.disableToolBudgetAndLoopGuard
         let loopDecision: ToolLoopGuard.Decision
-        if authorization.allowed, preHookBlockedResult == nil {
+        if loopGuardEnabled, authorization.allowed, preHookBlockedResult == nil {
             loopDecision = await toolLoopGuard.evaluate(
                 sessionID: normalizedSessionID,
                 request: effectiveRequest,
@@ -341,13 +342,15 @@ extension CoreService {
                         result = deniedResult
                         break
                     }
-                    await toolLoopGuard.recordStarted(
-                        sessionID: normalizedSessionID,
-                        request: effectiveRequest,
-                        policy: effectivePolicy,
-                        workspaceRootURL: workspaceRootURL,
-                        currentDirectoryURL: currentDirectoryURL
-                    )
+                    if loopGuardEnabled {
+                        await toolLoopGuard.recordStarted(
+                            sessionID: normalizedSessionID,
+                            request: effectiveRequest,
+                            policy: effectivePolicy,
+                            workspaceRootURL: workspaceRootURL,
+                            currentDirectoryURL: currentDirectoryURL
+                        )
+                    }
                     let toolExecution = self.toolExecution
                     let invocationPolicy = effectivePolicy
                     let invocationRequest = effectiveRequest
@@ -370,15 +373,17 @@ extension CoreService {
                             )
                         }
                     }
-                    let correctionExhausted = await toolLoopGuard.recordResult(
-                        sessionID: normalizedSessionID,
-                        request: effectiveRequest,
-                        result: result,
-                        policy: effectivePolicy,
-                        workspaceRootURL: workspaceRootURL,
-                        currentDirectoryURL: currentDirectoryURL
-                    )
-                    if correctionExhausted { result = toolArgumentCorrectionExhausted(result) }
+                    if loopGuardEnabled {
+                        let correctionExhausted = await toolLoopGuard.recordResult(
+                            sessionID: normalizedSessionID,
+                            request: effectiveRequest,
+                            result: result,
+                            policy: effectivePolicy,
+                            workspaceRootURL: workspaceRootURL,
+                            currentDirectoryURL: currentDirectoryURL
+                        )
+                        if correctionExhausted { result = toolArgumentCorrectionExhausted(result) }
+                    }
                 }
             }
         } else {
@@ -663,8 +668,9 @@ extension CoreService {
             }
         }
 
+        let loopGuardEnabled = !currentConfig.experimentalFlags.disableToolBudgetAndLoopGuard
         let loopDecision: ToolLoopGuard.Decision
-        if authorization.allowed, preHookBlockedResult == nil {
+        if loopGuardEnabled, authorization.allowed, preHookBlockedResult == nil {
             loopDecision = await toolLoopGuard.evaluate(
                 sessionID: channelID,
                 request: effectiveRequest,
@@ -707,13 +713,15 @@ extension CoreService {
                         result = deniedResult
                         break
                     }
-                    await toolLoopGuard.recordStarted(
-                        sessionID: channelID,
-                        request: effectiveRequest,
-                        policy: effectivePolicy,
-                        workspaceRootURL: workspaceRootURL,
-                        currentDirectoryURL: currentDirectoryURL
-                    )
+                    if loopGuardEnabled {
+                        await toolLoopGuard.recordStarted(
+                            sessionID: channelID,
+                            request: effectiveRequest,
+                            policy: effectivePolicy,
+                            workspaceRootURL: workspaceRootURL,
+                            currentDirectoryURL: currentDirectoryURL
+                        )
+                    }
                     let toolExecution = self.toolExecution
                     let invocationPolicy = effectivePolicy
                     let invocationRequest = effectiveRequest
@@ -736,15 +744,17 @@ extension CoreService {
                             )
                         }
                     }
-                    let correctionExhausted = await toolLoopGuard.recordResult(
-                        sessionID: channelID,
-                        request: effectiveRequest,
-                        result: result,
-                        policy: effectivePolicy,
-                        workspaceRootURL: workspaceRootURL,
-                        currentDirectoryURL: currentDirectoryURL
-                    )
-                    if correctionExhausted { result = toolArgumentCorrectionExhausted(result) }
+                    if loopGuardEnabled {
+                        let correctionExhausted = await toolLoopGuard.recordResult(
+                            sessionID: channelID,
+                            request: effectiveRequest,
+                            result: result,
+                            policy: effectivePolicy,
+                            workspaceRootURL: workspaceRootURL,
+                            currentDirectoryURL: currentDirectoryURL
+                        )
+                        if correctionExhausted { result = toolArgumentCorrectionExhausted(result) }
+                    }
                 }
             }
         } else {

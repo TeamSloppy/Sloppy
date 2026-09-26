@@ -55,6 +55,7 @@ export function ConfigRawView({ rawConfig, savedConfig, onChange }: ConfigRawVie
         <div className="settings-raw-editor-container">
           <div
             className="settings-raw-editor-highlight"
+            aria-hidden="true"
             dangerouslySetInnerHTML={{
               __html: Prism.highlight(rawConfig, Prism.languages.json, "json") + "\n"
             }}
@@ -62,6 +63,8 @@ export function ConfigRawView({ rawConfig, savedConfig, onChange }: ConfigRawVie
           <textarea
             className="settings-raw-editor-input"
             value={rawConfig}
+            aria-label="Raw configuration JSON"
+            wrap="off"
             spellCheck={false}
             onChange={(event) => onChange(event.target.value)}
             onScroll={(e) => {

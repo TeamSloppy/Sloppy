@@ -73,6 +73,9 @@ final class RootShellViewModel {
         desktopOverlay.onOpenAgentRun = { [weak self] agentID, sessionID in
             self?.openAgentSession(agentID: agentID, sessionID: sessionID)
         }
+        desktopOverlay.onOpenTask = { [weak self] projectID, taskID in
+            self?.openTask(projectID: projectID, taskID: taskID)
+        }
         desktopOverlay.start(settings: settings)
         #endif
     }
@@ -181,6 +184,19 @@ final class RootShellViewModel {
         }
         appDeepLinkRequest = AppDeepLinkRequest(
             deepLink: .session(agentId: agentID, sessionId: sessionID)
+        )
+        openMainWindow?()
+        desktopOverlay.presentMainWindow()
+    }
+
+    private func openTask(projectID: String, taskID: String) {
+        if case .chat = appState {
+            // Keep the current connected workspace.
+        } else {
+            startConnected(url: settings.baseURL)
+        }
+        appDeepLinkRequest = AppDeepLinkRequest(
+            deepLink: .task(projectId: projectID, taskId: taskID)
         )
         openMainWindow?()
         desktopOverlay.presentMainWindow()

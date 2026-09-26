@@ -25,3 +25,9 @@
 @import "./terminal.css";
 @import "./tutorial.css";
 @import "./themes/index.css";
+@import "./refinement.css";
+@import "./init-stage.css";
+@import "./voice-mode.css";
+@import "./workspace-editor.css";
+@import "./task-detail.css";
+@import "./actors-board.css";

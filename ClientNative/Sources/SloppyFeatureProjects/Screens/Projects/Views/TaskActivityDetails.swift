@@ -46,7 +46,8 @@ struct TaskReviewActivityView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             if task.status == "needs_review" {
-                TextField("Reason for requesting changes…", text: $reason, axis: .vertical).textFieldStyle(.roundedBorder)
+                TextField("Reason for requesting changes…", text: $reason, axis: .vertical)
+                    .taskActivityGlassField()
                 HStack {
                     Button("Approve") { Task { if await model.decideReview(approve: true, reason: "", projectId: projectId, taskId: task.id) { await onChanged() } } }
                     Button("Request changes") { Task { if await model.decideReview(approve: false, reason: reason, projectId: projectId, taskId: task.id) { await onChanged() } } }
@@ -115,7 +116,10 @@ struct TaskClarificationActivityView: View {
                 .disabled(item.status != "pending" || submitting)
             }
             if item.status == "pending" {
-                if item.allowNote { TextField("Add a note…", text: $note, axis: .vertical).textFieldStyle(.roundedBorder) }
+                if item.allowNote {
+                    TextField("Add a note…", text: $note, axis: .vertical)
+                        .taskActivityGlassField()
+                }
                 Button("Send answer") { Task { await onAnswer(selected.map { [$0] } ?? [], note) } }
                     .disabled(submitting || (selected == nil && note.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty))
             } else if let note = item.note, !note.isEmpty {

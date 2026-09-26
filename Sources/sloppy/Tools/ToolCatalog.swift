@@ -148,6 +148,15 @@ enum ToolCatalog {
             ]),
             "required": .array([.string("html"), .string("size"), .string("prompt")])
         ]),
+        "artifacts.web.create": .object([
+            "type": .string("object"),
+            "properties": .object([
+                "html": .object(["type": .string("string")]),
+                "title": .object(["type": .string("string")]),
+                "summary": .object(["type": .string("string")])
+            ]),
+            "required": .array([.string("html"), .string("title"), .string("summary")])
+        ]),
         "files.edit": .object([
             "type": .string("object"),
             "properties": .object([

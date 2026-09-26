@@ -1191,7 +1191,7 @@ export function RuntimeOverviewView({ workers, events, onNavigateToProject, onNa
         <LoadingSkeleton label="Loading runtime overview…" variant="page" rows={4} />
       ) : (
         <>
-          <PerformanceTelemetrySection />
+          <CountersSection agents={agents} workers={normalizedWorkers} />
 
           <ActiveChannelsSection
             agents={agents}
@@ -1204,13 +1204,13 @@ export function RuntimeOverviewView({ workers, events, onNavigateToProject, onNa
             onNavigateToChannelSession={onNavigateToChannelSession}
           />
 
-          <CountersSection agents={agents} workers={normalizedWorkers} />
+          <BotActivitySection agents={agents} sessions={sessions} onNavigateToBots={onNavigateToBots} onNavigateToAgent={onNavigateToAgent} />
 
           <AgentUsageSection agents={agents} sessions={sessions} onNavigateToAgent={onNavigateToAgent} />
 
-          <BotActivitySection agents={agents} sessions={sessions} onNavigateToBots={onNavigateToBots} onNavigateToAgent={onNavigateToAgent} />
-
           <ClosedTasksSection projects={projects} />
+
+          <PerformanceTelemetrySection />
         </>
       )}
     </main>

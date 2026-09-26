@@ -28,20 +28,51 @@ protocol SemanticDecisionProvider: Sendable {
 
 actor SemanticDecisionUsageMeter {
     private var usageByChannel: [String: SemanticDecisionUsage] = [:]
+    private let store: (any PersistenceStore)?
 
-    func record(channelID: String, usage call: SemanticDecisionCallUsage) {
+    init(store: (any PersistenceStore)? = nil) {
+        self.store = store
+    }
+
+    func record(channelID: String, usage call: SemanticDecisionCallUsage, at createdAt: Date = Date()) async {
+        let costUSD = call.costUSD.isFinite ? max(0, call.costUSD) : 0
         var usage = usageByChannel[channelID] ?? SemanticDecisionUsage()
         usage.requestCount += 1
         usage.inputTokens += max(0, call.inputTokens)
         usage.outputTokens += max(0, call.outputTokens)
-        usage.totalCostUSD += max(0, call.costUSD)
+        usage.totalCostUSD += costUSD
         if call.costIsEstimated {
-            usage.estimatedCostUSD += max(0, call.costUSD)
+            usage.estimatedCostUSD += costUSD
         }
         usageByChannel[channelID] = usage
+        if let store {
+            await store.persistSemanticDecisionUsage(record: SemanticDecisionUsageRecord(
+                id: UUID().uuidString,
+                channelId: channelID,
+                inputTokens: call.inputTokens,
+                outputTokens: call.outputTokens,
+                costUSD: costUSD,
+                costIsEstimated: call.costIsEstimated,
+                createdAt: createdAt
+            ))
+        }
     }
 
-    func snapshot(channelID: String?) -> SemanticDecisionUsage? {
+    func snapshot(channelID: String?) async -> SemanticDecisionUsage? {
+        if let store {
+            let records = await store.listSemanticDecisionUsage(channelId: channelID, from: nil, to: nil)
+            if !records.isEmpty {
+                return records.reduce(into: SemanticDecisionUsage()) { total, record in
+                    total.requestCount += 1
+                    total.inputTokens += record.inputTokens
+                    total.outputTokens += record.outputTokens
+                    total.totalCostUSD += record.costUSD
+                    if record.costIsEstimated {
+                        total.estimatedCostUSD += record.costUSD
+                    }
+                }
+            }
+        }
         if let channelID {
             return usageByChannel[channelID]
         }
@@ -55,4 +86,3 @@ actor SemanticDecisionUsageMeter {
         }
     }
 }
-

@@ -52,9 +52,33 @@ public struct ChatComposerAttachment: Identifiable, Sendable, Equatable {
     }
 }
 
+public struct ChatComposerQuote: Identifiable, Sendable, Equatable {
+    public let id: UUID
+    public let text: String
+
+    public init(id: UUID = UUID(), text: String) {
+        self.id = id
+        self.text = text
+    }
+
+    static func messageContent(_ content: String, quotes: [Self]) -> String {
+        let quotedText = quotes.map { quote in
+            quote.text
+                .replacingOccurrences(of: "\r\n", with: "\n")
+                .replacingOccurrences(of: "\r", with: "\n")
+                .components(separatedBy: "\n")
+                .map { "> \($0)" }
+                .joined(separator: "\n")
+        }.joined(separator: "\n\n")
+        guard !quotedText.isEmpty else { return content }
+        return content.isEmpty ? quotedText : "\(quotedText)\n\n\(content)"
+    }
+}
+
 private struct StoredComposerDraft {
     var text: String
     var attachments: [ChatComposerAttachment]
+    var quotes: [ChatComposerQuote]
 }
 
 private enum PendingComposerTextMutation {
@@ -131,20 +155,24 @@ struct ChatQueuedMessage: Identifiable, Equatable, Sendable {
     let id: UUID
     let content: String
     let attachments: [ChatComposerAttachment]
+    let quotes: [ChatComposerQuote]
 
     init(
         id: UUID = UUID(),
         content: String,
-        attachments: [ChatComposerAttachment]
+        attachments: [ChatComposerAttachment],
+        quotes: [ChatComposerQuote] = []
     ) {
         self.id = id
         self.content = content
         self.attachments = attachments
+        self.quotes = quotes
     }
 
     var displayText: String {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-        return trimmed.isEmpty ? "Attachments only" : trimmed
+        if !trimmed.isEmpty { return trimmed }
+        return quotes.isEmpty ? "Attachments only" : "Quoted text"
     }
 }
 
@@ -156,9 +184,10 @@ struct ChatMessageQueue {
     @discardableResult
     mutating func enqueue(
         content: String,
-        attachments: [ChatComposerAttachment]
+        attachments: [ChatComposerAttachment],
+        quotes: [ChatComposerQuote] = []
     ) -> ChatQueuedMessage {
-        let message = ChatQueuedMessage(content: content, attachments: attachments)
+        let message = ChatQueuedMessage(content: content, attachments: attachments, quotes: quotes)
         messages.append(message)
         return message
     }
@@ -385,6 +414,7 @@ public final class ChatScreenViewModel {
     public let transcript = ChatTranscriptState()
     public let composerDraft = ChatComposerDraft()
     public private(set) var composerAttachments: [ChatComposerAttachment] = []
+    public private(set) var composerQuotes: [ChatComposerQuote] = []
     private(set) var queuedMessages: [ChatQueuedMessage] = []
     public var isAttachmentPickerShown = false
     public var isCameraPickerShown = false
@@ -451,24 +481,13 @@ public final class ChatScreenViewModel {
     }
 
     public var activeRunStatusLabel: String {
-        if isStopping {
-            return "Stopping"
-        }
-        let label = activeRunStatus?.label.trimmingCharacters(in: .whitespacesAndNewlines)
-        let base: String
-        if let label, !label.isEmpty {
-            base = label
-        } else {
-            base = isSending ? "Processing" : "Thinking"
-        }
-        guard isAutomaticModelSelection,
-              let modelID = activeRunStatus?.selectedModel,
-              !modelID.isEmpty
-        else {
-            return base
-        }
-        let title = availableModels.first(where: { $0.id == modelID })?.title ?? modelID
-        return "\(base) · \(title)"
+        ChatRunStatusPresentation.label(
+            status: activeRunStatus,
+            isStopping: isStopping,
+            isSending: isSending,
+            isAutomaticModelSelection: isAutomaticModelSelection,
+            availableModels: availableModels
+        )
     }
 
     public var activeRunStatusDetails: String? {
@@ -489,6 +508,11 @@ public final class ChatScreenViewModel {
     }
 
     public var activeProjectNameForWorkspacePanel: String? {
+        guard let projectId = activeProjectId else { return nil }
+        if let project = projects.first(where: { $0.id == projectId }) {
+            return project.name
+        }
+        guard selectedSessionId == nil else { return nil }
         guard let title = activeContextTitle?.trimmingCharacters(in: .whitespacesAndNewlines),
               !title.isEmpty else {
             return nil
@@ -499,7 +523,7 @@ public final class ChatScreenViewModel {
         if let slashRange = title.range(of: " / ") {
             return String(title[..<slashRange.lowerBound])
         }
-        return title
+        return nil
     }
 
     @ObservationIgnored private let apiClient: SloppyAPIClient
@@ -533,6 +557,7 @@ public final class ChatScreenViewModel {
     @ObservationIgnored private var composerDraftsByKey: [String: StoredComposerDraft] = [:]
     @ObservationIgnored private var activeComposerDraftKey: String?
     @ObservationIgnored private var pendingComposerTextMutation: PendingComposerTextMutation?
+    @ObservationIgnored private var pendingComposerQuotes: [ChatComposerQuote] = []
     @ObservationIgnored private let dictationRecorder = DictationRecorder()
     @ObservationIgnored private var dictationMeterTask: Task<Void, Never>?
     @ObservationIgnored private var suggestionTask: Task<Void, Never>?
@@ -545,12 +570,14 @@ public final class ChatScreenViewModel {
     @ObservationIgnored private var isDrainingQueuedMessages = false
     @ObservationIgnored private var queuedMessageInterruptRequested = false
     @ObservationIgnored private var resolvedToolApprovalIDs: Set<String> = []
+    @ObservationIgnored private let modelPreferences: ChatModelPreferenceStore
 
     public init(
         apiClient: SloppyAPIClient,
         cacheStore: ClientCacheStore = ClientCacheStore(),
         settings: ClientSettings,
         connectionMonitor: ConnectionMonitor,
+        modelPreferences: ChatModelPreferenceStore = ChatModelPreferenceStore(),
         restoresLastSession: Bool = true,
         loadsGlobalSessionCatalog: Bool = false,
         onSessionSummaryChange: @escaping @MainActor (ChatSessionSummary) -> Void = { _ in },
@@ -562,6 +589,7 @@ public final class ChatScreenViewModel {
         self.cacheStore = cacheStore
         self.settings = settings
         self.connectionMonitor = connectionMonitor
+        self.modelPreferences = modelPreferences
         self.restoresLastSession = restoresLastSession
         self.loadsGlobalSessionCatalog = loadsGlobalSessionCatalog
         self.onSessionSummaryChange = onSessionSummaryChange
@@ -930,6 +958,7 @@ public final class ChatScreenViewModel {
 
         selectedAgent = agent
         settings.lastAgentId = agent.id
+        restoreModelSelection(agentId: agent.id, sessionId: selectedSessionId)
 
         if loadsGlobalSessionCatalog {
             if loadsCachedSessionsOnly {
@@ -1011,6 +1040,14 @@ public final class ChatScreenViewModel {
     public func pickModel(_ model: ChatModelOption) {
         selectedModelId = model.id
         selectedReasoningEffort = .default
+        if let agentId = selectedAgent?.id {
+            modelPreferences.setSelection(
+                model.id,
+                server: apiClient.endpoint.cacheNamespace,
+                agentId: agentId,
+                sessionId: selectedSessionId
+            )
+        }
     }
 
     public func pickReasoningEffort(_ effort: ChatReasoningEffort) {
@@ -1077,6 +1114,48 @@ public final class ChatScreenViewModel {
         applyComposerTextMutation(.append(selectedText))
     }
 
+    public func addQuoteToComposer(_ selectedText: String) {
+        let selectedText = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !selectedText.isEmpty else { return }
+
+        let quote = ChatComposerQuote(text: selectedText)
+        if activeComposerDraftKey == nil {
+            pendingComposerQuotes.append(quote)
+        }
+        composerQuotes.append(quote)
+        saveActiveComposerDraft()
+        requestComposerFocus()
+    }
+
+    public func removeComposerQuote(id: ChatComposerQuote.ID) {
+        composerQuotes.removeAll { $0.id == id }
+        pendingComposerQuotes.removeAll { $0.id == id }
+        saveActiveComposerDraft()
+    }
+
+    public func insertCodeBlock() {
+        let text = composerDraft.text
+        let range = ChatComposerNativeSelection.nativeRange(
+            from: composerDraft.selection,
+            in: text
+        ).flatMap { Range($0, in: text) } ?? text.endIndex..<text.endIndex
+        let selectedText = String(text[range])
+        let needsLeadingNewline = range.lowerBound > text.startIndex
+            && text[text.index(before: range.lowerBound)] != "\n"
+        let needsTrailingNewline = range.upperBound < text.endIndex
+            && text[range.upperBound] != "\n"
+        let leadingNewline = needsLeadingNewline ? "\n" : ""
+        let trailingNewline = needsTrailingNewline ? "\n" : ""
+        let replacement = "\(leadingNewline)```\n\(selectedText)\n```\(trailingNewline)"
+        let cursorOffset = text.distance(from: text.startIndex, to: range.lowerBound)
+            + leadingNewline.count + 4 + selectedText.count
+        composerDraft.text = text.replacingCharacters(in: range, with: replacement)
+        let cursor = composerDraft.text.index(composerDraft.text.startIndex, offsetBy: cursorOffset)
+        composerDraft.selection = TextSelection(insertionPoint: cursor)
+        saveActiveComposerDraft()
+        requestComposerFocus()
+    }
+
     public func askForMoreDetails(about selectedText: String) {
         let selectedText = selectedText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !selectedText.isEmpty else { return }
@@ -1105,6 +1184,11 @@ public final class ChatScreenViewModel {
         Task { @MainActor in
             do {
                 try await apiClient.deleteAgentSession(agentId: session.agentId, sessionId: session.id)
+                modelPreferences.removeSession(
+                    server: apiClient.endpoint.cacheNamespace,
+                    agentId: session.agentId,
+                    sessionId: session.id
+                )
                 settings.setSessionPinned(session.storageID, isPinned: false)
                 sessions.removeAll { $0.storageID == session.storageID }
                 sessionCatalog.removeAll { $0.storageID == session.storageID }
@@ -1112,6 +1196,7 @@ public final class ChatScreenViewModel {
                 if selectedSessionId == session.id {
                     disconnectCurrentSession()
                     selectedSessionId = nil
+                    restoreModelSelection(agentId: session.agentId, sessionId: nil)
                     settings.lastSessionId = nil
                     transcript.clear()
                     activeContextTitle = nil
@@ -1193,7 +1278,7 @@ public final class ChatScreenViewModel {
                 upsertSessionSummary(summary)
                 selectSession(
                     summary.id,
-                    contextTitle: activeContextTitle,
+                    contextTitle: displayTitle(for: summary),
                     projectId: projectId
                 )
             } catch {
@@ -1450,6 +1535,7 @@ public final class ChatScreenViewModel {
         saveActiveComposerDraft()
         selectedAgent = agent
         selectedSessionId = nil
+        restoreModelSelection(agentId: agent.id, sessionId: nil)
         transcript.clear()
         activeContextTitle = nil
         activeProjectId = nil
@@ -1471,6 +1557,7 @@ public final class ChatScreenViewModel {
         saveActiveComposerDraft()
         transcript.clear()
         selectedSessionId = nil
+        restoreModelSelection(agentId: agent.id, sessionId: nil)
         activeContextTitle = contextTitle
         activeProjectId = projectId
         activeTaskId = taskId
@@ -1485,6 +1572,7 @@ public final class ChatScreenViewModel {
             ) else { return }
             upsertSessionSummary(summary)
             selectedSessionId = summary.id
+            rememberCurrentModelSelection(agentId: agent.id, sessionId: summary.id)
             settings.lastSessionId = summary.id
             await connectToSession(agentId: agent.id, sessionId: summary.id)
         }
@@ -1515,21 +1603,31 @@ public final class ChatScreenViewModel {
         taskId: String? = nil
     ) {
         guard let agent = selectedAgent else { return }
-        let retainedContextTitle = contextTitle ?? activeContextTitle
-        let retainedProjectId = projectId ?? activeProjectId
+        let session = sessions.first(where: { $0.id == sessionId })
+            ?? sessionCatalog.first(where: { $0.id == sessionId })
+        let resolvedContextTitle = contextTitle ?? session.map(displayTitle) ?? activeContextTitle
+        let resolvedProjectId = session?.projectId ?? projectId
+        let resolvedTaskId = session?.taskId ?? taskId
         saveActiveComposerDraft()
         disconnectCurrentSession()
         transcript.clear()
         isLoadingTranscript = true
         selectedSessionId = sessionId
-        activeContextTitle = retainedContextTitle
-        activeProjectId = retainedProjectId
-        activeTaskId = taskId
+        restoreModelSelection(agentId: agent.id, sessionId: sessionId)
+        rememberCurrentModelSelection(agentId: agent.id, sessionId: sessionId)
+        activeContextTitle = resolvedContextTitle
+        activeProjectId = resolvedProjectId
+        activeTaskId = resolvedTaskId
         settings.lastSessionId = sessionId
-        if let retainedProjectId {
-            settings.lastProjectId = retainedProjectId
+        if let resolvedProjectId {
+            settings.lastProjectId = resolvedProjectId
         }
-        syncComposerDraft(toSessionId: sessionId, projectId: retainedProjectId, taskId: taskId, agentId: agent.id)
+        syncComposerDraft(
+            toSessionId: sessionId,
+            projectId: resolvedProjectId,
+            taskId: resolvedTaskId,
+            agentId: agent.id
+        )
         requestTranscriptScrollToEnd()
         Task { @MainActor in
             await connectToSession(agentId: agent.id, sessionId: sessionId)
@@ -1592,6 +1690,7 @@ public final class ChatScreenViewModel {
         saveActiveComposerDraft()
         selectedAgent = agent
         selectedSessionId = nil
+        restoreModelSelection(agentId: agent.id, sessionId: nil)
         transcript.clear()
         activeContextTitle = contextTitle
         activeProjectId = nil
@@ -1617,6 +1716,7 @@ public final class ChatScreenViewModel {
         saveActiveComposerDraft()
         selectedAgent = agent
         selectedSessionId = nil
+        restoreModelSelection(agentId: agent.id, sessionId: nil)
         transcript.clear()
         activeContextTitle = contextTitle
         activeProjectId = projectId
@@ -2240,10 +2340,11 @@ public final class ChatScreenViewModel {
             return
         }
         let attachments = composerAttachments
-        guard !content.isEmpty || !attachments.isEmpty else { return }
+        let quotes = composerQuotes
+        guard !content.isEmpty || !attachments.isEmpty || !quotes.isEmpty else { return }
 
         if isSending || isAwaitingAgentResponse || isStopping || pendingToolApproval != nil {
-            enqueueMessage(content: content, attachments: attachments)
+            enqueueMessage(content: content, attachments: attachments, quotes: quotes)
             if isAwaitingAgentResponse,
                !isStopping,
                pendingToolApproval == nil,
@@ -2254,7 +2355,7 @@ public final class ChatScreenViewModel {
             return
         }
 
-        sendMessageImmediately(content: content, attachments: attachments, agent: agent)
+        sendMessageImmediately(content: content, attachments: attachments, quotes: quotes, agent: agent)
     }
 
     public func cancelQueuedMessage(id: UUID) {
@@ -2264,9 +2365,10 @@ public final class ChatScreenViewModel {
 
     private func enqueueMessage(
         content: String,
-        attachments: [ChatComposerAttachment]
+        attachments: [ChatComposerAttachment],
+        quotes: [ChatComposerQuote]
     ) {
-        messageQueue.enqueue(content: content, attachments: attachments)
+        messageQueue.enqueue(content: content, attachments: attachments, quotes: quotes)
         queuedMessages = messageQueue.messages
         clearActiveComposerDraft()
         dismissComposerFocus()
@@ -2275,8 +2377,10 @@ public final class ChatScreenViewModel {
     private func sendMessageImmediately(
         content: String,
         attachments: [ChatComposerAttachment],
+        quotes: [ChatComposerQuote],
         agent: APIAgentRecord
     ) {
+        let messageContent = ChatComposerQuote.messageContent(content, quotes: quotes)
         sendErrorMessage = nil
         clearWorkingTreeSourceControl()
         clearActiveComposerDraft()
@@ -2288,8 +2392,8 @@ public final class ChatScreenViewModel {
             await responseNotificationScheduler.prepareAuthorization()
         }
         var optimisticSegments: [ChatMessageSegment] = []
-        if !content.isEmpty {
-            optimisticSegments.append(ChatMessageSegment(kind: .text, text: content))
+        if !messageContent.isEmpty {
+            optimisticSegments.append(ChatMessageSegment(kind: .text, text: messageContent))
         }
         optimisticSegments += attachments.map {
             ChatMessageSegment(kind: .attachment, attachment: $0.messageAttachment)
@@ -2315,6 +2419,7 @@ public final class ChatScreenViewModel {
                     )
                     upsertSessionSummary(summary)
                     selectedSessionId = summary.id
+                    rememberCurrentModelSelection(agentId: agent.id, sessionId: summary.id)
                     beginStreamingAssistantTurn(for: summary.id)
                     settings.lastSessionId = summary.id
                     syncComposerDraft(
@@ -2325,8 +2430,10 @@ public final class ChatScreenViewModel {
                     )
                     await connectToSession(agentId: agent.id, sessionId: summary.id)
                     await postMessage(
-                        content: content,
+                        content: messageContent,
+                        draftContent: content,
                         attachments: attachments,
+                        quotes: quotes,
                         agentId: agent.id,
                         sessionId: summary.id,
                         optimistic: optimistic
@@ -2336,7 +2443,7 @@ public final class ChatScreenViewModel {
                     isAwaitingAgentResponse = false
                     activeRunStatus = nil
                     transcript.removeAll { $0.id == optimistic.id }
-                    restoreComposerDraft(content: content, attachments: attachments)
+                    restoreComposerDraft(content: content, attachments: attachments, quotes: quotes)
                     sendErrorMessage = "Could not create session: \(error.localizedDescription)"
                 }
             }
@@ -2346,8 +2453,10 @@ public final class ChatScreenViewModel {
         guard let sessionId = selectedSessionId else { return }
         Task { @MainActor in
             await postMessage(
-                content: content,
+                content: messageContent,
+                draftContent: content,
                 attachments: attachments,
+                quotes: quotes,
                 agentId: agent.id,
                 sessionId: sessionId,
                 optimistic: optimistic
@@ -2418,7 +2527,9 @@ public final class ChatScreenViewModel {
 
     private func postMessage(
         content: String,
+        draftContent: String,
         attachments: [ChatComposerAttachment],
+        quotes: [ChatComposerQuote],
         agentId: String,
         sessionId: String,
         optimistic: ChatMessage
@@ -2446,7 +2557,7 @@ public final class ChatScreenViewModel {
             transcript.removeAll { $0.id == optimistic.id }
             isAwaitingAgentResponse = false
             activeRunStatus = nil
-            restoreComposerDraft(content: content, attachments: attachments)
+            restoreComposerDraft(content: draftContent, attachments: attachments, quotes: quotes)
             sendErrorMessage = "Message was not sent: \(error.localizedDescription)"
             Task { @MainActor in
                 await sendNextQueuedMessageIfIdle()
@@ -2471,6 +2582,7 @@ public final class ChatScreenViewModel {
         sendMessageImmediately(
             content: message.content,
             attachments: message.attachments,
+            quotes: message.quotes,
             agent: agent
         )
         isDrainingQueuedMessages = false
@@ -2596,15 +2708,33 @@ public final class ChatScreenViewModel {
         return selectedModel.supportsReasoningEffort
     }
 
+    private func restoreModelSelection(agentId: String, sessionId: String?) {
+        selectedModelId = modelPreferences.selection(
+            server: apiClient.endpoint.cacheNamespace,
+            agentId: agentId,
+            sessionId: sessionId
+        ) ?? availableModels.first?.id ?? ""
+        selectedReasoningEffort = .default
+    }
+
+    private func rememberCurrentModelSelection(agentId: String, sessionId: String) {
+        guard !selectedModelId.isEmpty else { return }
+        modelPreferences.rememberSessionSelection(
+            selectedModelId,
+            server: apiClient.endpoint.cacheNamespace,
+            agentId: agentId,
+            sessionId: sessionId
+        )
+    }
+
     private func applyAvailableModels(_ models: [ChatModelOption]) {
         availableModels = models
+        if selectedModelId == ChatModelSelection.automaticJEVId {
+            return
+        }
         guard !models.isEmpty else {
             selectedModelId = ""
             selectedReasoningEffort = .default
-            return
-        }
-
-        if selectedModelId == ChatModelSelection.automaticJEVId {
             return
         }
 
@@ -2708,6 +2838,12 @@ public final class ChatScreenViewModel {
         let storedDraft = composerDraftsByKey[nextKey]
         composerDraft.text = storedDraft?.text ?? ""
         composerAttachments = storedDraft?.attachments ?? []
+        composerQuotes = storedDraft?.quotes ?? []
+        if !pendingComposerQuotes.isEmpty {
+            composerQuotes.append(contentsOf: pendingComposerQuotes)
+            pendingComposerQuotes = []
+            saveActiveComposerDraft()
+        }
         if let pendingComposerTextMutation {
             self.pendingComposerTextMutation = nil
             applyComposerTextMutation(pendingComposerTextMutation)
@@ -2716,12 +2852,13 @@ public final class ChatScreenViewModel {
 
     private func saveActiveComposerDraft() {
         guard let activeComposerDraftKey else { return }
-        if composerDraft.text.isEmpty && composerAttachments.isEmpty {
+        if composerDraft.text.isEmpty && composerAttachments.isEmpty && composerQuotes.isEmpty {
             composerDraftsByKey.removeValue(forKey: activeComposerDraftKey)
         } else {
             composerDraftsByKey[activeComposerDraftKey] = StoredComposerDraft(
                 text: composerDraft.text,
-                attachments: composerAttachments
+                attachments: composerAttachments,
+                quotes: composerQuotes
             )
         }
     }
@@ -2730,19 +2867,23 @@ public final class ChatScreenViewModel {
         guard let activeComposerDraftKey else {
             composerDraft.text = ""
             composerAttachments = []
+            composerQuotes = []
             return
         }
         composerDraft.text = ""
         composerAttachments = []
+        composerQuotes = []
         composerDraftsByKey.removeValue(forKey: activeComposerDraftKey)
     }
 
     private func restoreComposerDraft(
         content: String,
-        attachments: [ChatComposerAttachment]
+        attachments: [ChatComposerAttachment],
+        quotes: [ChatComposerQuote]
     ) {
         composerDraft.text = content
         composerAttachments = attachments
+        composerQuotes = quotes
         saveActiveComposerDraft()
     }
 

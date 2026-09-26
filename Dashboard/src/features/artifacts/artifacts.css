@@ -18,6 +18,28 @@
   font-size: 20px;
 }
 
+.artifact-detail-view {
+  min-height: 100%;
+}
+
+.artifact-detail-id {
+  color: var(--muted);
+  font-size: 0.78rem;
+  overflow-wrap: anywhere;
+}
+
+.artifact-detail-summary {
+  margin: 0;
+  color: var(--muted);
+}
+
+.artifact-detail-frame {
+  width: 100%;
+  min-height: min(75vh, 720px);
+  border: 1px solid var(--line);
+  background: #fff;
+}
+
 .artifacts-filters {
   display: flex;
   gap: 8px;
@@ -32,8 +54,72 @@
 }
 
 .artifacts-filters button.active {
-  background: rgba(190, 255, 0, 0.16);
-  border-color: rgba(190, 255, 0, 0.38);
+  background: var(--surface-3);
+  border-color: var(--accent);
+}
+
+.artifacts-section {
+  display: grid;
+  gap: 12px;
+}
+
+.artifacts-section h2 {
+  display: flex;
+  align-items: baseline;
+  gap: 9px;
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 600;
+}
+
+.artifacts-section h2 span {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 400;
+}
+
+.artifacts-document-list {
+  display: grid;
+  border-top: 1px solid var(--line);
+}
+
+.artifact-document-row {
+  display: grid;
+  grid-template-columns: 24px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 13px;
+  min-height: 62px;
+  padding: 11px 4px;
+  border-bottom: 1px solid var(--line);
+}
+
+.artifact-document-row > .material-symbols-rounded {
+  color: var(--muted);
+  font-size: 21px;
+}
+
+.artifact-document-row > div {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.artifact-document-row strong,
+.artifact-document-row small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.artifact-document-row strong {
+  font-size: 0.88rem;
+  font-weight: 580;
+}
+
+.artifact-document-row small,
+.artifact-document-kind {
+  color: var(--muted);
+  font-size: 0.75rem;
 }
 
 .artifacts-grid {

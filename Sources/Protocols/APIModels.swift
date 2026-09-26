@@ -3169,6 +3169,8 @@ public struct AgentConfigDetail: Codable, Sendable, Equatable {
     public var selectedModel: String?
     public var plannerModel: String?
     public var reasoningEffort: ReasoningEffort?
+    /// Whether JEV may choose the executor model for automatic turns.
+    public var automaticModelRouting: Bool
     public var availableModels: [ProviderModelOption]
     public var documents: AgentDocumentBundle
     public var heartbeat: AgentHeartbeatSettings
@@ -3183,6 +3185,7 @@ public struct AgentConfigDetail: Codable, Sendable, Equatable {
         selectedModel: String?,
         plannerModel: String? = nil,
         reasoningEffort: ReasoningEffort? = nil,
+        automaticModelRouting: Bool = true,
         availableModels: [ProviderModelOption],
         documents: AgentDocumentBundle,
         heartbeat: AgentHeartbeatSettings = AgentHeartbeatSettings(),
@@ -3196,6 +3199,7 @@ public struct AgentConfigDetail: Codable, Sendable, Equatable {
         self.selectedModel = selectedModel
         self.plannerModel = plannerModel
         self.reasoningEffort = reasoningEffort
+        self.automaticModelRouting = automaticModelRouting
         self.availableModels = availableModels
         self.documents = documents
         self.heartbeat = heartbeat
@@ -3206,7 +3210,7 @@ public struct AgentConfigDetail: Codable, Sendable, Equatable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case agentId, role, selectedModel, plannerModel, reasoningEffort, availableModels, documents, heartbeat, channelSessions, heartbeatStatus, runtime, skills
+        case agentId, role, selectedModel, plannerModel, reasoningEffort, automaticModelRouting, availableModels, documents, heartbeat, channelSessions, heartbeatStatus, runtime, skills
     }
 
     public init(from decoder: Decoder) throws {
@@ -3216,6 +3220,7 @@ public struct AgentConfigDetail: Codable, Sendable, Equatable {
         selectedModel = try container.decodeIfPresent(String.self, forKey: .selectedModel)
         plannerModel = try container.decodeIfPresent(String.self, forKey: .plannerModel)
         reasoningEffort = try container.decodeIfPresent(ReasoningEffort.self, forKey: .reasoningEffort)
+        automaticModelRouting = try container.decodeIfPresent(Bool.self, forKey: .automaticModelRouting) ?? true
         availableModels = try container.decode([ProviderModelOption].self, forKey: .availableModels)
         documents = try container.decode(AgentDocumentBundle.self, forKey: .documents)
         heartbeat = try container.decodeIfPresent(AgentHeartbeatSettings.self, forKey: .heartbeat) ?? AgentHeartbeatSettings()
@@ -3231,6 +3236,7 @@ public struct AgentConfigUpdateRequest: Codable, Sendable {
     public var selectedModel: String?
     public var plannerModel: String?
     public var reasoningEffort: ReasoningEffort?
+    public var automaticModelRouting: Bool?
     public var documents: AgentDocumentBundle
     public var heartbeat: AgentHeartbeatSettings
     public var channelSessions: AgentChannelSessionSettings
@@ -3245,6 +3251,7 @@ public struct AgentConfigUpdateRequest: Codable, Sendable {
         heartbeat: AgentHeartbeatSettings = AgentHeartbeatSettings(),
         channelSessions: AgentChannelSessionSettings = AgentChannelSessionSettings(),
         reasoningEffort: ReasoningEffort? = nil,
+        automaticModelRouting: Bool? = nil,
         runtime: AgentRuntimeConfig = AgentRuntimeConfig(),
         skills: AgentSkillSettings = AgentSkillSettings()
     ) {
@@ -3252,6 +3259,7 @@ public struct AgentConfigUpdateRequest: Codable, Sendable {
         self.selectedModel = selectedModel
         self.plannerModel = plannerModel
         self.reasoningEffort = reasoningEffort
+        self.automaticModelRouting = automaticModelRouting
         self.documents = documents
         self.heartbeat = heartbeat
         self.channelSessions = channelSessions
@@ -3260,7 +3268,7 @@ public struct AgentConfigUpdateRequest: Codable, Sendable {
     }
 
     enum CodingKeys: String, CodingKey {
-        case role, selectedModel, plannerModel, reasoningEffort, documents, heartbeat, channelSessions, runtime, skills
+        case role, selectedModel, plannerModel, reasoningEffort, automaticModelRouting, documents, heartbeat, channelSessions, runtime, skills
     }
 
     public init(from decoder: Decoder) throws {
@@ -3269,6 +3277,7 @@ public struct AgentConfigUpdateRequest: Codable, Sendable {
         selectedModel = try container.decodeIfPresent(String.self, forKey: .selectedModel)
         plannerModel = try container.decodeIfPresent(String.self, forKey: .plannerModel)
         reasoningEffort = try container.decodeIfPresent(ReasoningEffort.self, forKey: .reasoningEffort)
+        automaticModelRouting = try container.decodeIfPresent(Bool.self, forKey: .automaticModelRouting)
         documents = try container.decode(AgentDocumentBundle.self, forKey: .documents)
         heartbeat = try container.decodeIfPresent(AgentHeartbeatSettings.self, forKey: .heartbeat) ?? AgentHeartbeatSettings()
         channelSessions = try container.decodeIfPresent(AgentChannelSessionSettings.self, forKey: .channelSessions) ?? AgentChannelSessionSettings()

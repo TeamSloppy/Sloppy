@@ -20,6 +20,7 @@ final class SloppyDesktopOverlay {
     private var panelResizeTask: Task<Void, Never>?
     private var agentRunCache: [String: SloppyDesktopAgentRunCacheEntry] = [:]
     var onOpenAgentRun: (@MainActor (String, String) -> Void)?
+    var onOpenTask: (@MainActor (String, String) -> Void)?
 
     func start(settings: ClientSettings, baseURL: URL? = nil) {
         closeBehavior = settings.windowCloseBehavior
@@ -33,6 +34,9 @@ final class SloppyDesktopOverlay {
         }
         state.onOpenRecentChat = { [weak self] chat in
             self?.onOpenAgentRun?(chat.agentID, chat.sessionID)
+        }
+        state.onOpenTask = { [weak self] task in
+            self?.onOpenTask?(task.projectID, task.taskID)
         }
         state.onOpenDeepLink = { url in
             NSWorkspace.shared.open(url)
@@ -439,6 +443,7 @@ private struct SloppyDesktopNotchView: View {
     @State private var isHovered = false
     @State private var isPetExpanded = false
     @State private var hoverCollapseTask: Task<Void, Never>?
+    @State private var showsAllActiveTasks = false
     @FocusState private var focusedRecentChatID: String?
     @FocusState private var isTaskComposerFocused: Bool
 
@@ -671,12 +676,13 @@ private struct SloppyDesktopNotchView: View {
     @ViewBuilder
     private var expandedContent: some View {
         if state.usesWideLayout {
-            VStack(spacing: 10) {
+            VStack(spacing: 0) {
                 SloppyDesktopNotchHeroView(
                     state: state,
                     showsMascot: isPetExpanded,
                     petNamespace: petTransitionNamespace
                 )
+                .padding(.bottom, 10)
                 Divider().opacity(0.35)
                 ScrollView(.vertical) {
                     expandedSections
@@ -684,6 +690,15 @@ private struct SloppyDesktopNotchView: View {
                         .padding(.bottom, 2)
                 }
                 .scrollIndicators(.hidden)
+                .frame(maxHeight: .infinity)
+                if state.hasContentBeforeTaskComposer {
+                    Divider()
+                        .opacity(0.35)
+                        .padding(.top, 10)
+                }
+                taskComposerContent
+                    .padding(.top, state.hasContentBeforeTaskComposer ? 10 : 0)
+                    .layoutPriority(1)
             }
             .padding(12)
         } else {
@@ -720,10 +735,6 @@ private struct SloppyDesktopNotchView: View {
             if !state.recentChats.isEmpty {
                 recentChatsContent
             }
-            if state.hasContentBeforeTaskComposer {
-                Divider().opacity(0.35)
-            }
-            taskComposerContent
         }
     }
 
@@ -738,26 +749,35 @@ private struct SloppyDesktopNotchView: View {
                     .font(.caption.monospacedDigit())
                     .foregroundStyle(.secondary)
             }
-            ForEach(state.activeTasks.prefix(3)) { task in
-                HStack(spacing: 8) {
-                    ProgressView()
-                        .controlSize(.mini)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(task.title)
-                            .font(.system(size: 11, weight: .medium))
-                            .lineLimit(1)
-                        Text("\(task.projectName) · \(task.statusTitle)")
-                            .font(.system(size: 9))
-                            .foregroundStyle(.secondary)
+            ForEach(showsAllActiveTasks ? state.activeTasks : Array(state.activeTasks.prefix(3))) { task in
+                Button {
+                    state.openTask(task)
+                } label: {
+                    HStack(spacing: 8) {
+                        ProgressView()
+                            .controlSize(.mini)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(task.title)
+                                .font(.system(size: 11, weight: .medium))
+                                .lineLimit(1)
+                            Text("\(task.projectName) · \(task.statusTitle)")
+                                .font(.system(size: 9))
+                                .foregroundStyle(.secondary)
+                        }
+                        Spacer()
                     }
-                    Spacer()
                 }
+                .buttonStyle(.plain)
+                .help("Open task in \(task.projectName)")
             }
             if state.activeTasks.count > 3 {
-                Text("+\(state.activeTasks.count - 3) more")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .trailing)
+                Button(showsAllActiveTasks ? "Show less" : "+\(state.activeTasks.count - 3) more") {
+                    showsAllActiveTasks.toggle()
+                }
+                .buttonStyle(.plain)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity, alignment: .trailing)
             }
         }
     }
@@ -1131,6 +1151,7 @@ final class SloppyDesktopOverlayState {
     var onExpansionChanged: (@MainActor () -> Void)?
     var onOpenAgentRun: (@MainActor (SloppyDesktopAgentRun) -> Void)?
     var onOpenRecentChat: (@MainActor (SloppyDesktopRecentChat) -> Void)?
+    var onOpenTask: (@MainActor (SloppyDesktopTask) -> Void)?
     var onOpenDeepLink: (@MainActor (URL) -> Void)?
     var onSendPrompt: (@MainActor (SloppyDesktopRecentChat, String) async throws -> Void)?
     var onCreateTask: (@MainActor (SloppyDesktopProject, String) async throws -> Void)?
@@ -1239,6 +1260,11 @@ final class SloppyDesktopOverlayState {
         selectedRecentChatID = nil
         setExpanded(false)
         onOpenRecentChat?(chat)
+    }
+
+    func openTask(_ task: SloppyDesktopTask) {
+        setExpanded(false)
+        onOpenTask?(task)
     }
 
     @discardableResult

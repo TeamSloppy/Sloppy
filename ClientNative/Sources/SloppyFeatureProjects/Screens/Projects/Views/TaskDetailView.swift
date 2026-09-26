@@ -10,6 +10,7 @@ public final class TaskDetailViewModel {
     public private(set) var projectName: String = ""
     public private(set) var task: APIProjectTask?
     public private(set) var projectTasks: [APIProjectTask] = []
+    public private(set) var availableActors: [APIAgentRecord] = []
     public let activity: TaskActivityViewModel
     public private(set) var isLoading = false
     public private(set) var errorMessage: String?
@@ -52,6 +53,17 @@ public final class TaskDetailViewModel {
             errorMessage = "Could not load task details."
         }
     }
+
+    public func loadActors() async {
+        availableActors = (try? await apiClient.fetchAgents()) ?? []
+    }
+
+    public func updateTask(projectId: String, taskId: String, request: APIProjectTaskUpdateRequest) async throws {
+        let project = try await apiClient.updateProjectTask(projectId: projectId, taskId: taskId, request: request)
+        projectName = project.name
+        projectTasks = project.tasks ?? []
+        task = projectTasks.first(where: { $0.id == taskId })
+    }
 }
 
 @MainActor
@@ -66,6 +78,7 @@ public struct TaskDetailView: View {
     let onTaskChanged: (@MainActor () async -> Void)?
 
     @Environment(\.theme) private var theme
+    @State private var isEditingProperties = false
 
     public init(
         viewModel: TaskDetailViewModel,
@@ -140,6 +153,13 @@ public struct TaskDetailView: View {
         .task(id: "\(projectId):\(taskId)") {
             await viewModel.load(projectId: projectId, taskId: taskId)
         }
+        .sheet(isPresented: $isEditingProperties) {
+            if let task = viewModel.task {
+                TaskPropertiesEditSheet(task: task, viewModel: viewModel, projectId: projectId) {
+                    await onTaskChanged?()
+                }
+            }
+        }
     }
 
     private var closeButtonBar: some View {
@@ -147,8 +167,7 @@ public struct TaskDetailView: View {
             Button(action: onClose) {
                 Label("Back", systemImage: "chevron.left")
             }
-            .buttonStyle(.plain)
-            .foregroundColor(theme.colors.textSecondary)
+            .buttonStyle(.glass)
             .keyboardShortcut(.cancelAction)
             .help("Close task details")
             .accessibilityLabel("Close task details")
@@ -192,8 +211,19 @@ public struct TaskDetailView: View {
 
     private func metadata(task: APIProjectTask) -> some View {
         VStack(alignment: .leading, spacing: theme.spacing.s) {
+            HStack {
+                Text("Properties")
+                    .font(.headline)
+                Spacer()
+                Button("Edit", systemImage: "square.and.pencil") {
+                    isEditingProperties = true
+                }
+                .buttonStyle(.glass)
+                .accessibilityIdentifier("task-detail-edit-properties")
+            }
             detailRow(label: "Task ID", value: task.id)
             detailRow(label: "Actor", value: task.actorId)
+            detailRow(label: "Runs on", value: task.executionNodeId)
             detailRow(label: "Claimed By", value: task.claimedActorId ?? task.claimedAgentId)
             detailRow(label: "Created By", value: task.createdBy)
             detailRow(label: "Updated", value: task.updatedAt.map(Self.dateFormatter.string(from:)))

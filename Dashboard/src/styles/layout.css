@@ -99,6 +99,12 @@ html.icons-ready .material-symbols-rounded {
   color: var(--text);
 }
 
+.sidebar-version {
+  color: var(--muted);
+  font-size: 10px;
+  letter-spacing: 0.05em;
+}
+
 .sidebar-logo {
   width: 32px;
   height: 32px;
@@ -122,6 +128,10 @@ html.icons-ready .material-symbols-rounded {
 .sidebar-logo-launch:hover {
   border: 0;
   background: rgba(255, 255, 255, 0.02);
+}
+
+.sidebar.full .sidebar-logo-launch {
+  display: none;
 }
 
 .sidebar-toggle {
@@ -161,6 +171,10 @@ html.icons-ready .material-symbols-rounded {
 .sidebar-nav::-webkit-scrollbar {
   width: 0;
   height: 0;
+  display: none;
+}
+
+.sidebar-more {
   display: none;
 }
 

@@ -19,6 +19,13 @@
   min-width: 0;
 }
 
+.plan-input-panel__progress {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.75rem;
+  white-space: nowrap;
+}
+
 .plan-input-panel__question {
   display: grid;
   gap: 8px;

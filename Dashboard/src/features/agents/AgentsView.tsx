@@ -790,20 +790,32 @@ export function AgentsView({
 
   return (
     <main className={`agents-shell ${isChatLayout ? "chat-layout" : ""}`}>
-      <Breadcrumbs
-        items={[
-          { id: 'agents', label: 'Agents', onClick: navigateToAgentList },
-          { id: activeAgent.id, label: activeAgent.displayName }
-        ]}
-        style={{ marginBottom: '20px' }}
-        action={
-          <button type="button" className="agents-create-inline hover-levitate" onClick={openCreateModal}>
-            Create Agent
-          </button>
-        }
-      />
+      {isChatLayout ? (
+        <button
+          type="button"
+          className="agent-chat-back-button"
+          onClick={() => navigateToAgent(activeAgent.id, "overview")}
+          aria-label="Back to agent overview"
+        >
+          <span className="material-symbols-rounded" aria-hidden="true">arrow_back</span>
+          Back
+        </button>
+      ) : (
+        <Breadcrumbs
+          items={[
+            { id: 'agents', label: 'Agents', onClick: navigateToAgentList },
+            { id: activeAgent.id, label: activeAgent.displayName }
+          ]}
+          style={{ marginBottom: '20px' }}
+          action={
+            <button type="button" className="agents-create-inline hover-levitate" onClick={openCreateModal}>
+              Create Agent
+            </button>
+          }
+        />
+      )}
 
-      <section className="agent-tabs" aria-label="Agent sections">
+      {!isChatLayout ? <section className="agent-tabs" aria-label="Agent sections">
         {AGENT_TABS.map((tab) => (
           <button
             key={tab.id}
@@ -815,7 +827,7 @@ export function AgentsView({
             {tab.title}
           </button>
         ))}
-      </section>
+      </section> : null}
 
       <section className="agent-content-shell">
         {renderAgentTabContent(activeAgent, activeTab)}

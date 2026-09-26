@@ -570,7 +570,6 @@ function CommentsTab({ project, task, createModalActors, agentDirectory, openTas
                         rows={3}
                     />
                     <div className="td-comment-form-actions">
-                        <span className="material-symbols-rounded td-comment-attach-icon">attachment</span>
                         <div className="td-comment-actor-wrap" ref={dropdownRef}>
                             <button
                                 type="button"
@@ -580,7 +579,7 @@ function CommentsTab({ project, task, createModalActors, agentDirectory, openTas
                                 <span className="material-symbols-rounded">
                                     {selectedActor?.linkedAgentId ? "smart_toy" : "person"}
                                 </span>
-                                <span>{selectedActor ? selectedActor.displayName : "No assignee"}</span>
+                                <span>{selectedActor ? selectedActor.displayName : "Mention agent"}</span>
                             </button>
                             {actorDropdownOpen && (
                                 <div className="td-comment-actor-dropdown">
@@ -600,7 +599,7 @@ function CommentsTab({ project, task, createModalActors, agentDirectory, openTas
                                                 setActorDropdownOpen(false);
                                             }}
                                         >
-                                            No assignee
+                                            No mention
                                             {!selectedActorId && <span className="tcm-dropdown-check">✓</span>}
                                         </li>
                                         {filteredActors.map((actor) => (
@@ -1878,7 +1877,7 @@ export function TaskDetailView({
 
     return (
         <div
-            className={`td-page ${isSideView ? "td-page--side-view" : ""} ${!useInlineProperties && !sidebarOpen ? "td-page--sidebar-closed" : ""}`}
+            className={`td-page ${isSideView ? "td-page--side-view" : "td-page--full-view"} ${!useInlineProperties && !sidebarOpen ? "td-page--sidebar-closed" : ""}`}
         >
             <div className="td-main">
                 <header className="td-toolbar">

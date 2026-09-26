@@ -1,5 +1,8 @@
 {
   "apiBase": "http://localhost:25101",
-  "accentColor": "#8b9dff",
-  "theme": "modern"
+  "accentColor": "#f5f5f5",
+  "theme": "minimal",
+  "features": {
+    "sidebarProjectChats": false
+  }
 }

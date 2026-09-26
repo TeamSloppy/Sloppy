@@ -1,4 +1,5 @@
 import { useMemo, useState } from "react";
+import { collectPlanInputAnswers, hasPlanInputAnswer } from "./planInputAnswers";
 import "./PlanInputPanel.css";
 
 type PlanInputOption = {
@@ -43,20 +44,30 @@ export function PlanInputPanel({ request, disabled = false, onSubmit }: PlanInpu
   const [customByQuestion, setCustomByQuestion] = useState<Record<string, string>>({});
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [errorText, setErrorText] = useState("");
+  const [activeQuestionIndex, setActiveQuestionIndex] = useState(0);
+  const activeQuestion = questions[activeQuestionIndex];
+
+  function advance() {
+    if (!activeQuestion || isSubmitting || disabled) return;
+    const questionId = String(activeQuestion.id || "");
+    if (!hasPlanInputAnswer(questionId, selectedByQuestion, customByQuestion)) {
+      setErrorText("Choose an option or enter a custom answer.");
+      return;
+    }
+    setErrorText("");
+    if (activeQuestionIndex < questions.length - 1) {
+      setActiveQuestionIndex((index) => index + 1);
+    } else {
+      void submit("answered");
+    }
+  }
 
   async function submit(status: "answered" | "cancelled") {
     if (isSubmitting || disabled) return;
     setErrorText("");
     const answers = status === "cancelled"
       ? []
-      : questions.map((question) => {
-        const questionId = String(question.id || "");
-        const custom = String(customByQuestion[questionId] || "").trim();
-        const selected = String(selectedByQuestion[questionId] || "").trim();
-        return custom
-          ? { questionId, customAnswer: custom }
-          : { questionId, selectedOptionId: selected };
-      });
+      : collectPlanInputAnswers(questions, selectedByQuestion, customByQuestion);
     if (status === "answered" && answers.some((answer) => !answer.selectedOptionId && !answer.customAnswer)) {
       setErrorText("Answer every question before submitting.");
       return;
@@ -131,8 +142,9 @@ export function PlanInputPanel({ request, disabled = false, onSubmit }: PlanInpu
       <div className="plan-input-panel__head">
         <span className="material-symbols-rounded" aria-hidden="true">help</span>
         <strong>{request.title || "Input needed"}</strong>
+        {questions.length > 1 ? <span className="plan-input-panel__progress">Question {activeQuestionIndex + 1} of {questions.length}</span> : null}
       </div>
-      {questions.map((question) => {
+      {activeQuestion ? [activeQuestion].map((question) => {
         const questionId = String(question.id || "");
         const options = Array.isArray(question.options) ? question.options : [];
         return (
@@ -180,14 +192,19 @@ export function PlanInputPanel({ request, disabled = false, onSubmit }: PlanInpu
             ) : null}
           </div>
         );
-      })}
+      }) : null}
       {errorText ? <p className="plan-input-panel__error">{errorText}</p> : null}
       <div className="plan-input-panel__actions">
         <button type="button" className="btn btn-secondary btn-sm" disabled={disabled || isSubmitting} onClick={() => void submit("cancelled")}>
           Cancel
         </button>
-        <button type="button" className="btn btn-primary btn-sm" disabled={disabled || isSubmitting} onClick={() => void submit("answered")}>
-          Submit
+        {activeQuestionIndex > 0 ? (
+          <button type="button" className="btn btn-secondary btn-sm" disabled={disabled || isSubmitting} onClick={() => { setErrorText(""); setActiveQuestionIndex((index) => index - 1); }}>
+            Back
+          </button>
+        ) : null}
+        <button type="button" className="btn btn-primary btn-sm" disabled={disabled || isSubmitting || !activeQuestion} onClick={advance}>
+          {activeQuestionIndex < questions.length - 1 ? "Next" : "Submit all answers"}
         </button>
       </div>
     </section>

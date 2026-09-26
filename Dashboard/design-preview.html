@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sloppy Dashboard — дизайн-превью</title>
+  <style>
+    :root { font-family: "SF Pro Text", Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: #080808; color: #f5f5f5; }
+    button { font: inherit; cursor: pointer; }
+    button:focus-visible { outline: 2px solid #6aa8ff; outline-offset: 3px; }
+    .review-bar { display: flex; justify-content: space-between; align-items: center; gap: 22px; min-height: 72px; padding: 12px max(24px, calc((100vw - 1600px) / 2)); border-bottom: 1px solid #252525; }
+    .review-brand { display: flex; align-items: center; gap: 11px; white-space: nowrap; font-size: 13px; font-weight: 600; }
+    .review-brand img { width: 22px; height: 22px; }
+    .review-brand span { color: #777; font-weight: 400; }
+    .review-tabs { display: flex; gap: 4px; padding: 4px; border: 1px solid #303030; border-radius: 9px; }
+    .review-tabs button { border: 0; border-radius: 6px; padding: 8px 13px; background: transparent; color: #999; font-size: 12px; font-weight: 550; transition: background .18s, color .18s; }
+    .review-tabs button:hover { color: #fff; background: #191919; }
+    .review-tabs button[aria-pressed="true"] { background: #292929; color: #fff; }
+    main { padding: 22px 22px 35px; }
+    figure { max-width: 1600px; margin: 0 auto; }
+    .preview-image { display: block; width: 100%; height: auto; border: 1px solid #292929; border-radius: 10px; background: #050505; }
+    figcaption { display: flex; justify-content: space-between; gap: 16px; padding: 15px 2px 0; color: #777; font-size: 12px; }
+    figcaption strong { color: #aaa; font-weight: 550; }
+    @media (max-width: 620px) {
+      .review-bar { align-items: flex-start; flex-direction: column; padding: 14px; }
+      .review-tabs { width: 100%; }
+      .review-tabs button { flex: 1; }
+      main { padding: 12px; }
+      figcaption { flex-direction: column; }
+    }
+    @media (prefers-reduced-motion: reduce) { .review-tabs button { transition: none; } }
+  </style>
+</head>
+<body>
+  <header class="review-bar">
+    <div class="review-brand"><img src="public/so_logo.svg" alt=""><strong>Sloppy</strong><span>/ Dashboard preview</span></div>
+    <nav class="review-tabs" aria-label="Экраны превью">
+      <button type="button" data-screen="overview" aria-pressed="false">Overview</button>
+      <button type="button" data-screen="tools" aria-pressed="true">Agent tools</button>
+      <button type="button" data-screen="tasks" aria-pressed="false">Tasks</button>
+    </nav>
+  </header>
+  <main>
+    <figure>
+      <img class="preview-image" id="preview-image" src="design-preview/tools.svg" width="1600" height="1000" alt="Концепт экрана Tools для Sloppy Dashboard">
+      <figcaption><span><strong>Направление:</strong> чёрная поверхность, крупная типографика, горизонтальная навигация и тонкие разделители.</span><span>Концепт · данные для примера · рабочий UI не изменён</span></figcaption>
+    </figure>
+  </main>
+  <script>
+    const labels = { overview: "Overview", tools: "Tools", tasks: "Tasks" };
+    const image = document.querySelector("#preview-image");
+    function showScreen(screen, updateHistory = true) {
+      if (!labels[screen]) screen = "tools";
+      image.src = `design-preview/${screen}.svg`;
+      image.alt = `Концепт экрана ${labels[screen]} для Sloppy Dashboard`;
+      document.querySelectorAll("[data-screen]").forEach((button) => {
+        button.setAttribute("aria-pressed", String(button.dataset.screen === screen));
+      });
+      if (updateHistory) {
+        const url = new URL(location.href);
+        url.searchParams.set("screen", screen);
+        history.replaceState(null, "", url);
+      }
+    }
+    document.querySelectorAll("[data-screen]").forEach((button) => {
+      button.addEventListener("click", () => showScreen(button.dataset.screen));
+    });
+    showScreen(new URLSearchParams(location.search).get("screen"), false);
+  </script>
+</body>
+</html>

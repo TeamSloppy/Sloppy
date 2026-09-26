@@ -152,29 +152,35 @@ export function MCPEditor({
             </div>
             <span className={`provider-state ${currentStatus.tone}`}>{currentStatus.label}</span>
           </div>
-          <button
-            type="button"
-            className="danger"
-            disabled={servers.length === 0}
-            onClick={() => {
-              mutateDraft((draft) => {
-                if (!Array.isArray(draft.mcp?.servers)) {
-                  return;
-                }
-                draft.mcp.servers.splice(selectedMCPServerIndex, 1);
-              });
-            }}
-          >
-            Delete
-          </button>
+          <div className="config-integration-actions">
+            <CapabilitySwitch
+              label="Enabled"
+              checked={Boolean(current.enabled)}
+              onChange={(checked) =>
+                mutateDraft((draft) => {
+                  ensureMCPServer(draft, selectedMCPServerIndex, emptyMCPServer).enabled = checked;
+                })
+              }
+            />
+            <button
+              type="button"
+              className="danger"
+              disabled={servers.length === 0}
+              onClick={() => {
+                mutateDraft((draft) => {
+                  if (!Array.isArray(draft.mcp?.servers)) {
+                    return;
+                  }
+                  draft.mcp.servers.splice(selectedMCPServerIndex, 1);
+                });
+              }}
+            >
+              Delete
+            </button>
+          </div>
         </div>
 
-        <section className="entry-editor-block config-integration-note">
-          <p className="entry-editor-empty">
-            MCP servers add external tools, resources, and prompts for agents. Use stdio for local commands like
-            npx packages, or HTTP for hosted MCP endpoints.
-          </p>
-        </section>
+        <p className="config-integration-help">Use stdio for local commands and HTTP for hosted MCP endpoints.</p>
 
         <div className="entry-form-grid">
           <label>
@@ -290,6 +296,11 @@ export function MCPEditor({
               </label>
             </>
           )}
+        </div>
+
+        <details className="config-advanced">
+          <summary>Advanced settings <span className="material-symbols-rounded" aria-hidden="true">expand_more</span></summary>
+          <div className="entry-form-grid">
           <label>
             Timeout (ms)
             <input
@@ -318,24 +329,6 @@ export function MCPEditor({
                 })
               }
             />
-          </label>
-          <label>
-            Runtime
-            <div className="config-field-toggle">
-              <span>{current.enabled ? "Enabled" : "Disabled"}</span>
-              <span className="agent-tools-switch">
-                <input
-                  type="checkbox"
-                  checked={Boolean(current.enabled)}
-                  onChange={(event) =>
-                    mutateDraft((draft) => {
-                      ensureMCPServer(draft, selectedMCPServerIndex, emptyMCPServer).enabled = event.target.checked;
-                    })
-                  }
-                />
-                <span className="agent-tools-switch-track" />
-              </span>
-            </div>
           </label>
           <div className="config-capability-grid">
             <CapabilitySwitch
@@ -366,7 +359,8 @@ export function MCPEditor({
               }
             />
           </div>
-        </div>
+          </div>
+        </details>
       </section>
     </div>
   );

@@ -1,0 +1,722 @@
+/* Screen-level refinements for the minimal dashboard language. */
+:root[data-theme="minimal"] .project-tab-layout:has(.project-overview-metrics) {
+  gap: 18px;
+}
+
+:root[data-theme="minimal"] .project-overview-metrics {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+}
+
+:root[data-theme="minimal"] .project-overview-grid {
+  gap: 18px;
+  align-items: start;
+}
+
+:root[data-theme="minimal"] .project-pane {
+  min-height: 0;
+  padding: 16px 0;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+:root[data-theme="minimal"] .project-metric-card {
+  min-height: 0;
+  padding: 17px;
+  border: 1px solid #363636;
+  border-radius: 8px;
+  background: #090909;
+  box-shadow: none;
+  gap: 9px;
+}
+
+:root[data-theme="minimal"] .project-metric-card strong {
+  font-size: 1.5rem;
+  font-weight: 580;
+}
+
+:root[data-theme="minimal"] .project-metric-card--interactive:hover,
+:root[data-theme="minimal"] .project-metric-card--interactive:focus-visible {
+  border-color: var(--accent);
+  background: #202020;
+}
+
+:root[data-theme="minimal"] .project-overview-channel-list {
+  grid-template-columns: repeat(auto-fill, minmax(230px, 1fr));
+  gap: 12px;
+}
+
+:root[data-theme="minimal"] .project-overview-channel {
+  min-height: 138px;
+  aspect-ratio: auto;
+  border-radius: 7px;
+  background: #0c0c0c;
+}
+
+:root[data-theme="minimal"] .project-overview-channel-read {
+  border-radius: 6px;
+  color: var(--text);
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+/* Files keep a quiet tree and code surface with room between rows. */
+:root[data-theme="minimal"] .pft-shell {
+  border-color: #363636;
+  border-radius: 8px;
+  background: #060606;
+}
+
+:root[data-theme="minimal"] .pft-tree-panel,
+:root[data-theme="minimal"] .pft-viewer-panel,
+:root[data-theme="minimal"] .pft-tree-head,
+:root[data-theme="minimal"] .pft-viewer-head {
+  background: #070707;
+}
+
+:root[data-theme="minimal"] .pft-tree-panel {
+  width: 260px;
+}
+
+:root[data-theme="minimal"] .pft-tree-body {
+  padding: 9px 6px;
+}
+
+:root[data-theme="minimal"] .pft-node-row {
+  min-height: 31px;
+  margin: 2px 0;
+  padding-top: 6px;
+  padding-bottom: 6px;
+  border-radius: 6px;
+  color: var(--text);
+}
+
+:root[data-theme="minimal"] .pft-node-row:hover {
+  background: #171717;
+}
+
+:root[data-theme="minimal"] .pft-node-row.selected {
+  background: transparent;
+  color: var(--text);
+  box-shadow: inset 2px 0 var(--accent);
+}
+
+:root[data-theme="minimal"] .pft-icon-dir {
+  color: var(--muted);
+}
+
+:root[data-theme="minimal"] .pft-viewer-body,
+:root[data-theme="minimal"] .pft-viewer-body pre {
+  background: #090909 !important;
+}
+
+/* Project workspaces sit below the header and keep a stable card width. */
+:root[data-theme="minimal"] .project-workspaces-tab .project-section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  padding: 8px 0 20px;
+  border-bottom: 1px solid var(--line);
+}
+
+:root[data-theme="minimal"] .project-workspaces-grid {
+  grid-template-columns: repeat(auto-fill, minmax(260px, 300px));
+  gap: 16px;
+  margin-top: 22px;
+}
+
+:root[data-theme="minimal"] .project-workspaces-grid .workspace-card {
+  width: 100%;
+  min-width: 0;
+}
+
+:root[data-theme="minimal"] .project-workspaces-grid .workspace-card-cover {
+  display: grid;
+  place-items: center;
+  background-image: none;
+}
+
+:root[data-theme="minimal"] .project-workspaces-grid .workspace-card-cover > .material-symbols-rounded {
+  color: var(--muted);
+  font-size: 32px;
+}
+
+/* Task board and details share the same spacing and control treatment. */
+:root[data-theme="minimal"] .project-swarm-overview {
+  margin-bottom: 16px;
+  padding: 0 0 16px;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: transparent;
+}
+
+:root[data-theme="minimal"] .project-kanban-head {
+  gap: 18px;
+  padding: 4px 0 16px;
+  margin-bottom: 16px;
+}
+
+:root[data-theme="minimal"] .project-kanban-summary span {
+  border-radius: 6px;
+  background: transparent;
+}
+
+:root[data-theme="minimal"] .task-side-view {
+  max-width: min(62vw, 720px);
+  border: 0;
+  border-left: 1px solid #3b3b3b;
+  background: #080808;
+  box-shadow: -10px 0 34px #0008;
+}
+
+:root[data-theme="minimal"] .td-page--side-view .td-main {
+  padding: 16px 20px;
+  scrollbar-width: thin;
+  scrollbar-color: #444 transparent;
+}
+
+:root[data-theme="minimal"] .td-page--side-view .td-toolbar {
+  min-height: 46px;
+  align-items: center;
+  padding-bottom: 12px;
+}
+
+:root[data-theme="minimal"] .td-toolbar-action {
+  border: 1px solid transparent;
+  border-radius: 7px;
+}
+
+:root[data-theme="minimal"] .td-toolbar-action:hover,
+:root[data-theme="minimal"] .td-toolbar-action:focus-visible {
+  border-color: #555;
+  background: #202020;
+}
+
+:root[data-theme="minimal"] .td-inline-properties {
+  background: transparent;
+}
+
+:root[data-theme="minimal"] .td-prop-row {
+  min-height: 35px;
+  padding: 4px 0;
+  border-bottom: 1px solid #252525;
+}
+
+:root[data-theme="minimal"] .task-stage-assignments {
+  padding: 0;
+  border: 1px solid var(--line);
+  border-radius: 7px;
+  background: #0c0c0c;
+}
+
+:root[data-theme="minimal"] .task-stage-assignments summary {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 11px 13px;
+  cursor: pointer;
+  list-style: none;
+}
+
+:root[data-theme="minimal"] .task-stage-assignments summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+:root[data-theme="minimal"] .task-stage-assignments summary::-webkit-details-marker {
+  display: none;
+}
+
+:root[data-theme="minimal"] .task-stage-assignments summary > span:nth-child(2) {
+  margin-left: auto;
+  color: var(--muted);
+  font-size: 0.78rem;
+}
+
+:root[data-theme="minimal"] .task-stage-assignments summary .material-symbols-rounded {
+  color: var(--muted);
+  font-size: 18px;
+}
+
+:root[data-theme="minimal"] .task-stage-assignments[open] summary .material-symbols-rounded {
+  transform: rotate(180deg);
+}
+
+:root[data-theme="minimal"] .task-stage-assignments-body {
+  padding: 12px 13px 16px;
+  border-top: 1px solid var(--line);
+}
+
+:root[data-theme="minimal"] .task-stage-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 14px;
+}
+
+/* Agent identity stays aligned with the avatar and supporting text. */
+:root[data-theme="minimal"] .agent-list-main,
+:root[data-theme="minimal"] .agent-list-head {
+  align-items: flex-start;
+  justify-content: flex-start;
+  text-align: left;
+}
+
+/* Bot activity precedes Agent Time; keep its summary beside the chart. */
+:root[data-theme="minimal"] .agent-usage-section {
+  display: grid;
+  grid-template-columns: minmax(300px, 0.78fr) minmax(0, 1.22fr);
+  gap: 16px;
+}
+
+:root[data-theme="minimal"] .agent-usage-header,
+:root[data-theme="minimal"] .agent-usage-insights-grid {
+  grid-column: 1 / -1;
+}
+
+:root[data-theme="minimal"] .agent-usage-hero {
+  grid-column: 1;
+  grid-row: 2;
+  min-width: 0;
+}
+
+:root[data-theme="minimal"] .agent-usage-chart-shell,
+:root[data-theme="minimal"] .agent-usage-section > .overview-empty-state {
+  grid-column: 2;
+  grid-row: 2;
+  min-width: 0;
+  padding: 16px;
+}
+
+:root[data-theme="minimal"] .agent-usage-stats {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  border: 0;
+  background: transparent;
+}
+
+:root[data-theme="minimal"] .agent-usage-stat-card {
+  padding: 12px 9px;
+  border-top: 1px solid var(--line);
+}
+
+:root[data-theme="minimal"] .agent-usage-stat-card + .agent-usage-stat-card {
+  border-left: 0;
+}
+
+:root[data-theme="minimal"] .agent-usage-heatmap {
+  min-height: 112px;
+  gap: 3px;
+}
+
+/* Memory and Nodes use plain headings and concise status rows. */
+:root[data-theme="minimal"] .memory-page-header h1 {
+  color: var(--text);
+}
+
+:root[data-theme="minimal"] .memory-tabs button {
+  border-radius: 0;
+  background: transparent;
+  border-bottom: 2px solid transparent;
+}
+
+:root[data-theme="minimal"] .memory-tabs button.active {
+  border-bottom-color: var(--accent);
+  background: transparent;
+}
+
+:root[data-theme="minimal"] .nodes-status-strip {
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0;
+  border-block: 1px solid var(--line);
+}
+
+:root[data-theme="minimal"] .nodes-status-strip article {
+  padding: 14px;
+  border: 0;
+  border-right: 1px solid var(--line);
+  background: transparent;
+}
+
+:root[data-theme="minimal"] .nodes-status-strip article:last-child {
+  border-right: 0;
+}
+
+:root[data-theme="minimal"] .nodes-layout {
+  gap: 18px;
+}
+
+:root[data-theme="minimal"] .nodes-systems,
+:root[data-theme="minimal"] .nodes-panel {
+  border-color: var(--line);
+  border-radius: 8px;
+  background: #090909;
+}
+
+/* Documents are rows; only previewable widgets occupy the card grid. */
+:root[data-theme="minimal"] .artifacts-view {
+  padding: 10px 0 40px;
+  gap: 24px;
+}
+
+:root[data-theme="minimal"] .artifacts-header {
+  padding-bottom: 19px;
+  border-bottom: 1px solid var(--line);
+}
+
+:root[data-theme="minimal"] .artifacts-header h1 {
+  font-size: 29px;
+  font-weight: 580;
+  letter-spacing: -0.04em;
+}
+
+:root[data-theme="minimal"] .artifacts-grid {
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+:root[data-theme="minimal"] .artifacts-grid .artifact-card {
+  padding: 14px;
+  border: 1px solid #393939;
+  border-radius: 8px;
+  background: #080808;
+}
+
+:root[data-theme="minimal"] .artifact-document-row {
+  padding-inline: 8px;
+}
+
+/* Modern's sidebar utility actions are compact and aligned to the right. */
+:root[data-theme="modern"] .sidebar-footer,
+:root[data-theme="modern"] .sidebar.compact .sidebar-footer {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+  width: 100%;
+  padding: 8px 5px;
+}
+
+:root[data-theme="modern"] .sidebar-footer :is(
+  .sidebar-docs-link,
+  .sidebar-tutorial-link,
+  .sidebar-report-link
+) {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 31px;
+  width: 31px;
+  min-width: 31px;
+  max-width: 31px;
+  height: 32px;
+  min-height: 32px;
+  margin: 0;
+  padding: 4px;
+  border-color: transparent;
+  border-radius: 7px;
+}
+
+:root[data-theme="modern"] .sidebar-footer :is(
+  .sidebar-docs-label,
+  .sidebar-tutorial-label,
+  .sidebar-report-label,
+  .notif-bell-label,
+  .sidebar-terminal-dock-label,
+  .sidebar-terminal-dock-status
+) {
+  display: none;
+}
+
+:root[data-theme="modern"] .sidebar-footer-tray,
+:root[data-theme="modern"] .sidebar.compact .sidebar-footer-tray {
+  display: flex;
+  flex-direction: row;
+  align-items: center;
+  gap: 4px;
+  width: auto;
+}
+
+:root[data-theme="modern"] .sidebar.compact .sidebar-footer > :is(
+  .sidebar-docs-link,
+  .sidebar-tutorial-link,
+  .sidebar-report-link
+) {
+  display: none;
+}
+
+:root[data-theme="modern"] .sidebar-footer-tray .notif-bell-container,
+:root[data-theme="modern"] .sidebar-footer-terminal-host {
+  width: 31px;
+  max-width: 31px;
+  height: 32px;
+}
+
+:root[data-theme="modern"] .notif-bell-button,
+:root[data-theme="modern"] .sidebar-terminal-dock {
+  width: 31px;
+  min-width: 31px;
+  height: 32px;
+  min-height: 32px;
+  padding: 4px;
+  justify-content: center;
+  border-color: transparent;
+  border-radius: 7px;
+}
+
+/* Settings groups need a visible hierarchy in the Modern and Brutalist sidebars. */
+:root:is([data-theme="modern"], [data-theme="brutalist"]) .settings-nav {
+  gap: 10px;
+}
+
+:root:is([data-theme="modern"], [data-theme="brutalist"]) .settings-nav-group {
+  padding-top: 10px;
+  border-top: 1px solid var(--line);
+}
+
+:root:is([data-theme="modern"], [data-theme="brutalist"]) .settings-nav-group:first-child {
+  padding-top: 0;
+  border-top: 0;
+}
+
+:root:is([data-theme="modern"], [data-theme="brutalist"]) .settings-nav-group > summary {
+  width: 100%;
+  min-height: 36px;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  color: var(--muted);
+  font-family: var(--font-ui);
+  font-size: 0.72rem;
+  font-weight: 650;
+  letter-spacing: 0.09em;
+  line-height: 1.2;
+  text-transform: uppercase;
+  transition: background-color 160ms ease, color 160ms ease;
+}
+
+:root:is([data-theme="modern"], [data-theme="brutalist"]) .settings-nav-group > summary > span:first-child {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+:root:is([data-theme="modern"], [data-theme="brutalist"]) .settings-nav-group > summary:hover {
+  color: var(--text);
+  background: var(--surface-2);
+}
+
+:root:is([data-theme="modern"], [data-theme="brutalist"]) .settings-nav-group[open] > summary {
+  color: var(--text);
+}
+
+:root:is([data-theme="modern"], [data-theme="brutalist"]) .settings-nav-group > summary .material-symbols-rounded {
+  flex: 0 0 auto;
+  font-size: 18px;
+  transition: transform 160ms ease;
+}
+
+:root:is([data-theme="modern"], [data-theme="brutalist"]) .settings-nav-group[open] > summary .material-symbols-rounded {
+  transform: rotate(180deg);
+}
+
+:root:is([data-theme="modern"], [data-theme="brutalist"]) .settings-nav-group > summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+:root:is([data-theme="modern"], [data-theme="brutalist"]) .settings-nav-group-items {
+  gap: 2px;
+  padding: 3px 0 0 8px;
+}
+
+:root:is([data-theme="modern"], [data-theme="brutalist"]) .settings-nav-item {
+  min-height: 38px;
+  border-radius: var(--radius-sm);
+  font-size: 0.83rem;
+}
+
+/* Agent Config is a compact navigation list, independent of the global settings groups. */
+:root[data-theme] .agent-settings-side .settings-title-row {
+  padding: 0 8px;
+  margin-bottom: 13px;
+}
+
+:root[data-theme] .agent-settings-side .settings-title-row h2 {
+  color: var(--text);
+  font-size: 0.92rem;
+  font-weight: 610;
+}
+
+:root[data-theme] .agent-settings-nav {
+  display: grid;
+  align-content: start;
+  flex: 0 0 auto;
+  gap: 3px;
+  overflow: visible;
+}
+
+:root[data-theme] .agent-settings-nav .settings-nav-item {
+  min-height: 38px;
+  padding: 8px 11px;
+  border-radius: var(--radius-sm);
+  font-size: 0.83rem;
+  font-weight: 500;
+}
+
+:root[data-theme] .agent-settings-nav .settings-nav-icon {
+  display: none;
+}
+
+:root[data-theme] .agent-settings-main-head {
+  min-height: 38px;
+  justify-content: flex-end;
+  padding: 0 0 12px;
+  margin-bottom: 22px;
+}
+
+:root[data-theme] .agent-settings-main-head .settings-main-status {
+  max-width: none;
+  margin-left: auto;
+  padding-top: 0;
+  text-align: right;
+}
+
+:root[data-theme] .agent-settings-main .entry-form-grid .agent-config-memory-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  min-height: 68px;
+  padding: 13px 15px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+:root[data-theme] .agent-config-memory-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+:root[data-theme] .agent-config-memory-copy strong {
+  font-size: 0.86rem;
+  font-weight: 600;
+}
+
+:root[data-theme] .agent-config-memory-copy small {
+  color: var(--muted);
+  font-size: 0.76rem;
+  line-height: 1.4;
+}
+
+:root[data-theme] .agent-config-memory-toggle .agent-tools-switch {
+  flex: 0 0 42px;
+}
+
+:root[data-theme] .agent-settings-main .entry-form-grid .agent-config-memory-toggle .agent-tools-switch input {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  box-shadow: none;
+  opacity: 0;
+}
+
+:root[data-theme] .agent-config-memory-toggle:focus-within {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+/* Keep the transparent editing layer above Prism and give raw config the full workspace. */
+:root[data-theme] .settings-main > .settings-raw-pane {
+  width: 100%;
+  max-width: none;
+  min-width: 0;
+}
+
+:root[data-theme] .settings-raw-editor-container,
+:root[data-theme] .settings-raw-diff-container {
+  height: clamp(560px, calc(100dvh - 315px), 1080px);
+  min-height: 560px;
+}
+
+:root[data-theme] .settings-raw-editor-container:focus-within {
+  border-color: var(--accent);
+}
+
+:root[data-theme] .settings-raw-editor-highlight,
+:root[data-theme] .settings-raw-editor-input {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.55;
+  tab-size: 2;
+}
+
+:root[data-theme] .settings-raw-editor-highlight {
+  color: var(--text);
+  scrollbar-width: none;
+}
+
+:root[data-theme] .settings-raw-editor-highlight::-webkit-scrollbar {
+  display: none;
+}
+
+:root[data-theme] .settings-raw-editor-input {
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  caret-color: var(--text);
+  box-shadow: none;
+  outline: none;
+}
+
+:root[data-theme="minimal"] .settings-raw-editor-highlight .token.property { color: #b8c8f2; }
+:root[data-theme="minimal"] .settings-raw-editor-highlight .token.string { color: #9fd5ae; }
+:root[data-theme="minimal"] .settings-raw-editor-highlight :is(.token.number, .token.boolean, .token.null) { color: #e0bd8b; }
+:root[data-theme="minimal"] .settings-raw-editor-highlight :is(.token.punctuation, .token.operator) { color: #9a9a9a; }
+
+@media (max-width: 1150px) {
+  :root[data-theme="minimal"] .project-overview-metrics {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  :root[data-theme="minimal"] .nodes-status-strip {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  :root[data-theme="minimal"] .agent-usage-section {
+    grid-template-columns: 1fr;
+  }
+  :root[data-theme="minimal"] .agent-usage-hero,
+  :root[data-theme="minimal"] .agent-usage-chart-shell,
+  :root[data-theme="minimal"] .agent-usage-section > .overview-empty-state {
+    grid-column: 1;
+    grid-row: auto;
+  }
+}
+
+@media (max-width: 680px) {
+  :root[data-theme="minimal"] .project-overview-metrics,
+  :root[data-theme="minimal"] .project-overview-grid,
+  :root[data-theme="minimal"] .task-stage-grid,
+  :root[data-theme="minimal"] .nodes-status-strip {
+    grid-template-columns: 1fr;
+  }
+  :root[data-theme="minimal"] .project-workspaces-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  :root[data-theme="minimal"] .artifact-document-kind {
+    display: none;
+  }
+}

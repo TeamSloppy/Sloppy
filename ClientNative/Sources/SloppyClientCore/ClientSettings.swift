@@ -62,6 +62,10 @@ public final class ClientSettings {
         didSet { UserDefaults.standard.set(projectColors, forKey: "client_project_colors") }
     }
 
+    public var chatColors: [String: String] {
+        didSet { UserDefaults.standard.set(chatColors, forKey: "client_chat_colors") }
+    }
+
     public var projectModeSections: [String: String] {
         didSet { UserDefaults.standard.set(projectModeSections, forKey: Keys.projectModeSections) }
     }
@@ -146,6 +150,7 @@ public final class ClientSettings {
             .flatMap(ChatSidebarListMode.init(rawValue:)) ?? .allChats
         hiddenSidebarItems = Set(defaults.stringArray(forKey: "client_hidden_sidebar_items") ?? [])
         projectColors = defaults.dictionary(forKey: "client_project_colors") as? [String: String] ?? [:]
+        chatColors = defaults.dictionary(forKey: "client_chat_colors") as? [String: String] ?? [:]
         projectOrderIDs = defaults.stringArray(forKey: Keys.projectOrderIDs) ?? []
         projectModeSections = defaults.dictionary(forKey: Keys.projectModeSections) as? [String: String] ?? [:]
         windowCloseBehavior = defaults

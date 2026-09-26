@@ -97,6 +97,41 @@ extension CoreService {
         )
     }
 
+    /// Returns the recorded JEV spend grouped by UTC day for the selected period.
+    public func semanticDecisionSpending(from: Date?, to: Date?) async -> SemanticDecisionSpendingResponse {
+        let records = await store.listSemanticDecisionUsage(channelId: nil, from: from, to: to)
+        let formatter = ISO8601DateFormatter()
+        formatter.formatOptions = [.withInternetDateTime]
+        var total = SemanticDecisionUsage()
+        var usageByDay: [String: SemanticDecisionUsage] = [:]
+
+        for record in records {
+            let day = String(formatter.string(from: record.createdAt).prefix(10))
+            var daily = usageByDay[day] ?? SemanticDecisionUsage()
+            daily.requestCount += 1
+            daily.inputTokens += record.inputTokens
+            daily.outputTokens += record.outputTokens
+            daily.totalCostUSD += record.costUSD
+            if record.costIsEstimated {
+                daily.estimatedCostUSD += record.costUSD
+            }
+            usageByDay[day] = daily
+
+            total.requestCount += 1
+            total.inputTokens += record.inputTokens
+            total.outputTokens += record.outputTokens
+            total.totalCostUSD += record.costUSD
+            if record.costIsEstimated {
+                total.estimatedCostUSD += record.costUSD
+            }
+        }
+
+        return SemanticDecisionSpendingResponse(
+            total: total,
+            days: usageByDay.keys.sorted().map { SemanticDecisionSpendingDay(day: $0, usage: usageByDay[$0] ?? SemanticDecisionUsage()) }
+        )
+    }
+
     public func projectAnalytics(projectID: String, query: ProjectAnalyticsQuery) async throws -> ProjectAnalyticsResponse {
         let project = try await getProject(id: projectID)
 

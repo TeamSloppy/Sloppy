@@ -356,8 +356,31 @@ export function UIEditor({ draftConfig, mutateDraft }: UIEditorProps) {
 
         <div style={{ gridColumn: "1 / -1", marginTop: "20px" }}>
           <span style={{ fontSize: "0.85rem", color: "var(--muted)", display: "block", marginBottom: "8px" }}>
-            Tool Budget
+            Experimental Flags
           </span>
+          <div className="settings-toggle-row">
+            <label className="agent-tools-guardrail agent-tools-guardrail-toggle">
+              <span className="agent-tools-guardrail-copy">
+                <span className="agent-tools-guardrail-title">Disable Tool Budget and Tool Loop Guard</span>
+                <span className="agent-tools-guardrail-note">
+                  Allow repeated tool calls and bypass the native agent tool-round limit. Command timeouts still apply.
+                </span>
+              </span>
+              <span className="agent-tools-switch">
+                <input
+                  type="checkbox"
+                  checked={draftConfig?.experimentalFlags?.disableToolBudgetAndLoopGuard === true}
+                  onChange={(event) => {
+                    mutateDraft((draft) => {
+                      if (!draft.experimentalFlags) draft.experimentalFlags = {};
+                      draft.experimentalFlags.disableToolBudgetAndLoopGuard = event.target.checked;
+                    });
+                  }}
+                />
+                <span className="agent-tools-switch-track" />
+              </span>
+            </label>
+          </div>
           <div className="settings-toggle-row">
             <label className="agent-tools-guardrail agent-tools-guardrail-toggle">
               <span className="agent-tools-guardrail-copy">
@@ -367,10 +390,11 @@ export function UIEditor({ draftConfig, mutateDraft }: UIEditorProps) {
               <span className="agent-tools-switch">
                 <input
                   type="checkbox"
-                  checked={draftConfig?.toolBudgetEnabled === true}
+                  checked={draftConfig?.experimentalFlags?.toolBudgetEnabled === true}
                   onChange={(event) => {
                     mutateDraft((draft) => {
-                      draft.toolBudgetEnabled = event.target.checked;
+                      if (!draft.experimentalFlags) draft.experimentalFlags = {};
+                      draft.experimentalFlags.toolBudgetEnabled = event.target.checked;
                     });
                   }}
                 />
@@ -383,7 +407,7 @@ export function UIEditor({ draftConfig, mutateDraft }: UIEditorProps) {
             <input
               type="number"
               min={0}
-              disabled={draftConfig?.toolBudgetEnabled !== true}
+              disabled={draftConfig?.experimentalFlags?.toolBudgetEnabled !== true}
               value={toolBudgetExhausted}
               onChange={(event) => {
                 mutateDraft((draft) => {

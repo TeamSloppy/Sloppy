@@ -193,6 +193,7 @@ export interface CoreApi {
   applyWorkspaceTemplate: (workspaceId: string, templateId: string, payload?: AnyRecord) => Promise<AnyRecord | null>;
   createWorkspaceRealtimeTicket: (workspaceId: string) => Promise<AnyRecord | null>;
   fetchArtifact: (id: string) => Promise<AnyRecord | null>;
+  fetchArtifactMetadata: (id: string) => Promise<AnyRecord | null>;
   fetchArtifactFile: (id: string, signal?: AbortSignal) => Promise<Blob | null>;
   fetchWidgetArtifact: (id: string) => Promise<AnyRecord | null>;
   planArtifactWebUrl: (projectId: string, planName: string) => string;
@@ -401,6 +402,7 @@ export interface CoreApi {
   fetchAccessUsers: (platform?: string) => Promise<AnyRecord[] | null>;
   deleteAccessUser: (userId: string) => Promise<boolean>;
   fetchTokenUsage: (query?: { channelId?: string; taskId?: string; from?: string; to?: string }) => Promise<AnyRecord | null>;
+  fetchSemanticDecisionSpending: (query?: { from?: string; to?: string }) => Promise<AnyRecord>;
   fetchChannelModel: (channelId: string) => Promise<AnyRecord | null>;
   updateChannelModel: (channelId: string, model: string) => Promise<AnyRecord | null>;
   clearChannelModel: (channelId: string) => Promise<boolean>;
@@ -959,6 +961,14 @@ export function createCoreApi(): CoreApi {
         return null;
       }
       return response.data;
+    },
+
+    fetchArtifactMetadata: async (id) => {
+      const response = await requestJson<AnyRecord>({
+        path: `/v1/artifacts/${encodeURIComponent(id)}`
+      });
+      const artifact = response.data?.artifact;
+      return response.ok && artifact && typeof artifact === "object" ? artifact as AnyRecord : null;
     },
 
     fetchArtifactFile: async (id, signal) =>
@@ -2904,6 +2914,18 @@ export function createCoreApi(): CoreApi {
         path: `/v1/token-usage${qs ? `?${qs}` : ""}`
       });
       if (!response.ok) return null;
+      return response.data;
+    },
+
+    fetchSemanticDecisionSpending: async (query = {}) => {
+      const params = new URLSearchParams();
+      if (query.from) params.set("from", query.from);
+      if (query.to) params.set("to", query.to);
+      const suffix = params.size > 0 ? `?${params.toString()}` : "";
+      const response = await requestJson<AnyRecord>({ path: `/v1/semantic-decisions/spending${suffix}` });
+      if (!response.ok || !response.data) {
+        throw new Error(formatHttpError(response.status, response.data));
+      }
       return response.data;
     },
 

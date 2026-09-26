@@ -53,6 +53,14 @@ final class WorkspaceDockState {
         }
     }
 
+    func closeSelectedTabOrHide() {
+        if let selectedID {
+            close(selectedID)
+        } else {
+            hide()
+        }
+    }
+
     static func visibleWidth(preferred: CGFloat, available: CGFloat) -> CGFloat {
         let maximum = max(0, available - min(320, available * 0.45))
         return min(max(preferred, min(240, maximum)), maximum)

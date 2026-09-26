@@ -11,6 +11,78 @@ private let isoDecoder: JSONDecoder = {
 @Suite("ChatModels")
 struct ChatModelsTests {
 
+    @Test("JEV run status shows the selected model title")
+    func jevRunStatusShowsSelectedModelTitle() {
+        let models = [
+            ChatModelOption(id: "openai-api:gpt-6-sol", title: "ChatGPT 6 Sol"),
+            ChatModelOption(id: "openai-api:gpt-6-astra", title: "ChatGPT 6 Astra"),
+        ]
+
+        let working = ChatRunStatusPresentation.label(
+            status: ChatRunStatusEvent(
+                stage: .responding,
+                label: "Working",
+                selectedModel: "openai-api:gpt-6-sol"
+            ),
+            isStopping: false,
+            isSending: false,
+            isAutomaticModelSelection: true,
+            availableModels: models
+        )
+        let planning = ChatRunStatusPresentation.label(
+            status: ChatRunStatusEvent(
+                stage: .thinking,
+                label: "Planning",
+                selectedModel: "openai-api:gpt-6-astra"
+            ),
+            isStopping: false,
+            isSending: false,
+            isAutomaticModelSelection: true,
+            availableModels: models
+        )
+
+        #expect(working == "Working · ChatGPT 6 Sol")
+        #expect(planning == "Planning · ChatGPT 6 Astra")
+    }
+
+    @Test("run status omits an empty model suffix and updates with runtime state")
+    func runStatusModelFallbacksAndUpdates() {
+        let models = [ChatModelOption(id: "openai-api:gpt-6-sol", title: "ChatGPT 6 Sol")]
+        let withoutModel = ChatRunStatusPresentation.label(
+            status: ChatRunStatusEvent(stage: .thinking, label: "Planning"),
+            isStopping: false,
+            isSending: false,
+            isAutomaticModelSelection: true,
+            availableModels: models
+        )
+        let unknownModel = ChatRunStatusPresentation.label(
+            status: ChatRunStatusEvent(
+                stage: .responding,
+                label: "Working",
+                selectedModel: "custom:new-model"
+            ),
+            isStopping: false,
+            isSending: false,
+            isAutomaticModelSelection: true,
+            availableModels: models
+        )
+        let explicitSelection = ChatRunStatusPresentation.label(
+            status: ChatRunStatusEvent(
+                stage: .responding,
+                label: "Working",
+                selectedModel: "openai-api:gpt-6-sol"
+            ),
+            isStopping: false,
+            isSending: false,
+            isAutomaticModelSelection: false,
+            availableModels: models
+        )
+
+        #expect(withoutModel == "Planning")
+        #expect(unknownModel == "Working · custom:new-model")
+        #expect(explicitSelection == "Working")
+    }
+
     @Test("ChatMessage decodes role and text segments from JSON")
     func chatMessageDecoding() throws {
         let json = """
@@ -103,6 +175,7 @@ struct ChatModelsTests {
                         "stage": "thinking",
                         "label": "Planning",
                         "details": "Building a route",
+                        "selectedModel": "openai-api:gpt-6-astra",
                         "createdAt": "2026-01-01T00:00:01Z"
                     }
                 }
@@ -114,6 +187,7 @@ struct ChatModelsTests {
 
         #expect(detail.latestRunStatus?.stage == .thinking)
         #expect(detail.latestRunStatus?.label == "Planning")
+        #expect(detail.latestRunStatus?.selectedModel == "openai-api:gpt-6-astra")
     }
 
     @Test("model context windows normalize catalog suffixes into token limits")

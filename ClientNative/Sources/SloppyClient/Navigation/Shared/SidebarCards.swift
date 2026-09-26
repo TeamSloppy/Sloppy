@@ -12,12 +12,11 @@ struct SidebarSessionCard: View {
 
     private var title: String { session.title.isEmpty ? "Chat" : session.title }
     private var projectName: String {
-        viewModel.projects.first {
-            $0.id == session.projectId && $0.sourceInstanceID == session.sourceInstanceID
-        }?.name ?? "No project"
+        viewModel.projectName(for: session) ?? "No project"
     }
     private var isPinned: Bool { viewModel.settings.isSessionPinned(session.storageID) }
     private var isSelected: Bool { viewModel.selectedChatStorageID == session.storageID }
+    private var chatColor: Color? { viewModel.settings.sidebarColor(for: session) }
     private var activityTaskID: String { "\(session.storageID):\(session.updatedAt.timeIntervalSince1970)" }
 
     var body: some View {
@@ -26,6 +25,29 @@ struct SidebarSessionCard: View {
             .contextMenu {
                 Button(isPinned ? "Unpin Chat" : "Pin Chat") {
                     viewModel.togglePinChatSession(session)
+                }
+                Menu {
+                    Button { setChatColor(nil) } label: {
+                        SidebarColorMenuOption(
+                            title: "Default",
+                            color: nil,
+                            isSelected: viewModel.settings.chatColors[session.storageID] == nil
+                        )
+                    }
+                    Divider()
+                    ForEach(SidebarProjectColor.allCases, id: \.self) { tint in
+                        Button {
+                            setChatColor(tint.rawValue)
+                        } label: {
+                            SidebarColorMenuOption(
+                                title: tint.rawValue.capitalized,
+                                color: tint,
+                                isSelected: viewModel.settings.chatColors[session.storageID] == tint.rawValue
+                            )
+                        }
+                    }
+                } label: {
+                    Label("Chat Color", systemImage: "paintpalette")
                 }
                 Button("Copy Session File Debug Link") {
                     viewModel.copyDebugSessionFileLink(session)
@@ -98,10 +120,22 @@ struct SidebarSessionCard: View {
         .background {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .fill(theme.colors.surfaceRaised)
+            if let chatColor {
+                RoundedRectangle(cornerRadius: 24, style: .continuous)
+                    .fill(chatColor.opacity(0.18))
+            }
         }
         .overlay {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .stroke(isSelected ? theme.colors.accent : theme.colors.border, lineWidth: theme.borders.thin)
+            }
+    }
+
+    private func setChatColor(_ value: String?) {
+        if let value {
+            viewModel.settings.chatColors[session.storageID] = value
+        } else {
+            viewModel.settings.chatColors.removeValue(forKey: session.storageID)
         }
     }
 }

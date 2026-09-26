@@ -161,6 +161,13 @@ final class MainViewModel {
         return settings.discoveredInstances.first(where: { $0.endpoint == endpoint })?.id
     }
 
+    func projectName(for session: ChatSessionSummary) -> String? {
+        session.project(
+            in: projects,
+            defaultSourceInstanceID: sidebarDefaultSourceInstanceID
+        )?.name
+    }
+
     func synchronizeSidebarSessionCatalog() {
         loadedSidebarSessions = chatViewModel.sessionCatalog
     }
@@ -1274,6 +1281,15 @@ final class MainViewModel {
             return
         }
         closeTab(selectedTabID)
+    }
+
+    func closeActivePanelTabOrMainTab() {
+        let dock = workspaceDockState
+        if dock.isPresented {
+            dock.closeSelectedTabOrHide()
+            return
+        }
+        closeActiveTab()
     }
 
     func toggleTerminalForSelectedTab() {

@@ -17,6 +17,7 @@ public actor SQLiteStore: PersistenceStore {
     private let fallbackProjectsFileURL: URL
 
     private var fallbackEvents: [EventEnvelope] = []
+    private var fallbackSemanticDecisionUsages: [SemanticDecisionUsageRecord] = []
     private var fallbackBulletins: [MemoryBulletin] = []
     private var fallbackArtifacts: [String: PersistedArtifactRecord] = [:]
     private var fallbackPublishedSites: [String: PersistedPublishedSiteRecord] = [:]
@@ -332,6 +333,96 @@ public actor SQLiteStore: PersistenceStore {
         return result
 #else
         return []
+#endif
+    }
+
+    public func persistSemanticDecisionUsage(record: SemanticDecisionUsageRecord) async {
+#if canImport(CSQLite3)
+        guard let db else {
+            fallbackSemanticDecisionUsages.append(record)
+            return
+        }
+        let sql = """
+            INSERT INTO semantic_decision_usage(
+                id, channel_id, input_tokens, output_tokens, cost_usd, cost_is_estimated, created_at
+            ) VALUES(?, ?, ?, ?, ?, ?, ?);
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else {
+            fallbackSemanticDecisionUsages.append(record)
+            return
+        }
+        defer { sqlite3_finalize(statement) }
+        bindText(record.id, at: 1, statement: statement)
+        bindText(record.channelId, at: 2, statement: statement)
+        sqlite3_bind_int64(statement, 3, Int64(record.inputTokens))
+        sqlite3_bind_int64(statement, 4, Int64(record.outputTokens))
+        sqlite3_bind_double(statement, 5, record.costUSD)
+        sqlite3_bind_int(statement, 6, record.costIsEstimated ? 1 : 0)
+        bindText(isoFormatter.string(from: record.createdAt), at: 7, statement: statement)
+        if sqlite3_step(statement) != SQLITE_DONE {
+            fallbackSemanticDecisionUsages.append(record)
+        }
+#else
+        fallbackSemanticDecisionUsages.append(record)
+#endif
+    }
+
+    public func listSemanticDecisionUsage(channelId: String?, from: Date?, to: Date?) async -> [SemanticDecisionUsageRecord] {
+        let fallback = fallbackSemanticDecisionUsages.filter { record in
+            if let channelId, record.channelId != channelId { return false }
+            if let from, record.createdAt < from { return false }
+            if let to, record.createdAt > to { return false }
+            return true
+        }
+#if canImport(CSQLite3)
+        guard let db else { return fallback }
+        var conditions: [String] = []
+        if channelId != nil { conditions.append("channel_id = ?") }
+        if from != nil { conditions.append("created_at >= ?") }
+        if to != nil { conditions.append("created_at <= ?") }
+        let whereClause = conditions.isEmpty ? "" : "WHERE " + conditions.joined(separator: " AND ")
+        let sql = """
+            SELECT id, channel_id, input_tokens, output_tokens, cost_usd, cost_is_estimated, created_at
+            FROM semantic_decision_usage
+            \(whereClause)
+            ORDER BY created_at DESC;
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return fallback }
+        defer { sqlite3_finalize(statement) }
+        var parameterIndex: Int32 = 1
+        if let channelId {
+            bindText(channelId, at: parameterIndex, statement: statement)
+            parameterIndex += 1
+        }
+        if let from {
+            bindText(isoFormatter.string(from: from), at: parameterIndex, statement: statement)
+            parameterIndex += 1
+        }
+        if let to {
+            bindText(isoFormatter.string(from: to), at: parameterIndex, statement: statement)
+        }
+        var records = fallback
+        while sqlite3_step(statement) == SQLITE_ROW {
+            guard let idPointer = sqlite3_column_text(statement, 0),
+                  let channelPointer = sqlite3_column_text(statement, 1),
+                  let datePointer = sqlite3_column_text(statement, 6),
+                  let createdAt = isoFormatter.date(from: String(cString: datePointer))
+            else { continue }
+            records.append(SemanticDecisionUsageRecord(
+                id: String(cString: idPointer),
+                channelId: String(cString: channelPointer),
+                inputTokens: Int(sqlite3_column_int64(statement, 2)),
+                outputTokens: Int(sqlite3_column_int64(statement, 3)),
+                costUSD: sqlite3_column_double(statement, 4),
+                costIsEstimated: sqlite3_column_int(statement, 5) != 0,
+                createdAt: createdAt
+            ))
+        }
+        return records
+#else
+        return fallback
 #endif
     }
 

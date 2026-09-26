@@ -22,6 +22,7 @@ struct AuthenticationScreen: View {
     @State private var isSubmitting = false
     @State private var errorMessage: String?
     @Environment(\.theme) private var theme
+    @Namespace private var authenticationMethodNamespace
 
     private enum AuthenticationMethod: String, CaseIterable, Identifiable {
         case loginPassword
@@ -80,7 +81,7 @@ struct AuthenticationScreen: View {
                         .font(.system(size: ty.title, weight: .semibold))
                         .foregroundColor(c.textPrimary)
 
-                    Text("\(baseURL.host ?? baseURL.absoluteString):\(baseURL.port ?? 25101)")
+                    Text("\(baseURL.host ?? baseURL.absoluteString):\(String(baseURL.port ?? 25101))")
                         .font(.system(size: ty.caption))
                         .foregroundColor(c.textMuted)
                 }
@@ -97,13 +98,7 @@ struct AuthenticationScreen: View {
                         )
                     identityCredentialsContent
                 } else {
-                    Picker("Authentication method", selection: $authenticationMethod) {
-                        ForEach(AuthenticationMethod.allCases) { method in
-                            Text(method.title).tag(method)
-                        }
-                    }
-                    .pickerStyle(.segmented)
-                    .accessibilityIdentifier("authentication.method")
+                    authenticationMethodPicker
 
                     authenticationMethodContent
                 }
@@ -118,17 +113,20 @@ struct AuthenticationScreen: View {
                     Button {
                         submit()
                     } label: {
-                        HStack {
+                        HStack(spacing: sp.s) {
+                            Spacer(minLength: 0)
                             if isSubmitting {
                                 ProgressView()
                                     .controlSize(.small)
                             }
                             Text(submitButtonTitle)
                                 .font(.system(size: ty.body, weight: .semibold))
+                            Spacer(minLength: 0)
                         }
                         .foregroundColor(c.background)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, sp.m)
+                        .contentShape(Capsule())
                     }
                     .buttonStyle(.plain)
                     .backportGlassEffect(.regular.interactive().tint(c.accentCyan), in: .capsule)
@@ -175,6 +173,52 @@ struct AuthenticationScreen: View {
         case .qrCode:
             return false
         }
+    }
+
+    private var authenticationMethodPicker: some View {
+        let c = theme.colors
+        let sp = theme.spacing
+        let ty = theme.typography
+
+        return GlassEffectContainer(spacing: sp.xs) {
+            HStack(spacing: sp.xs) {
+                ForEach(AuthenticationMethod.allCases) { method in
+                    let isSelected = authenticationMethod == method
+
+                    Button {
+                        withAnimation(.snappy(duration: 0.22)) {
+                            authenticationMethod = method
+                        }
+                    } label: {
+                        Text(method.title)
+                            .font(.system(size: ty.body, weight: isSelected ? .semibold : .medium))
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, sp.s)
+                            .contentShape(Capsule())
+                            .background {
+                                if isSelected {
+                                    Capsule()
+                                        .fill(c.accentCyan.opacity(0.16))
+                                        .glassEffect(
+                                            .regular.interactive().tint(c.accentCyan.opacity(0.28)),
+                                            in: .capsule
+                                        )
+                                        .glassEffectID("authentication-method-selection", in: authenticationMethodNamespace)
+                                }
+                            }
+                    }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(isSelected ? c.textPrimary : c.textSecondary)
+                    .accessibilityAddTraits(isSelected ? .isSelected : [])
+                    .accessibilityIdentifier("authentication.method.\(method.rawValue)")
+                }
+            }
+            .padding(4)
+            .glassEffect(.regular, in: .capsule)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Authentication method")
+        .accessibilityIdentifier("authentication.method")
     }
 
     @ViewBuilder

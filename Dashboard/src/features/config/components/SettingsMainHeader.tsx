@@ -1,12 +1,14 @@
 import React from "react";
 
-export function SettingsMainHeader({ hasChanges, statusText, onReload, onSave }) {
+export function SettingsMainHeader({ title, hasChanges, statusText, onReload, onSave }) {
   return (
     <>
       <header className="settings-main-head">
-        <div className="settings-main-status">
-          <span>{statusText}</span>
+        <div className="settings-main-title">
+          <span className="settings-main-eyebrow">Configuration</span>
+          <h2>{title}</h2>
         </div>
+        <span className="settings-main-status" role="status">{statusText}</span>
       </header>
 
       <div className={`settings-toast ${hasChanges ? "settings-toast--visible" : ""}`}>

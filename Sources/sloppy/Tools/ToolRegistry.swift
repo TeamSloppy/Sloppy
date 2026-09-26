@@ -68,6 +68,7 @@ struct ToolRegistry: Sendable {
             FilesWriteTool(),
             ImagesGenerateTool(),
             WidgetArtifactGenerateTool(),
+            WebArtifactCreateTool(),
             SitesListTool(),
             SitesPublishTool(),
             SitesUpdateTool(),

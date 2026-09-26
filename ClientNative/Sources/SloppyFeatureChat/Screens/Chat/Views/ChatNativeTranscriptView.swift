@@ -38,6 +38,8 @@ struct ChatNativeTranscriptView: View {
     let topInset: CGFloat
     let bottomInset: CGFloat
     let scrollToEndRequest: Int
+    let autoFollowAppendedItems: Bool
+    let autoFollowChangingTail: Bool
     let scrollTarget: ChatTranscriptScrollTarget?
     let renderRevision: UInt
     let reduceMotion: Bool
@@ -52,6 +54,8 @@ struct ChatNativeTranscriptView: View {
             topInset: topInset,
             bottomInset: bottomInset,
             scrollToEndRequest: scrollToEndRequest,
+            autoFollowAppendedItems: autoFollowAppendedItems,
+            autoFollowChangingTail: autoFollowChangingTail,
             scrollTarget: scrollTarget,
             renderRevision: renderRevision,
             reduceMotion: reduceMotion,
@@ -330,6 +334,8 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
     let topInset: CGFloat
     let bottomInset: CGFloat
     let scrollToEndRequest: Int
+    let autoFollowAppendedItems: Bool
+    let autoFollowChangingTail: Bool
     let scrollTarget: ChatTranscriptScrollTarget?
     let renderRevision: UInt
     let reduceMotion: Bool
@@ -342,6 +348,8 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
         topInset: CGFloat,
         bottomInset: CGFloat,
         scrollToEndRequest: Int,
+        autoFollowAppendedItems: Bool = true,
+        autoFollowChangingTail: Bool = true,
         scrollTarget: ChatTranscriptScrollTarget? = nil,
         renderRevision: UInt,
         reduceMotion: Bool,
@@ -353,6 +361,8 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
         self.topInset = topInset
         self.bottomInset = bottomInset
         self.scrollToEndRequest = scrollToEndRequest
+        self.autoFollowAppendedItems = autoFollowAppendedItems
+        self.autoFollowChangingTail = autoFollowChangingTail
         self.scrollTarget = scrollTarget
         self.renderRevision = renderRevision
         self.reduceMotion = reduceMotion
@@ -387,7 +397,7 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
         scrollView.drawsBackground = false
         scrollView.backgroundColor = .clear
         scrollView.borderType = .noBorder
-        scrollView.hasVerticalScroller = true
+        scrollView.hasVerticalScroller = false
         scrollView.autohidesScrollers = true
         scrollView.contentView.postsBoundsChangedNotifications = true
         scrollView.onLayout = { [weak coordinator = context.coordinator] in
@@ -426,10 +436,10 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
         private var previousBottomInset: CGFloat = 0
         private var previousScrollRequest: Int?
         private var previousScrollTarget: ChatTranscriptScrollTarget?
-        private var previousRenderRevision: UInt?
         private var scrollObserver: NSObjectProtocol?
         private var isNearBottom = true
         private var heightUpdateScheduled = false
+        private var heightUpdateFollowsBottom = false
         private var parentUpdateGeneration: UInt = 0
         private var visibleItemID: String?
 
@@ -462,7 +472,7 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
 
         private func configure(_ hostedItem: AppKitHostedTranscriptItem, with item: ChatTranscriptNativeItem) {
             hostedItem.onHeightChange = { [weak self] in
-                self?.scheduleHeightUpdate()
+                self?.scheduleHeightUpdate(for: item.id)
             }
             hostedItem.configure(
                 rootView: AnyView(
@@ -480,16 +490,33 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
             )
         }
 
-        private func scheduleHeightUpdate() {
+        private func trailingContentItem(in items: [ChatTranscriptNativeItem]) -> ChatTranscriptNativeItem? {
+            items.last { item in
+                if case .entry = item.content { return true }
+                return false
+            } ?? items.last
+        }
+
+        private func scheduleHeightUpdate(for itemID: String) {
+            let followsChangingTail = parent.autoFollowChangingTail
+                && trailingContentItem(in: parent.items)?.id == itemID
+            heightUpdateFollowsBottom = heightUpdateFollowsBottom
+                || (followsChangingTail && isNearBottom)
             guard !heightUpdateScheduled else { return }
             heightUpdateScheduled = true
-            let viewportAnchor = captureViewportAnchor()
+            let viewportAnchor = captureViewportAnchor(followsBottom: false)
             DispatchQueue.main.async { [weak self] in
                 guard let self else { return }
+                let followsBottom = self.heightUpdateFollowsBottom
+                self.heightUpdateFollowsBottom = false
                 self.heightUpdateScheduled = false
                 self.collectionView?.collectionViewLayout?.invalidateLayout()
                 self.collectionView?.layoutSubtreeIfNeeded()
-                self.restoreViewport(viewportAnchor)
+                if followsBottom {
+                    self.scrollToBottom(animated: false)
+                } else {
+                    self.restoreViewport(viewportAnchor)
+                }
                 self.updateNearBottom()
                 self.updateVisibleItem()
             }
@@ -518,12 +545,63 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
 
         func update(parent: AppKitChatTranscriptCollection, initial: Bool) {
             guard let collectionView, let scrollView else { return }
-            let viewportAnchor = captureViewportAnchor()
             let explicitScroll = previousScrollRequest != parent.scrollToEndRequest
             let targetedScroll = previousScrollTarget != parent.scrollTarget
-            let contentChanged = previousRenderRevision != parent.renderRevision
             let widthChanged = abs(previousContentWidth - parent.contentWidth) > 0.5
             let bottomInsetChanged = abs(previousBottomInset - parent.bottomInset) > 0.5
+            let identitiesChanged = previousItems.map(\.id) != parent.items.map(\.id)
+            let oldByID = Dictionary(uniqueKeysWithValues: previousItems.map { ($0.id, $0) })
+            let changedIDs = parent.items.compactMap { item -> String? in
+                guard oldByID[item.id] != item || widthChanged else { return nil }
+                return item.id
+            }
+            let visibleChangedIDs = changedIDs.filter { id in
+                guard let indexPath = dataSource?.indexPath(for: id) else { return false }
+                return collectionView.item(at: indexPath) != nil
+            }
+            let oldTail = trailingContentItem(in: previousItems)
+            let newTail = trailingContentItem(in: parent.items)
+            let appendedContent: Bool
+            if let oldTail, let newTail,
+               let oldIndex = parent.items.firstIndex(where: { $0.id == oldTail.id }),
+               let newIndex = parent.items.firstIndex(where: { $0.id == newTail.id }) {
+                appendedContent = newIndex > oldIndex
+            } else {
+                appendedContent = false
+            }
+            let appendedLastItem = previousItems.last.map { last in
+                parent.items.last?.id != last.id
+                    && parent.items.contains(where: { $0.id == last.id })
+            } ?? false
+            let changedTail = newTail.flatMap { item in
+                oldByID[item.id].map { $0 != item }
+            } ?? false
+            let oldEntryIDs = previousItems.compactMap { item -> String? in
+                if case .entry = item.content { return item.id }
+                return nil
+            }
+            let newEntryIDs = parent.items.compactMap { item -> String? in
+                if case .entry = item.content { return item.id }
+                return nil
+            }
+            let replacedTail = !oldEntryIDs.isEmpty
+                && oldEntryIDs.count == newEntryIDs.count
+                && oldEntryIDs.last != newEntryIDs.last
+                && oldEntryIDs.dropLast().elementsEqual(newEntryIDs.dropLast())
+            let followsExistingTail = parent.autoFollowChangingTail
+                && ((changedTail && !widthChanged) || replacedTail)
+            let followsBottom = ((appendedContent || appendedLastItem) && parent.autoFollowAppendedItems)
+                || followsExistingTail
+            let requiresViewportUpdate = initial
+                || targetedScroll
+                || explicitScroll
+                || bottomInsetChanged
+                || widthChanged
+                || identitiesChanged
+                || !visibleChangedIDs.isEmpty
+            let viewportAnchor = requiresViewportUpdate
+                ? captureViewportAnchor(followsBottom: followsBottom)
+                : nil
 
             self.parent = parent
             itemByID = Dictionary(uniqueKeysWithValues: parent.items.map { ($0.id, $0) })
@@ -538,12 +616,6 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
             }
             updateCollectionWidth()
 
-            let identitiesChanged = previousItems.map(\.id) != parent.items.map(\.id)
-            let oldByID = Dictionary(uniqueKeysWithValues: previousItems.map { ($0.id, $0) })
-            let changedIDs = parent.items.compactMap { item -> String? in
-                guard oldByID[item.id] != item || widthChanged else { return nil }
-                return item.id
-            }
             if initial || identitiesChanged {
                 var snapshot = NSDiffableDataSourceSnapshot<Int, String>()
                 snapshot.appendSections([0])
@@ -552,23 +624,18 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
                 dataSource?.apply(snapshot, animatingDifferences: false)
             } else if !changedIDs.isEmpty {
                 // Keep the hosting view and its local state alive during streaming.
-                for id in changedIDs {
+                for id in visibleChangedIDs {
                     guard let indexPath = dataSource?.indexPath(for: id),
                           let hostedItem = collectionView.item(at: indexPath) as? AppKitHostedTranscriptItem,
                           let item = itemByID[id] else { continue }
                     configure(hostedItem, with: item)
                 }
-                collectionView.collectionViewLayout?.invalidateLayout()
+                if !visibleChangedIDs.isEmpty {
+                    collectionView.collectionViewLayout?.invalidateLayout()
+                }
             }
 
-            let requiresViewportUpdate = initial
-                || targetedScroll
-                || explicitScroll
-                || contentChanged
-                || bottomInsetChanged
-                || widthChanged
-                || identitiesChanged
-            if requiresViewportUpdate {
+            if let viewportAnchor {
                 parentUpdateGeneration &+= 1
                 let generation = parentUpdateGeneration
                 DispatchQueue.main.async { [weak self, weak collectionView] in
@@ -593,7 +660,6 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
             previousBottomInset = parent.bottomInset
             previousScrollRequest = parent.scrollToEndRequest
             previousScrollTarget = parent.scrollTarget
-            previousRenderRevision = parent.renderRevision
         }
 
         func updateCollectionWidth() {
@@ -612,7 +678,7 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
             layout.invalidateLayout()
         }
 
-        private func captureViewportAnchor() -> ViewportAnchor {
+        private func captureViewportAnchor(followsBottom: Bool) -> ViewportAnchor {
             guard let collectionView, let scrollView else {
                 return ViewportAnchor(
                     followsBottom: true,
@@ -635,7 +701,7 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
                 lhs.frame.minY < rhs.frame.minY
             }
             return ViewportAnchor(
-                followsBottom: isNearBottom,
+                followsBottom: isNearBottom && followsBottom,
                 itemID: anchor?.id,
                 itemOffset: (anchor?.frame.minY ?? bounds.minY) - bounds.minY,
                 fallbackOrigin: bounds.origin
@@ -727,6 +793,7 @@ private final class AppKitChatTranscriptScrollView: NSScrollView {
 final class AppKitHostedTranscriptItem: NSCollectionViewItem {
     static let identifier = NSUserInterfaceItemIdentifier("chat.native-transcript.hosted-item")
     private var hostingView: NSHostingView<AnyView>?
+    private var hostingConstraints: [NSLayoutConstraint] = []
     private var measuredHeight: CGFloat = 0
     private var measurementKey: String?
     private var measurementGeneration: UInt = 0
@@ -739,6 +806,7 @@ final class AppKitHostedTranscriptItem: NSCollectionViewItem {
     }
 
     func configure(rootView: AnyView, measurementKey: String? = nil) {
+        let changedItem = measurementKey != nil && measurementKey != self.measurementKey
         if measurementKey == nil || measurementKey != self.measurementKey {
             self.measurementKey = measurementKey
             measuredHeight = 0
@@ -764,20 +832,25 @@ final class AppKitHostedTranscriptItem: NSCollectionViewItem {
                 }
             }
         })
-        if let hostingView {
+        if let hostingView, !changedItem {
             hostingView.rootView = measuredRoot
             return
+        }
+        if let hostingView {
+            NSLayoutConstraint.deactivate(hostingConstraints)
+            hostingView.removeFromSuperview()
         }
         let hostingView = NSHostingView(rootView: measuredRoot)
         hostingView.sizingOptions = [.intrinsicContentSize]
         hostingView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(hostingView)
-        NSLayoutConstraint.activate([
+        hostingConstraints = [
             hostingView.topAnchor.constraint(equalTo: view.topAnchor),
             hostingView.leadingAnchor.constraint(equalTo: view.leadingAnchor),
             hostingView.trailingAnchor.constraint(equalTo: view.trailingAnchor),
             hostingView.bottomAnchor.constraint(equalTo: view.bottomAnchor),
-        ])
+        ]
+        NSLayoutConstraint.activate(hostingConstraints)
         self.hostingView = hostingView
     }
 

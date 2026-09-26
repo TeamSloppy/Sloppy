@@ -1,6 +1,8 @@
 import React from "react";
 import { ProjectIcon } from "./ProjectIcon";
 
+const PRIMARY_NAV_IDS = new Set(["overview", "costs", "projects", "workspaces", "artifacts", "agents", "actors"]);
+
 function sidebarProjectInitials(name, id) {
   const raw = String(name || id || "?").trim();
   const parts = raw.split(/[\s_-]+/).filter(Boolean);
@@ -19,32 +21,28 @@ export function SidebarView({
   onRequestClose = () => { },
   footer = null,
   projectRailProjects = [],
+  showProjectChatsRail = false,
   selectedChatProjectId = null,
   onSelectChatProject = (_projectId) => { }
 }) {
   return (
     <aside className={`sidebar ${isCompact ? "compact" : "full"} ${isMobileOpen ? "mobile-open" : ""}`}>
       <div className="sidebar-head">
-        {isCompact ? (
-          <button className="sidebar-logo-launch" type="button" onClick={onToggleCompact} aria-label="Expand menu">
-            <img src="/so_logo.svg" alt="" className="sidebar-logo" aria-hidden="true" />
-          </button>
-        ) : (
-          <>
-            <div className="sidebar-brand-wrap">
-              <img src="/so_logo.svg" alt="" className="sidebar-logo" aria-hidden="true" />
-              <div style={{ display: 'flex', flexDirection: 'column' }}>
-                <strong className="sidebar-brand" style={{ textTransform: 'uppercase' }}>&gt; Sloppy</strong>
-                <span style={{ fontSize: '10px', color: 'var(--muted)', letterSpacing: '0.05em' }}>SYS.VER // {__APP_VERSION__ || '0.1.0'}</span>
-              </div>
-            </div>
-            <button className="sidebar-toggle" type="button" onClick={onToggleCompact} aria-label="Collapse menu">
-              <span className="material-symbols-rounded" aria-hidden="true">
-                chevron_left
-              </span>
-            </button>
-          </>
-        )}
+        <button className="sidebar-logo-launch" type="button" onClick={onToggleCompact} aria-label="Expand menu">
+          <img src="/so_logo.svg" alt="" className="sidebar-logo" aria-hidden="true" />
+        </button>
+        <div className="sidebar-brand-wrap">
+          <img src="/so_logo.svg" alt="" className="sidebar-logo" aria-hidden="true" />
+          <div style={{ display: 'flex', flexDirection: 'column' }}>
+            <strong className="sidebar-brand">Sloppy</strong>
+            <span className="sidebar-version">{__APP_VERSION__ || '0.1.0'}</span>
+          </div>
+        </div>
+        <button className="sidebar-toggle" type="button" onClick={onToggleCompact} aria-label="Collapse menu">
+          <span className="material-symbols-rounded" aria-hidden="true">
+            chevron_left
+          </span>
+        </button>
         <button className="sidebar-mobile-close" type="button" onClick={onRequestClose} aria-label="Close menu">
           <span className="material-symbols-rounded" aria-hidden="true">
             close
@@ -57,7 +55,8 @@ export function SidebarView({
           <button
             key={item.id}
             type="button"
-            className={`sidebar-item ${activeItemId === item.id ? "active" : ""}`}
+            className={`sidebar-item ${PRIMARY_NAV_IDS.has(item.id) ? "sidebar-item-primary" : "sidebar-item-secondary"} ${activeItemId === item.id ? "active" : ""}`}
+            aria-current={activeItemId === item.id ? "page" : undefined}
             data-testid={`sidebar-nav-${item.id}`}
             onClick={() => {
               onSelect(item.id);
@@ -68,10 +67,30 @@ export function SidebarView({
             <span className="material-symbols-rounded sidebar-icon" aria-hidden="true">
               {item.label.icon}
             </span>
-            {!isCompact && <span className="sidebar-label" style={{ textTransform: 'uppercase' }}>[ {item.label.title} ]</span>}
+            <span className="sidebar-label">{item.label.title}</span>
           </button>
         ))}
-        {Array.isArray(projectRailProjects) && projectRailProjects.length > 0 ? (
+        <details className={`sidebar-more ${PRIMARY_NAV_IDS.has(activeItemId) ? "" : "active"}`}>
+          <summary>More <span className="material-symbols-rounded" aria-hidden="true">expand_more</span></summary>
+          <div className="sidebar-more-menu">
+            {items.filter((item) => !PRIMARY_NAV_IDS.has(item.id)).map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={activeItemId === item.id ? "active" : ""}
+                aria-current={activeItemId === item.id ? "page" : undefined}
+                onClick={(event) => {
+                  onSelect(item.id);
+                  event.currentTarget.closest("details")?.removeAttribute("open");
+                }}
+              >
+                <span className="material-symbols-rounded" aria-hidden="true">{item.label.icon}</span>
+                {item.label.title}
+              </button>
+            ))}
+          </div>
+        </details>
+        {showProjectChatsRail && Array.isArray(projectRailProjects) && projectRailProjects.length > 0 ? (
           <div className="sidebar-project-rail" aria-label="Project chats">
             {!isCompact ? <div className="sidebar-project-rail-label">Project chats</div> : null}
             <div className="sidebar-project-rail-icons">

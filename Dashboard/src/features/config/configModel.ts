@@ -634,7 +634,10 @@ export const EMPTY_CONFIG = {
       failurePolicy: "block"
     }
   },
-  toolBudgetEnabled: false,
+  experimentalFlags: {
+    disableToolBudgetAndLoopGuard: true,
+    toolBudgetEnabled: false
+  },
   toolBudgetExhausted: 60,
   modelRouting: {},
   sqlitePath: "core.sqlite"
@@ -1023,7 +1026,10 @@ export function normalizeConfig(config) {
   );
   normalized.toolHooks.preTools.failurePolicy =
     String(config?.toolHooks?.preTools?.failurePolicy || "block") === "allow" ? "allow" : "block";
-  normalized.toolBudgetEnabled = config?.toolBudgetEnabled === true;
+  normalized.experimentalFlags.disableToolBudgetAndLoopGuard =
+    config?.experimentalFlags?.disableToolBudgetAndLoopGuard !== false;
+  normalized.experimentalFlags.toolBudgetEnabled =
+    (config?.experimentalFlags?.toolBudgetEnabled ?? config?.toolBudgetEnabled) === true;
   normalized.toolBudgetExhausted = Math.max(
     0,
     parseInteger(config?.toolBudgetExhausted ?? normalized.toolBudgetExhausted, normalized.toolBudgetExhausted)

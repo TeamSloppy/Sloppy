@@ -24,6 +24,7 @@ public struct InMemoryCorePersistenceBuilder: CorePersistenceBuilding {
 public actor InMemoryPersistenceStore: PersistenceStore {
     private var events: [EventEnvelope] = []
     private var tokenUsages: [(channelId: String, taskId: String?, usage: TokenUsage)] = []
+    private var semanticDecisionUsages: [SemanticDecisionUsageRecord] = []
     private var toolInvocations: [PersistedToolInvocationRecord] = []
     private var bulletins: [MemoryBulletin] = []
     private var artifacts: [String: String] = [:]
@@ -93,6 +94,19 @@ public actor InMemoryPersistenceStore: PersistenceStore {
             result.append(contentsOf: records)
         }
         return result
+    }
+
+    public func persistSemanticDecisionUsage(record: SemanticDecisionUsageRecord) async {
+        semanticDecisionUsages.append(record)
+    }
+
+    public func listSemanticDecisionUsage(channelId: String?, from: Date?, to: Date?) async -> [SemanticDecisionUsageRecord] {
+        semanticDecisionUsages.filter { record in
+            if let channelId, record.channelId != channelId { return false }
+            if let from, record.createdAt < from { return false }
+            if let to, record.createdAt > to { return false }
+            return true
+        }
     }
 
     public func persistToolInvocation(
@@ -1008,6 +1022,21 @@ enum CorePersistenceFactory {
             reasoning_tokens INTEGER NOT NULL DEFAULT 0,
             created_at TEXT NOT NULL
         );
+
+        CREATE TABLE IF NOT EXISTS semantic_decision_usage (
+            id TEXT PRIMARY KEY,
+            channel_id TEXT NOT NULL,
+            input_tokens INTEGER NOT NULL,
+            output_tokens INTEGER NOT NULL,
+            cost_usd REAL NOT NULL,
+            cost_is_estimated INTEGER NOT NULL,
+            created_at TEXT NOT NULL
+        );
+
+        CREATE INDEX IF NOT EXISTS idx_semantic_decision_usage_created_at
+        ON semantic_decision_usage(created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_semantic_decision_usage_channel_created_at
+        ON semantic_decision_usage(channel_id, created_at DESC);
 
         CREATE TABLE IF NOT EXISTS tool_invocations (
             id TEXT PRIMARY KEY,

@@ -1257,20 +1257,20 @@ export function ActorsView() {
                       top: bounds.y,
                       width: bounds.width,
                       height: bounds.height,
-                      background: color.bg,
-                      borderColor: color.border
-                    }}
+                      "--team-bg": color.bg,
+                      "--team-border": color.border,
+                      "--team-dot": color.dot
+                    } as React.CSSProperties}
                     onPointerDown={(event) => onTeamGroupPointerDown(event, team)}
                   >
-                    <span className="actor-team-group-label" style={{ color: color.dot }}>
-                      <span className="actor-team-group-dot" style={{ background: color.dot }} />
+                    <span className="actor-team-group-label">
+                      <span className="actor-team-group-dot" />
                       {team.name}
                     </span>
                     {isSelected ? (
                       <button
                         type="button"
                         className="actor-team-group-edit"
-                        style={{ borderColor: color.border, color: color.dot }}
                         onPointerDown={(event) => event.stopPropagation()}
                         onClick={(event) => {
                           event.stopPropagation();
@@ -1278,7 +1278,7 @@ export function ActorsView() {
                         }}
                         title="Edit team"
                       >
-                        ✎
+                        <span className="material-symbols-rounded" aria-hidden="true">edit</span>
                       </button>
                     ) : null}
                   </div>
@@ -1500,6 +1500,10 @@ export function ActorsView() {
           </div>
 
           <div className="actors-fast-actions" onPointerDown={(event) => event.stopPropagation()}>
+            <div className="actors-board-heading">
+              <strong>Actors</strong>
+              <span>{board.nodes.length} actors · {board.teams.length} teams</span>
+            </div>
             <div className="actors-mode-switch" role="group" aria-label="Actor board mode">
               <button
                 type="button"
@@ -1532,7 +1536,7 @@ export function ActorsView() {
             )}
             <button
               type="button"
-              className={showNewActorPopup ? "active" : ""}
+              className={`actors-action-button actors-action-button--primary ${showNewActorPopup ? "active" : ""}`}
               onClick={() => {
                 setShowNewActorPopup((previous) => {
                   if (!previous) {
@@ -1548,7 +1552,7 @@ export function ActorsView() {
             </button>
             <button
               type="button"
-              className={showNewTeamPopup ? "active" : ""}
+              className={`actors-action-button ${showNewTeamPopup ? "active" : ""}`}
               onClick={() => {
                 setShowNewTeamPopup((previous) => !previous);
                 setShowNewActorPopup(false);
@@ -1559,7 +1563,7 @@ export function ActorsView() {
             </button>
             <button
               type="button"
-              className={showHowItWorksPopup ? "active" : ""}
+              className={`actors-action-button actors-action-button--help ${showHowItWorksPopup ? "active" : ""}`}
               onClick={() => {
                 setShowHowItWorksPopup((previous) => !previous);
                 setShowNewActorPopup(false);

@@ -2060,7 +2060,28 @@ public struct CoreConfig: Codable, Sendable {
     public var kanban: Kanban
     public var ui: UI
     public var toolHooks: ToolHooks
-    public var toolBudgetEnabled: Bool
+    public struct ExperimentalFlags: Codable, Sendable, Equatable {
+        public var disableToolBudgetAndLoopGuard: Bool
+        public var toolBudgetEnabled: Bool
+
+        public init(disableToolBudgetAndLoopGuard: Bool = true, toolBudgetEnabled: Bool = false) {
+            self.disableToolBudgetAndLoopGuard = disableToolBudgetAndLoopGuard
+            self.toolBudgetEnabled = toolBudgetEnabled
+        }
+
+        enum CodingKeys: String, CodingKey {
+            case disableToolBudgetAndLoopGuard
+            case toolBudgetEnabled
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            disableToolBudgetAndLoopGuard = try container.decodeIfPresent(Bool.self, forKey: .disableToolBudgetAndLoopGuard) ?? true
+            toolBudgetEnabled = try container.decodeIfPresent(Bool.self, forKey: .toolBudgetEnabled) ?? false
+        }
+    }
+
+    public var experimentalFlags: ExperimentalFlags
     public var toolBudgetExhausted: Int
     public var nodeMeshPublicURL: String?
     public var clientPublicURL: String?
@@ -2103,7 +2124,7 @@ public struct CoreConfig: Codable, Sendable {
         kanban: Kanban = Kanban(),
         ui: UI = UI(),
         toolHooks: ToolHooks = ToolHooks(),
-        toolBudgetEnabled: Bool = false,
+        experimentalFlags: ExperimentalFlags = ExperimentalFlags(),
         toolBudgetExhausted: Int = CoreConfig.defaultToolBudgetExhausted,
         nodeMeshPublicURL: String? = nil,
         clientPublicURL: String? = nil,
@@ -2145,7 +2166,7 @@ public struct CoreConfig: Codable, Sendable {
         self.kanban = kanban
         self.ui = ui
         self.toolHooks = toolHooks
-        self.toolBudgetEnabled = toolBudgetEnabled
+        self.experimentalFlags = experimentalFlags
         self.toolBudgetExhausted = max(0, toolBudgetExhausted)
         self.nodeMeshPublicURL = nodeMeshPublicURL
         self.clientPublicURL = clientPublicURL
@@ -2198,7 +2219,7 @@ public struct CoreConfig: Codable, Sendable {
             kanban: .init(),
             ui: .init(),
             toolHooks: .init(),
-            toolBudgetEnabled: false,
+            experimentalFlags: .init(),
             toolBudgetExhausted: CoreConfig.defaultToolBudgetExhausted,
             nodeMeshPublicURL: nil,
             clientPublicURL: nil,
@@ -2284,6 +2305,7 @@ public struct CoreConfig: Codable, Sendable {
         case kanban
         case ui
         case toolHooks
+        case experimentalFlags
         case toolBudgetEnabled
         case toolBudgetExhausted
         case nodeMeshPublicURL
@@ -2326,7 +2348,19 @@ public struct CoreConfig: Codable, Sendable {
         kanban = try container.decodeIfPresent(Kanban.self, forKey: .kanban) ?? .init()
         ui = try container.decodeIfPresent(UI.self, forKey: .ui) ?? .init()
         toolHooks = try container.decodeIfPresent(ToolHooks.self, forKey: .toolHooks) ?? .init()
-        toolBudgetEnabled = try container.decodeIfPresent(Bool.self, forKey: .toolBudgetEnabled) ?? false
+        experimentalFlags = try container.decodeIfPresent(ExperimentalFlags.self, forKey: .experimentalFlags) ?? .init()
+        if let legacyToolBudgetEnabled = try container.decodeIfPresent(Bool.self, forKey: .toolBudgetEnabled) {
+            let hasNestedBudget: Bool
+            if container.contains(.experimentalFlags) {
+                let flags = try container.nestedContainer(keyedBy: ExperimentalFlags.CodingKeys.self, forKey: .experimentalFlags)
+                hasNestedBudget = flags.contains(.toolBudgetEnabled)
+            } else {
+                hasNestedBudget = false
+            }
+            if !hasNestedBudget {
+                experimentalFlags.toolBudgetEnabled = legacyToolBudgetEnabled
+            }
+        }
         toolBudgetExhausted = max(
             0,
             try container.decodeIfPresent(Int.self, forKey: .toolBudgetExhausted) ?? Self.defaultToolBudgetExhausted
@@ -2380,7 +2414,7 @@ public struct CoreConfig: Codable, Sendable {
         try container.encode(kanban, forKey: .kanban)
         try container.encode(ui, forKey: .ui)
         try container.encode(toolHooks, forKey: .toolHooks)
-        try container.encode(toolBudgetEnabled, forKey: .toolBudgetEnabled)
+        try container.encode(experimentalFlags, forKey: .experimentalFlags)
         try container.encode(toolBudgetExhausted, forKey: .toolBudgetExhausted)
         try container.encodeIfPresent(nodeMeshPublicURL, forKey: .nodeMeshPublicURL)
         try container.encodeIfPresent(clientPublicURL, forKey: .clientPublicURL)

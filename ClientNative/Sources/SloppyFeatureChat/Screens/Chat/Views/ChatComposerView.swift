@@ -171,6 +171,15 @@ public struct ChatComposerView: View {
     #if os(macOS)
     private var macComposerInputSurface: some View {
         VStack(alignment: .leading, spacing: 0) {
+            if !viewModel.composerQuotes.isEmpty {
+                ChatComposerQuoteStrip(
+                    quotes: viewModel.composerQuotes,
+                    remove: viewModel.removeComposerQuote
+                )
+                .padding(.horizontal, theme.spacing.s)
+                .padding(.top, theme.spacing.s)
+            }
+
             if !viewModel.composerAttachments.isEmpty {
                 ChatComposerAttachmentStrip(
                     attachments: viewModel.composerAttachments,
@@ -355,7 +364,8 @@ public struct ChatComposerView: View {
     }
 
     private var trailingActionSymbol: MaterialSymbol {
-        if !trimmedDraftText.isEmpty || !viewModel.composerAttachments.isEmpty {
+        if !trimmedDraftText.isEmpty || !viewModel.composerAttachments.isEmpty
+            || !viewModel.composerQuotes.isEmpty {
             return .arrowUpward
         }
 
@@ -365,7 +375,8 @@ public struct ChatComposerView: View {
     private var trailingActionForegroundColor: Color {
         if viewModel.shouldShowStopButton,
            trimmedDraftText.isEmpty,
-           viewModel.composerAttachments.isEmpty {
+           viewModel.composerAttachments.isEmpty,
+           viewModel.composerQuotes.isEmpty {
             return theme.colors.textPrimary
         }
 
@@ -428,13 +439,15 @@ public struct ChatComposerView: View {
     
     private func submit() {
         let trimmed = trimmedDraftText
-        guard (!trimmed.isEmpty || !viewModel.composerAttachments.isEmpty), viewModel.canSubmitMessage else { return }
+        guard (!trimmed.isEmpty || !viewModel.composerAttachments.isEmpty
+            || !viewModel.composerQuotes.isEmpty), viewModel.canSubmitMessage else { return }
         viewModel.sendMessage(content: trimmed)
     }
 
     private func handleTrailingAction() {
         guard viewModel.activeInputRequest == nil else { return }
         let hasMessage = !trimmedDraftText.isEmpty || !viewModel.composerAttachments.isEmpty
+            || !viewModel.composerQuotes.isEmpty
         if hasMessage {
             submit()
         } else if viewModel.shouldShowStopButton {
@@ -1478,6 +1491,7 @@ struct ChatTextField: View {
             commandColor: commandColor,
             mentionColor: mentionColor,
             tagColor: tagColor,
+            codeBackgroundColor: theme.colors.accentCyan.opacity(0.12),
             maximumVisibleLines: Constants.maximumVisibleLines,
             textContainerInset: CGSize(
                 width: Constants.editorContentHorizontalInset,
@@ -1584,6 +1598,53 @@ struct ChatTextField: View {
         return true
     }
     #endif
+}
+
+private struct ChatComposerQuoteStrip: View {
+    let quotes: [ChatComposerQuote]
+    let remove: @MainActor (ChatComposerQuote.ID) -> Void
+
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: theme.spacing.s) {
+                ForEach(quotes) { quote in
+                    HStack(alignment: .top, spacing: theme.spacing.s) {
+                        Image(systemName: "quote.opening")
+                            .foregroundStyle(theme.colors.accentCyan)
+                        VStack(alignment: .leading, spacing: theme.spacing.xs) {
+                            Text("Quote")
+                                .font(.system(size: theme.typography.micro, weight: .semibold))
+                                .foregroundStyle(theme.colors.accentCyan)
+                            Text(quote.text)
+                                .font(.system(size: theme.typography.caption))
+                                .foregroundStyle(theme.colors.textPrimary)
+                                .lineLimit(3)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                        Button {
+                            remove(quote.id)
+                        } label: {
+                            Image(systemName: "xmark.circle.fill")
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("Remove quote")
+                    }
+                    .padding(theme.spacing.s)
+                    .frame(width: 280, height: 96, alignment: .topLeading)
+                    .background(theme.colors.surfaceRaised.opacity(0.8))
+                    .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                    .overlay {
+                        RoundedRectangle(cornerRadius: 12, style: .continuous)
+                            .stroke(theme.colors.accentCyan.opacity(0.45), lineWidth: theme.borders.thin)
+                    }
+                }
+            }
+        }
+        .frame(height: ChatComposerView.attachmentStripHeight)
+        .accessibilityIdentifier("chat.composer.quotes")
+    }
 }
 
 private struct ChatComposerAttachmentStrip: View {
@@ -1945,6 +2006,14 @@ private struct ComposerAddMenu: View {
                 viewModel.isAttachmentPickerShown = true
             } label: {
                 Label("Files and Attach", systemImage: "paperclip")
+            }
+
+            Button {
+                DispatchQueue.main.async {
+                    viewModel.insertCodeBlock()
+                }
+            } label: {
+                Label("Code block", systemImage: "chevron.left.forwardslash.chevron.right")
             }
 #else
             Button {

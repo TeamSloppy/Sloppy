@@ -54,10 +54,12 @@ struct SidebarSessionRow: View {
     let isSelected: Bool
     var requiresApproval = false
     var activity: SidebarSessionActivity? = nil
+    var chatColor: SidebarProjectColor? = nil
     let onOpen: @MainActor () -> Void
     let onTogglePin: @MainActor () -> Void
     let onCopyDebugLink: @MainActor () -> Void
     let onDelete: @MainActor () -> Void
+    var onSetChatColor: (@MainActor (String?) -> Void)? = nil
 
     @Environment(\.theme) private var theme
     @State private var isHovered = false
@@ -71,6 +73,29 @@ struct SidebarSessionRow: View {
         .onHover { isHovered = $0 }
         .contextMenu {
             Button(isPinned ? "Unpin Chat" : "Pin Chat", action: onTogglePin)
+            Menu {
+                Button { onSetChatColor?(nil) } label: {
+                    SidebarColorMenuOption(
+                        title: "Default",
+                        color: nil,
+                        isSelected: chatColor == nil
+                    )
+                }
+                Divider()
+                ForEach(SidebarProjectColor.allCases, id: \.self) { tint in
+                    Button {
+                        onSetChatColor?(tint.rawValue)
+                    } label: {
+                        SidebarColorMenuOption(
+                            title: tint.rawValue.capitalized,
+                            color: tint,
+                            isSelected: chatColor == tint
+                        )
+                    }
+                }
+            } label: {
+                Label("Chat Color", systemImage: "paintpalette")
+            }
             Button("Copy Session File Debug Link", action: onCopyDebugLink)
             Button("Delete Chat", role: .destructive, action: onDelete)
         }
@@ -135,6 +160,12 @@ struct SidebarSessionRow: View {
         .padding(.horizontal, theme.spacing.s)
         .padding(.vertical, 6)
         .frame(minHeight: MainSidebarView.rowMinimumHeight)
+        .background {
+            if let chatColor {
+                RoundedRectangle(cornerRadius: 12)
+                    .fill(chatColor.color.opacity(isSelected ? 0.2 : 0.12))
+            }
+        }
         .contentShape(Rectangle())
     }
 }

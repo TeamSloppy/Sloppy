@@ -30,7 +30,7 @@ export function ProjectWorkspacesTab({ project }: ProjectWorkspacesTabProps) {
   };
 
   return (
-    <section className="project-tab-content">
+    <section className="project-tab-content project-workspaces-tab">
       <header className="project-section-header">
         <div>
           <h2>Workspaces</h2>
@@ -40,7 +40,7 @@ export function ProjectWorkspacesTab({ project }: ProjectWorkspacesTabProps) {
           {creating ? "Creating…" : "New workspace"}
         </button>
       </header>
-      <div className="workspaces-grid">
+      <div className="workspaces-grid project-workspaces-grid">
         {items.map((workspace) => (
           <button
             className="workspace-card"

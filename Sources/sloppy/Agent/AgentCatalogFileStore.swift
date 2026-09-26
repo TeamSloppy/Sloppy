@@ -19,6 +19,7 @@ final class AgentCatalogFileStore {
         let selectedModel: String?
         let plannerModel: String?
         let reasoningEffort: ReasoningEffort?
+        let automaticModelRouting: Bool?
         let heartbeat: AgentHeartbeatSettings?
         let channelSessions: AgentChannelSessionSettings?
         let runtime: AgentRuntimeConfig?
@@ -230,6 +231,7 @@ final class AgentCatalogFileStore {
             selectedModel: configFile.selectedModel,
             plannerModel: configFile.plannerModel,
             reasoningEffort: configFile.reasoningEffort,
+            automaticModelRouting: configFile.automaticModelRouting ?? true,
             availableModels: visibleModels,
             documents: documents,
             heartbeat: configFile.heartbeat ?? AgentHeartbeatSettings(),
@@ -273,6 +275,8 @@ final class AgentCatalogFileStore {
         }
 
         let runtime = request.runtime
+        let existingConfig = try readAgentConfigFile(for: summary, availableModels: availableModels, persistedModelAllowed: nil)
+        let automaticModelRouting = request.automaticModelRouting ?? existingConfig.automaticModelRouting ?? true
         let normalizedSelectedModel = request.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
         let normalizedPlannerModel = request.plannerModel?.trimmingCharacters(in: .whitespacesAndNewlines)
         let selectedModel: String?
@@ -354,6 +358,7 @@ final class AgentCatalogFileStore {
                     selectedModel: selectedModel,
                     plannerModel: plannerModel,
                     reasoningEffort: request.reasoningEffort,
+                    automaticModelRouting: automaticModelRouting,
                     heartbeat: heartbeat,
                     channelSessions: channelSessions,
                     runtime: runtime,
@@ -387,6 +392,7 @@ final class AgentCatalogFileStore {
             selectedModel: selectedModel,
             plannerModel: plannerModel,
             reasoningEffort: request.reasoningEffort,
+            automaticModelRouting: automaticModelRouting,
             availableModels: availableModels,
             documents: normalizedDocuments,
             heartbeat: heartbeat,
@@ -746,6 +752,7 @@ final class AgentCatalogFileStore {
                 selectedModel: availableModels.first?.id,
                 plannerModel: nil,
                 reasoningEffort: nil,
+                automaticModelRouting: nil,
                 heartbeat: AgentHeartbeatSettings(),
                 channelSessions: AgentChannelSessionSettings(),
                 runtime: summary.runtime,
@@ -801,6 +808,7 @@ final class AgentCatalogFileStore {
                 selectedModel: availableModels.first?.id,
                 plannerModel: nil,
                 reasoningEffort: nil,
+                automaticModelRouting: nil,
                 heartbeat: AgentHeartbeatSettings(),
                 channelSessions: AgentChannelSessionSettings(),
                 runtime: summary.runtime,
@@ -845,6 +853,7 @@ final class AgentCatalogFileStore {
                 selectedModel: resolvedModel,
                 plannerModel: resolvedPlannerModel,
                 reasoningEffort: decoded.reasoningEffort,
+                automaticModelRouting: decoded.automaticModelRouting,
                 heartbeat: decoded.heartbeat ?? AgentHeartbeatSettings(),
                 channelSessions: decoded.channelSessions ?? AgentChannelSessionSettings(),
                 runtime: runtime,
@@ -863,6 +872,7 @@ final class AgentCatalogFileStore {
                 selectedModel: availableModels.first?.id,
                 plannerModel: decoded.plannerModel,
                 reasoningEffort: decoded.reasoningEffort,
+                automaticModelRouting: decoded.automaticModelRouting,
                 heartbeat: decoded.heartbeat ?? AgentHeartbeatSettings(),
                 channelSessions: decoded.channelSessions ?? AgentChannelSessionSettings(),
                 runtime: runtime,
@@ -878,6 +888,7 @@ final class AgentCatalogFileStore {
                 selectedModel: runtime.type == .native ? decoded.selectedModel : nil,
                 plannerModel: runtime.type == .native ? decoded.plannerModel : nil,
                 reasoningEffort: decoded.reasoningEffort,
+                automaticModelRouting: decoded.automaticModelRouting,
                 heartbeat: decoded.heartbeat ?? AgentHeartbeatSettings(),
                 channelSessions: decoded.channelSessions ?? AgentChannelSessionSettings(),
                 runtime: runtime,

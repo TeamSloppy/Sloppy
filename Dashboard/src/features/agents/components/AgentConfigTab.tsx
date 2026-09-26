@@ -41,6 +41,7 @@ function emptyAgentConfigDraft(agentId) {
     selectedModel: "",
     plannerModel: "",
     reasoningEffort: "",
+    automaticModelRouting: true,
     availableModels: [],
     documents: {
       userMarkdown: "",
@@ -87,6 +88,7 @@ function normalizeConfigDraft(agentId, config) {
     reasoningEffort: REASONING_EFFORT_OPTIONS.some((option) => option.value === config.reasoningEffort)
       ? String(config.reasoningEffort || "")
       : "",
+    automaticModelRouting: config.automaticModelRouting !== false,
     availableModels: Array.isArray(config.availableModels) ? config.availableModels : [],
     documents: {
       userMarkdown: String(config.documents?.userMarkdown || ""),
@@ -300,6 +302,7 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
   const [isDeleting, setIsDeleting] = useState(false);
   const [aggregatedModels, setAggregatedModels] = useState([]);
   const [modelCatalogStatus, setModelCatalogStatus] = useState("");
+  const [jevRoutingMode, setJevRoutingMode] = useState("disabled");
   const [roleDropdownOpen, setRoleDropdownOpen] = useState(false);
   const agentFileRequestRef = useRef(null);
   const narrowAgentFilesLayout = useNarrowAgentFilesLayout();
@@ -329,6 +332,7 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
       if (runtimeCfg && Array.isArray((runtimeCfg as any).acp?.targets)) {
         setAcpTargets((runtimeCfg as any).acp.targets.filter((t) => t.enabled !== false));
       }
+      setJevRoutingMode(String((runtimeCfg as any)?.semanticDecisions?.executorModelRouting || "disabled"));
 
       let catalog: { models: any[]; probes: any[] } = { models: [], probes: [] };
       let catalogLoadError = false;
@@ -525,6 +529,7 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
       selectedModel: runtimeType === "native" ? selectedModel : null,
       plannerModel: runtimeType === "native" ? plannerModel || null : null,
       reasoningEffort: runtimeType === "native" && draft.reasoningEffort ? draft.reasoningEffort : null,
+      automaticModelRouting: draft.automaticModelRouting !== false,
       documents: {
         userMarkdown: String(draft.documents.userMarkdown || ""),
         agentsMarkdown: String(draft.documents.agentsMarkdown || ""),
@@ -792,23 +797,26 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
               </select>
             </label>
 
-            <label className="agent-config-checkbox-row" style={{ gridColumn: "1 / -1" }}>
-              <input
-                type="checkbox"
-                checked={draft.runtime?.sharedMemoryEnabled !== false}
-                onChange={(e) => {
-                  setDraft((previous) => ({
-                    ...previous,
-                    runtime: {
-                      ...(previous.runtime || { type: "native", acp: null }),
-                      sharedMemoryEnabled: e.target.checked
-                    }
-                  }));
-                }}
-              />
-              <span>
-                Shared memory
+            <label className="agent-config-memory-toggle" style={{ gridColumn: "1 / -1" }}>
+              <span className="agent-config-memory-copy">
+                <strong>Shared memory</strong>
                 <small>Allow this agent to read and write the global shared memory scope.</small>
+              </span>
+              <span className="agent-tools-switch">
+                <input
+                  type="checkbox"
+                  checked={draft.runtime?.sharedMemoryEnabled !== false}
+                  onChange={(e) => {
+                    setDraft((previous) => ({
+                      ...previous,
+                      runtime: {
+                        ...(previous.runtime || { type: "native", acp: null }),
+                        sharedMemoryEnabled: e.target.checked
+                      }
+                    }));
+                  }}
+                />
+                <span className="agent-tools-switch-track" />
               </span>
             </label>
 
@@ -851,8 +859,33 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
         <section className="entry-editor-card">
           <h3>Models</h3>
           <div className="entry-form-grid">
+            <div className="agent-config-reasoning-field" style={{ gridColumn: "1 / -1" }}>
+              <span className="agent-config-reasoning-label">Executor selection</span>
+              <div className="agent-config-reasoning-options" role="group" aria-label="Executor selection">
+                {[{ enabled: true, label: "Automatic (JEV)" }, { enabled: false, label: "Fixed model" }].map((option) => (
+                  <button
+                    key={option.label}
+                    type="button"
+                    className={`agent-config-reasoning-option ${Boolean(draft.automaticModelRouting) === option.enabled ? "active" : ""}`}
+                    onClick={() => updateField("automaticModelRouting", option.enabled)}
+                    disabled={isSaving || isACP}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+              <span className="entry-form-hint">
+                {!draft.automaticModelRouting
+                  ? "This agent uses the executor model below. JEV does not evaluate its turns."
+                  : jevRoutingMode === "active"
+                  ? "JEV chooses among configured profiles for automatic turns. The model below is used if JEV cannot choose. An explicit model selected for a turn takes precedence."
+                  : jevRoutingMode === "shadow"
+                    ? "JEV is in shadow mode globally: it evaluates choices, but the model below is always used."
+                    : "JEV is disabled globally. Enable executor routing in Settings > Semantic decisions to use automatic selection."}
+              </span>
+            </div>
             <AggregatedModelPicker
-              label="Executor Model"
+              label={draft.automaticModelRouting ? "Fallback Executor Model" : "Executor Model"}
               value={String(draft.selectedModel || "")}
               onChange={(id) => updateField("selectedModel", id)}
               aggregatedModels={aggregatedModels}
@@ -900,7 +933,7 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
                 <div className="agent-tools-head-copy">
                   <h4>Channel Models</h4>
                   <p className="placeholder-text">
-                    Override the model used for specific channels. Channels without an override use the agent default above.
+                    Override the model used for specific channels. Channels without an override use the agent selection above.
                   </p>
                 </div>
               </div>
@@ -1214,29 +1247,30 @@ export function AgentConfigTab({ agentId, agentDisplayName = "", onDeleteAgent =
 
   return (
     <>
-    <main className="settings-shell">
-      <aside className="settings-side">
+    <main className="settings-shell agent-settings-shell">
+      <aside className="settings-side agent-settings-side">
         <div className="settings-title-row">
           <h2>Agent Config</h2>
         </div>
 
-        <div className="settings-nav">
+        <nav className="settings-nav agent-settings-nav" aria-label="Agent configuration sections">
           {AGENT_CONFIG_SECTIONS.map((item) => (
             <button
               key={item.id}
               type="button"
               className={`settings-nav-item ${selectedSection === item.id ? "active" : ""}${(item as any).danger ? " settings-nav-item--danger" : ""}`}
+              aria-current={selectedSection === item.id ? "page" : undefined}
               onClick={() => setSelectedSection(item.id)}
             >
               <span className="material-symbols-rounded settings-nav-icon">{item.icon}</span>
               <span>{item.title}</span>
             </button>
           ))}
-        </div>
+        </nav>
       </aside>
 
-      <section className="settings-main">
-        <header className="settings-main-head">
+      <section className="settings-main agent-settings-main">
+        <header className="settings-main-head agent-settings-main-head">
           <div className="settings-main-status">
             <span>{statusText}</span>
           </div>

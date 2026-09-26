@@ -36,6 +36,11 @@ struct WorkspaceDockView<Content: View>: View {
                                 .foregroundStyle(state.selectedID == tab.id ? theme.colors.textPrimary : theme.colors.textSecondary)
                                 .background(state.selectedID == tab.id ? theme.colors.surfaceRaised : .clear,
                                             in: RoundedRectangle(cornerRadius: 7))
+                                #if os(macOS)
+                                .overlay {
+                                    MiddleClickCloseArea(onMiddleClick: { state.close(tab.id) })
+                                }
+                                #endif
                                 .id(tab.id)
                             }
                         }
@@ -67,7 +72,7 @@ struct WorkspaceDockView<Content: View>: View {
                     .id(tab.id)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
-                WorkspaceSidePanelPickerView(hasProject: state.context != nil, onSelect: onOpen)
+                WorkspaceSidePanelPickerView(onSelect: onOpen)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }

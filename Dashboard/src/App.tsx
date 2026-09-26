@@ -10,6 +10,7 @@ import { NotificationToastContainer } from "./features/notifications/Notificatio
 import { emitNotification } from "./features/notifications/notificationBus";
 import { useNotificationSocket } from "./features/notifications/useNotificationSocket";
 import { OnboardingView } from "./features/onboarding/OnboardingView";
+import { InitStage } from "./features/onboarding/InitStage";
 import { TutorialCoachmark } from "./features/tutorial/TutorialCoachmark";
 import { TutorialProvider, useTutorial } from "./features/tutorial/TutorialProvider";
 import { useRuntimeOverview } from "./features/runtime-overview/model/useRuntimeOverview";
@@ -17,6 +18,7 @@ import { TerminalDrawer } from "./features/terminal/TerminalDrawer";
 import { UpdateBanner } from "./features/updates/UpdateBanner";
 import { useUpdateCheck } from "./features/updates/useUpdateCheck";
 import { ArtifactsView } from "./features/artifacts/ArtifactsView";
+import { CostsView } from "./features/costs/CostsView";
 import "./features/artifacts/artifacts.css";
 import { WorkspacesView } from "./features/workspaces/WorkspacesView";
 import "./features/workspaces/workspaces.css";
@@ -47,6 +49,8 @@ import {
   setStoredApiBaseOverride
 } from "./shared/api/httpClient";
 import { useHoverSoundEffect } from "./shared/ui/useHoverSoundEffect";
+import { loadDashboardTheme } from "./shared/ui/dashboardTheme";
+import { resolveDashboardFeatureFlags } from "./shared/ui/dashboardFeatureFlags";
 import { fetchProjectSummaries } from "./api";
 
 interface SidebarItem {
@@ -141,9 +145,10 @@ function DashboardShell({
   const runtime = useRuntimeOverview(dependencies.coreApi);
   const { route, setSection, setConfigSection, setProjectRoute, setWorkspaceRoute, setAgentRoute, setSessionRoute, setChatsRoute, setMemoryRoute } =
     useDashboardRoute();
-  const [sidebarCompact, setSidebarCompact] = useState(true);
+  const [sidebarCompact, setSidebarCompact] = useState(() => loadDashboardTheme() === "brutalist");
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarProjects, setSidebarProjects] = useState<AnyRecord[]>([]);
+  const showSidebarProjectChats = resolveDashboardFeatureFlags(window.__SLOPPY_CONFIG__).sidebarProjectChats;
   const [terminalClosedHost, setTerminalClosedHost] = useState<HTMLDivElement | null>(null);
   const [issueReportLoading, setIssueReportLoading] = useState(false);
   const [runtimeProcessId, setRuntimeProcessId] = useState<number | null>(null);
@@ -365,6 +370,14 @@ function DashboardShell({
       content: runtimeContent
     },
     {
+      id: "costs",
+      label: { icon: "monitoring", title: "Costs" },
+      content: <CostsView coreApi={dependencies.coreApi} onOpenJevSettings={() => {
+        setSection("config");
+        setConfigSection("semantic-decisions");
+      }} />
+    },
+    {
       id: "projects",
       label: { icon: "folder", title: "Projects" },
       content: (
@@ -405,7 +418,7 @@ function DashboardShell({
     {
       id: "artifacts",
       label: { icon: "widgets", title: "Artifacts" },
-      content: <ArtifactsView coreApi={dependencies.coreApi} />
+      content: <ArtifactsView coreApi={dependencies.coreApi} artifactId={route.artifactId} />
     },
     {
       id: "agents",
@@ -522,6 +535,7 @@ function DashboardShell({
         isMobileOpen={mobileSidebarOpen}
         onRequestClose={() => setMobileSidebarOpen(false)}
         projectRailProjects={sidebarProjects}
+        showProjectChatsRail={showSidebarProjectChats}
         selectedChatProjectId={route.section === "projects" && route.projectTab === "chat" ? route.projectId : null}
         onSelectChatProject={(projectId: string) => {
           setChatsRoute(projectId, null, null);
@@ -534,6 +548,7 @@ function DashboardShell({
               rel="noopener noreferrer"
               className="sidebar-docs-link"
               title="Documentation"
+              aria-label="Documentation"
             >
               <span className="material-symbols-rounded sidebar-icon" aria-hidden="true">
                 menu_book
@@ -589,7 +604,7 @@ function DashboardShell({
         aria-label="Close menu"
       />
 
-      <div className={`page ${route.section === "config" ? "page-config" : ""}`} style={{ position: "relative" }}>
+      <div className={`page page-${route.section} ${route.section === "config" ? "page-config" : ""}`} style={{ position: "relative" }}>
         <div
           className="dashboard-secure-session-status"
           style={{
@@ -1274,7 +1289,7 @@ export function App() {
 
   if (bootState.isLoading && isApiBaseEditorOpen) {
     return (
-      <div className="onboarding-loading-shell">
+      <InitStage state="editing">
         <div className="onboarding-loading-card">
           <span className="onboarding-loading-kicker">Sloppy init</span>
           <strong>Change server</strong>
@@ -1331,13 +1346,13 @@ export function App() {
             </button>
           </div>
         </div>
-      </div>
+      </InitStage>
     );
   }
 
   if (bootState.isLoading) {
     return (
-      <div className="onboarding-loading-shell">
+      <InitStage>
         <div className="onboarding-loading-card">
           <span className="onboarding-loading-kicker">Sloppy init</span>
           <strong>Loading runtime config...</strong>
@@ -1354,15 +1369,18 @@ export function App() {
               Change server
             </button>
           </div>
-          <LoadingSkeleton label="Preparing dashboard…" variant="panel" rows={3} />
+          <div className="init-progress" role="status">
+            <span className="init-progress-dot" aria-hidden="true" />
+            <span>Preparing dashboard…</span>
+          </div>
         </div>
-      </div>
+      </InitStage>
     );
   }
 
   if (bootState.error || !bootState.config) {
     return (
-      <div className="onboarding-loading-shell">
+      <InitStage state="error">
         <div className="onboarding-loading-card onboarding-loading-card-error">
           <span className="onboarding-loading-kicker">Sloppy init</span>
           <strong>{bootState.error || "Runtime config is unavailable."}</strong>
@@ -1415,7 +1433,7 @@ export function App() {
             </button>
           </div>
         </div>
-      </div>
+      </InitStage>
     );
   }
 

@@ -7,7 +7,7 @@ struct PlanningRequestInputTool: CoreTool {
     let title = "Request plan input"
     let status = "fully_functional"
     let name = "planning.request_input"
-    let description = "Pause a plan-mode or debug-mode turn and ask the user one to three structured questions."
+    let description = "Pause a plan-mode or debug-mode turn. Ask all independent decisions known now together as one to three structured questions; use a follow-up only when an answer creates a new dependency."
 
     var parameters: GenerationSchema {
         let optionSchema = DynamicGenerationSchema(

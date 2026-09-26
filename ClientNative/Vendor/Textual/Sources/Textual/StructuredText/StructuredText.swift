@@ -103,6 +103,7 @@ import SwiftUI
 /// ``MarkupParser`` implementation.
 public struct StructuredText: View {
   @State private var attributedString: AttributedString?
+  @State private var parsedMarkup: String?
 
   private let markup: String
   private let parser: any MarkupParser
@@ -143,6 +144,7 @@ public struct StructuredText: View {
   }
 
   private func markupDidChange(_ markup: String) async {
+    guard parsedMarkup != markup else { return }
     let parsed: AttributedString
     if parsesMarkdownInBackground {
       parsed = await BackgroundMarkdownParser.shared.parse(
@@ -157,6 +159,7 @@ public struct StructuredText: View {
     // markup. Never publish a stale document after a newer parse was requested.
     guard !Task.isCancelled else { return }
     attributedString = parsed
+    parsedMarkup = markup
   }
 }
 
@@ -190,6 +193,7 @@ extension StructuredText {
   ///   - markdown: The Markdown source to render.
   ///   - baseURL: A base URL used to resolve relative links and image URLs.
   ///   - syntaxExtensions: Custom syntax extensions applied after markdown parsing.
+  ///   - renderImmediately: Parse before the first display, useful for completed content in reused views.
   ///
   /// Math expressions are supported when you include `.math` in `syntaxExtensions`:
   ///
@@ -202,7 +206,8 @@ extension StructuredText {
   public init(
     markdown: String,
     baseURL: URL? = nil,
-    syntaxExtensions: [AttributedStringMarkdownParser.SyntaxExtension] = []
+    syntaxExtensions: [AttributedStringMarkdownParser.SyntaxExtension] = [],
+    renderImmediately: Bool = false
   ) {
     self.markup = markdown
     self.parser = AttributedStringMarkdownParser(
@@ -211,6 +216,10 @@ extension StructuredText {
     )
     self.backgroundMarkdownBaseURL = baseURL
     self.parsesMarkdownInBackground = syntaxExtensions.isEmpty
+    if renderImmediately, let parsed = try? parser.attributedString(for: markdown) {
+      self._attributedString = State(initialValue: parsed)
+      self._parsedMarkup = State(initialValue: markdown)
+    }
   }
 }
 

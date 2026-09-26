@@ -1,7 +1,16 @@
-export const DASHBOARD_THEME_STORAGE_KEY = "sloppy_dashboard_theme";
-export const DASHBOARD_ACCENT_STORAGE_KEY = "sloppy_accent_color";
+export const DASHBOARD_THEME_STORAGE_KEY = "sloppy_dashboard_theme_v2";
+export const DASHBOARD_ACCENT_STORAGE_KEY = "sloppy_accent_color_v2";
+const LEGACY_DASHBOARD_ACCENT_STORAGE_KEY = "sloppy_accent_color";
 
 export const DASHBOARD_THEMES = [
+  {
+    id: "minimal",
+    name: "Minimal",
+    description: "A monochrome workspace with clear navigation and quiet surfaces.",
+    colorScheme: "dark",
+    defaultAccent: "#f5f5f5",
+    preview: ["#050505", "#151515", "#f5f5f5"]
+  },
   {
     id: "brutalist",
     name: "Brutalist",
@@ -23,7 +32,7 @@ export const DASHBOARD_THEMES = [
 export type DashboardThemeId = (typeof DASHBOARD_THEMES)[number]["id"];
 export type DashboardTheme = (typeof DASHBOARD_THEMES)[number];
 
-export const DEFAULT_DASHBOARD_THEME: DashboardThemeId = "brutalist";
+export const DEFAULT_DASHBOARD_THEME: DashboardThemeId = "minimal";
 
 export function isDashboardThemeId(value: unknown): value is DashboardThemeId {
   return DASHBOARD_THEMES.some((theme) => theme.id === value);
@@ -79,6 +88,12 @@ export function resolveDashboardAccent(themeId: DashboardThemeId): string {
     const storedAccent = window.localStorage.getItem(DASHBOARD_ACCENT_STORAGE_KEY);
     if (isValidAccentColor(storedAccent)) {
       return storedAccent.trim();
+    }
+    if (themeId !== "minimal") {
+      const legacyAccent = window.localStorage.getItem(LEGACY_DASHBOARD_ACCENT_STORAGE_KEY);
+      if (isValidAccentColor(legacyAccent)) {
+        return legacyAccent.trim();
+      }
     }
   } catch {
     // Continue with the deploy-time or theme default accent.

@@ -9,6 +9,63 @@ import Testing
 @Suite("Workspace dock rendering", .serialized)
 @MainActor
 struct WorkspaceDockRenderingTests {
+    @Test func middleClickClosesSideTabsAndRevealsTerminalBrowserPicker() async throws {
+        let state = WorkspaceDockState()
+        state.open(.sideChat)
+        state.open(.browser)
+        let host = NSHostingView(rootView:
+            WorkspaceDockView(state: state, onOpen: { state.open($0) }) { tab in
+                Text(tab.title)
+            }
+            .environment(\.theme, .sloppyDark)
+            .preferredColorScheme(.dark)
+        )
+        let window = NSWindow(
+            contentRect: NSRect(x: 150, y: 150, width: 480, height: 320),
+            styleMask: [.titled],
+            backing: .buffered,
+            defer: false
+        )
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        try await Task.sleep(for: .milliseconds(150))
+        host.layoutSubtreeIfNeeded()
+
+        func descendants(of view: NSView) -> [NSView] {
+            view.subviews.flatMap { [$0] + descendants(of: $0) }
+        }
+
+        for _ in 0..<2 {
+            let tabID = try #require(state.tabs.first?.id)
+            let closeArea = try #require(descendants(of: host).compactMap {
+                $0 as? MiddleClickCloseNSView
+            }.first)
+            let cgEvent = try #require(CGEvent(
+                mouseEventSource: nil,
+                mouseType: .otherMouseUp,
+                mouseCursorPosition: .zero,
+                mouseButton: .center
+            ))
+            let event = try #require(NSEvent(cgEvent: cgEvent))
+            #expect(event.buttonNumber == 2)
+            closeArea.otherMouseUp(with: event)
+            try await Task.sleep(for: .milliseconds(50))
+            #expect(!state.tabs.contains(where: { $0.id == tabID }))
+        }
+
+        #expect(state.tabs.isEmpty)
+        #expect(state.isPresented)
+        #expect(state.selectedTab == nil)
+        if let directory = ProcessInfo.processInfo.environment["SLOPPY_DOCK_SCREENSHOTS"] {
+            host.layoutSubtreeIfNeeded()
+            let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+            let image = try #require(bitmap.representation(using: .png, properties: [:]))
+            try image.write(to: URL(fileURLWithPath: directory).appendingPathComponent("dock-empty-picker.png"))
+        }
+    }
+
     @Test func rendersTabsResizesAndKeepsBlankBrowserDark() async throws {
         let state = WorkspaceDockState()
         let browser = state.open(.browser)

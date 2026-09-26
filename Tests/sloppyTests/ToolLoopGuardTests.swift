@@ -24,8 +24,9 @@ struct ToolLoopGuardTests {
         guard case .allow = corrected else { Issue.record("Corrected arguments must be allowed"); return }
     }
 
-    private func makeService() -> CoreService {
-        let config = CoreConfig.test
+    private func makeService(disableToolBudgetAndLoopGuard: Bool = false) -> CoreService {
+        var config = CoreConfig.test
+        config.experimentalFlags.disableToolBudgetAndLoopGuard = disableToolBudgetAndLoopGuard
         return CoreService(config: config,
             nodeConfigStore: NodeConfigStore(configURL: URL(fileURLWithPath: config.sqlitePath + ".node.json")), sharedSkillsRootURLs: [])
     }
@@ -71,6 +72,43 @@ struct ToolLoopGuardTests {
             recordSessionEvents: false
         )
         #expect(unrelated.ok == true)
+    }
+
+    @Test("experimental flag allows repeated runtime.exec calls in agent sessions")
+    func experimentalFlagAllowsRepeatedSessionExec() async throws {
+        let service = makeService(disableToolBudgetAndLoopGuard: true)
+        let agentID = "unguarded-exec-\(UUID().uuidString)"
+        let sessionID = try await makeAgentSession(service: service, agentID: agentID)
+        let request = ToolInvocationRequest(tool: "runtime.exec", arguments: ["command": .string("/usr/bin/true")])
+
+        for _ in 0..<3 {
+            let result = await service.invokeToolFromRuntime(
+                agentID: agentID,
+                sessionID: sessionID,
+                request: request,
+                recordSessionEvents: false
+            )
+            #expect(result.ok)
+        }
+    }
+
+    @Test("experimental flag allows repeated runtime.exec calls in channels")
+    func experimentalFlagAllowsRepeatedChannelExec() async throws {
+        let service = makeService(disableToolBudgetAndLoopGuard: true)
+        let agentID = "unguarded-channel-\(UUID().uuidString)"
+        _ = try await service.createAgent(
+            AgentCreateRequest(id: agentID, displayName: "Channel Agent", role: "Testing tool calls")
+        )
+        let request = ToolInvocationRequest(tool: "runtime.exec", arguments: ["command": .string("/usr/bin/true")])
+
+        for _ in 0..<3 {
+            let result = await service.invokeToolFromChannelRuntime(
+                agentID: agentID,
+                channelID: "channel:unguarded:\(agentID)",
+                request: request
+            )
+            #expect(result.ok)
+        }
     }
 
     @Test("third identical runtime.process start call is blocked")
@@ -359,5 +397,37 @@ struct ToolLoopGuardTests {
 
         #expect(blocked.ok == false)
         #expect(blocked.error?.code == "tool_loop_detected")
+    }
+
+    @Test("experimental flag allows another command after repeated runtime.exec timeouts")
+    func experimentalFlagAllowsExecAfterTimeouts() async throws {
+        let service = makeService(disableToolBudgetAndLoopGuard: true)
+        let agentID = "unguarded-timeout-\(UUID().uuidString)"
+        let sessionID = try await makeAgentSession(service: service, agentID: agentID)
+
+        for _ in 0..<2 {
+            let result = await service.invokeToolFromRuntime(
+                agentID: agentID,
+                sessionID: sessionID,
+                request: ToolInvocationRequest(
+                    tool: "runtime.exec",
+                    arguments: [
+                        "command": .string("/bin/sleep"),
+                        "arguments": .array([.string("10")]),
+                        "timeoutMs": .number(250)
+                    ]
+                ),
+                recordSessionEvents: false
+            )
+            #expect(result.error?.code == "tool_timeout")
+        }
+
+        let next = await service.invokeToolFromRuntime(
+            agentID: agentID,
+            sessionID: sessionID,
+            request: ToolInvocationRequest(tool: "runtime.exec", arguments: ["command": .string("/usr/bin/true")]),
+            recordSessionEvents: false
+        )
+        #expect(next.ok)
     }
 }

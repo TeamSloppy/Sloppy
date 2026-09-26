@@ -337,6 +337,18 @@ public struct ChatSessionSummary: Codable, Sendable, Equatable, Identifiable {
         guard let sourceInstanceID else { return id }
         return InstanceScopedID(instanceID: sourceInstanceID, localID: id).description
     }
+
+    public func project(
+        in projects: [APIProjectRecord],
+        defaultSourceInstanceID: String? = nil
+    ) -> APIProjectRecord? {
+        guard let projectId else { return nil }
+        let sessionInstanceID = sourceInstanceID ?? defaultSourceInstanceID
+        return projects.first { project in
+            project.id == projectId
+                && (project.sourceInstanceID ?? defaultSourceInstanceID) == sessionInstanceID
+        }
+    }
 }
 
 public enum ChatSessionCatalog {
@@ -538,6 +550,36 @@ public enum ChatModelSelection {
             return nil
         }
         return normalized
+    }
+}
+
+public enum ChatRunStatusPresentation {
+    public static func label(
+        status: ChatRunStatusEvent?,
+        isStopping: Bool,
+        isSending: Bool,
+        isAutomaticModelSelection: Bool,
+        availableModels: [ChatModelOption]
+    ) -> String {
+        if isStopping {
+            return "Stopping"
+        }
+
+        let normalizedLabel = status?.label.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base: String
+        if let normalizedLabel, !normalizedLabel.isEmpty {
+            base = normalizedLabel
+        } else {
+            base = isSending ? "Processing" : "Thinking"
+        }
+        guard isAutomaticModelSelection,
+              let modelID = status?.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !modelID.isEmpty else {
+            return base
+        }
+
+        let title = availableModels.first(where: { $0.id == modelID })?.title ?? modelID
+        return "\(base) · \(title)"
     }
 }
 

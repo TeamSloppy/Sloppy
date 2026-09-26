@@ -61,7 +61,7 @@ extension MainView {
                 .allowsHitTesting(false)
 
                 Button("") {
-                    viewModel.closeActiveTab()
+                    viewModel.closeActivePanelTabOrMainTab()
                 }
                 .keyboardShortcut("w", modifiers: [.command])
                 .opacity(0.001)
