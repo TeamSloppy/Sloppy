@@ -90,6 +90,15 @@ test("disabling legacy auth clears the legacy token", async () => {
   assert.equal(auth.isDashboardAuthTokenPersisted(), false);
 });
 
+test("config saves work on a Console-bound Core", async () => {
+  auth.setDashboardAuthToken("old-token", { persist: true });
+  const config = { ui: { dashboardAuth: { enabled: true, token: "old-token" } } };
+  const requests = mockServer({ mode: "console", savedConfig: config });
+  assert.deepEqual(await api.updateRuntimeConfig(config), config);
+  assert.equal(auth.getDashboardAuthToken(), "old-token");
+  assert.equal(requests.filter((request) => request.path === "/v1/config").length, 1);
+});
+
 test("failed save keeps the current credentials", async () => {
   auth.setDashboardAuthToken("old-token", { persist: true });
   mockServer({ mode: "token", saveStatus: 500 });
