@@ -47,3 +47,6 @@ logs/
 Derived/
 *.xcodeproj
 *.xcworkspace
+
+# Claude Code local state and worktrees
+.claude/
