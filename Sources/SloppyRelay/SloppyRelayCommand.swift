@@ -93,6 +93,19 @@ private struct RelayServeCommand: AsyncParsableCommand {
             while !Task.isCancelled { try? await Task.sleep(for: .seconds(30)); await coordinator.expireConsoleConnections() }
         }
         defer { expirationTask.cancel() }
+        let metricsTask = Task {
+            let log = Logger(label: "sloppy.managed-relay.metrics")
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                let m = await coordinator.metrics()
+                log.info("relay.metrics", metadata: [
+                    "active_sessions": .stringConvertible(m.activeSessions), "hosts_online": .stringConvertible(m.hostsOnline),
+                    "routed": .stringConvertible(m.routedEnvelopes), "auth_failures": .stringConvertible(m.authFailures),
+                    "cross_tenant_denials": .stringConvertible(m.crossTenantDenials),
+                ])
+            }
+        }
+        defer { metricsTask.cancel() }
         let databaseTask = Task { await store.client.run() }
         defer { databaseTask.cancel() }
         if authority == nil && !skipMigrations { try await store.migrate() }

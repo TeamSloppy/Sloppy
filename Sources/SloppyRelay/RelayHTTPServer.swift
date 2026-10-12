@@ -550,6 +550,15 @@ private final class RelayWebSocketHandler: ChannelInboundHandler, @unchecked Sen
     private let authorization: String
     private var identity: (deviceID: UUID, connectionID: UUID)?
     private var pendingFrameTask: Task<Void, Never>?
+    // Ping/pong keepalive. Clients answer pings and send their own, so any
+    // inbound frame proves liveness; a silent socket is closed and detached
+    // so the device is not reported online (and routed to) while unreachable.
+    private static let pingInterval = TimeAmount.seconds(20)
+    private static let deadAfter = TimeAmount.seconds(50)
+    private var lastInbound = NIODeadline.now()
+    private var keepalive: RepeatedTask?
+    private let logger = Logger(label: "sloppy.managed-relay.ws")
+    private let openedAt = NIODeadline.now()
 
     init(coordinator: ManagedRelayCoordinator, authorization: String) {
         self.coordinator = coordinator
@@ -559,6 +568,19 @@ private final class RelayWebSocketHandler: ChannelInboundHandler, @unchecked Sen
     func handlerAdded(context: ChannelHandlerContext) {
         let token = String(authorization.dropFirst(7))
         let handle = RelayChannelHandle(context)
+        lastInbound = .now()
+        keepalive = context.eventLoop.scheduleRepeatedTask(initialDelay: Self.pingInterval, delay: Self.pingInterval) { [weak self] task in
+            guard let self, context.channel.isActive else { task.cancel(); return }
+            if .now() - self.lastInbound > Self.deadAfter {
+                task.cancel()
+                self.logger.warning("relay.ws.ping_timeout", metadata: ["device": .string(self.identity?.deviceID.uuidString ?? "unattached")])
+                context.close(promise: nil)
+                return
+            }
+            context.writeAndFlush(self.wrapOutboundOut(WebSocketFrame(
+                fin: true, opcode: .ping, data: context.channel.allocator.buffer(capacity: 0)
+            )), promise: nil)
+        }
         Task {
             do {
                 let attached = try await coordinator.attach(
@@ -567,10 +589,12 @@ private final class RelayWebSocketHandler: ChannelInboundHandler, @unchecked Sen
                     close: { await handle.close() }
                 )
                 await handle.onEventLoop { self.identity = attached }
+                logger.info("relay.ws.attached", metadata: ["device": .string(attached.deviceID.uuidString)])
                 if let ready = try? JSONEncoder().encode(RemoteRelayReadyFrame()) {
                     _ = await handle.sendWebSocket(ready)
                 }
             } catch {
+                logger.warning("relay.ws.attach_failed", metadata: ["error": .string(String(describing: error))])
                 await handle.close()
             }
         }
@@ -578,6 +602,8 @@ private final class RelayWebSocketHandler: ChannelInboundHandler, @unchecked Sen
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         let frame = unwrapInboundIn(data)
+        lastInbound = .now()
+        if frame.opcode == .pong { return }
         if frame.opcode == .ping {
             context.writeAndFlush(wrapOutboundOut(WebSocketFrame(
                 fin: true, opcode: .pong, data: frame.data
@@ -602,18 +628,43 @@ private final class RelayWebSocketHandler: ChannelInboundHandler, @unchecked Sen
                     connectionID: identity.connectionID
                 )
             } catch ManagedRelayError.hostOffline {
+                logger.info("relay.ws.host_offline", metadata: ["from": .string(identity.deviceID.uuidString), "to": .string(envelope.to.uuidString)])
                 if let response = try? JSONEncoder().encode(RemoteRelayControlFrame(
                     envelopeID: envelope.id, code: "host_offline"
                 )) {
                     _ = await handle.sendWebSocket(response)
                 }
             } catch {
+                logger.warning("relay.ws.route_rejected", metadata: ["from": .string(identity.deviceID.uuidString), "to": .string(envelope.to.uuidString), "code": .string(Self.errorCode(error)), "error": .string(String(describing: error))])
+                // Tell the sender why before closing; a silent close is
+                // indistinguishable from a network failure on the client.
+                if let response = try? JSONEncoder().encode(RemoteRelayControlFrame(
+                    envelopeID: envelope.id, code: Self.errorCode(error)
+                )) {
+                    _ = await handle.sendWebSocket(response)
+                }
                 await handle.close()
             }
         }
     }
 
+    private static func errorCode(_ error: any Error) -> String {
+        switch error as? ManagedRelayError {
+        case .unauthorized: "unauthorized"
+        case .forbidden: "forbidden"
+        case .replay: "replay"
+        case .crossSpaceRoute: "cross_space"
+        default: "route_failed"
+        }
+    }
+
+    func handlerRemoved(context: ChannelHandlerContext) { keepalive?.cancel(); keepalive = nil }
+
     func channelInactive(context: ChannelHandlerContext) {
+        keepalive?.cancel(); keepalive = nil
+        if let identity {
+            logger.info("relay.ws.closed", metadata: ["device": .string(identity.deviceID.uuidString), "uptime_s": .stringConvertible((NIODeadline.now() - openedAt).nanoseconds / 1_000_000_000)])
+        }
         pendingFrameTask?.cancel()
         pendingFrameTask = nil
         if let identity {

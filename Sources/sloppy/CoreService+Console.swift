@@ -13,25 +13,51 @@ extension CoreService {
         let remote = ConsoleRemoteConnection(deviceID: local.deviceID, signingPrivateKey: local.signingPrivateKey, identity: identity, relayURL: environment.relayURL, pins: [:])
         consoleRemoteConnection = remote
         await consoleModelBridge.configure(.init(remote: remote, cloud: console, store: store, identity: identity, local: local, binding: binding))
+        await remote.setEventHandler { [weak self] event in
+            guard let logger = self?.logger else { return }
+            switch event {
+            case .connecting: logger.info("console.relay.connecting")
+            case .connected(let ttl): logger.info("console.relay.connected", metadata: ["session_expires_in": .stringConvertible(Int(ttl))])
+            case .disconnected(let reason): logger.warning("console.relay.disconnected", metadata: ["reason": .string(reason)])
+            case .sessionRenewal: logger.info("console.relay.session_renewal")
+            case .relayError(let code, let peer): logger.warning("console.relay.error", metadata: ["code": .string(code), "peer": .string(peer.uuidString)])
+            case .peerReady(let peer): logger.info("console.relay.peer_ready", metadata: ["peer": .string(peer.uuidString)])
+            }
+        }
         await remote.setDisconnectHandler { [weak self] in await self?.consoleModelsDisconnected() }
         await remote.setHandler { [weak self] senderID, certificate, packet in
             guard let self else { return nil }
             return try await self.handleConsoleRemotePacket(senderID: senderID, certificate: certificate, packet: packet)
         }
         consoleRelayTask = Task { [weak self] in
+            // Trust sync and connect run every 30s while healthy, but a dropped
+            // socket is retried immediately and failures back off to 30s.
+            var nextAttempt = Date.distantPast
+            var backoff = 2.0
             while !Task.isCancelled {
-                do {
-                    let snapshot = try await console.trust(instanceID: binding.id)
-                    try await store.synchronize(snapshot)
-                    await self?.validateConsoleModelStreams()
-                    var pins: [UUID: Data] = [:]
-                    for device in snapshot.devices where device.status == .active {
-                        if snapshot.grants.contains(where: { $0.deviceID == device.id && $0.status == .active && $0.certificateFingerprint == ConsoleTrust.fingerprint(device.certificateDER) }) { pins[device.id] = device.certificateDER }
+                if Date() >= nextAttempt {
+                    do {
+                        let snapshot = try await console.trust(instanceID: binding.id)
+                        try await store.synchronize(snapshot)
+                        await self?.validateConsoleModelStreams()
+                        var pins: [UUID: Data] = [:]
+                        for device in snapshot.devices where device.status == .active {
+                            if snapshot.grants.contains(where: { $0.deviceID == device.id && $0.status == .active && $0.certificateFingerprint == ConsoleTrust.fingerprint(device.certificateDER) }) { pins[device.id] = device.certificateDER }
+                        }
+                        try await self?.consoleModelBridge.refreshPins(pins)
+                        try await remote.connect()
+                        backoff = 2
+                        nextAttempt = Date().addingTimeInterval(30)
+                    } catch {
+                        self?.logger.warning("console.relay.connect.failed", metadata: ["error": .string(String(describing: error)), "retry_in": .stringConvertible(backoff)])
+                        await remote.disconnect()
+                        nextAttempt = Date().addingTimeInterval(backoff)
+                        backoff = min(backoff * 2, 30)
                     }
-                    try await self?.consoleModelBridge.refreshPins(pins)
-                    try await remote.connect()
-                } catch { await remote.disconnect() }
-                try? await Task.sleep(for: .seconds(30))
+                } else if !(await remote.isConnected) {
+                    nextAttempt = Date()
+                }
+                try? await Task.sleep(for: .seconds(2))
             }
             await remote.disconnect()
             await self?.consoleRelayStopped()

@@ -68,17 +68,41 @@ private final class UpgradeRequestHandler: ChannelInboundHandler, RemovableChann
 
 final class RelayFrameHandler: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = WebSocketFrame
+    /// Ping/pong keepalive: any inbound frame (data, ping or pong) proves the
+    /// path is alive. Proxies and NATs drop idle sockets silently, so a quiet
+    /// link is probed and declared dead when nothing arrives in time.
+    static let pingInterval = TimeAmount.seconds(20)
+    static let deadAfter = TimeAmount.seconds(50)
     private let continuation: AsyncThrowingStream<Data, any Error>.Continuation
     private var ready: EventLoopPromise<Void>?
+    private var lastInbound = NIODeadline.now()
+    private var keepalive: RepeatedTask?
     init(continuation: AsyncThrowingStream<Data, any Error>.Continuation, ready: EventLoopPromise<Void>) {
         self.continuation = continuation; self.ready = ready
     }
+    func handlerAdded(context: ChannelHandlerContext) {
+        lastInbound = .now()
+        keepalive = context.eventLoop.scheduleRepeatedTask(initialDelay: Self.pingInterval, delay: Self.pingInterval) { [weak self] task in
+            guard let self else { task.cancel(); return }
+            guard context.channel.isActive else { task.cancel(); return }
+            if .now() - self.lastInbound > Self.deadAfter {
+                task.cancel()
+                self.failReadiness(RemoteTLSError.closed)
+                self.continuation.finish(throwing: RemoteTLSError.closed)
+                context.close(promise: nil)
+                return
+            }
+            context.writeAndFlush(NIOAny(WebSocketFrame(fin: true, opcode: .ping, maskKey: .random(), data: context.channel.allocator.buffer(capacity: 0))), promise: nil)
+        }
+    }
+    func handlerRemoved(context: ChannelHandlerContext) { keepalive?.cancel(); keepalive = nil }
     func failReadiness(_ error: any Error) {
         let promise = ready; ready = nil
         promise?.fail(error)
     }
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         let frame = unwrapInboundIn(data)
+        lastInbound = .now()
         switch frame.opcode {
         case .text, .binary:
             guard frame.fin else { failReadiness(RemoteTLSError.invalidFrame); continuation.finish(throwing: RemoteTLSError.invalidFrame); context.close(promise: nil); return }
@@ -94,6 +118,6 @@ final class RelayFrameHandler: ChannelInboundHandler, @unchecked Sendable {
         default: break
         }
     }
-    func channelInactive(context: ChannelHandlerContext) { failReadiness(RemoteTLSError.closed); continuation.finish() }
+    func channelInactive(context: ChannelHandlerContext) { keepalive?.cancel(); failReadiness(RemoteTLSError.closed); continuation.finish() }
     func errorCaught(context: ChannelHandlerContext, error: any Error) { failReadiness(error); continuation.finish(throwing: error); context.close(promise: nil) }
 }

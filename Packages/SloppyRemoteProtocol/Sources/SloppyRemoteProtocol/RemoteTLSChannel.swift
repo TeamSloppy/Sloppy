@@ -11,7 +11,7 @@ public struct RemoteTLSResult: Sendable {
     public var handshakeComplete: Bool
 }
 
-public enum RemoteTLSError: Error, Sendable { case invalidPeer, handshakeIncomplete, oversizedMessage, closed, invalidFrame }
+public enum RemoteTLSError: Error, Sendable { case invalidPeer, handshakeIncomplete, oversizedMessage, closed, invalidFrame, hostOffline, relayRejected }
 
 extension RemoteTLSError: LocalizedError {
     public var errorDescription: String? {
@@ -21,6 +21,8 @@ extension RemoteTLSError: LocalizedError {
         case .oversizedMessage: "The Sloppy response exceeded the connection limit. Try loading it again."
         case .closed: "The connection to your Sloppy host was interrupted. Try again."
         case .invalidFrame: "The secure Sloppy connection received an invalid response. Reconnect and try again."
+        case .hostOffline: "Your Sloppy host is offline. Make sure Sloppy is running on it and connected to the Relay."
+        case .relayRejected: "The Relay rejected the request. Reconnect this device to your Sloppy host and try again."
         }
     }
 }

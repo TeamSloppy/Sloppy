@@ -5,6 +5,17 @@ import SloppyConsoleProtocol
 import FoundationNetworking
 #endif
 
+/// Connection lifecycle, reported so owners can log relay state without this
+/// package depending on a logging backend.
+public enum ConsoleRemoteEvent: Sendable {
+    case connecting
+    case connected(sessionExpiresIn: TimeInterval)
+    case disconnected(reason: String)
+    case sessionRenewal
+    case relayError(code: String, peerID: UUID)
+    case peerReady(UUID)
+}
+
 public struct ConsoleRemotePacket: Codable, Sendable {
     public var kind: String
     public var payload: Data
@@ -48,12 +59,19 @@ public actor ConsoleRemoteConnection {
         let task: Task<Void, any Error>
     }
     private var pendingSends: [UUID: PendingSend] = [:]
+    /// Relay error frames name only the rejected envelope, so remember which
+    /// peer each recent envelope was addressed to.
+    private var envelopePeers: [UUID: UUID] = [:]
+    private var envelopeOrder: [UUID] = []
+    private var peerFailures: [UUID: RemoteTLSError] = [:]
     private let transportFactory: @Sendable () -> any ConsoleRemoteTransport
     private let authenticateDevice: (@Sendable () async throws -> ManagedDeviceSession)?
     private var receiveTask: Task<Void, Never>?
     private var expiryTask: Task<Void, Never>?
     private var handler: PacketHandler?
     private var disconnectHandler: (@Sendable () async -> Void)?
+    private var eventHandler: (@Sendable (ConsoleRemoteEvent) -> Void)?
+    private var closeReason = "local_disconnect"
     public init(deviceID: UUID, signingPrivateKey: Data, identity: RemoteTLSIdentity, relayURL: URL, pins: [UUID: Data]) {
         self.deviceID = deviceID; self.signingPrivateKey = signingPrivateKey; self.identity = identity; self.relayURL = relayURL; self.pins = pins
         self.transportFactory = { RelayWebSocketConnection() }
@@ -64,6 +82,8 @@ public actor ConsoleRemoteConnection {
         self.transportFactory = transportFactory
         self.authenticateDevice = authenticateDevice
     }
+    public var isConnected: Bool { socket != nil }
+    public func setEventHandler(_ handler: @escaping @Sendable (ConsoleRemoteEvent) -> Void) { eventHandler = handler }
     public func setHandler(_ handler: @escaping PacketHandler) { self.handler = handler }
     public func setDisconnectHandler(_ handler: @escaping @Sendable () async -> Void) { disconnectHandler = handler }
     public func updatePins(_ pins: [UUID: Data]) async {
@@ -102,23 +122,31 @@ public actor ConsoleRemoteConnection {
         }
         try Task.checkCancellation()
         guard session.device.id == deviceID, session.device.signingPublicKey == identity.signingPublicKey else { throw RemoteTLSError.invalidPeer }
+        eventHandler?(.connecting)
         let socket = transportFactory(); try await socket.connect(url: relayURL, token: session.token)
         do { try Task.checkCancellation() }
         catch { await socket.close(); throw error }
         let connectionID = UUID()
         self.socket = socket
         socketID = connectionID
+        closeReason = "local_disconnect"
+        eventHandler?(.connected(sessionExpiresIn: session.expiresAt.timeIntervalSinceNow))
         receiveTask = Task { [weak self] in
-            do { for try await data in socket.messages { try await self?.receive(data) } } catch {}
-            await self?.disconnect(ifCurrent: connectionID)
+            var reason = "relay_closed"
+            do { for try await data in socket.messages { try await self?.receive(data) } }
+            catch { reason = "error: \(error)" }
+            await self?.disconnect(ifCurrent: connectionID, reason: reason)
         }
         expiryTask = Task { [weak self] in
-            let delay = max(1, min(session.expiresAt.timeIntervalSinceNow, 300))
-            try? await Task.sleep(for: .seconds(delay)); if !Task.isCancelled { await self?.disconnect(ifCurrent: connectionID) }
+            // Renew a minute before the Relay session expires: a router drops a
+            // destination whose token has lapsed, which looks like "host offline".
+            let delay = max(1, session.expiresAt.timeIntervalSinceNow - 60)
+            try? await Task.sleep(for: .seconds(delay)); if !Task.isCancelled { await self?.disconnect(ifCurrent: connectionID, reason: "session_renewal") }
         }
     }
-    private func disconnect(ifCurrent id: UUID) async {
+    private func disconnect(ifCurrent id: UUID, reason: String) async {
         guard socketID == id else { return }
+        closeReason = reason
         await disconnect()
     }
     public func disconnect() async {
@@ -127,8 +155,8 @@ public actor ConsoleRemoteConnection {
         for send in pendingSends.values { send.task.cancel() }; pendingSends.removeAll()
         receiveTask?.cancel(); receiveTask = nil; expiryTask?.cancel(); expiryTask = nil
         let previous = socket; socket = nil
-        let previousPeers = peers; peers.removeAll()
-        if previous != nil { await disconnectHandler?() }
+        let previousPeers = peers; peers.removeAll(); peerFailures.removeAll(); envelopePeers.removeAll(); envelopeOrder.removeAll()
+        if previous != nil { eventHandler?(.disconnected(reason: closeReason)); closeReason = "local_disconnect"; await disconnectHandler?() }
         await previous?.close()
         for peer in previousPeers.values { await peer.tls.close() }
     }
@@ -164,6 +192,7 @@ public actor ConsoleRemoteConnection {
         let deadline = Date().addingTimeInterval(15)
         while peers[peerID]?.ready != true {
             try Task.checkCancellation()
+            if let failure = peerFailures.removeValue(forKey: peerID) { throw failure }
             guard socket != nil, peers[peerID] != nil, Date() < deadline else { throw RemoteTLSError.handshakeIncomplete }
             try await Task.sleep(for: .milliseconds(20))
         }
@@ -174,7 +203,11 @@ public actor ConsoleRemoteConnection {
         // The Relay envelope uses Foundation's default date representation;
         // ConsoleWire is only for the opaque TLS frame and inner packet.
         let decoder = JSONDecoder()
-        guard let envelope = try? decoder.decode(RemoteSealedEnvelope.self, from: data) else { return } // relay_ready/control
+        if let control = try? decoder.decode(RemoteRelayControlFrame.self, from: data), control.type == "relay_error" {
+            await handleRelayError(control)
+            return
+        }
+        guard let envelope = try? decoder.decode(RemoteSealedEnvelope.self, from: data) else { return } // relay_ready
         guard envelope.kind == RemoteTLSFrame.kind, envelope.to == deviceID,
               let certificate = pins[envelope.from] else { throw RemoteTLSError.invalidPeer }
         let frame = try ConsoleWire.decode(RemoteTLSFrame.self, from: envelope.ciphertext)
@@ -194,11 +227,19 @@ public actor ConsoleRemoteConnection {
         peer.received += 1; peers[frame.from] = peer
         let result = try await peer.tls.receive(frame.records)
         try await emit(result, to: frame.from)
-        if result.handshakeComplete { peers[frame.from]?.ready = true }
+        if result.handshakeComplete { peers[frame.from]?.ready = true; eventHandler?(.peerReady(frame.from)) }
         for message in result.messages {
             let packet = try ConsoleWire.decode(ConsoleRemotePacket.self, from: message)
             if let reply = try await handler?(frame.from, certificate, packet) { try await send(reply, to: frame.from) }
         }
+    }
+    private func handleRelayError(_ control: RemoteRelayControlFrame) async {
+        guard let peerID = envelopePeers[control.envelopeID] else { return }
+        eventHandler?(.relayError(code: control.code, peerID: peerID))
+        peerFailures[peerID] = control.code == "host_offline" ? .hostOffline : .relayRejected
+        // The peer never saw this TLS flight, so its session cannot continue.
+        if let peer = peers.removeValue(forKey: peerID) { await peer.tls.close() }
+        pendingSends.removeValue(forKey: peerID)?.task.cancel()
     }
     private func emit(_ result: RemoteTLSResult, to peerID: UUID) async throws {
         guard let socket else { throw RemoteTLSError.closed }
@@ -220,6 +261,8 @@ public actor ConsoleRemoteConnection {
             let frame = RemoteTLSFrame(sessionID: peer.sessionID, sequence: peer.sent, from: deviceID, to: peerID, records: record)
             peer.sent += 1; peers[peerID] = peer
             let envelope = RemoteSealedEnvelope(from: deviceID, to: peerID, kind: RemoteTLSFrame.kind, ciphertext: try ConsoleWire.encode(frame))
+            envelopePeers[envelope.id] = peerID; envelopeOrder.append(envelope.id)
+            if envelopeOrder.count > 256 { envelopePeers[envelopeOrder.removeFirst()] = nil }
             try await socket.send(JSONEncoder().encode(envelope))
         }
     }
