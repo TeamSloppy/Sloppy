@@ -65,6 +65,9 @@ final class SloppyACPServerDelegate: AgentDelegate, @unchecked Sendable {
         )
         do {
             _ = try await service.getAgent(id: agentID)
+            // Standalone ACP does not start gateway plugins, which normally load the
+            // authenticated catalog and its context windows before model execution.
+            await service.refreshOAuthModelCacheIfNeeded()
             let response = InitializeResponse(
                 protocolVersion: 1,
                 agentCapabilities: AgentCapabilities(

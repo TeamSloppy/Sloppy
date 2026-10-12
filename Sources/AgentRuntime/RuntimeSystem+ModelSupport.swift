@@ -131,7 +131,7 @@ extension RuntimeSystem {
         transcript: Transcript? = nil
     ) async -> ContextLedgerSnapshot {
         let fallbackWindow = await channels.configuredContextWindowTokens()
-        let limits = activeModel.flatMap { modelProvider.contextLimits(for: $0) }
+        let limits = activeModel.flatMap { resolvedContextLimits(for: $0, provider: modelProvider) }
         let contextWindowTokens = limits.map { min($0.contextWindowTokens, $0.maxInputTokens ?? $0.contextWindowTokens) } ?? fallbackWindow
         let builder = ContextLedgerBuilder(
             estimator: TokenPressureEstimator(contextWindowTokens: contextWindowTokens)
@@ -169,11 +169,9 @@ extension RuntimeSystem {
             modelProvider: modelProvider,
             includeTools: includeTools
         )
-        let toolSchemaTokens = tools.reduce(0) { partial, tool in
-            partial
-                + builder.estimateTextTokens(tool.name)
-                + builder.estimateTextTokens(tool.description)
-        }
+        let definitions = tools.filter(\.includesSchemaInInstructions).map { Transcript.ToolDefinition(tool: $0) }
+        let schemas = (try? JSONEncoder().encode(definitions)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
+        let toolSchemaTokens = definitions.isEmpty ? 0 : builder.estimateTextTokens(schemas)
         if toolSchemaTokens > 0 {
             entries.append(
                 ContextLedgerEntry(

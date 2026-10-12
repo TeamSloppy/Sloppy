@@ -1,3 +1,4 @@
+@testable import AgentRuntime
 import Foundation
 #if canImport(FoundationNetworking)
 import FoundationNetworking
@@ -705,7 +706,8 @@ func availableAgentModelsIncludesCachedOpenAIOAuthCatalog() async throws {
             id: "gpt-5.5",
             title: "GPT-5.5",
             contextWindow: "272K",
-            capabilities: ["tools"]
+            capabilities: ["tools"],
+            contextWindowTokens: 272_000
         )
     ])
 
@@ -713,6 +715,10 @@ func availableAgentModelsIncludesCachedOpenAIOAuthCatalog() async throws {
     let cached = models.first { $0.id == "openai-oauth:gpt-5.5" }
     #expect(cached?.title == "GPT-5.5")
     #expect(cached?.contextWindow == "272K")
+    #expect(cached?.contextWindowTokens == 272_000)
+    #expect(await service.runtime.catalogContextLimitsByModel["openai-oauth:gpt-5.5"]?.contextWindowTokens == 272_000)
+    await service.refreshModelProviderAfterCredentialChange()
+    #expect(await service.runtime.catalogContextLimitsByModel["openai-oauth:gpt-5.5"]?.contextWindowTokens == 272_000)
 }
 
 @Test
@@ -1088,4 +1094,17 @@ func sloppyExtraCertificateAuthorityExtractsMultiplePEMCertificates() {
     let certificates = SloppyExtraCertificateAuthority.certificateData(fromPEM: pem)
 
     #expect(certificates == [Data([0x01, 0x02, 0x03]), Data([0x04, 0x05, 0x06])])
+}
+
+@Test func contextLedgerCountsCompleteNativeToolSchemas() async throws {
+    let tools = ToolRegistry.makeDefault().allTools.map { $0 as any Tool }
+    let provider = CompositeModelProvider(providers: [], tools: tools)
+    let runtime = RuntimeSystem(modelProvider: provider)
+    let definitions = ModelToolNameSanitizer.sanitizeTools(tools).tools.filter(\.includesSchemaInInstructions).map { Transcript.ToolDefinition(tool: $0) }
+    let schemaText = String(decoding: try JSONEncoder().encode(definitions), as: UTF8.self)
+    let ledger = await runtime.makeContextLedgerSnapshot(channelId: "schema-accounting", userMessage: "hello", modelProvider: provider,
+        includeTools: true, maxOutputTokens: 1024, activeModel: "test:catalog")
+    let entry = try #require(ledger.entries.first { $0.category == .toolsSchema })
+    #expect(entry.estimatedTokens == TokenPressureEstimator().estimateTextTokens(schemaText))
+    #expect(entry.estimatedTokens > tools.reduce(0) { $0 + TokenPressureEstimator().estimateTextTokens($1.description) })
 }

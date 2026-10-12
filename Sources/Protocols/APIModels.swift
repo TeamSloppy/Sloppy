@@ -5507,17 +5507,21 @@ public struct ProviderModelOption: Codable, Sendable, Equatable {
     public var title: String
     public var contextWindow: String?
     public var capabilities: [String]
+    /// Exact provider-reported window; the display label may be rounded.
+    public var contextWindowTokens: Int?
 
     public init(
         id: String,
         title: String,
         contextWindow: String? = nil,
-        capabilities: [String] = []
+        capabilities: [String] = [],
+        contextWindowTokens: Int? = nil
     ) {
         self.id = id
         self.title = title
         self.contextWindow = contextWindow
         self.capabilities = capabilities
+        self.contextWindowTokens = contextWindowTokens
     }
 }
 

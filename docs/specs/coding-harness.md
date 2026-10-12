@@ -79,6 +79,8 @@ Items 1–5 are implemented. Context and recovery checks are being validated in 
 
 ## Model-visible context and compaction
 
+Standalone ACP warms the authenticated OAuth model catalog before executing a session. Exact provider-reported context windows flow into runtime budgeting and pressure accounting; rounded display labels are not token limits. Explicit model configuration limits take priority. Provider refreshes reapply cached catalog windows, and schema accounting includes complete parameter definitions. Nested provider groups delegate dynamic model support to their children.
+
 - Persisted JSONL remains the complete audit history. Only the SDK transcript copy
   sent to the model is transformed.
 - Before a model turn, estimate instructions, tool schemas, transcript, current

@@ -170,6 +170,7 @@ public actor RuntimeSystem {
     let modelReconnectSleeper: @Sendable (Duration) async -> Void
     var modelProvider: (any ModelProvider)?
     var defaultModel: String?
+    var catalogContextLimitsByModel: [String: ModelContextLimits] = [:]
 
     struct CachedLanguageModelSession {
         var model: String
@@ -283,6 +284,7 @@ public actor RuntimeSystem {
     /// the new provider.
     public func updateModelProvider(modelProvider: (any ModelProvider)?, defaultModel: String?) {
         self.modelProvider = modelProvider
+        catalogContextLimitsByModel.removeAll()
         sessionsByChannel.removeAll()
         channelToolAllowList.removeAll()
         contextLedgerByChannel.removeAll()

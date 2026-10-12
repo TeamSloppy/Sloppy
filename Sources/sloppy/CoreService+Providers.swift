@@ -41,7 +41,7 @@ extension CoreService {
             do {
                 let models = try await openAIOAuthService.fetchModels()
                 if !models.isEmpty {
-                    cacheOAuthModels(models)
+                    await cacheOAuthModels(models)
                 }
                 return OpenAIProviderModelsResponse(
                     provider: "openai",
@@ -159,7 +159,7 @@ extension CoreService {
         if request.providerId == .openAIOAuth {
             let result = await openAIOAuthService.probe()
             if result.ok {
-                cacheOAuthModels(result.models)
+                await cacheOAuthModels(result.models)
             }
             return result
         }
@@ -364,7 +364,8 @@ extension CoreService {
                 id: option.id,
                 title: cached.title.isEmpty ? option.title : cached.title,
                 contextWindow: cached.contextWindow ?? option.contextWindow,
-                capabilities: cached.capabilities.isEmpty ? option.capabilities : cached.capabilities
+                capabilities: cached.capabilities.isEmpty ? option.capabilities : cached.capabilities,
+                contextWindowTokens: cached.contextWindowTokens ?? option.contextWindowTokens
             )
         }
 
@@ -376,7 +377,8 @@ extension CoreService {
                     id: id,
                     title: cached.title,
                     contextWindow: cached.contextWindow,
-                    capabilities: cached.capabilities
+                    capabilities: cached.capabilities,
+                    contextWindowTokens: cached.contextWindowTokens
                 )
             )
         }
@@ -389,17 +391,28 @@ extension CoreService {
         return String(id[id.index(after: idx)...])
     }
 
-    func cacheOAuthModels(_ models: [ProviderModelOption]) {
+    func cacheOAuthModels(_ models: [ProviderModelOption]) async {
         for model in models {
             oauthModelCache[model.id] = model
         }
+        await applyOAuthCatalogContextLimits()
+    }
+
+    func applyOAuthCatalogContextLimits() async {
+        var limits: [String: ModelContextLimits] = [:]
+        for model in oauthModelCache.values {
+            guard let window = model.contextWindowTokens, window > 0 else { continue }
+            let id = model.id.hasPrefix("openai-oauth:") ? model.id : "openai-oauth:\(model.id)"
+            limits[id] = ModelContextLimits(contextWindowTokens: window)
+        }
+        await runtime.setCatalogContextLimits(limits)
     }
 
     func refreshOAuthModelCacheIfNeeded() async {
         guard openAIOAuthService.currentAccessToken() != nil else { return }
         do {
             let models = try await openAIOAuthService.fetchModels()
-            cacheOAuthModels(models)
+            await cacheOAuthModels(models)
         } catch {
             logger.debug(
                 "oauth_model_cache.refresh_failed",

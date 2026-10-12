@@ -4,13 +4,17 @@ import PluginSDK
 import Protocols
 
 extension RuntimeSystem {
+    func resolvedContextLimits(for model: String, provider: any ModelProvider) -> ModelContextLimits? {
+        provider.contextLimits(for: model) ?? catalogContextLimitsByModel[model]
+    }
+
     func prepareModelContext(
         channelId: String, session: LanguageModelSession, activeModel: String,
         provider: any ModelProvider, userMessage: String, maxOutputTokens: Int,
         forceSummary: Bool = false
     ) async throws -> LanguageModelSession {
         guard contextConfiguration.enabled else { return session }
-        let limits = provider.contextLimits(for: activeModel) ?? ModelContextLimits(contextWindowTokens: contextConfiguration.contextWindowTokens)
+        let limits = resolvedContextLimits(for: activeModel, provider: provider) ?? ModelContextLimits(contextWindowTokens: contextConfiguration.contextWindowTokens)
         let promptTokens = TokenPressureEstimator().estimateTextTokens(userMessage)
         let budget = max(0, limits.inputBudget(reserving: maxOutputTokens) - promptTokens - (imagesByChannel[channelId]?.count ?? 0) * 768 - 128)
         if session.transcript.isEmpty {
@@ -40,6 +44,11 @@ extension RuntimeSystem {
 }
 
 public extension RuntimeSystem {
+    /// Applies exact catalog windows without replacing explicit provider/config limits.
+    func setCatalogContextLimits(_ limits: [String: ModelContextLimits]) {
+        catalogContextLimitsByModel = limits
+    }
+
     func setChannelContextArchiver(channelId: String, archive: TranscriptContextManager.Archive?) { contextArchiversByChannel[channelId] = archive }
     func contextPreparationReport(channelId: String) -> TranscriptContextReport? { contextPreparationByChannel[channelId] }
 }

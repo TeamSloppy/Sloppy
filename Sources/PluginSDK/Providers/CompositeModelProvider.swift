@@ -51,7 +51,9 @@ public struct CompositeModelProvider: ModelProvider {
                 return match
             }
         }
-        return nil
+        // A factory may group API and OAuth endpoints inside another composite.
+        // Delegate dynamic model support rather than relying on the outer provider ID.
+        return providers.first(where: { $0.supports(modelName: modelName) })
     }
 
     public func supports(modelName: String) -> Bool {

@@ -78,6 +78,37 @@ struct TranscriptContextManagerTests {
         #expect(limits.outputReserve(4_000) == 2_000)
     }
 
+    @Test("Catalog windows admit protected startup context while explicit config limits still win")
+    func catalogWindow() async throws {
+        let capture = ContextRuntimeCapture()
+        let provider = ContextTestProvider(capture: capture, limits: nil)
+        let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "test:small", preResponseMemoryLimit: 0)
+        let session = LanguageModelSession(model: ContextTestLanguageModel(capture: capture), tools: [], instructions: String(repeating: "protected context ", count: 10_000))
+        do {
+            _ = try await runtime.prepareModelContext(channelId: "catalog", session: session, activeModel: "test:small", provider: provider, userMessage: "hello", maxOutputTokens: 1024)
+            Issue.record("The fallback 32K budget should reject this protected startup context")
+        } catch TranscriptContextError.protectedContextExceedsBudget {}
+        await runtime.setCatalogContextLimits(["test:small": .init(contextWindowTokens: 128_000)])
+        let prepared = try await runtime.prepareModelContext(channelId: "catalog", session: session, activeModel: "test:small", provider: provider, userMessage: "hello", maxOutputTokens: 1024)
+        #expect(prepared.transcript == session.transcript)
+        #expect(await capture.latest() == nil)
+        let configured = ContextTestProvider(capture: capture)
+        #expect(await runtime.resolvedContextLimits(for: "test:small", provider: configured)?.contextWindowTokens == 2_000)
+        await runtime.updateModelProvider(modelProvider: provider, defaultModel: "test:small")
+        #expect(await runtime.resolvedContextLimits(for: "test:small", provider: provider) == nil)
+    }
+
+    @Test("Pressure uses the selected catalog window rather than the fallback window")
+    func catalogPressure() {
+        let builder = ContextLedgerBuilder()
+        let ledger = builder.snapshot(channelId: "catalog", contextWindowTokens: 128_000, reservedOutputTokens: 1_024,
+            entries: [ContextLedgerEntry(category: .bootstrapStatic, label: "protected startup", estimatedTokens: 40_000, cachePolicy: .cacheable)])
+        let pressure = TokenPressureEstimator(contextWindowTokens: 32_000).estimate(messages: [], ledgerSnapshot: ledger)
+        #expect(pressure.tokens == 41_024)
+        #expect(pressure.utilization == ledger.utilization)
+        #expect(pressure.utilization < 0.4)
+    }
+
     @Test("Runtime applies the selected model budget before sending its recovered transcript")
     func runtimeIntegration() async throws {
         let capture = ContextRuntimeCapture()
@@ -103,9 +134,10 @@ private actor ContextRuntimeCapture {
 
 private struct ContextTestProvider: ModelProvider {
     let capture: ContextRuntimeCapture
+    var limits: ModelContextLimits? = .init(contextWindowTokens: 2_000, maxOutputTokens: 256)
     var id: String { "test" }
     var supportedModels: [String] { ["test:small"] }
-    func contextLimits(for modelName: String) -> ModelContextLimits? { .init(contextWindowTokens: 2_000, maxOutputTokens: 256) }
+    func contextLimits(for modelName: String) -> ModelContextLimits? { limits }
     func createLanguageModel(for modelName: String) async throws -> any LanguageModel { ContextTestLanguageModel(capture: capture) }
 }
 

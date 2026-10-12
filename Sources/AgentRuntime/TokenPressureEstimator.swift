@@ -44,8 +44,9 @@ public struct TokenPressureEstimator: Sendable, Equatable {
         ledgerSnapshot: ContextLedgerSnapshot? = nil
     ) -> ContextPressureEstimate {
         if let ledgerSnapshot {
-            return pressure(
+            return ContextPressureEstimate(
                 tokens: ledgerSnapshot.contextWindowUsedTokens + ledgerSnapshot.reservedOutputTokens,
+                utilization: ledgerSnapshot.utilization,
                 source: .contextLedger
             )
         }

@@ -661,7 +661,8 @@ struct OpenAIOAuthService: @unchecked Sendable {
                 id: item.id,
                 title: item.displayName ?? item.id,
                 contextWindow: Self.formatContextWindow(item.contextWindow),
-                capabilities: capabilities
+                capabilities: capabilities,
+                contextWindowTokens: item.contextWindow
             )
         }.sorted { $0.id < $1.id }
     }

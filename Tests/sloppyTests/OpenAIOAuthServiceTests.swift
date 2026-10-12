@@ -166,6 +166,7 @@ func openAIOAuthFetchModelsAcceptsModelsArrayPayload() async throws {
     let codexModel = models.first(where: { $0.id == "gpt-5.3-codex" })
     #expect(codexModel != nil)
     #expect(codexModel?.contextWindow == "1.0M")
+    #expect(codexModel?.contextWindowTokens == 1_048_576)
     #expect(codexModel?.capabilities.contains("reasoning") == true)
     #expect(requestedModelsURL.value.contains("client_version=0.128.0"))
 }
