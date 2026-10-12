@@ -994,10 +994,15 @@ class AppKitChatTranscriptLayout: NSCollectionViewLayout {
     var heightForItem: (@MainActor (IndexPath) -> CGFloat?)?
     private var attributes: [NSCollectionViewLayoutAttributes] = []
     private var contentSize: NSSize = .zero
+    private var preferredInvalidationCounts: [IndexPath: Int] = [:]
+    private static let maxConsecutivePreferredInvalidations = 3
 
     override func prepare() {
         super.prepare()
         guard let collectionView else { return }
+        if abs(collectionView.bounds.width - contentSize.width) > 0.5 {
+            preferredInvalidationCounts.removeAll()
+        }
         let width = max(collectionView.bounds.width, 1)
         var originY: CGFloat = 0
         let count = collectionView.numberOfSections > 0 ? collectionView.numberOfItems(inSection: 0) : 0
@@ -1031,7 +1036,18 @@ class AppKitChatTranscriptLayout: NSCollectionViewLayout {
         forPreferredLayoutAttributes preferredAttributes: NSCollectionViewLayoutAttributes,
         withOriginalAttributes originalAttributes: NSCollectionViewLayoutAttributes
     ) -> Bool {
-        abs(preferredAttributes.size.height - originalAttributes.size.height) > 0.5
+        guard let indexPath = preferredAttributes.indexPath else { return false }
+        guard abs(preferredAttributes.size.height - originalAttributes.size.height) > 0.5 else {
+            preferredInvalidationCounts[indexPath] = nil
+            return false
+        }
+        // prepare() takes heights from heightForItem, which can disagree with the
+        // row's own measurement. Without a limit AppKit re-enters
+        // _updateVisibleCellsNow until it hits its recursion assertion.
+        let count = preferredInvalidationCounts[indexPath, default: 0] + 1
+        guard count <= Self.maxConsecutivePreferredInvalidations else { return false }
+        preferredInvalidationCounts[indexPath] = count
+        return true
     }
 
     override func invalidationContext(
