@@ -221,6 +221,9 @@ export interface CoreApi {
   fetchVoiceCapabilities: () => Promise<AnyRecord | null>;
   transcribeVoice: (payload: AnyRecord) => Promise<AnyRecord | null>;
   synthesizeVoice: (payload: AnyRecord) => Promise<AnyRecord | null>;
+  createRealtimeVoiceSession: () => Promise<AnyRecord | null>;
+  fetchWhisperStatus: () => Promise<AnyRecord | null>;
+  startWhisperInstall: (model: string) => Promise<AnyRecord | null>;
   fetchDashboardAuthStatus: () => Promise<AnyRecord | null>;
   validateDashboardAuthToken: (token: string) => Promise<AnyRecord | null>;
   fetchAuthChallenge: () => Promise<AnyRecord | null>;
@@ -1167,6 +1170,40 @@ export function createCoreApi(): CoreApi {
       return response.data;
     },
 
+    fetchWhisperStatus: async () => {
+      const response = await requestJson<AnyRecord>({
+        path: "/v1/voice/whisper/status"
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    startWhisperInstall: async (model) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/voice/whisper/install",
+        method: "POST",
+        body: { model }
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
+    createRealtimeVoiceSession: async () => {
+      const response = await requestJson<AnyRecord, AnyRecord>({
+        path: "/v1/voice/realtime/session",
+        method: "POST",
+        body: {}
+      });
+      if (!response.ok) {
+        return null;
+      }
+      return response.data;
+    },
+
     synthesizeVoice: async (payload) => {
       const response = await requestJson<AnyRecord, AnyRecord>({
         path: "/v1/voice/speech",
@@ -1331,7 +1368,7 @@ export function createCoreApi(): CoreApi {
 
     updateRuntimeConfig: async (config) => {
       const challenge = await requestJson<AnyRecord>({ path: "/v1/auth/challenge" });
-      if (!challenge.ok || !["token", "login_password"].includes(String(challenge.data?.mode))) {
+      if (!challenge.ok || !["token", "login_password", "console"].includes(String(challenge.data?.mode))) {
         throw new Error("Could not determine the authentication mode. Try saving again.");
       }
       const response = await requestJson<AnyRecord, AnyRecord>({
@@ -1343,6 +1380,7 @@ export function createCoreApi(): CoreApi {
         throw new Error(formatHttpError(response.status, response.data));
       }
       // Identity sessions are independent of the legacy token in the config.
+      // "console" Cores still accept the dashboard token, so they share the token path below.
       if (challenge.data?.mode === "login_password") {
         return response.data;
       }

@@ -234,3 +234,34 @@
   .config-voice-editor .config-voice-main-controls { grid-template-columns: 1fr; }
   .config-voice-editor .config-voice-disclosure > summary small { max-width: 40%; }
 }
+
+.config-voice-setup {
+  display: grid;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.config-voice-status-list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.config-voice-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+  opacity: 0.75;
+}
+
+.config-voice-status-row.ok { opacity: 1; }
+.config-voice-status-row small { margin-left: auto; font-size: 12px; opacity: 0.7; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 55%; }
+.config-voice-status-row .material-symbols-rounded { font-size: 18px; }
+
+.config-voice-progress { display: grid; gap: 6px; font-size: 13px; }
+.config-voice-progress progress { width: 100%; }
+.config-voice-setup-actions { display: flex; align-items: center; gap: 12px; }
+.config-voice-setup pre { margin: 0 0 6px; overflow-x: auto; font-size: 12px; }

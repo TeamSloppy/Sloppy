@@ -31,6 +31,10 @@ import {
   planArtifactWebUrl,
   fetchArtifactFile
 } from "../../../api";
+import { useHandsFree } from "../../../shared/voice/useHandsFree";
+import { useGeminiLive } from "../../../shared/voice/useGeminiLive";
+import { useVoiceInput } from "../../../shared/voice/useVoiceInput";
+import { extractSpeakableSentences, markdownToSpeechText, useVoicePlayback } from "../../../shared/voice/useVoicePlayback";
 import { navigateToTaskScreen } from "../../../app/routing/navigateToTaskScreen";
 import { ProjectSourceControlDiffPanel } from "./ProjectSourceControlDiffPanel";
 import { PlanInputPanel } from "../../../components/PlanInputPanel/PlanInputPanel";
@@ -2512,6 +2516,7 @@ function AgentChatEvents({
   onToggleRecord,
   onReplyToMessage,
   onCopyMessage,
+  voicePlayback = null,
   onOpenSubagent,
   getSubagentStatusLabel,
   onTaskTagClick,
@@ -2895,6 +2900,23 @@ function AgentChatEvents({
                         content_copy
                       </span>
                     </button>
+                    {voicePlayback?.available ? (
+                      <button
+                        type="button"
+                        className="agent-chat-action-button"
+                        title={voicePlayback.playingId === (eventItem?.id || eventKey) ? "Stop reading" : "Read aloud"}
+                        aria-label={voicePlayback.playingId === (eventItem?.id || eventKey) ? "Stop reading" : "Read aloud"}
+                        onClick={() =>
+                          voicePlayback.playingId === (eventItem?.id || eventKey)
+                            ? voicePlayback.stop()
+                            : voicePlayback.speak(String(eventItem?.id || eventKey), messageText)
+                        }
+                      >
+                        <span className="material-symbols-rounded" aria-hidden="true">
+                          {voicePlayback.playingId === (eventItem?.id || eventKey) ? "stop_circle" : "volume_up"}
+                        </span>
+                      </button>
+                    ) : null}
                     <button
                       type="button"
                       className="agent-chat-action-button"
@@ -3029,6 +3051,9 @@ function AgentChatToolApprovalBanner({
   );
 }
 
+/** Marks session messages that came from a live voice conversation, so they are not read aloud again. */
+const LIVE_VOICE_USER_ID = "voice-live";
+
 function AgentChatComposer({
   agentId,
   projectId = null,
@@ -3058,8 +3083,34 @@ function AgentChatComposer({
   slashCommands = [],
   onTaskTagClick,
   onTaskTagHoverStart,
-  onTaskTagHoverEnd
+  onTaskTagHoverEnd,
+  voicePlayback = null,
+  autoSpeak = false,
+  onAutoSpeakChange = null,
+  liveVoice,
+  onLiveToggle,
+  handsFree,
+  onHandsFreeToggle
 }) {
+  const inputTextRef = useRef(inputText);
+  inputTextRef.current = inputText;
+  const voiceInput = useVoiceInput({
+    onTranscript: (transcript) => {
+      const current = String(inputTextRef.current || "");
+      onInputTextChange(current.trim() ? `${current.replace(/\s+$/, "")} ${transcript}` : transcript);
+    }
+  });
+  const isLive = liveVoice.state === "live" || liveVoice.state === "connecting";
+  const isRecording = voiceInput.state === "recording";
+  const voiceTitle = voiceInput.error
+    ? voiceInput.error
+    : isRecording
+      ? "Stop recording"
+      : voiceInput.state === "transcribing"
+        ? "Transcribing..."
+        : voiceInput.available
+          ? "Dictate message"
+          : voiceInput.unavailableReason || "Voice input is not available";
   const canSend =
     !inputLocked &&
     (String(inputText || "").trim().length > 0 || pendingFiles.length > 0 || sourceControlDiffComposeTags.length > 0);
@@ -3555,6 +3606,56 @@ function AgentChatComposer({
           </div>
         ) : null}
 
+        {handsFree.state !== "off" ? (
+          <section className="agent-chat-live-panel" aria-live="polite" data-testid="agent-chat-hands-free-panel">
+            <header>
+              <span className="agent-chat-live-status">
+                {handsFree.state === "starting"
+                  ? "Starting..."
+                  : handsFree.state === "error"
+                    ? handsFree.error
+                    : handsFree.state === "hearing"
+                      ? "Hearing you"
+                      : handsFree.state === "transcribing"
+                        ? "Transcribing"
+                        : handsFree.autoSend
+                          ? "Listening · sends automatically"
+                          : "Listening · text goes to the input"}
+              </span>
+              <button type="button" className="agent-chat-action-button" onClick={onHandsFreeToggle} title="Turn off hands-free" aria-label="Turn off hands-free">
+                <span className="material-symbols-rounded" aria-hidden="true">close</span>
+              </button>
+            </header>
+            {handsFree.error && handsFree.state !== "error" ? <p className="placeholder-text">{handsFree.error}</p> : null}
+          </section>
+        ) : null}
+        {liveVoice.state !== "idle" ? (
+          <section className="agent-chat-live-panel" aria-live="polite" data-testid="agent-chat-live-panel">
+            <header>
+              <span className="agent-chat-live-status">
+                {liveVoice.state === "connecting"
+                  ? "Connecting..."
+                  : liveVoice.state === "error"
+                    ? liveVoice.error
+                    : liveVoice.speaking
+                      ? "Speaking"
+                      : "Listening"}
+              </span>
+              <button type="button" className="agent-chat-action-button" onClick={liveVoice.stop} title="End live conversation" aria-label="End live conversation">
+                <span className="material-symbols-rounded" aria-hidden="true">close</span>
+              </button>
+            </header>
+            {liveVoice.lines.length > 0 ? (
+              <ol className="agent-chat-live-lines">
+                {liveVoice.lines.slice(-4).map((line) => (
+                  <li key={line.id} className={`agent-chat-live-line agent-chat-live-line--${line.role}`}>
+                    {line.text}
+                  </li>
+                ))}
+              </ol>
+            ) : null}
+          </section>
+        ) : null}
         <form className="agent-chat-compose" onSubmit={onSend}>
           <input
             ref={fileInputRef}
@@ -3933,14 +4034,76 @@ function AgentChatComposer({
                 </button>
               ) : null}
 
+              {voicePlayback?.available && onAutoSpeakChange ? (
+                <button
+                  type="button"
+                  className={`agent-chat-icon-button ${autoSpeak ? "" : "muted"}`}
+                  onClick={() => {
+                    if (autoSpeak) {
+                      voicePlayback.stop();
+                    }
+                    onAutoSpeakChange(!autoSpeak);
+                  }}
+                  title={voicePlayback.error || (autoSpeak ? "Replies are read aloud. Click to turn off." : "Read replies aloud")}
+                  aria-label={autoSpeak ? "Turn off reading replies aloud" : "Read replies aloud"}
+                  aria-pressed={autoSpeak}
+                  data-testid="agent-chat-auto-speak"
+                >
+                  <span className="material-symbols-rounded" aria-hidden="true">
+                    {autoSpeak ? "volume_up" : "volume_off"}
+                  </span>
+                </button>
+              ) : null}
+
+              {handsFree.available || handsFree.active ? (
+                <button
+                  type="button"
+                  className={`agent-chat-icon-button ${handsFree.active ? (handsFree.state === "hearing" ? "danger agent-chat-voice-recording" : "") : "muted"}`}
+                  onClick={onHandsFreeToggle}
+                  title={
+                    handsFree.error ||
+                    (handsFree.active
+                      ? "Hands-free is on. Click to turn off."
+                      : "Hands-free: talk without pressing a button")
+                  }
+                  aria-label={handsFree.active ? "Turn off hands-free" : "Turn on hands-free"}
+                  aria-pressed={handsFree.active}
+                  data-testid="agent-chat-hands-free"
+                >
+                  <span className="material-symbols-rounded" aria-hidden="true">
+                    {handsFree.active ? "hearing" : "hearing_disabled"}
+                  </span>
+                </button>
+              ) : null}
+
+              {liveVoice.available || liveVoice.state !== "idle" ? (
+                <button
+                  type="button"
+                  className={`agent-chat-icon-button ${isLive ? "danger agent-chat-voice-recording" : ""}`}
+                  onClick={onLiveToggle}
+                  title={liveVoice.error || (isLive ? "End live conversation" : "Start live conversation")}
+                  aria-label={isLive ? "End live conversation" : "Start live conversation"}
+                  aria-pressed={isLive}
+                  data-testid="agent-chat-live-voice"
+                >
+                  <span className="material-symbols-rounded" aria-hidden="true">
+                    {isLive ? "call_end" : "graphic_eq"}
+                  </span>
+                </button>
+              ) : null}
+
               <button
                 type="button"
-                className="agent-chat-icon-button muted"
-                disabled
-                title="Voice input is not available yet"
+                className={`agent-chat-icon-button ${isRecording ? "danger agent-chat-voice-recording" : voiceInput.available ? "" : "muted"}`}
+                onClick={voiceInput.toggle}
+                disabled={isInputDisabled || !voiceInput.available || voiceInput.state === "transcribing" || handsFree.active}
+                title={voiceTitle}
+                aria-label={voiceTitle}
+                aria-pressed={isRecording}
+                data-testid="agent-chat-voice-input"
               >
                 <span className="material-symbols-rounded" aria-hidden="true">
-                  mic
+                  {isRecording ? "stop_circle" : voiceInput.state === "transcribing" ? "hourglass_top" : "mic"}
                 </span>
               </button>
 
@@ -6084,6 +6247,150 @@ export function AgentChatTab({
     }
   }
 
+  /** A hands-free utterance either goes straight to the agent or lands in the input box for review. */
+  function handleHandsFreeUtterance(text, meta) {
+    if (meta.autoSend && !isBusyRef.current && liveStateRef.current === "idle") {
+      runVoiceTaskOnAgent(text).catch(() => setStatusText("Failed to send voice message."));
+      return;
+    }
+    setInputText((previous) => (String(previous || "").trim() ? `${String(previous).replace(/\s+$/, "")} ${text}` : text));
+  }
+
+  async function handleHandsFreeToggle() {
+    if (handsFree.active) {
+      handsFree.stop();
+      return;
+    }
+    if (!activeSessionIdRef.current && !activeSessionId) {
+      const created = await createSession(null, null, false);
+      if (!created) {
+        return;
+      }
+    }
+    if (liveVoice.state !== "idle") {
+      liveVoice.stop();
+    }
+    if (voicePlayback.available) {
+      // Hands-free is a spoken loop: replies are read aloud.
+      setAutoSpeak(true);
+    }
+    await handsFree.start();
+  }
+
+  async function handleLiveToggle() {
+    if (liveVoice.state === "live" || liveVoice.state === "connecting") {
+      liveVoice.stop();
+      return;
+    }
+    let sessionId = activeSessionIdRef.current || activeSessionId;
+    if (!sessionId) {
+      const created = await createSession(null, null, false);
+      if (!created) {
+        return;
+      }
+      sessionId = created.id;
+    }
+    liveSessionIdRef.current = sessionId;
+    voicePlayback.stop();
+    if (handsFree.active) {
+      handsFree.stop();
+    }
+    await liveVoice.start();
+  }
+
+  /** Persists one completed live turn into the agent session without triggering an agent run. */
+  async function handleLiveTurn(turn) {
+    const sessionId = liveSessionIdRef.current;
+    if (!sessionId) {
+      return;
+    }
+    const now = Date.now();
+    const events = [
+      { role: "user", text: turn.user },
+      { role: "assistant", text: turn.model }
+    ]
+      .filter((entry) => entry.text)
+      .map((entry, index) => {
+        const createdAt = new Date(now + index).toISOString();
+        return {
+          id: `live-${now}-${index}-${entry.role}`,
+          version: 1,
+          agentId,
+          sessionId,
+          type: "message",
+          createdAt,
+          message: {
+            id: `live-${now}-${index}-${entry.role}-message`,
+            role: entry.role,
+            segments: [{ kind: "text", text: entry.text }],
+            createdAt,
+            userId: LIVE_VOICE_USER_ID
+          }
+        };
+      });
+    if (events.length === 0) {
+      return;
+    }
+    try {
+      await postAgentSessionEvents(agentId, sessionId, { events });
+    } catch {
+      // Transcript persistence is best effort; the live conversation must not fail because of it.
+    }
+  }
+
+  /** Runs a task for the live conversation on the normal agent session and resolves with its answer. */
+  async function runVoiceTaskOnAgent(task) {
+    const sessionId = liveStateRef.current !== "idle" ? liveSessionIdRef.current : activeSessionIdRef.current;
+    if (!sessionId) {
+      throw new Error("no_session");
+    }
+    if (isBusyRef.current) {
+      throw new Error("agent_busy");
+    }
+    setOptimisticUserEvent({
+      id: `local-user-${Date.now()}`,
+      createdAt: new Date().toISOString(),
+      type: "message",
+      message: { role: "user", createdAt: new Date().toISOString(), segments: [{ kind: "text", text: task }] }
+    });
+    setOptimisticAssistantTextImmediate("");
+    setIsSending(true);
+    setStatusText("Thinking...");
+    runStateRef.current.sessionId = sessionId;
+    runStateRef.current.abortController = new AbortController();
+    try {
+      const response = await postAgentSessionMessage(
+        agentId,
+        sessionId,
+        {
+          userId: "dashboard",
+          content: task,
+          attachments: [],
+          spawnSubSession: false,
+          mode: normalizeChatMode(chatMode),
+          selectedModel: selectedModel || undefined
+        },
+        { signal: runStateRef.current.abortController.signal }
+      );
+      if (!response) {
+        throw new Error("agent_request_failed");
+      }
+      await refreshSessions(sessionId);
+      const finalMessage = [...(Array.isArray(response.appendedEvents) ? response.appendedEvents : [])]
+        .reverse()
+        .find((eventItem) => eventItem?.type === "message" && eventItem?.message?.role === "assistant");
+      return segmentsToPlainText(
+        (finalMessage?.message?.segments || []).filter((segment) => segment.kind !== "thinking")
+      );
+    } finally {
+      runStateRef.current.abortController = null;
+      runStateRef.current.sessionId = null;
+      setOptimisticUserEvent(null);
+      setOptimisticAssistantTextImmediate("");
+      setIsSending(false);
+    }
+  }
+
   async function handleStop() {
     if (isStopping) {
       return;
@@ -6438,6 +6745,102 @@ export function AgentChatTab({
   const hasActiveSessionWork =
     isSending || isActiveRunStage(latestRunStatus?.stage) || activeToolCallRecordIds.size > 0;
   const isActiveSessionBusy = isStopping || hasActiveSessionWork;
+  const voicePlayback = useVoicePlayback();
+  const isBusyRef = useRef(false);
+  isBusyRef.current = isActiveSessionBusy;
+  const liveSessionIdRef = useRef(null);
+  const liveVoice = useGeminiLive({ onAskAgent: runVoiceTaskOnAgent, onTurn: handleLiveTurn });
+  const liveStateRef = useRef("idle");
+  liveStateRef.current = liveVoice.state;
+  const playbackActiveRef = useRef(false);
+  playbackActiveRef.current = Boolean(voicePlayback.playingId) || liveVoice.speaking;
+  const handsFree = useHandsFree({
+    onUtterance: handleHandsFreeUtterance,
+    isPlaybackActive: () => playbackActiveRef.current,
+    onBargeIn: () => voicePlayback.stop()
+  });
+  const [autoSpeak, setAutoSpeakState] = useState(() => {
+    try {
+      return window.localStorage.getItem("sloppy.voice.autoSpeak") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const setAutoSpeak = useCallback((value) => {
+    setAutoSpeakState(value);
+    try {
+      window.localStorage.setItem("sloppy.voice.autoSpeak", value ? "1" : "0");
+    } catch {
+      // Preference is a per-viewer convenience; ignore storage failures.
+    }
+  }, []);
+  const latestAssistantEvent = useMemo(
+    () =>
+      [...events]
+        .reverse()
+        .find((eventItem) => eventItem?.type === "message" && eventItem?.message?.role === "assistant" && eventItem?.id),
+    [events]
+  );
+  const lastSpokenEventIdRef = useRef(null);
+  useEffect(() => {
+    // Anything already in the session when auto-speak starts is history, not a new reply.
+    lastSpokenEventIdRef.current = latestAssistantEvent?.id ?? null;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeSessionId, autoSpeak]);
+  const assistantStreamText = useMemo(() => {
+    const streamItem = timelineItems.find((item) => item?.id === "local-assistant-stream");
+    return segmentsToPlainText(
+      (streamItem?.event?.message?.segments || []).filter((segment) => segment.kind !== "thinking")
+    );
+  }, [timelineItems]);
+  const spokenStreamRef = useRef({ key: "none", text: "", index: 0 });
+  const feedSpeech = useCallback(
+    (text, final) => {
+      const key = String(lastSpokenEventIdRef.current ?? "none");
+      const state = spokenStreamRef.current;
+      if (state.key !== key || !text.startsWith(state.text.slice(0, Math.min(state.text.length, 24)))) {
+        // New turn, or a new response segment that does not continue the previous text.
+        state.key = key;
+        state.index = 0;
+      }
+      state.text = text;
+      const { sentences, nextIndex } = extractSpeakableSentences(text, state.index, final);
+      state.index = nextIndex;
+      for (const sentence of sentences) {
+        voicePlayback.enqueue(key, markdownToSpeechText(sentence));
+      }
+    },
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [voicePlayback.enqueue]
+  );
+  useEffect(() => {
+    // Speak sentences as they stream in; the persisted message later flushes the remainder.
+    if (autoSpeak && assistantStreamText && liveVoice.state === "idle") {
+      feedSpeech(assistantStreamText, false);
+    }
+  }, [autoSpeak, assistantStreamText, feedSpeech, liveVoice.state]);
+  useEffect(() => {
+    if (!autoSpeak || isActiveSessionBusy || !latestAssistantEvent?.id) {
+      return;
+    }
+    if (latestAssistantEvent.id === lastSpokenEventIdRef.current) {
+      return;
+    }
+    if (liveVoice.state !== "idle" || latestAssistantEvent.message?.userId === LIVE_VOICE_USER_ID) {
+      // Live conversation narrates results itself, and its own transcript lines are never read again.
+      lastSpokenEventIdRef.current = latestAssistantEvent.id;
+      return;
+    }
+    const text = segmentsToPlainText(
+      (latestAssistantEvent.message?.segments || []).filter((segment) => segment.kind !== "thinking")
+    );
+    if (text) {
+      feedSpeech(text, true);
+    }
+    lastSpokenEventIdRef.current = latestAssistantEvent.id;
+    spokenStreamRef.current = { key: String(latestAssistantEvent.id), text: "", index: 0 };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [autoSpeak, isActiveSessionBusy, latestAssistantEvent, liveVoice.state]);
   const isSubagentBusy =
     subagentPanel.loading ||
     subagentPanel.status === "live" ||
@@ -7074,6 +7477,7 @@ export function AgentChatTab({
                 onToggleRecord={toggleExpandedRecord}
                 onReplyToMessage={handleReplyToMessage}
                 onCopyMessage={handleCopyMessage}
+                voicePlayback={voicePlayback}
                 onOpenSubagent={openSubagentPanel}
                 getSubagentStatusLabel={getSubagentStatusLabel}
                 onTaskTagClick={openTaskReference}
@@ -7134,6 +7538,13 @@ export function AgentChatTab({
                   onTaskTagClick={openTaskReference}
                   onTaskTagHoverStart={handleTaskTagHoverStart}
                   onTaskTagHoverEnd={handleTaskTagHoverEnd}
+                  voicePlayback={voicePlayback}
+                  autoSpeak={autoSpeak}
+                  onAutoSpeakChange={setAutoSpeak}
+                  liveVoice={liveVoice}
+                  onLiveToggle={handleLiveToggle}
+                  handsFree={handsFree}
+                  onHandsFreeToggle={handleHandsFreeToggle}
                 />
 
                 {!activePendingInputRequest ? (

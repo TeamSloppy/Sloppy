@@ -4,6 +4,13 @@ export function normalizeVoiceConfig(config: VoiceConfigRecord = {}) {
   return {
     enabled: Boolean(config.enabled),
     effectiveProvider: config.effectiveProvider === "openai" ? "openai" : "local",
+    effectiveTranscriptionProvider:
+      ["openai", "groq", "whisper"].includes(config.effectiveTranscriptionProvider)
+        ? config.effectiveTranscriptionProvider
+        : null,
+    effectiveRealtimeProvider: config.effectiveRealtimeProvider === "gemini" ? "gemini" : null,
+    effectiveSpeechProvider:
+      ["openai", "elevenlabs", "system"].includes(config.effectiveSpeechProvider) ? config.effectiveSpeechProvider : null,
     input: {
       mode: config.input?.mode === "auto_submit" ? "auto_submit" : "push_to_talk",
       language: String(config.input?.language || "auto"),

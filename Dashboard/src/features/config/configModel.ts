@@ -369,6 +369,16 @@ function normalizeVoiceProvider(value) {
   return provider === "openai" || provider === "local" ? provider : "auto";
 }
 
+function normalizeVoiceTranscriptionProvider(value) {
+  const provider = String(value || "auto").trim().toLowerCase();
+  return provider === "openai" || provider === "groq" || provider === "whisper" ? provider : "auto";
+}
+
+function normalizeVoiceSpeechProvider(value) {
+  const provider = String(value || "auto").trim().toLowerCase();
+  return provider === "openai" || provider === "elevenlabs" || provider === "system" ? provider : "auto";
+}
+
 function normalizeVoiceInputMode(value) {
   const mode = String(value || "push_to_talk").trim().toLowerCase();
   return mode === "auto_submit" ? "auto_submit" : "push_to_talk";
@@ -386,6 +396,8 @@ export function normalizeVoiceMode(value) {
   return {
     enabled: Boolean(value?.enabled),
     provider: normalizeVoiceProvider(value?.provider),
+    transcriptionProvider: normalizeVoiceTranscriptionProvider(value?.transcriptionProvider),
+    speechProvider: normalizeVoiceSpeechProvider(value?.speechProvider),
     input: {
       mode: normalizeVoiceInputMode(value?.input?.mode),
       language: String(value?.input?.language || "auto").trim() || "auto",
@@ -397,6 +409,36 @@ export function normalizeVoiceMode(value) {
       ttsModel: String(value?.openAI?.ttsModel || "gpt-4o-mini-tts").trim() || "gpt-4o-mini-tts",
       voice: String(value?.openAI?.voice || "coral").trim() || "coral",
       instructions: String(value?.openAI?.instructions || "")
+    },
+    elevenLabs: {
+      enabled: Boolean(value?.elevenLabs?.enabled),
+      apiKey: String(value?.elevenLabs?.apiKey || ""),
+      model: String(value?.elevenLabs?.model || "eleven_multilingual_v2").trim() || "eleven_multilingual_v2",
+      voiceId: String(value?.elevenLabs?.voiceId || "21m00Tcm4TlvDq8ikWAM").trim() || "21m00Tcm4TlvDq8ikWAM"
+    },
+    system: {
+      enabled: Boolean(value?.system?.enabled),
+      voice: String(value?.system?.voice || "")
+    },
+    whisper: {
+      enabled: Boolean(value?.whisper?.enabled),
+      executablePath: String(value?.whisper?.executablePath || ""),
+      ffmpegPath: String(value?.whisper?.ffmpegPath || ""),
+      modelPath: String(value?.whisper?.modelPath || ""),
+      threads: Math.round(normalizeNumberRange(value?.whisper?.threads, 4, 1, 32))
+    },
+    realtime: {
+      enabled: Boolean(value?.realtime?.enabled),
+      apiKey: String(value?.realtime?.apiKey || ""),
+      model: String(value?.realtime?.model || "gemini-3.8-live").trim() || "gemini-3.8-live",
+      voice: String(value?.realtime?.voice || "Puck").trim() || "Puck",
+      systemInstruction: String(value?.realtime?.systemInstruction || ""),
+      maxSessionSeconds: Math.round(normalizeNumberRange(value?.realtime?.maxSessionSeconds, 900, 60, 1800))
+    },
+    groq: {
+      enabled: Boolean(value?.groq?.enabled),
+      apiKey: String(value?.groq?.apiKey || ""),
+      transcriptionModel: String(value?.groq?.transcriptionModel || "whisper-large-v3-turbo").trim() || "whisper-large-v3-turbo"
     },
     local: {
       enabled: value?.local?.enabled !== false,
@@ -548,6 +590,8 @@ export const EMPTY_CONFIG = {
   voiceMode: {
     enabled: false,
     provider: "auto",
+    transcriptionProvider: "auto",
+    speechProvider: "auto",
     input: {
       mode: "push_to_talk",
       language: "auto",
@@ -559,6 +603,36 @@ export const EMPTY_CONFIG = {
       ttsModel: "gpt-4o-mini-tts",
       voice: "coral",
       instructions: ""
+    },
+    groq: {
+      enabled: false,
+      apiKey: "",
+      transcriptionModel: "whisper-large-v3-turbo"
+    },
+    elevenLabs: {
+      enabled: false,
+      apiKey: "",
+      model: "eleven_multilingual_v2",
+      voiceId: "21m00Tcm4TlvDq8ikWAM"
+    },
+    system: {
+      enabled: false,
+      voice: ""
+    },
+    whisper: {
+      enabled: false,
+      executablePath: "",
+      ffmpegPath: "",
+      modelPath: "",
+      threads: 4
+    },
+    realtime: {
+      enabled: false,
+      apiKey: "",
+      model: "gemini-3.8-live",
+      voice: "Puck",
+      systemInstruction: "",
+      maxSessionSeconds: 900
     },
     local: {
       enabled: true,

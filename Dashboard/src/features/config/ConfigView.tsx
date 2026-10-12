@@ -15,6 +15,8 @@ import {
   fetchMeshNodes,
   fetchConsoleModelInstances,
   fetchVoiceCapabilities,
+  fetchWhisperStatus,
+  startWhisperInstall,
   fetchAvailableModels,
   fetchChannelPlugins,
   fetchSearchProviderStatus,
@@ -1773,6 +1775,8 @@ export function ConfigView({
         <VoiceModeEditor
           voiceMode={draftConfig.voiceMode}
           fetchVoiceCapabilities={fetchVoiceCapabilities}
+          fetchWhisperStatus={fetchWhisperStatus}
+          startWhisperInstall={startWhisperInstall}
           onUpdate={(nextVoiceMode) => mutateDraft((next) => {
             next.voiceMode = nextVoiceMode;
           })}
