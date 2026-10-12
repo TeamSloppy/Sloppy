@@ -12,7 +12,7 @@ struct ChatTaskNavigationSourceTests {
             let sourceURL = packageRoot
                 .appendingPathComponent("Sources")
                 .appendingPathComponent("SloppyFeatureChat/Screens/Chat/ChatScreenViewModel.swift")
-            return try String(contentsOf: sourceURL, encoding: .utf8)
+            return try String(chatSourceContentsOf: sourceURL, encoding: .utf8)
         }
     }
 
@@ -20,15 +20,15 @@ struct ChatTaskNavigationSourceTests {
     func emptyForkUsesProjectName() throws {
         let source = try chatScreenViewModelSource
         let projectNameStart = try #require(source.range(of: "public var activeProjectNameForWorkspacePanel"))
-        let nextProperty = try #require(source.range(of: "@ObservationIgnored private let apiClient"))
+        let nextProperty = try #require(source.range(of: "@ObservationIgnored let apiClient"))
         let projectNameSource = source[projectNameStart.lowerBound..<nextProperty.lowerBound]
 
         #expect(projectNameSource.contains("guard let projectId = activeProjectId"))
         #expect(projectNameSource.contains("projects.first(where: { $0.id == projectId })"))
         #expect(projectNameSource.contains("guard selectedSessionId == nil else { return nil }"))
 
-        let selectStart = try #require(source.range(of: "private func selectSession("))
-        let blankStart = try #require(source.range(of: "private func routeToBlankChat()"))
+        let selectStart = try #require(source.range(of: "func selectSession("))
+        let blankStart = try #require(source.range(of: "func routeToBlankChat()"))
         let selectSource = source[selectStart.lowerBound..<blankStart.lowerBound]
         #expect(selectSource.contains("let resolvedProjectId = session?.projectId ?? projectId"))
         #expect(!selectSource.contains("projectId ?? activeProjectId"))
@@ -38,7 +38,7 @@ struct ChatTaskNavigationSourceTests {
     func taskNavigationKeepsAnEmptyDraftUntilTheFirstSend() throws {
         let source = try chatScreenViewModelSource
 
-        #expect(source.contains("private var activeTaskId: String?"))
+        #expect(source.contains("var activeTaskId: String?"))
         #expect(source.contains("activeTaskId = preferredTaskId"))
         #expect(source.contains("let sessionTitle = taskId.map(taskSessionTitle(for:))"))
         #expect(source.contains("let taskId = activeTaskId"))
@@ -46,8 +46,8 @@ struct ChatTaskNavigationSourceTests {
         #expect(source.contains("taskId: activeTaskId"))
         #expect(source.contains("session.taskId?.caseInsensitiveCompare(taskId) == .orderedSame"))
 
-        let activateStart = try #require(source.range(of: "private func activateProjectContext("))
-        let disconnectStart = try #require(source.range(of: "    private func disconnectCurrentSession()"))
+        let activateStart = try #require(source.range(of: "func activateProjectContext("))
+        let disconnectStart = try #require(source.range(of: "    func disconnectCurrentSession()"))
         let activateSource = source[activateStart.lowerBound..<disconnectStart.lowerBound]
 
         #expect(!activateSource.contains("createAgentSession("))
@@ -91,7 +91,7 @@ struct ChatTaskNavigationSourceTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .appendingPathComponent("Sources/SloppyFeatureChat/Support/ChatNavigationRequest.swift")
-        let requestSource = try String(contentsOf: requestSourceURL, encoding: .utf8)
+        let requestSource = try String(chatSourceContentsOf: requestSourceURL, encoding: .utf8)
 
         #expect(requestSource.contains("public var opensPreferredSession: Bool"))
         #expect(requestSource.contains("opensPreferredSession: Bool = true"))

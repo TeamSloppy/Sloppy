@@ -8,7 +8,7 @@ struct WorkspaceBrowserToolRuntimeSourceTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        return try String(contentsOf: packageRoot.appendingPathComponent(path), encoding: .utf8)
+        return try String(chatSourceContentsOf: packageRoot.appendingPathComponent(path), encoding: .utf8)
     }
 
     @Test("browser runtime exposes the planned command surface")

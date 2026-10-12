@@ -8,7 +8,7 @@ struct ChatConversationNavigatorLayoutTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        return try String(contentsOf: packageRoot.appendingPathComponent(path), encoding: .utf8)
+        return try String(chatSourceContentsOf: packageRoot.appendingPathComponent(path), encoding: .utf8)
     }
 
     @Test("dense markers live at the left edge without a transcript scroller")

@@ -12,7 +12,7 @@ struct ChatComposerRenderingTests {
             let sourceURL = packageRoot
                 .appendingPathComponent("Sources")
                 .appendingPathComponent("SloppyFeatureChat/Screens/Chat/Views/ChatComposerView.swift")
-            return try String(contentsOf: sourceURL, encoding: .utf8)
+            return try String(chatSourceContentsOf: sourceURL, encoding: .utf8)
         }
     }
 
@@ -25,7 +25,7 @@ struct ChatComposerRenderingTests {
             let sourceURL = packageRoot
                 .appendingPathComponent("Sources")
                 .appendingPathComponent("SloppyFeatureChat/Screens/Chat/Views/ComposerSuggestionsView.swift")
-            return try String(contentsOf: sourceURL, encoding: .utf8)
+            return try String(chatSourceContentsOf: sourceURL, encoding: .utf8)
         }
     }
 
@@ -38,7 +38,7 @@ struct ChatComposerRenderingTests {
             let sourceURL = packageRoot
                 .appendingPathComponent("Sources")
                 .appendingPathComponent("SloppyFeatureChat/Screens/Chat/Views/ChatNativeTextEditor.swift")
-            return try String(contentsOf: sourceURL, encoding: .utf8)
+            return try String(chatSourceContentsOf: sourceURL, encoding: .utf8)
         }
     }
 
@@ -75,7 +75,7 @@ struct ChatComposerRenderingTests {
     func mobileComposerHasCompactAccessibleControls() throws {
         let source = try chatComposerSource
 
-        #expect(source.contains("private struct MobileComposerCircleButton"))
+        #expect(source.contains("struct MobileComposerCircleButton"))
         #expect(source.contains(".frame("))
         #expect(source.contains("width: ChatComposerView.phoneCircleSize"))
         #expect(source.contains("height: 44"))
@@ -131,7 +131,7 @@ struct ChatComposerRenderingTests {
     func contextUsageIsCircularProgressViewWithHoverDetails() throws {
         let source = try chatComposerSource
 
-        #expect(source.contains("private struct ComposerContextUsageView"))
+        #expect(source.contains("struct ComposerContextUsageView"))
         #expect(source.contains("ProgressView(value: usage?.fraction ?? 0, total: 1)"))
         #expect(source.contains(".progressViewStyle(.circular)"))
         #expect(source.contains(".onHover { isHovering in"))
@@ -168,9 +168,9 @@ struct ChatComposerRenderingTests {
     func composerAddButtonExposesPlatformSpecificPickerMenus() throws {
         let source = try chatComposerSource
 
-        #expect(source.contains("private struct ComposerAddMenu"))
+        #expect(source.contains("struct ComposerAddMenu"))
         #expect(source.contains("Label(\"Files and Attach\""))
-        #expect(source.contains("private struct ComposerOptionsMenuView"))
+        #expect(source.contains("struct ComposerOptionsMenuView"))
         #expect(source.contains("Label(\"Camera\""))
         #expect(source.contains("Label(\"Photos\""))
         #expect(source.contains("Label(\"Files\""))
@@ -248,7 +248,7 @@ struct ChatComposerRenderingTests {
         let source = try chatComposerSource
         let nativeSource = try nativeComposerSource
 
-        #expect(source.contains("private struct ChatComposerAttachmentStrip"))
+        #expect(source.contains("struct ChatComposerAttachmentStrip"))
         #expect(source.contains("viewModel.composerAttachments"))
         #expect(source.contains("remove: viewModel.removeComposerAttachment"))
         #expect(source.contains("pasteItemProviders: viewModel.attachItemProviders"))
@@ -260,7 +260,7 @@ struct ChatComposerRenderingTests {
         #expect(source.contains("pasteboard.data(forType: .png)"))
         #expect(source.contains("NSImage(pasteboard: pasteboard)"))
         #expect(source.contains("pasteAttachmentsFromSystemPasteboard()"))
-        #expect(source.contains("private struct ChatComposerAttachmentPreview"))
+        #expect(source.contains("struct ChatComposerAttachmentPreview"))
         #expect(source.contains("Image(nsImage: image)"))
         #expect(source.contains("Image(systemName: \"xmark.circle.fill\")"))
         #expect(source.contains("HStack(alignment: .bottom, spacing: sp.s)"))
@@ -378,7 +378,7 @@ struct ChatComposerRenderingTests {
     func composerDictationBarReplacesControls() throws {
         let source = try chatComposerSource
 
-        #expect(source.contains("private struct DictationComposerBar"))
+        #expect(source.contains("struct DictationComposerBar"))
         #expect(source.contains("ForEach(levels.indices, id: \\.self)"))
         #expect(source.contains("Text(elapsedText)"))
         #expect(source.contains("Icons.symbol(.stop"))
@@ -388,7 +388,7 @@ struct ChatComposerRenderingTests {
     @Test("dictation bar keeps trailing controls fixed while waveform can overflow left")
     func dictationBarKeepsTrailingControlsFixed() throws {
         let source = try chatComposerSource
-        let dictationStart = try #require(source.range(of: "private struct DictationComposerBar"))
+        let dictationStart = try #require(source.range(of: "struct DictationComposerBar"))
         let customTabStart = try #require(source.range(of: "extension BinaryFloatingPoint"))
         let dictationSource = source[dictationStart.lowerBound..<customTabStart.lowerBound]
 
@@ -410,11 +410,11 @@ struct ChatComposerRenderingTests {
     func desktopComposerExposesEffortScaleAndSearchableModelPicker() throws {
         let source = try chatComposerSource
 
-        #expect(source.contains("private struct ComposerOptionsMenuView"))
+        #expect(source.contains("struct ComposerOptionsMenuView"))
         #expect(source.contains("Text(selectedModelTitle)"))
         #expect(source.contains("Text(\"· \\(selectedEffort.title)\")"))
         #expect(!source.contains("Text(supportsReasoningEffort ? \"Select effort\" : selectedModelTitle)"))
-        #expect(source.contains("private struct ComposerEffortScale"))
+        #expect(source.contains("struct ComposerEffortScale"))
         #expect(source.contains("let efforts = ChatReasoningEffort.allCases"))
         #expect(source.contains("let thumbCenter = segmentWidth * (CGFloat(selectedIndex) + 0.5)"))
         #expect(source.contains("private let fillTrailingSpacing: CGFloat = 8"))
@@ -431,7 +431,7 @@ struct ChatComposerRenderingTests {
         #expect(source.contains("DragGesture(minimumDistance: 0, coordinateSpace: .local)"))
         #expect(source.contains("selectEffort(at: value.location.x, width: proxy.size.width)"))
         #expect(source.contains("private let height: CGFloat = 36"))
-        #expect(source.contains("private enum ComposerEffortPalette"))
+        #expect(source.contains("enum ComposerEffortPalette"))
         #expect(source.contains("theme.colors.statusNeutral"))
         #expect(source.contains("theme.colors.accentCyan"))
         #expect(source.contains("theme.colors.statusWarning"))
@@ -447,7 +447,7 @@ struct ChatComposerRenderingTests {
         #expect(source.contains("Edit Models…"))
         #expect(source.contains("chat.composer.model-picker"))
         #expect(source.contains("chat.composer.model-list"))
-        #expect(source.contains("private struct ComposerMenuItem"))
+        #expect(source.contains("struct ComposerMenuItem"))
         #expect(source.contains("private var selectedModelTitle: String"))
         #expect(source.contains(".popover(isPresented: $isPresented"))
     }

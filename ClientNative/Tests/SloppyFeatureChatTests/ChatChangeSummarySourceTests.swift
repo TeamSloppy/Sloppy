@@ -10,7 +10,7 @@ struct ChatChangeSummarySourceTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let url = path.reduce(packageRoot) { $0.appendingPathComponent($1) }
-        return try String(contentsOf: url, encoding: .utf8)
+        return try String(chatSourceContentsOf: url, encoding: .utf8)
     }
 
     @Test("transcript renders source-control summary at the end of the completed turn")

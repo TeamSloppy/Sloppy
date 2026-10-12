@@ -12,7 +12,7 @@ struct ChatRefreshSourceTests {
             let sourceURL = packageRoot
                 .appendingPathComponent("Sources")
                 .appendingPathComponent("SloppyFeatureChat/Screens/Chat/ChatScreenViewModel.swift")
-            return try String(contentsOf: sourceURL, encoding: .utf8)
+            return try String(chatSourceContentsOf: sourceURL, encoding: .utf8)
         }
     }
 
@@ -30,7 +30,7 @@ struct ChatRefreshSourceTests {
     func chatViewModelExposesTranscriptHydrationProgress() throws {
         let source = try source
 
-        #expect(source.contains("public private(set) var isLoadingTranscript = false"))
+        #expect(source.contains("public internal(set) var isLoadingTranscript = false"))
         #expect(source.contains("transcript.clear()\n        isLoadingTranscript = true"))
         #expect(source.contains("if isCurrentSession(agentId: agentId, sessionId: sessionId) {\n                isLoadingTranscript = false"))
     }
@@ -42,7 +42,7 @@ struct ChatRefreshSourceTests {
         #expect(source.contains("scheduleStreamingAssistantText(text, sessionId: sessionId, mode: .append)"))
         #expect(source.contains("pendingStreamingAssistantText = (pendingStreamingAssistantText ?? \"\") + text"))
         #expect(source.contains("transcript.appendStreamingAssistantText(text, messageId: messageId)"))
-        #expect(source.contains("private func connectToSession(agentId: String, sessionId: String) async"))
+        #expect(source.contains("func connectToSession(agentId: String, sessionId: String) async"))
         #expect(source.contains("stream = await socket.connect()"))
         #expect(source.contains("await connectToSession(agentId: agent.id, sessionId: summary.id)"))
         #expect(source.contains("transcript.replaceStreamingAssistant("))

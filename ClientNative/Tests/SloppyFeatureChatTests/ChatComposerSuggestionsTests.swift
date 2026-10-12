@@ -147,7 +147,7 @@ struct ChatComposerSuggestionsTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let source = try String(
-            contentsOf: packageRoot.appendingPathComponent(
+            chatSourceContentsOf: packageRoot.appendingPathComponent(
                 "Sources/SloppyFeatureChat/Screens/Chat/ChatScreenViewModel.swift"
             ),
             encoding: .utf8

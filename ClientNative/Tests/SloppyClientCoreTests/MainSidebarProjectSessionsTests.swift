@@ -71,7 +71,7 @@ struct MainSidebarProjectSessionsTests {
         )
 
         #expect(waitIndex < aggregateIndex)
-        #expect(chatViewModelSource.contains("private var initialDataTask: Task<Void, Never>?"))
+        #expect(chatViewModelSource.contains("var initialDataTask: Task<Void, Never>?"))
         #expect(chatViewModelSource.contains("public func waitForInitialData() async"))
         #expect(chatViewModelSource.contains("await task?.value"))
         #expect(chatViewModelSource.contains("ChatSessionCatalog.mergeAggregated(existing: sessionCatalog, incoming: sessions)"))

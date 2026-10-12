@@ -2,7 +2,7 @@ import Foundation
 
 func mainViewAwareSourceContents(at sourceURL: URL) throws -> String {
     guard sourceURL.lastPathComponent == "MainView.swift" else {
-        return try String(contentsOf: sourceURL, encoding: .utf8)
+        return try String(chatSourceContentsOf: sourceURL, encoding: .utf8)
     }
 
     let directoryURL = sourceURL.deletingLastPathComponent()

@@ -9,7 +9,7 @@ struct ChatModelOverrideSourceTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let url = path.reduce(packageRoot) { $0.appendingPathComponent($1) }
-        return try String(contentsOf: url, encoding: .utf8)
+        return try String(chatSourceContentsOf: url, encoding: .utf8)
     }
 
     @Test("session message payload includes dashboard-compatible model and reasoning override fields")
@@ -28,15 +28,15 @@ struct ChatModelOverrideSourceTests {
     func chatViewModelLoadsModelOptionsAndForwardsSelectedOverridesWhenSending() throws {
         let source = try source("Sources", "SloppyFeatureChat", "Screens", "Chat", "ChatScreenViewModel.swift")
 
-        #expect(source.contains("public private(set) var availableModels: [ChatModelOption] = []"))
-        #expect(source.contains("public private(set) var selectedModelId: String = \"\""))
+        #expect(source.contains("public internal(set) var availableModels: [ChatModelOption] = []"))
+        #expect(source.contains("public internal(set) var selectedModelId: String = \"\""))
         #expect(source.contains("[ChatModelSelection.automaticJEVOption] + availableModels"))
-        #expect(source.contains("public private(set) var selectedReasoningEffort: ChatReasoningEffort = .default"))
+        #expect(source.contains("public internal(set) var selectedReasoningEffort: ChatReasoningEffort = .default"))
         #expect(source.contains("apiClient.fetchAvailableModels()"))
         #expect(source.contains("public func pickModel(_ model: ChatModelOption)"))
         #expect(source.contains("public func pickReasoningEffort(_ effort: ChatReasoningEffort)"))
         #expect(source.contains("selectedModel: ChatModelSelection.requestOverride(for: selectedModelId)"))
         #expect(source.contains("selectedModelSupportsReasoningEffort ? selectedReasoningEffort.payloadValue : nil"))
-        #expect(source.contains("private var selectedModelSupportsReasoningEffort: Bool"))
+        #expect(source.contains("var selectedModelSupportsReasoningEffort: Bool"))
     }
 }

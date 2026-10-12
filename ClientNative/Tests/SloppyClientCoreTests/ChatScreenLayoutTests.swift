@@ -9,7 +9,7 @@ struct ChatScreenLayoutTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let url = path.reduce(packageRoot) { $0.appendingPathComponent($1) }
-        return try String(contentsOf: url, encoding: .utf8)
+        return try String(chatSourceContentsOf: url, encoding: .utf8)
     }
 
     @Test("phone chat layout avoids geometry reader on first render")
@@ -26,7 +26,7 @@ struct ChatScreenLayoutTests {
     func mobileComposerExpandsToAvailableWidthWithDedicatedCircleButtons() throws {
         let source = try source("Sources", "SloppyFeatureChat", "Screens", "Chat", "Views", "ChatComposerView.swift")
 
-        #expect(source.contains("private struct MobileComposerCircleButton"))
+        #expect(source.contains("struct MobileComposerCircleButton"))
         #expect(source.contains("maxWidth: .infinity,\n            minHeight: currentPanelHeight,\n            alignment: .leading"))
         #expect(source.contains("width: ChatComposerView.phoneCircleSize,"))
         #expect(source.contains("height: 44"))
@@ -39,7 +39,7 @@ struct ChatScreenLayoutTests {
     func composerUsesCompactSearchableModelPicker() throws {
         let source = try source("Sources", "SloppyFeatureChat", "Screens", "Chat", "Views", "ChatComposerView.swift")
 
-        #expect(source.contains("private struct ComposerOptionsMenuView"))
+        #expect(source.contains("struct ComposerOptionsMenuView"))
         #expect(source.contains("TextField(\"Search models\", text: $searchText)"))
         #expect(source.contains(".popover(isPresented: $isPresented"))
         #expect(source.contains("onRefreshModels: viewModel.refreshAvailableModels"))

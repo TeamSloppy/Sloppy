@@ -12,7 +12,7 @@ struct ChatComposerDraftSourceTests {
             let sourceURL = packageRoot
                 .appendingPathComponent("Sources")
                 .appendingPathComponent("SloppyFeatureChat/Screens/Chat/ChatScreenViewModel.swift")
-            return try String(contentsOf: sourceURL, encoding: .utf8)
+            return try String(chatSourceContentsOf: sourceURL, encoding: .utf8)
         }
     }
 
@@ -20,10 +20,10 @@ struct ChatComposerDraftSourceTests {
     func viewModelStoresComposerDraftsPerActiveSessionOrDraftContext() throws {
         let source = try viewModelSource
 
-        #expect(source.contains("private var composerDraftsByKey: [String: StoredComposerDraft] = [:]"))
+        #expect(source.contains("var composerDraftsByKey: [String: StoredComposerDraft] = [:]"))
         #expect(source.contains("composerAttachments = storedDraft?.attachments ?? []"))
-        #expect(source.contains("private var activeComposerDraftKey: String?"))
-        #expect(source.contains("private func syncComposerDraft("))
+        #expect(source.contains("var activeComposerDraftKey: String?"))
+        #expect(source.contains("func syncComposerDraft("))
         #expect(source.contains("private func composerDraftKey("))
         #expect(source.contains("return \"session:\\(sessionId)\""))
         #expect(source.contains("return \"draft:\\(resolvedAgentId):\\(projectId ?? \"-\"):\\(taskId ?? \"-\")\""))
@@ -39,7 +39,7 @@ struct ChatComposerDraftSourceTests {
         #expect(sendMethods.contains("clearActiveComposerDraft()"))
         #expect(sendMethods.contains("requestComposerFocus()"))
         #expect(!sendMethods.contains("dismissComposerFocus()"))
-        #expect(source.contains("private func clearActiveComposerDraft()"))
+        #expect(source.contains("func clearActiveComposerDraft()"))
         #expect(source.contains("composerDraft.text = \"\""))
         #expect(source.contains("composerAttachments = []"))
     }
@@ -48,7 +48,7 @@ struct ChatComposerDraftSourceTests {
     func sendFailuresRestoreTheDraftAndExposeTheError() throws {
         let source = try viewModelSource
 
-        #expect(source.contains("public private(set) var sendErrorMessage: String?"))
+        #expect(source.contains("public internal(set) var sendErrorMessage: String?"))
         #expect(source.contains("Could not create session:"))
         #expect(source.contains("Message was not sent:"))
         #expect(source.contains("composerDraft.text = content"))

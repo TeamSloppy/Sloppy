@@ -8,7 +8,7 @@ struct WorkspacePanelSourceTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
             .deletingLastPathComponent()
-        return try String(contentsOf: packageRoot.appendingPathComponent(path), encoding: .utf8)
+        return try String(chatSourceContentsOf: packageRoot.appendingPathComponent(path), encoding: .utf8)
     }
 
     @Test("workspace panel loads lazy directories and file previews")

@@ -22,7 +22,7 @@ struct MainLoadingViewSourceTests {
         #expect(mainViewModel.contains("didLoadProjects && didLoadSidebarCatalog"))
         #expect(!mainViewModel.contains("return selectedChatViewModel.didLoadInitialData"))
         #expect(mainViewModel.contains("viewModel.loadInitialData()"))
-        #expect(chatViewModel.contains("public private(set) var didLoadInitialData = false"))
+        #expect(chatViewModel.contains("public internal(set) var didLoadInitialData = false"))
     }
 
     @Test("loading screen shimmers the project logo and respects reduced motion")

@@ -12,7 +12,7 @@ struct ChatBubbleRenderingTests {
             let sourceURL = packageRoot
                 .appendingPathComponent("Sources")
                 .appendingPathComponent("SloppyFeatureChat/Screens/Chat/Views/ChatBubbleView.swift")
-            return try String(contentsOf: sourceURL, encoding: .utf8)
+            return try String(chatSourceContentsOf: sourceURL, encoding: .utf8)
         }
     }
 
@@ -48,8 +48,8 @@ struct ChatBubbleRenderingTests {
     @Test("macOS markdown provides native selected-text actions")
     func macOSMarkdownProvidesSelectedTextActions() throws {
         let source = try source
-        let stackStart = try #require(source.range(of: "private struct ChatMarkdownTextStack"))
-        let cardStart = try #require(source.range(of: "private struct ChatSegmentCollapsibleCard"))
+        let stackStart = try #require(source.range(of: "struct ChatMarkdownTextStack"))
+        let cardStart = try #require(source.range(of: "struct ChatSegmentCollapsibleCard"))
         let stackSource = String(source[stackStart.lowerBound..<cardStart.lowerBound])
         let macOSBranchStart = try #require(stackSource.range(of: "#if os(macOS)"))
         let fallbackBranchStart = try #require(stackSource.range(of: "#else"))
@@ -68,8 +68,8 @@ struct ChatBubbleRenderingTests {
     @Test("system activity is grouped without a glass card")
     func systemActivityIsGroupedWithoutGlass() throws {
         let source = try source
-        let rowStart = try #require(source.range(of: "private struct ChatSegmentCollapsibleCard"))
-        let shimmerStart = try #require(source.range(of: "private struct ChatShimmerText"))
+        let rowStart = try #require(source.range(of: "struct ChatSegmentCollapsibleCard"))
+        let shimmerStart = try #require(source.range(of: "struct ChatShimmerText"))
         let rowSource = source[rowStart.lowerBound..<shimmerStart.lowerBound]
 
         #expect(source.contains("struct ChatSystemMessageGroupView"))

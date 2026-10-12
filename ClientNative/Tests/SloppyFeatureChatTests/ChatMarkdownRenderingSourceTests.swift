@@ -9,7 +9,7 @@ struct ChatMarkdownRenderingSourceTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         let url = path.reduce(packageRoot) { $0.appendingPathComponent($1) }
-        return try String(contentsOf: url, encoding: .utf8)
+        return try String(chatSourceContentsOf: url, encoding: .utf8)
     }
 
     @Test("chat markdown keeps Textual's structured renderer")

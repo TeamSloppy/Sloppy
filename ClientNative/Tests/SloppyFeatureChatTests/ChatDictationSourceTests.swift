@@ -12,7 +12,7 @@ struct ChatDictationSourceTests {
             let sourceURL = packageRoot
                 .appendingPathComponent("Sources")
                 .appendingPathComponent("SloppyFeatureChat/Screens/Chat/ChatScreenViewModel.swift")
-            return try String(contentsOf: sourceURL, encoding: .utf8)
+            return try String(chatSourceContentsOf: sourceURL, encoding: .utf8)
         }
     }
 
@@ -26,7 +26,7 @@ struct ChatDictationSourceTests {
                 .appendingPathComponent("Sources")
                 .appendingPathComponent("SloppyClientCore")
                 .appendingPathComponent("SloppyAPIClient.swift")
-            return try String(contentsOf: sourceURL, encoding: .utf8)
+            return try String(chatSourceContentsOf: sourceURL, encoding: .utf8)
         }
     }
 
@@ -34,10 +34,10 @@ struct ChatDictationSourceTests {
     func viewModelOwnsDictationLifecycle() throws {
         let source = try viewModelSource
 
-        #expect(source.contains("public private(set) var dictationPhase: ChatComposerDictationPhase = .idle"))
-        #expect(source.contains("public private(set) var dictationLevels: [CGFloat] = Array(repeating: 0.12, count: 48)"))
+        #expect(source.contains("public internal(set) var dictationPhase: ChatComposerDictationPhase = .idle"))
+        #expect(source.contains("public internal(set) var dictationLevels: [CGFloat] = Array(repeating: 0.12, count: 48)"))
         #expect(source.contains("public var isShowingDictationComposer: Bool"))
-        #expect(source.contains("private let dictationRecorder = DictationRecorder()"))
+        #expect(source.contains("let dictationRecorder = DictationRecorder()"))
         #expect(source.contains("public func startDictation()"))
         #expect(source.contains("public func stopDictation()"))
         #expect(source.contains("private func beginDictationMetering()"))

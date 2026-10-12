@@ -25,7 +25,7 @@ struct ChatScreenRenderingTests {
                 .appendingPathComponent("Screens")
                 .appendingPathComponent("Chat")
                 .appendingPathComponent("ChatScreen.swift")
-            return try String(contentsOf: sourceURL, encoding: .utf8)
+            return try String(chatSourceContentsOf: sourceURL, encoding: .utf8)
         }
     }
 
@@ -36,7 +36,7 @@ struct ChatScreenRenderingTests {
                 .deletingLastPathComponent()
                 .deletingLastPathComponent()
             return try String(
-                contentsOf: packageRoot
+                chatSourceContentsOf: packageRoot
                     .appendingPathComponent("Sources/SloppyFeatureChat/Screens/Chat/Views/ChatNativeTranscriptView.swift"),
                 encoding: .utf8
             )
@@ -46,8 +46,8 @@ struct ChatScreenRenderingTests {
     @Test("root chat content delegates rendering to chat chrome and loads initial data on appear")
     func rootChatContentDelegatesRenderingToChatChrome() throws {
         let source = try chatScreenSource
-        let contentStart = try #require(source.range(of: "private struct ChatScreenContent: View"))
-        let chromeStart = try #require(source.range(of: "private struct ChatChrome: View"))
+        let contentStart = try #require(source.range(of: "struct ChatScreenContent: View"))
+        let chromeStart = try #require(source.range(of: "struct ChatChrome: View"))
         let contentSource = source[contentStart.lowerBound..<chromeStart.lowerBound]
 
         #expect(contentSource.contains("ChatChrome("))
@@ -200,7 +200,7 @@ struct ChatScreenRenderingTests {
         let source = try chatScreenSource
 
         #expect(source.contains("viewModel.isLoadingTranscript, viewModel.transcript.isEmpty"))
-        #expect(source.contains("private struct ChatTranscriptLoadingView"))
+        #expect(source.contains("struct ChatTranscriptLoadingView"))
         #expect(source.contains(".accessibilityLabel(\"Loading conversation\")"))
         #expect(source.contains("chat.transcript.loading"))
     }
@@ -242,7 +242,7 @@ struct ChatScreenRenderingTests {
     func desktopChatUsesTransparentTranscriptChrome() throws {
         let source = try chatScreenSource
 
-        #expect(source.contains("fileprivate let chatContentWidth: CGFloat = 960"))
+        #expect(source.contains("let chatContentWidth: CGFloat = 960"))
         #expect(!source.contains(".background(theme.colors.background)"))
         #expect(!source.contains("theme.colors.background.opacity(0.88 as Double)"))
         #expect(source.contains("ChatTranscriptDateSeparators.shouldInsert"))
@@ -267,8 +267,8 @@ struct ChatScreenRenderingTests {
     @Test("transcript does not intercept text-selection gestures")
     func transcriptDoesNotInterceptTextSelectionGestures() throws {
         let source = try chatScreenSource
-        let transcriptStart = try #require(source.range(of: "private struct ChatTranscriptRegion"))
-        let emptyChatStart = try #require(source.range(of: "private struct ChatEmptyChatRegion"))
+        let transcriptStart = try #require(source.range(of: "struct ChatTranscriptRegion"))
+        let emptyChatStart = try #require(source.range(of: "struct ChatEmptyChatRegion"))
         let transcriptSource = source[transcriptStart.lowerBound..<emptyChatStart.lowerBound]
 
         #expect(!transcriptSource.contains(".onTapGesture"))
@@ -282,7 +282,7 @@ struct ChatScreenRenderingTests {
                 .deletingLastPathComponent()
                 .deletingLastPathComponent()
             return try String(
-                contentsOf: packageRoot
+                chatSourceContentsOf: packageRoot
                     .appendingPathComponent("Sources/SloppyFeatureChat/Screens/Chat/Views/ChatGreetingView.swift"),
                 encoding: .utf8
             )

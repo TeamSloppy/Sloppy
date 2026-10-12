@@ -9,7 +9,7 @@ struct ChatApprovalAndQueueSourceTests {
             .deletingLastPathComponent()
             .deletingLastPathComponent()
         return try String(
-            contentsOf: packageRoot.appendingPathComponent(path),
+            chatSourceContentsOf: packageRoot.appendingPathComponent(path),
             encoding: .utf8
         )
     }
