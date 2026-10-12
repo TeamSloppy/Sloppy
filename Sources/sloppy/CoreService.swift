@@ -240,6 +240,7 @@ public actor CoreService {
     let skillsGitHubClient: SkillsGitHubClient
     let agentPluginManager: AgentPluginManager
     let updateChecker: UpdateCheckerService
+    let whisperInstaller = WhisperInstaller()
     let swarmPlanner: SwarmPlanner
     let gitWorktreeService: GitWorktreeService
     var sourceControlProviders: [String: any SourceControlProvider]

@@ -999,6 +999,12 @@ func missingVoiceModeFallsBackToDefaults() throws {
     #expect(decoded.voiceMode.openAI.transcriptionModel == "gpt-4o-mini-transcribe")
     #expect(decoded.voiceMode.openAI.ttsModel == "gpt-4o-mini-tts")
     #expect(decoded.voiceMode.openAI.voice == "coral")
+    #expect(decoded.voiceMode.transcriptionProvider == .auto)
+    #expect(decoded.voiceMode.speechProvider == .auto)
+    #expect(decoded.voiceMode.elevenLabs.enabled == false)
+    #expect(decoded.voiceMode.system.enabled == false)
+    #expect(decoded.voiceMode.groq.enabled == false)
+    #expect(decoded.voiceMode.groq.transcriptionModel == "whisper-large-v3-turbo")
     #expect(decoded.voiceMode.local.enabled == true)
     #expect(decoded.voiceMode.local.rate == 1)
     #expect(decoded.voiceMode.local.pitch == 1)
@@ -1035,4 +1041,15 @@ func voiceModeConfigRoundTrips() throws {
     #expect(decoded.voiceMode.local.voiceName == "Milena")
     #expect(decoded.voiceMode.local.rate == 1.1)
     #expect(decoded.voiceMode.local.pitch == 0.9)
+}
+
+@Test
+func legacyVoiceModeWithoutGroqFieldsStillDecodes() throws {
+    let json = #"{"enabled":true,"provider":"openai"}"#
+    let decoded = try JSONDecoder().decode(CoreConfig.VoiceMode.self, from: Data(json.utf8))
+
+    #expect(decoded.provider == .openAI)
+    #expect(decoded.openAI.enabled == false)
+    #expect(decoded.transcriptionProvider == .auto)
+    #expect(decoded.groq == CoreConfig.VoiceMode.Groq())
 }

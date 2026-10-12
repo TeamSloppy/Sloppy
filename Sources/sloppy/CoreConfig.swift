@@ -1126,6 +1126,20 @@ public struct CoreConfig: Codable, Sendable {
             case local
         }
 
+        public enum TranscriptionProvider: String, Codable, Sendable, Equatable {
+            case auto
+            case openAI = "openai"
+            case groq
+            case whisper
+        }
+
+        public enum SpeechProvider: String, Codable, Sendable, Equatable {
+            case auto
+            case openAI = "openai"
+            case elevenLabs = "elevenlabs"
+            case system
+        }
+
         public enum InputMode: String, Codable, Sendable, Equatable {
             case pushToTalk = "push_to_talk"
             case autoSubmit = "auto_submit"
@@ -1165,6 +1179,180 @@ public struct CoreConfig: Codable, Sendable {
             }
         }
 
+        public struct Groq: Codable, Sendable, Equatable {
+            public var enabled: Bool
+            public var apiKey: String
+            public var transcriptionModel: String
+
+            public init(
+                enabled: Bool = false,
+                apiKey: String = "",
+                transcriptionModel: String = "whisper-large-v3-turbo"
+            ) {
+                self.enabled = enabled
+                self.apiKey = apiKey
+                self.transcriptionModel = transcriptionModel.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "whisper-large-v3-turbo" : transcriptionModel
+            }
+
+            private enum CodingKeys: String, CodingKey {
+                case enabled
+                case apiKey
+                case transcriptionModel
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.init(
+                    enabled: try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false,
+                    apiKey: try container.decodeIfPresent(String.self, forKey: .apiKey) ?? "",
+                    transcriptionModel: try container.decodeIfPresent(String.self, forKey: .transcriptionModel) ?? "whisper-large-v3-turbo"
+                )
+            }
+        }
+
+        public struct ElevenLabs: Codable, Sendable, Equatable {
+            public static let defaultModel = "eleven_multilingual_v2"
+            public static let defaultVoiceId = "21m00Tcm4TlvDq8ikWAM"
+
+            public var enabled: Bool
+            public var apiKey: String
+            public var model: String
+            public var voiceId: String
+
+            public init(
+                enabled: Bool = false,
+                apiKey: String = "",
+                model: String = ElevenLabs.defaultModel,
+                voiceId: String = ElevenLabs.defaultVoiceId
+            ) {
+                self.enabled = enabled
+                self.apiKey = apiKey
+                self.model = model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Self.defaultModel : model
+                self.voiceId = voiceId.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Self.defaultVoiceId : voiceId
+            }
+
+            private enum CodingKeys: String, CodingKey {
+                case enabled, apiKey, model, voiceId
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.init(
+                    enabled: try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false,
+                    apiKey: try container.decodeIfPresent(String.self, forKey: .apiKey) ?? "",
+                    model: try container.decodeIfPresent(String.self, forKey: .model) ?? Self.defaultModel,
+                    voiceId: try container.decodeIfPresent(String.self, forKey: .voiceId) ?? Self.defaultVoiceId
+                )
+            }
+        }
+
+        /// Offline speech-to-text through whisper.cpp and ffmpeg on the machine running Core.
+        public struct Whisper: Codable, Sendable, Equatable {
+            public var enabled: Bool
+            public var executablePath: String
+            public var ffmpegPath: String
+            public var modelPath: String
+            public var threads: Int
+
+            public init(
+                enabled: Bool = false,
+                executablePath: String = "",
+                ffmpegPath: String = "",
+                modelPath: String = "",
+                threads: Int = 4
+            ) {
+                self.enabled = enabled
+                self.executablePath = executablePath
+                self.ffmpegPath = ffmpegPath
+                self.modelPath = modelPath
+                self.threads = min(max(threads, 1), 32)
+            }
+
+            private enum CodingKeys: String, CodingKey {
+                case enabled, executablePath, ffmpegPath, modelPath, threads
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.init(
+                    enabled: try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false,
+                    executablePath: try container.decodeIfPresent(String.self, forKey: .executablePath) ?? "",
+                    ffmpegPath: try container.decodeIfPresent(String.self, forKey: .ffmpegPath) ?? "",
+                    modelPath: try container.decodeIfPresent(String.self, forKey: .modelPath) ?? "",
+                    threads: try container.decodeIfPresent(Int.self, forKey: .threads) ?? 4
+                )
+            }
+        }
+
+        /// Realtime speech-to-speech (ADR 0007). Core only mints short-lived tokens; the browser connects directly.
+        public struct Realtime: Codable, Sendable, Equatable {
+            public static let defaultModel = "gemini-3.8-live"
+            public static let defaultVoice = "Puck"
+            public static let defaultMaxSessionSeconds = 900
+
+            public var enabled: Bool
+            public var apiKey: String
+            public var model: String
+            public var voice: String
+            public var systemInstruction: String
+            public var maxSessionSeconds: Int
+
+            public init(
+                enabled: Bool = false,
+                apiKey: String = "",
+                model: String = Realtime.defaultModel,
+                voice: String = Realtime.defaultVoice,
+                systemInstruction: String = "",
+                maxSessionSeconds: Int = Realtime.defaultMaxSessionSeconds
+            ) {
+                self.enabled = enabled
+                self.apiKey = apiKey
+                self.model = model.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Self.defaultModel : model
+                self.voice = voice.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Self.defaultVoice : voice
+                self.systemInstruction = systemInstruction
+                self.maxSessionSeconds = min(max(maxSessionSeconds, 60), 1800)
+            }
+
+            private enum CodingKeys: String, CodingKey {
+                case enabled, apiKey, model, voice, systemInstruction, maxSessionSeconds
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.init(
+                    enabled: try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false,
+                    apiKey: try container.decodeIfPresent(String.self, forKey: .apiKey) ?? "",
+                    model: try container.decodeIfPresent(String.self, forKey: .model) ?? Self.defaultModel,
+                    voice: try container.decodeIfPresent(String.self, forKey: .voice) ?? Self.defaultVoice,
+                    systemInstruction: try container.decodeIfPresent(String.self, forKey: .systemInstruction) ?? "",
+                    maxSessionSeconds: try container.decodeIfPresent(Int.self, forKey: .maxSessionSeconds) ?? Self.defaultMaxSessionSeconds
+                )
+            }
+        }
+
+        /// Server-side speech synthesis through the host OS (macOS `say`). Free and offline.
+        public struct System: Codable, Sendable, Equatable {
+            public var enabled: Bool
+            public var voice: String
+
+            public init(enabled: Bool = false, voice: String = "") {
+                self.enabled = enabled
+                self.voice = voice
+            }
+
+            private enum CodingKeys: String, CodingKey {
+                case enabled, voice
+            }
+
+            public init(from decoder: Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.init(
+                    enabled: try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false,
+                    voice: try container.decodeIfPresent(String.self, forKey: .voice) ?? ""
+                )
+            }
+        }
+
         public struct Local: Codable, Sendable, Equatable {
             public var enabled: Bool
             public var voiceName: String
@@ -1181,22 +1369,76 @@ public struct CoreConfig: Codable, Sendable {
 
         public var enabled: Bool
         public var provider: Provider
+        public var transcriptionProvider: TranscriptionProvider
+        public var speechProvider: SpeechProvider
         public var input: Input
         public var openAI: OpenAI
+        public var groq: Groq
+        public var elevenLabs: ElevenLabs
+        public var system: System
+        public var realtime: Realtime
+        public var whisper: Whisper
         public var local: Local
 
         public init(
             enabled: Bool = false,
             provider: Provider = .auto,
+            transcriptionProvider: TranscriptionProvider = .auto,
+            speechProvider: SpeechProvider = .auto,
             input: Input = Input(),
             openAI: OpenAI = OpenAI(),
+            groq: Groq = Groq(),
+            elevenLabs: ElevenLabs = ElevenLabs(),
+            system: System = System(),
+            realtime: Realtime = Realtime(),
+            whisper: Whisper = Whisper(),
             local: Local = Local()
         ) {
             self.enabled = enabled
             self.provider = provider
+            self.transcriptionProvider = transcriptionProvider
+            self.speechProvider = speechProvider
             self.input = input
             self.openAI = openAI
+            self.groq = groq
+            self.elevenLabs = elevenLabs
+            self.system = system
+            self.realtime = realtime
+            self.whisper = whisper
             self.local = local
+        }
+
+        private enum CodingKeys: String, CodingKey {
+            case enabled
+            case provider
+            case transcriptionProvider
+            case speechProvider
+            case input
+            case openAI
+            case groq
+            case elevenLabs
+            case system
+            case realtime
+            case whisper
+            case local
+        }
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.container(keyedBy: CodingKeys.self)
+            self.init(
+                enabled: try container.decodeIfPresent(Bool.self, forKey: .enabled) ?? false,
+                provider: try container.decodeIfPresent(Provider.self, forKey: .provider) ?? .auto,
+                transcriptionProvider: try container.decodeIfPresent(TranscriptionProvider.self, forKey: .transcriptionProvider) ?? .auto,
+                speechProvider: try container.decodeIfPresent(SpeechProvider.self, forKey: .speechProvider) ?? .auto,
+                input: try container.decodeIfPresent(Input.self, forKey: .input) ?? Input(),
+                openAI: try container.decodeIfPresent(OpenAI.self, forKey: .openAI) ?? OpenAI(),
+                groq: try container.decodeIfPresent(Groq.self, forKey: .groq) ?? Groq(),
+                elevenLabs: try container.decodeIfPresent(ElevenLabs.self, forKey: .elevenLabs) ?? ElevenLabs(),
+                system: try container.decodeIfPresent(System.self, forKey: .system) ?? System(),
+                realtime: try container.decodeIfPresent(Realtime.self, forKey: .realtime) ?? Realtime(),
+                whisper: try container.decodeIfPresent(Whisper.self, forKey: .whisper) ?? Whisper(),
+                local: try container.decodeIfPresent(Local.self, forKey: .local) ?? Local()
+            )
         }
     }
 

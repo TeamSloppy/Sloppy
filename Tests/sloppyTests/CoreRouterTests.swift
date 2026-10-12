@@ -6298,3 +6298,292 @@ private struct StaticIssueReportLogUploader: IssueReportLogUploading {
         return logsURL
     }
 }
+
+@Test
+func voiceConfigEndpointReportsGroqTranscriptionWhenOpenAIMissing() async throws {
+    var config = CoreConfig.test
+    config.voiceMode = .init(
+        enabled: true,
+        provider: .auto,
+        groq: .init(enabled: true, apiKey: "gsk-test")
+    )
+    config.models = []
+    let router = CoreRouter(service: CoreService(config: config))
+
+    let response = await router.handle(method: "GET", path: "/v1/voice/config", body: nil)
+
+    #expect(response.status == 200)
+    let payload = try JSONDecoder().decode(VoiceModeConfigResponse.self, from: response.body)
+    #expect(payload.effectiveTranscriptionProvider == "groq")
+    #expect(String(decoding: response.body, as: UTF8.self).contains("gsk-test") == false)
+}
+
+@Test
+func voiceTranscriptionEndpointReturnsGroqConfigErrorWhenGroqSelectedButDisabled() async throws {
+    var config = CoreConfig.test
+    config.voiceMode = .init(
+        enabled: true,
+        provider: .auto,
+        transcriptionProvider: .groq,
+        groq: .init(enabled: false, apiKey: "gsk-test")
+    )
+    config.models = []
+    let router = CoreRouter(service: CoreService(config: config))
+    let body = try JSONEncoder().encode(VoiceModeTranscriptionRequest(audioBase64: "d2F2", mimeType: "audio/webm"))
+
+    let response = await router.handle(method: "POST", path: "/v1/voice/transcriptions", body: body)
+
+    #expect(response.status == 409)
+    let payload = try JSONDecoder().decode(ErrorResponse.self, from: response.body)
+    #expect(payload.error == "voice_groq_not_configured")
+}
+
+@Test
+func voiceSpeechEndpointReturnsElevenLabsConfigErrorWhenSelectedButDisabled() async throws {
+    var config = CoreConfig.test
+    config.voiceMode = .init(
+        enabled: true,
+        speechProvider: .elevenLabs,
+        elevenLabs: .init(enabled: false, apiKey: "xi-test")
+    )
+    config.models = []
+    let router = CoreRouter(service: CoreService(config: config))
+    let body = try JSONEncoder().encode(VoiceModeSpeechRequest(text: "Привет"))
+
+    let response = await router.handle(method: "POST", path: "/v1/voice/speech", body: body)
+
+    #expect(response.status == 409)
+    let payload = try JSONDecoder().decode(ErrorResponse.self, from: response.body)
+    #expect(payload.error == "voice_elevenlabs_not_configured")
+}
+
+@Test
+func voiceConfigEndpointReportsElevenLabsSpeechWithoutLeakingKey() async throws {
+    var config = CoreConfig.test
+    config.voiceMode = .init(
+        enabled: true,
+        elevenLabs: .init(enabled: true, apiKey: "xi-secret")
+    )
+    config.models = []
+    let router = CoreRouter(service: CoreService(config: config))
+
+    let response = await router.handle(method: "GET", path: "/v1/voice/config", body: nil)
+
+    let payload = try JSONDecoder().decode(VoiceModeConfigResponse.self, from: response.body)
+    #expect(payload.effectiveSpeechProvider == "elevenlabs")
+    #expect(String(decoding: response.body, as: UTF8.self).contains("xi-secret") == false)
+}
+
+#if os(macOS)
+@Test
+func systemSpeechProviderSynthesizesAudioOnMacOS() async throws {
+    let provider = SystemSpeechProvider(defaultVoice: "")
+    let response = try await provider.speech(request: VoiceModeSpeechRequest(text: "Привет, мир"))
+
+    #expect(response.provider == "system")
+    #expect(response.mimeType == "audio/mp4")
+    #expect((Data(base64Encoded: response.audioBase64)?.count ?? 0) > 1000)
+}
+#endif
+
+@Test
+func voiceRealtimeSessionEndpointReturnsConfigErrorWhenDisabled() async throws {
+    var config = CoreConfig.test
+    config.voiceMode = .init(enabled: true, realtime: .init(enabled: false, apiKey: "AIza-test"))
+    config.models = []
+    let router = CoreRouter(service: CoreService(config: config))
+
+    let response = await router.handle(method: "POST", path: "/v1/voice/realtime/session", body: nil)
+
+    #expect(response.status == 409)
+    let payload = try JSONDecoder().decode(ErrorResponse.self, from: response.body)
+    #expect(payload.error == "voice_realtime_not_configured")
+}
+
+@Test
+func voiceConfigEndpointReportsRealtimeWithoutLeakingKey() async throws {
+    var config = CoreConfig.test
+    config.voiceMode = .init(enabled: true, realtime: .init(enabled: true, apiKey: "AIza-secret"))
+    config.models = []
+    let router = CoreRouter(service: CoreService(config: config))
+
+    let response = await router.handle(method: "GET", path: "/v1/voice/config", body: nil)
+
+    let payload = try JSONDecoder().decode(VoiceModeConfigResponse.self, from: response.body)
+    #expect(payload.effectiveRealtimeProvider == "gemini")
+    #expect(String(decoding: response.body, as: UTF8.self).contains("AIza-secret") == false)
+}
+
+@Test
+func geminiLiveTokenRequestIsSingleUseAndKeepsKeyInHeader() throws {
+    let issued = Date(timeIntervalSince1970: 1_800_000_000)
+    let provider = GeminiLiveSessionProvider(
+        apiKey: "AIza-test",
+        realtime: .init(enabled: true, maxSessionSeconds: 600),
+        now: { issued }
+    )
+
+    let request = try provider.makeTokenRequest()
+
+    #expect(request.httpMethod == "POST")
+    #expect(request.url?.absoluteString == "https://generativelanguage.googleapis.com/v1beta/auth_tokens")
+    #expect(request.value(forHTTPHeaderField: "x-goog-api-key") == "AIza-test")
+    let body = try #require(request.httpBody)
+    let json = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+    #expect(json["uses"] as? Int == 1)
+    #expect(json["expireTime"] as? String == GeminiLiveSessionProvider.iso8601(issued.addingTimeInterval(600)))
+    #expect(json["newSessionExpireTime"] as? String == GeminiLiveSessionProvider.iso8601(issued.addingTimeInterval(60)))
+    #expect(String(decoding: body, as: UTF8.self).contains("AIza-test") == false)
+}
+
+@Test
+func geminiLiveSessionResponseCarriesTokenNotApiKey() throws {
+    let provider = GeminiLiveSessionProvider(
+        apiKey: "AIza-test",
+        realtime: .init(enabled: true, voice: "Kore", systemInstruction: "Be brief.")
+    )
+
+    let response = try provider.makeResponse(tokenResponse: Data(#"{"name":"auth_tokens/abc123"}"#.utf8))
+
+    #expect(response.provider == "gemini")
+    #expect(response.token == "auth_tokens/abc123")
+    #expect(response.voice == "Kore")
+    #expect(response.systemInstruction == "Be brief.")
+    #expect(response.websocketUrl.hasSuffix("BidiGenerateContentConstrained"))
+    #expect(throws: CoreService.VoiceModeError.self) {
+        try provider.makeResponse(tokenResponse: Data("{}".utf8))
+    }
+}
+
+@Test
+func voiceTranscriptionEndpointReturnsWhisperConfigErrorWhenModelMissing() async throws {
+    var config = CoreConfig.test
+    config.voiceMode = .init(
+        enabled: true,
+        transcriptionProvider: .whisper,
+        whisper: .init(enabled: true, modelPath: "/nonexistent/ggml-model.bin")
+    )
+    config.models = []
+    let router = CoreRouter(service: CoreService(config: config))
+    let body = try JSONEncoder().encode(VoiceModeTranscriptionRequest(audioBase64: "d2F2", mimeType: "audio/webm"))
+
+    let response = await router.handle(method: "POST", path: "/v1/voice/transcriptions", body: body)
+
+    #expect(response.status == 409)
+    let payload = try JSONDecoder().decode(ErrorResponse.self, from: response.body)
+    #expect(payload.error == "voice_whisper_not_configured")
+}
+
+@Test
+func localWhisperBuildsArgumentsAndCleansTranscript() {
+    let args = LocalWhisperTranscriber.whisperArguments(model: "/m.bin", wav: "/a.wav", language: nil, prompt: "Sloppy", threads: 0)
+    #expect(args == ["-m", "/m.bin", "-f", "/a.wav", "-nt", "-np", "-t", "1", "-l", "auto", "--prompt", "Sloppy"])
+    #expect(LocalWhisperTranscriber.whisperArguments(model: "/m", wav: "/a", language: "ru", prompt: nil, threads: 4).suffix(2) == ["-l", "ru"])
+    #expect(LocalWhisperTranscriber.cleanTranscript(" Привет, мир.\n[BLANK_AUDIO]\n  Как дела?\n(тишина)\n") == "Привет, мир. Как дела?")
+}
+
+@Test
+func localWhisperTranscribesThroughConfiguredTools() async throws {
+    let directory = FileManager.default.temporaryDirectory.appendingPathComponent("whisper-fake-\(UUID().uuidString)")
+    try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: directory) }
+
+    let ffmpeg = directory.appendingPathComponent("ffmpeg")
+    let whisper = directory.appendingPathComponent("whisper-cli")
+    let model = directory.appendingPathComponent("ggml-test.bin")
+    // Fake ffmpeg writes the last argument (output wav); fake whisper echoes a transcript.
+    try "#!/bin/sh\nfor last; do :; done\necho wav > \"$last\"\n".write(to: ffmpeg, atomically: true, encoding: .utf8)
+    try "#!/bin/sh\necho ' Привет из теста.'\necho '[BLANK_AUDIO]'\n".write(to: whisper, atomically: true, encoding: .utf8)
+    try "model".write(to: model, atomically: true, encoding: .utf8)
+    for url in [ffmpeg, whisper] {
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+    }
+
+    let settings = CoreConfig.VoiceMode.Whisper(enabled: true, executablePath: whisper.path, ffmpegPath: ffmpeg.path, modelPath: model.path)
+    let paths = try #require(LocalWhisperTranscriber.resolvePaths(settings))
+    let response = try await LocalWhisperTranscriber(paths: paths, threads: 2)
+        .transcribe(request: VoiceModeTranscriptionRequest(audioBase64: Data("audio".utf8).base64EncodedString(), mimeType: "audio/webm", language: "ru"))
+
+    #expect(response.text == "Привет из теста.")
+    #expect(response.provider == "whisper")
+    #expect(response.model == "ggml-test.bin")
+}
+
+#if os(macOS)
+private let realWhisperModelPath = ("~/.sloppy/models/whisper/ggml-large-v3-turbo-q5_0.bin" as NSString).expandingTildeInPath
+
+/// Optional end-to-end check: runs only where whisper.cpp, ffmpeg and a model are installed.
+@Test(.enabled(if: LocalWhisperTranscriber.resolvePaths(.init(enabled: true, modelPath: realWhisperModelPath)) != nil))
+func localWhisperRecognizesRussianSpeechEndToEnd() async throws {
+    let speech = try await SystemSpeechProvider(defaultVoice: "Milena")
+        .speech(request: VoiceModeSpeechRequest(text: "Привет, это проверка локального распознавания речи."))
+    let paths = try #require(LocalWhisperTranscriber.resolvePaths(.init(enabled: true, modelPath: realWhisperModelPath)))
+
+    let response = try await LocalWhisperTranscriber(paths: paths, threads: 4)
+        .transcribe(request: VoiceModeTranscriptionRequest(audioBase64: speech.audioBase64, mimeType: "audio/mp4", language: "ru"))
+
+    print("WHISPER_RESULT:", response.text)
+    #expect(response.text.lowercased().contains("проверка"))
+}
+#endif
+
+@Test
+func whisperStatusEndpointListsCatalogWithoutInstalling() async throws {
+    var config = CoreConfig.test
+    config.voiceMode = .init(enabled: true)
+    let router = CoreRouter(service: CoreService(config: config))
+
+    let response = await router.handle(method: "GET", path: "/v1/voice/whisper/status", body: nil)
+
+    #expect(response.status == 200)
+    let payload = try JSONDecoder().decode(VoiceModeWhisperStatusResponse.self, from: response.body)
+    #expect(payload.models.map(\.id) == ["large-v3-turbo-q5_0", "small-q5_1", "base-q5_1"])
+    #expect(payload.models.first?.recommended == true)
+    #expect(payload.job.state == "idle")
+    #expect(payload.modelsDirectory.hasSuffix(".sloppy/models/whisper"))
+}
+
+@Test
+func whisperInstallEndpointRejectsModelOutsideCatalog() async throws {
+    let router = CoreRouter(service: CoreService(config: CoreConfig.test))
+    let body = try JSONEncoder().encode(VoiceModeWhisperInstallRequest(model: "../../evil"))
+
+    let response = await router.handle(method: "POST", path: "/v1/voice/whisper/install", body: body)
+
+    #expect(response.status == 400)
+}
+
+@Test
+func liveVoiceTranscriptEventsFromDashboardPersistWithoutTriggeringAgent() async throws {
+    let service = CoreService(config: CoreConfig.test)
+    let router = CoreRouter(service: service)
+    let agentID = "live-voice-router"
+    _ = try await service.createAgent(AgentCreateRequest(id: agentID, displayName: "Live Voice", role: "Testing"))
+    let session = try await service.createAgentSession(agentID: agentID, request: AgentSessionCreateRequest(title: "Live"))
+
+    // Exactly the shape the Dashboard builds: ISO-8601 dates with milliseconds from Date.toISOString().
+    let body = """
+    {"events":[
+      {"id":"live-1-0-user","version":1,"agentId":"\(agentID)","sessionId":"\(session.id)","type":"message",
+       "createdAt":"2026-10-12T19:50:00.123Z",
+       "message":{"id":"live-1-0-user-message","role":"user","segments":[{"kind":"text","text":"Привет"}],
+                  "createdAt":"2026-10-12T19:50:00.123Z","userId":"voice-live"}},
+      {"id":"live-1-1-assistant","version":1,"agentId":"\(agentID)","sessionId":"\(session.id)","type":"message",
+       "createdAt":"2026-10-12T19:50:00.124Z",
+       "message":{"id":"live-1-1-assistant-message","role":"assistant","segments":[{"kind":"text","text":"Здравствуйте!"}],
+                  "createdAt":"2026-10-12T19:50:00.124Z","userId":"voice-live"}}
+    ]}
+    """
+    let response = await router.handle(
+        method: "POST",
+        path: "/v1/agents/\(agentID)/sessions/\(session.id)/events",
+        body: Data(body.utf8)
+    )
+
+    #expect(response.status == 200)
+    let detail = try await service.getAgentSession(agentID: agentID, sessionID: session.id)
+    let messages = detail.events.compactMap(\.message)
+    #expect(messages.map(\.role) == [.user, .assistant])
+    #expect(messages.allSatisfy { $0.userId == "voice-live" })
+    #expect(messages.last?.segments.first?.text == "Здравствуйте!")
+}

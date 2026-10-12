@@ -188,7 +188,7 @@ struct SystemAPIRouter: APIRouter {
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
         }
 
-        router.post("/v1/voice/transcriptions", metadata: RouteMetadata(summary: "Transcribe voice audio", description: "Transcribes bounded browser audio through configured OpenAI voice settings", tags: ["System"])) { request in
+        router.post("/v1/voice/transcriptions", metadata: RouteMetadata(summary: "Transcribe voice audio", description: "Transcribes bounded browser audio through the configured speech-to-text provider (OpenAI or Groq)", tags: ["System"])) { request in
             guard let body = request.body,
                   let payload = CoreRouter.decode(body, as: VoiceModeTranscriptionRequest.self)
             else {
@@ -201,12 +201,14 @@ struct SystemAPIRouter: APIRouter {
                 return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
             } catch CoreService.VoiceModeError.openAINotConfigured {
                 return CoreRouter.json(status: HTTPStatus.conflict, payload: ["error": "voice_openai_not_configured"])
+            } catch CoreService.VoiceModeError.providerNotConfigured(let provider) {
+                return CoreRouter.json(status: HTTPStatus.conflict, payload: ["error": "voice_\(provider)_not_configured"])
             } catch {
                 return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": "voice_transcription_failed"])
             }
         }
 
-        router.post("/v1/voice/speech", metadata: RouteMetadata(summary: "Generate voice speech", description: "Generates spoken audio through configured OpenAI voice settings", tags: ["System"])) { request in
+        router.post("/v1/voice/speech", metadata: RouteMetadata(summary: "Generate voice speech", description: "Generates spoken audio through the configured text-to-speech provider (OpenAI, ElevenLabs or system)", tags: ["System"])) { request in
             guard let body = request.body,
                   let payload = CoreRouter.decode(body, as: VoiceModeSpeechRequest.self)
             else {
@@ -219,8 +221,44 @@ struct SystemAPIRouter: APIRouter {
                 return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
             } catch CoreService.VoiceModeError.openAINotConfigured {
                 return CoreRouter.json(status: HTTPStatus.conflict, payload: ["error": "voice_openai_not_configured"])
+            } catch CoreService.VoiceModeError.providerNotConfigured(let provider) {
+                return CoreRouter.json(status: HTTPStatus.conflict, payload: ["error": "voice_\(provider)_not_configured"])
             } catch {
                 return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": "voice_speech_failed"])
+            }
+        }
+
+        router.get("/v1/voice/whisper/status", metadata: RouteMetadata(summary: "Get on-device recognition status", description: "Reports whether whisper.cpp, ffmpeg and a speech model are installed, plus the current install job", tags: ["System"])) { _ in
+            let response = await service.whisperStatus()
+            return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+        }
+
+        router.post("/v1/voice/whisper/install", metadata: RouteMetadata(summary: "Install on-device recognition", description: "Starts installing whisper.cpp and ffmpeg with Homebrew and downloads the selected speech model", tags: ["System"])) { request in
+            guard let body = request.body,
+                  let payload = CoreRouter.decode(body, as: VoiceModeWhisperInstallRequest.self)
+            else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            do {
+                let job = try await service.startWhisperInstall(payload)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: job)
+            } catch CoreService.VoiceModeError.invalidPayload {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            } catch CoreService.VoiceModeError.installInProgress {
+                return CoreRouter.json(status: HTTPStatus.conflict, payload: ["error": "voice_whisper_install_in_progress"])
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": "voice_whisper_install_failed"])
+            }
+        }
+
+        router.post("/v1/voice/realtime/session", metadata: RouteMetadata(summary: "Create realtime voice session", description: "Mints a short-lived, single-use credential for a browser-direct realtime voice session. Provider API keys are never returned", tags: ["System"])) { _ in
+            do {
+                let response = try await service.createRealtimeVoiceSession()
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch CoreService.VoiceModeError.providerNotConfigured(let provider) {
+                return CoreRouter.json(status: HTTPStatus.conflict, payload: ["error": "voice_\(provider)_not_configured"])
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": "voice_realtime_session_failed"])
             }
         }
 
