@@ -1997,6 +1997,18 @@ private struct ComposerAddMenu: View {
                     Button("New chat", systemImage: "square.and.pencil", action: tabActions.createTab)
                 }
             }
+            Section("Voice") {
+                Button { viewModel.toggleReadAloud() } label: {
+                    Label(
+                        viewModel.isReadAloudEnabled ? "Read replies aloud ✓" : "Read replies aloud",
+                        systemImage: "speaker.wave.2"
+                    )
+                }
+                .accessibilityIdentifier("chat.voice.read-aloud")
+                if viewModel.isSpeakingReply {
+                    Button("Stop speaking", systemImage: "speaker.slash") { viewModel.stopSpeakingReply() }
+                }
+            }
             Section("Chat") {
                 Button { viewModel.openLongChat() } label: {
                     Label(viewModel.isLongChat ? "Conversation ✓" : "Open conversation", systemImage: "bubble.left.and.bubble.right")

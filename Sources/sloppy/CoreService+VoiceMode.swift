@@ -128,8 +128,10 @@ extension CoreService {
         }
     }
 
-    public func transcribeVoice(_ request: VoiceModeTranscriptionRequest) async throws -> VoiceModeTranscriptionResponse {
+    public func transcribeVoice(_ rawRequest: VoiceModeTranscriptionRequest) async throws -> VoiceModeTranscriptionResponse {
         let config = getConfig()
+        var request = rawRequest
+        request.language = VoiceLanguage.normalize(rawRequest.language)
         guard !request.audioBase64.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               !request.mimeType.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else {

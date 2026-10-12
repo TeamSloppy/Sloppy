@@ -885,4 +885,12 @@ public actor SloppyAPIClient {
     public func transcribeVoice(_ request: VoiceTranscriptionRequest) async throws -> VoiceTranscriptionResponse {
         try await voice.transcribe(request)
     }
+
+    public func fetchVoiceConfig() async throws -> VoiceConfig {
+        try await voice.config()
+    }
+
+    public func synthesizeVoice(_ request: VoiceSpeechRequest) async throws -> VoiceSpeechResponse {
+        try await voice.synthesize(request)
+    }
 }

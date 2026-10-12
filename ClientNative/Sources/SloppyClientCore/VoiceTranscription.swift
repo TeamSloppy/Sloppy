@@ -37,6 +37,74 @@ public struct VoiceTranscriptionResponse: Codable, Sendable, Equatable {
     }
 }
 
+/// Subset of `GET /v1/voice/config` the native client acts on.
+public struct VoiceConfig: Codable, Sendable, Equatable {
+    public struct Input: Codable, Sendable, Equatable {
+        public var mode: String
+        public var language: String
+        public var previewBeforeSend: Bool
+
+        public init(mode: String = "push_to_talk", language: String = "auto", previewBeforeSend: Bool = true) {
+            self.mode = mode
+            self.language = language
+            self.previewBeforeSend = previewBeforeSend
+        }
+    }
+
+    public var enabled: Bool
+    public var effectiveTranscriptionProvider: String?
+    public var effectiveSpeechProvider: String?
+    public var input: Input
+
+    public init(
+        enabled: Bool = true,
+        effectiveTranscriptionProvider: String? = nil,
+        effectiveSpeechProvider: String? = nil,
+        input: Input = Input()
+    ) {
+        self.enabled = enabled
+        self.effectiveTranscriptionProvider = effectiveTranscriptionProvider
+        self.effectiveSpeechProvider = effectiveSpeechProvider
+        self.input = input
+    }
+
+    /// Language hint for the transcription request; nil lets the provider detect it.
+    public var transcriptionLanguage: String? {
+        let value = input.language.trimmingCharacters(in: .whitespacesAndNewlines)
+        return value.isEmpty || value.lowercased() == "auto" ? nil : value
+    }
+}
+
+public struct VoiceSpeechRequest: Codable, Sendable, Equatable {
+    public var text: String
+    public var voice: String?
+    public var instructions: String?
+
+    public init(text: String, voice: String? = nil, instructions: String? = nil) {
+        self.text = text
+        self.voice = voice
+        self.instructions = instructions
+    }
+}
+
+public struct VoiceSpeechResponse: Codable, Sendable, Equatable {
+    public var audioBase64: String
+    public var mimeType: String
+    public var provider: String
+    public var model: String
+    public var voice: String
+
+    public init(audioBase64: String, mimeType: String, provider: String, model: String, voice: String) {
+        self.audioBase64 = audioBase64
+        self.mimeType = mimeType
+        self.provider = provider
+        self.model = model
+        self.voice = voice
+    }
+
+    public var audioData: Data? { Data(base64Encoded: audioBase64) }
+}
+
 public actor VoiceService {
     private let http: BackendHTTPClient
 
@@ -44,8 +112,16 @@ public actor VoiceService {
         self.http = http
     }
 
+    public func config() async throws -> VoiceConfig {
+        try await http.get("/v1/voice/config")
+    }
+
     public func transcribe(_ request: VoiceTranscriptionRequest) async throws -> VoiceTranscriptionResponse {
         try await http.post("/v1/voice/transcriptions", body: request)
+    }
+
+    public func synthesize(_ request: VoiceSpeechRequest) async throws -> VoiceSpeechResponse {
+        try await http.post("/v1/voice/speech", body: request)
     }
 }
 
@@ -75,6 +151,7 @@ public struct DictationCapture: Sendable, Equatable {
 
 public enum DictationRecorderError: LocalizedError, Sendable {
     case unavailable
+    case noSpeechDetected
     case microphonePermissionDenied
     case couldNotStartRecording
     case noCapture
@@ -89,6 +166,8 @@ public enum DictationRecorderError: LocalizedError, Sendable {
             return "Could not start recording dictation."
         case .noCapture:
             return "No dictation recording was captured."
+        case .noSpeechDetected:
+            return "No speech was recognized. Try again closer to the microphone."
         }
     }
 }
@@ -280,5 +359,17 @@ public enum AppleSpeechTranscriberError: LocalizedError, Sendable {
         case .recognizerUnavailable:
             return "Speech Recognition is currently unavailable."
         }
+    }
+}
+
+public enum VoiceTranscriptionFallback {
+    /// Core being unreachable, lacking the voice endpoint (404) or having no transcription provider
+    /// configured (409) lets the app recognize speech on device. Any other failure (bad key, provider
+    /// error) is reported as is, so it is not hidden behind a worse on-device result.
+    public static func allowsOnDeviceRecognition(after error: Error) -> Bool {
+        if let api = error as? APIError {
+            return api.statusCode == 409 || api.statusCode == 404
+        }
+        return error is URLError
     }
 }
