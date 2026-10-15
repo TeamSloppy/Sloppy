@@ -374,7 +374,7 @@ public actor EventSource {
         // Linux-specific streaming support
         private var linuxSession: URLSession?
         private var linuxTask: URLSessionDataTask?
-        private var linuxCompletion: CheckedContinuation<Void, Never>?
+        private var linuxCompletion: AsyncStream<Void>.Continuation?
         private var linuxCompletionError: Error?
 
         #if AsyncHTTPClient
@@ -453,14 +453,8 @@ public actor EventSource {
             resumeLinuxCompletion()
         }
 
-        fileprivate func waitForLinuxCompletion() async {
-            await withCheckedContinuation { (cont: CheckedContinuation<Void, Never>) in
-                linuxCompletion = cont
-            }
-        }
-
         fileprivate func resumeLinuxCompletion() {
-            linuxCompletion?.resume()
+            linuxCompletion?.finish()
             linuxCompletion = nil
         }
 
@@ -690,11 +684,15 @@ public actor EventSource {
             )
             self.linuxSession = linuxSession
             self.linuxCompletionError = nil
+            // Register completion before starting the request, including responses that finish immediately.
+            // A stream also avoids a Swift 6.3 Windows optimizer crash in the isolated Void continuation.
+            let (completion, continuation) = AsyncStream<Void>.makeStream()
+            self.linuxCompletion = continuation
             let task = linuxSession.dataTask(with: currentRequest)
             self.linuxTask = task
             task.resume()
 
-            await waitForLinuxCompletion()
+            for await _ in completion {}
             if let completionError = consumeLinuxCompletionError() {
                 throw completionError
             }

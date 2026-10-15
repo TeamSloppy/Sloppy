@@ -1198,7 +1198,7 @@ actor ACPSessionManager {
                     .appendingPathComponent(String(rawPath.dropFirst(2)), isDirectory: true)
                     .path
         }
-        if rawPath.hasPrefix("/") {
+        if (rawPath as NSString).isAbsolutePath {
             return rawPath
         }
         return workspaceRootURL.appendingPathComponent(rawPath, isDirectory: true).path

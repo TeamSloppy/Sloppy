@@ -4,7 +4,9 @@ import Protocols
 import PluginSDK
 import AnyLanguageModel
 import Logging
+#if canImport(CodexBarCore)
 import CodexBarCore
+#endif
 import SloppyRuntime
 
 // MARK: - Agents
@@ -740,6 +742,8 @@ extension CoreService {
             totalReasoning += usage.totalReasoningTokens
         }
 
+        var totalCostUSD: Double = 0.0
+        #if canImport(CodexBarCore)
         // Try to get cost from CodexBar (reads local provider logs).
         let config = try getAgentConfig(agentID: normalizedID)
         let model = (config.selectedModel ?? "").lowercased()
@@ -754,11 +758,11 @@ extension CoreService {
             provider = .codex
         }
 
-        var totalCostUSD: Double = 0.0
         let fetcher = CostUsageFetcher()
         if let snapshot = try? await fetcher.loadTokenSnapshot(provider: provider) {
             totalCostUSD = snapshot.last30DaysCostUSD ?? 0.0
         }
+        #endif
 
         return AgentTokenUsageResponse(
             inputTokens: totalPrompt,

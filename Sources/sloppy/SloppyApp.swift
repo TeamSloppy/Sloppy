@@ -5,6 +5,8 @@ import SloppyNodeCLI
 import Darwin
 #elseif canImport(Glibc)
 import Glibc
+#elseif os(Windows)
+import ucrt
 #endif
 
 struct SloppyApp: AsyncParsableCommand {
@@ -56,7 +58,7 @@ struct SloppyApp: AsyncParsableCommand {
     @Option(name: .long, help: "Agent ID for non-interactive prompt mode.")
     var agent: String?
 
-    @Option(name: .long, help: "Path to JSON config file for non-interactive prompt mode.")
+    @Option(name: .long, help: "Path to JSON config file.")
     var configPath: String?
 
     @Option(name: .long, help: "Working directory for non-interactive prompt mode.")
@@ -93,13 +95,13 @@ struct SloppyApp: AsyncParsableCommand {
         }
         guard Self.shouldStartTUI(
             prompt: prompt,
-            stdinIsTTY: isatty(STDIN_FILENO) != 0,
-            stdoutIsTTY: isatty(STDOUT_FILENO) != 0
+            stdinIsTTY: PlatformProcess.isTerminal(input: true),
+            stdoutIsTTY: PlatformProcess.isTerminal(input: false)
         ) else {
             CLIStyle.error("Refusing to start the interactive TUI on non-interactive stdio. Use `sloppy acp serve` for ACP stdio or `sloppy -p <prompt>` for one-shot prompts.")
             throw ExitCode.failure
         }
-        try await SloppyTUIApp(requestedSessionID: session).run()
+        try await SloppyTUIApp(configPath: configPath, requestedSessionID: session).run()
     }
 
     static func shouldStartTUI(prompt: String?, stdinIsTTY: Bool, stdoutIsTTY: Bool) -> Bool {
@@ -115,9 +117,17 @@ enum SloppyMain {
 }
 
 extension SloppyApp {
+    static func parseCommand(_ arguments: [String]? = nil) throws -> any ParsableCommand {
+        let command = try parseAsRoot(arguments)
+        guard !(command is SloppyApp) else { return command }
+        // ArgumentParser consumes parent options before child options with the same name.
+        // Reparse the selected subcommand without the root prompt-mode options.
+        return try SloppySubcommandRoot.parseAsRoot(arguments)
+    }
+
     static func mainWithStyledHelp(_ arguments: [String]? = nil) async {
         do {
-            var command = try parseAsRoot(arguments)
+            var command = try parseCommand(arguments)
             if var asyncCommand = command as? AsyncParsableCommand {
                 try await asyncCommand.run()
             } else {
@@ -141,6 +151,12 @@ extension SloppyApp {
         Darwin.exit(code)
         #elseif canImport(Glibc)
         Glibc.exit(code)
+        #elseif os(Windows)
+        ucrt.exit(code)
         #endif
     }
+}
+
+private struct SloppySubcommandRoot: ParsableCommand {
+    static var configuration: CommandConfiguration { SloppyApp.configuration }
 }

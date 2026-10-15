@@ -1,5 +1,7 @@
 import Foundation
+#if canImport(CoreFoundation)
 import CoreFoundation
+#endif
 
 /// A type that represents structured, generated content.
 ///
@@ -211,7 +213,12 @@ public struct GeneratedContent: Sendable, Equatable, Generable, CustomDebugStrin
             return GeneratedContent(kind: .string(string))
         } else if let number = value as? NSNumber {
             // Check if it's a boolean
-            if CFGetTypeID(number) == CFBooleanGetTypeID() {
+            #if canImport(CoreFoundation)
+            let isBoolean = CFGetTypeID(number) == CFBooleanGetTypeID()
+            #else
+            let isBoolean = type(of: number) == type(of: NSNumber(value: true))
+            #endif
+            if isBoolean {
                 return GeneratedContent(kind: .bool(number.boolValue))
             }
             return GeneratedContent(kind: .number(number.doubleValue))

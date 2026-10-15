@@ -51,7 +51,7 @@ struct SloppyTUIApp {
         nextState.welcomeTipCursor = state.welcomeTipCursor + 1
         stateStore.save(nextState)
 
-        try await withCheckedThrowingContinuation { continuation in
+        try await withPlatformCheckedThrowingContinuation { continuation in
             do {
                 try startTUI(
                     runtime: runtime,

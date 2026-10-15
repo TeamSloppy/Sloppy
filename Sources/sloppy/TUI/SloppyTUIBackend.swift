@@ -787,7 +787,7 @@ private final class SloppyTUILineStreamDelegate: NSObject, URLSessionDataDelegat
     }
 
     func start() async throws -> URLResponse {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withPlatformCheckedThrowingContinuation { continuation in
             responseContinuation = continuation
             task?.resume()
         }

@@ -23,6 +23,15 @@ struct ClaudeCodeTransport: Sendable {
             guard fileManager.isExecutableFile(atPath: override) else { throw ClaudeCodeError.missingCLI }
             return override
         }
+        #if os(Windows)
+        let home = CoreConfig.resolvedHomeDirectoryPath(environment: environment)
+        var searchEnvironment = environment
+        let key = environment.keys.first { $0.caseInsensitiveCompare("PATH") == .orderedSame } ?? "PATH"
+        searchEnvironment[key] = (environment[key] ?? "") + ";\(home)/.local/bin;\(home)/.claude/local"
+        do {
+            return try PlatformProcess.windowsExecutable("claude", environment: searchEnvironment, fileManager: fileManager).path
+        } catch { throw ClaudeCodeError.missingCLI }
+        #else
         let home = CoreConfig.resolvedHomeDirectoryPath(environment: environment)
         let directories = (environment["PATH"] ?? "").split(separator: ":").map(String.init)
             + ["\(home)/.local/bin", "\(home)/.claude/local", "\(home)/.npm-global/bin", "\(home)/.bun/bin", "/opt/homebrew/bin", "/usr/local/bin", "/usr/bin"]
@@ -31,6 +40,7 @@ struct ClaudeCodeTransport: Sendable {
             if fileManager.isExecutableFile(atPath: path) { return path }
         }
         throw ClaudeCodeError.missingCLI
+        #endif
     }
 
     func nativeEnvironment() throws -> [String: String] {

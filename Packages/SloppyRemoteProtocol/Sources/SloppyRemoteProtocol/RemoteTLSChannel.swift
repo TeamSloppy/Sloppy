@@ -3,7 +3,9 @@ import NIOCore
 import NIOEmbedded
 import NIOPosix
 import NIOTLS
+#if canImport(NIOSSL)
 import NIOSSL
+#endif
 
 public struct RemoteTLSResult: Sendable {
     public var records: [Data]
@@ -11,7 +13,7 @@ public struct RemoteTLSResult: Sendable {
     public var handshakeComplete: Bool
 }
 
-public enum RemoteTLSError: Error, Sendable { case invalidPeer, handshakeIncomplete, oversizedMessage, closed, invalidFrame, hostOffline, relayRejected }
+public enum RemoteTLSError: Error, Sendable { case invalidPeer, handshakeIncomplete, oversizedMessage, closed, invalidFrame, hostOffline, relayRejected, unsupportedPlatform }
 
 extension RemoteTLSError: LocalizedError {
     public var errorDescription: String? {
@@ -23,6 +25,7 @@ extension RemoteTLSError: LocalizedError {
         case .invalidFrame: "The secure Sloppy connection received an invalid response. Reconnect and try again."
         case .hostOffline: "Your Sloppy host is offline. Make sure Sloppy is running on it and connected to the Relay."
         case .relayRejected: "The Relay rejected the request. Reconnect this device to your Sloppy host and try again."
+        case .unsupportedPlatform: "Secure remote console connections are unavailable on this platform. Use the local dashboard or TUI."
         }
     }
 }
@@ -30,6 +33,7 @@ extension RemoteTLSError: LocalizedError {
 /// TLS is an endpoint layer. The Relay sees only its output records. Each
 /// channel owns a fresh SSL context, preventing ticket resumption across
 /// channels. Neither client session reuse nor early data is enabled.
+#if canImport(NIOSSL)
 private final class TLSExecutor: SerialExecutor, @unchecked Sendable {
     static let shared = TLSExecutor()
     private let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
@@ -138,6 +142,19 @@ private final class TLSObserver: ChannelInboundHandler, @unchecked Sendable {
     func errorCaught(context: ChannelHandlerContext, error: any Error) { failure = error; context.close(promise: nil) }
     func channelRead(context: ChannelHandlerContext, data: NIOAny) { context.fireChannelRead(data) }
 }
+
+
+#else
+public actor RemoteTLSChannel {
+    public init(identity: RemoteTLSIdentity, peerCertificate: Data, isClient: Bool) async throws {
+        throw RemoteTLSError.unsupportedPlatform
+    }
+    public func start() throws -> RemoteTLSResult { throw RemoteTLSError.unsupportedPlatform }
+    public func receive(_ records: Data) throws -> RemoteTLSResult { throw RemoteTLSError.unsupportedPlatform }
+    public func send(_ message: Data) throws -> RemoteTLSResult { throw RemoteTLSError.unsupportedPlatform }
+    public func close() {}
+}
+#endif
 
 public struct RemoteTLSFrame: Codable, Sendable {
     public static let kind = "console.tls.v2"

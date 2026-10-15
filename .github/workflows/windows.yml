@@ -1,0 +1,38 @@
+name: Sloppy Windows
+
+on:
+  push:
+    branches: [main, "codex/**"]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: windows-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  windows:
+    runs-on: windows-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: SwiftyLab/setup-swift@v1
+        with:
+          swift-version: "6.3.1"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+      - name: Build server, dashboard and node
+        shell: pwsh
+        run: ./scripts/build-windows.ps1
+      - name: Windows runtime regression tests
+        shell: pwsh
+        run: swift test --parallel --filter 'WindowsSupportTests|SloppyCLIParsingTests|LocalOwnerAuthTests|ProtocolsTests|AgentRuntimeTests|FoundationModelTransportTests|dashboardRuntimeConfigPreservesSidebarProjectChatsFlag'
+      - name: Smoke server, dashboard and TUI
+        shell: pwsh
+        run: ./scripts/test-windows.ps1 -SkipBuild
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: windows-smoke-logs
+          path: .build/windows-smoke-*/**/*.log

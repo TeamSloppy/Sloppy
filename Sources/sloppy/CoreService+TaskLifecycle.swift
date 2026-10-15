@@ -2679,7 +2679,7 @@ extension CoreService {
             }
             candidateURL = parsed
         } else {
-            guard trimmed.hasPrefix("/") else {
+            guard (trimmed as NSString).isAbsolutePath else {
                 throw ProjectError.invalidPayload
             }
             let directURL = URL(fileURLWithPath: trimmed, isDirectory: true)
@@ -2696,7 +2696,7 @@ extension CoreService {
 
         let normalizedURL = candidateURL.standardizedFileURL
         let normalizedPath = normalizedURL.path
-        guard normalizedPath.hasPrefix("/") else {
+        guard (normalizedPath as NSString).isAbsolutePath else {
             throw ProjectError.invalidPayload
         }
 
@@ -2770,7 +2770,7 @@ extension CoreService {
         process.standardError = stderr
 
         do {
-            try process.run()
+            try PlatformProcess.run(process)
         } catch {
             logger.error(
                 "project.clone.launch_failed",

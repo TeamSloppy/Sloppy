@@ -292,7 +292,7 @@ extension SloppyTUIScreen {
 
         let expanded = (trimmed as NSString).expandingTildeInPath
         let candidate: URL
-        if expanded.hasPrefix("/") {
+        if (expanded as NSString).isAbsolutePath {
             candidate = URL(fileURLWithPath: expanded, isDirectory: true)
         } else {
             let root = (try? await service.resolveProjectWorkspaceRoot(projectID: project.id))
@@ -413,7 +413,7 @@ extension SloppyTUIScreen {
         }
         let raw = candidate.removingPercentEncoding ?? candidate
         let expanded = (raw as NSString).expandingTildeInPath
-        if expanded.hasPrefix("/") {
+        if (expanded as NSString).isAbsolutePath {
             return URL(fileURLWithPath: expanded).standardizedFileURL
         }
         return URL(fileURLWithPath: runtime.cwd)
@@ -596,7 +596,7 @@ extension SloppyTUIScreen {
 
     func projectPathContext(for rawPath: String) async -> String {
         let path = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        if path.hasPrefix("/") {
+        if (path as NSString).isAbsolutePath {
             if service.isRemote {
                 return "[Attachment failed: \(path)] Absolute local paths are disabled for remote Sloppy instances."
             }
@@ -625,7 +625,7 @@ extension SloppyTUIScreen {
     }
 
     func directoryContextBlock(path: String) async -> String? {
-        if path.hasPrefix("/") {
+        if (path as NSString).isAbsolutePath {
             return absoluteDirectoryContextBlock(path: path)
         }
         let manifestLimit = 80

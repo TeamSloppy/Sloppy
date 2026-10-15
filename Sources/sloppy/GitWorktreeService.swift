@@ -471,7 +471,7 @@ struct GitWorktreeService: Sendable {
 
     @discardableResult
     private func runGit(args: [String], cwd: String) async throws -> (Int32, String) {
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await withPlatformCheckedThrowingContinuation { continuation in
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
             process.arguments = args
@@ -484,7 +484,7 @@ struct GitWorktreeService: Sendable {
             process.environment = childProcessEnvironment()
 
             do {
-                try process.run()
+                try PlatformProcess.run(process)
             } catch {
                 continuation.resume(throwing: GitWorktreeError.gitNotAvailable)
                 return

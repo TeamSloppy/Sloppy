@@ -96,7 +96,7 @@ actor ToolApprovalService {
             _ = await self.timeout(id: id)
         }
 
-        return await withCheckedContinuation { continuation in
+        return await withPlatformCheckedContinuation { continuation in
             guard var entry = pending[id] else {
                 continuation.resume(returning: .timedOut(ToolApprovalRecord(
                     id: id,

@@ -1,17 +1,22 @@
 import Foundation
 import Logging
+#if canImport(OTel)
 import OTel
+import ServiceLifecycle
+#endif
 import Metrics
 import Tracing
-import ServiceLifecycle
 
 /// Optional OTLP exporters. HTTP and runtime instrumentation stays no-op until enabled.
 actor CoreObservability {
     static let shared = CoreObservability()
+    #if canImport(OTel)
     private var group: ServiceGroup?
     private var task: Task<Void, Never>?
+    #endif
 
     func start(logger: Logger) {
+        #if canImport(OTel)
         guard task == nil, ProcessInfo.processInfo.environment["SLOPPY_OTEL_ENABLED"] == "1" else { return }
         do {
             var configuration = OTel.Configuration.default
@@ -34,11 +39,18 @@ actor CoreObservability {
         } catch {
             logger.warning("Could not enable OpenTelemetry: \(error)")
         }
+        #else
+        if ProcessInfo.processInfo.environment["SLOPPY_OTEL_ENABLED"] == "1" {
+            logger.warning("OpenTelemetry exporters are unavailable on this platform")
+        }
+        #endif
     }
 
     func shutdown() async {
+        #if canImport(OTel)
         await group?.triggerGracefulShutdown()
         await task?.value
         // Global SDKs can only be bootstrapped once in this process.
+        #endif
     }
 }

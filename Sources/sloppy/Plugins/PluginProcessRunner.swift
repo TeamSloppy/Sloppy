@@ -35,7 +35,7 @@ struct LivePluginProcessRunner: PluginProcessRunning {
             let stdoutBuffer = PluginProcessOutputBuffer()
             let stderrBuffer = PluginProcessOutputBuffer()
 
-            try process.run()
+            try PlatformProcess.run(process)
 
             let stdoutTask = Task.detached {
                 stdoutBuffer.data = stdoutPipe.fileHandleForReading.readDataToEndOfFile()

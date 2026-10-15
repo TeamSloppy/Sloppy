@@ -134,7 +134,7 @@ struct GitRepositoryInspector: Sendable {
         process.environment = childProcessEnvironment()
 
         do {
-            try process.run()
+            try PlatformProcess.run(process)
         } catch {
             return nil
         }

@@ -111,7 +111,7 @@ actor PersistentNodeGatewayRuntime {
             Task { await self?.handleStdout(data) }
         }
 
-        try process.run()
+        try PlatformProcess.run(process)
         self.process = process
         self.stdinHandle = stdinPipe.fileHandleForWriting
         logger.info("Started persistent Node gateway process for \(manifest.name).")
@@ -137,7 +137,7 @@ actor PersistentNodeGatewayRuntime {
         )
         return try await withThrowingTaskGroup(of: JSONValue.self) { group in
             group.addTask {
-                try await withCheckedThrowingContinuation { continuation in
+                try await withPlatformCheckedThrowingContinuation { continuation in
                     Task {
                         await self.registerPending(id: requestId, continuation: continuation)
                         do {

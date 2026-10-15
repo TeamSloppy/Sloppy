@@ -4,6 +4,8 @@ import SystemPackage
 
 #if os(Linux)
 import Glibc
+#elseif os(Windows)
+import WinSDK
 #else
 import Darwin
 #endif
@@ -113,6 +115,7 @@ public protocol Terminal: AnyObject {
 
 public enum TerminalError: Error {
     case alreadyRunning
+    case consoleUnavailable
 }
 
 public extension Terminal {
@@ -125,12 +128,21 @@ public final class ProcessTerminal: Terminal {
     private let inputFD = FileDescriptor.standardInput
     private let outputFD = FileDescriptor.standardOutput
 
+    #if os(Windows)
+    private var stdinSource: DispatchSourceTimer?
+    private var originalInputMode: DWORD = 0
+    private var originalOutputMode: DWORD = 0
+    private var originalOutputCodePage: UINT = 0
+    private var pendingHighSurrogate: UInt16?
+    private var previousMouseButtons: DWORD = 0
+    #else
     private var stdinSource: DispatchSourceRead?
     private var resizeSource: DispatchSourceSignal?
+    private var originalTermios = termios()
+    #endif
     private var inputHandler: ((TerminalInput) -> Void)?
     private var resizeHandler: (() -> Void)?
 
-    private var originalTermios = termios()
     private var rawModeEnabled = false
 
     private var pendingInput = ""
@@ -188,6 +200,13 @@ public final class ProcessTerminal: Terminal {
             self.write(Self.mouseReportingEnable)
         }
 
+        #if os(Windows)
+        let source = DispatchSource.makeTimerSource(queue: .main)
+        source.schedule(deadline: .now(), repeating: .milliseconds(16))
+        source.setEventHandler { [weak self] in self?.readWindowsInput() }
+        source.resume()
+        self.stdinSource = source
+        #else
         let source = DispatchSource.makeReadSource(fileDescriptor: self.inputFD.rawValue, queue: .main)
         source.setEventHandler { [weak self] in
             guard let self else { return }
@@ -214,13 +233,16 @@ public final class ProcessTerminal: Terminal {
         }
         resizeSource.resume()
         self.resizeSource = resizeSource
+        #endif
     }
 
     public func stop() {
         self.stdinSource?.cancel()
         self.stdinSource = nil
+        #if !os(Windows)
         self.resizeSource?.cancel()
         self.resizeSource = nil
+        #endif
 
         self.write("\u{001B}[?2004l") // bracketed paste off
         self.write(Self.kittyKeyboardProtocolDisable) // kitty keyboard protocol off
@@ -288,6 +310,24 @@ public final class ProcessTerminal: Terminal {
     // MARK: - Raw mode
 
     private func enableRawMode() throws {
+        #if os(Windows)
+        let input = GetStdHandle(STD_INPUT_HANDLE)
+        let output = GetStdHandle(STD_OUTPUT_HANDLE)
+        guard GetConsoleMode(input, &originalInputMode), GetConsoleMode(output, &originalOutputMode) else {
+            throw TerminalError.consoleUnavailable
+        }
+        originalOutputCodePage = GetConsoleOutputCP()
+        let inputMode = (originalInputMode | DWORD(ENABLE_WINDOW_INPUT | ENABLE_EXTENDED_FLAGS | ENABLE_MOUSE_INPUT))
+            & ~DWORD(ENABLE_LINE_INPUT | ENABLE_ECHO_INPUT | ENABLE_PROCESSED_INPUT | ENABLE_QUICK_EDIT_MODE | ENABLE_VIRTUAL_TERMINAL_INPUT)
+        guard SetConsoleMode(input, inputMode) else { throw TerminalError.consoleUnavailable }
+        guard SetConsoleMode(output, originalOutputMode | DWORD(ENABLE_PROCESSED_OUTPUT | ENABLE_VIRTUAL_TERMINAL_PROCESSING)),
+              SetConsoleOutputCP(UINT(CP_UTF8)) else {
+            _ = SetConsoleMode(input, originalInputMode)
+            _ = SetConsoleMode(output, originalOutputMode)
+            throw TerminalError.consoleUnavailable
+        }
+        rawModeEnabled = true
+        #else
         var term = termios()
         guard tcgetattr(self.inputFD.rawValue, &term) == 0 else { return }
         self.originalTermios = term
@@ -296,12 +336,20 @@ public final class ProcessTerminal: Terminal {
         if tcsetattr(self.inputFD.rawValue, TCSAFLUSH, &raw) == 0 {
             self.rawModeEnabled = true
         }
+        #endif
     }
 
     private func disableRawMode() {
         guard self.rawModeEnabled else { return }
+        #if os(Windows)
+        _ = SetConsoleMode(GetStdHandle(STD_INPUT_HANDLE), originalInputMode)
+        _ = SetConsoleMode(GetStdHandle(STD_OUTPUT_HANDLE), originalOutputMode)
+        _ = SetConsoleOutputCP(originalOutputCodePage)
+        pendingHighSurrogate = nil
+        #else
         var term = self.originalTermios
         _ = tcsetattr(self.inputFD.rawValue, TCSAFLUSH, &term)
+        #endif
         self.rawModeEnabled = false
     }
 
@@ -703,14 +751,127 @@ public final class ProcessTerminal: Terminal {
     }
 
     private func currentTerminalSize() -> (columns: Int, rows: Int) {
+        #if os(Windows)
+        var info = CONSOLE_SCREEN_BUFFER_INFO()
+        if GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &info) {
+            return (max(1, Int(info.srWindow.Right - info.srWindow.Left + 1)),
+                    max(1, Int(info.srWindow.Bottom - info.srWindow.Top + 1)))
+        }
+        #else
         var windowSize = winsize()
         if ioctl(self.outputFD.rawValue, numericCast(TIOCGWINSZ), &windowSize) == 0 {
             let cols = Int(windowSize.ws_col)
             let rows = Int(windowSize.ws_row)
             return (max(cols, 1), max(rows, 1))
         }
+        #endif
         return (80, 24)
     }
+
+    #if os(Windows)
+    // Console handles are not POSIX descriptors and cannot use a Dispatch read source.
+    // Drain only available records, keeping all callbacks on the renderer's main queue.
+    private func readWindowsInput() {
+        let input = GetStdHandle(STD_INPUT_HANDLE)
+        var available: DWORD = 0
+        guard GetNumberOfConsoleInputEvents(input, &available), available > 0 else { return }
+        var records = [INPUT_RECORD](repeating: INPUT_RECORD(), count: Int(min(available, 256)))
+        var count: DWORD = 0
+        guard ReadConsoleInputW(input, &records, DWORD(records.count), &count) else { return }
+        for record in records.prefix(Int(count)) {
+            switch Int32(record.EventType) {
+            case KEY_EVENT:
+                let key = record.Event.KeyEvent
+                // ConPTY and Alt+numpad input deliver Unicode on the Alt key-up event.
+                guard key.bKeyDown.boolValue || (Int32(key.wVirtualKeyCode) == VK_MENU && key.uChar.UnicodeChar != 0) else { continue }
+                let modifiers = windowsModifiers(key.dwControlKeyState)
+                // ConPTY encodes pasted line feeds as Ctrl+Enter; insert the newline without submitting.
+                if Int32(key.wVirtualKeyCode) == VK_RETURN && key.uChar.UnicodeChar == 10 {
+                    inputHandler?(.paste("\n"))
+                    continue
+                }
+                let terminalKey: TerminalKey?
+                switch Int32(key.wVirtualKeyCode) {
+                case VK_RETURN: terminalKey = .enter
+                case VK_TAB: terminalKey = .tab
+                case VK_BACK: terminalKey = .backspace
+                case VK_DELETE: terminalKey = .delete
+                case VK_UP: terminalKey = .arrowUp
+                case VK_DOWN: terminalKey = .arrowDown
+                case VK_LEFT: terminalKey = .arrowLeft
+                case VK_RIGHT: terminalKey = .arrowRight
+                case VK_HOME: terminalKey = .home
+                case VK_END: terminalKey = .end
+                case VK_ESCAPE: terminalKey = .escape
+                case VK_F1...VK_F12: terminalKey = .function(Int(key.wVirtualKeyCode) - Int(VK_F1) + 1)
+                default: terminalKey = nil
+                }
+                for _ in 0..<max(1, Int(key.wRepeatCount)) {
+                    if let terminalKey {
+                        emitKey(terminalKey, modifiers: modifiers)
+                    } else {
+                        let unit = key.uChar.UnicodeChar
+                        guard unit != 0 else { continue }
+                        if (0xD800...0xDBFF).contains(unit) {
+                            pendingHighSurrogate = unit
+                            continue
+                        }
+                        let units = pendingHighSurrogate.map { [$0, unit] } ?? [unit]
+                        pendingHighSurrogate = nil
+                        let text = String(decoding: units, as: UTF16.self)
+                        // AltGr produces text, not an Alt/Ctrl shortcut.
+                        if unit >= 0x20 {
+                            let isAltGr = key.dwControlKeyState & DWORD(RIGHT_ALT_PRESSED | LEFT_CTRL_PRESSED)
+                                == DWORD(RIGHT_ALT_PRESSED | LEFT_CTRL_PRESSED)
+                            for character in text {
+                                emitKey(.character(character), modifiers: isAltGr ? [] : modifiers)
+                            }
+                        } else {
+                            handleRawChunk(text)
+                        }
+                    }
+                }
+            case WINDOW_BUFFER_SIZE_EVENT:
+                resizeHandler?()
+            case MOUSE_EVENT:
+                guard mouseReportingEnabled else { continue }
+                let mouse = record.Event.MouseEvent
+                let buttons = mouse.dwButtonState & 0xFFFF
+                let button: TerminalMouseButton
+                let phase: TerminalMouseEventPhase
+                if mouse.dwEventFlags & DWORD(MOUSE_WHEELED | MOUSE_HWHEELED) != 0 {
+                    let positive = Int16(bitPattern: UInt16(truncatingIfNeeded: mouse.dwButtonState >> 16)) > 0
+                    button = mouse.dwEventFlags & DWORD(MOUSE_HWHEELED) != 0
+                        ? (positive ? .wheelRight : .wheelLeft) : (positive ? .wheelUp : .wheelDown)
+                    phase = .scroll
+                } else {
+                    let active = buttons == 0 ? previousMouseButtons : buttons
+                    button = active & DWORD(FROM_LEFT_1ST_BUTTON_PRESSED) != 0 ? .left
+                        : active & DWORD(RIGHTMOST_BUTTON_PRESSED) != 0 ? .right
+                        : active != 0 ? .middle : .none
+                    phase = mouse.dwEventFlags & DWORD(MOUSE_MOVED) != 0
+                        ? (buttons == 0 ? .move : .drag) : (buttons == 0 ? .release : .press)
+                    previousMouseButtons = buttons
+                }
+                var info = CONSOLE_SCREEN_BUFFER_INFO()
+                _ = GetConsoleScreenBufferInfo(GetStdHandle(STD_OUTPUT_HANDLE), &info)
+                inputHandler?(.mouse(TerminalMouseEvent(
+                    button: button, column: max(0, Int(mouse.dwMousePosition.X - info.srWindow.Left)),
+                    row: max(0, Int(mouse.dwMousePosition.Y - info.srWindow.Top)),
+                    modifiers: windowsModifiers(mouse.dwControlKeyState), phase: phase)))
+            default: break
+            }
+        }
+    }
+
+    private func windowsModifiers(_ state: DWORD) -> KeyModifiers {
+        var modifiers: KeyModifiers = []
+        if state & DWORD(SHIFT_PRESSED) != 0 { modifiers.insert(.shift) }
+        if state & DWORD(LEFT_CTRL_PRESSED | RIGHT_CTRL_PRESSED) != 0 { modifiers.insert(.control) }
+        if state & DWORD(LEFT_ALT_PRESSED | RIGHT_ALT_PRESSED) != 0 { modifiers.insert(.option) }
+        return modifiers
+    }
+    #endif
 }
 
 // MARK: - Helpers

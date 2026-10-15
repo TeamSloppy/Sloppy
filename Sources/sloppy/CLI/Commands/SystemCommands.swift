@@ -183,7 +183,7 @@ struct UpdateCommand: AsyncParsableCommand {
         process.environment = childProcessEnvironment()
 
         do {
-            try process.run()
+            try PlatformProcess.run(process)
         } catch {
             CLIStyle.error("Failed to download release installer: \(error.localizedDescription)")
             throw ExitCode.failure
@@ -204,7 +204,7 @@ struct UpdateCommand: AsyncParsableCommand {
         process.environment = childProcessEnvironment()
 
         do {
-            try process.run()
+            try PlatformProcess.run(process)
         } catch {
             CLIStyle.error("Failed to start installer: \(error.localizedDescription)")
             return 127

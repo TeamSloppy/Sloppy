@@ -59,14 +59,25 @@ public enum UsageObservedURLSession {
 }
 
 private final class UsageObservationURLProtocol: URLProtocol {
+    // FoundationNetworking invokes startLoading on a session work queue. Starting a
+    // forwarding session there can synchronously re-enter its shared dispatch target.
+    // Own the forwarding lifecycle on a separate serial queue, including cancellation.
+    private let forwardingQueue = DispatchQueue(label: "sloppy.usage-observation.forwarding")
     private var activeTask: URLSessionDataTask?
     private var activeSession: URLSession?
     private var bridge: Bridge?
+    private var stopped = false
+    private var finished = false
     override class func canInit(with request: URLRequest) -> Bool {
         request.httpMethod == "POST" && UsageObservedURLSession.scope(request) != nil
     }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
+        nonisolated(unsafe) let owner = self // Lifecycle state is confined to forwardingQueue.
+        forwardingQueue.async { owner.startForwarding() }
+    }
+    private func startForwarding() {
+        guard !stopped else { return }
         guard let scope = UsageObservedURLSession.scope(request) else {
             client?.urlProtocol(self, didFailWithError: URLError(.unknown)); return
         }
@@ -90,6 +101,7 @@ private final class UsageObservationURLProtocol: URLProtocol {
         outgoing.setValue(nil, forHTTPHeaderField: TokenUsageCaptureRegistry.headerField)
         let config = scope.base.configuration
         var forwardingHeaders = config.httpAdditionalHeaders ?? [:]
+        forwardingHeaders.removeValue(forKey: UsageObservedURLSession.header)
         forwardingHeaders.removeValue(forKey: TokenUsageCaptureRegistry.headerField)
         config.httpAdditionalHeaders = forwardingHeaders
         // Preserve proxy, custom auth/rewriting protocols and trust handling.
@@ -114,12 +126,23 @@ private final class UsageObservationURLProtocol: URLProtocol {
             result.append(contentsOf: buffer.prefix(count))
         }
     }
-    override func stopLoading() { activeTask?.cancel() }
+    override func stopLoading() {
+        nonisolated(unsafe) let owner = self
+        forwardingQueue.async {
+            owner.stopped = true
+            owner.activeTask?.cancel()
+        }
+    }
     fileprivate func finish(_ error: Error?) {
-        if let error { client?.urlProtocol(self, didFailWithError: error) }
-        else { client?.urlProtocolDidFinishLoading(self) }
-        activeSession?.finishTasksAndInvalidate()
-        activeTask = nil; bridge = nil; activeSession = nil
+        nonisolated(unsafe) let owner = self
+        forwardingQueue.async {
+            guard !owner.finished else { return }
+            owner.finished = true
+            if let error { owner.client?.urlProtocol(owner, didFailWithError: error) }
+            else { owner.client?.urlProtocolDidFinishLoading(owner) }
+            owner.activeSession?.finishTasksAndInvalidate()
+            owner.activeTask = nil; owner.bridge = nil; owner.activeSession = nil
+        }
     }
 
     private final class Bridge: NSObject, URLSessionDataDelegate, @unchecked Sendable {

@@ -54,14 +54,8 @@ actor SessionProcessRegistry {
         }
 
         let process = Process()
-        if command.hasPrefix("/") || command.hasPrefix("./") || command.hasPrefix("../") {
-            process.executableURL = URL(fileURLWithPath: command)
-            process.arguments = arguments
-        } else {
-            // Use /usr/bin/env to resolve command from PATH
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-            process.arguments = [command] + arguments
-        }
+        try PlatformProcess.configure(process, command: command, arguments: arguments,
+                                      environment: childProcessEnvironment(overrides: environmentOverrides))
         let outputBuffer = captureOutput ? ProcessOutputBuffer(maxBytes: 256 * 1024, keepsTail: true) : nil
         let outputPipe = captureOutput ? Pipe() : nil
         if let outputPipe, let outputBuffer {
@@ -98,7 +92,7 @@ actor SessionProcessRegistry {
             exitCode: nil,
             outputBuffer: outputBuffer,
             outputPipe: outputPipe,
-            ownsProcessGroup: captureOutput && getpgid(process.processIdentifier) == process.processIdentifier
+            ownsProcessGroup: ownsProcessGroup(process, captureOutput: captureOutput)
         )
         var sessionProcesses = normalizedSessionProcesses(sessionID: sessionID)
         sessionProcesses[id] = managed
@@ -136,6 +130,7 @@ actor SessionProcessRegistry {
             throw RegistryError.processNotFound
         }
 
+        #if !os(Windows)
         if process.ownsProcessGroup {
             // Foundation creates a new process group; confirm ownership before signalling descendants.
             kill(-process.process.processIdentifier, SIGTERM)
@@ -144,6 +139,9 @@ actor SessionProcessRegistry {
         }
         if process.process.isRunning { await terminateProcess(process.process) }
         if process.ownsProcessGroup { kill(-process.process.processIdentifier, SIGKILL) }
+        #else
+        if process.process.isRunning { await terminateProcess(process.process) }
+        #endif
         process = refreshed(process)
         sessionProcesses[processID] = process
         processesBySession[sessionID] = sessionProcesses
@@ -219,6 +217,14 @@ actor SessionProcessRegistry {
     private func iso8601(_ date: Date) -> String {
         ISO8601DateFormatter().string(from: date)
     }
+}
+
+private func ownsProcessGroup(_ process: Process, captureOutput: Bool) -> Bool {
+    #if os(Windows)
+    return false
+    #else
+    return captureOutput && getpgid(process.processIdentifier) == process.processIdentifier
+    #endif
 }
 
 /// Capture child identities before stopping the parent to avoid orphaning shell-launched servers.

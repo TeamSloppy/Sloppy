@@ -58,7 +58,7 @@ actor ACPServerRequestRoutingTransport: Transport {
         let frame = try encoder.encode(
             JSONRPCRequest(id: id, method: "session/request_permission", params: params)
         )
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await withPlatformCheckedThrowingContinuation { continuation in
             pendingPermissionRequests[id] = continuation
             Task {
                 do {

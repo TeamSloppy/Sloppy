@@ -71,6 +71,7 @@ public actor ProcessRegistry {
     }
 
     public func cleanupOrphanedProcesses() async {
+        #if !os(Windows)
         let entries = loadEntries()
         guard !entries.isEmpty else { return }
 
@@ -115,6 +116,7 @@ public actor ProcessRegistry {
         }
 
         writeEntries(remaining)
+        #endif
     }
 
     // MARK: - Private helpers
@@ -201,11 +203,15 @@ public actor ProcessRegistry {
     }
 
     private func isAlive(entry: Entry) -> Bool {
+        #if os(Windows)
+        return false
+        #else
         if let pgid = entry.pgid {
             if killpg(pgid, 0) == 0 { return true }
             return errno == EPERM
         }
         if kill(entry.pid, 0) == 0 { return true }
         return errno == EPERM
+        #endif
     }
 }

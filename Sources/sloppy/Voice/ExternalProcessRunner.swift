@@ -46,17 +46,17 @@ enum ExternalProcessRunner {
         try process.run()
 
         // Drain both pipes concurrently so a chatty tool cannot block on a full pipe buffer.
-        var outData = Data()
-        var errData = Data()
+        let outData = ProcessOutputBuffer(maxBytes: Int.max)
+        let errData = ProcessOutputBuffer(maxBytes: Int.max)
         let group = DispatchGroup()
         group.enter()
         DispatchQueue.global().async {
-            outData = outPipe.fileHandleForReading.readDataToEndOfFile()
+            outData.append(outPipe.fileHandleForReading.readDataToEndOfFile())
             group.leave()
         }
         group.enter()
         DispatchQueue.global().async {
-            errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+            errData.append(errPipe.fileHandleForReading.readDataToEndOfFile())
             group.leave()
         }
 
@@ -67,7 +67,7 @@ enum ExternalProcessRunner {
             throw RunError.timedOut
         }
         group.wait()
-        return Result(status: process.terminationStatus, stdout: outData, stderr: errData)
+        return Result(status: process.terminationStatus, stdout: outData.snapshot().data, stderr: errData.snapshot().data)
     }
 
     /// Finds an executable by explicit path, then PATH, then common install locations
@@ -75,6 +75,14 @@ enum ExternalProcessRunner {
     static func resolveExecutable(explicit: String, names: [String]) -> String? {
         let fileManager = FileManager.default
         let trimmed = explicit.trimmingCharacters(in: .whitespacesAndNewlines)
+        #if os(Windows)
+        for command in trimmed.isEmpty ? names : [(trimmed as NSString).expandingTildeInPath] {
+            if let url = try? PlatformProcess.windowsExecutable(command, environment: ProcessInfo.processInfo.environment) {
+                return url.path
+            }
+        }
+        return nil
+        #else
         if !trimmed.isEmpty {
             let expanded = (trimmed as NSString).expandingTildeInPath
             return fileManager.isExecutableFile(atPath: expanded) ? expanded : nil
@@ -97,5 +105,6 @@ enum ExternalProcessRunner {
             }
         }
         return nil
+        #endif
     }
 }

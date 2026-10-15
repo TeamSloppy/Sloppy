@@ -388,7 +388,7 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
         guard !Task.isCancelled else {
             return
         }
-        await withCheckedContinuation { continuation in
+        await withPlatformCheckedContinuation { continuation in
             eventLoop.execute { [weak self, loopBoundContext] in
                 guard let self else {
                     continuation.resume()
@@ -417,7 +417,7 @@ private final class CoreHTTPHandler: ChannelInboundHandler, RemovableChannelHand
         guard !Task.isCancelled else {
             return
         }
-        await withCheckedContinuation { continuation in
+        await withPlatformCheckedContinuation { continuation in
             eventLoop.execute { [weak self, loopBoundContext] in
                 guard let self else {
                     continuation.resume()
@@ -575,7 +575,7 @@ private final class CoreWebSocketHandler: ChannelDuplexHandler, @unchecked Senda
         }
         let eventLoop = context.eventLoop
 
-        return await withCheckedContinuation { continuation in
+        return await withPlatformCheckedContinuation { continuation in
             eventLoop.execute {
                 guard let context = self.context, context.channel.isActive, !self.closeRequested else {
                     continuation.resume(returning: false)
@@ -603,7 +603,7 @@ private final class CoreWebSocketHandler: ChannelDuplexHandler, @unchecked Senda
         }
         let eventLoop = context.eventLoop
 
-        await withCheckedContinuation { continuation in
+        await withPlatformCheckedContinuation { continuation in
             eventLoop.execute {
                 guard let context = self.context, context.channel.isActive else {
                     continuation.resume()

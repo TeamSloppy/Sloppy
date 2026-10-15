@@ -79,7 +79,7 @@ enum ProxySessionFactory {
 
     private static func setAllProxyEnv(_ url: String) {
         for key in ["HTTP_PROXY", "http_proxy", "HTTPS_PROXY", "https_proxy", "ALL_PROXY", "all_proxy"] {
-            setenv(key, url, 1)
+            PlatformProcess.setEnvironmentVariable(key, value: url, overwrite: true)
         }
     }
 

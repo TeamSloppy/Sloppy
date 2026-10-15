@@ -116,7 +116,7 @@ enum OpenCodeConfigImporter {
         process.standardError = errorHandle
 
         do {
-            try process.run()
+            try PlatformProcess.run(process)
         } catch {
             return nil
         }

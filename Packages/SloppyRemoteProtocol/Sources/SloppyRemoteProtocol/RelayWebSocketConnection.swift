@@ -2,10 +2,13 @@ import Foundation
 import NIOCore
 import NIOHTTP1
 import NIOPosix
+#if canImport(NIOSSL)
 import NIOSSL
+#endif
 import NIOWebSocket
 
 /// Cross-platform WebSocket transport; never terminates the inner peer TLS.
+#if canImport(NIOSSL)
 public actor RelayWebSocketConnection {
     private static let group = MultiThreadedEventLoopGroup(numberOfThreads: 1)
     private var channel: (any Channel)?
@@ -121,3 +124,18 @@ final class RelayFrameHandler: ChannelInboundHandler, @unchecked Sendable {
     func channelInactive(context: ChannelHandlerContext) { keepalive?.cancel(); failReadiness(RemoteTLSError.closed); continuation.finish() }
     func errorCaught(context: ChannelHandlerContext, error: any Error) { failReadiness(error); continuation.finish(throwing: error); context.close(promise: nil) }
 }
+
+#else
+public actor RelayWebSocketConnection {
+    public let messages: AsyncThrowingStream<Data, any Error>
+    private let continuation: AsyncThrowingStream<Data, any Error>.Continuation
+    public init() {
+        let pair = AsyncThrowingStream<Data, any Error>.makeStream()
+        messages = pair.stream
+        continuation = pair.continuation
+    }
+    public func connect(url: URL, token: String) async throws { throw RemoteTLSError.unsupportedPlatform }
+    public func send(_ data: Data) async throws { throw RemoteTLSError.unsupportedPlatform }
+    public func close() { continuation.finish() }
+}
+#endif

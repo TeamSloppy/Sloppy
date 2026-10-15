@@ -208,7 +208,7 @@ struct ChromiumProcessLauncher: BrowserProcessLaunching {
         process.environment = childProcessEnvironment()
 
         do {
-            try process.run()
+            try PlatformProcess.run(process)
         } catch {
             throw BrowserCDPError.launchFailed(error.localizedDescription)
         }

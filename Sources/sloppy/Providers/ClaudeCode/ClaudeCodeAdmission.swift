@@ -74,7 +74,7 @@ actor ClaudeCodeAdmission {
         if let outcome { return try outcome.get() }
         return try await withTaskCancellationHandler {
             try Task.checkCancellation()
-            return try await withCheckedThrowingContinuation { waiter = $0 }
+            return try await withPlatformCheckedThrowingContinuation { waiter = $0 }
         } onCancel: { Task { await self.finish(.failure(CancellationError())) } }
     }
 
@@ -117,7 +117,7 @@ actor ClaudeCodeAdmission {
                 try await send(data, channel: channel)
             } else {
 #if canImport(FoundationNetworking)
-                let (bytes, response) = try await session.linuxBytes(for: request)
+                let (bytes, response) = try await session.streamingBytes(for: request)
 #else
                 let (bytes, response) = try await session.bytes(for: request)
 #endif

@@ -401,7 +401,7 @@ enum SloppyTUIWorkspaceAccess {
         fileManager: FileManager = .default
     ) -> String? {
         let trimmed = rawPath.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard trimmed.hasPrefix("/") else {
+        guard (trimmed as NSString).isAbsolutePath else {
             return nil
         }
 

@@ -16,6 +16,20 @@ struct FoundationModelTransportTests {
         foundation.invalidateAndCancel()
     }
 
+    #if canImport(FoundationNetworking)
+    @Test func configurationHeadersPreserveExplicitRequestCredentials() throws {
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.httpAdditionalHeaders = ["Authorization": "Bearer default", "X-Transport-Test": "preserved"]
+        let session = URLSession(configuration: configuration)
+        defer { session.invalidateAndCancel() }
+        var request = URLRequest(url: try #require(URL(string: "https://transport.invalid")))
+        request.setValue("Bearer explicit", forHTTPHeaderField: "authorization")
+        let prepared = session.applyingConfigurationHeaders(to: request)
+        #expect(prepared.value(forHTTPHeaderField: "Authorization") == "Bearer explicit")
+        #expect(prepared.value(forHTTPHeaderField: "X-Transport-Test") == "preserved")
+    }
+    #endif
+
     @Test func geminiPreservesCustomProtocolsHeadersAndUsageObservation() async throws {
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [GeminiTransportStub.self]

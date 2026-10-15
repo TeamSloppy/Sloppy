@@ -12,7 +12,6 @@ import ChannelPluginTelegram
 import Logging
 import Protocols
 import PluginSDK
-import CodexBarCore
 import SloppyNodeCore
 import SloppyRuntime
 import SloppyMigration

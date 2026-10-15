@@ -523,7 +523,9 @@ actor TelegramBotAPI {
         return try await perform(request: request, method: method)
     }
 
-    private func perform(request: URLRequest, method: String) async throws -> Data {
+    // URLSession and Logger are immutable Sendable dependencies. Keeping this callback bridge
+    // nonisolated also avoids the Windows Swift 6.3 optimizer's isolated-continuation crash.
+    private nonisolated func perform(request: URLRequest, method: String) async throws -> Data {
         // Use callback-based dataTask to avoid URLSession async cancellation issues
         // with FoundationNetworking on Linux (NSURLErrorDomain -999).
         let (data, response): (Data, URLResponse) = try await withCheckedThrowingContinuation { continuation in

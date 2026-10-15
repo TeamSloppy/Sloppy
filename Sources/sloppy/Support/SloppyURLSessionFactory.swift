@@ -42,10 +42,10 @@ enum SloppyExtraCertificateAuthority {
 
         #if canImport(FoundationNetworking)
         if getenv("SSL_CERT_FILE") == nil {
-            setenv("SSL_CERT_FILE", path, 0)
+            PlatformProcess.setEnvironmentVariable("SSL_CERT_FILE", value: path, overwrite: false)
         }
         if getenv("CURL_CA_BUNDLE") == nil {
-            setenv("CURL_CA_BUNDLE", path, 0)
+            PlatformProcess.setEnvironmentVariable("CURL_CA_BUNDLE", value: path, overwrite: false)
         }
         #endif
     }

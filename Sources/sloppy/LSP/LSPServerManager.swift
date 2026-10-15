@@ -226,7 +226,7 @@ actor LSPServerInstance {
 
     private func acquireDocument(_ path: String) async {
         if syncingPaths.insert(path).inserted { return }
-        await withCheckedContinuation { syncWaiters[path, default: []].append($0) }
+        await withPlatformCheckedContinuation { syncWaiters[path, default: []].append($0) }
     }
 
     private func releaseDocument(_ path: String) {
@@ -320,7 +320,7 @@ actor LSPServerInstance {
             _ = serverID
         }
 
-        try proc.run()
+        try PlatformProcess.run(proc)
 
         self.connection = conn
         self.process = proc

@@ -146,7 +146,7 @@ struct NodePluginRuntime: Sendable {
             let stdoutBuffer = NodePluginOutputBuffer()
             let stderrBuffer = NodePluginOutputBuffer()
 
-            try process.run()
+            try PlatformProcess.run(process)
             try stdinPipe.fileHandleForWriting.write(contentsOf: Data(input.utf8))
             try? stdinPipe.fileHandleForWriting.close()
 
