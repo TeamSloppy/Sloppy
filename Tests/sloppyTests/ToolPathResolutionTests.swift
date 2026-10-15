@@ -516,6 +516,41 @@ struct ToolPathResolutionTests {
         #expect((try? String(contentsOf: logURL, encoding: .utf8)) == #"{"sessionId":"test"}"# + "\n")
     }
 
+    @Test("unrouted auto tool invocation does not create repo debug directory")
+    func unroutedAutoToolInvocationDoesNotCreateRepoDebugDirectory() async throws {
+        let tmp = FileManager.default.temporaryDirectory
+        let repoRoot = tmp.appendingPathComponent("sloppy-auto-project-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: repoRoot, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: repoRoot) }
+
+        let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+        let agentID = "test-auto-dir-agent"
+        _ = try await service.createAgent(
+            AgentCreateRequest(id: agentID, displayName: "Auto Dir Agent", role: "assistant")
+        )
+        _ = try await service.createProject(
+            ProjectCreateRequest(id: "auto-dir", name: "Auto Dir", repoPath: repoRoot.path)
+        )
+        let session = try await service.createAgentSession(
+            agentID: agentID,
+            request: AgentSessionCreateRequest(title: "chat", projectId: "auto-dir")
+        )
+
+        _ = await service.invokeToolFromRuntime(
+            agentID: agentID,
+            sessionID: session.id,
+            request: ToolInvocationRequest(tool: "runtime.exec", arguments: [
+                "command": .string("bash"),
+                "arguments": .array([.string("-lc"), .string("true")]),
+            ]),
+            recordSessionEvents: false,
+            chatMode: .auto
+        )
+
+        let debugURL = repoRoot.appendingPathComponent(".sloppy/debug", isDirectory: true)
+        #expect(!FileManager.default.fileExists(atPath: debugURL.path))
+    }
+
     @Test("invokeToolFromRuntime restores project roots for task sessions")
     func invokeToolRestoresProjectRootsForTaskSession() async throws {
         let tmp = FileManager.default.temporaryDirectory

@@ -647,8 +647,10 @@ extension RuntimeSystem {
                     "channel_id": .string(channelId),
                     "model": .string(activeModel),
                     "reasoning_effort": .string(reasoningEffort?.rawValue ?? "none"),
+                    // End-to-end from response start, so it includes the pre-stream stages.
                     "time_to_first_token_ms": .string(performanceSample.timeToFirstTokenMs.map(String.init) ?? "none"),
-                    "generation_ms": .stringConvertible(performanceSample.generationDurationMs),
+                    // Stream only; pre-stream work is reported separately on "Model stream started".
+                    "generation_ms": .stringConvertible(elapsedMilliseconds(since: streamStartedAt)),
                     "tool_calls": .stringConvertible(performanceSample.toolCallCount),
                 ]
             )
