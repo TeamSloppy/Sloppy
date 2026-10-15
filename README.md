@@ -137,15 +137,18 @@ sloppy       # terminal UI
 sloppy run   # server + Dashboard
 ```
 
-On Windows, install Swift 6.3.1, the Visual Studio C++ tools and Windows SDK, Node.js, and Git, then use PowerShell:
+On Windows, run the PowerShell installer from a checkout (or an extracted source ZIP).
+It installs missing build tools, builds Sloppy and Dashboard, and adds `sloppy` to your user PATH:
 
 ```powershell
-.\scripts\build-windows.ps1
-.\.build\release\sloppy.exe run  # server + Dashboard
-.\.build\release\sloppy.exe      # terminal UI (in another terminal)
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install.ps1
+# Open a new terminal after installation:
+sloppy run  # server + Dashboard
+sloppy      # terminal UI (in another terminal)
 ```
 
-See the [Windows build guide](docs/guides/build-from-terminal.md#windows-powershell) for smoke tests and platform limitations.
+Use `.\scripts\dev.ps1 start`, `stop`, `restart`, `status`, or `logs` to manage a background server.
+See the [Windows build guide](docs/guides/build-from-terminal.md#windows-powershell) for options, smoke tests, and platform limitations.
 
 By default the installer builds the server stack and bundled dashboard assets. `sloppy` opens the interactive terminal UI for the current project; `sloppy run` starts the HTTP server and Dashboard. To skip the dashboard build, run:
 
