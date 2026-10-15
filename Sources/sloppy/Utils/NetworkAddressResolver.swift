@@ -1,9 +1,5 @@
 import Foundation
-#if os(Linux)
-import Glibc
-#else
-import Darwin
-#endif
+import NIOCore
 
 struct NetworkIPv4Candidate: Equatable, Sendable {
     let interfaceName: String
@@ -21,6 +17,13 @@ struct ServerDisplayEndpoints: Equatable, Sendable {
 
 enum NetworkAddressResolver {
     static func enumerateIPv4Candidates() -> [NetworkIPv4Candidate] {
+        #if os(Windows)
+        return ((try? System.enumerateDevices()) ?? []).compactMap { device in
+            guard let address = device.address, case .v4 = address,
+                  let host = address.ipAddress, !isLoopbackIPv4(host), !isLinkLocalIPv4(host) else { return nil }
+            return NetworkIPv4Candidate(interfaceName: device.name, address: host)
+        }
+        #else
         var rawPointer: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&rawPointer) == 0, let first = rawPointer else {
             return []
@@ -70,6 +73,7 @@ enum NetworkAddressResolver {
         }
 
         return candidates
+        #endif
     }
 
     static func resolvePrimaryLANIPv4() -> String? {
@@ -182,3 +186,9 @@ enum NetworkAddressResolver {
         return false
     }
 }
+
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif

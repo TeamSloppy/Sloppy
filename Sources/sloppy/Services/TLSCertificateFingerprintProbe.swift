@@ -108,7 +108,7 @@ enum TLSCertificateFingerprintProbe {
         process.standardError = stderr
 
         do {
-            try process.run()
+            try PlatformProcess.run(process)
         } catch {
             throw TLSCertificateFingerprintProbeError.opensslUnavailable
         }

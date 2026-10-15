@@ -875,16 +875,16 @@ public struct PluginLoader: Sendable {
         manifest: PluginManifest,
         inboundReceiver: any InboundMessageReceiver
     ) -> (any GatewayPlugin)? {
-        guard let handle = dlopen(binaryURL.path, RTLD_NOW | RTLD_LOCAL) else {
-            let error = String(cString: dlerror())
+        guard let handle = PlatformDynamicLibrary.open(binaryURL.path) else {
+            let error = PlatformDynamicLibrary.lastError
             logger.error("dlopen failed for plugin \(manifest.name): \(error)")
             return nil
         }
 
-        guard let sym = dlsym(handle, "sloppy_gateway_create") else {
-            let error = String(cString: dlerror())
+        guard let sym = PlatformDynamicLibrary.symbol(handle, "sloppy_gateway_create") else {
+            let error = PlatformDynamicLibrary.lastError
             logger.error("dlsym(sloppy_gateway_create) failed for plugin \(manifest.name): \(error)")
-            dlclose(handle)
+            PlatformDynamicLibrary.close(handle)
             return nil
         }
 
@@ -904,7 +904,7 @@ public struct PluginLoader: Sendable {
         guard let rawPlugin = manifestJSON.withCString({ createFn($0, boxPtr) }) else {
             logger.error("sloppy_gateway_create returned nil for plugin \(manifest.name).")
             Unmanaged<GatewayPluginReceiverBox>.fromOpaque(boxPtr).release()
-            dlclose(handle)
+            PlatformDynamicLibrary.close(handle)
             return nil
         }
 
@@ -912,7 +912,7 @@ public struct PluginLoader: Sendable {
         guard plugin.id == manifest.name else {
             logger.error("Plugin id mismatch for \(manifest.name): dylib returned \(plugin.id).")
             Unmanaged<GatewayPluginReceiverBox>.fromOpaque(boxPtr).release()
-            dlclose(handle)
+            PlatformDynamicLibrary.close(handle)
             return nil
         }
         logger.info("Loaded external gateway plugin \(manifest.name) v\(manifest.version ?? "unknown").")
@@ -923,16 +923,16 @@ public struct PluginLoader: Sendable {
         binaryURL: URL,
         manifest: PluginManifest
     ) -> (any TaskSyncProvider)? {
-        guard let handle = dlopen(binaryURL.path, RTLD_NOW | RTLD_LOCAL) else {
-            let error = String(cString: dlerror())
+        guard let handle = PlatformDynamicLibrary.open(binaryURL.path) else {
+            let error = PlatformDynamicLibrary.lastError
             logger.error("dlopen failed for task sync plugin \(manifest.name): \(error)")
             return nil
         }
 
-        guard let sym = dlsym(handle, "sloppy_task_sync_create") else {
-            let error = String(cString: dlerror())
+        guard let sym = PlatformDynamicLibrary.symbol(handle, "sloppy_task_sync_create") else {
+            let error = PlatformDynamicLibrary.lastError
             logger.error("dlsym(sloppy_task_sync_create) failed for plugin \(manifest.name): \(error)")
-            dlclose(handle)
+            PlatformDynamicLibrary.close(handle)
             return nil
         }
 
@@ -943,14 +943,14 @@ public struct PluginLoader: Sendable {
 
         guard let rawProvider = manifestJSON.withCString({ createFn($0) }) else {
             logger.error("sloppy_task_sync_create returned nil for plugin \(manifest.name).")
-            dlclose(handle)
+            PlatformDynamicLibrary.close(handle)
             return nil
         }
 
         let provider = Unmanaged<AnyTaskSyncProviderBox>.fromOpaque(rawProvider).takeRetainedValue()
         guard provider.id == manifest.name else {
             logger.error("Task sync provider id mismatch for \(manifest.name): dylib returned \(provider.id).")
-            dlclose(handle)
+            PlatformDynamicLibrary.close(handle)
             return nil
         }
         logger.info("Loaded external task sync plugin \(manifest.name) v\(manifest.version ?? "unknown").")
@@ -961,16 +961,16 @@ public struct PluginLoader: Sendable {
         binaryURL: URL,
         manifest: PluginManifest
     ) -> (any SourceControlProvider)? {
-        guard let handle = dlopen(binaryURL.path, RTLD_NOW | RTLD_LOCAL) else {
-            let error = String(cString: dlerror())
+        guard let handle = PlatformDynamicLibrary.open(binaryURL.path) else {
+            let error = PlatformDynamicLibrary.lastError
             logger.error("dlopen failed for source-control plugin \(manifest.name): \(error)")
             return nil
         }
 
-        guard let sym = dlsym(handle, "sloppy_source_control_create") else {
-            let error = String(cString: dlerror())
+        guard let sym = PlatformDynamicLibrary.symbol(handle, "sloppy_source_control_create") else {
+            let error = PlatformDynamicLibrary.lastError
             logger.error("dlsym(sloppy_source_control_create) failed for plugin \(manifest.name): \(error)")
-            dlclose(handle)
+            PlatformDynamicLibrary.close(handle)
             return nil
         }
 
@@ -981,14 +981,14 @@ public struct PluginLoader: Sendable {
 
         guard let rawProvider = manifestJSON.withCString({ createFn($0) }) else {
             logger.error("sloppy_source_control_create returned nil for plugin \(manifest.name).")
-            dlclose(handle)
+            PlatformDynamicLibrary.close(handle)
             return nil
         }
 
         let provider = Unmanaged<AnySourceControlProviderBox>.fromOpaque(rawProvider).takeRetainedValue()
         guard provider.id == manifest.name else {
             logger.error("Source-control provider id mismatch for \(manifest.name): dylib returned \(provider.id).")
-            dlclose(handle)
+            PlatformDynamicLibrary.close(handle)
             return nil
         }
         logger.info("Loaded external source-control plugin \(manifest.name) v\(manifest.version ?? "unknown").")
@@ -999,16 +999,16 @@ public struct PluginLoader: Sendable {
         binaryURL: URL,
         manifest: PluginManifest
     ) -> (any CodeReviewProvider)? {
-        guard let handle = dlopen(binaryURL.path, RTLD_NOW | RTLD_LOCAL) else {
-            let error = String(cString: dlerror())
+        guard let handle = PlatformDynamicLibrary.open(binaryURL.path) else {
+            let error = PlatformDynamicLibrary.lastError
             logger.error("dlopen failed for code-review plugin \(manifest.name): \(error)")
             return nil
         }
 
-        guard let sym = dlsym(handle, "sloppy_code_review_create") else {
-            let error = String(cString: dlerror())
+        guard let sym = PlatformDynamicLibrary.symbol(handle, "sloppy_code_review_create") else {
+            let error = PlatformDynamicLibrary.lastError
             logger.error("dlsym(sloppy_code_review_create) failed for plugin \(manifest.name): \(error)")
-            dlclose(handle)
+            PlatformDynamicLibrary.close(handle)
             return nil
         }
 
@@ -1018,14 +1018,14 @@ public struct PluginLoader: Sendable {
 
         guard let rawProvider = manifestJSON.withCString({ createFn($0) }) else {
             logger.error("sloppy_code_review_create returned nil for plugin \(manifest.name).")
-            dlclose(handle)
+            PlatformDynamicLibrary.close(handle)
             return nil
         }
 
         let provider = Unmanaged<AnyCodeReviewProviderBox>.fromOpaque(rawProvider).takeRetainedValue()
         guard provider.id == manifest.name else {
             logger.error("Code-review provider id mismatch for \(manifest.name): dylib returned \(provider.id).")
-            dlclose(handle)
+            PlatformDynamicLibrary.close(handle)
             return nil
         }
         logger.info("Loaded external code-review plugin \(manifest.name) v\(manifest.version ?? "unknown").")
@@ -1036,16 +1036,16 @@ public struct PluginLoader: Sendable {
         binaryURL: URL,
         manifest: PluginManifest
     ) -> (any ToolPlugin)? {
-        guard let handle = dlopen(binaryURL.path, RTLD_NOW | RTLD_LOCAL) else {
-            let error = String(cString: dlerror())
+        guard let handle = PlatformDynamicLibrary.open(binaryURL.path) else {
+            let error = PlatformDynamicLibrary.lastError
             logger.error("dlopen failed for tool plugin \(manifest.name): \(error)")
             return nil
         }
 
-        guard let sym = dlsym(handle, "sloppy_tool_create") else {
-            let error = String(cString: dlerror())
+        guard let sym = PlatformDynamicLibrary.symbol(handle, "sloppy_tool_create") else {
+            let error = PlatformDynamicLibrary.lastError
             logger.error("dlsym(sloppy_tool_create) failed for plugin \(manifest.name): \(error)")
-            dlclose(handle)
+            PlatformDynamicLibrary.close(handle)
             return nil
         }
 
@@ -1055,14 +1055,14 @@ public struct PluginLoader: Sendable {
 
         guard let rawPlugin = manifestJSON.withCString({ createFn($0) }) else {
             logger.error("sloppy_tool_create returned nil for plugin \(manifest.name).")
-            dlclose(handle)
+            PlatformDynamicLibrary.close(handle)
             return nil
         }
 
         let plugin = Unmanaged<AnyToolPluginBox>.fromOpaque(rawPlugin).takeRetainedValue()
         guard plugin.id == manifest.name else {
             logger.error("Tool plugin id mismatch for \(manifest.name): dylib returned \(plugin.id).")
-            dlclose(handle)
+            PlatformDynamicLibrary.close(handle)
             return nil
         }
         logger.info("Loaded external tool plugin \(manifest.name) v\(manifest.version ?? "unknown").")
@@ -1073,16 +1073,16 @@ public struct PluginLoader: Sendable {
         binaryURL: URL,
         manifest: PluginManifest
     ) -> (any MemoryPlugin)? {
-        guard let handle = dlopen(binaryURL.path, RTLD_NOW | RTLD_LOCAL) else {
-            let error = String(cString: dlerror())
+        guard let handle = PlatformDynamicLibrary.open(binaryURL.path) else {
+            let error = PlatformDynamicLibrary.lastError
             logger.error("dlopen failed for memory plugin \(manifest.name): \(error)")
             return nil
         }
 
-        guard let sym = dlsym(handle, "sloppy_memory_create") else {
-            let error = String(cString: dlerror())
+        guard let sym = PlatformDynamicLibrary.symbol(handle, "sloppy_memory_create") else {
+            let error = PlatformDynamicLibrary.lastError
             logger.error("dlsym(sloppy_memory_create) failed for plugin \(manifest.name): \(error)")
-            dlclose(handle)
+            PlatformDynamicLibrary.close(handle)
             return nil
         }
 
@@ -1092,14 +1092,14 @@ public struct PluginLoader: Sendable {
 
         guard let rawPlugin = manifestJSON.withCString({ createFn($0) }) else {
             logger.error("sloppy_memory_create returned nil for plugin \(manifest.name).")
-            dlclose(handle)
+            PlatformDynamicLibrary.close(handle)
             return nil
         }
 
         let plugin = Unmanaged<AnyMemoryPluginBox>.fromOpaque(rawPlugin).takeRetainedValue()
         guard plugin.id == manifest.name else {
             logger.error("Memory plugin id mismatch for \(manifest.name): dylib returned \(plugin.id).")
-            dlclose(handle)
+            PlatformDynamicLibrary.close(handle)
             return nil
         }
         logger.info("Loaded external memory plugin \(manifest.name) v\(manifest.version ?? "unknown").")
@@ -1110,16 +1110,16 @@ public struct PluginLoader: Sendable {
         binaryURL: URL,
         manifest: PluginManifest
     ) -> (any ModelProvider)? {
-        guard let handle = dlopen(binaryURL.path, RTLD_NOW | RTLD_LOCAL) else {
-            let error = String(cString: dlerror())
+        guard let handle = PlatformDynamicLibrary.open(binaryURL.path) else {
+            let error = PlatformDynamicLibrary.lastError
             logger.error("dlopen failed for model-provider plugin \(manifest.name): \(error)")
             return nil
         }
 
-        guard let sym = dlsym(handle, "sloppy_model_provider_create") else {
-            let error = String(cString: dlerror())
+        guard let sym = PlatformDynamicLibrary.symbol(handle, "sloppy_model_provider_create") else {
+            let error = PlatformDynamicLibrary.lastError
             logger.error("dlsym(sloppy_model_provider_create) failed for plugin \(manifest.name): \(error)")
-            dlclose(handle)
+            PlatformDynamicLibrary.close(handle)
             return nil
         }
 
@@ -1129,14 +1129,14 @@ public struct PluginLoader: Sendable {
 
         guard let rawProvider = manifestJSON.withCString({ createFn($0) }) else {
             logger.error("sloppy_model_provider_create returned nil for plugin \(manifest.name).")
-            dlclose(handle)
+            PlatformDynamicLibrary.close(handle)
             return nil
         }
 
         let provider = Unmanaged<AnyModelProviderBox>.fromOpaque(rawProvider).takeRetainedValue()
         guard provider.id == manifest.name else {
             logger.error("Model provider id mismatch for \(manifest.name): dylib returned \(provider.id).")
-            dlclose(handle)
+            PlatformDynamicLibrary.close(handle)
             return nil
         }
         logger.info("Loaded external model-provider plugin \(manifest.name) v\(manifest.version ?? "unknown").")
@@ -1145,6 +1145,9 @@ public struct PluginLoader: Sendable {
 
     private func findBinary(in directory: URL, name: String) -> URL? {
         let candidates = [
+            directory.appendingPathComponent("plugin.dll"),
+            directory.appendingPathComponent("\(name).dll"),
+            directory.appendingPathComponent("lib\(name).dll"),
             directory.appendingPathComponent("plugin.dylib"),
             directory.appendingPathComponent("\(name).dylib"),
             directory.appendingPathComponent("lib\(name).dylib"),

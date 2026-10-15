@@ -176,7 +176,7 @@ enum ServiceManager {
 
     static func startMacOS(
         plistPath: String,
-        userID: UInt32 = getuid(),
+        userID: UInt32 = PlatformProcess.userID,
         shellStatus: ([String]) -> Int32 = ServiceManager.shellStatus
     ) -> Int32 {
         let domain = "gui/\(userID)"
@@ -190,7 +190,7 @@ enum ServiceManager {
     }
 
     static func stopMacOS(
-        userID: UInt32 = getuid(),
+        userID: UInt32 = PlatformProcess.userID,
         shellStatus: ([String]) -> Int32 = ServiceManager.shellStatus,
         wait: () -> Void = { Thread.sleep(forTimeInterval: 0.1) }
     ) -> Int32 {
@@ -309,7 +309,7 @@ enum ServiceManager {
         let pipe = Pipe()
         process.standardOutput = pipe
         process.standardError = pipe
-        try process.run()
+        try PlatformProcess.run(process)
         process.waitUntilExit()
         let output = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
         return output
@@ -727,7 +727,9 @@ struct ServiceLogsCommand: AsyncParsableCommand {
             let args = ["tail", "-n", "\(lines)", "-f", logPath]
             var cargs = args.map { strdup($0) }
             cargs.append(nil)
+            #if !os(Windows)
             execvp("tail", &cargs)
+            #endif
             CLIStyle.error("Failed to exec tail.")
             throw ExitCode.failure
 
@@ -735,7 +737,9 @@ struct ServiceLogsCommand: AsyncParsableCommand {
             let args = ["journalctl", "--user", "-u", "sloppy.service", "-n", "\(lines)", "-f"]
             var cargs = args.map { strdup($0) }
             cargs.append(nil)
+            #if !os(Windows)
             execvp("journalctl", &cargs)
+            #endif
             CLIStyle.error("Failed to exec journalctl.")
             throw ExitCode.failure
 

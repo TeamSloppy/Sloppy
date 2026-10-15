@@ -482,7 +482,7 @@ actor WebSocketACPClient: ACPTransportClient {
         let request = JSONRPCRequest(id: requestId, method: method, params: paramsValue)
 
         return try await withRequestTimeout(seconds: timeout, requestId: requestId) {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withPlatformCheckedThrowingContinuation { continuation in
                 Task {
                     await self.registerRequest(id: requestId, continuation: continuation)
                     do {

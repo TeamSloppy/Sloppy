@@ -319,7 +319,7 @@ struct WorkspaceGitSyncService: Sendable {
     }
 
     private func runGit(_ args: [String], cwd: URL) async throws -> (exitCode: Int32, output: String) {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withPlatformCheckedThrowingContinuation { continuation in
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
             process.arguments = args
@@ -332,7 +332,7 @@ struct WorkspaceGitSyncService: Sendable {
             process.standardError = stderr
 
             do {
-                try process.run()
+                try PlatformProcess.run(process)
             } catch {
                 continuation.resume(throwing: WorkspaceGitSyncError.gitUnavailable)
                 return

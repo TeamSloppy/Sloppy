@@ -19,7 +19,7 @@ actor ACPProcessManager {
     // MARK: - Properties
 
     private var process: Process?
-    private var processGroupId: pid_t?
+    private var processGroupId: Int32?
     private var stdinPipe: Pipe?
     private var stdoutPipe: Pipe?
     private var stderrPipe: Pipe?
@@ -57,7 +57,7 @@ actor ACPProcessManager {
         let proc = Process()
 
         let resolvedPath = (try? FileManager.default.destinationOfSymbolicLink(atPath: agentPath)) ?? agentPath
-        let actualPath = resolvedPath.hasPrefix("/") ? resolvedPath : ((agentPath as NSString).deletingLastPathComponent as NSString).appendingPathComponent(resolvedPath)
+        let actualPath = (resolvedPath as NSString).isAbsolutePath ? resolvedPath : ((agentPath as NSString).deletingLastPathComponent as NSString).appendingPathComponent(resolvedPath)
 
         let isNodeScript: Bool = {
             guard let handle = FileHandle(forReadingAtPath: actualPath) else { return false }
@@ -114,11 +114,16 @@ actor ACPProcessManager {
 
         let agentDir = (agentPath as NSString).deletingLastPathComponent
 
+        #if os(Windows)
+        let pathKey = environment.keys.first { $0.caseInsensitiveCompare("PATH") == .orderedSame } ?? "PATH"
+        environment[pathKey] = agentDir + ";" + (environment[pathKey] ?? "")
+        #else
         if let existingPath = environment["PATH"] {
             environment["PATH"] = "\(agentDir):\(existingPath)"
         } else {
             environment["PATH"] = agentDir
         }
+        #endif
 
         proc.environment = environment
 
@@ -143,6 +148,7 @@ actor ACPProcessManager {
         try proc.run()
         process = proc
         processGroupId = nil
+        #if !os(Windows)
         if proc.processIdentifier > 0 {
             let pid = proc.processIdentifier
             if setpgid(pid, pid) == 0 {
@@ -151,6 +157,7 @@ actor ACPProcessManager {
                 logger.warning("Failed to set process group for pid=\(pid): \(String(cString: strerror(errno)))")
             }
         }
+        #endif
         if proc.processIdentifier > 0 {
             let pid = proc.processIdentifier
             let pgid = processGroupId
@@ -180,21 +187,29 @@ actor ACPProcessManager {
         try? stderrPipe?.fileHandleForReading.close()
 
         if let proc, proc.isRunning {
+            #if os(Windows)
+            proc.terminate()
+            #else
             if let pgid {
                 _ = killpg(pgid, SIGTERM)
             } else {
                 proc.terminate()
             }
+            #endif
         }
 
         if let proc {
             let exited = await waitForExit(proc, timeout: 2.0)
             if !exited, proc.processIdentifier > 0 {
+                #if os(Windows)
+                proc.terminate()
+                #else
                 if let pgid {
                     _ = killpg(pgid, SIGKILL)
                 } else {
                     _ = kill(proc.processIdentifier, SIGKILL)
                 }
+                #endif
             }
         }
         await ProcessRegistry.shared.removeProcess(pid: pid, pgid: pgid)

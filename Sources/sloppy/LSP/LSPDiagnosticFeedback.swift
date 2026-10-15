@@ -62,7 +62,7 @@ actor LSPPendingReply<Response: Sendable> {
 
     func wait() async throws -> Response {
         if let result { return try result.get() }
-        return try await withCheckedThrowingContinuation { continuation = $0 }
+        return try await withPlatformCheckedThrowingContinuation { continuation = $0 }
     }
 }
 

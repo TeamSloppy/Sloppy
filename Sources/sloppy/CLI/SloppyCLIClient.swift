@@ -350,7 +350,7 @@ private final class SloppyCLILineStreamDelegate: NSObject, URLSessionDataDelegat
     }
 
     func start() async throws -> URLResponse {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withPlatformCheckedThrowingContinuation { continuation in
             self.responseContinuation = continuation
             self.task?.resume()
         }

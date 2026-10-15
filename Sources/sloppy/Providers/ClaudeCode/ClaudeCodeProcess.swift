@@ -1,4 +1,5 @@
 import Foundation
+#if !os(Windows)
 #if canImport(Darwin)
 import Darwin
 #else
@@ -115,7 +116,7 @@ final class ClaudeCodeProcess: @unchecked Sendable {
     func write(_ frame: JSONValue) async throws {
         var data = try JSONEncoder().encode(frame)
         data.append(10)
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
+        try await withPlatformCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, Error>) in
             DispatchQueue.global(qos: .utility).async { [self, data] in
                 do {
                     // Duplicate under the lock so cancellation cannot recycle the descriptor.
@@ -164,3 +165,82 @@ final class ClaudeCodeProcess: @unchecked Sendable {
     private func posixError() -> NSError { NSError(domain: NSPOSIXErrorDomain, code: Int(errno)) }
     deinit { cancel() }
 }
+#else
+import Protocols
+
+/// Windows pipes and Foundation.Process provide the same request-owned stream contract.
+final class ClaudeCodeProcess: @unchecked Sendable {
+    private let lock = NSLock()
+    private var process: Process?
+    private var input: Pipe?
+    private var cancelled = false
+
+    func start(executable: String, arguments: [String], environment: [String: String], cwd: URL,
+               singleJSON: Bool = false) throws -> AsyncThrowingStream<JSONValue, Error> {
+        let child = Process()
+        let input = Pipe()
+        let output = Pipe()
+        try PlatformProcess.configure(child, command: executable, arguments: arguments, environment: environment)
+        child.currentDirectoryURL = cwd
+        child.standardInput = input
+        child.standardOutput = output
+        child.standardError = FileHandle.nullDevice
+        try lock.withLock {
+            guard !cancelled else { throw CancellationError() }
+            try child.run()
+            self.process = child
+            self.input = input
+        }
+        try output.fileHandleForWriting.close()
+        return AsyncThrowingStream { continuation in
+            DispatchQueue.global(qos: .utility).async { [self] in
+                var buffer = Data()
+                do {
+                    while true {
+                        let chunk = output.fileHandleForReading.availableData
+                        if chunk.isEmpty { break }
+                        buffer.append(chunk)
+                        guard buffer.count <= 32 * 1024 * 1024 else { throw ClaudeCodeError.invalidStream }
+                        while !singleJSON, let end = buffer.firstIndex(of: 10) {
+                            let line = Data(buffer[..<end])
+                            buffer.removeSubrange(...end)
+                            if !line.isEmpty { continuation.yield(try JSONDecoder().decode(JSONValue.self, from: line)) }
+                        }
+                    }
+                    if !buffer.isEmpty { continuation.yield(try JSONDecoder().decode(JSONValue.self, from: buffer)) }
+                    child.waitUntilExit()
+                    continuation.finish()
+                } catch {
+                    cancel()
+                    continuation.finish(throwing: error)
+                }
+                try? output.fileHandleForReading.close()
+                lock.withLock { process = nil }
+            }
+            continuation.onTermination = { [self] _ in cancel() }
+        }
+    }
+
+    func write(_ frame: JSONValue) async throws {
+        var data = try JSONEncoder().encode(frame)
+        data.append(10)
+        guard let handle = lock.withLock({ input?.fileHandleForWriting }) else { throw CancellationError() }
+        try handle.write(contentsOf: data)
+    }
+
+    func closeInput() {
+        lock.withLock { try? input?.fileHandleForWriting.close(); input = nil }
+    }
+
+    func cancel() {
+        lock.withLock {
+            cancelled = true
+            if let process, process.isRunning { process.terminate() }
+            try? input?.fileHandleForWriting.close()
+            input = nil
+        }
+    }
+
+    deinit { cancel() }
+}
+#endif

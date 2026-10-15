@@ -612,7 +612,7 @@ private enum AgentPluginCommandRunner {
             let pipe = Pipe()
             process.standardOutput = pipe
             process.standardError = pipe
-            try process.run()
+            try PlatformProcess.run(process)
             let outputTask = Task.detached {
                 pipe.fileHandleForReading.readDataToEndOfFile()
             }

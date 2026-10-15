@@ -13,7 +13,7 @@
 [![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FTeamSloppy%2FSloppy%2Fbadge%3Ftype%3Dswift-versions)](https://swiftpackageindex.com/TeamSloppy/Sloppy)
 [![](https://img.shields.io/endpoint?url=https%3A%2F%2Fswiftpackageindex.com%2Fapi%2Fpackages%2FTeamSloppy%2FSloppy%2Fbadge%3Ftype%3Dplatforms)](https://swiftpackageindex.com/TeamSloppy/Sloppy)
 
-Sloppy is a multi-agent runtime for building operator-visible AI workflows in Swift 6 on macOS and Linux. It combines a rule-based orchestration core, branch and worker execution, persistent runtime state, model/provider plugins, channel integrations, a terminal UI, and a React dashboard for observing what the system is doing.
+Sloppy is a multi-agent runtime for building operator-visible AI workflows in Swift 6 on macOS, Linux, and Windows. It combines a rule-based orchestration core, branch and worker execution, persistent runtime state, model/provider plugins, channel integrations, a terminal UI, and a React dashboard for observing what the system is doing.
 
 Sloppy Community is free for companies of every size. Teams that need SSO,
 fine-grained policy, audit export, or a commercial alternative to the AGPL can
@@ -136,6 +136,16 @@ bash scripts/install.sh
 sloppy       # terminal UI
 sloppy run   # server + Dashboard
 ```
+
+On Windows, install Swift 6.3.1, the Visual Studio C++ tools and Windows SDK, Node.js, and Git, then use PowerShell:
+
+```powershell
+.\scripts\build-windows.ps1
+.\.build\release\sloppy.exe run  # server + Dashboard
+.\.build\release\sloppy.exe      # terminal UI (in another terminal)
+```
+
+See the [Windows build guide](docs/guides/build-from-terminal.md#windows-powershell) for smoke tests and platform limitations.
 
 By default the installer builds the server stack and bundled dashboard assets. `sloppy` opens the interactive terminal UI for the current project; `sloppy run` starts the HTTP server and Dashboard. To skip the dashboard build, run:
 

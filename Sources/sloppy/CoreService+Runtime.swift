@@ -60,7 +60,7 @@ extension CoreService {
             return
         }
 
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        await withPlatformCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             let runtime = self.runtime
             eventTask = Task { [weak self, runtime] in
                 let stream = await runtime.eventBus.subscribe()

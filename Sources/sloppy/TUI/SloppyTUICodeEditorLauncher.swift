@@ -295,11 +295,15 @@ enum SloppyTUICodeEditorLauncher {
             process.currentDirectoryURL = URL(fileURLWithPath: currentDirectoryPath, isDirectory: true)
         }
 
-        process.standardInput = FileHandle(forReadingAtPath: "/dev/null")
-        process.standardOutput = FileHandle(forWritingAtPath: "/dev/null")
-        process.standardError = FileHandle(forWritingAtPath: "/dev/null")
+        process.standardInput = FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
 
         do {
+            #if os(Windows)
+            try PlatformProcess.configure(process, command: executableURL.path, arguments: arguments,
+                                          environment: childProcessEnvironment())
+            #endif
             try process.run()
         } catch {
             return false
@@ -318,6 +322,9 @@ enum SloppyTUICodeEditorLauncher {
         fileManager: FileManager
     ) -> URL? {
         let command = expandTilde(rawCommand)
+        #if os(Windows)
+        return try? PlatformProcess.windowsExecutable(command, environment: environment, fileManager: fileManager)
+        #else
         if command.contains("/") {
             guard fileManager.isExecutableFile(atPath: command) else { return nil }
             return URL(fileURLWithPath: command)
@@ -331,6 +338,7 @@ enum SloppyTUICodeEditorLauncher {
             }
         }
         return nil
+        #endif
     }
 
     private static func expandTilde(_ path: String) -> String {

@@ -209,6 +209,8 @@ struct PluginPackageBuilder {
     private func defaultCachedBinaryName(for name: String) -> String {
         #if os(Linux)
         return "lib\(name).so"
+        #elseif os(Windows)
+        return "\(name).dll"
         #else
         return "lib\(name).dylib"
         #endif
@@ -227,6 +229,8 @@ struct PluginPackageBuilder {
             "\(name).dylib",
             "lib\(name).so",
             "\(name).so",
+            "\(name).dll",
+            "lib\(name).dll",
         ]
     }
 
@@ -235,6 +239,8 @@ struct PluginPackageBuilder {
         return "macos"
         #elseif os(Linux)
         return "linux"
+        #elseif os(Windows)
+        return "windows"
         #else
         return "unknown"
         #endif

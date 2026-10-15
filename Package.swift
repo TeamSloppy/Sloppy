@@ -1,6 +1,76 @@
 // swift-tools-version: 6.2
 import PackageDescription
 
+// Windows uses patched transport dependencies; optional Unix integrations remain on their supported platforms.
+#if os(Windows)
+let platformDependencies: [Package.Dependency] = [
+    .package(path: "Vendor/swift-acp"),
+    .package(path: "Vendor/swift-sdk"),
+    .package(path: "Vendor/swift-nio"),
+]
+let platformRuntimeDependencies: [Target.Dependency] = []
+#else
+let platformDependencies: [Package.Dependency] = [
+    .package(url: "https://github.com/TeamSloppy/CodexBar.git", branch: "main"),
+    .package(url: "https://github.com/TeamSloppy/swift-acp.git", branch: "main"),
+    .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.11.0"),
+    .package(url: "https://github.com/apple/swift-nio.git", from: "2.74.0"),
+    .package(url: "https://github.com/vapor/postgres-nio.git", from: "1.21.0"),
+    .package(url: "https://github.com/swift-server/swift-service-lifecycle.git", from: "2.4.1"),
+    .package(url: "https://github.com/swift-otel/swift-otel.git", from: "1.0.0", traits: ["OTLPHTTP"]),
+]
+let platformRuntimeDependencies: [Target.Dependency] = [
+    .product(name: "CodexBarCore", package: "CodexBar"),
+    .product(name: "OTel", package: "swift-otel"),
+    .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
+]
+#endif
+
+#if os(Windows)
+let platformRelayProducts: [Product] = []
+let platformRelayTargets: [Target] = []
+#else
+let platformRelayProducts: [Product] = [
+    .library(name: "ManagedRelayCore", targets: ["ManagedRelayCore"]),
+    .executable(name: "SloppyRelay", targets: ["SloppyRelay"]),
+]
+let platformRelayTargets: [Target] = [
+    .target(
+        name: "ManagedRelayCore",
+        dependencies: [
+            .product(name: "SloppyRemoteProtocol", package: "SloppyRemoteProtocol"),
+            .product(name: "PostgresNIO", package: "postgres-nio"),
+            .product(name: "Logging", package: "swift-log"),
+        ],
+        path: "Sources/ManagedRelayCore",
+        resources: [.process("schema.sql")]
+    ),
+    .executableTarget(
+        name: "SloppyRelay",
+        dependencies: [
+            "ManagedRelayCore",
+            .product(name: "SloppyRemoteProtocol", package: "SloppyRemoteProtocol"),
+            .product(name: "ArgumentParser", package: "swift-argument-parser"),
+            .product(name: "Logging", package: "swift-log"),
+            .product(name: "NIOCore", package: "swift-nio"),
+            .product(name: "NIOPosix", package: "swift-nio"),
+            .product(name: "NIOHTTP1", package: "swift-nio"),
+            .product(name: "NIOWebSocket", package: "swift-nio"),
+            .product(name: "PostgresNIO", package: "postgres-nio"),
+        ],
+        path: "Sources/SloppyRelay"
+    ),
+    .testTarget(
+        name: "ManagedRelayCoreTests",
+        dependencies: [
+            "ManagedRelayCore",
+            .product(name: "SloppyRemoteProtocol", package: "SloppyRemoteProtocol"),
+        ],
+        path: "Tests/ManagedRelayCoreTests"
+    )
+]
+#endif
+
 let package = Package(
     name: "Sloppy",
     platforms: [
@@ -16,11 +86,9 @@ let package = Package(
         .library(name: "ChannelPluginTelegram", targets: ["ChannelPluginTelegram"]),
         .library(name: "ChannelPluginDiscord", targets: ["ChannelPluginDiscord"]),
         .library(name: "SloppyNodeCore", targets: ["SloppyNodeCore"]),
-        .library(name: "ManagedRelayCore", targets: ["ManagedRelayCore"]),
         .executable(name: "sloppy", targets: ["sloppy"]),
         .executable(name: "SloppyNode", targets: ["SloppyNode"]),
-        .executable(name: "SloppyRelay", targets: ["SloppyRelay"]),
-    ],
+    ] + platformRelayProducts,
     dependencies: [
         .package(path: "Packages/SloppyMigration"),
         .package(path: "Packages/SloppyRemoteProtocol"),
@@ -29,21 +97,14 @@ let package = Package(
         .package(url: "https://github.com/apple/swift-argument-parser.git", from: "1.5.0"),
         .package(url: "https://github.com/apple/swift-configuration.git", from: "0.2.0"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.6.0"),
-        .package(url: "https://github.com/apple/swift-nio.git", from: "2.74.0"),
         .package(url: "https://github.com/apple/swift-distributed-tracing.git", from: "1.4.1"),
         .package(url: "https://github.com/apple/swift-system.git", from: "1.6.0"),
         .package(url: "https://github.com/apple/swift-metrics.git", from: "2.4.1"),
-        .package(url: "https://github.com/swift-server/swift-service-lifecycle.git", from: "2.4.1"),
-        .package(url: "https://github.com/swift-otel/swift-otel.git", from: "1.0.0", traits: ["OTLPHTTP"]),
         .package(path: "Vendor/AnyLanguageModel"),
         .package(path: "Packages/SwiftTiktoken"),
-        .package(url: "https://github.com/TeamSloppy/CodexBar.git", branch: "main"),
         .package(path: "Packages/TauTUI"),
-        .package(url: "https://github.com/modelcontextprotocol/swift-sdk.git", from: "0.11.0"),
-        .package(url: "https://github.com/TeamSloppy/swift-acp.git", branch: "main"),
         .package(url: "https://github.com/swiftlang/swift-tools-protocols.git", branch: "main"),
-        .package(url: "https://github.com/vapor/postgres-nio.git", from: "1.21.0"),
-    ],
+    ] + platformDependencies,
     targets: [
         .target(
             name: "Protocols",
@@ -123,9 +184,6 @@ let package = Package(
                 .product(name: "NIOWebSocket", package: "swift-nio"),
                 .product(name: "Tracing", package: "swift-distributed-tracing"),
                 .product(name: "Metrics", package: "swift-metrics"),
-                .product(name: "OTel", package: "swift-otel"),
-                .product(name: "ServiceLifecycle", package: "swift-service-lifecycle"),
-                .product(name: "CodexBarCore", package: "CodexBar"),
                 .product(name: "TauTUI", package: "TauTUI"),
                 .product(name: "MCP", package: "swift-sdk"),
                 .product(name: "ACP", package: "swift-acp"),
@@ -134,7 +192,7 @@ let package = Package(
                 .product(name: "SystemPackage", package: "swift-system"),
                 .product(name: "LanguageServerProtocol", package: "swift-tools-protocols"),
                 .product(name: "LanguageServerProtocolTransport", package: "swift-tools-protocols"),
-            ],
+            ] + platformRuntimeDependencies,
             path: "Sources/sloppy",
             resources: [
                 .copy("Resources/Skills"),
@@ -166,31 +224,6 @@ let package = Package(
                 .product(name: "SloppyComputerControl", package: "SloppyComputerControl"),
             ],
             path: "Sources/NodeCore"
-        ),
-        .target(
-            name: "ManagedRelayCore",
-            dependencies: [
-                .product(name: "SloppyRemoteProtocol", package: "SloppyRemoteProtocol"),
-                .product(name: "PostgresNIO", package: "postgres-nio"),
-                .product(name: "Logging", package: "swift-log"),
-            ],
-            path: "Sources/ManagedRelayCore",
-            resources: [.process("schema.sql")]
-        ),
-        .executableTarget(
-            name: "SloppyRelay",
-            dependencies: [
-                "ManagedRelayCore",
-                .product(name: "SloppyRemoteProtocol", package: "SloppyRemoteProtocol"),
-                .product(name: "ArgumentParser", package: "swift-argument-parser"),
-                .product(name: "Logging", package: "swift-log"),
-                .product(name: "NIOCore", package: "swift-nio"),
-                .product(name: "NIOPosix", package: "swift-nio"),
-                .product(name: "NIOHTTP1", package: "swift-nio"),
-                .product(name: "NIOWebSocket", package: "swift-nio"),
-                .product(name: "PostgresNIO", package: "postgres-nio"),
-            ],
-            path: "Sources/SloppyRelay"
         ),
         .target(
             name: "ChannelPluginTelegram",
@@ -255,17 +288,13 @@ let package = Package(
             ],
             path: "Tests/SloppyNodeCoreTests"
         ),
-        .testTarget(
-            name: "ManagedRelayCoreTests",
-            dependencies: [
-                "ManagedRelayCore",
-                .product(name: "SloppyRemoteProtocol", package: "SloppyRemoteProtocol"),
-            ],
-            path: "Tests/ManagedRelayCoreTests"
-        ),
         .target(
             name: "CSQLite3",
-            path: "Sources/CSQLite3"
+            path: "Sources/CSQLite3",
+            linkerSettings: [
+                .linkedLibrary("winsqlite3", .when(platforms: [.windows])),
+                .linkedLibrary("sqlite3", .when(platforms: [.macOS, .linux])),
+            ]
         ),
-    ]
+    ] + platformRelayTargets
 )

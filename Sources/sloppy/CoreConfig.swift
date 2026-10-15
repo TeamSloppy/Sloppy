@@ -2785,7 +2785,7 @@ public struct CoreConfig: Codable, Sendable {
     }
 
     private static func isAbsolutePath(_ rawPath: String) -> Bool {
-        rawPath.hasPrefix("/")
+        (rawPath as NSString).isAbsolutePath
     }
 }
 

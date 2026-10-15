@@ -149,7 +149,7 @@ actor DesktopComputerBridgeService {
         let id = UUID().uuidString
         return try await withTaskCancellationHandler {
             try Task.checkCancellation()
-            return try await withCheckedThrowingContinuation { continuation in
+            return try await withPlatformCheckedThrowingContinuation { continuation in
                 let command = DesktopComputerCommand(id: id, name: name, input: input,
                                                      expiresAt: Date().addingTimeInterval(commandTimeout))
                 let timer = Task {

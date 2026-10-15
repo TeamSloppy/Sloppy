@@ -117,6 +117,9 @@ public enum ShellEnvironment: Sendable {
     }
 
     private static func loadEnvironmentFromShell() -> [String: String] {
+        #if os(Windows)
+        return ProcessInfo.processInfo.environment
+        #else
         let shell = getLoginShell()
         let homeDir = FileManager.default.homeDirectoryForCurrentUser.path
 
@@ -169,6 +172,7 @@ public enum ShellEnvironment: Sendable {
         }
 
         return shellEnv.isEmpty ? ProcessInfo.processInfo.environment : shellEnv
+        #endif
     }
 
     private static func getLoginShell() -> String {

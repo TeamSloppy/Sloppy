@@ -124,7 +124,7 @@ actor SafariBridgeService {
             name: name,
             input: input
         )
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await withPlatformCheckedThrowingContinuation { continuation in
             pendingCommands[command.id] = PendingCommand(
                 bridgeId: bridge.id,
                 command: command,

@@ -126,7 +126,7 @@ actor WorkspaceBrowserBridgeService {
         let id = UUID().uuidString
         return try await withTaskCancellationHandler {
             try Task.checkCancellation()
-            return try await withCheckedThrowingContinuation { continuation in
+            return try await withPlatformCheckedThrowingContinuation { continuation in
                 let command = WorkspaceBrowserCommand(id: id, name: name, input: input)
                 let timer = Task {
                     do { try await Task.sleep(for: timeout) } catch { return }

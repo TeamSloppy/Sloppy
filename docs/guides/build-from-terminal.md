@@ -13,6 +13,7 @@ This guide covers the direct local workflow for building and running Sloppy with
 | --- | --- | --- |
 | macOS 14+ | Supported | Primary local development environment |
 | Linux | Supported | CI runs on Ubuntu with Swift 6.2 and `libsqlite3-dev` |
+| Windows 10 1809+ / Windows 11 | Supported | Swift for Windows, Visual Studio C++ tools and Windows SDK; Windows Terminal recommended |
 
 ## Prerequisites
 
@@ -36,6 +37,36 @@ sudo apt-get install -y libsqlite3-dev
 ```
 
 ## Resolve dependencies
+
+### Windows (PowerShell)
+
+Install Swift for Windows with its Visual Studio C++ build tools and Windows SDK prerequisites,
+plus Node.js and Git. The Windows workflow is tested with Swift 6.3.1. SQLite uses the
+Windows SDK headers and the system `winsqlite3.dll`; a separate SQLite installation is unnecessary.
+
+From the checkout root:
+
+```powershell
+.\scripts\build-windows.ps1
+.\.build\release\sloppy.exe run
+```
+
+The server API listens on `http://127.0.0.1:25101` and the dashboard on
+`http://127.0.0.1:25102`. Launch the interactive TUI in Windows Terminal with
+`.\.build\release\sloppy.exe` (no subcommand), or use `sloppy.exe tui`.
+Use `run --no-gui` for the API alone. Keep `Dashboard/dist` in the checkout, or
+set `CORE_DASHBOARD_PATH` to the Dashboard directory when running a relocated executable.
+
+Run `./scripts/test-windows.ps1 -SkipBuild` to check the release server, dashboard assets,
+and a real TUI session with Unicode input, resize and exit. For debug builds, add `-Configuration debug`.
+The Windows CI also runs the runtime/protocol suites and focused Windows, CLI parsing,
+local owner authentication, and model transport regression tests.
+
+The dashboard terminal uses ConPTY and the Windows command shell. macOS power controls,
+launchd/systemd service management, CodexBar local cost estimates, secure remote console relay connections and optional OTLP exporters
+are unavailable on Windows. Token counts and the runtime API remain available.
+
+### macOS and Linux
 
 From the repository root:
 

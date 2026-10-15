@@ -16,6 +16,9 @@ let package = Package(
         .target(name: "SloppyMigration", dependencies: [
             .product(name: "libzstd", package: "zstd"),
             "CMigrationSQLite", "TOMLKit", "Yams", .product(name: "Crypto", package: "swift-crypto"),
+        ], linkerSettings: [
+            .linkedLibrary("winsqlite3", .when(platforms: [.windows])),
+            .linkedLibrary("sqlite3", .when(platforms: [.macOS, .iOS, .linux])),
         ]),
         .testTarget(name: "SloppyMigrationTests", dependencies: ["SloppyMigration", "CMigrationSQLite", .product(name: "libzstd", package: "zstd")]),
     ]

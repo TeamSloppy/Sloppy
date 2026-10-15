@@ -5,6 +5,8 @@ import SloppyNodeCore
 import Darwin
 #elseif canImport(Glibc)
 import Glibc
+#elseif os(Windows)
+import WinSDK
 #endif
 
 struct CoreLocalClientCredential: Codable, Sendable {
@@ -40,6 +42,10 @@ extension CoreService {
         let directory = fileURL.deletingLastPathComponent()
         let temporary = directory.appendingPathComponent(".local-client-" + UUID().uuidString)
         let fileManager = FileManager.default
+        #if os(Windows)
+        try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+        try writeWindowsLocalCredential(try JSONEncoder().encode(credential), temporary: temporary, destination: fileURL)
+        #else
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true,
                                         attributes: [.posixPermissions: 0o700])
         defer { try? fileManager.removeItem(at: temporary) }
@@ -50,6 +56,7 @@ extension CoreService {
         try handle.write(contentsOf: JSONEncoder().encode(credential))
         try handle.close()
         guard rename(temporary.path, fileURL.path) == 0 else { throw CocoaError(.fileWriteUnknown) }
+        #endif
         localClientCredential = credential
     }
 
@@ -65,3 +72,36 @@ extension CoreService {
         return try await identityAuthService.makeLocalOwnerSession()
     }
 }
+
+#if os(Windows)
+private func writeWindowsLocalCredential(_ data: Data, temporary: URL, destination: URL) throws {
+    defer { try? FileManager.default.removeItem(at: temporary) }
+    // Protect the token at creation time, including when the workspace has an inherited public ACL.
+    var descriptor: PSECURITY_DESCRIPTOR?
+    let converted = "D:P(A;;FA;;;OW)".withCString(encodedAs: UTF16.self) {
+        ConvertStringSecurityDescriptorToSecurityDescriptorW($0, DWORD(SDDL_REVISION_1), &descriptor, nil)
+    }
+    guard converted, let descriptor else { throw CocoaError(.fileWriteNoPermission) }
+    defer { _ = LocalFree(descriptor) }
+    var security = SECURITY_ATTRIBUTES(nLength: DWORD(MemoryLayout<SECURITY_ATTRIBUTES>.size),
+                                       lpSecurityDescriptor: descriptor, bInheritHandle: false)
+    let handle = temporary.path.withCString(encodedAs: UTF16.self) {
+        CreateFileW($0, DWORD(GENERIC_WRITE), 0, &security, DWORD(CREATE_NEW), DWORD(FILE_ATTRIBUTE_NORMAL), nil)
+    }
+    guard let handle, handle != INVALID_HANDLE_VALUE else { throw CocoaError(.fileWriteUnknown) }
+    var closed = false
+    defer { if !closed { _ = CloseHandle(handle) } }
+    var written: DWORD = 0
+    let success = data.withUnsafeBytes { WriteFile(handle, $0.baseAddress, DWORD($0.count), &written, nil) }
+    guard success, written == data.count, FlushFileBuffers(handle) else { throw CocoaError(.fileWriteUnknown) }
+    // Close before renaming: Windows does not allow a rename without FILE_SHARE_DELETE.
+    guard CloseHandle(handle) else { throw CocoaError(.fileWriteUnknown) }
+    closed = true
+    let moved = temporary.path.withCString(encodedAs: UTF16.self) { source in
+        destination.path.withCString(encodedAs: UTF16.self) {
+            MoveFileExW(source, $0, DWORD(MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH))
+        }
+    }
+    guard moved else { throw CocoaError(.fileWriteUnknown) }
+}
+#endif

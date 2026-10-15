@@ -99,7 +99,7 @@ extension SloppyTUIScreen {
         if streamTask == nil {
             streamSession()
         }
-        await withCheckedContinuation { continuation in
+        await withPlatformCheckedContinuation { continuation in
             sessionStreamReadyWaiters.append(continuation)
         }
     }

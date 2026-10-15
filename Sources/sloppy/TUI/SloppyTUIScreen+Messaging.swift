@@ -96,7 +96,7 @@ extension SloppyTUIScreen {
         do {
             let result = try await runForegroundProcess(
                 command: shellExecutablePath(),
-                arguments: ["-lc", command],
+                arguments: shellCommandArguments(command),
                 cwd: URL(fileURLWithPath: runtime.cwd, isDirectory: true),
                 timeoutMs: guardrails.execTimeoutMs,
                 maxOutputBytes: guardrails.maxExecOutputBytes
@@ -119,6 +119,10 @@ extension SloppyTUIScreen {
     }
 
     func shellExecutablePath() -> String {
+        #if os(Windows)
+        return ProcessInfo.processInfo.environment["COMSPEC"]
+            ?? ProcessInfo.processInfo.environment["ComSpec"] ?? "C:\\Windows\\System32\\cmd.exe"
+        #else
         let environmentShell = ProcessInfo.processInfo.environment["SHELL"]?
             .trimmingCharacters(in: .whitespacesAndNewlines)
         if let environmentShell,
@@ -130,6 +134,15 @@ extension SloppyTUIScreen {
             return "/bin/bash"
         }
         return "/bin/sh"
+        #endif
+    }
+
+    func shellCommandArguments(_ command: String) -> [String] {
+        #if os(Windows)
+        return ["/d", "/s", "/c", command]
+        #else
+        return ["-lc", command]
+        #endif
     }
 
     func sendMessage(

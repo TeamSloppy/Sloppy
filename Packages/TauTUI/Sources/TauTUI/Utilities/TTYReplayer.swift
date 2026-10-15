@@ -44,7 +44,7 @@ public func replayTTY(
         switch event.type {
         case .sleep:
             if let ms = event.ms, ms > 0 {
-                usleep(useconds_t(ms * 1000))
+                Thread.sleep(forTimeInterval: Double(ms) / 1000)
             }
         case .resize:
             vt.resize(columns: event.columns ?? vt.columns, rows: event.rows ?? vt.rows)

@@ -4,6 +4,8 @@ import Foundation
 import Darwin
 #elseif canImport(Glibc)
 import Glibc
+#elseif os(Windows)
+import ucrt
 #endif
 
 enum CLIStyle {
@@ -14,7 +16,7 @@ enum CLIStyle {
         if let term = ProcessInfo.processInfo.environment["TERM"], term == "dumb" || term.isEmpty {
             return false
         }
-        return isatty(STDOUT_FILENO) != 0
+        return PlatformProcess.isTerminal(input: false)
     }()
 
     static func cyan(_ s: String) -> String    { isColor ? "\u{1B}[36m\(s)\u{1B}[0m" : s }

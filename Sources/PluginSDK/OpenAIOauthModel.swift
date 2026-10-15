@@ -854,7 +854,7 @@ extension URLSession {
     func linuxBytes(for request: URLRequest) async throws -> (StreamWrapper, URLResponse) {
         let delegate = LinuxStreamingDelegate()
         let session = URLSession(configuration: configuration, delegate: delegate, delegateQueue: nil)
-        let task = session.dataTask(with: request)
+        let task = session.dataTask(with: applyingConfigurationHeaders(to: request))
         task.resume()
         let response = try await delegate.waitForResponse()
         return (StreamWrapper(stream: delegate.stream), response)

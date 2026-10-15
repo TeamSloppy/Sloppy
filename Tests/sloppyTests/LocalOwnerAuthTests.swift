@@ -11,8 +11,10 @@ struct LocalOwnerAuthTests {
     func localExchangeAndRotation() async throws {
         try await withFixture { service, router, owner, fileURL in
             let credential = try JSONDecoder().decode(CoreLocalClientCredential.self, from: Data(contentsOf: fileURL))
+            #if !os(Windows)
             let attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
             #expect((attributes[.posixPermissions] as? NSNumber)?.intValue == 0o600)
+            #endif
             #expect(credential.baseURL.port == 25101)
             let response = await router.handle(method: "POST", path: "/v1/auth/local-session", body: nil,
                 headers: ["authorization": "Bearer " + credential.token], remoteAddress: "127.0.0.1")

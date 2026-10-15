@@ -24,7 +24,7 @@ let package = Package(
                 .product(name: "NIOHTTP1", package: "swift-nio"),
                 .product(name: "NIOWebSocket", package: "swift-nio"),
                 .product(name: "SloppyConsoleProtocol", package: "SloppyConsoleProtocol"),
-                .product(name: "NIOSSL", package: "swift-nio-ssl")]
+                .product(name: "NIOSSL", package: "swift-nio-ssl", condition: .when(platforms: [.macOS, .iOS, .visionOS, .tvOS, .watchOS, .linux]))]
         ),
         .testTarget(name: "SloppyRemoteProtocolTests", dependencies: [
             "SloppyRemoteProtocol",

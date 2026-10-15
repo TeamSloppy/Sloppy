@@ -124,6 +124,7 @@ extension URLSession {
         }
 
         #if canImport(FoundationNetworking)
+            request = applyingConfigurationHeaders(to: request)
             var lockedData: Data?
             var lockedResponse: URLResponse?
             try await withLinuxRequestLock {
@@ -186,6 +187,7 @@ extension URLSession {
                     }
 
                     #if canImport(FoundationNetworking)
+                        request = self.applyingConfigurationHeaders(to: request)
                         var lockedData: Data?
                         var lockedResponse: URLResponse?
                         try await withLinuxRequestLock {
@@ -261,7 +263,7 @@ extension URLSession {
                         var lockedAsyncBytes: AsyncThrowingStream<UInt8, Error>?
                         var lockedResponse: URLResponse?
                         try await withLinuxRequestLock {
-                            let (bytes, response) = try await self.linuxBytes(for: request)
+                            let (bytes, response) = try await self.streamingBytes(for: request)
                             lockedAsyncBytes = bytes
                             lockedResponse = response
                         }
@@ -322,8 +324,19 @@ extension URLSession {
 }
 
 #if canImport(FoundationNetworking)
-    private extension URLSession {
-        func linuxBytes(for request: URLRequest) async throws -> (AsyncThrowingStream<UInt8, Error>, URLResponse) {
+    public extension URLSession {
+        /// FoundationNetworking applies configuration headers after custom URLProtocol selection.
+        /// Materialize defaults first so authentication and request observers see the same headers.
+        func applyingConfigurationHeaders(to request: URLRequest) -> URLRequest {
+            var request = request
+            for (key, value) in configuration.httpAdditionalHeaders ?? [:] {
+                guard let name = key as? String, request.value(forHTTPHeaderField: name) == nil else { continue }
+                request.setValue(String(describing: value), forHTTPHeaderField: name)
+            }
+            return request
+        }
+
+        func streamingBytes(for request: URLRequest) async throws -> (AsyncThrowingStream<UInt8, Error>, URLResponse) {
             let delegate = LinuxBytesDelegate()
             let delegateQueue = OperationQueue()
             delegateQueue.maxConcurrentOperationCount = 1
@@ -342,7 +355,7 @@ extension URLSession {
             }
 
             let response = try await delegate.start(
-                request: request,
+                request: applyingConfigurationHeaders(to: request),
                 session: session
             )
 

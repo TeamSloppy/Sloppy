@@ -267,7 +267,7 @@ extension CoreService {
         }
         if trimmedPath.isEmpty || trimmedPath == "/" {
             targetURL = rootURL
-        } else if trimmedPath.hasPrefix("/") {
+        } else if (trimmedPath as NSString).isAbsolutePath {
             targetURL = URL(fileURLWithPath: trimmedPath, isDirectory: true).standardizedFileURL
         } else {
             targetURL = rootURL.appendingPathComponent(trimmedPath).standardized
@@ -291,7 +291,7 @@ extension CoreService {
             let size = resourceValues?.fileSize
             entries.append(ProjectFileEntry(
                 name: url.lastPathComponent,
-                path: project?.kind == .workspace || trimmedPath.hasPrefix("/") ? url.standardizedFileURL.path : nil,
+                path: project?.kind == .workspace || (trimmedPath as NSString).isAbsolutePath ? url.standardizedFileURL.path : nil,
                 type: isDirectory ? .directory : .file,
                 size: isDirectory ? nil : size
             ))
@@ -342,7 +342,7 @@ extension CoreService {
             throw ProjectError.invalidProjectID
         }
 
-        let targetURL = trimmedPath.hasPrefix("/")
+        let targetURL = (trimmedPath as NSString).isAbsolutePath
             ? URL(fileURLWithPath: trimmedPath).standardizedFileURL
             : rootURL.appendingPathComponent(trimmedPath).standardizedFileURL
         guard rootURLs.contains(where: { isProjectURL(targetURL, inside: $0) }) else {
@@ -359,7 +359,7 @@ extension CoreService {
         }
 
         let responsePath: String
-        if project?.kind == .workspace || trimmedPath.hasPrefix("/") {
+        if project?.kind == .workspace || (trimmedPath as NSString).isAbsolutePath {
             responsePath = targetURL.path
         } else {
             responsePath = String(targetURL.path.dropFirst(rootURL.path.count))
@@ -902,7 +902,7 @@ extension CoreService {
 
     public func selectDirectories() async -> [String] {
 #if canImport(AppKit)
-        await withCheckedContinuation { continuation in
+        await withPlatformCheckedContinuation { continuation in
             Task { @MainActor in
                 NSApplication.shared.activate(ignoringOtherApps: true)
 
@@ -2335,7 +2335,7 @@ extension CoreService {
         process.standardError = error
 
         do {
-            try process.run()
+            try PlatformProcess.run(process)
         } catch {
             return nil
         }

@@ -6,6 +6,9 @@ import AgentRuntime
 import Darwin
 #elseif canImport(Glibc)
 import Glibc
+#elseif os(Windows)
+import WinSDK
+import ucrt
 #endif
 
 // MARK: - Path resolution
@@ -42,21 +45,21 @@ extension ToolContext {
 
     private func extraReadableRoots() -> [String] {
         if policy.sandbox.mode == .fullAccess {
-            return ["/"] + readOnlyRoots
+            return fullAccessToolRoots() + readOnlyRoots
         }
         return policy.guardrails.allowedWriteRoots + defaultTemporaryToolRoots() + readOnlyRoots
     }
 
     private func extraWritableRoots() -> [String] {
         if policy.sandbox.mode == .fullAccess {
-            return ["/"]
+            return fullAccessToolRoots()
         }
         return policy.guardrails.allowedWriteRoots + defaultTemporaryToolRoots()
     }
 
     private func extraExecRoots() -> [String] {
         if policy.sandbox.mode == .fullAccess {
-            return ["/"]
+            return fullAccessToolRoots()
         }
         return policy.guardrails.allowedExecRoots + defaultTemporaryToolRoots()
     }
@@ -77,7 +80,19 @@ extension ToolContext {
 }
 
 func defaultTemporaryToolRoots() -> [String] {
-    ["/tmp"]
+    [FileManager.default.temporaryDirectory.path]
+}
+
+private func fullAccessToolRoots() -> [String] {
+    #if os(Windows)
+    let drives = GetLogicalDrives()
+    return (0..<26).compactMap { index in
+        guard drives & (1 << index) != 0, let letter = UnicodeScalar(65 + index) else { return nil }
+        return "\(letter):/"
+    }
+    #else
+    return ["/"]
+    #endif
 }
 
 func resolveToolPath(
@@ -90,11 +105,11 @@ func resolveToolPath(
     guard !trimmed.isEmpty else { return nil }
 
     let roots = [workspaceRootURL] + extraRoots.map { raw -> URL in
-        raw.hasPrefix("/") ? URL(fileURLWithPath: raw) : workspaceRootURL.appendingPathComponent(raw)
+        (raw as NSString).isAbsolutePath ? URL(fileURLWithPath: raw) : workspaceRootURL.appendingPathComponent(raw)
     }
 
     let candidates: [URL]
-    if trimmed.hasPrefix("/") {
+    if (trimmed as NSString).isAbsolutePath {
         candidates = [URL(fileURLWithPath: trimmed)]
     } else {
         let currentDirectoryURL = currentDirectoryURL ?? workspaceRootURL
@@ -141,10 +156,22 @@ func childProcessEnvironment(
     base: [String: String] = ProcessInfo.processInfo.environment
 ) -> [String: String] {
     var env = base
+    #if os(Windows)
+    let pathKey = base.keys.first { $0.caseInsensitiveCompare("PATH") == .orderedSame } ?? "PATH"
+    let overridePath = overrides.first { $0.key.caseInsensitiveCompare("PATH") == .orderedSame }?.value
+    env[pathKey] = overridePath ?? base[pathKey]
+    for (key, value) in overrides {
+        if let oldKey = env.keys.first(where: { $0.caseInsensitiveCompare(key) == .orderedSame }) {
+            env.removeValue(forKey: oldKey)
+        }
+        env[key] = value
+    }
+    #else
     env["PATH"] = augmentedChildProcessPATH(base["PATH"])
     for (key, value) in overrides {
         env[key] = value
     }
+    #endif
     return env
 }
 
@@ -247,9 +274,11 @@ private final class ProcessPipeReader: @unchecked Sendable {
     init(handle: FileHandle, buffer: ProcessOutputBuffer) {
         self.handle = handle
         self.buffer = buffer
+        #if !os(Windows)
         let descriptor = handle.fileDescriptor
         let flags = fcntl(descriptor, F_GETFL)
         _ = fcntl(descriptor, F_SETFL, flags | O_NONBLOCK)
+        #endif
     }
 
     func drain() {
@@ -271,12 +300,21 @@ private final class ProcessPipeReader: @unchecked Sendable {
     private func drainLocked() {
         var bytes = [UInt8](repeating: 0, count: 65_536)
         while true {
+            #if os(Windows)
+            let pipe = handle._handle
+            var available: DWORD = 0
+            guard PeekNamedPipe(pipe, nil, 0, nil, &available, nil), available > 0 else { return }
+            var count: DWORD = 0
+            guard ReadFile(pipe, &bytes, min(available, DWORD(bytes.count)), &count, nil), count > 0 else { return }
+            buffer.append(Data(bytes.prefix(Int(count))))
+            #else
             let count = bytes.withUnsafeMutableBytes { raw in
                 read(handle.fileDescriptor, raw.baseAddress, raw.count)
             }
             if count < 0 && errno == EINTR { continue }
             guard count > 0 else { return }
             buffer.append(Data(bytes.prefix(count)))
+            #endif
         }
     }
 }
@@ -311,15 +349,8 @@ func runForegroundProcess(
         stderrReader.stop()
     }
 
-    if command.hasPrefix("/") || command.hasPrefix("./") || command.hasPrefix("../") {
-        process.executableURL = URL(fileURLWithPath: command)
-        process.arguments = arguments
-    } else {
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [command] + arguments
-    }
-
-    process.environment = childProcessEnvironment(overrides: environmentOverrides)
+    try PlatformProcess.configure(process, command: command, arguments: arguments,
+                                  environment: childProcessEnvironment(overrides: environmentOverrides))
     process.standardOutput = stdout
     process.standardError = stderr
     if standardInput != nil {

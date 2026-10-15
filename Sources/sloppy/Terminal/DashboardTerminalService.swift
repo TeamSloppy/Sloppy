@@ -34,6 +34,8 @@ actor DashboardTerminalService {
         let id: String
         #if canImport(Darwin)
         let masterFD: Int32
+        #elseif os(Windows)
+        let terminal: WindowsPseudoTerminal
         #endif
         let pid: Int32
         let cwd: String
@@ -129,6 +131,15 @@ actor DashboardTerminalService {
             pid: pid,
             events: events
         )
+        #elseif os(Windows)
+        let terminal = try WindowsPseudoTerminal(shell: shell, cwd: cwdPath, cols: cols, rows: rows)
+        let sessionID = "term-\(UUID().uuidString.lowercased())"
+        sessions[sessionID] = SessionState(id: sessionID, terminal: terminal, pid: terminal.pid,
+                                           cwd: cwdPath, shell: shell, continuation: continuation)
+        terminal.read(onOutput: { text in continuation.yield(.output(text)) }, onExit: { [weak self] code in
+            Task { await self?.finishWindowsSession(sessionID: sessionID, exitCode: code) }
+        })
+        return StartedSession(sessionID: sessionID, cwd: cwdPath, shell: shell, pid: terminal.pid, events: events)
         #else
         Self.logger.warning(
             "terminal.start.unsupported_platform",
@@ -182,6 +193,8 @@ actor DashboardTerminalService {
                 ]
             )
         }
+        #elseif os(Windows)
+        try session.terminal.send(data)
         #else
         Self.logger.warning("terminal.input.unsupported_platform", metadata: ["session_id": .string(sessionID)])
         throw ServiceError.writeFailed
@@ -223,6 +236,8 @@ actor DashboardTerminalService {
         }
         Self.logger.debug("terminal.resize.ok", metadata: ["session_id": .string(sessionID), "cols": .stringConvertible(cols), "rows": .stringConvertible(rows)])
         _ = kill(session.pid, SIGWINCH)
+        #elseif os(Windows)
+        try session.terminal.resize(cols: cols, rows: rows)
         #else
         Self.logger.warning("terminal.resize.unsupported_platform", metadata: ["session_id": .string(sessionID)])
         throw ServiceError.resizeFailed
@@ -237,6 +252,8 @@ actor DashboardTerminalService {
         #if canImport(Darwin)
         terminateProcess(pid: session.pid)
         _ = close(session.masterFD)
+        #elseif os(Windows)
+        session.terminal.close()
         #endif
         session.continuation.yield(.closed)
         session.continuation.finish()
@@ -328,14 +345,29 @@ actor DashboardTerminalService {
         session.continuation.finish()
     }
     #endif
+
+    #if os(Windows)
+    private func finishWindowsSession(sessionID: String, exitCode: Int32) {
+        guard let session = sessions.removeValue(forKey: sessionID) else { return }
+        session.terminal.close()
+        session.continuation.yield(.exit(exitCode))
+        session.continuation.yield(.closed)
+        session.continuation.finish()
+    }
+    #endif
 }
 
 private func preferredShell() -> String {
+    #if os(Windows)
+    return ProcessInfo.processInfo.environment["COMSPEC"] ?? ProcessInfo.processInfo.environment["ComSpec"]
+        ?? "C:\\Windows\\System32\\cmd.exe"
+    #else
     let envShell = ProcessInfo.processInfo.environment["SHELL"]?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     if !envShell.isEmpty {
         return envShell
     }
     return "/bin/zsh"
+    #endif
 }
 
 #if canImport(Darwin)

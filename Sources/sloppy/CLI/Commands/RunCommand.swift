@@ -6,6 +6,9 @@ import Protocols
 import SloppyNodeCore
 #if os(Linux)
 import Glibc
+#elseif os(Windows)
+import ucrt
+import WinSDK
 #else
 import Darwin
 #endif
@@ -423,6 +426,11 @@ func currentExecutableURL() -> URL? {
     }
     buffer[Int(length)] = 0
     return URL(fileURLWithPath: String(cString: buffer)).standardizedFileURL
+#elseif os(Windows)
+    var buffer = [WCHAR](repeating: 0, count: 32_768)
+    let count = GetModuleFileNameW(nil, &buffer, DWORD(buffer.count))
+    guard count > 0, count < buffer.count else { return nil }
+    return URL(fileURLWithPath: String(decoding: buffer.prefix(Int(count)), as: UTF16.self)).standardizedFileURL
 #else
     var size: UInt32 = 0
     _ = _NSGetExecutablePath(nil, &size)
@@ -593,7 +601,7 @@ func prepareServerWorkspace(config: inout CoreConfig, currentDirectory: String) 
         config.sqlitePath = resolveServerSQLitePath(sqlitePath: config.sqlitePath, workspaceRoot: workspaceRoot)
         return workspaceRoot
     } catch {
-        let fallbackBasePath = "/tmp/sloppy"
+        let fallbackBasePath = FileManager.default.temporaryDirectory.appendingPathComponent("sloppy").path
         let fallbackRoot = URL(fileURLWithPath: fallbackBasePath, isDirectory: true)
             .appendingPathComponent(config.workspace.name, isDirectory: true)
 
@@ -638,7 +646,7 @@ func verifyWorkspaceWritable(at workspaceRoot: URL) throws {
 }
 
 func resolveServerSQLitePath(sqlitePath: String, workspaceRoot: URL) -> String {
-    if sqlitePath.hasPrefix("/") { return sqlitePath }
+    if (sqlitePath as NSString).isAbsolutePath { return sqlitePath }
     return workspaceRoot.appendingPathComponent(sqlitePath).path
 }
 
@@ -655,9 +663,7 @@ func defaultServerLogFileURL(in workspaceRoot: URL, now: Date = Date()) -> URL {
 
 func emitServerBootstrapWarning(_ message: String) {
     let payload = "[warning] \(message)\n"
-    payload.withCString { pointer in
-        _ = write(STDERR_FILENO, pointer, strlen(pointer))
-    }
+    FileHandle.standardError.write(Data(payload.utf8))
 }
 
 private struct DashboardLaunch {
@@ -678,8 +684,13 @@ private func startDashboardServerIfAvailable(
     )
 
     guard let location = resolution.location else {
+        #if os(Windows)
+        let buildHint = "`scripts/build-windows.ps1`"
+        #else
+        let buildHint = "`scripts/install.sh --bundle` or `scripts/dev.sh setup`"
+        #endif
         logger.warning(
-            "Dashboard UI is unavailable. Checked \(dashboardBundleSearchSummary(resolution.attempts)). Build/install it with `scripts/install.sh --bundle` or `scripts/dev.sh setup`, set CORE_DASHBOARD_PATH to a dashboard bundle, or rerun `sloppy run --no-gui`."
+            "Dashboard UI is unavailable. Checked \(dashboardBundleSearchSummary(resolution.attempts)). Build/install it with \(buildHint), set CORE_DASHBOARD_PATH to a dashboard bundle, or rerun `sloppy run --no-gui`."
         )
         return nil
     }
@@ -771,10 +782,7 @@ func printServerStartupBanner(
     \(info)
     """
 
-    let data = Array(banner.utf8)
-    data.withUnsafeBufferPointer { buf in
-        _ = write(STDERR_FILENO, buf.baseAddress, buf.count)
-    }
+    FileHandle.standardError.write(Data(banner.utf8))
 }
 
 private func sloppyRunLogoLines() -> [String] {
@@ -788,6 +796,7 @@ private func sloppyRunLogoLines() -> [String] {
     ]
 }
 
+#if !os(Windows)
 private func signalNameForCode(_ code: Int32) -> String {
     switch code {
     case SIGABRT: return "SIGABRT"
@@ -810,6 +819,7 @@ private func coreFatalSignalHandler(_ signalCode: Int32) {
     _ = signal(signalCode, SIG_DFL)
     _ = raise(signalCode)
 }
+#endif
 
 actor ServerLoggingBootstrapper {
     static let shared = ServerLoggingBootstrapper()
@@ -833,13 +843,17 @@ actor ServerFatalSignalLogger {
     static let shared = ServerFatalSignalLogger()
 
     private var isInstalled = false
+    #if !os(Windows)
     private let trackedSignals: [Int32] = [SIGABRT, SIGILL, SIGTRAP, SIGSEGV, SIGBUS, SIGFPE]
+    #endif
 
     func installIfNeeded() {
         guard !isInstalled else { return }
         isInstalled = true
+        #if !os(Windows)
         for code in trackedSignals {
             _ = signal(code, coreFatalSignalHandler)
         }
+        #endif
     }
 }

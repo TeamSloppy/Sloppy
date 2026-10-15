@@ -3,6 +3,8 @@ import Foundation
 
 #if os(Linux)
 import Glibc
+#elseif os(Windows)
+import ucrt
 #else
 import Darwin
 #endif
@@ -199,6 +201,8 @@ struct CoffeeSystemService {
         isRoot: @escaping () -> Bool = {
             #if os(Linux)
             return Glibc.geteuid() == 0
+            #elseif os(Windows)
+            return false
             #else
             return Darwin.geteuid() == 0
             #endif

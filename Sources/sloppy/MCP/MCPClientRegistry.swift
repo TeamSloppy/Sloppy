@@ -169,6 +169,10 @@ actor ManagedMCPStdioTransport: Transport {
         process.standardOutput = outputPipe
         process.standardError = errorPipe
 
+        #if os(Windows)
+        try PlatformProcess.configure(process, command: command, arguments: arguments,
+                                      environment: childProcessEnvironment(overrides: configuredEnvironment))
+        #else
         if command.hasPrefix("/") || command.hasPrefix(".") || command.contains("/") {
             let executableURL = resolveCommandURL(command, cwd: cwd)
             guard FileManager.default.isExecutableFile(atPath: executableURL.path) else {
@@ -183,13 +187,14 @@ actor ManagedMCPStdioTransport: Transport {
             process.executableURL = URL(fileURLWithPath: executablePath)
             process.arguments = arguments
         }
+        #endif
 
         if let cwd,
            !cwd.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             process.currentDirectoryURL = URL(fileURLWithPath: cwd, isDirectory: true)
         }
 
-        process.environment = environment.merging(configuredEnvironment) { _, configured in configured }
+        process.environment = childProcessEnvironment(overrides: configuredEnvironment, base: environment)
 
         do {
             try process.run()
@@ -199,11 +204,15 @@ actor ManagedMCPStdioTransport: Transport {
             )
         }
 
+        #if os(Windows)
+        let transport = StdioTransport(input: outputPipe.fileHandleForReading, output: inputPipe.fileHandleForWriting, logger: logger)
+        #else
         let transport = StdioTransport(
             input: FileDescriptor(rawValue: outputPipe.fileHandleForReading.fileDescriptor),
             output: FileDescriptor(rawValue: inputPipe.fileHandleForWriting.fileDescriptor),
             logger: logger
         )
+        #endif
         try await transport.connect()
 
         self.process = process
@@ -710,7 +719,7 @@ actor MCPClientRegistry {
     ) async throws -> T {
         let box = DiscoveryTimeoutBox<T>()
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withPlatformCheckedThrowingContinuation { continuation in
                 box.setContinuation(continuation)
                 let operationTask = Task {
                     do {
