@@ -649,8 +649,11 @@ actor AgentSessionOrchestrator {
                 mode: requestMode,
                 images: nativeImages(agentID: agentID, attachments: attachments),
                 publishResponseChunks: !isCoordinator,
-                // Recall by what the user wrote; the wrapped runtime prompt is long and slow to embed.
-                memoryQuery: content
+                memoryQuery: Self.memoryRecallQuery(
+                    content: content,
+                    turnContext: turnContext,
+                    attachmentNames: attachments.map(\.name)
+                )
             )
             if isCoordinator {
                 for _ in 0..<2 {
@@ -1417,6 +1420,23 @@ actor AgentSessionOrchestrator {
         case .ask:
             return false
         }
+    }
+
+    /// Recall query built from the user's words and the turn's referenced context, without the
+    /// mode header, route catalog, and agent documents, which are long and slow to embed.
+    static func memoryRecallQuery(
+        content: String,
+        turnContext: String,
+        attachmentNames: [String],
+        maxCharacters: Int = 2_000
+    ) -> String {
+        let names = attachmentNames.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        let parts = [
+            content.trimmingCharacters(in: .whitespacesAndNewlines),
+            turnContext.trimmingCharacters(in: .whitespacesAndNewlines),
+            names.isEmpty ? "" : "Attachments: " + names.joined(separator: ", ")
+        ].filter { !$0.isEmpty }
+        return String(parts.joined(separator: "\n\n").prefix(max(0, maxCharacters)))
     }
 
     static func elapsedMs(since start: Date) -> Int {

@@ -580,6 +580,26 @@ func nativeAgentRunSkipsPlannerWithoutDedicatedPlannerModel() async throws {
 }
 
 @Test
+func memoryRecallQueryKeepsUserTextAndTurnContextButNotRuntimeWrapper() {
+    let query = AgentSessionOrchestrator.memoryRecallQuery(
+        content: "  continue this  ",
+        turnContext: "[Referenced session]\nAurora launch checklist",
+        attachmentNames: ["notes.md", " "]
+    )
+    #expect(query == "continue this\n\n[Referenced session]\nAurora launch checklist\n\nAttachments: notes.md")
+    #expect(!query.contains("[Sloppy runtime mode]"))
+
+    let bounded = AgentSessionOrchestrator.memoryRecallQuery(
+        content: "question",
+        turnContext: String(repeating: "x", count: 5_000),
+        attachmentNames: []
+    )
+    #expect(bounded.count == 2_000)
+    #expect(bounded.hasPrefix("question\n\n"))
+    #expect(AgentSessionOrchestrator.memoryRecallQuery(content: " ", turnContext: "", attachmentNames: []).isEmpty)
+}
+
+@Test
 func plannerRunsOnlyForBuildDebugOrDedicatedPlannerModel() {
     #expect(AgentSessionOrchestrator.shouldRunPlanner(mode: .build, hasExplicitPlannerModel: false))
     #expect(AgentSessionOrchestrator.shouldRunPlanner(mode: .debug, hasExplicitPlannerModel: false))
