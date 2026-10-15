@@ -544,6 +544,53 @@ func nativeAgentRunPlansWithPlannerModelThenExecutesWithExecutorModel() async th
 }
 
 @Test
+func nativeAgentRunSkipsPlannerWithoutDedicatedPlannerModel() async throws {
+    let availableModels = [
+        ProviderModelOption(id: "mock:executor", title: "Executor", capabilities: ["tools"])
+    ]
+    let (catalogStore, sessionStore, _) = try makeAgentSessionFixture(
+        agentID: "executor-only-agent",
+        selectedModel: "mock:executor",
+        availableModels: availableModels
+    )
+    let provider = SessionCapturingModelProvider(models: availableModels.map(\.id))
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "mock:executor")
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime,
+        sessionStore: sessionStore,
+        agentCatalogStore: catalogStore,
+        availableModels: availableModels
+    )
+
+    let session = try await orchestrator.createSession(agentID: "executor-only-agent", request: AgentSessionCreateRequest())
+    let response = try await orchestrator.postMessage(
+        agentID: "executor-only-agent",
+        sessionID: session.id,
+        request: AgentSessionPostMessageRequest(
+            userId: "dashboard",
+            content: "Say hello"
+        )
+    )
+
+    #expect(await provider.requestedModelsSnapshot() == ["mock:executor"])
+    #expect(response.appendedEvents.compactMap(\.runStatus).contains { $0.label == "Planning" } == false)
+    let prompts = await provider.requestedPromptsSnapshot()
+    #expect(prompts.count == 1)
+    #expect(prompts.last?.contains("[Planner output]") == false)
+}
+
+@Test
+func plannerRunsOnlyForBuildDebugOrDedicatedPlannerModel() {
+    #expect(AgentSessionOrchestrator.shouldRunPlanner(mode: .build, hasExplicitPlannerModel: false))
+    #expect(AgentSessionOrchestrator.shouldRunPlanner(mode: .debug, hasExplicitPlannerModel: false))
+    #expect(!AgentSessionOrchestrator.shouldRunPlanner(mode: .auto, hasExplicitPlannerModel: false))
+    #expect(!AgentSessionOrchestrator.shouldRunPlanner(mode: .plan, hasExplicitPlannerModel: false))
+    #expect(AgentSessionOrchestrator.shouldRunPlanner(mode: .auto, hasExplicitPlannerModel: true))
+    #expect(AgentSessionOrchestrator.shouldRunPlanner(mode: .plan, hasExplicitPlannerModel: true))
+    #expect(!AgentSessionOrchestrator.shouldRunPlanner(mode: .ask, hasExplicitPlannerModel: true))
+}
+
+@Test
 func explicitTurnModelOverrideWinsOverSemanticRouting() async throws {
     let availableModels = [
         ProviderModelOption(id: "mock:fast", title: "Fast"),
@@ -591,7 +638,7 @@ func explicitTurnModelOverrideWinsOverSemanticRouting() async throws {
         )
     )
 
-    #expect(await modelProvider.requestedModelsSnapshot() == ["mock:fast", "mock:fast"])
+    #expect(await modelProvider.requestedModelsSnapshot() == ["mock:fast"])
     #expect(await usageMeter.snapshot(channelID: "agent:semantic-override-agent:session:\(session.id)") == nil)
 }
 
@@ -642,7 +689,7 @@ func semanticRoutingSelectsExecutorModelForTurn() async throws {
         )
     )
 
-    #expect(await modelProvider.requestedModelsSnapshot() == ["mock:senior", "mock:senior"])
+    #expect(await modelProvider.requestedModelsSnapshot() == ["mock:senior"])
     #expect(response.appendedEvents.compactMap(\.runStatus).first?.selectedModel == "mock:senior")
     #expect(response.appendedEvents.compactMap(\.runStatus).last?.selectedModel == "mock:senior")
     let usage = await usageMeter.snapshot(channelID: "agent:semantic-route-agent:session:\(session.id)")
@@ -708,7 +755,7 @@ func fixedAgentModelSkipsJEVRouting() async throws {
         sessionID: session.id,
         request: AgentSessionPostMessageRequest(userId: "dashboard", content: "Diagnose a difficult concurrency failure")
     )
-    #expect(await provider.requestedModelsSnapshot() == ["mock:fast", "mock:fast"])
+    #expect(await provider.requestedModelsSnapshot() == ["mock:fast"])
     #expect(await usageMeter.snapshot(channelID: "agent:\(agentID):session:\(session.id)") == nil)
 }
 
@@ -1051,8 +1098,8 @@ func agentSessionOrchestratorDropsReasoningEffortForNonReasoningModels() async t
         )
     )
 
-    #expect(await provider.requestedModelsSnapshot() == ["openai-api:gpt-5.4-mini", "openai-api:gpt-5.4-mini"])
-    #expect(await provider.requestedReasoningEffortsSnapshot() == [nil, nil])
+    #expect(await provider.requestedModelsSnapshot() == ["openai-api:gpt-5.4-mini"])
+    #expect(await provider.requestedReasoningEffortsSnapshot() == [nil])
 }
 
 @Test
@@ -1219,7 +1266,7 @@ func agentSessionTreatsPlainAssistantAnswerWithoutToolsAsDone() async throws {
         return event.message?.segments.compactMap(\.text).joined(separator: "\n")
     }
 
-    #expect(await provider.requestCount() == 2)
+    #expect(await provider.requestCount() == 1)
     #expect(assistantTexts.last == "Recovered without tools.")
     #expect(response.appendedEvents.last?.runStatus?.stage == .done)
 }
@@ -2490,7 +2537,7 @@ func agentSessionReusesPersistentSessionAcrossMessages() async throws {
         request: AgentSessionPostMessageRequest(userId: "dashboard", content: "second message")
     )
 
-    #expect(await provider.requestedModelsSnapshot().count == 3)
+    #expect(await provider.requestedModelsSnapshot().count == 1)
 }
 
 @Test
@@ -3148,7 +3195,7 @@ func agentSessionInvalidatesCachedModelSessionWhenStaleBootstrapGainsHistory() a
         sessionID: session.id,
         request: AgentSessionPostMessageRequest(userId: "dashboard", content: "first live turn")
     )
-    #expect(await provider.requestedModelsSnapshot().count == 2)
+    #expect(await provider.requestedModelsSnapshot().count == 1)
 
     let mutationStore = AgentSessionFileStore(agentsRootURL: agentsRootURL)
     _ = try mutationStore.appendEvents(
@@ -3173,7 +3220,7 @@ func agentSessionInvalidatesCachedModelSessionWhenStaleBootstrapGainsHistory() a
         request: AgentSessionPostMessageRequest(userId: "dashboard", content: "continue with restored context")
     )
 
-    #expect(await provider.requestedModelsSnapshot().count == 4)
+    #expect(await provider.requestedModelsSnapshot().count == 2)
     let restoredTranscript = await provider.requestedTranscriptsSnapshot().last?.joined(separator: "\n") ?? ""
     #expect(restoredTranscript.contains("first live turn"))
     #expect(restoredTranscript.contains("persisted context that was not in the cached model session"))
