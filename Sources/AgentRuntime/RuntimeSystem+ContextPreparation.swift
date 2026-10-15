@@ -49,6 +49,11 @@ public extension RuntimeSystem {
         catalogContextLimitsByModel = limits
     }
 
+    /// Called with the consecutive count whenever the model produced a tool call with unusable arguments.
+    func setMalformedToolCallObserver(channelId: String, _ observer: (@Sendable (Int) async -> Void)?) {
+        malformedToolCallObserversByChannel[channelId] = observer
+    }
+
     func setChannelContextArchiver(channelId: String, archive: TranscriptContextManager.Archive?) { contextArchiversByChannel[channelId] = archive }
     func contextPreparationReport(channelId: String) -> TranscriptContextReport? { contextPreparationByChannel[channelId] }
 }

@@ -443,6 +443,10 @@ actor MCPClientRegistry {
     private var dynamicToolsByID: [String: MCPDynamicTool] = [:]
     private var dynamicDiscoveryLoaded = false
     private var dynamicDiscoveryLastFailureAt: Date?
+    private var verificationKindsByServer: [String: [String: String]] = [:]
+
+    static let verificationMetaKey = "sloppy/verification"
+    static let verificationKinds: Set<String> = ["build", "test", "lint", "run", "screenshot"]
 
     init(config: CoreConfig.MCP, logger: Logging.Logger = Logging.Logger.sloppy(label: "sloppy.mcp")) {
         self.config = config
@@ -458,6 +462,7 @@ actor MCPClientRegistry {
             }
         }
         self.config = config
+        self.verificationKindsByServer = [:]
         self.dynamicToolsByID = [:]
         self.dynamicDiscoveryLoaded = false
         self.dynamicDiscoveryLastFailureAt = nil
@@ -536,6 +541,30 @@ actor MCPClientRegistry {
         }
 
         return statuses
+    }
+
+    /// Verification kind declared for an MCP tool, from config or the tool's `_meta`; `nil` when none.
+    func verificationKind(serverID: String, tool: String) async -> String? {
+        let configured = config.verificationTools["\(serverID):\(tool)"] ?? config.verificationTools[tool]
+        if let configured, Self.verificationKinds.contains(configured) { return configured }
+
+        if verificationKindsByServer[serverID] == nil {
+            var kinds: [String: String] = [:]
+            var cursor: String?
+            for _ in 0..<5 {
+                guard let page = try? await listTools(serverID: serverID, cursor: cursor) else { break }
+                for listed in page.tools {
+                    if let kind = listed._meta?[Self.verificationMetaKey]?.stringValue,
+                       Self.verificationKinds.contains(kind) {
+                        kinds[listed.name] = kind
+                    }
+                }
+                guard let next = page.nextCursor else { break }
+                cursor = next
+            }
+            verificationKindsByServer[serverID] = kinds
+        }
+        return verificationKindsByServer[serverID]?[tool]
     }
 
     func listTools(serverID: String, cursor: String? = nil) async throws -> (tools: [MCP.Tool], nextCursor: String?) {

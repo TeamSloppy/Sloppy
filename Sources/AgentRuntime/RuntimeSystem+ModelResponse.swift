@@ -16,7 +16,8 @@ extension RuntimeSystem {
         nativeLoopConfig: NativeAgentLoopConfig,
         nativeLoopOutcomeHandler: (@Sendable (NativeAgentLoopOutcome) async -> Void)?,
         streamRetries: Int = 2,
-        reconnectAttempt: Int = 0
+        reconnectAttempt: Int = 0,
+        rejectedModels: Set<String> = []
     ) async {
         let normalizedModel = model?.trimmingCharacters(in: .whitespacesAndNewlines)
         let activeModel = (normalizedModel?.isEmpty == false ? normalizedModel : nil) ?? defaultModel
@@ -368,6 +369,40 @@ extension RuntimeSystem {
                 )
                 throw error
             } catch {
+                if error is ProviderModelNotSupportedError, let fallback = unsupportedModelFallback {
+                    let tried = rejectedModels.union([activeModel])
+                    if let alternative = await fallback(activeModel, tried), !tried.contains(alternative) {
+                        logger.warning(
+                            "Provider rejected the model for this account, switching",
+                            metadata: modelCallMetadata(
+                                channelId: channelId,
+                                model: activeModel,
+                                reasoningEffort: reasoningEffort,
+                                promptChars: modelUserMessage.count,
+                                mode: streamMode,
+                                error: String(describing: error)
+                            ).merging(["fallback_model": .string(alternative)]) { _, new in new }
+                        )
+                        if let observationHandler {
+                            await observationHandler(.thinking("Model \(activeModel) is not available for this account; switching to \(alternative)."))
+                        }
+                        sessionsByChannel.removeValue(forKey: channelId)
+                        await respondInline(
+                            channelId: channelId,
+                            userMessage: userMessage,
+                            model: alternative,
+                            reasoningEffort: reasoningEffort,
+                            onResponseChunk: onResponseChunk,
+                            toolInvoker: toolInvoker,
+                            observationHandler: observationHandler,
+                            nativeLoopConfig: nativeLoopConfig,
+                            nativeLoopOutcomeHandler: nativeLoopOutcomeHandler,
+                            streamRetries: streamRetries,
+                            rejectedModels: tried
+                        )
+                        return
+                    }
+                }
                 let latest = await tracker.latestContent
                 let streamChunks = await tracker.chunks
                 logger.warning(

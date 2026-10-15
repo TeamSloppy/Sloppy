@@ -21,6 +21,8 @@ public struct OpenAIOAuthModel: LanguageModel {
     private let instructions: String
     let reasoningCapture: ReasoningContentCapture?
     let tokenUsageCapture: TokenUsageCapture?
+    /// Controls `parallel_tool_calls`; flips to sequential after a batch arrives with unusable arguments.
+    public let parallelToolCalls: ParallelToolCallsControl
 
     public var availability: Availability<String> {
         guard !bearerTokenProvider().isEmpty else {
@@ -37,6 +39,7 @@ public struct OpenAIOAuthModel: LanguageModel {
         instructions: String = "You are a helpful assistant.",
         reasoningCapture: ReasoningContentCapture? = nil,
         tokenUsageCapture: TokenUsageCapture? = nil,
+        parallelToolCalls: ParallelToolCallsControl = ParallelToolCallsControl(),
         session: URLSession = .shared
     ) {
         self.httpSession = session
@@ -49,6 +52,7 @@ public struct OpenAIOAuthModel: LanguageModel {
         self.instructions = instructions
         self.reasoningCapture = reasoningCapture
         self.tokenUsageCapture = tokenUsageCapture
+        self.parallelToolCalls = parallelToolCalls
     }
 
     public init(
@@ -61,6 +65,7 @@ public struct OpenAIOAuthModel: LanguageModel {
         instructions: String = "You are a helpful assistant.",
         reasoningCapture: ReasoningContentCapture? = nil,
         tokenUsageCapture: TokenUsageCapture? = nil,
+        parallelToolCalls: ParallelToolCallsControl = ParallelToolCallsControl(),
         session: URLSession = .shared
     ) {
         self.httpSession = session
@@ -73,6 +78,7 @@ public struct OpenAIOAuthModel: LanguageModel {
         self.instructions = instructions
         self.reasoningCapture = reasoningCapture
         self.tokenUsageCapture = tokenUsageCapture
+        self.parallelToolCalls = parallelToolCalls
     }
 }
 
@@ -90,6 +96,7 @@ extension OpenAIOAuthModel {
         let transcript = session.transcript
         let requestBody = try buildRequestBody(transcript: transcript, options: options, tools: conversion.definitions)
         let result = try await collectStreamingResponseWithTools(body: requestBody)
+        noteMalformedCalls(result.functionCalls)
 
         var transcriptEntries: [Transcript.Entry] = []
         var text = result.text
@@ -143,6 +150,7 @@ extension OpenAIOAuthModel {
             )
 
             let next = try await collectStreamingResponseWithTools(body: followUp)
+            noteMalformedCalls(next.functionCalls)
             text = next.text
             pendingCalls = next.functionCalls
         }
@@ -182,6 +190,7 @@ extension OpenAIOAuthModel {
                         contentType: type
                     )
 
+                    noteMalformedCalls(result.functionCalls)
                     var pendingCalls = result.functionCalls
                     var accumulatedEntries: [Transcript.Entry] = []
 
@@ -238,6 +247,7 @@ extension OpenAIOAuthModel {
                             continuation: continuation,
                             contentType: type
                         )
+                        noteMalformedCalls(next.functionCalls)
                         pendingCalls = next.functionCalls
                     }
 
@@ -257,11 +267,7 @@ extension OpenAIOAuthModel {
 // MARK: - HTTP Client
 
 private extension OpenAIOAuthModel {
-    struct FunctionCall {
-        var callId: String
-        var name: String
-        var arguments: String
-    }
+    typealias FunctionCall = ResponsesFunctionCall
 
     struct UsageInfo {
         var inputTokens: Int
@@ -319,12 +325,11 @@ private extension OpenAIOAuthModel {
                 try await bearerTokenForceRefresh()
                 return try await collectStreamingResponseWithTools(body: body, retryAfterInvalidToken: false)
             }
-            throw error
+            throw error.surfaced
         }
 
         var accumulated = ""
-        var functionCalls: [FunctionCall] = []
-        var activeFunctionCall: FunctionCall?
+        var functionCallAccumulator = ResponsesFunctionCallAccumulator()
         var responseId: String?
         var usage: UsageInfo?
 
@@ -333,15 +338,8 @@ private extension OpenAIOAuthModel {
                 accumulated += delta
             } else if let reasoning = parseSSEReasoningDelta(line) {
                 reasoningCapture?.append(reasoning)
-            } else if let fc = parseSSEFunctionCallAdded(line) {
-                activeFunctionCall = FunctionCall(callId: fc.callId, name: fc.name, arguments: "")
-            } else if let argsDelta = parseSSEFunctionCallArgsDelta(line) {
-                activeFunctionCall?.arguments.append(argsDelta)
-            } else if parseSSEFunctionCallArgsDone(line) {
-                if let call = activeFunctionCall {
-                    functionCalls.append(call)
-                    activeFunctionCall = nil
-                }
+            } else if functionCallAccumulator.consume(line: line) {
+                continue
             } else if let completed = parseSSEResponseCompleted(line) {
                 responseId = completed.responseId
                 usage = UsageInfo(
@@ -362,7 +360,7 @@ private extension OpenAIOAuthModel {
             )
         }
 
-        return StreamResult(text: accumulated, functionCalls: functionCalls, responseId: responseId, usage: usage)
+        return StreamResult(text: accumulated, functionCalls: functionCallAccumulator.calls, responseId: responseId, usage: usage)
     }
 
     func performStreamingRequestWithTools<Content>(
@@ -398,12 +396,11 @@ private extension OpenAIOAuthModel {
                     retryAfterInvalidToken: false
                 )
             }
-            throw error
+            throw error.surfaced
         }
 
         var accumulated = ""
-        var functionCalls: [FunctionCall] = []
-        var activeFunctionCall: FunctionCall?
+        var functionCallAccumulator = ResponsesFunctionCallAccumulator()
         var responseId: String?
         var usage: UsageInfo?
 
@@ -419,15 +416,8 @@ private extension OpenAIOAuthModel {
                 }
             } else if let reasoning = parseSSEReasoningDelta(line) {
                 reasoningCapture?.append(reasoning)
-            } else if let fc = parseSSEFunctionCallAdded(line) {
-                activeFunctionCall = FunctionCall(callId: fc.callId, name: fc.name, arguments: "")
-            } else if let argsDelta = parseSSEFunctionCallArgsDelta(line) {
-                activeFunctionCall?.arguments.append(argsDelta)
-            } else if parseSSEFunctionCallArgsDone(line) {
-                if let call = activeFunctionCall {
-                    functionCalls.append(call)
-                    activeFunctionCall = nil
-                }
+            } else if functionCallAccumulator.consume(line: line) {
+                continue
             } else if let completed = parseSSEResponseCompleted(line) {
                 responseId = completed.responseId
                 usage = UsageInfo(
@@ -448,7 +438,7 @@ private extension OpenAIOAuthModel {
             )
         }
 
-        return StreamResult(text: accumulated, functionCalls: functionCalls, responseId: responseId, usage: usage)
+        return StreamResult(text: accumulated, functionCalls: functionCallAccumulator.calls, responseId: responseId, usage: usage)
     }
 
     func classifyHTTPError(statusCode: Int, body: String) -> OpenAIError {
@@ -457,6 +447,9 @@ private extension OpenAIOAuthModel {
            let detail = obj["detail"] as? String {
             if statusCode == 401 {
                 return .invalidToken(detail)
+            }
+            if statusCode == 400, detail.contains("model"), detail.contains("is not supported") {
+                return .modelNotSupported(detail)
             }
             return .httpError(statusCode, detail)
         }
@@ -474,8 +467,36 @@ extension OpenAIOAuthModel {
         try await buildHTTPRequest(body: body)
     }
 
-    func buildRequestBodyForTesting(transcript: Transcript, options: GenerationOptions) throws -> Data {
-        try buildRequestBody(transcript: transcript, options: options, tools: [])
+    func buildRequestBodyForTesting(
+        transcript: Transcript,
+        options: GenerationOptions,
+        tools: [[String: Any]] = []
+    ) throws -> Data {
+        try buildRequestBody(transcript: transcript, options: options, tools: tools)
+    }
+
+    func buildFollowUpRequestBodyForTesting(
+        transcript: Transcript,
+        accumulatedEntries: [Transcript.Entry],
+        functionCalls: [ResponsesFunctionCall],
+        toolOutputs: [(callId: String, output: String)]
+    ) throws -> Data {
+        try buildFollowUpRequestBody(
+            transcript: transcript,
+            accumulatedEntries: accumulatedEntries,
+            functionCalls: functionCalls,
+            toolOutputs: toolOutputs,
+            options: GenerationOptions(),
+            tools: []
+        )
+    }
+
+    func classifyHTTPErrorForTesting(statusCode: Int, body: String) -> OpenAIError {
+        classifyHTTPError(statusCode: statusCode, body: body)
+    }
+
+    func noteMalformedCallsForTesting(_ calls: [ResponsesFunctionCall]) {
+        noteMalformedCalls(calls)
     }
 }
 
@@ -529,7 +550,8 @@ extension OpenAIOAuthModel {
                     }
                     let argumentsJSON: String
                     if let data = try? JSONEncoder().encode(call.arguments),
-                       let jsonString = String(data: data, encoding: .utf8) {
+                       let jsonString = String(data: data, encoding: .utf8),
+                       ResponsesFunctionCallAccumulator.isJSONObject(jsonString) {
                         argumentsJSON = jsonString
                     } else {
                         argumentsJSON = "{}"
@@ -590,6 +612,7 @@ private extension OpenAIOAuthModel {
         ]
         if !tools.isEmpty {
             body["tools"] = tools
+            body["parallel_tool_calls"] = parallelToolCalls.isEnabled
         }
         if let temperature = options.temperature {
             body["temperature"] = temperature
@@ -617,7 +640,8 @@ private extension OpenAIOAuthModel {
                 for call in toolCalls {
                     let argumentsJSON: String
                     if let data = try? JSONEncoder().encode(call.arguments),
-                       let jsonString = String(data: data, encoding: .utf8) {
+                       let jsonString = String(data: data, encoding: .utf8),
+                       ResponsesFunctionCallAccumulator.isJSONObject(jsonString) {
                         argumentsJSON = jsonString
                     } else {
                         argumentsJSON = "{}"
@@ -645,15 +669,23 @@ private extension OpenAIOAuthModel {
             }
         }
 
-        inputItems += functionCalls.map { call in
+        let replayedCallIDs = Set(accumulatedEntries.flatMap { entry -> [String] in
+            if case .toolCalls(let toolCalls) = entry { return toolCalls.map(\.id) }
+            return []
+        })
+        let replayedOutputIDs = Set(accumulatedEntries.compactMap { entry -> String? in
+            if case .toolOutput(let output) = entry { return output.id }
+            return nil
+        })
+        inputItems += functionCalls.filter { !replayedCallIDs.contains($0.callId) }.map { call in
             [
                 "type": "function_call",
                 "call_id": call.callId,
                 "name": call.name,
-                "arguments": call.arguments
+                "arguments": ResponsesFunctionCallAccumulator.isJSONObject(call.arguments) ? call.arguments : "{}"
             ] as [String: Any]
         }
-        inputItems += toolOutputs.map { output in
+        inputItems += toolOutputs.filter { !replayedOutputIDs.contains($0.callId) }.map { output in
             [
                 "type": "function_call_output",
                 "call_id": output.callId,
@@ -670,6 +702,7 @@ private extension OpenAIOAuthModel {
         ]
         if !tools.isEmpty {
             body["tools"] = tools
+            body["parallel_tool_calls"] = parallelToolCalls.isEnabled
         }
         if let temperature = options.temperature {
             body["temperature"] = temperature
@@ -679,6 +712,12 @@ private extension OpenAIOAuthModel {
         }
         applyPromptCacheHints(to: &body)
         return try JSONSerialization.data(withJSONObject: body)
+    }
+
+    func noteMalformedCalls(_ calls: [FunctionCall]) {
+        if calls.contains(where: { !ResponsesFunctionCallAccumulator.isJSONObject($0.arguments) }) {
+            parallelToolCalls.disable()
+        }
     }
 
     func applyPromptCacheHints(to body: inout [String: Any]) {
@@ -764,45 +803,6 @@ extension OpenAIOAuthModel {
               let delta = obj["delta"] as? String
         else { return nil }
         return delta
-    }
-
-    func parseSSEFunctionCallAdded(_ line: String) -> (callId: String, name: String)? {
-        guard line.hasPrefix("data: ") else { return nil }
-        let payload = String(line.dropFirst(6))
-        guard let data = payload.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let type = obj["type"] as? String,
-              type == "response.output_item.added",
-              let item = obj["item"] as? [String: Any],
-              let itemType = item["type"] as? String,
-              itemType == "function_call",
-              let callId = item["call_id"] as? String,
-              let name = item["name"] as? String
-        else { return nil }
-        return (callId, name)
-    }
-
-    func parseSSEFunctionCallArgsDelta(_ line: String) -> String? {
-        guard line.hasPrefix("data: ") else { return nil }
-        let payload = String(line.dropFirst(6))
-        guard let data = payload.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let type = obj["type"] as? String,
-              type == "response.function_call_arguments.delta",
-              let delta = obj["delta"] as? String
-        else { return nil }
-        return delta
-    }
-
-    func parseSSEFunctionCallArgsDone(_ line: String) -> Bool {
-        guard line.hasPrefix("data: ") else { return false }
-        let payload = String(line.dropFirst(6))
-        guard let data = payload.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let type = obj["type"] as? String,
-              type == "response.function_call_arguments.done"
-        else { return false }
-        return true
     }
 
     func parseSSEResponseCompleted(_ line: String) -> (
@@ -945,9 +945,20 @@ enum OpenAIError: Error, LocalizedError {
     case invalidResponse
     case httpError(Int, String)
     case decodingError(String)
+    case modelNotSupported(String)
+
+    /// The error callers outside this module can match on.
+    var surfaced: Error {
+        if case .modelNotSupported(let detail) = self {
+            return ProviderModelNotSupportedError(detail: detail)
+        }
+        return self
+    }
 
     var errorDescription: String? {
         switch self {
+        case .modelNotSupported(let detail):
+            return "HTTP Error 400: \(detail)"
         case .invalidToken(let message):
             return "OAuth Authentication Error: \(message)"
         case .invalidResponse:
@@ -957,5 +968,39 @@ enum OpenAIError: Error, LocalizedError {
         case .decodingError(let message):
             return "Response parsing error: \(message)"
         }
+    }
+}
+
+/// The provider rejected the requested model for this account (HTTP 400 "model is not supported").
+public struct ProviderModelNotSupportedError: Error, LocalizedError, Sendable {
+    public var detail: String
+
+    public init(detail: String) {
+        self.detail = detail
+    }
+
+    public var errorDescription: String? { "HTTP Error 400: \(detail)" }
+}
+
+/// Shared switch for `parallel_tool_calls`. Once a response delivers unusable tool arguments the
+/// model is asked for one call at a time for the rest of the session.
+public final class ParallelToolCallsControl: @unchecked Sendable {
+    private let lock = NSLock()
+    private var enabled: Bool
+
+    public init(enabled: Bool = true) {
+        self.enabled = enabled
+    }
+
+    public var isEnabled: Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        return enabled
+    }
+
+    public func disable() {
+        lock.lock()
+        enabled = false
+        lock.unlock()
     }
 }

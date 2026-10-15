@@ -110,15 +110,17 @@ struct MCPCallToolTool: CoreTool {
                 name: toolName,
                 arguments: toolArguments
             )
-            return toolSuccess(
-                tool: name,
-                data: .object([
-                    "server": .string(serverID),
-                    "tool": .string(toolName),
-                    "isError": result.isError.map(JSONValue.bool) ?? .null,
-                    "content": .array(result.content.map(MCPClientRegistry.jsonValue(from:)))
-                ])
-            )
+            var data: [String: JSONValue] = [
+                "server": .string(serverID),
+                "tool": .string(toolName),
+                "isError": result.isError.map(JSONValue.bool) ?? .null,
+                "content": .array(result.content.map(MCPClientRegistry.jsonValue(from:)))
+            ]
+            if result.isError != true,
+               let kind = await context.mcpRegistry.verificationKind(serverID: serverID, tool: toolName) {
+                data["verificationKind"] = .string(kind)
+            }
+            return toolSuccess(tool: name, data: .object(data))
         } catch {
             return toolFailure(tool: name, code: "mcp_error", message: String(describing: error), retryable: true)
         }

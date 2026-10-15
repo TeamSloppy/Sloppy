@@ -31,7 +31,7 @@ struct SessionCompleteTool: CoreTool {
             ),
             .init(
                 name: "verificationEvidenceIds",
-                description: "Evidence IDs returned by successful runtime.exec, runtime.process start, browser.screenshot, or computer.screenshot calls in the current turn. Required for completed Build and Debug turns.",
+                description: "Evidence IDs (`verificationEvidence.id` in tool results) from successful runtime.exec, runtime.process start, screenshot, or MCP verification tool calls in the current turn. Required for completed Build and Debug turns.",
                 schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self)),
                 isOptional: true
             ),

@@ -240,6 +240,10 @@ extension RuntimeSystem {
             argumentDiagnosticsHandler: { diagnostic in
                 await self.logNativeToolArgumentDiagnostic(channelId: channelId, model: model, diagnostic: diagnostic)
             },
+            malformedArgumentsHandler: { _, streak in
+                guard let channelId else { return }
+                await self.malformedToolCallObserversByChannel[channelId]?(streak)
+            },
             toolCallHandler: { request in
                 let result = await toolCallHandler(request)
                 await loopTracker?.recordLoopBlock(result)

@@ -12,6 +12,14 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
     private actor PreparedDecisionStore {
         private var decisions: [String: ToolExecutionDecision] = [:]
         private(set) var stopped = false
+        private var malformedStreak = 0
+
+        func recordMalformed() -> Int {
+            malformedStreak += 1
+            return malformedStreak
+        }
+
+        func resetMalformed() { malformedStreak = 0 }
 
         func stop() { stopped = true }
 
@@ -60,6 +68,7 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
     private let generatedToolCallsHandler: (@Sendable ([Transcript.ToolCall]) async -> Void)?
     private let toolCallDecisionOverride: (@Sendable (Transcript.ToolCall) async -> ToolExecutionDecision?)?
     private let argumentDiagnosticsHandler: (@Sendable (ArgumentDiagnostic) async -> Void)?
+    private let malformedArgumentsHandler: (@Sendable (ArgumentDiagnostic, Int) async -> Void)?
     private let preparedDecisionStore = PreparedDecisionStore()
 
     public init(
@@ -67,12 +76,14 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
         generatedToolCallsHandler: (@Sendable ([Transcript.ToolCall]) async -> Void)? = nil,
         toolCallDecisionOverride: (@Sendable (Transcript.ToolCall) async -> ToolExecutionDecision?)? = nil,
         argumentDiagnosticsHandler: (@Sendable (ArgumentDiagnostic) async -> Void)? = nil,
+        malformedArgumentsHandler: (@Sendable (ArgumentDiagnostic, Int) async -> Void)? = nil,
         toolCallHandler: @escaping @Sendable (ToolInvocationRequest) async -> ToolInvocationResult
     ) {
         self.toolNameMap = toolNameMap
         self.generatedToolCallsHandler = generatedToolCallsHandler
         self.toolCallDecisionOverride = toolCallDecisionOverride
         self.argumentDiagnosticsHandler = argumentDiagnosticsHandler
+        self.malformedArgumentsHandler = malformedArgumentsHandler
         self.toolCallHandler = toolCallHandler
     }
 
@@ -121,6 +132,25 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
         }
         let toolName = toolNameMap[toolCall.toolName] ?? toolCall.toolName
         let conversion = await jsonArguments(from: toolCall, toolName: toolName)
+        if conversion.diagnostics.usedEmptyArgumentsFallback {
+            // Never run a tool with guessed arguments: the model would see a misleading
+            // "field is required" error for a call it actually filled in.
+            let streak = await preparedDecisionStore.recordMalformed()
+            await malformedArgumentsHandler?(
+                ArgumentDiagnostic(
+                    toolCallId: toolCall.id,
+                    toolName: toolName,
+                    providerToolName: toolCall.toolName == toolName ? nil : toolCall.toolName,
+                    argumentKind: conversion.diagnostics.rawArgumentKind,
+                    rawArguments: conversion.diagnostics.rawArguments,
+                    message: conversion.diagnostics.message ?? ""
+                ),
+                streak
+            )
+            let result = Self.malformedArgumentsResult(toolName: toolName, streak: streak)
+            return .provideOutput([.text(.init(content: encodedResult(result)))])
+        }
+        await preparedDecisionStore.resetMalformed()
         let request = ToolInvocationRequest(
             tool: toolName,
             arguments: conversion.arguments,
@@ -146,7 +176,7 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
                 providerToolName: providerToolName,
                 argumentKind: kind,
                 rawArguments: rawArguments,
-                message: "Native tool call arguments were not an object; using empty arguments."
+                message: "Native tool call arguments were not an object; the tool will not be run."
             )
             Self.logger.warning(
                 "tool_call_arguments_not_object",
@@ -219,6 +249,26 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
             return "<unencodable>"
         }
         return string
+    }
+
+    /// Stable error code for tool calls whose arguments did not arrive as a JSON object.
+    public static let malformedArgumentsErrorCode = "tool_call_arguments_malformed"
+
+    static func malformedArgumentsResult(toolName: String, streak: Int) -> ToolInvocationResult {
+        var hint = "Repeat this call with the complete JSON object of arguments, issuing one tool call at a time."
+        if streak >= 2 {
+            hint += " This happened \(streak) times in a row: do not batch calls, and do not conclude the task is blocked because of it."
+        }
+        return ToolInvocationResult(
+            tool: toolName,
+            ok: false,
+            error: ToolErrorPayload(
+                code: malformedArgumentsErrorCode,
+                message: "The arguments of this call arrived empty or were not a JSON object, so the tool was not run. This is a transport problem, not a problem with the arguments you intended.",
+                retryable: true,
+                hint: hint
+            )
+        )
     }
 
     public static func encodedResult(_ result: ToolInvocationResult) -> String {

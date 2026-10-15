@@ -171,6 +171,9 @@ public actor RuntimeSystem {
     var modelProvider: (any ModelProvider)?
     var defaultModel: String?
     var catalogContextLimitsByModel: [String: ModelContextLimits] = [:]
+    /// Picks a replacement when the provider rejects a model for this account. Receives the rejected
+    /// model and every model already tried for the turn; returns `nil` when nothing else is available.
+    var unsupportedModelFallback: (@Sendable (String, Set<String>) async -> String?)?
 
     struct CachedLanguageModelSession {
         var model: String
@@ -213,6 +216,7 @@ public actor RuntimeSystem {
     /// by the owner layer when the cached in-memory LLM session is gone.
     var recoveryTranscriptByChannel: [String: Transcript] = [:]
     let contextConfiguration: CompactorConfiguration
+    var malformedToolCallObserversByChannel: [String: @Sendable (Int) async -> Void] = [:]
     var contextArchiversByChannel: [String: TranscriptContextManager.Archive] = [:]
     var contextPreparationByChannel: [String: TranscriptContextReport] = [:]
 
@@ -280,6 +284,10 @@ public actor RuntimeSystem {
     }
 
     /// Hot-swaps model provider and default model for subsequent direct responses.
+    public func setUnsupportedModelFallback(_ resolver: (@Sendable (String, Set<String>) async -> String?)?) {
+        unsupportedModelFallback = resolver
+    }
+
     /// Invalidates all cached LLM sessions so next request creates fresh ones with
     /// the new provider.
     public func updateModelProvider(modelProvider: (any ModelProvider)?, defaultModel: String?) {
