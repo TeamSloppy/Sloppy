@@ -199,6 +199,8 @@ public actor RuntimeSystem {
     /// Explicit project association supplied by the session owner, never inferred from prompt text.
     var memoryProjectByChannel: [String: String] = [:]
     var memoryInjectionByChannel: [String: MemoryInjectionDiagnostic] = [:]
+    /// Raw user text used for automatic memory recall instead of the wrapped runtime prompt.
+    var memoryQueryByChannel: [String: String] = [:]
 
     /// Latest context accounting snapshot per channel. This is diagnostic and
     /// compaction input; it does not store full prompt text.

@@ -648,7 +648,9 @@ actor AgentSessionOrchestrator {
                 reasoningEffort: reasoningEffort,
                 mode: requestMode,
                 images: nativeImages(agentID: agentID, attachments: attachments),
-                publishResponseChunks: !isCoordinator
+                publishResponseChunks: !isCoordinator,
+                // Recall by what the user wrote; the wrapped runtime prompt is long and slow to embed.
+                memoryQuery: content
             )
             if isCoordinator {
                 for _ in 0..<2 {
@@ -1519,10 +1521,12 @@ actor AgentSessionOrchestrator {
         reasoningEffort: ReasoningEffort?,
         mode: AgentChatMode,
         images: [Transcript.ImageSegment] = [],
-        publishResponseChunks: Bool = true
+        publishResponseChunks: Bool = true,
+        memoryQuery: String? = nil
     ) async -> SessionRuntimeOutcome {
         let channelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
         await runtime.setChannelImages(channelId: channelID, images: images)
+        await runtime.setChannelMemoryQuery(channelId: channelID, query: memoryQuery)
         let runID = UUID()
         activeSessionRunChannels.insert(channelID)
         activeSessionRunIDsByChannel[channelID] = runID

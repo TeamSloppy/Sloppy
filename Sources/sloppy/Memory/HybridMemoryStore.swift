@@ -15,6 +15,11 @@ public actor HybridMemoryStore: MemoryStore {
 #endif
     private let provider: (any MemoryProvider)?
     private let embeddingService: EmbeddingService?
+    /// Recent query embeddings, shared by the per-scope recalls of one turn. Tasks dedupe
+    /// concurrent requests that arrive while the first embedding is still in flight.
+    private var queryEmbeddingTasks: [String: Task<[Float], Error>] = [:]
+    private var queryEmbeddingOrder: [String] = []
+    private let queryEmbeddingCacheLimit = 16
     private let retrieval: CoreConfig.Memory.Retrieval
     private let retention: CoreConfig.Memory.Retention
     private let logger: Logger
@@ -135,6 +140,35 @@ public actor HybridMemoryStore: MemoryStore {
         await recallWithDiagnostics(request: request).hits
     }
 
+    func queryEmbedding(for query: String, using service: EmbeddingService) async throws -> [Float] {
+        try await queryEmbedding(for: query) { try await service.embed(text: $0) }
+    }
+
+    func queryEmbedding(
+        for query: String,
+        embed: @escaping @Sendable (String) async throws -> [Float]
+    ) async throws -> [Float] {
+        if let existing = queryEmbeddingTasks[query] {
+            return try await existing.value
+        }
+        let task = Task { try await embed(query) }
+        queryEmbeddingTasks[query] = task
+        queryEmbeddingOrder.append(query)
+        if queryEmbeddingOrder.count > queryEmbeddingCacheLimit {
+            queryEmbeddingTasks.removeValue(forKey: queryEmbeddingOrder.removeFirst())
+        }
+        do {
+            return try await task.value
+        } catch {
+            // Do not cache failures; the next recall retries the embedding endpoint.
+            if queryEmbeddingTasks[query] == task {
+                queryEmbeddingTasks.removeValue(forKey: query)
+                queryEmbeddingOrder.removeAll { $0 == query }
+            }
+            throw error
+        }
+    }
+
     public func recallWithDiagnostics(request: MemoryRecallRequest) async -> MemoryRecallResult {
         let started = ContinuousClock.now
         var stages: [MemoryRetrievalStage] = []
@@ -172,7 +206,7 @@ public actor HybridMemoryStore: MemoryStore {
             var candidateCount = 0
             var failure: String?
             do {
-                let queryVector = try await embeddingService.embed(text: request.query)
+                let queryVector = try await queryEmbedding(for: request.query, using: embeddingService)
 #if canImport(CSQLite3)
                 let cosineMatches = queryCosineMatches(
                     queryVector: queryVector,
