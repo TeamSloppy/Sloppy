@@ -31,8 +31,13 @@ jobs:
       - name: Smoke server, dashboard and TUI
         shell: pwsh
         run: ./scripts/test-windows.ps1 -SkipBuild
+      - name: Smoke Windows installation and server management
+        shell: powershell
+        run: ./scripts/test-windows-install.ps1
       - uses: actions/upload-artifact@v4
         if: failure()
         with:
           name: windows-smoke-logs
-          path: .build/windows-smoke-*/**/*.log
+          path: |
+            .build/windows-smoke-*/**/*.log
+            .build/windows-install-smoke-*/**/*.log

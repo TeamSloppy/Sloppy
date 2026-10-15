@@ -36,13 +36,27 @@ For day-to-day development, direct terminal builds are the default path because 
 
 The repository includes `scripts/dev.sh` — a single entry point for building, linking, and running the server during development.
 
+On Windows, use its PowerShell counterpart. `setup` installs missing prerequisites, builds
+the server and Dashboard, installs them, and adds `sloppy` to your user PATH:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\dev.ps1 setup
+.\scripts\dev.ps1 start
+.\scripts\dev.ps1 status
+.\scripts\dev.ps1 stop
+```
+
+It also supports `restart`, `logs`, `autostart`, and `autostart-off`.
+See [Windows setup](./build-from-terminal.md#windows-powershell) for installer options.
+The remaining examples in this section use macOS/Linux shell scripts.
+
 ### Build and link
 
 ```bash
 scripts/dev.sh setup
 ```
 
-This builds `sloppy` and `SloppyNode` in release mode and creates symlinks in `~/.local/bin` so both commands are available on your PATH. You can override the symlink directory:
+This builds `sloppy` and Dashboard in debug mode and creates a `sloppy` symlink in `~/.local/bin`. You can override the symlink directory:
 
 ```bash
 scripts/dev.sh setup --bin-dir ~/.local/bin

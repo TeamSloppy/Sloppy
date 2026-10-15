@@ -53,7 +53,24 @@ brew uninstall teamsloppy/sloppy/sloppy         # Linux
 
 ## Terminal
 
-### Prerequisites
+### Windows
+
+From a checkout or an extracted source ZIP, run:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install.ps1
+```
+
+This installs missing Git, Node.js LTS, Swift 6.3.1, C++ Build Tools, and Windows SDK;
+builds Sloppy and Dashboard; installs binaries, runtime DLLs, resources, and Dashboard
+under `%LOCALAPPDATA%\Sloppy`; and adds `sloppy` to your user PATH.
+Windows may request administrator permission for system components.
+
+Open a new terminal, then run `sloppy` for the TUI or `sloppy run` for the server and Dashboard.
+Use `scripts/dev.ps1 start`, `stop`, `restart`, `status`, and `logs` for a background server.
+See [Windows setup](/guides/build-from-terminal#windows-powershell) for options and troubleshooting.
+
+### macOS/Linux prerequisites
 
 | Dependency | Notes |
 | --- | --- |

@@ -2,6 +2,7 @@
 param(
     [ValidateSet("debug", "release")]
     [string]$Configuration = "release",
+    [ValidateRange(1, 128)]
     [int]$Jobs = 4
 )
 
@@ -9,18 +10,18 @@ $ErrorActionPreference = "Stop"
 $repoRoot = Split-Path -Parent $PSScriptRoot
 Push-Location -LiteralPath $repoRoot
 try {
-    foreach ($command in @("swift", "node", "npm")) {
+    foreach ($command in @("swift", "node", "npm.cmd")) {
         if (-not (Get-Command $command -ErrorAction SilentlyContinue)) {
-            throw "Missing $command. Install Swift for Windows (including its Visual Studio/Windows SDK prerequisites) and Node.js."
+            throw "Missing $command. Run scripts/install.ps1 to install Windows prerequisites and Sloppy."
         }
     }
     Push-Location Dashboard
     try {
-        npm ci
+        npm.cmd ci
         if ($LASTEXITCODE -ne 0) { throw "Dashboard dependency installation failed." }
-        npm run typecheck
+        npm.cmd run typecheck
         if ($LASTEXITCODE -ne 0) { throw "Dashboard typecheck failed." }
-        npm run build
+        npm.cmd run build
         if ($LASTEXITCODE -ne 0) { throw "Dashboard build failed." }
     } finally { Pop-Location }
 
