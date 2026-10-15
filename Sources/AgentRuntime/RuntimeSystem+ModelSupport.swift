@@ -220,8 +220,12 @@ extension RuntimeSystem {
             }
         }
         let resolvedNameMap = nameMap
+        let emptyArgumentsAllowed = Set(session.tools.compactMap { tool -> String? in
+            ModelToolSchemaNormalizer.acceptsEmptyArguments(tool.parameters) ? tool.name : nil
+        })
         return SloppyToolExecutionDelegate(
             toolNameMap: resolvedNameMap,
+            emptyArgumentsAllowedTools: emptyArgumentsAllowed,
             generatedToolCallsHandler: { calls in
                 let toolNames = calls.map { resolvedNameMap[$0.toolName] ?? $0.toolName }
                 await loopTracker?.recordToolBatch(toolNames: toolNames, config: nativeLoopConfig)

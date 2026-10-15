@@ -327,7 +327,7 @@ private struct ToolCallingLanguageModel: LanguageModel {
                                 "status": "completed",
                                 "summary": "Delegated finish summary from tool",
                             ])
-                            : GeneratedContent("")))
+                            : GeneratedContent(properties: [:])))
                 )
                 await delegate.didGenerateToolCalls([toolCall], in: session)
                 let decision = await delegate.toolCallDecision(for: toolCall, in: session)

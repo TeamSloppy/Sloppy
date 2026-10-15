@@ -68,11 +68,13 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
     private let generatedToolCallsHandler: (@Sendable ([Transcript.ToolCall]) async -> Void)?
     private let toolCallDecisionOverride: (@Sendable (Transcript.ToolCall) async -> ToolExecutionDecision?)?
     private let argumentDiagnosticsHandler: (@Sendable (ArgumentDiagnostic) async -> Void)?
+    private let emptyArgumentsAllowedTools: Set<String>
     private let malformedArgumentsHandler: (@Sendable (ArgumentDiagnostic, Int) async -> Void)?
     private let preparedDecisionStore = PreparedDecisionStore()
 
     public init(
         toolNameMap: [String: String] = [:],
+        emptyArgumentsAllowedTools: Set<String> = [],
         generatedToolCallsHandler: (@Sendable ([Transcript.ToolCall]) async -> Void)? = nil,
         toolCallDecisionOverride: (@Sendable (Transcript.ToolCall) async -> ToolExecutionDecision?)? = nil,
         argumentDiagnosticsHandler: (@Sendable (ArgumentDiagnostic) async -> Void)? = nil,
@@ -80,6 +82,7 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
         toolCallHandler: @escaping @Sendable (ToolInvocationRequest) async -> ToolInvocationResult
     ) {
         self.toolNameMap = toolNameMap
+        self.emptyArgumentsAllowedTools = emptyArgumentsAllowedTools
         self.generatedToolCallsHandler = generatedToolCallsHandler
         self.toolCallDecisionOverride = toolCallDecisionOverride
         self.argumentDiagnosticsHandler = argumentDiagnosticsHandler
@@ -167,6 +170,22 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
     private func jsonArguments(from toolCall: Transcript.ToolCall, toolName: String) async -> ArgumentConversion {
         let content = toolCall.arguments
         let providerToolName = toolCall.toolName == toolName ? nil : toolCall.toolName
+        if case .string(let text) = content.kind,
+           text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+           emptyArgumentsAllowedTools.contains(toolName) || emptyArgumentsAllowedTools.contains(toolCall.toolName) {
+            // Tools without required parameters may legitimately be called with an empty argument string.
+            return ArgumentConversion(
+                arguments: [:],
+                diagnostics: ToolInvocationArgumentDiagnostics(
+                    toolCallId: toolCall.id,
+                    providerToolName: providerToolName,
+                    originalToolName: toolName,
+                    rawArgumentKind: "empty",
+                    decodedArgumentCount: 0,
+                    usedEmptyArgumentsFallback: false
+                )
+            )
+        }
         guard case .structure(let properties, _) = content.kind else {
             let kind = argumentKindDescription(content)
             let rawArguments = jsonValue(from: content)
