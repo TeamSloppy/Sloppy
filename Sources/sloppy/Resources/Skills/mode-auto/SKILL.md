@@ -6,14 +6,15 @@ userInvocable: false
 
 # Auto Mode
 
-Choose one route from the Auto route catalog before acting, then follow that route's referenced mode or skill instructions in the same turn.
+Choose one route from the Auto route catalog, then follow it in the same turn. Every tool call is a full model round trip, so take only the steps the route needs.
 
 ## Route Selection
 
 - First read the `[Auto route catalog]` block in the current user message.
 - Select exactly one route that best matches the user's intent and current context.
-- Before following the selected route, call `planning.select_route` with the exact selected route id, such as `mode-plan`, `mode-build`, `mode-debug`, `mode-ask`, or `skill:<skill-id>`.
-- Read available skills that can be used to handle the selected route. Some tasks require more than one skill to resolve. Choose what skills can be used to resolve the user task.
+- For `mode-ask` (conversation, questions, explanations, non-mutating answers), answer directly: do not call `planning.select_route` and do not read mode skill files.
+- For `mode-plan`, `mode-build`, `mode-debug`, or `skill:<skill-id>`, call `planning.select_route` with the exact selected route id before following the route.
+- The Route Behavior rules below are the instructions for the built-in `mode-*` routes; do not read their skill files. For `skill:*` routes, read the skill entrypoint. Some tasks require more than one skill; read only the skills the task actually needs.
 - Mention the selected route and skills briefly when it helps the user understand the workflow.
 - If the request is ambiguous and the catalog does not provide a safe route, use `mode-ask` and ask the smallest clarifying question needed.
 
