@@ -396,6 +396,7 @@ actor AgentSessionOrchestrator {
         peerOrigin: AgentSessionPeerOrigin? = nil
     ) async throws -> AgentSessionMessageResponse {
         let effectiveRequest = Self.requestByApplyingOneShotModeCommand(request)
+        let preResponseStartedAt = Date()
         do {
             try await ensureSessionContextLoaded(agentID: agentID, sessionID: sessionID, userID: effectiveRequest.userId)
         } catch {
@@ -428,6 +429,7 @@ actor AgentSessionOrchestrator {
             throw OrchestratorError.invalidPayload
         }
 
+        let routingStartedAt = Date()
         let catalogModel = agentConfig.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
         let availableModelIDs = Set(agentConfig.availableModels.map(\.id))
         let overrideRaw = effectiveRequest.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -460,8 +462,10 @@ actor AgentSessionOrchestrator {
         } else {
             selectedModel = (catalogModel?.isEmpty == false) ? catalogModel : nil
         }
+        let routingDurationMs = Self.elapsedMs(since: routingStartedAt)
         let configuredPlannerModel = agentConfig.plannerModel?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let plannerModel = (configuredPlannerModel?.isEmpty == false ? configuredPlannerModel : nil) ?? selectedModel
+        let hasExplicitPlannerModel = configuredPlannerModel?.isEmpty == false
+        let plannerModel = (hasExplicitPlannerModel ? configuredPlannerModel : nil) ?? selectedModel
         let selectedModelCapabilities = Set(
             agentConfig.availableModels
                 .first(where: { $0.id == selectedModel })?
@@ -610,18 +614,31 @@ actor AgentSessionOrchestrator {
         switch agentConfig.runtime.type {
         case .native:
             let plannedRuntimeContent: String
-            if isCoordinator {
-                plannedRuntimeContent = runtimeContentWithAttachments
-            } else {
+            let runPlanner = !isCoordinator && Self.shouldRunPlanner(mode: requestMode, hasExplicitPlannerModel: hasExplicitPlannerModel)
+            let plannerStartedAt = Date()
+            if runPlanner {
                 plannedRuntimeContent = await runtimeContentWithPlannerOutput(
                     agentID: agentID,
                     sessionID: sessionID,
                     content: runtimeContentWithAttachments,
                     plannerModel: plannerModel,
-                    executorModel: selectedModel,
-                    reasoningEffort: reasoningEffort
+                    executorModel: selectedModel
                 )
+            } else {
+                plannedRuntimeContent = runtimeContentWithAttachments
             }
+            logger.info(
+                "Session pre-response stages",
+                metadata: [
+                    "agent_id": .string(agentID),
+                    "session_id": .string(sessionID),
+                    "mode": .string(requestMode.rawValue),
+                    "routing_ms": .stringConvertible(routingDurationMs),
+                    "planner": .string(runPlanner ? "ran" : "skipped"),
+                    "planner_ms": .stringConvertible(runPlanner ? Self.elapsedMs(since: plannerStartedAt) : 0),
+                    "pre_runtime_total_ms": .stringConvertible(Self.elapsedMs(since: preResponseStartedAt)),
+                ]
+            )
             runtimeOutcome = await postNativeMessage(
                 agentID: agentID,
                 sessionID: sessionID,
@@ -631,7 +648,12 @@ actor AgentSessionOrchestrator {
                 reasoningEffort: reasoningEffort,
                 mode: requestMode,
                 images: nativeImages(agentID: agentID, attachments: attachments),
-                publishResponseChunks: !isCoordinator
+                publishResponseChunks: !isCoordinator,
+                memoryQuery: Self.memoryRecallQuery(
+                    content: content,
+                    turnContext: turnContext,
+                    attachmentNames: attachments.map(\.name)
+                )
             )
             if isCoordinator {
                 for _ in 0..<2 {
@@ -1387,13 +1409,46 @@ actor AgentSessionOrchestrator {
         return "\(content)\n\n#[FRIEND_REMINDER.md]\n\(reminder)"
     }
 
+    /// The planner is a full, non-streamed model call that blocks the executor, so it only runs when
+    /// an agent opts in with a dedicated planner model or the turn is explicit build/debug work.
+    static func shouldRunPlanner(mode: AgentChatMode, hasExplicitPlannerModel: Bool) -> Bool {
+        switch mode {
+        case .build, .debug:
+            return true
+        case .auto, .plan:
+            return hasExplicitPlannerModel
+        case .ask:
+            return false
+        }
+    }
+
+    /// Recall query built from the user's words and the turn's referenced context, without the
+    /// mode header, route catalog, and agent documents, which are long and slow to embed.
+    static func memoryRecallQuery(
+        content: String,
+        turnContext: String,
+        attachmentNames: [String],
+        maxCharacters: Int = 2_000
+    ) -> String {
+        let names = attachmentNames.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        let parts = [
+            content.trimmingCharacters(in: .whitespacesAndNewlines),
+            turnContext.trimmingCharacters(in: .whitespacesAndNewlines),
+            names.isEmpty ? "" : "Attachments: " + names.joined(separator: ", ")
+        ].filter { !$0.isEmpty }
+        return String(parts.joined(separator: "\n\n").prefix(max(0, maxCharacters)))
+    }
+
+    static func elapsedMs(since start: Date) -> Int {
+        max(0, Int((Date().timeIntervalSince(start) * 1000).rounded()))
+    }
+
     private func runtimeContentWithPlannerOutput(
         agentID: String,
         sessionID: String,
         content: String,
         plannerModel: String?,
-        executorModel: String?,
-        reasoningEffort: ReasoningEffort?
+        executorModel: String?
     ) async -> String {
         appendEventsSafely(
             agentID: agentID,
@@ -1421,7 +1476,8 @@ actor AgentSessionOrchestrator {
                 content: content
             ),
             model: plannerModel,
-            reasoningEffort: reasoningEffort,
+            // A short plan does not need extended reasoning; the executor still reasons at the requested effort.
+            reasoningEffort: nil,
             maxTokens: 1200,
             channelId: sessionChannelID(agentID: agentID, sessionID: sessionID)
         ) else {
@@ -1485,10 +1541,12 @@ actor AgentSessionOrchestrator {
         reasoningEffort: ReasoningEffort?,
         mode: AgentChatMode,
         images: [Transcript.ImageSegment] = [],
-        publishResponseChunks: Bool = true
+        publishResponseChunks: Bool = true,
+        memoryQuery: String? = nil
     ) async -> SessionRuntimeOutcome {
         let channelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
         await runtime.setChannelImages(channelId: channelID, images: images)
+        await runtime.setChannelMemoryQuery(channelId: channelID, query: memoryQuery)
         let runID = UUID()
         activeSessionRunChannels.insert(channelID)
         activeSessionRunIDsByChannel[channelID] = runID

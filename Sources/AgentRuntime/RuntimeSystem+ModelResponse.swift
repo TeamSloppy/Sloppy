@@ -58,7 +58,10 @@ extension RuntimeSystem {
                 userMessage: userMessage
             )
             let (initialSession, modelUserMessage) = try await (preparedSession, recalledUserMessage)
+            let sessionAndMemoryMs = elapsedMilliseconds(since: responseStartedAt)
+            let contextPrepareStartedAt = Date()
             let session = try await prepareModelContext(channelId: channelId, session: initialSession, activeModel: activeModel, provider: modelProvider, userMessage: modelUserMessage, maxOutputTokens: nativeLoopConfig.maxOutputTokens)
+            let contextPrepareMs = elapsedMilliseconds(since: contextPrepareStartedAt)
 
             if let invoker = toolInvoker {
                 let observingHandler: @Sendable (ToolInvocationRequest) async -> ToolInvocationResult = { request in
@@ -107,17 +110,18 @@ extension RuntimeSystem {
                 await channels.recordContextLedger(channelId: channelId, snapshot: ledger)
             }
 
-            logger.info(
-                "Model stream started",
-                metadata: modelCallMetadata(
-                    channelId: channelId,
-                    model: activeModel,
-                    reasoningEffort: reasoningEffort,
-                    promptChars: modelUserMessage.count,
-                    mode: streamMode,
-                    transcriptEntries: transcriptSize
-                )
+            var streamStartMetadata = modelCallMetadata(
+                channelId: channelId,
+                model: activeModel,
+                reasoningEffort: reasoningEffort,
+                promptChars: modelUserMessage.count,
+                mode: streamMode,
+                transcriptEntries: transcriptSize
             )
+            streamStartMetadata["session_and_memory_ms"] = .stringConvertible(sessionAndMemoryMs)
+            streamStartMetadata["context_prepare_ms"] = .stringConvertible(contextPrepareMs)
+            streamStartMetadata["pre_stream_total_ms"] = .stringConvertible(elapsedMilliseconds(since: responseStartedAt))
+            logger.info("Model stream started", metadata: streamStartMetadata)
 
             let streamStartedAt = Date()
             let streamIdleTimeoutSeconds = 120
@@ -631,11 +635,25 @@ extension RuntimeSystem {
             }
 
             await channels.appendSystemMessage(channelId: channelId, content: latest)
-            await performanceTelemetry.record(await tracker.performanceSample(
+            let performanceSample = await tracker.performanceSample(
                 channelId: channelId,
                 model: activeModel,
                 streamStartedAt: responseStartedAt
-            ))
+            )
+            await performanceTelemetry.record(performanceSample)
+            logger.info(
+                "Model response timings",
+                metadata: [
+                    "channel_id": .string(channelId),
+                    "model": .string(activeModel),
+                    "reasoning_effort": .string(reasoningEffort?.rawValue ?? "none"),
+                    // End-to-end from response start, so it includes the pre-stream stages.
+                    "time_to_first_token_ms": .string(performanceSample.timeToFirstTokenMs.map(String.init) ?? "none"),
+                    // Stream only; pre-stream work is reported separately on "Model stream started".
+                    "generation_ms": .stringConvertible(elapsedMilliseconds(since: streamStartedAt)),
+                    "tool_calls": .stringConvertible(performanceSample.toolCallCount),
+                ]
+            )
             await nativeLoopOutcomeHandler?(await tracker.nativeLoopOutcome(
                 maxToolRounds: nativeLoopConfig.maxToolRounds,
                 finishedNaturally: true,
