@@ -48,7 +48,7 @@ extension RuntimeSystem {
               !pending.entries.isEmpty
         else { return session }
 
-        let tools = sanitizedModelTools(channelId: channelId, modelProvider: provider, includeTools: !session.tools.isEmpty)
+        let tools = sanitizedModelTools(channelId: channelId, modelProvider: provider, includeTools: !session.tools.isEmpty, activeModel: activeModel)
         let toolEntries = Array(transcriptWithProviderSafeToolNames(Transcript(entries: pending.entries), tools: tools))
         var entries = Array(session.transcript)
         if let last = entries.last, case .response = last {
