@@ -10,7 +10,7 @@ extension RuntimeSystem {
             return try await provider.createLanguageModel(for: model)
         }
         var provenance = await usageProvenanceProvider?(channelId) ?? UsageProvenance()
-        provenance.toolNameMap = ModelToolNameSanitizer.sanitizeTools(filteredModelTools(channelId: channelId, modelProvider: provider, includeTools: true)).nameMap
+        provenance.toolNameMap = ModelToolNameSanitizer.sanitizeTools(filteredModelTools(channelId: channelId, modelProvider: provider, includeTools: true, activeModel: model)).nameMap
         observedUsageChannels.insert(channelId)
         let context = ModelUsageContext(channelId: channelId, provider: model.split(separator: ":").first.map(String.init) ?? provider.id,
             model: model, provenance: provenance, provenanceProvider: { [weak self] in

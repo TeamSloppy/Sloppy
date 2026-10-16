@@ -54,7 +54,7 @@ extension RuntimeSystem {
         contextPreparationByChannel[channelId] = prepared.1
         guard prepared.0 != session.transcript else { return session }
         let model = try await self.createUsageObservedModel(provider: provider, model: activeModel, channelId: channelId)
-        let rebuilt = LanguageModelSession(model: model, tools: sanitizedModelTools(channelId: channelId, modelProvider: provider, includeTools: !session.tools.isEmpty), transcript: prepared.0)
+        let rebuilt = LanguageModelSession(model: model, tools: sanitizedModelTools(channelId: channelId, modelProvider: provider, includeTools: !session.tools.isEmpty, activeModel: activeModel), transcript: prepared.0)
         sessionsByChannel[channelId] = CachedLanguageModelSession(model: activeModel, session: rebuilt)
         recoveryTranscriptByChannel[channelId] = prepared.0
         return rebuilt
