@@ -18,3 +18,13 @@ A task is a directory under `bench/suites/<suite>/<id>/`:
 
 Scoring uses only `check.sh`. Metrics (tool calls, typed tool error codes, edit conflicts, tokens)
 come from session events, never from assistant text.
+
+## Comparing prompt-size changes
+
+Per-task totals vary with how many rounds a run needs, so compare the `prompt/step` column (input tokens per model
+request). To measure the effect of a tool preset, apply it to the bench agent and rerun:
+
+```
+sloppy agent tools preset <agentId> coding
+sloppy bench run --agent-id <agentId> --model <modelId> --baseline out.json
+```

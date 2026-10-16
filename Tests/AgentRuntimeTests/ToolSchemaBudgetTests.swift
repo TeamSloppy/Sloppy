@@ -2,6 +2,7 @@ import AnyLanguageModel
 import Foundation
 import Testing
 @testable import AgentRuntime
+@testable import PluginSDK
 
 private struct SizedTool: Tool {
     typealias Arguments = GeneratedContent
@@ -55,4 +56,37 @@ func toolSchemaBudgetNeverDropsEssentialToolsEvenOverBudget() {
 
     let names = Set(selection.tools.map(\.name))
     #expect(names == ["files.read", "runtime.exec", "session.complete"])
+}
+
+@Test
+func policyExcludedToolsAreWithheldFromModelSchemas() async {
+    let tools: [any Tool] = [SizedTool("files.read", words: 5), SizedTool("browser.open", words: 5), SizedTool("session.complete", words: 5)]
+    let provider = CompositeModelProvider(providers: [], tools: tools)
+    let runtime = RuntimeSystem(modelProvider: provider)
+
+    let changed = await runtime.setChannelExcludedTools(channelId: "c", toolIDs: ["browser.open"])
+    let unchanged = await runtime.setChannelExcludedTools(channelId: "c", toolIDs: ["browser.open"])
+    let visible = await runtime.filteredModelTools(channelId: "c", modelProvider: provider, includeTools: true)
+    let otherChannel = await runtime.filteredModelTools(channelId: "other", modelProvider: provider, includeTools: true)
+
+    #expect(changed)
+    #expect(!unchanged)
+    #expect(visible.map(\.name) == ["files.read", "session.complete"])
+    #expect(otherChannel.count == 3)
+
+    await runtime.setChannelExcludedTools(channelId: "c", toolIDs: [])
+    #expect(await runtime.filteredModelTools(channelId: "c", modelProvider: provider, includeTools: true).count == 3)
+}
+
+@Test
+func explicitAllowListWinsOverPolicyExclusions() async {
+    let tools: [any Tool] = [SizedTool("files.read", words: 5), SizedTool("browser.open", words: 5)]
+    let provider = CompositeModelProvider(providers: [], tools: tools)
+    let runtime = RuntimeSystem(modelProvider: provider)
+    await runtime.setChannelToolAllowList(channelId: "c", toolIDs: ["browser.open"])
+    await runtime.setChannelExcludedTools(channelId: "c", toolIDs: ["files.read"])
+
+    let visible = await runtime.filteredModelTools(channelId: "c", modelProvider: provider, includeTools: true)
+
+    #expect(visible.map(\.name) == ["browser.open"])
 }

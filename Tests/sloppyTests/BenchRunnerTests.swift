@@ -197,3 +197,14 @@ func benchMetricsCountRepeatedUsageReportsOnce() {
     #expect(metrics.promptTokens == 150)
     #expect(metrics.completionTokens == 15)
 }
+
+@Test
+func benchMetricsDecodeReportsWrittenBeforeNewMetricsExisted() throws {
+    let legacy = #"{"toolCalls":4,"toolErrors":1,"errorCodes":{"x":1},"mutationConflicts":0,"promptTokens":1000,"completionTokens":50,"reasoningTokens":0,"models":["m"]}"#
+
+    let metrics = try JSONDecoder().decode(BenchMetrics.self, from: Data(legacy.utf8))
+
+    #expect(metrics.toolCalls == 4)
+    #expect(metrics.cachedInputTokens == 0)
+    #expect(metrics.promptTokensPerStep == 200)
+}

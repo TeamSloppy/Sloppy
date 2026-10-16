@@ -336,6 +336,13 @@ actor AgentSessionOrchestrator {
         pendingMessageIDsProvider = provider
     }
 
+    private var toolExclusionProvider: (@Sendable (String) async -> Set<String>)?
+
+    /// Supplies the tool IDs the agent's policy forbids, so their schemas are not sent to the model.
+    func setToolExclusionProvider(_ provider: (@Sendable (String) async -> Set<String>)?) {
+        toolExclusionProvider = provider
+    }
+
     func setProjectBootstrapProvider(_ provider: (@Sendable (String, String?, String) async -> String?)?) {
         projectBootstrapProvider = provider
     }
@@ -1643,6 +1650,12 @@ actor AgentSessionOrchestrator {
         memoryQuery: String? = nil
     ) async -> SessionRuntimeOutcome {
         let channelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
+        if let toolExclusionProvider {
+            let excluded = await toolExclusionProvider(agentID)
+            if await runtime.setChannelExcludedTools(channelId: channelID, toolIDs: excluded) {
+                await runtime.invalidateChannelSession(channelId: channelID)
+            }
+        }
         await runtime.setChannelImages(channelId: channelID, images: images)
         await runtime.setChannelMemoryQuery(channelId: channelID, query: memoryQuery)
         let runID = UUID()

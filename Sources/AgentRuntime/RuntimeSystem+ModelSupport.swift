@@ -111,11 +111,13 @@ extension RuntimeSystem {
             // An explicit allow-list is authoritative and is never trimmed.
             return full.filter { allow.contains($0.name) }
         }
-        guard let activeModel, contextConfiguration.enabled else { return full }
+        let excluded = channelExcludedTools[channelId] ?? []
+        let visible = excluded.isEmpty ? full : full.filter { !excluded.contains($0.name) }
+        guard let activeModel, contextConfiguration.enabled else { return visible }
         let limits = resolvedContextLimits(for: activeModel, provider: modelProvider)
             ?? ModelContextLimits(contextWindowTokens: contextConfiguration.contextWindowTokens)
         let window = min(limits.contextWindowTokens, limits.maxInputTokens ?? limits.contextWindowTokens)
-        let selection = ToolSchemaBudget().select(from: full, windowTokens: window)
+        let selection = ToolSchemaBudget().select(from: visible, windowTokens: window)
         if !selection.droppedNames.isEmpty {
             logger.info(
                 "Tool schemas trimmed to fit model context",

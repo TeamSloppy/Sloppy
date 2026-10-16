@@ -167,6 +167,39 @@ Results (5 tasks, 1 attempt, same Core, before -> after):
 | gpt-oss-20B | 0/5 (`contextWindowRecoveryFailed`) | 5/5 |
 | gemma4:31b-cloud | 0/5 (`contextWindowRecoveryFailed`) | 0/5 (starts; narrates intent and stops) |
 
+### Trimming model-visible context
+
+Fixed context sent on every model request (instructions, bootstrap, tool schemas) dominates cost: a one-line
+fix took ~10 requests of ~30K tokens each. Per-route tool selection is not possible inside one turn: the tool
+list is converted once per response, before the tool rounds, so the available set cannot change mid-stream.
+These levers are therefore explicit and policy-driven:
+
+- **Policy-aware schemas.** Tools the agent's saved policy forbids are not sent to the model
+  (`RuntimeSystem.setChannelExcludedTools`, fed per turn from the tool policy). They would be rejected at
+  execution anyway. An explicit channel allow-list still wins, and a changed set rebuilds the cached session.
+- **`sloppy agent tools preset <agent> coding|full`.** `coding` writes explicit denials for rarely needed groups
+  (browser, safari, computer, sites, workspace, artifacts, images, long chat, actors, heartbeat, cron, code review,
+  visor, channel, agent documents, project/MCP administration). It leaves coding tools, `project.current`/task
+  tools, `mcp.call_tool`, web, memory, skills and sessions. `full` removes only the denials the preset manages.
+- **Lean bootstrap.** `agentRuntimeContext.bootstrapMode: "lean"` was already available; it is the next largest
+  saving (bootstrap ~9.6K -> ~6.3K tokens for a fresh agent).
+
+Measured with `sloppy bench` (gpt-6.1-sol, 5/5 in every configuration; single attempt, so totals are noisy:
+rounds per task vary between 6 and 13):
+
+| configuration | tool schemas / request | bootstrap | mean tokens per task |
+|---|---|---|---|
+| default | ~20.0K | ~9.6K | ~270-335K |
+| `coding` preset | ~11.1K | ~9.6K | ~250-280K |
+| `coding` preset + lean bootstrap | ~11.1K | ~6.3K | ~204K |
+
+`gpt-oss-20B` with the last configuration: 5/5 at ~211K tokens per task (was ~303K). `gemma4:31b-cloud` still
+0/5. The bench now reports prompt tokens per step, which does not depend on how many rounds a run took.
+
+Observed but not explained: provider prompt-cache hits are low (`cachedInput` is 0-7% of prompt tokens) even
+though `prompt_cache_key` is sent and the prefix is stable within a session. Fixing that would cut cost more than
+any trimming, but needs provider-side investigation.
+
 ## Acceptance checks
 
 - Ambiguous edits and stale hashes leave bytes unchanged.
