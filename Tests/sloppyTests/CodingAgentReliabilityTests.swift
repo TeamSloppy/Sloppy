@@ -82,3 +82,24 @@ func mcpVerificationToolsRoundTripThroughConfigJSON() throws {
     let legacy = try JSONDecoder().decode(CoreConfig.MCP.self, from: Data(#"{"servers":[]}"#.utf8))
     #expect(legacy.verificationTools.isEmpty)
 }
+
+@Test
+func explorationBudgetNudgesOncePerBudgetAndProgressResetsIt() {
+    var state = SessionTurnGuardState()
+    for _ in 0..<(SessionTurnGuardState.explorationBudget - 1) {
+        #expect(state.recordExploration(isProgress: false) == nil)
+    }
+    #expect(state.recordExploration(isProgress: false)?.contains("planning.progress_update") == true)
+    #expect(state.recordExploration(isProgress: false) == nil)
+    for _ in 0..<5 { _ = state.recordExploration(isProgress: false) }
+    #expect(state.recordExploration(isProgress: true) == nil)
+    #expect(state.explorationStreak == 0)
+}
+
+@Test
+func mcpReadOnlyToolsFromConfigAreReportedAsReadOnly() async {
+    let registry = MCPClientRegistry(config: CoreConfig.MCP(servers: [], readOnlyTools: ["editor.skills.read", "acp.studio:editor.docs.read"]))
+    #expect(await registry.toolTraits(serverID: "acp.studio", tool: "editor.skills.read").readOnly == true)
+    #expect(await registry.toolTraits(serverID: "acp.studio", tool: "editor.docs.read").readOnly == true)
+    #expect(await registry.toolTraits(serverID: "other", tool: "editor.docs.read").readOnly == nil)
+}

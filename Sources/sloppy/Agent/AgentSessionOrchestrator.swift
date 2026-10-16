@@ -129,6 +129,10 @@ struct SessionTurnGuardState: Sendable, Equatable {
     var failureCounts: [String: Int] = [:]
     var readSignatures: Set<String> = []
 
+    /// Read-only calls in a row after which a Build turn is nudged to start implementing.
+    static let explorationBudget = 12
+    private(set) var explorationStreak = 0
+
     mutating func recordMalformedCall() {
         malformedCallCount += 1
         wellFormedCallSinceMalformed = false
@@ -149,6 +153,18 @@ struct SessionTurnGuardState: Sendable, Equatable {
         failureCounts[key] = count
         guard count >= Self.sameFailureCeiling else { return nil }
         return "`\(tool)` failed with `\(code)` \(count) times this turn. Stop repeating it: change the approach (different tool, different arguments, or investigate the cause first)."
+    }
+
+    /// Counts calls that gather information without producing anything. Returns a nudge once per budget.
+    mutating func recordExploration(isProgress: Bool) -> String? {
+        if isProgress {
+            explorationStreak = 0
+            return nil
+        }
+        explorationStreak += 1
+        guard explorationStreak >= Self.explorationBudget else { return nil }
+        explorationStreak = 0
+        return "Exploration is sufficient: write the plan with planning.progress_update and implement the first step now. Look up anything still missing while you work; do not repeat the reading already done."
     }
 
     /// True when an identical read-only request already succeeded this turn.
@@ -1743,7 +1759,7 @@ actor AgentSessionOrchestrator {
                     request: toolRequest,
                     result: result
                 )
-                result = await self.applyTurnGuards(channelID: channelID, request: toolRequest, result: result)
+                result = await self.applyTurnGuards(channelID: channelID, request: toolRequest, result: result, mode: effectiveToolMode)
                 if result.ok,
                    result.tool == "planning.request_input",
                    result.data?.asObject?["paused"]?.asBool == true,
@@ -2228,7 +2244,8 @@ actor AgentSessionOrchestrator {
     private func applyTurnGuards(
         channelID: String,
         request: ToolInvocationRequest,
-        result: ToolInvocationResult
+        result: ToolInvocationResult,
+        mode: AgentChatMode
     ) -> ToolInvocationResult {
         guard var state = turnGuardByChannel[channelID] else { return result }
         defer { turnGuardByChannel[channelID] = state }
@@ -2238,6 +2255,21 @@ actor AgentSessionOrchestrator {
         if let hint = state.recordOutcome(tool: result.tool, result: result), var error = guarded.error {
             error.hint = [error.hint, hint].compactMap { $0 }.joined(separator: " ")
             guarded.error = error
+        }
+        if mode == .build {
+            let remoteReadOnly = result.data?.asObject?["readOnly"]?.asBool
+            let isRead = SessionWorkLedger.nativeReadOnlyTools.contains(request.tool) || remoteReadOnly == true
+            let isUnknownRemote = request.tool == "mcp.call_tool" && remoteReadOnly == nil && result.ok
+            let isProgress = !(isRead || isUnknownRemote) && result.ok
+            if let nudge = state.recordExploration(isProgress: isProgress) {
+                if var data = guarded.data?.asObject {
+                    data["harnessNote"] = .string(nudge)
+                    guarded.data = .object(data)
+                } else if var error = guarded.error {
+                    error.hint = [error.hint, nudge].compactMap { $0 }.joined(separator: " ")
+                    guarded.error = error
+                }
+            }
         }
         // Re-reading an identical file range costs context and adds nothing.
         if result.ok, result.tool == "files.read", var data = guarded.data?.asObject {

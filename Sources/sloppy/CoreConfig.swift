@@ -656,21 +656,27 @@ public struct CoreConfig: Codable, Sendable {
         /// Successful calls to these tools count as completion evidence for Build and Debug turns.
         /// MCP servers can also declare this per tool with `_meta["sloppy/verification"]`.
         public var verificationTools: [String: String]
+        /// MCP tool names (or `server:tool`) that only read state. Identical repeated calls are answered from
+        /// the session ledger. Servers can also set `annotations.readOnlyHint`.
+        public var readOnlyTools: [String]
 
         private enum CodingKeys: String, CodingKey {
             case servers
             case verificationTools
+            case readOnlyTools
         }
 
-        public init(servers: [Server] = [], verificationTools: [String: String] = [:]) {
+        public init(servers: [Server] = [], verificationTools: [String: String] = [:], readOnlyTools: [String] = []) {
             self.servers = servers
             self.verificationTools = verificationTools
+            self.readOnlyTools = readOnlyTools
         }
 
         public init(from decoder: Decoder) throws {
             let container = try decoder.container(keyedBy: CodingKeys.self)
             servers = try container.decodeIfPresent([Server].self, forKey: .servers) ?? []
             verificationTools = try container.decodeIfPresent([String: String].self, forKey: .verificationTools) ?? [:]
+            readOnlyTools = try container.decodeIfPresent([String].self, forKey: .readOnlyTools) ?? []
         }
     }
 

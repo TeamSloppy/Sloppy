@@ -311,7 +311,7 @@ private struct ToolCallingLanguageModel: LanguageModel {
 
         var entries: [Transcript.Entry] = []
         if let delegate = session.toolExecutionDelegate {
-            for toolName in toolNames {
+            for (callIndex, toolName) in toolNames.enumerated() {
                 let toolCall = Transcript.ToolCall(
                     id: UUID().uuidString,
                     toolName: toolName,
@@ -327,7 +327,8 @@ private struct ToolCallingLanguageModel: LanguageModel {
                                 "status": "completed",
                                 "summary": "Delegated finish summary from tool",
                             ])
-                            : GeneratedContent(properties: [:])))
+                            // Distinct arguments keep the session ledger from answering filler reads.
+                            : GeneratedContent(properties: ["call": "\(callIndex)"])))
                 )
                 await delegate.didGenerateToolCalls([toolCall], in: session)
                 let decision = await delegate.toolCallDecision(for: toolCall, in: session)
@@ -1320,7 +1321,8 @@ func agentSessionRetriesAndMarksToolDrivenDebugTurnIncompleteWithoutExplicitComp
 
     let verificationStore = AgentSessionFileStore(agentsRootURL: agentsRootURL)
     let detail = try verificationStore.loadSession(agentID: agentID, sessionID: session.id)
-    #expect(detail.events.filter { $0.toolCall?.tool == "files.list" }.count == 2)
+    // The recovery turn repeats the identical read; the session ledger answers it without running the tool.
+    #expect(detail.events.filter { $0.toolCall?.tool == "files.list" }.count == 1)
 }
 
 @Test

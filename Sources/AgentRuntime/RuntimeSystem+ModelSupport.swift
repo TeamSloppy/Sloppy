@@ -248,6 +248,9 @@ extension RuntimeSystem {
                 guard let channelId else { return }
                 await self.malformedToolCallObserversByChannel[channelId]?(streak)
             },
+            executedToolCallHandler: { call, output in
+                await loopTracker?.recordExecuted(call, output)
+            },
             toolCallHandler: { request in
                 let result = await toolCallHandler(request)
                 await loopTracker?.recordLoopBlock(result)

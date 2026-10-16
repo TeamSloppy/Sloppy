@@ -216,6 +216,12 @@ public actor RuntimeSystem {
     /// by the owner layer when the cached in-memory LLM session is gone.
     var recoveryTranscriptByChannel: [String: Transcript] = [:]
     let contextConfiguration: CompactorConfiguration
+    var workLedgerByChannel: [String: SessionWorkLedger] = [:]
+    /// Tool calls and outputs of the latest streamed turn; the stream only records the final reply in the
+    /// session transcript, so these are merged in before the next turn.
+    var pendingToolTranscriptByChannel: [String: (session: ObjectIdentifier, entries: [Transcript.Entry])] = [:]
+    var lastActiveModelByChannel: [String: String] = [:]
+    var lastWorkingModel: String?
     var malformedToolCallObserversByChannel: [String: @Sendable (Int) async -> Void] = [:]
     var contextArchiversByChannel: [String: TranscriptContextManager.Archive] = [:]
     var contextPreparationByChannel: [String: TranscriptContextReport] = [:]

@@ -393,8 +393,9 @@ extension CoreService {
 
     /// Replacement for a model the provider rejected for this account: another model the account
     /// reported as loaded (`openai_oauth.models.loaded`), never one already tried.
-    func alternativeModel(forRejected rejected: String, excluding tried: Set<String>) -> String? {
+    func alternativeModel(forRejected rejected: String, excluding tried: Set<String>) async -> String? {
         guard rejected.hasPrefix("openai-oauth:") else { return nil }
+        if oauthModelCache.isEmpty { await refreshOAuthModelCacheIfNeeded() }
         return Self.alternativeOAuthModel(cached: Array(oauthModelCache.values), excluding: tried)
     }
 

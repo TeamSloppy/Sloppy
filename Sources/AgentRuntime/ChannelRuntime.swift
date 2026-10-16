@@ -87,6 +87,8 @@ private struct ChannelState: Sendable {
     var latestContextLedger: ContextLedgerSnapshot?
     var activeWorkerIds: Set<String> = []
     var lastDecision: ChannelRouteDecision?
+    /// Window of the model actually serving the channel; overrides the global default.
+    var contextWindowTokens: Int?
 }
 
 public actor ChannelRuntime {
@@ -241,6 +243,15 @@ public actor ChannelRuntime {
         channels[channelId] = state
     }
 
+    /// Pressure must be measured against the active model's window, not the global default.
+    public func setContextWindow(channelId: String, tokens: Int?) {
+        var state = channels[channelId, default: ChannelState()]
+        guard state.contextWindowTokens != tokens else { return }
+        state.contextWindowTokens = tokens
+        applyPressureEstimate(to: &state)
+        channels[channelId] = state
+    }
+
     public func configuredContextWindowTokens() -> Int {
         pressureEstimator.contextWindowTokens
     }
@@ -253,7 +264,9 @@ public actor ChannelRuntime {
     }
 
     private func applyPressureEstimate(to state: inout ChannelState) {
-        let estimate = pressureEstimator.estimate(
+        var estimator = pressureEstimator
+        if let window = state.contextWindowTokens { estimator.contextWindowTokens = max(1, window) }
+        let estimate = estimator.estimate(
             messages: state.messages,
             latestPromptUsage: state.latestPromptUsage,
             ledgerSnapshot: state.latestContextLedger

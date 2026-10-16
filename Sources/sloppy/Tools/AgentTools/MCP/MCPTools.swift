@@ -116,9 +116,10 @@ struct MCPCallToolTool: CoreTool {
                 "isError": result.isError.map(JSONValue.bool) ?? .null,
                 "content": .array(result.content.map(MCPClientRegistry.jsonValue(from:)))
             ]
-            if result.isError != true,
-               let kind = await context.mcpRegistry.verificationKind(serverID: serverID, tool: toolName) {
-                data["verificationKind"] = .string(kind)
+            if result.isError != true {
+                let traits = await context.mcpRegistry.toolTraits(serverID: serverID, tool: toolName)
+                if let kind = traits.verificationKind { data["verificationKind"] = .string(kind) }
+                if let readOnly = traits.readOnly { data["readOnly"] = .bool(readOnly) }
             }
             return toolSuccess(tool: name, data: .object(data))
         } catch {

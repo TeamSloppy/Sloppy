@@ -30,6 +30,9 @@ public extension RuntimeSystem {
         recoveryTranscriptByChannel.removeValue(forKey: channelId)
         contextArchiversByChannel.removeValue(forKey: channelId)
         malformedToolCallObserversByChannel.removeValue(forKey: channelId)
+        workLedgerByChannel.removeValue(forKey: channelId)
+        pendingToolTranscriptByChannel.removeValue(forKey: channelId)
+        lastActiveModelByChannel.removeValue(forKey: channelId)
         contextPreparationByChannel.removeValue(forKey: channelId)
         await channels.removeChannel(channelId: channelId)
     }

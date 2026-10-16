@@ -24,7 +24,7 @@ extension CoreService {
         }
         let previous = acpSessionMCPRegistries.removeValue(forKey: sessionID)
         if !supplied.isEmpty {
-            acpSessionMCPRegistries[sessionID] = MCPClientRegistry(config: .init(servers: currentConfig.mcp.servers + supplied, verificationTools: currentConfig.mcp.verificationTools))
+            acpSessionMCPRegistries[sessionID] = MCPClientRegistry(config: .init(servers: currentConfig.mcp.servers + supplied, verificationTools: currentConfig.mcp.verificationTools, readOnlyTools: currentConfig.mcp.readOnlyTools))
         }
         await previous?.updateConfig(.init())
     }

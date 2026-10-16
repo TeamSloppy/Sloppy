@@ -69,6 +69,7 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
     private let toolCallDecisionOverride: (@Sendable (Transcript.ToolCall) async -> ToolExecutionDecision?)?
     private let argumentDiagnosticsHandler: (@Sendable (ArgumentDiagnostic) async -> Void)?
     private let emptyArgumentsAllowedTools: Set<String>
+    private let executedToolCallHandler: (@Sendable (Transcript.ToolCall, Transcript.ToolOutput) async -> Void)?
     private let malformedArgumentsHandler: (@Sendable (ArgumentDiagnostic, Int) async -> Void)?
     private let preparedDecisionStore = PreparedDecisionStore()
 
@@ -79,6 +80,7 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
         toolCallDecisionOverride: (@Sendable (Transcript.ToolCall) async -> ToolExecutionDecision?)? = nil,
         argumentDiagnosticsHandler: (@Sendable (ArgumentDiagnostic) async -> Void)? = nil,
         malformedArgumentsHandler: (@Sendable (ArgumentDiagnostic, Int) async -> Void)? = nil,
+        executedToolCallHandler: (@Sendable (Transcript.ToolCall, Transcript.ToolOutput) async -> Void)? = nil,
         toolCallHandler: @escaping @Sendable (ToolInvocationRequest) async -> ToolInvocationResult
     ) {
         self.toolNameMap = toolNameMap
@@ -87,6 +89,7 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
         self.toolCallDecisionOverride = toolCallDecisionOverride
         self.argumentDiagnosticsHandler = argumentDiagnosticsHandler
         self.malformedArgumentsHandler = malformedArgumentsHandler
+        self.executedToolCallHandler = executedToolCallHandler
         self.toolCallHandler = toolCallHandler
     }
 
@@ -115,6 +118,14 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
             return results
         }
         await preparedDecisionStore.replace(with: prepared)
+    }
+
+    public func didExecuteToolCall(
+        _ toolCall: Transcript.ToolCall,
+        output: Transcript.ToolOutput,
+        in session: LanguageModelSession
+    ) async {
+        await executedToolCallHandler?(toolCall, output)
     }
 
     public func toolCallDecision(
