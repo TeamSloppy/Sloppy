@@ -51,6 +51,51 @@ import Testing
     #expect(exists == false)
 }
 
+private actor EmbeddingCallCounter {
+    var calls: [String] = []
+    var shouldFail = false
+    func record(_ text: String) throws -> [Float] {
+        calls.append(text)
+        if shouldFail { throw URLError(.notConnectedToInternet) }
+        return [Float(text.count), 1]
+    }
+    func setShouldFail(_ value: Bool) { shouldFail = value }
+}
+
+@Test func queryEmbeddingIsSharedAcrossConcurrentScopedRecalls() async throws {
+    let store = HybridMemoryStore(config: CoreConfig.test)
+    let counter = EmbeddingCallCounter()
+    let embed: @Sendable (String) async throws -> [Float] = { text in
+        try await Task.sleep(for: .milliseconds(50))
+        return try await counter.record(text)
+    }
+
+    let vectors = try await withThrowingTaskGroup(of: [Float].self) { group in
+        for _ in 0..<3 {
+            group.addTask { try await store.queryEmbedding(for: "aurora", embed: embed) }
+        }
+        return try await group.reduce(into: [[Float]]()) { $0.append($1) }
+    }
+    _ = try await store.queryEmbedding(for: "aurora", embed: embed)
+    _ = try await store.queryEmbedding(for: "other", embed: embed)
+
+    #expect(vectors.count == 3)
+    #expect(Set(vectors).count == 1)
+    #expect(await counter.calls == ["aurora", "other"])
+}
+
+@Test func failedQueryEmbeddingIsNotCached() async throws {
+    let store = HybridMemoryStore(config: CoreConfig.test)
+    let counter = EmbeddingCallCounter()
+    let embed: @Sendable (String) async throws -> [Float] = { try await counter.record($0) }
+
+    await counter.setShouldFail(true)
+    await #expect(throws: URLError.self) { try await store.queryEmbedding(for: "aurora", embed: embed) }
+    await counter.setShouldFail(false)
+    #expect(try await store.queryEmbedding(for: "aurora", embed: embed) == [6, 1])
+    #expect(await counter.calls.count == 2)
+}
+
 @Test func recallWorksWithoutEmbeddingService() async throws {
     let config = CoreConfig.test
     let store = HybridMemoryStore(config: config)

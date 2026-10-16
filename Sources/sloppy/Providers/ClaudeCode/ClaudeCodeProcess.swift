@@ -14,6 +14,19 @@ final class ClaudeCodeProcess: @unchecked Sendable {
     private var cancelled = false
     private var inputFD: Int32 = -1
 
+#if !canImport(Darwin)
+    private typealias AddChdirFunction = @convention(c) (
+        UnsafeMutablePointer<posix_spawn_file_actions_t>, UnsafePointer<CChar>
+    ) -> Int32
+
+    private static let glibcAddChdir: AddChdirFunction? = {
+        guard let handle = dlopen(nil, RTLD_NOW),
+              let symbol = dlsym(handle, "posix_spawn_file_actions_addchdir_np")
+        else { return nil }
+        return unsafeBitCast(symbol, to: AddChdirFunction.self)
+    }()
+#endif
+
     func start(executable: String, arguments: [String], environment: [String: String], cwd: URL, singleJSON: Bool = false) throws -> AsyncThrowingStream<JSONValue, Error> {
         let output = Pipe()
         var input = [Int32](repeating: -1, count: 2)
@@ -52,7 +65,16 @@ final class ClaudeCodeProcess: @unchecked Sendable {
         posix_spawn_file_actions_addclose(&actions, output.fileHandleForReading.fileDescriptor)
         posix_spawn_file_actions_addclose(&actions, output.fileHandleForWriting.fileDescriptor)
         // chdir is part of spawn; never change the Core process's working directory.
+#if canImport(Darwin)
         posix_spawn_file_actions_addchdir_np(&actions, cwd.path)
+#else
+        // Swift's Glibc module does not declare the _np addchdir (glibc 2.29+); resolve it at runtime.
+        guard let addChdir = Self.glibcAddChdir else {
+            close(input[0])
+            throw NSError(domain: NSPOSIXErrorDomain, code: Int(ENOSYS))
+        }
+        _ = addChdir(&actions, cwd.path)
+#endif
 #if canImport(Darwin)
         posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETPGROUP | POSIX_SPAWN_CLOEXEC_DEFAULT))
 #else

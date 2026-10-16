@@ -56,6 +56,26 @@ struct MemoryDiagnosticsTests {
     }
 
     @Test
+    func automaticRecallUsesChannelMemoryQueryInsteadOfWrappedPrompt() async {
+        let memory = InMemoryMemoryStore()
+        let runtime = RuntimeSystem(memoryStore: memory, preResponseMemoryLimit: 2)
+        let channel = "agent:helper:session:query"
+        _ = await memory.save(entry: MemoryWriteRequest(note: "Aurora launch notes", scope: .channel(channel)))
+        let wrapped = "[Sloppy runtime mode]\nmode: auto\n\nAurora\n\n[Route catalog]"
+
+        await runtime.setChannelMemoryQuery(channelId: channel, query: "  Aurora  ")
+        let prompt = await runtime.userMessageWithAutoRecalledMemory(channelId: channel, userMessage: wrapped)
+        let queries = await runtime.memoryDiagnostics.snapshot(channelId: channel).queries
+        #expect(!queries.isEmpty)
+        #expect(queries.allSatisfy { $0.query == "Aurora" })
+        #expect(prompt.contains("Aurora launch notes"))
+        #expect(prompt.hasSuffix(wrapped))
+
+        await runtime.setChannelMemoryQuery(channelId: channel, query: nil)
+        #expect(await runtime.memoryQueryByChannel[channel] == nil)
+    }
+
+    @Test
     func disabledRecallDoesNotQueryOrInject() async {
         let runtime = RuntimeSystem(preResponseMemoryLimit: 0)
         let channel = "agent:helper:session:disabled"

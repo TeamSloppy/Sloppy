@@ -1357,7 +1357,9 @@ extension CoreService {
         projectID: String?,
         fallbackWorkingDirectory: String? = nil
     ) async {
-        guard chatMode == .debug || chatMode == .auto,
+        // Auto turns reach `.debug` via planning.select_route; an unrouted Auto turn (the Ask
+        // fast path) must stay read-only, so only an explicit Debug mode creates the directory.
+        guard chatMode == .debug,
               let rootPath = await debugDirectoryRootForSession(
                 sessionID: sessionID,
                 sessionTitle: sessionTitle,

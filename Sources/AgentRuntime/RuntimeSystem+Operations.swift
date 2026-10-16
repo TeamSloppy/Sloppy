@@ -10,6 +10,16 @@ public extension RuntimeSystem {
         imagesByChannel[channelId] = images
     }
 
+    /// Query for automatic memory recall on the next turn; nil falls back to the full model message.
+    func setChannelMemoryQuery(channelId: String, query: String?) {
+        let trimmed = query?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        if trimmed.isEmpty {
+            memoryQueryByChannel.removeValue(forKey: channelId)
+        } else {
+            memoryQueryByChannel[channelId] = trimmed
+        }
+    }
+
     func setChannelBootstrap(channelId: String, content: String) async {
         if bootstrapByChannel[channelId] != content {
             sessionsByChannel.removeValue(forKey: channelId)

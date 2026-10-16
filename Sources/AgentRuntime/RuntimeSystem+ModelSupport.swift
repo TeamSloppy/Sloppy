@@ -15,6 +15,7 @@ extension RuntimeSystem {
         }
 
         let scopes = persistentMemoryScopes(channelId: channelId) + [.channel(channelId)]
+        let query = memoryQueryByChannel[channelId] ?? userMessage
         let limit = preResponseMemoryLimit
         let store = memoryStore
         let diagnostics = memoryDiagnostics
@@ -24,7 +25,7 @@ extension RuntimeSystem {
             for scope in scopes {
                 group.addTask {
                     await store.recallDiagnosed(request: MemoryRecallRequest(
-                        query: userMessage, limit: limit, scope: scope,
+                        query: query, limit: limit, scope: scope,
                         classes: [.semantic, .episodic, .procedural]
                     ), channelId: channelId, source: .automatic, diagnostics: diagnostics, operationId: operationId)
                 }

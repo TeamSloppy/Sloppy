@@ -658,8 +658,10 @@ enum BuiltInSkillCatalog {
 
             # Auto Mode
 
-            Choose one route from the Auto route catalog before acting, then follow that route's referenced mode or skill instructions in the same turn.
-            Before following the selected route, call `planning.select_route` with the exact selected route id, such as `mode-plan`, `mode-build`, `mode-debug`, `mode-ask`, or `skill:<skill-id>`.
+            Choose one route from the Auto route catalog, then follow it in the same turn. Every tool call is a full model round trip, so take only the steps the route needs.
+            - `mode-ask` (conversation, questions, explanations, non-mutating answers): answer directly and stay focused on the question, using read-only inspection or `web.search`/`web.fetch` only when the answer needs them. Do not call `planning.select_route` and do not read the `sloppy/mode-ask` skill file.
+            - `mode-plan`, `mode-build`, `mode-debug`: call `planning.select_route` with the exact route id, then read that mode's skill and follow its full protocol, including its required tool calls.
+            - `skill:<skill-id>`: call `planning.select_route`, then read that skill's entrypoint and follow it with the most compatible mode route.
             Do not mutate files unless the selected route permits it. If no route is a good fit, use the Ask route and answer directly or ask for the smallest clarification needed.
             """
         }
