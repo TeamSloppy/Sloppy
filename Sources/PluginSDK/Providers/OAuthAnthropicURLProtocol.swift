@@ -147,31 +147,102 @@ public final class OAuthAnthropicURLProtocol: URLProtocol {
         )
     }
 
-    private static func bodyByAddingPromptCacheControl(to data: Data) -> Data? {
-        guard var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              var messages = object["messages"] as? [[String: Any]]
-        else {
-            return nil
+    /// Anthropic allows at most four cache breakpoints per request.
+    static let maxCacheBreakpoints = 4
+
+    /// Block types that accept `cache_control`. Thinking blocks and empty text are rejected by the API.
+    private static func isCacheable(_ block: [String: Any]) -> Bool {
+        switch block["type"] as? String {
+        case "text":
+            return !((block["text"] as? String)?.isEmpty ?? true)
+        case "tool_result", "tool_use", "image", "document":
+            return true
+        default:
+            return false
         }
-        for messageIndex in messages.indices.reversed() {
-            guard messages[messageIndex]["role"] as? String == "user",
-                  var content = messages[messageIndex]["content"] as? [[String: Any]]
-            else {
-                continue
+    }
+
+    private static func existingBreakpointCount(in object: [String: Any]) -> Int {
+        func count(_ value: Any) -> Int {
+            if let dict = value as? [String: Any] {
+                return (dict["cache_control"] != nil ? 1 : 0) + dict.values.reduce(0) { $0 + count($1) }
             }
-            for contentIndex in content.indices.reversed() {
-                guard content[contentIndex]["type"] as? String == "text" else {
-                    continue
+            if let array = value as? [Any] { return array.reduce(0) { $0 + count($1) } }
+            return 0
+        }
+        return count(object)
+    }
+
+    /// Places cache breakpoints so each request in a tool loop reads everything the previous one wrote.
+    ///
+    /// - the last cacheable block of the final message (the growing tool history is what changes each round),
+    /// - the last user text block (the stable anchor of the turn; also the previous behavior),
+    /// - the end of `system` and the last tool definition (identical across sessions of the same agent).
+    ///
+    /// Existing `cache_control` entries are kept and count against the four-breakpoint limit.
+    static func bodyByAddingPromptCacheControl(to data: Data) -> Data? {
+        guard var object = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        var budget = maxCacheBreakpoints - existingBreakpointCount(in: object)
+        guard budget > 0 else { return nil }
+        let marker: [String: Any] = ["type": "ephemeral"]
+        var changed = false
+
+        if var messages = object["messages"] as? [[String: Any]] {
+            // 1. Last cacheable block of the final message.
+            if budget > 0, let last = messages.indices.last,
+               var content = messages[last]["content"] as? [[String: Any]],
+               let index = content.lastIndex(where: isCacheable), content[index]["cache_control"] == nil {
+                content[index]["cache_control"] = marker
+                messages[last]["content"] = content
+                budget -= 1
+                changed = true
+            }
+            // 2. Last user text block, unless step 1 already marked it.
+            if budget > 0 {
+                search: for messageIndex in messages.indices.reversed() {
+                    guard messages[messageIndex]["role"] as? String == "user",
+                          var content = messages[messageIndex]["content"] as? [[String: Any]]
+                    else { continue }
+                    for contentIndex in content.indices.reversed() where content[contentIndex]["type"] as? String == "text" {
+                        if isCacheable(content[contentIndex]), content[contentIndex]["cache_control"] == nil {
+                            content[contentIndex]["cache_control"] = marker
+                            messages[messageIndex]["content"] = content
+                            budget -= 1
+                            changed = true
+                        }
+                        break search
+                    }
                 }
-                if content[contentIndex]["cache_control"] == nil {
-                    content[contentIndex]["cache_control"] = ["type": "ephemeral"]
-                }
-                messages[messageIndex]["content"] = content
-                object["messages"] = messages
-                return try? JSONSerialization.data(withJSONObject: object)
+            }
+            object["messages"] = messages
+        }
+
+        // 3. End of the system prompt (a plain string becomes one equivalent text block).
+        if budget > 0 {
+            if let text = object["system"] as? String, !text.isEmpty {
+                object["system"] = [["type": "text", "text": text, "cache_control": marker] as [String: Any]]
+                budget -= 1
+                changed = true
+            } else if var blocks = object["system"] as? [[String: Any]],
+                      let index = blocks.lastIndex(where: isCacheable), blocks[index]["cache_control"] == nil {
+                blocks[index]["cache_control"] = marker
+                object["system"] = blocks
+                budget -= 1
+                changed = true
             }
         }
-        return nil
+
+        // 4. Last tool definition.
+        if budget > 0, var tools = object["tools"] as? [[String: Any]], let last = tools.indices.last,
+           tools[last]["cache_control"] == nil {
+            tools[last]["cache_control"] = marker
+            object["tools"] = tools
+            budget -= 1
+            changed = true
+        }
+
+        guard changed else { return nil }
+        return try? JSONSerialization.data(withJSONObject: object)
     }
 }
 
