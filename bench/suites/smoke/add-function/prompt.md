@@ -1,0 +1,1 @@
+`test.js` expects `slugify` to be exported from `strings.js`, but it does not exist yet. Implement `slugify(text)` (lowercase, trim, replace runs of non-alphanumerics with a single `-`, no leading or trailing `-`) so `node test.js` passes. Do not edit `test.js`.
