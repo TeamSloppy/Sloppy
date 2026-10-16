@@ -208,3 +208,20 @@ func benchMetricsDecodeReportsWrittenBeforeNewMetricsExisted() throws {
     #expect(metrics.cachedInputTokens == 0)
     #expect(metrics.promptTokensPerStep == 200)
 }
+
+@Test
+func benchReportSummarizesCachedInputShare() {
+    func result(prompt: Int, cached: Int) -> BenchRunResult {
+        var metrics = BenchMetrics()
+        metrics.promptTokens = prompt
+        metrics.cachedInputTokens = cached
+        return BenchRunResult(
+            taskId: "t", tags: [], model: "m", attempt: 1, status: .passed, checkExitCode: 0, checkOutputTail: nil,
+            agentSeconds: 1, totalSeconds: 1, metrics: metrics, diff: nil, error: nil)
+    }
+    let report = BenchReport(generatedAt: Date(timeIntervalSince1970: 0), suite: "s",
+                             results: [result(prompt: 1000, cached: 900), result(prompt: 1000, cached: 100)])
+
+    #expect(report.summaries.first?.cachedInputFraction == 0.5)
+    #expect(report.renderTable().contains("50% cached"))
+}

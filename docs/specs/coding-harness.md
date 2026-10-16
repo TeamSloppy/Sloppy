@@ -196,9 +196,26 @@ rounds per task vary between 6 and 13):
 `gpt-oss-20B` with the last configuration: 5/5 at ~211K tokens per task (was ~303K). `gemma4:31b-cloud` still
 0/5. The bench now reports prompt tokens per step, which does not depend on how many rounds a run took.
 
-Observed but not explained: provider prompt-cache hits are low (`cachedInput` is 0-7% of prompt tokens) even
-though `prompt_cache_key` is sent and the prefix is stable within a session. Fixing that would cut cost more than
-any trimming, but needs provider-side investigation.
+### Prompt cache affinity (OpenAI Codex OAuth)
+
+Prompt-cache hits were almost absent (`cachedInput` was 0-7% of prompt tokens) although the 15K-token prefix
+(instructions, bootstrap, tool schemas) is identical across the ~10 requests of a turn. Per-request usage
+(`usage_requests`) showed `cached_tokens` of 0 on nearly every request, with an occasional hit of exactly the
+static prefix, i.e. the prefix was cacheable but requests were not routed to the cache holding it.
+
+Cause: the Codex backend keys request affinity on `session_id`/`conversation_id` request headers, which were
+not sent; a per-session `prompt_cache_key` alone changed nothing (tested separately). `OpenAIOAuthModel` now takes a
+`promptCacheScope` (the session channel id) and sends stable UUID-shaped `session_id`/`conversation_id` headers
+plus a per-session `prompt_cache_key`. Measured on the same two tasks, sequential:
+
+| | requests after the first that hit the cache | cached share of input |
+|---|---|---|
+| before | ~1 of 22 (14,208 tokens) | ~1% |
+| after | 22 of 22 (15,360 of ~15,570 tokens) | ~99% on those requests |
+
+Full smoke, gpt-6.1-sol, concurrency 3: 5/5, 71% of all input tokens cached (the uncached part is the growing
+tail of each turn). The bench prints the cached share. The identical question is open for other providers:
+OpenAI API-key traffic uses a model-level `prompt_cache_key` and the Anthropic OAuth path was not examined.
 
 ## Acceptance checks
 

@@ -23,6 +23,8 @@ public struct OpenAIOAuthModel: LanguageModel {
     let tokenUsageCapture: TokenUsageCapture?
     /// Controls `parallel_tool_calls`; flips to sequential after a batch arrives with unusable arguments.
     public let parallelToolCalls: ParallelToolCallsControl
+    /// Narrows `prompt_cache_key` to one conversation so its requests keep landing on the cache that holds their prefix.
+    private let promptCacheScope: String?
 
     public var availability: Availability<String> {
         guard !bearerTokenProvider().isEmpty else {
@@ -53,6 +55,7 @@ public struct OpenAIOAuthModel: LanguageModel {
         self.reasoningCapture = reasoningCapture
         self.tokenUsageCapture = tokenUsageCapture
         self.parallelToolCalls = parallelToolCalls
+        self.promptCacheScope = nil
     }
 
     public init(
@@ -66,6 +69,7 @@ public struct OpenAIOAuthModel: LanguageModel {
         reasoningCapture: ReasoningContentCapture? = nil,
         tokenUsageCapture: TokenUsageCapture? = nil,
         parallelToolCalls: ParallelToolCallsControl = ParallelToolCallsControl(),
+        promptCacheScope: String? = nil,
         session: URLSession = .shared
     ) {
         self.httpSession = session
@@ -79,6 +83,7 @@ public struct OpenAIOAuthModel: LanguageModel {
         self.reasoningCapture = reasoningCapture
         self.tokenUsageCapture = tokenUsageCapture
         self.parallelToolCalls = parallelToolCalls
+        self.promptCacheScope = promptCacheScope
     }
 }
 
@@ -298,6 +303,9 @@ private extension OpenAIOAuthModel {
         if let accountId, !accountId.isEmpty {
             request.setValue(accountId, forHTTPHeaderField: "ChatGPT-Account-Id")
         }
+        for (name, value) in affinityHeaders {
+            request.setValue(value, forHTTPHeaderField: name)
+        }
         request.httpBody = body
         return request
     }
@@ -466,6 +474,10 @@ extension OpenAIOAuthModel {
     func buildHTTPRequestForTesting(body: Data) async throws -> URLRequest {
         try await buildHTTPRequest(body: body)
     }
+
+    func promptCacheKeyForTesting() -> String { promptCacheKey() }
+
+    var affinityHeadersForTesting: [String: String] { affinityHeaders }
 
     func buildRequestBodyForTesting(
         transcript: Transcript,
@@ -728,7 +740,47 @@ private extension OpenAIOAuthModel {
         let safeModel = modelName.map { character -> Character in
             character.isLetter || character.isNumber || character == "-" || character == "_" ? character : "-"
         }
-        return "sloppy-openai-oauth-\(String(safeModel).prefix(80))"
+        guard let promptCacheScope, !promptCacheScope.isEmpty else {
+            return "sloppy-openai-oauth-\(String(safeModel).prefix(80))"
+        }
+        return "sloppy-oauth-\(String(safeModel).prefix(24))-\(Self.stableDigest(promptCacheScope))"
+    }
+
+    /// The Codex backend keys request affinity, and with it prompt-cache locality, on these ids. Without them
+    /// repeated requests with an identical prefix are routed independently and almost never hit the cache
+    /// (measured: ~0% cached input without, ~99% with).
+    var affinityHeaders: [String: String] {
+        guard let promptCacheScope, !promptCacheScope.isEmpty else { return [:] }
+        let conversationID = Self.stableUUIDString(promptCacheScope)
+        return ["session_id": conversationID, "conversation_id": conversationID]
+    }
+
+    /// Deterministic UUID-shaped identifier for a scope string (two FNV-1a passes with different seeds).
+    static func stableUUIDString(_ text: String) -> String {
+        func fnv(_ seed: UInt64) -> UInt64 {
+            var hash = seed
+            for byte in text.utf8 {
+                hash ^= UInt64(byte)
+                hash = hash &* 0x100000001b3
+            }
+            return hash
+        }
+        let high = fnv(0xcbf29ce484222325)
+        let low = fnv(0x84222325cbf29ce4)
+        let hex = String(format: "%016llx%016llx", high, low)
+        let chars = Array(hex)
+        func part(_ range: Range<Int>) -> String { String(chars[range]) }
+        return "\(part(0..<8))-\(part(8..<12))-4\(part(13..<16))-8\(part(17..<20))-\(part(20..<32))"
+    }
+
+    /// FNV-1a 64-bit, hex. Stable across launches (unlike `Hasher`), short enough for a cache key.
+    static func stableDigest(_ text: String) -> String {
+        var hash: UInt64 = 0xcbf29ce484222325
+        for byte in text.utf8 {
+            hash ^= UInt64(byte)
+            hash = hash &* 0x100000001b3
+        }
+        return String(hash, radix: 16)
     }
 
     struct ToolConversion {

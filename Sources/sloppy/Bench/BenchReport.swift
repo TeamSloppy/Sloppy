@@ -13,6 +13,8 @@ struct BenchSummary: Codable, Sendable, Equatable {
     var meanToolErrors: Double
     var meanTotalTokens: Double
     var meanPromptTokensPerStep: Double
+    /// Share of input tokens served from the provider's prompt cache, 0...1.
+    var cachedInputFraction: Double
     var mutationConflicts: Int
 }
 
@@ -39,6 +41,10 @@ struct BenchReport: Codable, Sendable, Equatable {
                 meanToolErrors: mean { Double($0.metrics.toolErrors) },
                 meanTotalTokens: mean { Double($0.metrics.totalTokens) },
                 meanPromptTokensPerStep: mean { Double($0.metrics.promptTokensPerStep) },
+                cachedInputFraction: {
+                    let prompt = runs.reduce(0) { $0 + $1.metrics.promptTokens }
+                    return prompt == 0 ? 0 : Double(runs.reduce(0) { $0 + $1.metrics.cachedInputTokens }) / Double(prompt)
+                }(),
                 mutationConflicts: runs.reduce(0) { $0 + $1.metrics.mutationConflicts }
             )
         }.sorted { $0.model < $1.model }
@@ -80,9 +86,9 @@ struct BenchReport: Codable, Sendable, Equatable {
                 "\(summary.model): \(summary.passed)/\(summary.runs) passed "
                     + "(\(Int((summary.passRate * 100).rounded()))%), "
                     + "\(summary.failed) failed, \(summary.timeouts) timeout, \(summary.errors) error; "
-                    + String(format: "avg %.1fs, %.1f tool calls, %.1f tool errors, %.0f tokens (%.0f prompt/step)",
+                    + String(format: "avg %.1fs, %.1f tool calls, %.1f tool errors, %.0f tokens (%.0f prompt/step, %.0f%% cached)",
                              summary.meanAgentSeconds, summary.meanToolCalls, summary.meanToolErrors, summary.meanTotalTokens,
-                             summary.meanPromptTokensPerStep)
+                             summary.meanPromptTokensPerStep, summary.cachedInputFraction * 100)
                     + "; edit conflicts: \(summary.mutationConflicts)"
             )
         }

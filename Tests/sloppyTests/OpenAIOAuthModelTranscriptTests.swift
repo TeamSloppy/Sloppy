@@ -261,3 +261,32 @@ func transcriptToResponsesInputSkipsEmptyAssistantResponses() {
 
     #expect(items.count == 0)
 }
+
+@Test
+func scopedOAuthModelSendsStableAffinityHeadersAndSessionCacheKey() throws {
+    func model(scope: String?) -> OpenAIOAuthModel {
+        OpenAIOAuthModel(bearerTokenProvider: { "t" }, model: "gpt-6.1-sol", promptCacheScope: scope)
+    }
+    let first = model(scope: "agent:a:session:one")
+    let again = model(scope: "agent:a:session:one")
+    let other = model(scope: "agent:a:session:two")
+
+    let headers = first.affinityHeadersForTesting
+    let id = try #require(headers["session_id"])
+    #expect(headers["conversation_id"] == id)
+    #expect(id == again.affinityHeadersForTesting["session_id"], "must be stable across model instances")
+    #expect(id != other.affinityHeadersForTesting["session_id"], "different sessions get different ids")
+    #expect(UUID(uuidString: id) != nil, "must be UUID-shaped")
+
+    #expect(first.promptCacheKeyForTesting() == again.promptCacheKeyForTesting())
+    #expect(first.promptCacheKeyForTesting() != other.promptCacheKeyForTesting())
+    #expect(first.promptCacheKeyForTesting().count <= 64)
+}
+
+@Test
+func unscopedOAuthModelKeepsModelLevelCacheKeyAndSendsNoAffinityHeaders() {
+    let model = OpenAIOAuthModel(bearerTokenProvider: { "t" }, model: "gpt-6.1-sol")
+
+    #expect(model.affinityHeadersForTesting.isEmpty)
+    #expect(model.promptCacheKeyForTesting() == "sloppy-openai-oauth-gpt-6-1-sol")
+}
