@@ -214,8 +214,22 @@ plus a per-session `prompt_cache_key`. Measured on the same two tasks, sequentia
 | after | 22 of 22 (15,360 of ~15,570 tokens) | ~99% on those requests |
 
 Full smoke, gpt-6.1-sol, concurrency 3: 5/5, 71% of all input tokens cached (the uncached part is the growing
-tail of each turn). The bench prints the cached share. The identical question is open for other providers:
-OpenAI API-key traffic uses a model-level `prompt_cache_key` and the Anthropic OAuth path was not examined.
+tail of each turn). The bench prints the cached share.
+
+Other providers (reviewed; only Anthropic needed a change, and it has not been exercised against the live API
+because no Anthropic credentials were available):
+
+- **Anthropic / Anthropic OAuth**: caching is opt-in per breakpoint. The only breakpoint used to be the last user
+  *text* block, which in a tool loop is the original prompt, so the growing tool history was never cached. Requests now
+  get up to four breakpoints, in priority order: last cacheable block of the final message (the tool history),
+  the last user text block (stable anchor), the end of `system`, the last tool definition. Existing `cache_control`
+  entries are kept and count against the limit; thinking blocks and empty text are never marked. Check
+  `cache_read_input_tokens` (shown as cached input) after enabling to confirm the effect.
+- **OpenAI API key and OpenAI-compatible**: automatic prefix caching with a model-level `prompt_cache_key`. Not changed.
+  Per-session keys would avoid the documented overflow at high request rates per key but give up sharing the static
+  prefix across sessions; decide with measurements on a real key.
+- **Gemini**: implicit caching, no client action. **Ollama / local**: server-side KV cache. **Claude Code**: handled by
+  the CLI.
 
 ## Acceptance checks
 
