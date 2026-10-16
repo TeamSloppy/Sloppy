@@ -60,6 +60,7 @@ public struct OpenAIModelProvider: ModelProvider {
     public let tools: [any Tool]
     private let _reasoningCapture: ReasoningContentCapture
     private let _tokenUsageCapture: TokenUsageCapture
+    private let _parallelToolCalls = ParallelToolCallsControl()
     private let settings: Settings
     private static let logger = Logger(label: "sloppy.provider.openai")
 
@@ -119,6 +120,7 @@ public struct OpenAIModelProvider: ModelProvider {
                 instructions: systemInstructions ?? "You are an execution-focused assistant.",
                 reasoningCapture: _reasoningCapture,
                 tokenUsageCapture: captureLegacyUsage ? _tokenUsageCapture : nil,
+                parallelToolCalls: _parallelToolCalls,
                 session: sessionOverride ?? settings.session ?? .shared
             )
         }

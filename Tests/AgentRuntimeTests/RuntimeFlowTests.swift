@@ -538,7 +538,7 @@ private struct NativeToolSequenceLanguageModel: LanguageModel {
                 let toolCall = Transcript.ToolCall(
                     id: UUID().uuidString,
                     toolName: toolName,
-                    arguments: GeneratedContent("")
+                    arguments: GeneratedContent(properties: [:])
                 )
                 await delegate.didGenerateToolCalls([toolCall], in: session)
                 let decision = await delegate.toolCallDecision(for: toolCall, in: session)
@@ -691,7 +691,7 @@ private struct SequencedMockLanguageModel: LanguageModel {
         var entries: [Transcript.Entry] = []
 
         if let toolName = extractToolName(from: firstOutput), let delegate = session.toolExecutionDelegate {
-            let toolCall = Transcript.ToolCall(id: UUID().uuidString, toolName: toolName, arguments: GeneratedContent(""))
+            let toolCall = Transcript.ToolCall(id: UUID().uuidString, toolName: toolName, arguments: GeneratedContent(properties: [:]))
             await delegate.didGenerateToolCalls([toolCall], in: session)
             let decision = await delegate.toolCallDecision(for: toolCall, in: session)
             if case .stop = decision {

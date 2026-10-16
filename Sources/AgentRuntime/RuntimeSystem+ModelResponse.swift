@@ -16,10 +16,12 @@ extension RuntimeSystem {
         nativeLoopConfig: NativeAgentLoopConfig,
         nativeLoopOutcomeHandler: (@Sendable (NativeAgentLoopOutcome) async -> Void)?,
         streamRetries: Int = 2,
-        reconnectAttempt: Int = 0
+        reconnectAttempt: Int = 0,
+        rejectedModels: Set<String> = []
     ) async {
         let normalizedModel = model?.trimmingCharacters(in: .whitespacesAndNewlines)
-        let activeModel = (normalizedModel?.isEmpty == false ? normalizedModel : nil) ?? defaultModel
+        let activeModel = (normalizedModel?.isEmpty == false ? normalizedModel : nil)
+            ?? inheritedModel(for: channelId) ?? defaultModel
 
         guard let modelProvider, let activeModel else {
             let fallback = "Responded inline"
@@ -58,9 +60,18 @@ extension RuntimeSystem {
                 userMessage: userMessage
             )
             let (initialSession, modelUserMessage) = try await (preparedSession, recalledUserMessage)
+            lastActiveModelByChannel[channelId] = activeModel
+            workLedgerByChannel[channelId, default: SessionWorkLedger()].recordGoal(userMessage)
+            await channels.setContextWindow(
+                channelId: channelId,
+                tokens: resolvedContextLimits(for: activeModel, provider: modelProvider)?.contextWindowTokens
+            )
             let sessionAndMemoryMs = elapsedMilliseconds(since: responseStartedAt)
             let contextPrepareStartedAt = Date()
-            let session = try await prepareModelContext(channelId: channelId, session: initialSession, activeModel: activeModel, provider: modelProvider, userMessage: modelUserMessage, maxOutputTokens: nativeLoopConfig.maxOutputTokens)
+            let mergedSession = try await mergePendingToolTranscript(
+                channelId: channelId, session: initialSession, activeModel: activeModel, provider: modelProvider
+            )
+            let session = try await prepareModelContext(channelId: channelId, session: mergedSession, activeModel: activeModel, provider: modelProvider, userMessage: modelUserMessage, maxOutputTokens: nativeLoopConfig.maxOutputTokens)
             let contextPrepareMs = elapsedMilliseconds(since: contextPrepareStartedAt)
 
             if let invoker = toolInvoker {
@@ -71,7 +82,13 @@ extension RuntimeSystem {
                     if let observationHandler {
                         await observationHandler(.toolCall(request))
                     }
-                    let result = await invoker(request)
+                    let result: ToolInvocationResult
+                    if let repeated = await self.duplicateReadResult(channelId: channelId, request: request) {
+                        result = repeated
+                    } else {
+                        result = await invoker(request)
+                        await self.recordLedgerObservation(channelId: channelId, request: request, result: result)
+                    }
                     await self.usageToolOutcomeHandler?(channelId, toolCallID, result.ok)
                     if let observationHandler {
                         await observationHandler(.toolResult(result))
@@ -372,6 +389,42 @@ extension RuntimeSystem {
                 )
                 throw error
             } catch {
+                if error is ProviderModelNotSupportedError {
+                    let tried = rejectedModels.union([activeModel])
+                    let known = [inheritedModel(for: channelId), lastWorkingModel].compactMap { $0 }.first { !tried.contains($0) }
+                    let discovered = known == nil ? await unsupportedModelFallback?(activeModel, tried) : nil
+                    if let alternative = known ?? discovered, !tried.contains(alternative) {
+                        logger.warning(
+                            "Provider rejected the model for this account, switching",
+                            metadata: modelCallMetadata(
+                                channelId: channelId,
+                                model: activeModel,
+                                reasoningEffort: reasoningEffort,
+                                promptChars: modelUserMessage.count,
+                                mode: streamMode,
+                                error: String(describing: error)
+                            ).merging(["fallback_model": .string(alternative)]) { _, new in new }
+                        )
+                        if let observationHandler {
+                            await observationHandler(.thinking("Model \(activeModel) is not available for this account; switching to \(alternative)."))
+                        }
+                        sessionsByChannel.removeValue(forKey: channelId)
+                        await respondInline(
+                            channelId: channelId,
+                            userMessage: userMessage,
+                            model: alternative,
+                            reasoningEffort: reasoningEffort,
+                            onResponseChunk: onResponseChunk,
+                            toolInvoker: toolInvoker,
+                            observationHandler: observationHandler,
+                            nativeLoopConfig: nativeLoopConfig,
+                            nativeLoopOutcomeHandler: nativeLoopOutcomeHandler,
+                            streamRetries: streamRetries,
+                            rejectedModels: tried
+                        )
+                        return
+                    }
+                }
                 let latest = await tracker.latestContent
                 let streamChunks = await tracker.chunks
                 logger.warning(
@@ -389,6 +442,12 @@ extension RuntimeSystem {
                     )
                 )
                 throw error
+            }
+
+            lastWorkingModel = activeModel
+            let toolEntries = await tracker.toolTranscriptEntries
+            if toolInvoker != nil, !toolEntries.isEmpty {
+                pendingToolTranscriptByChannel[channelId] = (ObjectIdentifier(session), toolEntries)
             }
 
             if Task.isCancelled {

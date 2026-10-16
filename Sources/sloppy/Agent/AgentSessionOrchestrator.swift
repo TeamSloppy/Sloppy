@@ -118,6 +118,67 @@ private enum SessionVerificationEvidenceKind: String, Sendable {
     case screenshot
 }
 
+/// Per-turn bookkeeping that keeps the model from giving up early or repeating itself.
+struct SessionTurnGuardState: Sendable, Equatable {
+    /// Same failing call shape (tool + error code) after which the model is told to change approach.
+    static let sameFailureCeiling = 3
+
+    var malformedCallCount = 0
+    /// True once a call with well-formed arguments ran after the latest malformed one.
+    var wellFormedCallSinceMalformed = false
+    var failureCounts: [String: Int] = [:]
+    var readSignatures: Set<String> = []
+
+    /// Read-only calls in a row after which a Build turn is nudged to start implementing.
+    static let explorationBudget = 12
+    private(set) var explorationStreak = 0
+
+    mutating func recordMalformedCall() {
+        malformedCallCount += 1
+        wellFormedCallSinceMalformed = false
+    }
+
+    mutating func recordWellFormedCall() {
+        if malformedCallCount > 0 { wellFormedCallSinceMalformed = true }
+    }
+
+    /// Returns a corrective hint when this failure repeats `sameFailureCeiling` times, and clears the count on success.
+    mutating func recordOutcome(tool: String, result: ToolInvocationResult) -> String? {
+        guard !result.ok, let code = result.error?.code else {
+            failureCounts = failureCounts.filter { !$0.key.hasPrefix("\(tool)|") }
+            return nil
+        }
+        let key = "\(tool)|\(code)"
+        let count = (failureCounts[key] ?? 0) + 1
+        failureCounts[key] = count
+        guard count >= Self.sameFailureCeiling else { return nil }
+        return "`\(tool)` failed with `\(code)` \(count) times this turn. Stop repeating it: change the approach (different tool, different arguments, or investigate the cause first)."
+    }
+
+    /// Counts calls that gather information without producing anything. Returns a nudge once per budget.
+    mutating func recordExploration(isProgress: Bool) -> String? {
+        if isProgress {
+            explorationStreak = 0
+            return nil
+        }
+        explorationStreak += 1
+        guard explorationStreak >= Self.explorationBudget else { return nil }
+        explorationStreak = 0
+        return "Exploration is sufficient: write the plan with planning.progress_update and implement the first step now. Look up anything still missing while you work; do not repeat the reading already done."
+    }
+
+    /// True when an identical read-only request already succeeded this turn.
+    mutating func isRepeatedRead(signature: String) -> Bool {
+        !readSignatures.insert(signature).inserted
+    }
+
+    /// `blocked` is only honoured after transport-level call failures were retried one call at a time.
+    var blockedCompletionRejection: String? {
+        guard malformedCallCount > 0, !wellFormedCallSinceMalformed else { return nil }
+        return "Tool calls were rejected because their arguments arrived empty; that is a transport problem, not a blocker. Retry the failed work one tool call at a time with complete JSON arguments before reporting `blocked`."
+    }
+}
+
 private struct SessionVerificationEvidence: Sendable {
     var id: String
     var kind: SessionVerificationEvidenceKind
@@ -212,6 +273,7 @@ actor AgentSessionOrchestrator {
     private var sessionCompletionSummaryByChannel: [String: String] = [:]
     private var sessionCompletionRecordByChannel: [String: SessionCompletionRecord] = [:]
     private var sessionVerificationEvidenceByChannel: [String: [SessionVerificationEvidence]] = [:]
+    private var turnGuardByChannel: [String: SessionTurnGuardState] = [:]
     private var delegatedSubagentSessionIDs: Set<String> = []
     private var syncedSessionStoreFingerprintsByChannel: [String: SessionStoreFingerprint] = [:]
     private var channelsRequiringBootstrapRefresh: Set<String> = []
@@ -295,6 +357,17 @@ actor AgentSessionOrchestrator {
 
     func updatePersistedModelContext(config: CoreConfig, hasOAuthCredentials: Bool) {
         persistedModelContext = (config, hasOAuthCredentials)
+    }
+
+    /// An explicit per-session model is honoured when it is listed or routable by a configured provider.
+    /// Silently replacing it with the agent default hides the user's choice (and may pick a model the
+    /// account cannot use).
+    nonisolated static func acceptsModelOverride(
+        _ model: String,
+        availableModelIDs: Set<String>,
+        isRoutable: (String) -> Bool
+    ) -> Bool {
+        availableModelIDs.contains(model) || isRoutable(model)
     }
 
     private func persistedModelAllowed() -> (String) -> Bool {
@@ -434,7 +507,8 @@ actor AgentSessionOrchestrator {
         let availableModelIDs = Set(agentConfig.availableModels.map(\.id))
         let overrideRaw = effectiveRequest.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines)
         let selectedModel: String?
-        if let raw = overrideRaw, !raw.isEmpty, availableModelIDs.contains(raw) {
+        if let raw = overrideRaw, !raw.isEmpty,
+           Self.acceptsModelOverride(raw, availableModelIDs: availableModelIDs, isRoutable: persistedModelAllowed()) {
             selectedModel = raw
         } else if overrideRaw?.isEmpty != false,
                   agentConfig.automaticModelRouting,
@@ -462,6 +536,14 @@ actor AgentSessionOrchestrator {
         } else {
             selectedModel = (catalogModel?.isEmpty == false) ? catalogModel : nil
         }
+        if let raw = overrideRaw, !raw.isEmpty, selectedModel != raw {
+            logger.warning("Requested session model is unavailable; using the agent default", metadata: [
+                "agent_id": .string(agentID),
+                "session_id": .string(sessionID),
+                "requested_model": .string(raw),
+                "used_model": .string(optionalString(selectedModel)),
+            ])
+        }
         let routingDurationMs = Self.elapsedMs(since: routingStartedAt)
         let configuredPlannerModel = agentConfig.plannerModel?.trimmingCharacters(in: .whitespacesAndNewlines)
         let hasExplicitPlannerModel = configuredPlannerModel?.isEmpty == false
@@ -478,7 +560,9 @@ actor AgentSessionOrchestrator {
 
         let verificationChannelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
         sessionVerificationEvidenceByChannel[verificationChannelID] = []
+        turnGuardByChannel[verificationChannelID] = SessionTurnGuardState()
         defer {
+            turnGuardByChannel.removeValue(forKey: verificationChannelID)
             sessionVerificationEvidenceByChannel.removeValue(forKey: verificationChannelID)
         }
 
@@ -1570,6 +1654,9 @@ actor AgentSessionOrchestrator {
             isDelegatedSubagent: delegatedSubagentSessionIDs.contains(sessionID)
         )
         let archiveStore = ToolOutputArtifactStore(workspaceRootURL: persistedModelContext.config.resolvedWorkspaceRootURL(), agentID: agentID, sessionID: sessionID)
+        await runtime.setMalformedToolCallObserver(channelId: channelID) { [weak self] _ in
+            await self?.recordMalformedToolCall(channelID: channelID)
+        }
         await runtime.setChannelContextArchiver(channelId: channelID) { _, text in
             try? archiveStore.save(Data(text.utf8))
         }
@@ -1730,6 +1817,7 @@ actor AgentSessionOrchestrator {
                     request: toolRequest,
                     result: result
                 )
+                result = await self.applyTurnGuards(channelID: channelID, request: toolRequest, result: result, mode: effectiveToolMode)
                 if result.ok,
                    result.tool == "planning.request_input",
                    result.data?.asObject?["paused"]?.asBool == true,
@@ -2207,6 +2295,51 @@ actor AgentSessionOrchestrator {
         }
     }
 
+    private func recordMalformedToolCall(channelID: String) {
+        turnGuardByChannel[channelID]?.recordMalformedCall()
+    }
+
+    private func applyTurnGuards(
+        channelID: String,
+        request: ToolInvocationRequest,
+        result: ToolInvocationResult,
+        mode: AgentChatMode
+    ) -> ToolInvocationResult {
+        guard var state = turnGuardByChannel[channelID] else { return result }
+        defer { turnGuardByChannel[channelID] = state }
+        var guarded = result
+
+        state.recordWellFormedCall()
+        if let hint = state.recordOutcome(tool: result.tool, result: result), var error = guarded.error {
+            error.hint = [error.hint, hint].compactMap { $0 }.joined(separator: " ")
+            guarded.error = error
+        }
+        if mode == .build {
+            let remoteReadOnly = result.data?.asObject?["readOnly"]?.asBool
+            let isRead = SessionWorkLedger.nativeReadOnlyTools.contains(request.tool) || remoteReadOnly == true
+            let isUnknownRemote = request.tool == "mcp.call_tool" && remoteReadOnly == nil && result.ok
+            let isProgress = !(isRead || isUnknownRemote) && result.ok
+            if let nudge = state.recordExploration(isProgress: isProgress) {
+                if var data = guarded.data?.asObject {
+                    data["harnessNote"] = .string(nudge)
+                    guarded.data = .object(data)
+                } else if var error = guarded.error {
+                    error.hint = [error.hint, nudge].compactMap { $0 }.joined(separator: " ")
+                    guarded.error = error
+                }
+            }
+        }
+        // Re-reading an identical file range costs context and adds nothing.
+        if result.ok, result.tool == "files.read", var data = guarded.data?.asObject {
+            let signature = (stableJSONString(.object(request.arguments)) ?? "")
+            if state.isRepeatedRead(signature: signature) {
+                data["note"] = .string("You already read this exact range earlier in this turn; use what is in context instead of reading it again.")
+                guarded.data = .object(data)
+            }
+        }
+        return guarded
+    }
+
     private func markSessionRunToolDriven(channelID: String) {
         toolDrivenSessionRunChannels.insert(channelID)
     }
@@ -2252,6 +2385,19 @@ actor AgentSessionOrchestrator {
         case "browser.screenshot", "computer.screenshot":
             kind = .screenshot
             command = nil
+            arguments = []
+            exitCode = nil
+        case "mcp.call_tool":
+            // MCP servers (including ACP client servers such as an editor) declare which of their
+            // tools verify work; see `MCPClientRegistry.verificationKind`.
+            guard data["isError"]?.asBool != true,
+                  let declared = data["verificationKind"]?.asString,
+                  let declaredKind = SessionVerificationEvidenceKind(rawValue: declared)
+            else {
+                return result
+            }
+            kind = declaredKind
+            command = [data["server"]?.asString, data["tool"]?.asString].compactMap { $0 }.joined(separator: ":")
             arguments = []
             exitCode = nil
         default:
@@ -2414,7 +2560,19 @@ actor AgentSessionOrchestrator {
                 ok: false,
                 error: ToolErrorPayload(
                     code: "completion_verification_required",
-                    message: "Completed Build and Debug turns require current-turn evidence from a successful build, test, or run command. Debug also accepts screenshot evidence.",
+                    message: "Completed Build and Debug turns require current-turn evidence from a successful build, test, or run: runtime.exec/runtime.process, or an MCP tool the server marks as verification (its result carries `verificationEvidence.id`). Debug also accepts screenshot evidence.",
+                    retryable: true
+                )
+            )
+        }
+
+        if disposition == .blocked, let rejection = turnGuardByChannel[channelID]?.blockedCompletionRejection {
+            return ToolInvocationResult(
+                tool: SessionCompleteTool.toolName,
+                ok: false,
+                error: ToolErrorPayload(
+                    code: "completion_blocked_prematurely",
+                    message: rejection,
                     retryable: true
                 )
             )

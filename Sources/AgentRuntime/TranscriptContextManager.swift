@@ -55,6 +55,7 @@ public enum TranscriptContextManager {
         protectRecentEntries: Int = 8,
         forceSummary: Bool = false,
         archive: Archive? = nil,
+        ledger: String? = nil,
         summarize: Summarize
     ) async throws -> (Transcript, TranscriptContextReport) {
         var entries = Array(original)
@@ -113,7 +114,8 @@ public enum TranscriptContextManager {
         let retainedPrompts = entries.prefix(tailStart).enumerated().filter { protectedPrompts.contains($0.offset) }.map(\.element)
         let tail = Array(entries.suffix(from: tailStart))
         let protectedTokens = estimate(Transcript(entries: instructions + retainedPrompts + tail))
-        let remaining = inputBudget - protectedTokens - 64
+        let ledgerTokens = ledger.map { TokenPressureEstimator().estimateTextTokens($0) } ?? 0
+        let remaining = inputBudget - protectedTokens - ledgerTokens - 64
         guard remaining > 0 else { throw TranscriptContextError.protectedContextExceedsBudget }
         guard !head.isEmpty else {
             if estimate(transcript) <= inputBudget { return (transcript, .init(beforeTokens: before, afterTokens: estimate(transcript), prunedToolOutputs: pruned, summarized: false)) }
@@ -125,7 +127,7 @@ public enum TranscriptContextManager {
         guard TokenPressureEstimator().estimateTextTokens(history) + 512 <= inputBudget else { throw TranscriptContextError.protectedContextExceedsBudget }
         let summary = try await summarize(history, min(remaining, max(128, inputBudget / 4)))
         guard !summary.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw TranscriptContextError.summaryFailed }
-        transcript = Transcript(entries: instructions + [.response(.init(assetIDs: [], segments: [.text(.init(content: "[Compacted conversation context]\n" + summary))]))] + retainedPrompts + tail)
+        transcript = Transcript(entries: instructions + [.response(.init(assetIDs: [], segments: [.text(.init(content: "[Compacted conversation context]\n" + summary + (ledger.map { "\n\n" + $0 } ?? "")))]))] + retainedPrompts + tail)
         guard estimate(transcript) <= inputBudget else { throw TranscriptContextError.protectedContextExceedsBudget }
         return (transcript, .init(beforeTokens: before, afterTokens: estimate(transcript), prunedToolOutputs: pruned, summarized: true))
     }

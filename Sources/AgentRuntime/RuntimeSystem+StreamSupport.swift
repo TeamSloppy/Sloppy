@@ -19,6 +19,7 @@ actor StreamActivityTracker {
     private(set) var hitToolRoundLimit: Bool = false
     private(set) var toolLoopStopMessage: String?
     var toolErrors: [ToolInvocationResult] = []
+    private(set) var toolTranscriptEntries: [Transcript.Entry] = []
     private var firstChunkAt: Date?
     private var previousChunkAt: Date?
     private var totalDeltaIntervalMs = 0
@@ -31,6 +32,11 @@ actor StreamActivityTracker {
     private var toolBatchCount = 0
     private var maxParallelToolCalls = 0
     private var failedToolCalls = 0
+
+    func recordExecuted(_ call: Transcript.ToolCall, _ output: Transcript.ToolOutput) {
+        toolTranscriptEntries.append(.toolCalls(Transcript.ToolCalls([call])))
+        toolTranscriptEntries.append(.toolOutput(output))
+    }
 
     func touch() {
         lastActivityAt = Date()

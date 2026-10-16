@@ -50,7 +50,7 @@ struct SloppyToolExecutionDelegateTests {
         #expect(invoked.tool == "web.search")
     }
 
-    @Test("Non-structure GeneratedContent produces empty arguments")
+    @Test("Non-structure GeneratedContent is rejected without running the tool")
     func nonStructureConversion() async throws {
         let capture = RequestCapture()
         let diagnostics = ArgumentDiagnosticCapture()
@@ -71,15 +71,7 @@ struct SloppyToolExecutionDelegateTests {
         )
         let decision = await delegate.toolCallDecision(for: toolCall, in: makeFakeSession())
 
-        let invoked = try #require(await capture.value)
-        #expect(invoked.arguments.isEmpty)
-        let requestDiagnostics = try #require(invoked.argumentDiagnostics)
-        #expect(requestDiagnostics.toolCallId == "call-2")
-        #expect(requestDiagnostics.originalToolName == "nonexistent.tool")
-        #expect(requestDiagnostics.rawArgumentKind == "string")
-        #expect(requestDiagnostics.rawArguments == .string("some string"))
-        #expect(requestDiagnostics.decodedArgumentCount == 0)
-        #expect(requestDiagnostics.usedEmptyArgumentsFallback)
+        #expect(await capture.value == nil)
         let diagnostic = try #require(await diagnostics.value)
         #expect(diagnostic.toolCallId == "call-2")
         #expect(diagnostic.toolName == "nonexistent.tool")
@@ -89,10 +81,31 @@ struct SloppyToolExecutionDelegateTests {
         if case .provideOutput(let segments) = decision,
            let first = segments.first,
            case .text(let textSegment) = first {
-            #expect(textSegment.content.contains("\"ok\""))
+            #expect(textSegment.content.contains(SloppyToolExecutionDelegate.malformedArgumentsErrorCode))
+            #expect(textSegment.content.contains("\"ok\":false"))
         } else {
             Issue.record("Expected provideOutput with text segment")
         }
+    }
+
+    @Test("Repeated malformed calls escalate the guidance and reset after a valid call")
+    func malformedStreakEscalates() async throws {
+        let delegate = SloppyToolExecutionDelegate(toolCallHandler: { request in
+            ToolInvocationResult(tool: request.tool, ok: true)
+        })
+        func text(_ decision: ToolExecutionDecision) -> String {
+            if case .provideOutput(let segments) = decision, case .text(let t)? = segments.first { return t.content }
+            return ""
+        }
+        let bad = Transcript.ToolCall(id: "a", toolName: "files.read", arguments: GeneratedContent(""))
+        let first = text(await delegate.toolCallDecision(for: bad, in: makeFakeSession()))
+        #expect(!first.contains("times in a row"))
+        let second = text(await delegate.toolCallDecision(for: bad, in: makeFakeSession()))
+        #expect(second.contains("2 times in a row"))
+        let good = Transcript.ToolCall(id: "b", toolName: "files.read", arguments: GeneratedContent(properties: ["path": "x"]))
+        _ = await delegate.toolCallDecision(for: good, in: makeFakeSession())
+        let third = text(await delegate.toolCallDecision(for: bad, in: makeFakeSession()))
+        #expect(!third.contains("times in a row"))
     }
 
     @Test("Nested structure converts recursively")

@@ -24,7 +24,7 @@ extension CoreService {
         }
         let previous = acpSessionMCPRegistries.removeValue(forKey: sessionID)
         if !supplied.isEmpty {
-            acpSessionMCPRegistries[sessionID] = MCPClientRegistry(config: .init(servers: currentConfig.mcp.servers + supplied))
+            acpSessionMCPRegistries[sessionID] = MCPClientRegistry(config: .init(servers: currentConfig.mcp.servers + supplied, verificationTools: currentConfig.mcp.verificationTools, readOnlyTools: currentConfig.mcp.readOnlyTools))
         }
         await previous?.updateConfig(.init())
     }
@@ -41,6 +41,7 @@ extension CoreService {
         Use mcp.list_tools(server: serverID) to read exact tool names and schemas, then
         mcp.call_tool(server: serverID, tool: toolName, arguments: JSON-encoded argument object).
         Discover the supplied tools before concluding that editor, scene, build or play capabilities are unavailable.
+        Issue these calls one at a time with the complete JSON arguments object.
         """
     }
 

@@ -20,6 +20,12 @@ public enum ModelToolSchemaNormalizer {
         return resolved
     }
 
+    /// True when the tool can be called with no arguments at all (no required properties).
+    public static func acceptsEmptyArguments(_ schema: GenerationSchema) -> Bool {
+        let required = providerSafeObjectSchema(schema)["required"] as? [Any]
+        return required?.isEmpty ?? true
+    }
+
     private static func resolveRefs(in value: Any, root: [String: Any]? = nil) -> Any {
         if let array = value as? [Any] {
             return array.map { resolveRefs(in: $0, root: root) }

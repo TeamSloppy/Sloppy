@@ -443,6 +443,10 @@ actor MCPClientRegistry {
     private var dynamicToolsByID: [String: MCPDynamicTool] = [:]
     private var dynamicDiscoveryLoaded = false
     private var dynamicDiscoveryLastFailureAt: Date?
+    private var toolTraitsByServer: [String: [String: ToolTraits]] = [:]
+
+    static let verificationMetaKey = "sloppy/verification"
+    static let verificationKinds: Set<String> = ["build", "test", "lint", "run", "screenshot"]
 
     init(config: CoreConfig.MCP, logger: Logging.Logger = Logging.Logger.sloppy(label: "sloppy.mcp")) {
         self.config = config
@@ -458,6 +462,7 @@ actor MCPClientRegistry {
             }
         }
         self.config = config
+        self.toolTraitsByServer = [:]
         self.dynamicToolsByID = [:]
         self.dynamicDiscoveryLoaded = false
         self.dynamicDiscoveryLastFailureAt = nil
@@ -536,6 +541,47 @@ actor MCPClientRegistry {
         }
 
         return statuses
+    }
+
+    struct ToolTraits: Sendable, Equatable {
+        var verificationKind: String?
+        /// `nil` when the server does not say.
+        var readOnly: Bool?
+    }
+
+    /// Verification kind declared for an MCP tool, from config or the tool's `_meta`; `nil` when none.
+    func verificationKind(serverID: String, tool: String) async -> String? {
+        await toolTraits(serverID: serverID, tool: tool).verificationKind
+    }
+
+    /// Traits of an MCP tool: configured (`verificationTools`, `readOnlyTools`) or declared by the server
+    /// (`_meta["sloppy/verification"]`, `annotations.readOnlyHint`).
+    func toolTraits(serverID: String, tool: String) async -> ToolTraits {
+        let configuredKind = config.verificationTools["\(serverID):\(tool)"] ?? config.verificationTools[tool]
+        let configuredReadOnly = config.readOnlyTools.contains("\(serverID):\(tool)") || config.readOnlyTools.contains(tool)
+        if let configuredKind, Self.verificationKinds.contains(configuredKind) {
+            return ToolTraits(verificationKind: configuredKind, readOnly: configuredReadOnly ? true : nil)
+        }
+        if configuredReadOnly { return ToolTraits(verificationKind: nil, readOnly: true) }
+
+        if toolTraitsByServer[serverID] == nil {
+            var traits: [String: ToolTraits] = [:]
+            var cursor: String?
+            for _ in 0..<5 {
+                guard let page = try? await listTools(serverID: serverID, cursor: cursor) else { break }
+                for listed in page.tools {
+                    let kind = listed._meta?[Self.verificationMetaKey]?.stringValue
+                    traits[listed.name] = ToolTraits(
+                        verificationKind: kind.flatMap { Self.verificationKinds.contains($0) ? $0 : nil },
+                        readOnly: listed.annotations.readOnlyHint
+                    )
+                }
+                guard let next = page.nextCursor else { break }
+                cursor = next
+            }
+            toolTraitsByServer[serverID] = traits
+        }
+        return toolTraitsByServer[serverID]?[tool] ?? ToolTraits(verificationKind: nil, readOnly: nil)
     }
 
     func listTools(serverID: String, cursor: String? = nil) async throws -> (tools: [MCP.Tool], nextCursor: String?) {

@@ -15,7 +15,7 @@ public extension RuntimeSystem {
     ) async -> String? {
         let normalizedModel = model?.trimmingCharacters(in: .whitespacesAndNewlines)
         let activeModel = (normalizedModel?.isEmpty == false ? normalizedModel : nil)
-            ?? channelId.flatMap { sessionsByChannel[$0]?.model } ?? defaultModel
+            ?? channelId.flatMap { sessionsByChannel[$0]?.model ?? inheritedModel(for: $0) } ?? defaultModel
         guard let modelProvider, let activeModel else {
             return nil
         }

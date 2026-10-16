@@ -391,11 +391,29 @@ extension CoreService {
         return String(id[id.index(after: idx)...])
     }
 
+    /// Replacement for a model the provider rejected for this account: another model the account
+    /// reported as loaded (`openai_oauth.models.loaded`), never one already tried.
+    func alternativeModel(forRejected rejected: String, excluding tried: Set<String>) async -> String? {
+        guard rejected.hasPrefix("openai-oauth:") else { return nil }
+        if oauthModelCache.isEmpty { await refreshOAuthModelCacheIfNeeded() }
+        return Self.alternativeOAuthModel(cached: Array(oauthModelCache.values), excluding: tried)
+    }
+
+    nonisolated static func alternativeOAuthModel(cached: [ProviderModelOption], excluding tried: Set<String>) -> String? {
+        cached
+            .map { $0.id.hasPrefix("openai-oauth:") ? $0.id : "openai-oauth:\($0.id)" }
+            .sorted()
+            .first { !tried.contains($0) }
+    }
+
     func cacheOAuthModels(_ models: [ProviderModelOption]) async {
         for model in models {
             oauthModelCache[model.id] = model
         }
         await applyOAuthCatalogContextLimits()
+        // The orchestrator validates per-session model overrides against this list; keep it in step
+        // with the models the account actually exposes.
+        await sessionOrchestrator.updateAvailableModels(availableAgentModels())
     }
 
     func applyOAuthCatalogContextLimits() async {

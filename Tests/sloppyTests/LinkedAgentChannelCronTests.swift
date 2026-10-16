@@ -34,7 +34,7 @@ private struct DelegateAwareToolCallingLanguageModel: LanguageModel {
         let toolCall = Transcript.ToolCall(
             id: UUID().uuidString,
             toolName: toolName,
-            arguments: GeneratedContent("")
+            arguments: GeneratedContent(properties: [:])
         )
         await delegate.didGenerateToolCalls([toolCall], in: session)
         let decision = await delegate.toolCallDecision(for: toolCall, in: session)
