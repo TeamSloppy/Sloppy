@@ -47,6 +47,8 @@ struct SloppyCLIClient {
     let token: String
     let verbose: Bool
     let localAuthSession: SloppyCLILocalAuthSession?
+    /// Per-request timeout for non-streaming calls; long-running calls (e.g. a full agent turn) raise it.
+    var requestTimeout: TimeInterval = 30
 
     private var session: URLSession { .shared }
 
@@ -227,7 +229,7 @@ struct SloppyCLIClient {
             throw CLIClientError.invalidURL
         }
 
-        var req = URLRequest(url: url, timeoutInterval: 30)
+        var req = URLRequest(url: url, timeoutInterval: requestTimeout)
         req.httpMethod = method
         if !token.isEmpty {
             req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")

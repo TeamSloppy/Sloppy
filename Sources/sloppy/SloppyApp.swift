@@ -43,6 +43,7 @@ struct SloppyApp: AsyncParsableCommand {
             WorkersCommand.self,
             BulletinsCommand.self,
             TokenUsageCommand.self,
+            BenchCommand.self,
         ]
     )
 
