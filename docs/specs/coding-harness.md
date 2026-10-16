@@ -135,6 +135,71 @@ Standalone ACP warms the authenticated OAuth model catalog before executing a se
 - Reconciliation is scoped to the original agent/session/call and rejects active
   or already reconciled calls. Recovery remains idempotent across repeated loads.
 
+## Weaker-model support
+
+Measured with `sloppy bench` (see `bench/README.md`) on the `smoke` suite in Auto mode. Every rule below
+decides from typed fields (token estimates, tool identifiers, schemas, recorded tool rounds), never from
+assistant prose.
+
+- **Tool schema budget.** Native tool schemas are sent with every request. `ToolSchemaBudget` keeps them
+  within 30% of the active model's input window: essential coding tools are always kept, preferred tools
+  next, the rest only while budget remains. Models with large windows are unaffected, and an explicit
+  channel allow-list is never trimmed. Before this, models without a declared window fell back to 32K and
+  failed every turn with `contextWindowRecoveryFailed` because instructions plus schemas alone filled it.
+- **Argument normalization.** `ToolArgumentNormalizer` repairs structurally wrong arguments from the tool's
+  own JSON schema: numeric strings for numbers, boolean strings, a boolean or null in an optional numeric or
+  array slot, a scalar where an array is expected, enum case, and `snake_case`/`camelCase` key variants.
+  Values are never coerced into strings (identifiers stay strictly validated). Applied repairs are returned
+  in the result as `argumentRepairs` so the model learns the correct shape.
+- **Verification evidence.** `node`, `deno`, `bun`, `npx`, common test runners, and `bash -c` style scripts
+  (classified by their last command; pipes and `||` never qualify) now count as run/test evidence when they
+  exit 0. Previously a correct `node test.js` run was rejected by `session.complete`, costing a full extra
+  round on strong models.
+- **Completion recovery.** A Build/Debug turn that ends without `session.complete` gets up to three recovery
+  turns instead of one. The prompt carries runtime facts (tool rounds, evidence count, attempt number) and,
+  when the previous attempt made no tool calls, says so. The prompt also fixed a literal `(mode.rawValue)`.
+
+Results (5 tasks, 1 attempt, same Core, before -> after):
+
+| model | before | after |
+|---|---|---|
+| gpt-6.1-sol | 5/5, ~402K tokens/task | 5/5, ~310-335K tokens/task (two runs) |
+| gpt-oss-20B | 0/5 (`contextWindowRecoveryFailed`) | 5/5 |
+| gemma4:31b-cloud | 0/5 (`contextWindowRecoveryFailed`) | 0/5 (starts; narrates intent and stops) |
+
+### Trimming model-visible context
+
+Fixed context sent on every model request (instructions, bootstrap, tool schemas) dominates cost: a one-line
+fix took ~10 requests of ~30K tokens each. Per-route tool selection is not possible inside one turn: the tool
+list is converted once per response, before the tool rounds, so the available set cannot change mid-stream.
+These levers are therefore explicit and policy-driven:
+
+- **Policy-aware schemas.** Tools the agent's saved policy forbids are not sent to the model
+  (`RuntimeSystem.setChannelExcludedTools`, fed per turn from the tool policy). They would be rejected at
+  execution anyway. An explicit channel allow-list still wins, and a changed set rebuilds the cached session.
+- **`sloppy agent tools preset <agent> coding|full`.** `coding` writes explicit denials for rarely needed groups
+  (browser, safari, computer, sites, workspace, artifacts, images, long chat, actors, heartbeat, cron, code review,
+  visor, channel, agent documents, project/MCP administration). It leaves coding tools, `project.current`/task
+  tools, `mcp.call_tool`, web, memory, skills and sessions. `full` removes only the denials the preset manages.
+- **Lean bootstrap.** `agentRuntimeContext.bootstrapMode: "lean"` was already available; it is the next largest
+  saving (bootstrap ~9.6K -> ~6.3K tokens for a fresh agent).
+
+Measured with `sloppy bench` (gpt-6.1-sol, 5/5 in every configuration; single attempt, so totals are noisy:
+rounds per task vary between 6 and 13):
+
+| configuration | tool schemas / request | bootstrap | mean tokens per task |
+|---|---|---|---|
+| default | ~20.0K | ~9.6K | ~270-335K |
+| `coding` preset | ~11.1K | ~9.6K | ~250-280K |
+| `coding` preset + lean bootstrap | ~11.1K | ~6.3K | ~204K |
+
+`gpt-oss-20B` with the last configuration: 5/5 at ~211K tokens per task (was ~303K). `gemma4:31b-cloud` still
+0/5. The bench now reports prompt tokens per step, which does not depend on how many rounds a run took.
+
+Observed but not explained: provider prompt-cache hits are low (`cachedInput` is 0-7% of prompt tokens) even
+though `prompt_cache_key` is sent and the prefix is stable within a session. Fixing that would cut cost more than
+any trimming, but needs provider-side investigation.
+
 ## Acceptance checks
 
 - Ambiguous edits and stale hashes leave bytes unchanged.

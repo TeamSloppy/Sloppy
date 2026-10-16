@@ -12,6 +12,7 @@ struct BenchSummary: Codable, Sendable, Equatable {
     var meanToolCalls: Double
     var meanToolErrors: Double
     var meanTotalTokens: Double
+    var meanPromptTokensPerStep: Double
     var mutationConflicts: Int
 }
 
@@ -37,6 +38,7 @@ struct BenchReport: Codable, Sendable, Equatable {
                 meanToolCalls: mean { Double($0.metrics.toolCalls) },
                 meanToolErrors: mean { Double($0.metrics.toolErrors) },
                 meanTotalTokens: mean { Double($0.metrics.totalTokens) },
+                meanPromptTokensPerStep: mean { Double($0.metrics.promptTokensPerStep) },
                 mutationConflicts: runs.reduce(0) { $0 + $1.metrics.mutationConflicts }
             )
         }.sorted { $0.model < $1.model }
@@ -58,13 +60,13 @@ struct BenchReport: Codable, Sendable, Equatable {
     /// Plain-text table: one row per task attempt, then one summary row per model.
     func renderTable() -> String {
         var lines: [String] = []
-        let header = ["task", "model", "#", "status", "sec", "tools", "errs", "tokens"]
+        let header = ["task", "model", "#", "status", "sec", "tools", "errs", "tokens", "prompt/step"]
         var rows: [[String]] = [header]
         for result in results {
             rows.append([
                 result.taskId, result.model, String(result.attempt), result.status.rawValue,
                 String(format: "%.1f", result.agentSeconds), String(result.metrics.toolCalls),
-                String(result.metrics.toolErrors), String(result.metrics.totalTokens),
+                String(result.metrics.toolErrors), String(result.metrics.totalTokens), String(result.metrics.promptTokensPerStep),
             ])
         }
         let widths = header.indices.map { column in rows.map { $0[column].count }.max() ?? 0 }
@@ -78,8 +80,9 @@ struct BenchReport: Codable, Sendable, Equatable {
                 "\(summary.model): \(summary.passed)/\(summary.runs) passed "
                     + "(\(Int((summary.passRate * 100).rounded()))%), "
                     + "\(summary.failed) failed, \(summary.timeouts) timeout, \(summary.errors) error; "
-                    + String(format: "avg %.1fs, %.1f tool calls, %.1f tool errors, %.0f tokens",
-                             summary.meanAgentSeconds, summary.meanToolCalls, summary.meanToolErrors, summary.meanTotalTokens)
+                    + String(format: "avg %.1fs, %.1f tool calls, %.1f tool errors, %.0f tokens (%.0f prompt/step)",
+                             summary.meanAgentSeconds, summary.meanToolCalls, summary.meanToolErrors, summary.meanTotalTokens,
+                             summary.meanPromptTokensPerStep)
                     + "; edit conflicts: \(summary.mutationConflicts)"
             )
         }

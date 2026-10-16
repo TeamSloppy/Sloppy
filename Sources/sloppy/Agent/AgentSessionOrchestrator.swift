@@ -110,7 +110,7 @@ private enum SessionCompletionDisposition: String, Sendable {
     case waitingInput = "waiting_input"
 }
 
-private enum SessionVerificationEvidenceKind: String, Sendable {
+enum SessionVerificationEvidenceKind: String, Sendable {
     case build
     case test
     case lint
@@ -334,6 +334,13 @@ actor AgentSessionOrchestrator {
 
     func setPendingMessageIDsProvider(_ provider: @escaping @Sendable (String, String) async -> Set<String>) {
         pendingMessageIDsProvider = provider
+    }
+
+    private var toolExclusionProvider: (@Sendable (String) async -> Set<String>)?
+
+    /// Supplies the tool IDs the agent's policy forbids, so their schemas are not sent to the model.
+    func setToolExclusionProvider(_ provider: (@Sendable (String) async -> Set<String>)?) {
+        toolExclusionProvider = provider
     }
 
     func setProjectBootstrapProvider(_ provider: (@Sendable (String, String?, String) async -> String?)?) {
@@ -785,24 +792,38 @@ actor AgentSessionOrchestrator {
                 }
             }
             let completionMode = runtimeOutcome.selectedAutoRouteMode ?? requestMode
-            if !isCoordinator, !delegatedSubagentSessionIDs.contains(sessionID),
-               Self.shouldAttemptCompletionRecovery(runtimeOutcome, mode: completionMode)
-            {
-                let initialOutcome = runtimeOutcome
-                let recoveryOutcome = await postNativeMessage(
-                    agentID: agentID,
-                    sessionID: sessionID,
-                    userID: effectiveRequest.userId,
-                    content: Self.completionRecoveryPrompt(mode: completionMode),
-                    selectedModel: selectedModel,
-                    reasoningEffort: reasoningEffort,
-                    mode: completionMode
-                )
-                runtimeOutcome = Self.mergingCompletionRecovery(
-                    initial: initialOutcome,
-                    recovery: recoveryOutcome,
-                    selectedMode: completionMode
-                )
+            if !isCoordinator, !delegatedSubagentSessionIDs.contains(sessionID) {
+                // Weaker models often end a turn by narrating intent. Retry a bounded number of times, and say
+                // plainly (from recorded tool rounds, not from their prose) when the last attempt did no work.
+                var attempt = 0
+                var lastAttemptToolRounds: Int?
+                while attempt < Self.maxCompletionRecoveryAttempts,
+                      Self.shouldAttemptCompletionRecovery(runtimeOutcome, mode: completionMode)
+                {
+                    attempt += 1
+                    let initialOutcome = runtimeOutcome
+                    let recoveryOutcome = await postNativeMessage(
+                        agentID: agentID,
+                        sessionID: sessionID,
+                        userID: effectiveRequest.userId,
+                        content: Self.completionRecoveryPrompt(
+                            mode: completionMode,
+                            toolRoundsUsed: initialOutcome.toolRoundsUsed,
+                            verificationEvidenceCount: sessionVerificationEvidenceByChannel[verificationChannelID]?.count ?? 0,
+                            attempt: attempt,
+                            lastAttemptToolRounds: lastAttemptToolRounds
+                        ),
+                        selectedModel: selectedModel,
+                        reasoningEffort: reasoningEffort,
+                        mode: completionMode
+                    )
+                    lastAttemptToolRounds = recoveryOutcome.toolRoundsUsed
+                    runtimeOutcome = Self.mergingCompletionRecovery(
+                        initial: initialOutcome,
+                        recovery: recoveryOutcome,
+                        selectedMode: completionMode
+                    )
+                }
             }
         case .acp:
             guard let acpSessionManager else {
@@ -1629,6 +1650,12 @@ actor AgentSessionOrchestrator {
         memoryQuery: String? = nil
     ) async -> SessionRuntimeOutcome {
         let channelID = sessionChannelID(agentID: agentID, sessionID: sessionID)
+        if let toolExclusionProvider {
+            let excluded = await toolExclusionProvider(agentID)
+            if await runtime.setChannelExcludedTools(channelId: channelID, toolIDs: excluded) {
+                await runtime.invalidateChannelSession(channelId: channelID)
+            }
+        }
         await runtime.setChannelImages(channelId: channelID, images: images)
         await runtime.setChannelMemoryQuery(channelId: channelID, query: memoryQuery)
         let runID = UUID()
@@ -2424,7 +2451,7 @@ actor AgentSessionOrchestrator {
         return recordedResult
     }
 
-    private static func verificationKind(
+    static func verificationKind(
         command: String?,
         arguments: [String]
     ) -> SessionVerificationEvidenceKind? {
@@ -2481,6 +2508,23 @@ actor AgentSessionOrchestrator {
             case "lint", "typecheck": return .lint
             default: return nil
             }
+        case "bash", "sh", "zsh":
+            // The exit status of a shell script is that of its last command, so classify that command.
+            guard let tail = shellScriptTailCommand(arguments) else { return nil }
+            return verificationKind(command: tail.first, arguments: Array(tail.dropFirst()))
+        case "node", "deno", "bun":
+            if executable != "node", first == "test" { return .test }
+            if executable == "node", normalizedArguments.contains("--test") { return .test }
+            if executable == "bun", first == "run" { return nil }
+            // Running a script file (`node test.js`) exercises the project.
+            return normalizedArguments.contains { !$0.hasPrefix("-") } ? .run : nil
+        case "vitest", "jest", "mocha", "rspec", "phpunit", "tox", "nose2":
+            return .test
+        case "rake", "bundle", "mvn", "mvnw", "mix":
+            return normalizedArguments.contains("test") || normalizedArguments.contains("spec") ? .test : nil
+        case "npx", "pnpx", "bunx":
+            guard let tool = normalizedArguments.first(where: { !$0.hasPrefix("-") }) else { return nil }
+            return verificationKind(command: tool, arguments: Array(normalizedArguments.drop(while: { $0 != tool }).dropFirst()))
         case "cmake":
             return normalizedArguments.contains("--build") ? .build : nil
         case "tsc", "eslint", "swiftlint", "swift-format":
@@ -2488,6 +2532,25 @@ actor AgentSessionOrchestrator {
         default:
             return nil
         }
+    }
+
+    /// Last simple command of a `bash -c` style script, or nil when the script uses pipes, `||`, or substitutions
+    /// whose exit status we cannot attribute to one command.
+    static func shellScriptTailCommand(_ arguments: [String]) -> [String]? {
+        guard let flagIndex = arguments.firstIndex(where: { $0.hasPrefix("-") && $0.contains("c") && !$0.hasPrefix("--") }),
+              arguments.indices.contains(flagIndex + 1)
+        else { return nil }
+        let script = arguments[flagIndex + 1]
+        guard !script.contains("||"), !script.contains("|"), !script.contains("`"), !script.contains("$(") else { return nil }
+        let segments = script
+            .replacingOccurrences(of: "&&", with: "\n")
+            .replacingOccurrences(of: ";", with: "\n")
+            .split(whereSeparator: \.isNewline)
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+        guard let last = segments.last else { return nil }
+        let words = last.split(separator: " ").map(String.init)
+        return words.isEmpty ? nil : words
     }
 
     private func completeActiveSessionRun(
@@ -2633,6 +2696,8 @@ actor AgentSessionOrchestrator {
         mode == .build || mode == .debug
     }
 
+    static let maxCompletionRecoveryAttempts = 3
+
     private static func shouldAttemptCompletionRecovery(
         _ outcome: SessionRuntimeOutcome,
         mode: AgentChatMode
@@ -2647,10 +2712,35 @@ actor AgentSessionOrchestrator {
             ExecutionOutcomeClassifier.classify(reason: outcome.turnExitReason).state == .completed
     }
 
-    private static func completionRecoveryPrompt(mode: AgentChatMode) -> String {
+    /// Typed runtime facts the model cannot reliably track itself: how much tool work and verification the turn recorded.
+    static func completionRecoveryFacts(
+        toolRoundsUsed: Int,
+        verificationEvidenceCount: Int,
+        attempt: Int = 1,
+        lastAttemptToolRounds: Int? = nil
+    ) -> String {
+        var lines = ["Runtime facts for this turn: tool rounds used: \(toolRoundsUsed); verification evidence recorded: \(verificationEvidenceCount); recovery attempt \(attempt) of \(maxCompletionRecoveryAttempts)."]
+        if lastAttemptToolRounds == 0 {
+            lines.append("The previous recovery attempt made no tool calls, so no work was done. Do not describe what you will do: make a tool call now.")
+        }
+        if verificationEvidenceCount == 0 {
+            lines.append("No successful build, test, or run is recorded, so a completed `session.complete` will be rejected and the reply above is not accepted as done. Inspect the relevant files with the file tools, make the change with the edit tools, then run the project's check with `runtime.exec` and pass its evidence ID to `session.complete`.")
+        }
+        return lines.joined(separator: "\n")
+    }
+
+    static func completionRecoveryPrompt(
+        mode: AgentChatMode,
+        toolRoundsUsed: Int = 0,
+        verificationEvidenceCount: Int = 0,
+        attempt: Int = 1,
+        lastAttemptToolRounds: Int? = nil
+    ) -> String {
         """
         [Sloppy completion recovery]
-        The previous (mode.rawValue) response ended without a valid `session.complete` outcome. Continue the concrete work instead of restating intentions. Before ending this recovery turn, call `session.complete` with:
+        The previous \(mode.rawValue) response ended without a valid `session.complete` outcome. Continue the concrete work instead of restating intentions.
+        \(completionRecoveryFacts(toolRoundsUsed: toolRoundsUsed, verificationEvidenceCount: verificationEvidenceCount, attempt: attempt, lastAttemptToolRounds: lastAttemptToolRounds))
+        Before ending this recovery turn, call `session.complete` with:
         - `status`: completed, blocked, or waiting_input
         - `summary`: the concrete result or blocker
         - `verification`: optional user-facing descriptions of checks actually performed

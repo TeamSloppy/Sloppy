@@ -1,5 +1,6 @@
 import ArgumentParser
 import Foundation
+import Protocols
 
 struct AgentCommand: SloppyGroupCommand {
     static let configuration = CommandConfiguration(
@@ -177,7 +178,7 @@ struct AgentToolsCommand: SloppyGroupCommand {
     static let configuration = CommandConfiguration(
         commandName: "tools",
         abstract: "View or update agent tool policy.",
-        subcommands: [AgentToolsListCommand.self, AgentToolsCatalogCommand.self, AgentToolsSetCommand.self]
+        subcommands: [AgentToolsListCommand.self, AgentToolsCatalogCommand.self, AgentToolsSetCommand.self, AgentToolsPresetCommand.self]
     )
 }
 
@@ -238,6 +239,40 @@ struct AgentToolsSetCommand: AsyncParsableCommand {
             let data = try await client.put("/v1/agents/\(agentId)/tools", body: body)
             CLIStyle.success("Agent tool policy updated.")
             CLIFormatters.output(data, format: CLIFormatters.resolveFormat(format))
+        } catch {
+            CLIStyle.error(error.localizedDescription); throw ExitCode.failure
+        }
+    }
+}
+
+struct AgentToolsPresetCommand: AsyncParsableCommand {
+    static let configuration = CommandConfiguration(
+        commandName: "preset",
+        abstract: "Apply a tool-policy preset (coding trims rarely used tool groups from model context; full restores them)."
+    )
+
+    @Argument(help: "Agent ID") var agentId: String
+    @Argument(help: "Preset: coding or full") var preset: String
+    @Option(name: .long) var url: String?
+    @Option(name: .long) var token: String?
+    @Flag(name: .long) var verbose: Bool = false
+
+    mutating func run() async throws {
+        guard let selected = AgentToolPreset(rawValue: preset) else {
+            throw ValidationError("Unknown preset '\(preset)'. Use one of: \(AgentToolPreset.allCases.map(\.rawValue).joined(separator: ", ")).")
+        }
+        let client = SloppyCLIClient.resolve(url: url, token: token, verbose: verbose)
+        do {
+            let catalog = try JSONDecoder().decode([AgentToolCatalogEntry].self, from: try await client.get("/v1/agents/\(agentId)/tools/catalog"))
+            guard var policy = try JSONSerialization.jsonObject(with: try await client.get("/v1/agents/\(agentId)/tools")) as? [String: Any] else {
+                throw CLIClientError.noData
+            }
+            let current = (policy["tools"] as? [String: Bool]) ?? [:]
+            let updated = selected.apply(to: current, knownToolIDs: Set(catalog.map(\.id)))
+            policy["tools"] = updated
+            _ = try await client.put("/v1/agents/\(agentId)/tools", body: JSONSerialization.data(withJSONObject: policy))
+            let denied = updated.values.filter { !$0 }.count
+            CLIStyle.success("Preset '\(selected.rawValue)' applied: \(denied) tool(s) denied by policy.")
         } catch {
             CLIStyle.error(error.localizedDescription); throw ExitCode.failure
         }

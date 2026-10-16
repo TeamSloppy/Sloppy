@@ -11,12 +11,38 @@ struct BenchMetrics: Codable, Sendable, Equatable {
     var promptTokens: Int = 0
     var completionTokens: Int = 0
     var reasoningTokens: Int = 0
+    var cachedInputTokens: Int = 0
     var turnOutcome: String?
     /// Typed failure code of the final turn outcome (e.g. `protectedContextExceedsBudget`), when the turn failed.
     var turnFailureCode: String?
     var models: [String] = []
 
     var totalTokens: Int { promptTokens + completionTokens }
+
+    /// Model requests are not recorded as events; every tool call is followed by one, plus the initial request.
+    var steps: Int { toolCalls + 1 }
+
+    /// Input tokens per model request. Unlike the per-task total it does not move with how many rounds a run took,
+    /// so it is the right number for comparing prompt-size changes.
+    var promptTokensPerStep: Int { promptTokens / steps }
+
+    init() {}
+
+    /// Tolerates reports written before a metric existed, so `--baseline` keeps working across versions.
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        toolCalls = try container.decodeIfPresent(Int.self, forKey: .toolCalls) ?? 0
+        toolErrors = try container.decodeIfPresent(Int.self, forKey: .toolErrors) ?? 0
+        errorCodes = try container.decodeIfPresent([String: Int].self, forKey: .errorCodes) ?? [:]
+        mutationConflicts = try container.decodeIfPresent(Int.self, forKey: .mutationConflicts) ?? 0
+        promptTokens = try container.decodeIfPresent(Int.self, forKey: .promptTokens) ?? 0
+        completionTokens = try container.decodeIfPresent(Int.self, forKey: .completionTokens) ?? 0
+        reasoningTokens = try container.decodeIfPresent(Int.self, forKey: .reasoningTokens) ?? 0
+        cachedInputTokens = try container.decodeIfPresent(Int.self, forKey: .cachedInputTokens) ?? 0
+        turnOutcome = try container.decodeIfPresent(String.self, forKey: .turnOutcome)
+        turnFailureCode = try container.decodeIfPresent(String.self, forKey: .turnFailureCode)
+        models = try container.decodeIfPresent([String].self, forKey: .models) ?? []
+    }
 
     static let mutationConflictCodes: Set<String> = ["ambiguous_match", "file_changed"]
 
@@ -39,6 +65,7 @@ struct BenchMetrics: Codable, Sendable, Equatable {
                     metrics.promptTokens += usage.prompt
                     metrics.completionTokens += usage.completion
                     metrics.reasoningTokens += usage.reasoning
+                    metrics.cachedInputTokens += usage.cachedInput
                 }
                 if let model = status.selectedModel, !models.contains(model) { models.append(model) }
                 if let outcome = status.executionOutcome {

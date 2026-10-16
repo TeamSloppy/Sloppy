@@ -231,6 +231,9 @@ public actor RuntimeSystem {
     /// When set, only these tool names (matching `Tool.name`) are passed to `LanguageModelSession` for the channel.
     var channelToolAllowList: [String: Set<String>] = [:]
 
+    /// Tool names withheld from the model for a channel because the owner's policy forbids them.
+    var channelExcludedTools: [String: Set<String>] = [:]
+
     public init(
         modelProvider: (any ModelProvider)? = nil,
         defaultModel: String? = nil,
@@ -326,6 +329,20 @@ public actor RuntimeSystem {
             return
         }
         channelToolAllowList[channelId] = toolIDs
+    }
+
+    /// Withholds tools the owner's policy forbids: they could never run, so their schemas only cost context and
+    /// invite failed calls. Returns true when the set changed, in which case a cached session is stale.
+    @discardableResult
+    public func setChannelExcludedTools(channelId: String, toolIDs: Set<String>) -> Bool {
+        let previous = channelExcludedTools[channelId] ?? []
+        guard previous != toolIDs else { return false }
+        if toolIDs.isEmpty {
+            channelExcludedTools.removeValue(forKey: channelId)
+        } else {
+            channelExcludedTools[channelId] = toolIDs
+        }
+        return true
     }
 
     public func clearChannelToolAllowList(channelId: String) {

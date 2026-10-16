@@ -102,23 +102,45 @@ extension RuntimeSystem {
     func filteredModelTools(
         channelId: String,
         modelProvider: any ModelProvider,
-        includeTools: Bool
+        includeTools: Bool,
+        activeModel: String? = nil
     ) -> [any Tool] {
         guard includeTools else { return [] }
         let full = modelProvider.tools
-        guard let allow = channelToolAllowList[channelId], !allow.isEmpty else {
-            return full
+        if let allow = channelToolAllowList[channelId], !allow.isEmpty {
+            // An explicit allow-list is authoritative and is never trimmed.
+            return full.filter { allow.contains($0.name) }
         }
-        return full.filter { allow.contains($0.name) }
+        let excluded = channelExcludedTools[channelId] ?? []
+        let visible = excluded.isEmpty ? full : full.filter { !excluded.contains($0.name) }
+        guard let activeModel, contextConfiguration.enabled else { return visible }
+        let limits = resolvedContextLimits(for: activeModel, provider: modelProvider)
+            ?? ModelContextLimits(contextWindowTokens: contextConfiguration.contextWindowTokens)
+        let window = min(limits.contextWindowTokens, limits.maxInputTokens ?? limits.contextWindowTokens)
+        let selection = ToolSchemaBudget().select(from: visible, windowTokens: window)
+        if !selection.droppedNames.isEmpty {
+            logger.info(
+                "Tool schemas trimmed to fit model context",
+                metadata: [
+                    "channel_id": .string(channelId),
+                    "model": .string(activeModel),
+                    "window_tokens": .stringConvertible(window),
+                    "schema_tokens": .stringConvertible(selection.schemaTokens),
+                    "dropped_count": .stringConvertible(selection.droppedNames.count),
+                ]
+            )
+        }
+        return selection.tools
     }
 
     func sanitizedModelTools(
         channelId: String,
         modelProvider: any ModelProvider,
-        includeTools: Bool
+        includeTools: Bool,
+        activeModel: String? = nil
     ) -> [any Tool] {
         ModelToolNameSanitizer.sanitizeTools(
-            filteredModelTools(channelId: channelId, modelProvider: modelProvider, includeTools: includeTools)
+            filteredModelTools(channelId: channelId, modelProvider: modelProvider, includeTools: includeTools, activeModel: activeModel)
         ).tools
     }
 
@@ -168,7 +190,8 @@ extension RuntimeSystem {
         let tools = sanitizedModelTools(
             channelId: channelId,
             modelProvider: modelProvider,
-            includeTools: includeTools
+            includeTools: includeTools,
+            activeModel: activeModel
         )
         let definitions = tools.filter(\.includesSchemaInInstructions).map { Transcript.ToolDefinition(tool: $0) }
         let schemas = (try? JSONEncoder().encode(definitions)).flatMap { String(data: $0, encoding: .utf8) } ?? ""
@@ -351,7 +374,7 @@ extension RuntimeSystem {
         }
 
         let languageModel = try await createUsageObservedModel(provider: modelProvider, model: activeModel, channelId: channelId)
-        let tools = sanitizedModelTools(channelId: channelId, modelProvider: modelProvider, includeTools: includeTools)
+        let tools = sanitizedModelTools(channelId: channelId, modelProvider: modelProvider, includeTools: includeTools, activeModel: activeModel)
         let session: LanguageModelSession
         if let recoveryTranscript = recoveryTranscriptByChannel[channelId] {
             let providerSafeTranscript = transcriptWithProviderSafeToolNames(recoveryTranscript, tools: tools)
@@ -491,7 +514,8 @@ extension RuntimeSystem {
         let tools = sanitizedModelTools(
             channelId: channelId,
             modelProvider: modelProvider,
-            includeTools: toolInvoker != nil
+            includeTools: toolInvoker != nil,
+            activeModel: activeModel
         )
         var freshSession: LanguageModelSession
         if let retainedTranscript {

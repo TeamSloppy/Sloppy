@@ -36,6 +36,7 @@ public extension RuntimeSystem {
         memoryInjectionByChannel.removeValue(forKey: channelId)
         await memoryDiagnostics.remove(channelId: channelId)
         channelToolAllowList.removeValue(forKey: channelId)
+        channelExcludedTools.removeValue(forKey: channelId)
         contextLedgerByChannel.removeValue(forKey: channelId)
         recoveryTranscriptByChannel.removeValue(forKey: channelId)
         contextArchiversByChannel.removeValue(forKey: channelId)

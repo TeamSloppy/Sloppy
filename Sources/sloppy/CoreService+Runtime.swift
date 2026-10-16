@@ -11,6 +11,9 @@ extension CoreService {
         await sessionOrchestrator.setPendingMessageIDsProvider { [weak self] agentID, sessionID in
             await self?.pendingSessionMessageIDs(agentID: agentID, sessionID: sessionID) ?? []
         }
+        await sessionOrchestrator.setToolExclusionProvider { [weak self] agentID in
+            await self?.policyForbiddenToolIDs(agentID: agentID) ?? []
+        }
         await recoveryManager.recoverIfNeeded()
         await startEventPersistence()
         await recoverLongChatsIfNeeded()
@@ -21,6 +24,14 @@ extension CoreService {
         if dispatchReadyTasks {
             await dispatchStartupReadyTasksIfNeeded()
         }
+    }
+
+    /// Tools the agent's saved policy forbids. They are withheld from model-visible schemas because they
+    /// would be rejected at execution anyway.
+    func policyForbiddenToolIDs(agentID: String) async -> Set<String> {
+        guard let policy = try? await toolsAuthorization.policy(agentID: agentID) else { return [] }
+        let known = await ToolCatalog.knownToolIDs(mcpRegistry: mcpRegistry)
+        return known.filter { !SubagentDelegation.isToolAllowedByPolicy(toolID: $0, policy: policy) }
     }
 
     func dispatchStartupReadyTasksIfNeeded() async {
