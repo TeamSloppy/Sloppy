@@ -99,7 +99,7 @@ public struct OpenAIModelProvider: ModelProvider {
 
     public func createLanguageModel(for modelName: String, usageContext: ModelUsageContext) async throws -> any LanguageModel {
         let observed = UsageObservedURLSession.make(wrapping: settings.session, context: usageContext)
-        return try await makeLanguageModel(for: modelName, sessionOverride: observed, captureLegacyUsage: false)
+        return try await makeLanguageModel(for: modelName, sessionOverride: observed, captureLegacyUsage: false, promptCacheScope: usageContext.channelId)
     }
 
     public func createLanguageModel(for modelName: String) async throws -> any LanguageModel {
@@ -107,7 +107,7 @@ public struct OpenAIModelProvider: ModelProvider {
     }
 
     private func makeLanguageModel(for modelName: String, sessionOverride: URLSession? = nil,
-                                   captureLegacyUsage: Bool = true) async throws -> any LanguageModel {
+                                   captureLegacyUsage: Bool = true, promptCacheScope: String? = nil) async throws -> any LanguageModel {
         let resolved = normalizeModelName(modelName)
         let token = settings.apiKey()
         if settings.useOpenAICodexOAuthPath, isOAuthToken(token) {
@@ -121,6 +121,7 @@ public struct OpenAIModelProvider: ModelProvider {
                 reasoningCapture: _reasoningCapture,
                 tokenUsageCapture: captureLegacyUsage ? _tokenUsageCapture : nil,
                 parallelToolCalls: _parallelToolCalls,
+                promptCacheScope: promptCacheScope,
                 session: sessionOverride ?? settings.session ?? .shared
             )
         }
