@@ -135,6 +135,38 @@ Standalone ACP warms the authenticated OAuth model catalog before executing a se
 - Reconciliation is scoped to the original agent/session/call and rejects active
   or already reconciled calls. Recovery remains idempotent across repeated loads.
 
+## Weaker-model support
+
+Measured with `sloppy bench` (see `bench/README.md`) on the `smoke` suite in Auto mode. Every rule below
+decides from typed fields (token estimates, tool identifiers, schemas, recorded tool rounds), never from
+assistant prose.
+
+- **Tool schema budget.** Native tool schemas are sent with every request. `ToolSchemaBudget` keeps them
+  within 30% of the active model's input window: essential coding tools are always kept, preferred tools
+  next, the rest only while budget remains. Models with large windows are unaffected, and an explicit
+  channel allow-list is never trimmed. Before this, models without a declared window fell back to 32K and
+  failed every turn with `contextWindowRecoveryFailed` because instructions plus schemas alone filled it.
+- **Argument normalization.** `ToolArgumentNormalizer` repairs structurally wrong arguments from the tool's
+  own JSON schema: numeric strings for numbers, boolean strings, a boolean or null in an optional numeric or
+  array slot, a scalar where an array is expected, enum case, and `snake_case`/`camelCase` key variants.
+  Values are never coerced into strings (identifiers stay strictly validated). Applied repairs are returned
+  in the result as `argumentRepairs` so the model learns the correct shape.
+- **Verification evidence.** `node`, `deno`, `bun`, `npx`, common test runners, and `bash -c` style scripts
+  (classified by their last command; pipes and `||` never qualify) now count as run/test evidence when they
+  exit 0. Previously a correct `node test.js` run was rejected by `session.complete`, costing a full extra
+  round on strong models.
+- **Completion recovery.** A Build/Debug turn that ends without `session.complete` gets up to three recovery
+  turns instead of one. The prompt carries runtime facts (tool rounds, evidence count, attempt number) and,
+  when the previous attempt made no tool calls, says so. The prompt also fixed a literal `(mode.rawValue)`.
+
+Results (5 tasks, 1 attempt, same Core, before -> after):
+
+| model | before | after |
+|---|---|---|
+| gpt-6.1-sol | 5/5, ~402K tokens/task | 5/5, ~310-335K tokens/task (two runs) |
+| gpt-oss-20B | 0/5 (`contextWindowRecoveryFailed`) | 5/5 |
+| gemma4:31b-cloud | 0/5 (`contextWindowRecoveryFailed`) | 0/5 (starts; narrates intent and stops) |
+
 ## Acceptance checks
 
 - Ambiguous edits and stale hashes leave bytes unchanged.

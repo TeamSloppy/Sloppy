@@ -29,12 +29,27 @@ struct ToolRegistry: Sendable {
         let toolID = request.tool.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let tool = tools[toolID] else { return nil }
         let startedAt = Date()
-        let result = await tool.invoke(arguments: request.arguments, context: context)
+        var arguments = request.arguments
+        var repairs: [ToolArgumentNormalizer.Repair] = []
+        if let schemaJSON = try? JSONEncoder().encode(tool.parameters) {
+            let normalized = ToolArgumentNormalizer(schemaJSON: schemaJSON).normalize(arguments)
+            arguments = normalized.arguments
+            repairs = normalized.repairs
+        }
+        let result = await tool.invoke(arguments: arguments, context: context)
         let durationMs = max(0, Int(Date().timeIntervalSince(startedAt) * 1000))
+        var data = result.data
+        if !repairs.isEmpty, case .object(var object)? = data {
+            // Tell the model what was fixed so the next call is correct the first time.
+            object["argumentRepairs"] = .array(repairs.map {
+                .object(["field": .string($0.field), "change": .string($0.change)])
+            })
+            data = .object(object)
+        }
         return ToolInvocationResult(
             tool: result.tool,
             ok: result.ok,
-            data: result.data,
+            data: data,
             error: result.error,
             durationMs: durationMs
         )

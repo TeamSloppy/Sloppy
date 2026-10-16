@@ -1100,6 +1100,8 @@ func sloppyExtraCertificateAuthorityExtractsMultiplePEMCertificates() {
     let tools = ToolRegistry.makeDefault().allTools.map { $0 as any Tool }
     let provider = CompositeModelProvider(providers: [], tools: tools)
     let runtime = RuntimeSystem(modelProvider: provider)
+    // A large exact window keeps the full tool catalog; small windows are covered by the trimming test below.
+    await runtime.setCatalogContextLimits(["test:catalog": ModelContextLimits(contextWindowTokens: 1_000_000)])
     let definitions = ModelToolNameSanitizer.sanitizeTools(tools).tools.filter(\.includesSchemaInInstructions).map { Transcript.ToolDefinition(tool: $0) }
     let schemaText = String(decoding: try JSONEncoder().encode(definitions), as: UTF8.self)
     let ledger = await runtime.makeContextLedgerSnapshot(channelId: "schema-accounting", userMessage: "hello", modelProvider: provider,
@@ -1107,4 +1109,21 @@ func sloppyExtraCertificateAuthorityExtractsMultiplePEMCertificates() {
     let entry = try #require(ledger.entries.first { $0.category == .toolsSchema })
     #expect(entry.estimatedTokens == TokenPressureEstimator().estimateTextTokens(schemaText))
     #expect(entry.estimatedTokens > tools.reduce(0) { $0 + TokenPressureEstimator().estimateTextTokens($1.description) })
+}
+
+@Test func contextLedgerTrimsNativeToolSchemasForSmallContextWindows() async throws {
+    let tools = ToolRegistry.makeDefault().allTools.map { $0 as any Tool }
+    let provider = CompositeModelProvider(providers: [], tools: tools)
+    let runtime = RuntimeSystem(modelProvider: provider)
+    await runtime.setCatalogContextLimits(["test:small": ModelContextLimits(contextWindowTokens: 32_000)])
+
+    let ledger = await runtime.makeContextLedgerSnapshot(channelId: "schema-trim", userMessage: "hello", modelProvider: provider,
+        includeTools: true, maxOutputTokens: 1024, activeModel: "test:small")
+
+    let entry = try #require(ledger.entries.first { $0.category == .toolsSchema })
+    let budget = Int(Double(32_000) * ToolSchemaBudget.defaultWindowFraction)
+    let essentialCost = tools.filter { ToolSchemaBudget.essentialToolIDs.contains($0.name) }
+        .reduce(0) { $0 + ToolSchemaBudget.schemaTokens(of: $1, estimator: TokenPressureEstimator()) }
+    #expect(entry.estimatedTokens <= max(budget, essentialCost) + 64)
+    #expect(entry.estimatedTokens < 15_000)
 }
