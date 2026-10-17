@@ -3932,29 +3932,44 @@ public enum AgentToolApprovalPolicy: String, Codable, Sendable, Equatable {
     case approveForMe = "approve_for_me"
 }
 
+/// How a session that already ingested untrusted tool output (web pages, browser, MCP) treats risky tool calls.
+public enum AgentUntrustedContextGuard: String, Codable, Sendable, Equatable {
+    /// Risky tool calls need a fresh human approval on every invocation; session/always grants do not apply.
+    case requireApproval = "require_approval"
+    case off
+}
+
 public struct AgentToolApprovalSettings: Codable, Sendable, Equatable {
     public var policy: AgentToolApprovalPolicy
     public var reviewerAgentId: String?
+    public var untrustedContextGuard: AgentUntrustedContextGuard
 
     public var enabled: Bool {
         get { policy != .never }
         set { policy = newValue ? .onRequest : .never }
     }
 
-    public init(policy: AgentToolApprovalPolicy = .never, reviewerAgentId: String? = nil) {
+    public init(
+        policy: AgentToolApprovalPolicy = .never,
+        reviewerAgentId: String? = nil,
+        untrustedContextGuard: AgentUntrustedContextGuard = .requireApproval
+    ) {
         self.policy = policy
         self.reviewerAgentId = reviewerAgentId
+        self.untrustedContextGuard = untrustedContextGuard
     }
 
     public init(enabled: Bool) {
         self.policy = enabled ? .onRequest : .never
         self.reviewerAgentId = nil
+        self.untrustedContextGuard = .requireApproval
     }
 
     private enum CodingKeys: String, CodingKey {
         case enabled
         case policy
         case reviewerAgentId
+        case untrustedContextGuard
     }
 
     public init(from decoder: any Decoder) throws {
@@ -3966,6 +3981,7 @@ public struct AgentToolApprovalSettings: Codable, Sendable, Equatable {
             self.policy = enabled ? .onRequest : .never
         }
         self.reviewerAgentId = try container.decodeIfPresent(String.self, forKey: .reviewerAgentId)
+        self.untrustedContextGuard = try container.decodeIfPresent(AgentUntrustedContextGuard.self, forKey: .untrustedContextGuard) ?? .requireApproval
     }
 
     public func encode(to encoder: any Encoder) throws {
@@ -3973,6 +3989,7 @@ public struct AgentToolApprovalSettings: Codable, Sendable, Equatable {
         try container.encode(policy, forKey: .policy)
         try container.encode(enabled, forKey: .enabled)
         try container.encodeIfPresent(reviewerAgentId, forKey: .reviewerAgentId)
+        try container.encode(untrustedContextGuard, forKey: .untrustedContextGuard)
     }
 }
 

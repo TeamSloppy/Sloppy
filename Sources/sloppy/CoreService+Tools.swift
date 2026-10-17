@@ -400,6 +400,14 @@ extension CoreService {
                     )
 
                 case .allow:
+                    let untrustedContextForcesApproval = UntrustedContextGuard.requiresPerInvocationApproval(
+                        sessionEvents: sessionDetail.events,
+                        settings: effectivePolicy.approval,
+                        callRequiresHumanApproval: requiresHumanApproval(
+                            toolID: effectiveRequest.tool,
+                            arguments: effectiveRequest.arguments
+                        )
+                    )
                     if let approval = await requestToolApprovalIfNeeded(
                         agentID: normalizedAgentID,
                         sessionID: normalizedSessionID,
@@ -407,13 +415,13 @@ extension CoreService {
                         topicID: nil,
                         request: effectiveRequest,
                         toolCallID: toolCallEvent.id,
-                        requireApproval: (readOnlyWorkerExec && (!readOnlyExecApprovalGranted ||
+                        requireApproval: untrustedContextForcesApproval || (readOnlyWorkerExec && (!readOnlyExecApprovalGranted ||
                             effectiveRequest.arguments != request.arguments)) || (!missingAccessApprovalGranted &&
                             !sessionToolApprovalBypass.contains(normalizedSessionID) &&
                             (requireApproval || effectivePolicy.approval.enabled ||
                                 sessionToolApprovalRequired.contains(normalizedSessionID))),
                         approvalSettings: effectivePolicy.approval,
-                        forcePerInvocation: readOnlyWorkerExec
+                        forcePerInvocation: readOnlyWorkerExec || untrustedContextForcesApproval
                     ), let deniedResult = toolApprovalDeniedResult(tool: effectiveRequest.tool, approval: approval) {
                         result = deniedResult
                         break
