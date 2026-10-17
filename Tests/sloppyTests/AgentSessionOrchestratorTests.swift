@@ -535,8 +535,11 @@ func nativeAgentRunPlansWithPlannerModelThenExecutesWithExecutorModel() async th
     )
 
     #expect(await provider.requestedModelsSnapshot() == ["mock:planner", "mock:executor"])
+    // The planning status is persisted while the turn runs; the response only carries the turn's own events.
+    let persistedStatuses = try sessionStore.loadSession(agentID: "planner-executor-agent", sessionID: session.id)
+        .events.compactMap(\.runStatus)
+    #expect(persistedStatuses.first(where: { $0.label == "Planning" })?.selectedModel == "mock:planner")
     let runStatuses = response.appendedEvents.compactMap(\.runStatus)
-    #expect(runStatuses.first(where: { $0.label == "Planning" })?.selectedModel == "mock:planner")
     #expect(runStatuses.first(where: { $0.label == "Responding" })?.selectedModel == "mock:executor")
     let prompts = await provider.requestedPromptsSnapshot()
     #expect(prompts.count == 2)
