@@ -34,6 +34,17 @@ public final class AgentSessionFileStore: @unchecked Sendable {
     private let logger: Logger
     private static let operationLock = NSRecursiveLock()
     private static let summaryCacheSchemaVersion = 3
+    private static let decodedEventsCacheLimit = 8
+
+    /// Decoded journal of a recently used session, valid only while the file still has the same fingerprint.
+    /// Without it every tool call re-read and re-decoded the whole journal several times under `operationLock`.
+    private struct DecodedEventsCache {
+        var byteCount: Int
+        var modifiedAt: TimeInterval
+        var events: [AgentSessionEvent]
+    }
+    private var decodedEventsCache: [String: DecodedEventsCache] = [:]
+    private var decodedEventsCacheOrder: [String] = []
 
     public init(agentsRootURL: URL, fileManager: FileManager = .default) {
         self.fileManager = fileManager
@@ -305,7 +316,19 @@ public final class AgentSessionFileStore: @unchecked Sendable {
                 throw StoreError.sessionNotFound
             }
 
+            let cachedBeforeAppend = cachedDecodedEvents(for: fileURL)
             try append(events: events, to: fileURL, createIfMissing: false)
+            if let cachedBeforeAppend {
+                // Cache what a re-read would produce: the journal stores dates with second precision.
+                if let persisted = try? events.map({ try decoder.decode(AgentSessionEvent.self, from: encoder.encode($0)) }) {
+                    storeDecodedEvents(
+                        (cachedBeforeAppend + persisted).sorted { $0.createdAt < $1.createdAt },
+                        for: fileURL
+                    )
+                } else {
+                    invalidateDecodedEvents(for: fileURL)
+                }
+            }
             return try refreshSummaryCache(agentID: normalizedAgentID, sessionID: normalizedSessionID, fileURL: fileURL)
         }
     }
@@ -336,6 +359,7 @@ public final class AgentSessionFileStore: @unchecked Sendable {
             }
             guard changed else { throw StoreError.invalidPayload }
             try Data(lines.joined(separator: "\n").utf8).write(to: fileURL, options: .atomic)
+            invalidateDecodedEvents(for: fileURL)
             return try refreshSummaryCache(agentID: agentID, sessionID: sessionID, fileURL: fileURL)
         }
     }
@@ -366,6 +390,7 @@ public final class AgentSessionFileStore: @unchecked Sendable {
             }
             guard changed else { throw StoreError.invalidPayload }
             try Data(lines.joined(separator: "\n").utf8).write(to: fileURL, options: .atomic)
+            invalidateDecodedEvents(for: fileURL)
             return try refreshSummaryCache(agentID: agentID, sessionID: sessionID, fileURL: fileURL)
         }
     }
@@ -383,6 +408,7 @@ public final class AgentSessionFileStore: @unchecked Sendable {
             let location = try sessionPathResolver(agentID: normalizedAgentID)
                 .existingLocation(sessionID: normalizedSessionID)
             try fileManager.removeItem(at: fileURL)
+            invalidateDecodedEvents(for: fileURL)
             removeSummaryCache(agentID: normalizedAgentID, sessionID: normalizedSessionID)
 
             if location?.isLegacy == false {
@@ -577,6 +603,10 @@ public final class AgentSessionFileStore: @unchecked Sendable {
             )
         }
 
+        if let cached = cachedDecodedEvents(for: fileURL) {
+            return cached
+        }
+
         let data = try Data(contentsOf: fileURL)
         guard let content = String(data: data, encoding: .utf8) else {
             throw StoreError.invalidPayload
@@ -606,7 +636,54 @@ public final class AgentSessionFileStore: @unchecked Sendable {
             )
         }
 
-        return events.sorted { $0.createdAt < $1.createdAt }
+        let sorted = events.sorted { $0.createdAt < $1.createdAt }
+        storeDecodedEvents(sorted, for: fileURL)
+        return sorted
+    }
+
+    private func cachedDecodedEvents(for fileURL: URL) -> [AgentSessionEvent]? {
+        withLock {
+            let key = fileURL.path
+            guard let entry = decodedEventsCache[key] else { return nil }
+            guard let fingerprint = try? sourceFingerprint(fileURL: fileURL),
+                  fingerprint.byteCount == entry.byteCount,
+                  fingerprint.modifiedAt == entry.modifiedAt else {
+                decodedEventsCache.removeValue(forKey: key)
+                decodedEventsCacheOrder.removeAll { $0 == key }
+                return nil
+            }
+            return entry.events
+        }
+    }
+
+    /// Journal rewrites (rename, promotion, deletion) can keep the same size within one timestamp tick,
+    /// so they drop the cached copy explicitly instead of relying on the fingerprint.
+    private func invalidateDecodedEvents(for fileURL: URL) {
+        withLock {
+            decodedEventsCache.removeValue(forKey: fileURL.path)
+            decodedEventsCacheOrder.removeAll { $0 == fileURL.path }
+        }
+    }
+
+    private func storeDecodedEvents(_ events: [AgentSessionEvent], for fileURL: URL) {
+        withLock {
+            let key = fileURL.path
+            guard let fingerprint = try? sourceFingerprint(fileURL: fileURL) else {
+                decodedEventsCache.removeValue(forKey: key)
+                decodedEventsCacheOrder.removeAll { $0 == key }
+                return
+            }
+            decodedEventsCache[key] = DecodedEventsCache(
+                byteCount: fingerprint.byteCount,
+                modifiedAt: fingerprint.modifiedAt,
+                events: events
+            )
+            decodedEventsCacheOrder.removeAll { $0 == key }
+            decodedEventsCacheOrder.append(key)
+            while decodedEventsCacheOrder.count > Self.decodedEventsCacheLimit {
+                decodedEventsCache.removeValue(forKey: decodedEventsCacheOrder.removeFirst())
+            }
+        }
     }
 
     private struct AgentSessionSummaryCache: Codable {
@@ -701,12 +778,14 @@ public final class AgentSessionFileStore: @unchecked Sendable {
     }
 
     private func sourceFingerprint(fileURL: URL) throws -> (byteCount: Int, modifiedAt: TimeInterval)? {
-        let values = try fileURL.resourceValues(forKeys: [.fileSizeKey, .contentModificationDateKey])
-        guard let byteCount = values.fileSize,
-              let modifiedAt = values.contentModificationDate else {
+        // Not `URL.resourceValues`: a URL instance caches them, so a fingerprint taken from the same
+        // URL after an append would still describe the file as it was before the write.
+        let attributes = try fileManager.attributesOfItem(atPath: fileURL.path)
+        guard let size = attributes[.size] as? NSNumber,
+              let modifiedAt = attributes[.modificationDate] as? Date else {
             return nil
         }
-        return (byteCount, modifiedAt.timeIntervalSince1970)
+        return (size.intValue, modifiedAt.timeIntervalSince1970)
     }
 
     private static func paginated(_ summaries: [AgentSessionSummary], limit: Int?, offset: Int) -> [AgentSessionSummary] {
@@ -727,6 +806,7 @@ public final class AgentSessionFileStore: @unchecked Sendable {
         var workspaceID: String?
         var titleIsAutomatic = false
         var userMessages: [AgentSessionMessage] = []
+        var messages: [AgentSessionMessage] = []
         var createdAt = events.first?.createdAt ?? Date()
         var updatedAt = createdAt
         var messageCount = 0
@@ -751,9 +831,15 @@ public final class AgentSessionFileStore: @unchecked Sendable {
                     userMessages.append(message)
                 }
                 messageCount += 1
-                if let preview = previewText(for: message), !preview.isEmpty {
-                    lastPreview = preview
-                }
+                messages.append(message)
+            }
+        }
+
+        // Only the newest message with a preview matters; scanning from the end avoids trimming every transcript line.
+        for message in messages.reversed() {
+            if let preview = previewText(for: message), !preview.isEmpty {
+                lastPreview = preview
+                break
             }
         }
 

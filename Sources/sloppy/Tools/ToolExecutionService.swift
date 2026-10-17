@@ -134,13 +134,28 @@ final class ToolExecutionService: @unchecked Sendable {
         if let result = await registry.invoke(request: request, context: context) {
             return context.outputArtifacts.bound(result, maxBytes: min(50 * 1024, max(1, policy.guardrails.maxExecOutputBytes)))
         }
-        if let result = try? await context.mcpRegistry.invokeDynamicTool(
-            toolID: request.tool.trimmingCharacters(in: .whitespacesAndNewlines),
-            arguments: request.arguments
-        ) {
-            return context.outputArtifacts.bound(result, maxBytes: min(50 * 1024, max(1, policy.guardrails.maxExecOutputBytes)))
-        }
         let toolID = request.tool.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            if let result = try await context.mcpRegistry.invokeDynamicTool(toolID: toolID, arguments: request.arguments) {
+                return context.outputArtifacts.bound(result, maxBytes: min(50 * 1024, max(1, policy.guardrails.maxExecOutputBytes)))
+            }
+        } catch {
+            // A transport failure of a known MCP tool is not "unknown tool"; report it as what it is.
+            logger.warning(
+                "MCP tool call failed",
+                metadata: ["tool": .string(toolID), "error": .string(String(describing: error))]
+            )
+            return ToolInvocationResult(
+                tool: toolID,
+                ok: false,
+                error: ToolErrorPayload(
+                    code: "mcp_call_failed",
+                    message: "MCP tool '\(toolID)' could not be called: \(error.localizedDescription)",
+                    retryable: true,
+                    hint: "The tool exists but its server did not answer. Retry once; if it keeps failing, report the server error instead of treating the tool as missing."
+                )
+            )
+        }
         return ToolInvocationResult(
             tool: toolID,
             ok: false,
@@ -208,7 +223,7 @@ final class ToolExecutionService: @unchecked Sendable {
         guard let detail = try? sessionStore.loadSession(agentID: agentID, sessionID: sessionID) else {
             return nil
         }
-        return detail.events.reversed().compactMap { event -> String? in
+        return detail.events.reversed().lazy.compactMap { event -> String? in
             guard let message = event.message, message.role == .user, message.peerOrigin == nil else {
                 return nil
             }

@@ -121,6 +121,15 @@ extension CoreService {
                 sessionMCPRegistry: sessionMCPRegistry
             )
         } catch {
+            logger.error(
+                "Tool authorization failed",
+                metadata: [
+                    "agent_id": .string(normalizedAgentID),
+                    "session_id": .string(normalizedSessionID),
+                    "tool": .string(request.tool),
+                    "error": .string(String(describing: error))
+                ]
+            )
             return .init(
                 tool: request.tool,
                 ok: false,
@@ -547,10 +556,17 @@ extension CoreService {
                     events: eventsToAppend
                 )
             } catch {
-                return .init(
-                    tool: request.tool,
-                    ok: false,
-                    error: .init(code: "session_write_failed", message: "Failed to persist tool result event.", retryable: true)
+                // The tool already ran. Replacing its outcome with a retryable error would invite the
+                // model to replay a call that may have had side effects, so keep the real result.
+                logger.error(
+                    "Failed to persist tool result event; returning the executed result",
+                    metadata: [
+                        "agent_id": .string(normalizedAgentID),
+                        "session_id": .string(normalizedSessionID),
+                        "tool": .string(result.tool),
+                        "ok": .stringConvertible(result.ok),
+                        "error": .string(String(describing: error))
+                    ]
                 )
             }
         }
@@ -618,6 +634,15 @@ extension CoreService {
         do {
             authorization = try await toolsAuthorization.authorize(agentID: normalizedAgentID, toolID: request.tool)
         } catch {
+            logger.error(
+                "Tool authorization failed",
+                metadata: [
+                    "agent_id": .string(normalizedAgentID),
+                    "channel_id": .string(channelID),
+                    "tool": .string(request.tool),
+                    "error": .string(String(describing: error))
+                ]
+            )
             return .init(
                 tool: request.tool,
                 ok: false,

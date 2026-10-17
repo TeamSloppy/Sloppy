@@ -671,11 +671,23 @@ actor MCPClientRegistry {
             error: result.isError == true
                 ? ToolErrorPayload(
                     code: "mcp_tool_error",
-                    message: "MCP tool '\(dynamicTool.toolName)' on server '\(dynamicTool.serverID)' returned an error result.",
+                    message: Self.mcpErrorMessage(
+                        toolName: dynamicTool.toolName,
+                        serverID: dynamicTool.serverID,
+                        detail: Self.flattenText(from: result.content)
+                    ),
                     retryable: false
                 )
                 : nil
         )
+    }
+
+    /// Keeps the server's own explanation: without it the model cannot tell a bad argument from a broken server.
+    static func mcpErrorMessage(toolName: String, serverID: String, detail: String) -> String {
+        let base = "MCP tool '\(toolName)' on server '\(serverID)' returned an error result."
+        let trimmed = detail.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return base }
+        return "\(base) Server said: \(trimmed.count > 2_000 ? String(trimmed.prefix(2_000)) + "…" : trimmed)"
     }
 
     func decodeJSONTextResult<T: Decodable>(serverID: String, toolName: String, arguments: [String: JSONValue], as type: T.Type) async throws -> T {
