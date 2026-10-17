@@ -1,0 +1,10 @@
+{
+  "title": "An explicit 'remember this' request is honored across sessions",
+  "tags": ["recall", "explicit"],
+  "trackedTokens": ["{{A}}"],
+  "steps": [
+    { "session": "teach", "say": "Please remember this: my cat is named {{A}}." },
+    { "session": "use", "id": "ask", "say": "What is my cat's name? One word." }
+  ],
+  "checks": [ { "kind": "reply_has", "step": "ask", "token": "{{A}}" } ]
+}

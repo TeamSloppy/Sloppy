@@ -8,7 +8,7 @@ struct MemorySearchTool: CoreTool {
     let title = "Memory file search"
     let status = "fully_functional"
     let name = "memory.search"
-    let description = "Keyword search in memory via canonical local index. Use `scope_type` = global and `scope_id` = shared for shared memory when enabled."
+    let description = "Search memory. Without a scope it searches this agent, the current project and this conversation (plus shared memory when enabled). Pass `scope_type` (agent, project, channel or global) only to narrow the search; `scope_id` is filled in automatically."
 
     var parameters: GenerationSchema {
         .objectSchema([
@@ -51,19 +51,30 @@ struct MemorySearchTool: CoreTool {
         }
 
         let limit = max(1, arguments["limit"]?.asInt ?? 8)
-        let scope = parseMemoryScope(from: arguments)
+        let scope = completedMemoryScope(from: arguments, context: context)
         if let failure = rejectDisabledSharedMemory(scope: scope, context: context, tool: name) {
             return failure
         }
-        let hits = await context.memoryStore.recallDiagnosed(
-            request: MemoryRecallRequest(query: query, limit: limit, scope: scope),
-            channelId: context.channelID ?? "agent:\(context.agentID):session:\(context.sessionID)",
-            source: .toolSearch, diagnostics: context.runtime.memoryDiagnostics
-        )
+        let channelId = sessionMemoryChannelID(context: context)
+        var hits: [MemoryHit] = []
+        // An unscoped search must not read the whole store, which holds other agents' and projects' memory.
+        for searched in scope.map({ [$0] }) ?? visibleMemoryScopes(context: context) {
+            hits += await context.memoryStore.recallDiagnosed(
+                request: MemoryRecallRequest(query: query, limit: limit, scope: searched),
+                channelId: channelId, source: .toolSearch, diagnostics: context.runtime.memoryDiagnostics
+            )
+        }
+        if scope == nil {
+            var seen = Set<String>()
+            hits = hits
+                .sorted { $0.ref.score != $1.ref.score ? $0.ref.score > $1.ref.score : $0.ref.id < $1.ref.id }
+                .filter { seen.insert($0.ref.id).inserted }
+            hits = Array(hits.prefix(limit))
+        }
 
         let payload: [JSONValue] = hits.map { hit in
             .object([
-                "id": .string(hit.ref.id),
+                "memory_id": .string(hit.ref.id),
                 "score": .number(hit.ref.score),
                 "note": .string(hit.note),
                 "summary": hit.summary.map(JSONValue.string) ?? .null,

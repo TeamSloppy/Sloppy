@@ -1,0 +1,57 @@
+{
+  "title": "One fact among several unrelated ones is still retrievable",
+  "tags": [
+    "recall",
+    "noise"
+  ],
+  "timeoutSeconds": 1800,
+  "trackedTokens": [
+    "{{F6}}"
+  ],
+  "steps": [
+    {
+      "session": "teach",
+      "say": "Unrelated note about me: my hobby is {{F1}}."
+    },
+    {
+      "session": "teach",
+      "say": "Unrelated note about me: my favorite tea is {{F2}}."
+    },
+    {
+      "session": "teach",
+      "say": "Unrelated note about me: my laptop model is {{F3}}."
+    },
+    {
+      "session": "teach",
+      "say": "Unrelated note about me: my commute route is {{F4}}."
+    },
+    {
+      "session": "teach",
+      "say": "Unrelated note about me: my gym locker is {{F5}}."
+    },
+    {
+      "session": "teach",
+      "say": "Unrelated note about me: my wifi name is {{F6}}."
+    },
+    {
+      "session": "teach",
+      "say": "Unrelated note about me: my library card is {{F7}}."
+    },
+    {
+      "session": "teach",
+      "say": "Unrelated note about me: my bike lock code is {{F8}}."
+    },
+    {
+      "session": "use",
+      "id": "ask",
+      "say": "What is my wifi name? Reply with the value only."
+    }
+  ],
+  "checks": [
+    {
+      "kind": "reply_has",
+      "step": "ask",
+      "token": "{{F6}}"
+    }
+  ]
+}

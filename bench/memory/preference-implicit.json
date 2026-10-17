@@ -1,0 +1,10 @@
+{
+  "title": "A stated convention shapes later work without being asked",
+  "tags": ["preference"],
+  "trackedTokens": ["{{A}}_"],
+  "steps": [
+    { "session": "teach", "say": "By the way, in all code you write for me, name every test function with the prefix {{A}}_ . That is our team convention." },
+    { "session": "use", "id": "work", "say": "Write one short Python test function that checks that 1 + 1 == 2. Code only." }
+  ],
+  "checks": [ { "kind": "reply_has", "step": "work", "token": "{{A}}_" } ]
+}

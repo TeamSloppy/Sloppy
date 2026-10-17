@@ -54,7 +54,7 @@ extension RuntimeSystem {
             let kind = hit.ref.kind?.rawValue ?? "unknown"
             let memoryClass = hit.ref.memoryClass?.rawValue ?? "unknown"
             let content = compactMemoryContent(summary: hit.summary, note: hit.note, maxCharacters: 500)
-            let line = "- id: \(hit.ref.id) | score: \(score) | kind: \(kind) | class: \(memoryClass) | \(content)"
+            let line = "- memory_id: \(hit.ref.id) | score: \(score) | kind: \(kind) | class: \(memoryClass) | \(content)"
             let candidateLength = lines.joined(separator: "\n").count + line.count + 1
             guard candidateLength <= maxBlockCharacters else {
                 break

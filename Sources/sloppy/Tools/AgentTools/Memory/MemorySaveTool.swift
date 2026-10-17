@@ -9,9 +9,8 @@ struct MemorySaveTool: CoreTool {
     let status = "fully_functional"
     let name = "memory.save"
     let description = """
-    Persist a hybrid memory entry. Pass memory_id from memory.search to correct an existing entry in the same scope instead of adding a duplicate. You must set scope (not the end user): either pass `scope_type` and `scope_id` together, or pass a `scope` object with `type` and `id`. \
-    Only for facts intentionally restricted to this chat: `scope_type` = channel, `scope_id` = agent:<agentId>:session:<sessionId>. \
-    Prefer agent scope for knowledge reusable across sessions: `scope_type` = agent, `scope_id` = <agentId>. For project knowledge use scope_type = project and scope_id = the current project ID. For shared rows visible to every enabled agent: `scope_type` = global, `scope_id` = shared. Calls without a resolved scope are rejected.
+    Persist a hybrid memory entry. Pass memory_id from memory.search to correct an existing entry in the same scope instead of adding a duplicate. You must choose a scope (not the end user) by passing `scope_type`; `scope_id` is filled in for you and only needs to be given to target a different id. \
+    Prefer `scope_type` = agent for knowledge reusable across sessions. Use `project` for knowledge about the current project, `channel` only for facts intentionally restricted to this chat, and `global` only for rows meant to be visible to every enabled agent. Calls without a scope_type are rejected.
     """
 
     var parameters: GenerationSchema {
@@ -53,12 +52,13 @@ struct MemorySaveTool: CoreTool {
         let kind = arguments["kind"]?.asString.flatMap { MemoryKind(rawValue: $0.lowercased()) }
         let memoryClass = arguments["class"]?.asString.flatMap { MemoryClass(rawValue: $0.lowercased()) }
             ?? arguments["memory_class"]?.asString.flatMap { MemoryClass(rawValue: $0.lowercased()) }
-        guard let scope = parseMemoryScope(from: arguments) else {
+        guard let scope = completedMemoryScope(from: arguments, context: context) else {
             return toolFailure(
                 tool: name,
                 code: "invalid_arguments",
                 message: "Set memory scope: either `scope_type` + `scope_id`, or `scope` as { \"type\", \"id\", optional \"channel_id\", \"project_id\", \"agent_id\" }. Example channel scope_id: agent:<agentId>:session:<sessionId>.",
                 retryable: false,
+                hint: memoryScopeHint(context: context),
                 argumentRecovery: .init(invalidFields: ["scope_type", "scope_id", "scope"])
             )
         }

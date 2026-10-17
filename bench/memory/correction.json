@@ -1,0 +1,14 @@
+{
+  "title": "A correction replaces the old value instead of coexisting with it",
+  "tags": ["recall", "correction"],
+  "trackedTokens": ["{{B}}", "{{C}}"],
+  "steps": [
+    { "session": "teach", "say": "For later: the deploy key id of the {{A}} service is {{B}}." },
+    { "session": "teach", "say": "Correction: the deploy key id of {{A}} is actually {{C}}, not {{B}}." },
+    { "session": "use", "id": "ask", "say": "What is the deploy key id of the {{A}} service? Reply with the id only." }
+  ],
+  "checks": [
+    { "kind": "reply_has", "step": "ask", "token": "{{C}}" },
+    { "kind": "reply_lacks", "step": "ask", "token": "{{B}}" }
+  ]
+}
