@@ -100,6 +100,9 @@ struct MemorySaveTool: CoreTool {
                                    hint: "For an update, find the correct ID with memory.search or memory.recall in this scope. Only if you intend to create a new record, omit memory_id. Changing note does not fix an unknown ID.",
                                    argumentRecovery: .init(invalidFields: ["memory_id"], contextFields: ["scope_type", "scope_id", "scope"]))
             }
+            if let existing = entries.first(where: { $0.id == memoryID }), let failure = lossyUpdateFailure(old: existing.note, new: note) {
+                return failure
+            }
             guard let updated = await context.memoryStore.updateEntry(
                 id: memoryID, note: note, summary: summary ?? note,
                 kind: kind, importance: importance, confidence: confidence
@@ -121,6 +124,7 @@ struct MemorySaveTool: CoreTool {
                 .filter { $0.metadata[MemoryTopic.metadataKey]?.asString.map(MemoryTopic.key) == key }
                 .sorted { $0.updatedAt > $1.updatedAt }
             if let target = earlier.first {
+                if let failure = lossyUpdateFailure(old: target.note, new: note) { return failure }
                 guard let updated = await context.memoryStore.updateEntry(
                     id: target.id, note: note, summary: summary ?? note,
                     kind: kind, importance: importance, confidence: confidence
@@ -160,5 +164,19 @@ struct MemorySaveTool: CoreTool {
             "kind": .string(ref.kind?.rawValue ?? ""),
             "class": .string(ref.memoryClass?.rawValue ?? "")
         ]))
+    }
+
+    /// Refuses an update that would only remove identifiers (see ``MemoryNoteDiff``). A correction that swaps a value
+    /// for another one is unaffected.
+    private func lossyUpdateFailure(old: String, new: String) -> ToolInvocationResult? {
+        let diff = MemoryNoteDiff.compare(old: old, new: new)
+        guard diff.losesDetail else { return nil }
+        return toolFailure(
+            tool: name,
+            code: "memory_update_would_lose_details",
+            message: "This update drops \(diff.dropped.joined(separator: ", ")) from the existing note without adding a replacement, so that information would be lost.",
+            retryable: true,
+            hint: "Keep those details in the note. If a value changed, put the new value in the note instead; a corrected value replaces the old one. To record something new that does not replace the old note, save it with a different topic."
+        )
     }
 }

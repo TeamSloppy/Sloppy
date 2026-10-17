@@ -154,9 +154,27 @@ Results on `gemma4:31b-cloud` (isolated agents, 3 attempts per scenario):
 | similar-facts-coexist (two services, same wording) | n/a | 3/3 |
 | all recall scenarios | 11/18 | 19/21 (90%) |
 
-Still open: in `checkpoint-recall` the foreground agent sometimes does not save a fact stated once, and the explicit
-checkpoint does not rescue it (2 of 3 attempts on the weak model; 1 of 3 earlier on the strong one). One reply still
-returned a record id taken from a `memory.search` result.
+## Keeping what was saved
+
+The remaining `checkpoint-recall` failures were not a failure to save. Across 16 runs the foreground agent called
+`memory.save` every time, in the right scope, with the full note; `fact-recall` passed 8/8. The loss came afterwards:
+the explicit memory checkpoint (a background review, run here by the strong default model) rewrote the finished entry
+into a shorter paraphrase and dropped "its deploy key id is ...". The user had already been told "saved". A control
+run with an obviously harmless attribute ("support queue code") instead of a "key id" passed 8/8, so the reviewer was
+treating the id as credential-like, which the rules told it to avoid storing.
+
+Two changes:
+
+- **Rules.** Secrets are now defined as secret *values* (passwords, access tokens, private keys, the secret part of a
+  key). Identifiers (names, ids including a key's or account's id, ports, versions, ticket numbers, URLs) may be stored.
+  Both the memory rules and the checkpoint prompt say never to shorten a record or drop its details when updating.
+- **A structural guard that does not depend on the model.** An update through `memory_id` or a topic is refused with
+  `memory_update_would_lose_details` when it removes identifier-like tokens (a token with a digit, or an upper-case code
+  of four or more letters) without adding any replacement. A correction that swaps a value for another is unaffected.
+  The refusal names the dropped details and says how to proceed, and the original entry stays untouched
+  (`MemoryNoteDiff`; it looks only at token shapes, never at wording).
+
+`checkpoint-recall` on `gemma4:31b-cloud`: 4/8 -> 8/8, entry intact in all eight.
 
 ## Verification boundary
 

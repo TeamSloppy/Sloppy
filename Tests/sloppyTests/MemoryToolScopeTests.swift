@@ -234,3 +234,81 @@ struct MemoryTopicTests {
         #expect(MemoryTopic.display(String(repeating: "x", count: 200))?.count == MemoryTopic.maxLength)
     }
 }
+
+@Suite
+struct MemoryUpdateSafetyTests {
+    private func context(store: any MemoryStore) -> ToolContext {
+        let tmp = FileManager.default.temporaryDirectory
+        return ToolContext(
+            agentID: "A", sessionID: "s1", policy: AgentToolsPolicy(), workspaceRootURL: tmp,
+            runtime: RuntimeSystem(), memoryStore: store,
+            sessionStore: AgentSessionFileStore(agentsRootURL: tmp), agentCatalogStore: AgentCatalogFileStore(agentsRootURL: tmp),
+            agentSkillsStore: nil, processRegistry: SessionProcessRegistry(),
+            channelSessionStore: ChannelSessionFileStore(workspaceRootURL: tmp),
+            store: InMemoryCorePersistenceBuilder().makeStore(config: CoreConfig.test),
+            searchProviderService: SearchProviderService(config: CoreConfig.default.searchTools),
+            mcpRegistry: MCPClientRegistry(config: CoreConfig.default.mcp), logger: .sloppy(label: "test"),
+            projectService: nil, configService: nil, skillsService: nil, lspManager: nil, applyAgentMarkdown: nil,
+            delegateSubagent: nil
+        )
+    }
+
+    private func save(_ arguments: [String: JSONValue], _ ctx: ToolContext) async -> ToolInvocationResult {
+        var args = arguments
+        args["scope_type"] = .string("agent")
+        return await MemorySaveTool().invoke(arguments: args, context: ctx)
+    }
+
+    @Test
+    func identifierDiffSeparatesASubstitutionFromALossyRewrite() {
+        let substitution = MemoryNoteDiff.compare(
+            old: "The deploy key id of billing is ZG3XYV.", new: "The deploy key id of billing is K9Q2LD.")
+        #expect(substitution.dropped == ["ZG3XYV"] && substitution.added == ["K9Q2LD"] && !substitution.losesDetail)
+
+        let loss = MemoryNoteDiff.compare(
+            old: "The internal billing service is called HGPAHQ, and its deploy key id is ZG3XYV.",
+            new: "The internal billing service is called HGPAHQ.")
+        #expect(loss.dropped == ["ZG3XYV"] && loss.added.isEmpty && loss.losesDetail)
+
+        let reworded = MemoryNoteDiff.compare(old: "The port is 7654.", new: "Port 7654 is used by the database.")
+        #expect(!reworded.losesDetail, "rewording that keeps the identifiers is fine")
+    }
+
+    @Test
+    func identifierDetectionIgnoresOrdinaryWords() {
+        #expect(MemoryNoteDiff.identifiers(in: "The user prefers tabs over spaces") == [])
+        #expect(MemoryNoteDiff.identifiers(in: "Runs on port 5432, build v2.3.1, key KESTREL-7, host db-1.internal")
+                == ["5432", "V2.3.1", "KESTREL-7", "DB-1.INTERNAL"])
+    }
+
+    @Test
+    func updatingByIdCannotSilentlyDropAnIdentifier() async {
+        let store = HybridMemoryStore(config: CoreConfig.test)
+        let ctx = context(store: store)
+        let first = await save(["note": .string("Billing is HGPAHQ and its deploy key id is ZG3XYV.")], ctx)
+        let id = first.data?.asObject?["id"]?.asString ?? ""
+
+        let lossy = await save(["note": .string("Billing is HGPAHQ."), "memory_id": .string(id)], ctx)
+        let correction = await save(["note": .string("Billing is HGPAHQ and its deploy key id is K9Q2LD."), "memory_id": .string(id)], ctx)
+
+        #expect(lossy.ok == false)
+        #expect(lossy.error?.code == "memory_update_would_lose_details")
+        #expect(lossy.error?.message.contains("ZG3XYV") == true)
+        #expect(correction.ok)
+        #expect(await store.entries(filter: MemoryEntryFilter(scope: .agent("A"))).map(\.note)
+                == ["Billing is HGPAHQ and its deploy key id is K9Q2LD."])
+    }
+
+    @Test
+    func replacingATopicCannotSilentlyDropAnIdentifierEither() async {
+        let store = HybridMemoryStore(config: CoreConfig.test)
+        let ctx = context(store: store)
+        _ = await save(["note": .string("Billing is HGPAHQ and its deploy key id is ZG3XYV."), "topic": .string("billing")], ctx)
+
+        let lossy = await save(["note": .string("The user's billing service is HGPAHQ."), "topic": .string("billing")], ctx)
+
+        #expect(lossy.error?.code == "memory_update_would_lose_details")
+        #expect(await store.entries(filter: MemoryEntryFilter(scope: .agent("A"))).map(\.note)
+                == ["Billing is HGPAHQ and its deploy key id is ZG3XYV."], "the original entry is untouched")
+    }
+}
