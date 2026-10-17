@@ -1,0 +1,16 @@
+{
+  "title": "Two successive corrections leave only the latest value",
+  "tags": ["recall", "correction"],
+  "trackedTokens": ["{{B}}", "{{C}}", "{{D}}"],
+  "steps": [
+    { "session": "teach", "say": "For later: the deploy key id of the {{A}} service is {{B}}." },
+    { "session": "teach", "say": "Correction: the deploy key id of {{A}} is actually {{C}}, not {{B}}." },
+    { "session": "teach", "say": "Sorry, one more change: the deploy key id of {{A}} is now {{D}}." },
+    { "session": "use", "id": "ask", "say": "What is the deploy key id of the {{A}} service? Reply with the id only." }
+  ],
+  "checks": [
+    { "kind": "reply_has", "step": "ask", "token": "{{D}}" },
+    { "kind": "reply_lacks", "step": "ask", "token": "{{B}}" },
+    { "kind": "reply_lacks", "step": "ask", "token": "{{C}}" }
+  ]
+}

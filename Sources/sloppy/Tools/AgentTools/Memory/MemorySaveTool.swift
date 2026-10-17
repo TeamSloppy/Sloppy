@@ -9,7 +9,7 @@ struct MemorySaveTool: CoreTool {
     let status = "fully_functional"
     let name = "memory.save"
     let description = """
-    Persist a hybrid memory entry. Pass memory_id from memory.search to correct an existing entry in the same scope instead of adding a duplicate. You must choose a scope (not the end user) by passing `scope_type`; `scope_id` is filled in for you and only needs to be given to target a different id. \
+    Persist a hybrid memory entry. Give every fact that can change a short stable `topic` (for example "billing service deploy key id"): saving again with the same topic in the same scope REPLACES the earlier entry, so that is how to correct a fact, with no search or memory_id needed. You must choose a scope (not the end user) by passing `scope_type`; `scope_id` is filled in for you and only needs to be given to target a different id. \
     Prefer `scope_type` = agent for knowledge reusable across sessions. Use `project` for knowledge about the current project, `channel` only for facts intentionally restricted to this chat, and `global` only for rows meant to be visible to every enabled agent. Calls without a scope_type are rejected.
     """
 
@@ -28,7 +28,8 @@ struct MemorySaveTool: CoreTool {
                 schema: DynamicGenerationSchema(type: String.self),
                 isOptional: true
             ),
-            .init(name: "memory_id", description: "Only for updating: use an existing record ID returned by memory.search or memory.recall in the same scope. Omit or pass null for a new record; empty strings also mean create. A nonempty unknown ID is an error, never an implicit create.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "topic", description: "Short stable name of what this fact is about, e.g. 'billing service deploy key id'. Saving again with the same topic in the same scope replaces the earlier entry; use it for anything that may be corrected later.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "memory_id", description: "Alternative to topic for editing one specific record: use an existing record ID returned by memory.search or memory.recall in the same scope. Omit or pass null for a new record; empty strings also mean create. A nonempty unknown ID is an error, never an implicit create.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "summary", description: "Optional summary", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "kind", description: "One of identity, preference, decision, fact, observation, goal, todo, event.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "importance", description: "Importance from 0 to 1; prioritize recurring corrections and stable preferences.", schema: DynamicGenerationSchema(type: Double.self), isOptional: true),
@@ -67,6 +68,7 @@ struct MemorySaveTool: CoreTool {
         }
         let importance = arguments["importance"]?.asNumber
         let confidence = arguments["confidence"]?.asNumber
+        let topic = MemoryTopic.display(arguments["topic"]?.asString)
 
         let sourceType = arguments["source_type"]?.asString
         let sourceId = arguments["source_id"]?.asString
@@ -76,6 +78,7 @@ struct MemorySaveTool: CoreTool {
         if let metadataObject = arguments["metadata"]?.asObject {
             metadata = metadataObject
         }
+        if let topic { metadata[MemoryTopic.metadataKey] = .string(topic) }
 
         let memoryID: String?
         switch arguments["memory_id"] {
@@ -97,6 +100,9 @@ struct MemorySaveTool: CoreTool {
                                    hint: "For an update, find the correct ID with memory.search or memory.recall in this scope. Only if you intend to create a new record, omit memory_id. Changing note does not fix an unknown ID.",
                                    argumentRecovery: .init(invalidFields: ["memory_id"], contextFields: ["scope_type", "scope_id", "scope"]))
             }
+            if let existing = entries.first(where: { $0.id == memoryID }), let failure = lossyUpdateFailure(old: existing.note, new: note) {
+                return failure
+            }
             guard let updated = await context.memoryStore.updateEntry(
                 id: memoryID, note: note, summary: summary ?? note,
                 kind: kind, importance: importance, confidence: confidence
@@ -109,6 +115,33 @@ struct MemorySaveTool: CoreTool {
                 "kind": .string(updated.kind.rawValue),
                 "class": .string(updated.memoryClass.rawValue)
             ]))
+        }
+
+        // Same topic in the same scope: replace the earlier entry instead of adding a contradicting second one.
+        if let topic {
+            let key = MemoryTopic.key(topic)
+            let earlier = await context.memoryStore.entries(filter: MemoryEntryFilter(scope: scope))
+                .filter { $0.metadata[MemoryTopic.metadataKey]?.asString.map(MemoryTopic.key) == key }
+                .sorted { $0.updatedAt > $1.updatedAt }
+            if let target = earlier.first {
+                if let failure = lossyUpdateFailure(old: target.note, new: note) { return failure }
+                guard let updated = await context.memoryStore.updateEntry(
+                    id: target.id, note: note, summary: summary ?? note,
+                    kind: kind, importance: importance, confidence: confidence
+                ) else {
+                    return toolFailure(tool: name, code: "memory_update_failed", message: "Could not update the memory entry.", retryable: true)
+                }
+                // Older duplicates of the same topic (from before topics existed) would still contradict the new value.
+                for stale in earlier.dropFirst() { _ = await context.memoryStore.softDelete(id: stale.id) }
+                return toolSuccess(tool: name, data: .object([
+                    "id": .string(updated.id),
+                    "updated": .bool(true),
+                    "topic": .string(topic),
+                    "replaced_note": .string(target.note),
+                    "kind": .string(updated.kind.rawValue),
+                    "class": .string(updated.memoryClass.rawValue)
+                ]))
+            }
         }
 
         let ref = await context.memoryStore.save(
@@ -131,5 +164,19 @@ struct MemorySaveTool: CoreTool {
             "kind": .string(ref.kind?.rawValue ?? ""),
             "class": .string(ref.memoryClass?.rawValue ?? "")
         ]))
+    }
+
+    /// Refuses an update that would only remove identifiers (see ``MemoryNoteDiff``). A correction that swaps a value
+    /// for another one is unaffected.
+    private func lossyUpdateFailure(old: String, new: String) -> ToolInvocationResult? {
+        let diff = MemoryNoteDiff.compare(old: old, new: new)
+        guard diff.losesDetail else { return nil }
+        return toolFailure(
+            tool: name,
+            code: "memory_update_would_lose_details",
+            message: "This update drops \(diff.dropped.joined(separator: ", ")) from the existing note without adding a replacement, so that information would be lost.",
+            retryable: true,
+            hint: "Keep those details in the note. If a value changed, put the new value in the note instead; a corrected value replaces the old one. To record something new that does not replace the old note, save it with a different topic."
+        )
     }
 }

@@ -138,11 +138,37 @@ public struct MemoryHit: Codable, Sendable, Equatable {
     public var ref: MemoryRef
     public var note: String
     public var summary: String?
+    /// What the fact is about, when the writer named one (see ``MemoryTopic``).
+    public var topic: String?
 
-    public init(ref: MemoryRef, note: String, summary: String? = nil) {
+    public init(ref: MemoryRef, note: String, summary: String? = nil, topic: String? = nil) {
         self.ref = ref
         self.note = note
         self.summary = summary
+        self.topic = topic
+    }
+}
+
+/// A short stable name for what a fact is about (for example "billing service deploy key id"). Saving a fact again
+/// with the same topic in the same scope replaces the earlier entry, which makes a correction one typed step instead of
+/// a search-then-update protocol. Matching is exact after normalization; nothing is inferred from the note text.
+public enum MemoryTopic {
+    public static let metadataKey = "topic"
+    public static let maxLength = 80
+
+    /// The display form: trimmed, single-spaced, bounded. Nil when nothing usable is left.
+    public static func display(_ raw: String?) -> String? {
+        guard let raw else { return nil }
+        let collapsed = raw.split(whereSeparator: \.isWhitespace).joined(separator: " ")
+        guard !collapsed.isEmpty else { return nil }
+        return String(collapsed.prefix(maxLength))
+    }
+
+    /// The comparison key: case-folded alphanumeric words in their original order.
+    public static func key(_ raw: String) -> String {
+        raw.lowercased()
+            .split(whereSeparator: { !$0.isLetter && !$0.isNumber })
+            .joined(separator: " ")
     }
 }
 
