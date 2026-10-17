@@ -235,6 +235,39 @@ struct SloppyToolExecutionDelegateTests {
         #expect(await concurrency.tools == Set(["files.read", "web.search", "project.current"]))
     }
 
+    @Test("Side-effecting calls are barriers: reads overlap, writes run alone in model order")
+    func sideEffectingCallsActAsBarriers() async throws {
+        let log = BatchEventLog()
+        let delegate = SloppyToolExecutionDelegate(toolCallHandler: { request in
+            let label = request.arguments["label"]?.asString ?? request.tool
+            await log.record("start \(label)")
+            try? await Task.sleep(for: .milliseconds(60))
+            await log.record("end \(label)")
+            return ToolInvocationResult(tool: request.tool, ok: true)
+        })
+        let session = makeFakeSession()
+        func call(_ id: String, _ tool: String) -> Transcript.ToolCall {
+            Transcript.ToolCall(id: id, toolName: tool, arguments: GeneratedContent(properties: ["label": id]))
+        }
+        let calls = [
+            call("r1", "files.read"), call("r2", "files.grep"),
+            call("w1", "files.write"),
+            call("r3", "files.read"),
+        ]
+
+        await delegate.didGenerateToolCalls(calls, in: session)
+        for item in calls { _ = await delegate.toolCallDecision(for: item, in: session) }
+
+        let events = await log.events
+        let writeStart = try #require(events.firstIndex(of: "start w1"))
+        // Both reads of the first run finish before the write starts, and they overlap each other.
+        #expect(events.firstIndex(of: "end r1")! < writeStart)
+        #expect(events.firstIndex(of: "end r2")! < writeStart)
+        #expect(events.firstIndex(of: "start r2")! < events.firstIndex(of: "end r1")!)
+        // The trailing read waits for the write.
+        #expect(events.firstIndex(of: "start r3")! > events.firstIndex(of: "end w1")!)
+    }
+
     @Test("Tool decision override can stop before invocation")
     func toolDecisionOverrideCanStopBeforeInvocation() async throws {
         let capture = RequestCapture()
@@ -369,4 +402,9 @@ private struct StubLanguageModel: LanguageModel {
     }
 
     private enum StubError: Error { case notImplemented }
+}
+
+private actor BatchEventLog {
+    private(set) var events: [String] = []
+    func record(_ event: String) { events.append(event) }
 }

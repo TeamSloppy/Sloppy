@@ -71,11 +71,13 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
     private let emptyArgumentsAllowedTools: Set<String>
     private let executedToolCallHandler: (@Sendable (Transcript.ToolCall, Transcript.ToolOutput) async -> Void)?
     private let malformedArgumentsHandler: (@Sendable (ArgumentDiagnostic, Int) async -> Void)?
+    private let concurrencySafeTools: Set<String>
     private let preparedDecisionStore = PreparedDecisionStore()
 
     public init(
         toolNameMap: [String: String] = [:],
         emptyArgumentsAllowedTools: Set<String> = [],
+        concurrencySafeTools: Set<String> = ToolConcurrencyPolicy.readOnlyToolIDs,
         generatedToolCallsHandler: (@Sendable ([Transcript.ToolCall]) async -> Void)? = nil,
         toolCallDecisionOverride: (@Sendable (Transcript.ToolCall) async -> ToolExecutionDecision?)? = nil,
         argumentDiagnosticsHandler: (@Sendable (ArgumentDiagnostic) async -> Void)? = nil,
@@ -85,6 +87,7 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
     ) {
         self.toolNameMap = toolNameMap
         self.emptyArgumentsAllowedTools = emptyArgumentsAllowedTools
+        self.concurrencySafeTools = concurrencySafeTools
         self.generatedToolCallsHandler = generatedToolCallsHandler
         self.toolCallDecisionOverride = toolCallDecisionOverride
         self.argumentDiagnosticsHandler = argumentDiagnosticsHandler
@@ -99,23 +102,35 @@ public struct SloppyToolExecutionDelegate: ToolExecutionDelegate {
             return
         }
 
-        let prepared = await withTaskGroup(
-            of: (String, ToolExecutionDecision).self,
-            returning: [(String, ToolExecutionDecision)].self
-        ) { group in
-            for toolCall in toolCalls {
-                group.addTask {
-                    let decision = await resolveDecision(for: toolCall)
-                    return (toolCall.id, decision)
+        // Read-only runs execute together; any other call is a barrier that runs alone in model order.
+        let segments = ToolConcurrencyPolicy.segments(count: toolCalls.count) { index in
+            let name = toolCalls[index].toolName
+            return concurrencySafeTools.contains(toolNameMap[name] ?? name)
+        }
+        var prepared: [(String, ToolExecutionDecision)] = []
+        prepared.reserveCapacity(toolCalls.count)
+        for segment in segments {
+            if await preparedDecisionStore.stopped { break }
+            let calls = Array(toolCalls[segment])
+            if calls.count == 1 {
+                prepared.append((calls[0].id, await resolveDecision(for: calls[0])))
+                continue
+            }
+            let results = await withTaskGroup(
+                of: (String, ToolExecutionDecision).self,
+                returning: [(String, ToolExecutionDecision)].self
+            ) { group in
+                for toolCall in calls {
+                    group.addTask {
+                        (toolCall.id, await resolveDecision(for: toolCall))
+                    }
                 }
+                var collected: [(String, ToolExecutionDecision)] = []
+                collected.reserveCapacity(calls.count)
+                for await result in group { collected.append(result) }
+                return collected
             }
-
-            var results: [(String, ToolExecutionDecision)] = []
-            results.reserveCapacity(toolCalls.count)
-            for await result in group {
-                results.append(result)
-            }
-            return results
+            prepared.append(contentsOf: results)
         }
         await preparedDecisionStore.replace(with: prepared)
     }

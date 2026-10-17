@@ -71,7 +71,38 @@ public struct AgentSessionPathResolver {
         return nil
     }
 
+    /// Finding a session by id walks the whole dated tree (including every attachment), and one store
+    /// operation resolves paths several times. Remember where a session was found; a cached directory is
+    /// trusted only while its journal file still exists there.
+    private static let locationCacheLock = NSLock()
+    nonisolated(unsafe) private static var locationCache: [String: URL] = [:]
+
+    private func cachedDirectory(sessionID: String) -> URL? {
+        let key = sessionsDirectoryURL.path + "\u{0}" + sessionID
+        Self.locationCacheLock.lock()
+        let cached = Self.locationCache[key]
+        Self.locationCacheLock.unlock()
+        guard let cached else { return nil }
+        if fileManager.fileExists(atPath: cached.appendingPathComponent("session.jsonl").path) {
+            return cached
+        }
+        Self.locationCacheLock.lock()
+        Self.locationCache.removeValue(forKey: key)
+        Self.locationCacheLock.unlock()
+        return nil
+    }
+
+    private func rememberDirectory(_ directoryURL: URL, sessionID: String) {
+        let key = sessionsDirectoryURL.path + "\u{0}" + sessionID
+        Self.locationCacheLock.lock()
+        Self.locationCache[key] = directoryURL
+        Self.locationCacheLock.unlock()
+    }
+
     public func existingCanonicalLocation(sessionID: String) -> Location? {
+        if let directory = cachedDirectory(sessionID: sessionID) {
+            return canonicalLocation(sessionID: sessionID, directoryURL: directory)
+        }
         guard let enumerator = fileManager.enumerator(
             at: sessionsDirectoryURL,
             includingPropertiesForKeys: [.isRegularFileKey],
@@ -86,7 +117,9 @@ public struct AgentSessionPathResolver {
                   fileManager.fileExists(atPath: fileURL.path) else {
                 continue
             }
-            return canonicalLocation(sessionID: sessionID, directoryURL: fileURL.deletingLastPathComponent())
+            let directory = fileURL.deletingLastPathComponent()
+            rememberDirectory(directory, sessionID: sessionID)
+            return canonicalLocation(sessionID: sessionID, directoryURL: directory)
         }
         return nil
     }
