@@ -75,6 +75,7 @@ struct MemorySearchTool: CoreTool {
         let payload: [JSONValue] = hits.map { hit in
             .object([
                 "memory_id": .string(hit.ref.id),
+                "topic": hit.topic.map(JSONValue.string) ?? .null,
                 "score": .number(hit.ref.score),
                 "note": .string(hit.note),
                 "summary": hit.summary.map(JSONValue.string) ?? .null,

@@ -125,9 +125,38 @@ What the evaluation found and what changed:
   first 160 were never considered; and an embedding that failed at save time was never retried. Dimension mismatches
   now score zero and are re-embedded, missing vectors are backfilled, and all vectors in scope are ranked.
 
-Open: a weaker model still fails to apply corrections (answers with the old value) and sometimes does not save at all.
-Whether to resolve conflicts in the harness (for example update-in-place when a new note nearly duplicates an existing
-one in the same scope) needs its own design; it is not changed here.
+## Correcting facts
+
+Tracing the correction scenario on a weaker model showed what actually failed. The correction was usually *stored*
+correctly when the entry's UUID was visible, but then the model answered with that UUID ("what is the deploy key
+id?" matched `memory_id`). With the UUID removed from the recall block, the model called `memory.search`, saw the
+record, said "updated", and never called `memory.save`: the two-step "find the id, then update" protocol broke
+halfway. Rewriting the same text by similarity was rejected: "deploy key of X = A" and "deploy key of Y = A" are
+lexically almost identical, so any text-similarity merge would destroy a valid fact.
+
+The fix is a typed key instead of inference:
+
+- `memory.save` takes an optional `topic` (a short stable name such as "billing service deploy key id"). Saving again
+  with the same topic in the same scope **replaces** the earlier entry in one call and reports `replaced_note`; older
+  duplicates of that topic are removed. Matching is exact after case and punctuation folding (`MemoryTopic.key`).
+  Entries without a topic are never replaced, and different topics never interact.
+- The recall block shows `[topic]` before each entry and its header says to save again with the same topic, so the
+  key is in front of the model exactly when it needs it. It no longer shows record ids at all.
+- `memory.search`/`memory.get` results include `topic`. `memory_id` remains for editing one specific record.
+- The memory rules prompt and the checkpoint prompt describe the topic protocol.
+
+Results on `gemma4:31b-cloud` (isolated agents, 3 attempts per scenario):
+
+| scenario | before | after |
+|---|---|---|
+| correction | 0-1 of 6 | 3/3 |
+| correction-chain (two corrections) | n/a | 3/3 |
+| similar-facts-coexist (two services, same wording) | n/a | 3/3 |
+| all recall scenarios | 11/18 | 19/21 (90%) |
+
+Still open: in `checkpoint-recall` the foreground agent sometimes does not save a fact stated once, and the explicit
+checkpoint does not rescue it (2 of 3 attempts on the weak model; 1 of 3 earlier on the strong one). One reply still
+returned a record id taken from a `memory.search` result.
 
 ## Verification boundary
 

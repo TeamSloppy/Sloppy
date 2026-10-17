@@ -192,7 +192,7 @@ public actor InMemoryMemoryStore: MemoryStore {
                     source: entry.source,
                     createdAt: entry.createdAt
                 )
-                return MemoryHit(ref: ref, note: entry.note, summary: entry.summary)
+                return MemoryHit(ref: ref, note: entry.note, summary: entry.summary, topic: entry.metadata[MemoryTopic.metadataKey]?.asString)
             }
     }
 

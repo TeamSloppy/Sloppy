@@ -302,7 +302,7 @@ public actor HybridMemoryStore: MemoryStore {
                 source: entry.source,
                 createdAt: entry.createdAt
             )
-            hits.append(MemoryHit(ref: ref, note: entry.note, summary: entry.summary))
+            hits.append(MemoryHit(ref: ref, note: entry.note, summary: entry.summary, topic: entry.metadata[MemoryTopic.metadataKey]?.asString))
         }
 
         let returnedHits = Array(hits.prefix(limit))

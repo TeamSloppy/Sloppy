@@ -120,7 +120,7 @@ public actor MemoryDiagnostics {
             $0 + TokenPressureEstimator().estimateTextTokens($1.note + "\n" + ($1.summary ?? ""))
         }
         let hits = result.hits.prefix(100).map {
-            MemoryHit(ref: $0.ref, note: String($0.note.prefix(1000)), summary: $0.summary.map { String($0.prefix(500)) })
+            MemoryHit(ref: $0.ref, note: String($0.note.prefix(1000)), summary: $0.summary.map { String($0.prefix(500)) }, topic: $0.topic)
         }
         queries.append(MemoryQueryDiagnostic(
             id: UUID().uuidString, recordedAt: Date(), channelId: channelId, operationId: operationId,

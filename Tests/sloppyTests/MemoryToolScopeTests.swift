@@ -126,3 +126,111 @@ struct MemoryToolScopeTests {
         #expect(item?["note"]?.asString == "the deploy key id is K-1")
     }
 }
+
+@Suite
+struct MemoryTopicTests {
+    private func context(store: any MemoryStore, agent: String = "A") -> ToolContext {
+        let tmp = FileManager.default.temporaryDirectory
+        return ToolContext(
+            agentID: agent, sessionID: "s1", policy: AgentToolsPolicy(), workspaceRootURL: tmp,
+            runtime: RuntimeSystem(), memoryStore: store,
+            sessionStore: AgentSessionFileStore(agentsRootURL: tmp), agentCatalogStore: AgentCatalogFileStore(agentsRootURL: tmp),
+            agentSkillsStore: nil, processRegistry: SessionProcessRegistry(),
+            channelSessionStore: ChannelSessionFileStore(workspaceRootURL: tmp),
+            store: InMemoryCorePersistenceBuilder().makeStore(config: CoreConfig.test),
+            searchProviderService: SearchProviderService(config: CoreConfig.default.searchTools),
+            mcpRegistry: MCPClientRegistry(config: CoreConfig.default.mcp), logger: .sloppy(label: "test"),
+            projectService: nil, configService: nil, skillsService: nil, lspManager: nil, applyAgentMarkdown: nil,
+            delegateSubagent: nil
+        )
+    }
+
+    private func save(_ note: String, topic: String?, ctx: ToolContext, scope: String = "agent") async -> ToolInvocationResult {
+        var arguments: [String: JSONValue] = ["note": .string(note), "scope_type": .string(scope)]
+        if let topic { arguments["topic"] = .string(topic) }
+        return await MemorySaveTool().invoke(arguments: arguments, context: ctx)
+    }
+
+    @Test
+    func savingTheSameTopicAgainReplacesTheEarlierEntryInOneCall() async {
+        let store = HybridMemoryStore(config: CoreConfig.test)
+        let ctx = context(store: store)
+
+        let first = await save("The deploy key id of billing is OLD1.", topic: "billing deploy key id", ctx: ctx)
+        let second = await save("The deploy key id of billing is NEW2.", topic: "Billing   DEPLOY key-id", ctx: ctx)
+
+        #expect(first.ok && second.ok)
+        #expect(second.data?.asObject?["updated"]?.asBool == true)
+        #expect(second.data?.asObject?["id"]?.asString == first.data?.asObject?["id"]?.asString)
+        #expect(second.data?.asObject?["replaced_note"]?.asString == "The deploy key id of billing is OLD1.")
+        let notes = await store.entries(filter: MemoryEntryFilter(scope: .agent("A"))).map(\.note)
+        #expect(notes == ["The deploy key id of billing is NEW2."])
+    }
+
+    @Test
+    func differentTopicsAboutSimilarlyWordedFactsCoexist() async {
+        let store = HybridMemoryStore(config: CoreConfig.test)
+        let ctx = context(store: store)
+
+        _ = await save("The deploy key id of billing is K1.", topic: "billing deploy key id", ctx: ctx)
+        _ = await save("The deploy key id of payments is K2.", topic: "payments deploy key id", ctx: ctx)
+        _ = await save("The owner of billing is Alice.", topic: "billing owner", ctx: ctx)
+
+        let notes = Set(await store.entries(filter: MemoryEntryFilter(scope: .agent("A"))).map(\.note))
+        #expect(notes == [
+            "The deploy key id of billing is K1.", "The deploy key id of payments is K2.", "The owner of billing is Alice.",
+        ])
+    }
+
+    @Test
+    func topicsAreScopedAndEntriesWithoutATopicAreNeverReplaced() async {
+        let store = HybridMemoryStore(config: CoreConfig.test)
+        let ctx = context(store: store)
+
+        _ = await save("Agent level value one.", topic: "shared name", ctx: ctx, scope: "agent")
+        _ = await save("Chat level value.", topic: "shared name", ctx: ctx, scope: "channel")
+        _ = await save("A plain note.", topic: nil, ctx: ctx)
+        _ = await save("Another plain note.", topic: nil, ctx: ctx)
+
+        #expect(await store.entries(filter: MemoryEntryFilter(scope: .agent("A"))).count == 3)
+        #expect(await store.entries(filter: MemoryEntryFilter(scope: .channel("agent:A:session:s1"))).count == 1)
+    }
+
+    @Test
+    func replacingATopicAlsoRemovesOlderDuplicatesOfThatTopic() async {
+        let store = HybridMemoryStore(config: CoreConfig.test)
+        let ctx = context(store: store)
+        for note in ["Port is 1.", "Port is 2."] {
+            _ = await store.save(entry: MemoryWriteRequest(
+                note: note, scope: .agent("A"), metadata: [MemoryTopic.metadataKey: .string("service port")]))
+        }
+
+        let result = await save("Port is 3.", topic: "service port", ctx: ctx)
+
+        #expect(result.ok)
+        #expect(await store.entries(filter: MemoryEntryFilter(scope: .agent("A"))).map(\.note) == ["Port is 3."])
+    }
+
+    @Test
+    func searchResultsAndRecallLinesCarryTheTopicSoItCanBeReused() async {
+        let store = HybridMemoryStore(config: CoreConfig.test)
+        let ctx = context(store: store)
+        _ = await save("The deploy key id of billing is K1.", topic: "billing deploy key id", ctx: ctx)
+
+        let search = await MemorySearchTool().invoke(arguments: ["query": .string("deploy key billing")], context: ctx)
+        let item = search.data?.asObject?["items"]?.asArray?.first?.asObject
+        #expect(item?["topic"]?.asString == "billing deploy key id")
+
+        let hits = await store.recall(request: MemoryRecallRequest(query: "deploy key billing", limit: 5, scope: .agent("A")))
+        let block = RuntimeSystem.recalledMemoryBlock(hits: hits, limit: 5, maxCharacters: 6000)
+        #expect(block.lines.last?.hasPrefix("- [billing deploy key id] The deploy key id of billing is K1.") == true)
+    }
+
+    @Test
+    func topicNormalizationIsExactAfterCaseAndPunctuationFolding() {
+        #expect(MemoryTopic.key("Billing  Deploy-Key ID") == "billing deploy key id")
+        #expect(MemoryTopic.key("billing deploy key id") != MemoryTopic.key("deploy key id of billing"))
+        #expect(MemoryTopic.display("   ") == nil)
+        #expect(MemoryTopic.display(String(repeating: "x", count: 200))?.count == MemoryTopic.maxLength)
+    }
+}

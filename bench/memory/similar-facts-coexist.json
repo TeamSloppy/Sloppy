@@ -1,0 +1,17 @@
+{
+  "title": "Similarly worded facts about different services all survive",
+  "tags": ["recall", "isolation"],
+  "trackedTokens": ["{{K1}}", "{{K2}}"],
+  "steps": [
+    { "session": "teach", "say": "For later: the deploy key id of the {{A}} service is {{K1}}." },
+    { "session": "teach", "say": "Also for later: the deploy key id of the {{B}} service is {{K2}}." },
+    { "session": "use", "id": "askA", "say": "What is the deploy key id of the {{A}} service? Reply with the id only." },
+    { "session": "use", "id": "askB", "say": "What is the deploy key id of the {{B}} service? Reply with the id only." }
+  ],
+  "checks": [
+    { "kind": "reply_has", "step": "askA", "token": "{{K1}}" },
+    { "kind": "reply_has", "step": "askB", "token": "{{K2}}" },
+    { "kind": "reply_lacks", "step": "askA", "token": "{{K2}}" },
+    { "kind": "reply_lacks", "step": "askB", "token": "{{K1}}" }
+  ]
+}
