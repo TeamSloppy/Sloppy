@@ -1,0 +1,10 @@
+{
+  "title": "A project fact stated once is available in a fresh session",
+  "tags": ["recall"],
+  "trackedTokens": ["{{B}}"],
+  "steps": [
+    { "session": "teach", "say": "Heads up for later: our internal billing service is called {{A}}, and its deploy key id is {{B}}." },
+    { "session": "use", "id": "ask", "say": "What is the deploy key id of the {{A}} service? Reply with the id only." }
+  ],
+  "checks": [ { "kind": "reply_has", "step": "ask", "token": "{{B}}" } ]
+}

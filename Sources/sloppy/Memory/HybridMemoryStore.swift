@@ -17,6 +17,7 @@ public actor HybridMemoryStore: MemoryStore {
     private let embeddingService: EmbeddingService?
     /// Recent query embeddings, shared by the per-scope recalls of one turn. Tasks dedupe
     /// concurrent requests that arrive while the first embedding is still in flight.
+    private var isReconcilingEmbeddings = false
     private var queryEmbeddingTasks: [String: Task<[Float], Error>] = [:]
     private var queryEmbeddingOrder: [String] = []
     private let queryEmbeddingCacheLimit = 16
@@ -208,11 +209,22 @@ public actor HybridMemoryStore: MemoryStore {
             do {
                 let queryVector = try await queryEmbedding(for: request.query, using: embeddingService)
 #if canImport(CSQLite3)
-                let cosineMatches = queryCosineMatches(
+                let detailed = queryCosineMatchesDetailed(
                     queryVector: queryVector,
                     limit: semanticLimit,
                     scope: request.scope
                 )
+                let cosineMatches = detailed.matches
+                let unembedded = detailed.staleIDs + idsMissingEmbedding(scope: request.scope, limit: Self.reconcileBatchSize)
+                if !unembedded.isEmpty {
+                    logger.info("Memory entries need (re-)embedding", metadata: [
+                        "stale_dimension": "\(detailed.staleIDs.count)", "query_dimension": "\(queryVector.count)",
+                    ])
+                    let service = embeddingService
+                    Task { [weak self] in
+                        await self?.reconcileEmbeddings(ids: unembedded) { try await service.embed(texts: $0) }
+                    }
+                }
                 candidateCount = cosineMatches.count
                 for (id, score) in cosineMatches {
                     let weighted = Double(score) * retrieval.semanticWeight
@@ -540,7 +552,10 @@ public actor HybridMemoryStore: MemoryStore {
 extension HybridMemoryStore {
     /// Computes cosine similarity between two float vectors. Returns 0 for empty or mismatched inputs.
     static func cosineSimilarity(_ a: [Float], _ b: [Float]) -> Float {
-        let count = min(a.count, b.count)
+        // Vectors from different embedding models/dimensions live in unrelated spaces; comparing a shared prefix
+        // would yield a plausible-looking but meaningless score.
+        guard a.count == b.count else { return 0 }
+        let count = a.count
         guard count > 0 else { return 0 }
         var dot: Float = 0
         var normA: Float = 0
@@ -577,7 +592,15 @@ extension HybridMemoryStore {
     }
 
     func queryCosineMatches(queryVector: [Float], limit: Int, scope: MemoryScope?) -> [(String, Float)] {
-        guard let db, !queryVector.isEmpty else { return [] }
+        queryCosineMatchesDetailed(queryVector: queryVector, limit: limit, scope: scope).matches
+    }
+
+    /// Ranks stored vectors against `queryVector`. Vectors of a different dimension cannot be compared, so they are
+    /// not scored and are reported as `staleIDs` for re-embedding.
+    func queryCosineMatchesDetailed(
+        queryVector: [Float], limit: Int, scope: MemoryScope?
+    ) -> (matches: [(String, Float)], staleIDs: [String]) {
+        guard let db, !queryVector.isEmpty else { return ([], []) }
 
         let scopeJoin: String
         let scopeBindings: [String]
@@ -609,7 +632,7 @@ extension HybridMemoryStore {
             """
 
         var statement: OpaquePointer?
-        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return [] }
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return ([], []) }
         defer { sqlite3_finalize(statement) }
 
         var idx: Int32 = 1
@@ -617,9 +640,11 @@ extension HybridMemoryStore {
             bindText(binding, at: idx, statement: statement)
             idx += 1
         }
-        sqlite3_bind_int(statement, idx, Int32(max(1, limit * 4)))
+        // Rank every vector in scope: an unordered SQL LIMIT would drop arbitrary rows before ranking.
+        sqlite3_bind_int(statement, idx, Int32(Self.maxScannedEmbeddings))
 
         var results: [(String, Float)] = []
+        var staleIDs: [String] = []
         while sqlite3_step(statement) == SQLITE_ROW {
             guard let idPtr = sqlite3_column_text(statement, 0) else { continue }
             let id = String(cString: idPtr)
@@ -628,15 +653,71 @@ extension HybridMemoryStore {
             let blobData = Data(bytes: blobPtr, count: Int(blobSize))
             let storedVector = dataToFloats(blobData)
             guard !storedVector.isEmpty else { continue }
-            let score = Self.cosineSimilarity(queryVector, storedVector)
-            results.append((id, score))
+            guard storedVector.count == queryVector.count else {
+                staleIDs.append(id)
+                continue
+            }
+            results.append((id, Self.cosineSimilarity(queryVector, storedVector)))
         }
 
-        return results
+        let ranked = results
             .sorted { $0.1 > $1.1 }
             .prefix(limit)
             .map { $0 }
+        return (ranked, staleIDs)
     }
+
+    static let maxScannedEmbeddings = 50_000
+
+    /// Active entries in `scope` that have no stored vector (embedding failed at save time or predates embeddings).
+    func idsMissingEmbedding(scope: MemoryScope?, limit: Int) -> [String] {
+        guard let db else { return [] }
+        let scopeClause = scope == nil ? "" : "AND me.scope_type = ? AND me.scope_id = ?"
+        let sql = """
+            SELECT me.id FROM memory_entries me
+            LEFT JOIN memory_embeddings e ON e.memory_id = me.id
+            WHERE e.memory_id IS NULL AND me.deleted_at IS NULL AND (me.expires_at IS NULL OR me.expires_at > ?)
+            \(scopeClause)
+            ORDER BY me.updated_at DESC LIMIT ?;
+            """
+        var statement: OpaquePointer?
+        guard sqlite3_prepare_v2(db, sql, -1, &statement, nil) == SQLITE_OK else { return [] }
+        defer { sqlite3_finalize(statement) }
+        var idx: Int32 = 1
+        bindText(isoFormatter.string(from: Date()), at: idx, statement: statement); idx += 1
+        if let scope {
+            bindText(scope.type.rawValue, at: idx, statement: statement); idx += 1
+            bindText(scope.id, at: idx, statement: statement); idx += 1
+        }
+        sqlite3_bind_int(statement, idx, Int32(max(1, limit)))
+        var ids: [String] = []
+        while sqlite3_step(statement) == SQLITE_ROW {
+            if let ptr = sqlite3_column_text(statement, 0) { ids.append(String(cString: ptr)) }
+        }
+        return ids
+    }
+
+    /// Re-embeds the given entries with `embed`, replacing vectors of another dimension or filling in missing ones.
+    /// Bounded and serialized so a recall never fans out into an unbounded embedding job.
+    @discardableResult
+    func reconcileEmbeddings(ids: [String], embed: @Sendable ([String]) async throws -> [[Float]]) async -> Int {
+        guard !isReconcilingEmbeddings, !ids.isEmpty else { return 0 }
+        isReconcilingEmbeddings = true
+        defer { isReconcilingEmbeddings = false }
+        let entries = ids.prefix(Self.reconcileBatchSize).compactMap { loadEntry(id: $0) }
+        guard !entries.isEmpty else { return 0 }
+        do {
+            let vectors = try await embed(entries.map(\.note))
+            guard vectors.count == entries.count else { return 0 }
+            for (entry, vector) in zip(entries, vectors) { persistEmbedding(memoryId: entry.id, vector: vector) }
+            return entries.count
+        } catch {
+            logger.warning("Memory embedding reconcile failed: \(String(describing: error))")
+            return 0
+        }
+    }
+
+    static let reconcileBatchSize = 16
 #endif
 }
 

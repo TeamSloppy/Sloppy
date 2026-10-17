@@ -70,7 +70,7 @@ struct MemoryImportTests {
             ))
             #expect(recalled.ok, "\(toolID) must retrieve the imported record")
             let items = recalled.data?.asObject?["items"]?.asArray ?? []
-            #expect(items.contains { $0.asObject?["id"]?.asString == memoryID })
+            #expect(items.contains { $0.asObject?["memory_id"]?.asString == memoryID })
         }
         let reopened = HybridMemoryStore(config: config)
         let hits = await reopened.recall(request: .init(query: "Aurora", limit: 10, scope: .agent(agentID)))

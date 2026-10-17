@@ -90,6 +90,45 @@ searched only the current channel; checkpoint truncation discarded recent correc
 checkpoint reads used root documents while writes could target a user override;
 and projects without repositories lost their markdown on the read path.
 
+## Live evaluation (`sloppy bench memory`)
+
+`bench/memory/*.json` are multi-session scenarios run against a live Core (`sloppy bench memory --model <id>`).
+Each run gets a throwaway agent and random per-run tokens (`{{A}}`, `{{B}}`, ...), teaches facts in one session and
+asks in a fresh one. Pass/fail is an exact match for the planted token in the reply (and, for corrections, absence of
+the old value). The report also says where each fact ended up (`docs` = curated markdown, `sqlite` = memory entries,
+`nowhere`). Agents are isolated by default (`sharedMemoryEnabled: false`); `--shared-memory` measures the shared mode.
+
+Scenarios: fact stated once, explicit "remember", correction, implicit convention, explicit checkpoint, one fact among
+eight unrelated ones.
+
+Results (isolated agents, isolated Core, embeddings through Ollama `nomic-embed-text`):
+
+| model | before fixes | after fixes |
+|---|---|---|
+| gpt-6.1-sol | 17/18 (the miss: fact never saved, explicit checkpoint did not rescue it) | 12/12 |
+| gemma4:31b-cloud | 0/12 | 11/18 (61%) |
+
+What the evaluation found and what changed:
+
+- **Facts land in two layers, chosen by the model.** Personal facts and conventions went to the per-user `USER.md`,
+  project/service facts to SQLite. Both layers worked for a strong model, and a correction updated the entry in place.
+- **`memory.search` without a scope searched the whole store**, including other agents' and unrelated projects' memory.
+  It now searches the agent, the current project, the conversation, and shared memory only when enabled.
+- **The model had to invent `scope_id`.** The only concrete example in the tool descriptions was `global`/`shared`,
+  so weaker models used it, were rejected when shared memory was off, and did not recover. `scope_id` is now filled in
+  from the session when only `scope_type` is given, descriptions lead with `agent`, and rejections list the scopes that
+  work for the session.
+- **Search results named the record id `id`**, which a weaker model returned as the answer to "what is the deploy key
+  id?". The field is now `memory_id`, matching `memory.save`, in tool results and in the automatic recall block.
+- **Vector search integrity** (found while reading the retrieval code): vectors of a different dimension were compared
+  by their common prefix and scored as if comparable; the SQL `LIMIT` was applied before ranking so entries beyond the
+  first 160 were never considered; and an embedding that failed at save time was never retried. Dimension mismatches
+  now score zero and are re-embedded, missing vectors are backfilled, and all vectors in scope are ranked.
+
+Open: a weaker model still fails to apply corrections (answers with the old value) and sometimes does not save at all.
+Whether to resolve conflicts in the harness (for example update-in-place when a new note nearly duplicates an existing
+one in the same scope) needs its own design; it is not changed here.
+
 ## Verification boundary
 
 Regression tests cover curated-file survival across config reads and new sessions,

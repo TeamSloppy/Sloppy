@@ -288,3 +288,62 @@ func recallFindsPersistedFactForNaturalLanguageQueryAfterRestart() async throws 
     #expect(hits.count == 1)
     #expect(hits.first?.ref.id == factRef.id)
 }
+
+// MARK: - Embedding index integrity
+
+@Test func cosineSimilarityOfDifferentDimensionsIsZeroNotAPrefixComparison() {
+    // A shared-prefix comparison would score these 1.0; vectors from different models are not comparable.
+    #expect(HybridMemoryStore.cosineSimilarity([1, 0, 0], [1, 0, 0, 5, 5]) == 0)
+}
+
+@Test func vectorSearchRanksAllVectorsInScopeAndSkipsOtherDimensions() async throws {
+    let store = HybridMemoryStore(config: CoreConfig.test)
+    var ids: [String] = []
+    for index in 0..<220 {
+        let ref = await store.save(entry: MemoryWriteRequest(note: "filler fact \(index)"))
+        ids.append(ref.id)
+        // Every filler points away from the query; the best match is saved last.
+        await store.persistEmbedding(memoryId: ref.id, vector: [0.01, 1, 0])
+    }
+    let best = await store.save(entry: MemoryWriteRequest(note: "the actual answer"))
+    await store.persistEmbedding(memoryId: best.id, vector: [1, 0, 0])
+    let other = await store.save(entry: MemoryWriteRequest(note: "embedded by another model"))
+    await store.persistEmbedding(memoryId: other.id, vector: [1, 0, 0, 0, 0])
+
+    let result = await store.queryCosineMatchesDetailed(queryVector: [1, 0, 0], limit: 5, scope: nil)
+
+    #expect(result.matches.first?.0 == best.id, "an unordered SQL LIMIT would have dropped it")
+    #expect(!result.matches.contains { $0.0 == other.id })
+    #expect(result.staleIDs == [other.id])
+}
+
+@Test func reconcileFillsMissingAndReplacesStaleVectors() async throws {
+    let store = HybridMemoryStore(config: CoreConfig.test)
+    let missing = await store.save(entry: MemoryWriteRequest(note: "never embedded"))
+    let stale = await store.save(entry: MemoryWriteRequest(note: "old model vector"))
+    await store.persistEmbedding(memoryId: stale.id, vector: [1, 2, 3, 4, 5])
+    let fine = await store.save(entry: MemoryWriteRequest(note: "already current"))
+    await store.persistEmbedding(memoryId: fine.id, vector: [0, 1])
+
+    let missingIDs = await store.idsMissingEmbedding(scope: nil, limit: 10)
+    #expect(Set(missingIDs) == [missing.id])
+
+    let detailed = await store.queryCosineMatchesDetailed(queryVector: [1, 0], limit: 10, scope: nil)
+    #expect(detailed.staleIDs == [stale.id])
+
+    let reconciled = await store.reconcileEmbeddings(ids: missingIDs + detailed.staleIDs) { texts in texts.map { _ in [1, 0] } }
+
+    #expect(reconciled == 2)
+    #expect(await store.idsMissingEmbedding(scope: nil, limit: 10).isEmpty)
+    #expect(await store.queryCosineMatchesDetailed(queryVector: [1, 0], limit: 10, scope: nil).staleIDs.isEmpty)
+}
+
+@Test func reconcileLeavesIndexUntouchedWhenEmbeddingFails() async throws {
+    let store = HybridMemoryStore(config: CoreConfig.test)
+    let entry = await store.save(entry: MemoryWriteRequest(note: "endpoint is down"))
+
+    let reconciled = await store.reconcileEmbeddings(ids: [entry.id]) { _ in throw URLError(.notConnectedToInternet) }
+
+    #expect(reconciled == 0)
+    #expect(await store.idsMissingEmbedding(scope: nil, limit: 10) == [entry.id], "retried on a later recall")
+}

@@ -562,12 +562,56 @@ func isSharedMemoryScope(_ scope: MemoryScope?) -> Bool {
     return scope.type == .global && scope.id == "shared"
 }
 
-func sharedMemoryDisabledFailure(tool: String) -> ToolInvocationResult {
+/// The conversation scope id of the calling session.
+func sessionMemoryChannelID(context: ToolContext) -> String {
+    context.channelID ?? "agent:\(context.agentID):session:\(context.sessionID)"
+}
+
+/// Scopes this session may read without naming one: its agent, the current project, this conversation, and shared
+/// memory only when the agent has it enabled. Other agents' and unrelated projects' memory is never included.
+func visibleMemoryScopes(context: ToolContext) -> [MemoryScope] {
+    var scopes: [MemoryScope] = [.agent(context.agentID)]
+    if let projectID = context.currentProjectID { scopes.append(.project(projectID)) }
+    scopes.append(.channel(sessionMemoryChannelID(context: context)))
+    if context.sharedMemoryEnabled { scopes.append(MemoryScope(type: .global, id: "shared")) }
+    return scopes
+}
+
+/// Concrete, copyable scope values for this session, used in error hints so a model can retry correctly.
+func memoryScopeHint(context: ToolContext) -> String {
+    var lines = [
+        "Valid scopes for this session (scope_id may be omitted, it is filled in automatically):",
+        "- scope_type=agent (scope_id=\(context.agentID)): knowledge reusable across sessions",
+    ]
+    if let projectID = context.currentProjectID {
+        lines.append("- scope_type=project (scope_id=\(projectID)): knowledge about the current project")
+    }
+    lines.append("- scope_type=channel (scope_id=\(sessionMemoryChannelID(context: context))): only this conversation")
+    if context.sharedMemoryEnabled { lines.append("- scope_type=global (scope_id=shared): visible to every enabled agent") }
+    return lines.joined(separator: "\n")
+}
+
+/// Like `parseMemoryScope(from:)`, but when only `scope_type` (or `scope.type`) is given, the id is resolved from
+/// the calling session. Models should not have to know or guess identifiers the runtime already has.
+func completedMemoryScope(from arguments: [String: JSONValue], context: ToolContext) -> MemoryScope? {
+    if let scope = parseMemoryScope(from: arguments) { return scope }
+    let typeName = (arguments["scope"]?.asObject?["type"]?.asString ?? arguments["scope_type"]?.asString)?.lowercased()
+    guard let typeName, let type = MemoryScopeType(rawValue: typeName) else { return nil }
+    switch type {
+    case .agent: return .agent(context.agentID)
+    case .project: return context.currentProjectID.map { .project($0) }
+    case .channel: return .channel(sessionMemoryChannelID(context: context))
+    case .global: return MemoryScope(type: .global, id: "shared")
+    }
+}
+
+func sharedMemoryDisabledFailure(tool: String, context: ToolContext? = nil) -> ToolInvocationResult {
     toolFailure(
         tool: tool,
         code: "shared_memory_disabled",
         message: "Shared memory is disabled for this agent. Use an agent, channel, or project scope instead.",
-        retryable: false
+        retryable: false,
+        hint: context.map(memoryScopeHint)
     )
 }
 
@@ -575,7 +619,7 @@ func rejectDisabledSharedMemory(scope: MemoryScope?, context: ToolContext, tool:
     guard isSharedMemoryScope(scope), !context.sharedMemoryEnabled else {
         return nil
     }
-    return sharedMemoryDisabledFailure(tool: tool)
+    return sharedMemoryDisabledFailure(tool: tool, context: context)
 }
 
 // MARK: - Project helpers (pure functions)
