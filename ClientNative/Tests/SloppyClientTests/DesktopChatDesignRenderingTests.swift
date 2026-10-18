@@ -50,6 +50,7 @@ struct DesktopChatDesignRenderingTests {
             }
             .background(Theme.sloppyDark.colors.background)
             .environment(\.theme, .sloppyDark)
+            .environment(\.scenePhase, .active)
             .environment(chat)
             .environment(monitor)
             .preferredColorScheme(.dark)
@@ -67,6 +68,19 @@ struct DesktopChatDesignRenderingTests {
             host.cacheDisplay(in: host.bounds, to: bitmap)
             try #require(bitmap.representation(using: .png, properties: [:]))
                 .write(to: URL(fileURLWithPath: directory).appendingPathComponent("desktop-chat.png"))
+        }
+
+        chat.transcript.replaceAll([])
+        try await Task.sleep(for: .milliseconds(300))
+        if let directory = ProcessInfo.processInfo.environment["SLOPPY_DESIGN_SCREENSHOTS"] {
+            for frame in 0..<2 {
+                host.layoutSubtreeIfNeeded()
+                let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+                try #require(bitmap.representation(using: .png, properties: [:]))
+                    .write(to: URL(fileURLWithPath: directory).appendingPathComponent("desktop-empty-ascii-\(frame).png"))
+                try await Task.sleep(for: .milliseconds(1500))
+            }
         }
 
         let composerHost = NSHostingView(rootView:

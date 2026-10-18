@@ -53,6 +53,11 @@ struct ChatChrome: View {
                     heroWidth: heroWidth,
                     bottomClearance: composerScrollInset
                 )
+#if os(macOS)
+                .background {
+                    ChatASCIIBackground(protectedWidth: heroWidth)
+                }
+#endif
             } else {
                 ChatTranscriptRegion(
                     viewModel: viewModel,
