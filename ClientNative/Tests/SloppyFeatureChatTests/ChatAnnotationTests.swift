@@ -136,6 +136,39 @@ struct ChatAnnotationTests {
         queue.enqueue(content: "Apply", attachments: [], quotes: model.composerQuotes)
         #expect(queue.dequeue()?.quotes == [quote])
     }
+
+    @Test("browser annotations preserve page context and never enter a different draft")
+    @MainActor
+    func browserAnnotationDeliveryAndEditing() throws {
+        let api = SloppyAPIClient()
+        let model = ChatScreenViewModel(apiClient: api, cacheStore: ClientCacheStore(path: ":memory:"),
+            settings: ClientSettings(), connectionMonitor: ConnectionMonitor(baseURL: api.baseURL),
+            restoresLastSession: false, responseNotificationScheduler: AnnotationTestNotifications(),
+            onOpenSettings: { _ in })
+        model.syncComposerDraft(toSessionId: "one", projectId: nil, taskId: nil, agentId: "agent")
+        let receiver = model.makeBrowserAnnotationReceiver()
+        let url = try #require(URL(string: "http://localhost:8765/editor"))
+        let note = ChatImageAnnotation(region: .init(x: 0.2, y: 0.3, width: 0.1, height: 0.2), comment: "Enlarge",
+            browserSource: .init(url: url, title: "Editor", selector: "#create"))
+        let attachment = ChatComposerAttachment(name: "Browser annotation.png", mimeType: "image/png",
+            data: Data([1, 2, 3]), annotations: [note])
+        #expect(receiver(attachment))
+        let content = ChatComposerQuote.messageContent("Please fix", quotes: [], attachments: model.composerAttachments)
+        #expect(content.contains("Page URL: http://localhost:8765/editor"))
+        #expect(content.contains("CSS selector: #create"))
+        var queue = ChatMessageQueue()
+        queue.enqueue(content: "Fix", attachments: model.composerAttachments)
+        #expect(queue.dequeue()?.attachments.first?.annotations.first?.browserSource == note.browserSource)
+        var edited = note
+        edited.comment = "Updated"
+        model.updateImageAnnotations(id: attachment.id, annotations: [edited])
+        #expect(model.composerAttachments.first?.annotations.first?.browserSource == note.browserSource)
+        model.updateImageAnnotations(id: attachment.id, annotations: [])
+        #expect(model.composerAttachments.isEmpty)
+        model.syncComposerDraft(toSessionId: "two", projectId: nil, taskId: nil, agentId: "agent")
+        #expect(!receiver(attachment))
+        #expect(model.composerAttachments.isEmpty)
+    }
 }
 
 @MainActor

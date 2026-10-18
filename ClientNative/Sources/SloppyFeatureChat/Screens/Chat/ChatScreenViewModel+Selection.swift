@@ -142,6 +142,11 @@ extension ChatScreenViewModel {
 
     public func updateImageAnnotations(id: ChatComposerAttachment.ID, annotations: [ChatImageAnnotation]) {
         guard let index = composerAttachments.firstIndex(where: { $0.id == id }) else { return }
+        if annotations.isEmpty, !composerAttachments[index].annotations.isEmpty,
+           composerAttachments[index].annotations.allSatisfy({ $0.browserSource != nil }) {
+            removeComposerAttachment(id: id)
+            return
+        }
         composerAttachments[index].annotations = annotations
         saveActiveComposerDraft()
     }

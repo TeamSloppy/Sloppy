@@ -25,6 +25,7 @@ final class WorkspaceBrowserToolRuntime: NSObject {
     let webView: WKWebView
     var onStateChange: (@MainActor (WKWebView, String?) -> Void)?
     var onNavigationFinished: (@MainActor (WKWebView) -> Void)?
+    var onNavigationStarted: (@MainActor () -> Void)?
     private var navigationError: Error?
     private var navigationPending = false
     private var titleObservation: NSKeyValueObservation?
@@ -224,6 +225,7 @@ extension WorkspaceBrowserToolRuntime: WKNavigationDelegate, WKUIDelegate, Works
     func goForward() { navigationError = nil; webView.goForward() }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        onNavigationStarted?()
         navigationError = nil
         navigationPending = true
         onStateChange?(webView, nil)

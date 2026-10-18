@@ -78,7 +78,8 @@ extension MainView {
                 WorkspaceBrowserPanelView(
                     viewModel: browser,
                     onOpenTool: { selectWorkspaceSidePanelItem($0) },
-                    allowsProjectTools: viewModel.workspaceDockState.context != nil
+                    allowsProjectTools: viewModel.workspaceDockState.context != nil,
+                    onAnnotate: browserAnnotationReceiver
                 )
             }
         case .terminal:
@@ -113,6 +114,11 @@ extension MainView {
                 }
             }
         }
+    }
+
+    var browserAnnotationReceiver: (@MainActor () -> (@MainActor (ChatComposerAttachment) -> Bool))? {
+        guard let chat = activeChatViewModel else { return nil }
+        return { chat.makeBrowserAnnotationReceiver() }
     }
 
     @ViewBuilder
