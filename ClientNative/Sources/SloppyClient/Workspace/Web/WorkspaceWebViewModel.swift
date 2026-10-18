@@ -13,6 +13,9 @@ protocol WorkspaceWebViewControlling: AnyObject {
 @MainActor
 final class WorkspaceWebViewModel {
     let history: WorkspaceBrowserHistory
+#if os(macOS)
+    let annotations = WorkspaceBrowserAnnotations()
+#endif
     var currentURL: URL?
     var addressText: String = ""
     var pageTitle: String?
@@ -47,6 +50,7 @@ final class WorkspaceWebViewModel {
         runtime.onNavigationFinished = { [weak self] webView in
             self?.history.record(url: webView.url, title: webView.title)
         }
+        runtime.onNavigationStarted = { [weak self] in self?.annotations.stopPicking() }
         browserRuntime = runtime
         controller = runtime
         return runtime

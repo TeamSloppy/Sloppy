@@ -6,6 +6,25 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 extension ChatScreenViewModel {
+    /// Binds a browser annotation to the chat/draft that was visible when annotation began.
+    public func makeBrowserAnnotationReceiver() -> @MainActor (ChatComposerAttachment) -> Bool {
+        let draftKey = activeComposerDraftKey
+        let sessionID = selectedSessionId
+        let agentID = selectedAgent?.id
+        let endpoint = sessionEndpoint
+        return { [weak self] attachment in
+            guard let self, activeComposerDraftKey == draftKey, selectedSessionId == sessionID,
+                  selectedAgent?.id == agentID, sessionEndpoint == endpoint,
+                  attachment.mimeType == "image/png", !attachment.annotations.isEmpty,
+                  attachment.data.count <= Self.maximumAttachmentSize,
+                  composerAttachments.count < Self.maximumAttachmentCount else { return false }
+            composerAttachments.append(attachment)
+            saveActiveComposerDraft()
+            requestComposerFocus()
+            return true
+        }
+    }
+
     public func attachProjectFileReference(projectId: String, path: String, type: String) {
         let trimmedPath = path.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedPath.isEmpty else { return }

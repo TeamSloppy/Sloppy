@@ -38,7 +38,7 @@ struct ChatImageAnnotationEditor: View {
                 Button("Cancel") { dismiss() }
                     .keyboardShortcut(.cancelAction)
                 Button("Add to chat") {
-                    save(annotations)
+                    save(annotations.filter { $0.browserSource == nil || !$0.comment.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty })
                     dismiss()
                 }
                 .keyboardShortcut(.defaultAction)
@@ -203,7 +203,10 @@ struct ChatImageAnnotationEditor: View {
     }
 
     private func addAnnotation(_ region: ChatImageRegion) {
-        let annotation = ChatImageAnnotation(region: region)
+        let source = attachment.annotations.compactMap(\.browserSource).first.map {
+            ChatImageAnnotation.BrowserSource(url: $0.url, title: $0.title)
+        }
+        let annotation = ChatImageAnnotation(region: region, browserSource: source)
         annotations.append(annotation)
         selectedID = annotation.id
         focusedAnnotationID = annotation.id

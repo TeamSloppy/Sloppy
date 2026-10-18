@@ -26,7 +26,7 @@ public struct ChatImageRegion: Sendable, Equatable {
         return Self(x: min(sx, ex), y: min(sy, ey), width: abs(ex - sx), height: abs(ey - sy))
     }
 
-    static func imageFrame(imageSize: CGSize, canvasSize: CGSize) -> CGRect {
+    public static func imageFrame(imageSize: CGSize, canvasSize: CGSize) -> CGRect {
         guard imageSize.width > 0, imageSize.height > 0 else { return .zero }
         let scale = min(canvasSize.width / imageSize.width, canvasSize.height / imageSize.height)
         let size = CGSize(width: imageSize.width * scale, height: imageSize.height * scale)
@@ -50,13 +50,27 @@ public struct ChatImageRegion: Sendable, Equatable {
 }
 
 public struct ChatImageAnnotation: Identifiable, Sendable, Equatable {
+    public struct BrowserSource: Sendable, Equatable {
+        public let url: URL
+        public let title: String
+        public let selector: String?
+
+        public init(url: URL, title: String, selector: String? = nil) {
+            self.url = url
+            self.title = title
+            self.selector = selector
+        }
+    }
+
     public let id: UUID
     public let region: ChatImageRegion
     public var comment: String
+    public let browserSource: BrowserSource?
 
-    public init(id: UUID = UUID(), region: ChatImageRegion, comment: String = "") {
+    public init(id: UUID = UUID(), region: ChatImageRegion, comment: String = "", browserSource: BrowserSource? = nil) {
         self.id = id
         self.region = region
         self.comment = comment
+        self.browserSource = browserSource
     }
 }

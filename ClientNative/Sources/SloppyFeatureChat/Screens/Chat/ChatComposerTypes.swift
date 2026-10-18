@@ -92,7 +92,10 @@ public struct ChatComposerQuote: Identifiable, Sendable, Equatable {
         let imageAnnotations = attachments.enumerated().compactMap { index, attachment -> String? in
             guard !attachment.annotations.isEmpty else { return nil }
             let notes = attachment.annotations.enumerated().map { number, annotation in
-                "\(number + 1). (\(annotation.region.coordinateDescription)) \(annotation.comment)"
+                let note = "\(number + 1). (\(annotation.region.coordinateDescription)) \(annotation.comment)"
+                guard let source = annotation.browserSource else { return note }
+                return note + "\nPage URL: \(source.url.absoluteString)\nPage title: \(source.title)"
+                    + (source.selector.map { "\nCSS selector: \($0)" } ?? "")
             }.joined(separator: "\n")
             return "Image annotations — attachment \(index + 1): \(attachment.name)\n"
                 + "Coordinates are percentages of the original image; origin is top-left.\n\(notes)"
