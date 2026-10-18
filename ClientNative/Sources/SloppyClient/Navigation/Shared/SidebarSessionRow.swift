@@ -130,8 +130,9 @@ struct SidebarSessionRow: View {
 
     private var content: some View {
         HStack(spacing: theme.spacing.s) {
-            SidebarSessionAvatar(agentID: session.agentId, agents: avatarAgents,
-                                 activity: activity, requiresApproval: requiresApproval)
+#if !os(macOS)
+            sessionIndicator
+#endif
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: theme.typography.body))
@@ -156,6 +157,9 @@ struct SidebarSessionRow: View {
                 }
             }
             Spacer(minLength: 0)
+#if os(macOS)
+            sessionIndicator
+#endif
             if isPinned {
                 Icons.symbol(.pushPin, size: theme.typography.caption)
                     .foregroundColor(theme.colors.textMuted)
@@ -171,6 +175,11 @@ struct SidebarSessionRow: View {
             }
         }
         .contentShape(Rectangle())
+    }
+
+    private var sessionIndicator: some View {
+        SidebarSessionAvatar(agentID: session.agentId, agents: avatarAgents,
+                             activity: activity, requiresApproval: requiresApproval)
     }
 }
 

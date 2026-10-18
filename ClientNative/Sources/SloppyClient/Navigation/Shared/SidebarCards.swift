@@ -75,15 +75,17 @@ struct SidebarSessionCard: View {
     private var content: some View {
         VStack(alignment: .leading, spacing: theme.spacing.s) {
             HStack(spacing: theme.spacing.xs) {
-                SidebarSessionAvatar(agentID: session.agentId,
-                                     agents: viewModel.sidebarSessionAvatarAgents(for: session),
-                                     activity: viewModel.sidebarSessionActivity(for: session),
-                                     requiresApproval: requiresApproval, size: 24)
+#if !os(macOS)
+                sessionIndicator
+#endif
                 Text(cardDate(session.updatedAt))
                     .font(.system(size: theme.typography.caption, weight: .semibold))
                     .foregroundColor(theme.colors.textMuted)
                     .lineLimit(1)
                 Spacer(minLength: 0)
+#if os(macOS)
+                sessionIndicator
+#endif
                 if isPinned {
                     Icons.symbol(.pushPin, size: theme.typography.caption)
                         .foregroundColor(theme.colors.textMuted)
@@ -125,6 +127,13 @@ struct SidebarSessionCard: View {
             RoundedRectangle(cornerRadius: 24, style: .continuous)
                 .stroke(isSelected ? theme.colors.accent : theme.colors.border, lineWidth: theme.borders.thin)
             }
+    }
+
+    private var sessionIndicator: some View {
+        SidebarSessionAvatar(agentID: session.agentId,
+                             agents: viewModel.sidebarSessionAvatarAgents(for: session),
+                             activity: viewModel.sidebarSessionActivity(for: session),
+                             requiresApproval: requiresApproval, size: 24)
     }
 
     private func setChatColor(_ value: String?) {
