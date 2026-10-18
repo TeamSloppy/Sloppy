@@ -84,7 +84,7 @@
               .padding(.vertical, 7)
               .contentShape(Rectangle())
           }
-          .buttonStyle(.plain)
+          .buttonStyle(SelectionToolbarButtonStyle())
           .accessibilityIdentifier("textual.selection.action.\(index)")
         }
       }
@@ -94,6 +94,17 @@
       .background(Color(nsColor: .controlBackgroundColor))
       .clipShape(RoundedRectangle(cornerRadius: 10))
       .overlay { RoundedRectangle(cornerRadius: 10).strokeBorder(.primary.opacity(0.14), lineWidth: 1) }
+    }
+  }
+
+  private struct SelectionToolbarButtonStyle: ButtonStyle {
+    @State private var isHovered = false
+
+    func makeBody(configuration: Configuration) -> some View {
+      configuration.label
+        .frame(height: 30)
+        .background(.primary.opacity(configuration.isPressed ? 0.18 : (isHovered ? 0.1 : 0)))
+        .onHover { isHovered = $0 }
     }
   }
 #endif
