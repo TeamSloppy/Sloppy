@@ -29,6 +29,9 @@ extension MainView {
         .environment(\.chatFileOpenHandler, { reference, chat in
             viewModel.openSourceFile(reference, from: chat)
         })
+        .environment(\.chatComposerReferenceOpenHandler, { reference, chat in
+            viewModel.openComposerReference(reference, from: chat)
+        })
         .task(id: attentionScenePhase) {
             guard attentionScenePhase == .active else { return }
             while !Task.isCancelled {

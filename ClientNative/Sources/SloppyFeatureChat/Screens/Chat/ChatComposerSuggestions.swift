@@ -15,6 +15,7 @@ struct ChatComposerSuggestion: Identifiable, Equatable, Sendable {
     var title: String
     var subtitle: String
     var insertion: String
+    var reference: ChatComposerReference? = nil
 }
 
 enum ChatComposerSuggestionSelectionDirection: Equatable, Sendable {
@@ -153,6 +154,8 @@ extension ChatComposerSuggestion {
         Self(id: "session:\(summary.agentId):\(summary.id)", kind: .session, title: "@" + summary.title,
              subtitle: ["Session", summary.agentId, summary.projectId, String(summary.id.suffix(8)), summary.kind]
                 .compactMap { $0 }.joined(separator: " · "),
-             insertion: ChatSessionReference(agentId: summary.agentId, sessionId: summary.id).markdown(title: summary.title))
+             insertion: ChatSessionReference(agentId: summary.agentId, sessionId: summary.id).markdown(title: summary.title),
+             reference: .init(rawText: ChatSessionReference(agentId: summary.agentId, sessionId: summary.id).markdown(title: summary.title),
+                              title: summary.displayTitle, target: .session(agentId: summary.agentId, sessionId: summary.id)))
     }
 }

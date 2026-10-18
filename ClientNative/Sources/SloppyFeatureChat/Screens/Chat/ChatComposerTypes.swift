@@ -96,6 +96,7 @@ struct StoredComposerDraft {
     var text: String
     var attachments: [ChatComposerAttachment]
     var quotes: [ChatComposerQuote]
+    var references: [ChatComposerReference] = []
 }
 
 enum PendingComposerTextMutation {

@@ -25,7 +25,7 @@ final class WorkspaceDockState {
             if present { select(tab) }
             return tab
         }
-        if kind == .files || kind == .review, let tab = tabs.first(where: { $0.kind == kind && $0.sourceFile == nil }) {
+        if kind == .files || kind == .review, let tab = tabs.first(where: { $0.kind == kind && $0.sourceFile == nil && $0.referencePreview == nil }) {
             if present { select(tab) }
             return tab
         }
@@ -33,6 +33,20 @@ final class WorkspaceDockState {
         let tab = WorkspaceDockTab(kind: kind, number: number, browser: browser)
         tabs.append(tab)
         if present { select(tab) }
+        return tab
+    }
+
+    @discardableResult
+    func openReferencePreview(_ reference: ChatComposerReference, apiClient: SloppyAPIClient) -> WorkspaceDockTab {
+        if let tab = tabs.first(where: { $0.referencedObject?.target == reference.target && $0.referencePreview?.apiClient.endpoint == apiClient.endpoint }) {
+            select(tab)
+            return tab
+        }
+        let tab = WorkspaceDockTab(kind: .files, number: (tabs.filter { $0.kind == .files }.map(\.number).max() ?? 0) + 1)
+        tab.referencedObject = reference
+        tab.referencePreview = WorkspaceReferencePreviewModel(reference: reference, apiClient: apiClient)
+        tabs.append(tab)
+        select(tab)
         return tab
     }
 
@@ -119,8 +133,10 @@ final class WorkspaceDockTab: Identifiable {
     var terminal: WorkspaceTerminalSession?
     var panel: WorkspacePanelViewModel?
     var sourceFile: WorkspaceSourceFileViewModel?
+    var referencedObject: ChatComposerReference?
+    var referencePreview: WorkspaceReferencePreviewModel?
 
-    var systemImage: String { sourceFile == nil ? kind.systemImage : "chevron.left.forwardslash.chevron.right" }
+    var systemImage: String { referencedObject?.systemImage ?? (sourceFile == nil ? kind.systemImage : "chevron.left.forwardslash.chevron.right") }
 
     init(kind: WorkspaceSidePanelItem, number: Int, browser: WorkspaceWebViewModel? = nil) {
         self.kind = kind
@@ -129,6 +145,7 @@ final class WorkspaceDockTab: Identifiable {
     }
 
     var title: String {
+        if let referencedObject { return referencedObject.title }
         if let reviewDisplayTitle { return reviewDisplayTitle }
         if let sourceFile { return sourceFile.title }
         if let browser {

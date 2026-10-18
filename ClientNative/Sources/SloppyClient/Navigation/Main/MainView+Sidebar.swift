@@ -94,7 +94,9 @@ extension MainView {
 #endif
             }
         case .review, .files:
-            if let sourceFile = tab.sourceFile {
+            if let preview = tab.referencePreview {
+                WorkspaceReferencePreview(viewModel: preview)
+            } else if let sourceFile = tab.sourceFile {
                 WorkspaceSourceFileView(viewModel: sourceFile)
             } else if let context = viewModel.workspaceDockState.context, let panel = tab.panel {
                 WorkspacePanelView(viewModel: panel, context: context,

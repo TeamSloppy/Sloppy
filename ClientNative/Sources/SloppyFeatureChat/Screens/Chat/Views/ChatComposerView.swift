@@ -13,6 +13,15 @@ import UIKit
 @Observable
 @MainActor
 public final class ChatComposerDraft {
+    public var references: [ChatComposerReference] = []
+
+    public func registerReferences(_ references: [ChatComposerReference]) {
+        for reference in references {
+            self.references.removeAll { $0.rawText == reference.rawText }
+            self.references.append(reference)
+        }
+    }
+
     public var text: String {
         didSet {
             if text != oldValue {

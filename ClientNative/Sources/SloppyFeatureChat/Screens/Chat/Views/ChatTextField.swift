@@ -44,6 +44,7 @@ struct ChatTextField: View {
     @State private var editorHeight = Constants.editorMinimumHeight
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
+    @Environment(\.chatComposerReferenceOpenHandler) private var referenceOpenHandler
     @Environment(ChatScreenViewModel.self) private var viewModel
 
     private var agentDisplayName: String {
@@ -141,7 +142,10 @@ struct ChatTextField: View {
             moveSuggestionSelection: viewModel.moveComposerSuggestionSelection,
             applySelectedSuggestion: viewModel.applySelectedComposerSuggestion,
             submit: submit,
-            pasteAttachment: pasteAttachmentsFromSystemPasteboard
+            pasteAttachment: pasteAttachmentsFromSystemPasteboard,
+            references: draft.references,
+            openReference: { reference in referenceOpenHandler?(reference, viewModel) },
+            registerReferences: viewModel.registerComposerReferences
         )
         #else
         UIKitChatComposerTextEditor(
