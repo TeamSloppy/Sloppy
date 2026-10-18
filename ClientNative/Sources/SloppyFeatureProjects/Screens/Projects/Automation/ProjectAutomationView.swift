@@ -73,7 +73,7 @@ public struct ProjectAutomationView: View {
             } label: {
                 Label("New Automation", systemImage: "plus")
             }
-            .buttonStyle(.borderedProminent)
+            .appPrimaryButton()
             .accessibilityIdentifier("project-automation-create")
 
             Button {
@@ -167,7 +167,7 @@ public struct ProjectAutomationView: View {
                 Button("Try Again") {
                     Task { await viewModel.load(projectId: projectId) }
                 }
-                .buttonStyle(.borderedProminent)
+                .appPrimaryButton()
             } else {
                 #if !os(iOS)
                 Button {
@@ -175,7 +175,7 @@ public struct ProjectAutomationView: View {
                 } label: {
                     Label("New Automation", systemImage: "plus")
                 }
-                .buttonStyle(.borderedProminent)
+                .appPrimaryButton()
                 .accessibilityIdentifier("project-automation-empty-create")
                 #endif
             }
@@ -243,7 +243,7 @@ public struct ProjectAutomationView: View {
                         Label("Run Now", systemImage: "play.fill")
                     }
                 }
-                .buttonStyle(.borderedProminent)
+                .appPrimaryButton()
                 .disabled(!automation.enabled || viewModel.runningAutomationIDs.contains(automation.id))
                 .accessibilityIdentifier("project-automation-run-\(automation.id)")
             }

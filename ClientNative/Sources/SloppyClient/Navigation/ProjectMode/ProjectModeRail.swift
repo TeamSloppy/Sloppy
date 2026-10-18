@@ -50,3 +50,54 @@ struct ProjectModeRailButtonStyle: ButtonStyle {
             .onHover { isHovered = $0 }
     }
 }
+
+#if os(macOS)
+/// Project navigation lives alongside the other workspace summary blocks.
+@MainActor
+struct ProjectModeNavigationCard: View {
+    let title: String
+    let selectedSection: ProjectModeSection
+    let onSelect: @MainActor (ProjectModeSection) -> Void
+    @Environment(\.theme) private var theme
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.callout.weight(.medium))
+                .foregroundStyle(theme.colors.textSecondary)
+                .lineLimit(1)
+            ForEach(ProjectModeSection.allCases) { section in
+                Button { onSelect(section) } label: {
+                    HStack(spacing: 10) {
+                        Image(systemName: section.systemImage).frame(width: 18)
+                        Text(section.title)
+                        Spacer(minLength: 0)
+                        if selectedSection == section {
+                            Image(systemName: "checkmark").font(.caption)
+                        }
+                    }
+                    .font(.callout)
+                    .foregroundStyle(selectedSection == section ? theme.colors.textPrimary : theme.colors.textSecondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 7)
+                    .background(selectedSection == section ? theme.colors.surfaceRaised : .clear,
+                                in: RoundedRectangle(cornerRadius: 8))
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selectedSection == section ? .isSelected : [])
+                .accessibilityIdentifier("project-mode-\(section.rawValue)")
+                .help("\(section.title) (⌘\(String(section.shortcutCharacter)))")
+            }
+        }
+        .padding(14)
+        .background(theme.colors.background, in: RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12).strokeBorder(theme.colors.border, lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("workspace.inspector.project-navigation")
+    }
+}
+#endif

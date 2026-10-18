@@ -53,6 +53,15 @@ struct ChatSystemMessageGroupView: View {
             }
         } label: {
             HStack(spacing: theme.spacing.s) {
+#if os(macOS)
+                Text(activityTitle(for: items))
+                    .font(.callout)
+                    .foregroundStyle(theme.colors.textMuted)
+                    .lineLimit(1)
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 10))
+                    .foregroundStyle(theme.colors.textMuted)
+#else
                 Icons.symbol(isExpanded ? .collapseContent : .expandMore, size: theme.typography.caption)
                     .foregroundColor(theme.colors.textMuted)
 
@@ -71,11 +80,21 @@ struct ChatSystemMessageGroupView: View {
                     .lineLimit(1)
 
                 Spacer(minLength: 0)
+#endif
             }
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityLabel(isExpanded ? "Collapse activity" : "Expand activity")
+    }
+
+    private func activityTitle(for items: [ChatSystemSegmentItem]) -> String {
+        let calls = items.filter { $0.segment.kind == .toolCall }.count
+        let results = items.filter { $0.segment.kind == .toolResult }.count
+        let count = max(calls, results)
+        guard count > 0 else { return "Activity" }
+        let verb = items.contains(where: \.isRunning) ? "Running" : "Ran"
+        return "\(verb) \(count) \(count == 1 ? "tool" : "tools")"
     }
 
     private func segmentRow(_ item: ChatSystemSegmentItem, insideScroll: Bool) -> some View {

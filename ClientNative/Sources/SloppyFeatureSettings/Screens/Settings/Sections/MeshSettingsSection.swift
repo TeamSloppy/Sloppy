@@ -31,7 +31,7 @@ struct MeshSettingsSection: View {
                     Button(action: acceptInvite) {
                         Label(isConnecting ? "Connecting…" : "Connect", systemImage: "link")
                     }
-                    .buttonStyle(.borderedProminent)
+                    .appPrimaryButton()
                     .controlSize(.large)
                     .disabled(inviteToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isConnecting)
                     .accessibilityIdentifier("settings.mesh.connect")

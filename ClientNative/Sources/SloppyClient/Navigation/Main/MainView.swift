@@ -188,7 +188,8 @@ struct MainView: View {
         onConsumeMenuBarQuickAction: @escaping @MainActor (MenuBarQuickActionRequest) -> Void = { _ in },
         deepLinkRequest: AppDeepLinkRequest? = nil,
         onConsumeDeepLink: @escaping @MainActor (AppDeepLinkRequest) -> Void = { _ in },
-        approvalRequiredSessionIDs: Set<String> = []
+        approvalRequiredSessionIDs: Set<String> = [],
+        viewModel: MainViewModel? = nil
     ) {
         self.rootSafeAreaInsets = rootSafeAreaInsets
         self.menuBarQuickActionRequest = menuBarQuickActionRequest
@@ -203,7 +204,7 @@ struct MainView: View {
             )
         )
         _viewModel = State(
-            initialValue: MainViewModel(
+            initialValue: viewModel ?? MainViewModel(
                 endpoint: endpoint,
                 settings: settings,
                 connectionMonitor: connectionMonitor,

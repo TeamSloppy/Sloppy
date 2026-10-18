@@ -21,13 +21,21 @@ public struct StatusBadge: View {
                 .fill(color)
                 .frame(width: 6, height: 6)
 
-            Text(label.uppercased())
+            Text(displayLabel)
                 .font(.system(size: ty.micro))
                 .foregroundColor(color)
         }
         .padding(.horizontal, sp.s)
         .padding(.vertical, sp.xs)
-        .backportGlassEffect(.regular.tint(color.opacity(0.08 as Float)), in: .rect(cornerRadius: 999))
+        .appSurface(.regular.tint(color.opacity(0.08 as Float)), in: .rect(cornerRadius: 999))
+    }
+
+    private var displayLabel: String {
+#if os(macOS)
+        label
+#else
+        label.uppercased()
+#endif
     }
 
     public static func forTaskStatus(_ status: String) -> StatusBadge {

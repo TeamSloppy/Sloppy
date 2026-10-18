@@ -251,8 +251,8 @@ struct CustomMenuButtonStyle: MenuStyle {
         ZStack {
             Menu(configuration)
                 .frame(
-                    width: ChatComposerView.buttonSize,
-                    height: ChatComposerView.buttonSize
+                    width: 36,
+                    height: 36
                 )
                 .contentShape(.circle)
                 .menuIndicator(.hidden)
@@ -263,12 +263,11 @@ struct CustomMenuButtonStyle: MenuStyle {
                 .allowsHitTesting(false)
         }
         .frame(
-            width: ChatComposerView.buttonSize,
-            height: ChatComposerView.buttonSize
+            width: 36,
+            height: 36
         )
         .buttonBorderShape(.circle)
         .buttonSizing(.flexible)
-        .backportGlassEffect(.regular.interactive(), in: .circle)
-        .padding(.bottom, (ChatComposerView.panelHeight - ChatComposerView.buttonSize) / 2)
+        .background(theme.colors.surfaceRaised, in: Circle())
     }
 }

@@ -13,6 +13,15 @@ import UIKit
 @Observable
 @MainActor
 public final class ChatComposerDraft {
+    public var references: [ChatComposerReference] = []
+
+    public func registerReferences(_ references: [ChatComposerReference]) {
+        for reference in references {
+            self.references.removeAll { $0.rawText == reference.rawText }
+            self.references.append(reference)
+        }
+    }
+
     public var text: String {
         didSet {
             if text != oldValue {
@@ -29,7 +38,11 @@ public final class ChatComposerDraft {
 }
 
 public struct ChatComposerView: View {
+#if os(macOS)
+    public static let desktopPanelWidth: CGFloat = 900
+#else
     public static let desktopPanelWidth: CGFloat = 800
+#endif
     public static let panelWidth: CGFloat = 900
     public static let panelHeight: CGFloat = Constants.fieldHeight
     public static let phonePanelHeight: CGFloat = 56
@@ -99,7 +112,9 @@ public struct ChatComposerView: View {
     private var regularBody: some View {
         let c = theme.colors
         let sp = theme.spacing
+#if !os(macOS)
         let autocompleteGap = theme.spacing.s
+#endif
 
         return VStack(spacing: sp.s) {
             if !usesDesktopComposer {
@@ -129,6 +144,9 @@ public struct ChatComposerView: View {
                     )
                 } else {
                     if usesDesktopComposer {
+#if os(macOS)
+                        desktopComposer
+#else
                         HStack(alignment: .bottom, spacing: sp.s) {
                             ComposerAddMenu(
                                 viewModel: viewModel,
@@ -146,6 +164,7 @@ public struct ChatComposerView: View {
                             .accessibilityLabel(trailingActionLabel)
                             .help(trailingActionLabel)
                         }
+#endif
                     } else {
 #if !os(macOS)
                         mobileComposer
@@ -164,6 +183,7 @@ public struct ChatComposerView: View {
             alignment: .leading
         )
         .frame(maxWidth: maximumPanelWidth)
+#if !os(macOS)
         .overlay(alignment: .top) {
             if !viewModel.composerSuggestions.isEmpty {
                 ComposerSuggestionsView(
@@ -174,6 +194,7 @@ public struct ChatComposerView: View {
                 .offset(y: -(ComposerSuggestionsView.panelHeight + autocompleteGap))
             }
         }
+#endif
         .disabled(viewModel.activeInputRequest != nil)
         .accessibilityHint(
             viewModel.activeInputRequest == nil
@@ -214,6 +235,21 @@ public struct ChatComposerView: View {
                 .padding(.top, theme.spacing.s)
             }
 
+#if os(macOS)
+            HStack(alignment: .bottom, spacing: 0) {
+                ComposerAddMenu(
+                    viewModel: viewModel,
+                    supportsReasoningEffort: selectedModelSupportsReasoningEffort
+                )
+                .padding(.bottom, 6)
+
+                ChatTextField(draft: draft, submit: submit)
+
+                desktopTrailingAction
+                    .padding(.bottom, 6)
+            }
+            .padding(.horizontal, theme.spacing.s)
+#else
             HStack(alignment: .bottom, spacing: 0) {
                 ChatTextField(
                     draft: draft,
@@ -241,11 +277,94 @@ public struct ChatComposerView: View {
                 .padding(.trailing, theme.spacing.s)
                 .padding(.bottom, theme.spacing.s)
             }
+#endif
         }
+#if os(macOS)
+        .fixedSize(horizontal: false, vertical: true)
+        .background(theme.colors.surfaceGlow, in: RoundedRectangle(cornerRadius: 18))
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("chat.composer.input-surface")
+        .overlay {
+            RoundedRectangle(cornerRadius: 18)
+                .strokeBorder(theme.colors.borderBold, lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+#else
         .clipShape(RoundedRectangle(cornerRadius: Self.panelRadius, style: .continuous))
-        .glassEffect(
-            .regular,
-            in: RoundedRectangle(cornerRadius: Self.panelRadius, style: .continuous)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: Self.panelRadius, style: .continuous))
+#endif
+    }
+
+#if os(macOS)
+    private var desktopComposer: some View {
+        VStack(spacing: theme.spacing.s) {
+            desktopComposerInputSurface
+            HStack(spacing: theme.spacing.s) {
+                desktopServerPicker
+                Spacer(minLength: theme.spacing.s)
+                desktopModelPicker.layoutPriority(1)
+                ComposerContextUsageView(usage: viewModel.contextUsage)
+            }
+            .frame(minHeight: 30)
+            .padding(.horizontal, 12)
+            .accessibilityElement(children: .contain)
+            .accessibilityIdentifier("chat.composer.settings")
+        }
+    }
+
+    private var desktopTrailingAction: some View {
+        let isPrimary = !trimmedDraftText.isEmpty || !viewModel.composerAttachments.isEmpty
+            || !viewModel.composerQuotes.isEmpty || viewModel.shouldShowStopButton
+        return Button(action: handleTrailingAction) {
+            Icons.symbol(trailingActionSymbol, size: 18)
+                .foregroundStyle(isPrimary ? theme.colors.background : theme.colors.textSecondary)
+                .frame(width: 36, height: 36)
+                .background(isPrimary ? theme.colors.textPrimary : .clear, in: Circle())
+                .contentShape(Circle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(trailingActionLabel)
+        .accessibilityIdentifier("chat.composer.trailing-action")
+        .help(trailingActionLabel)
+    }
+#endif
+
+    private var desktopServerPicker: some View {
+        let endpoint = viewModel.sessionEndpoint
+        let title = connectionActions?.instances.first(where: { $0.endpoint == endpoint })?.displayName
+            ?? endpoint.coordinatorBaseURL.host ?? "Server"
+        return Menu {
+            ForEach(connectionActions?.instances ?? []) { instance in
+                Button { connectionActions?.selectInstance(instance) } label: {
+                    Label(instance.displayName, systemImage: instance.endpoint == endpoint ? "checkmark" : "desktopcomputer")
+                }
+            }
+        } label: {
+            Label(title, systemImage: "desktopcomputer")
+                .font(.caption)
+                .foregroundStyle(theme.colors.textSecondary)
+                .lineLimit(1)
+        }
+        .menuStyle(.borderlessButton)
+        .frame(maxWidth: 180, alignment: .leading)
+        .help(title)
+        .disabled(connectionActions?.instances.isEmpty ?? true)
+        .accessibilityIdentifier("chat.composer.server-picker")
+    }
+
+    private var desktopModelPicker: some View {
+        ComposerOptionsMenuView(
+            selectedModelId: viewModel.selectedModelId,
+            models: viewModel.modelPickerOptions,
+            selectedEffort: viewModel.selectedReasoningEffort,
+            supportsReasoningEffort: selectedModelSupportsReasoningEffort,
+            selectedAgent: viewModel.selectedAgent,
+            agents: viewModel.agents,
+            onSelectModel: viewModel.pickModel,
+            onSelectEffort: viewModel.pickReasoningEffort,
+            onSelectAgent: viewModel.pickAgent,
+            onRefreshModels: viewModel.refreshAvailableModels,
+            onEditModels: { viewModel.openSettings(.providers) }
         )
     }
 

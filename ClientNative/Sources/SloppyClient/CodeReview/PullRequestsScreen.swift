@@ -398,7 +398,7 @@ private struct ArcadiaCredentialSheet: View {
                 Button("Cancel") { dismiss() }
                     .disabled(isWorking)
                 Button("Save") { Task { await save() } }
-                    .buttonStyle(.borderedProminent)
+                    .appPrimaryButton()
                     .disabled(token.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isWorking)
             }
         }

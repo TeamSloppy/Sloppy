@@ -18,8 +18,17 @@ extension MainView {
     @ViewBuilder
     var workspacePanelContainer: some View {
 #if os(macOS)
-        WorkspaceResizableSidePanel(state: viewModel.workspaceDockState) {
-            contentView
+        WorkspaceResizableSidePanel(state: viewModel.workspaceDockState, reservedContentWidth: 304) {
+            GeometryReader { geometry in
+                HStack(spacing: 0) {
+                    contentView
+                        .frame(width: max(0, geometry.size.width - 304))
+                        .clipped()
+                    desktopWorkspaceInspector
+                        .frame(width: 280)
+                        .padding(.horizontal, 12)
+                }
+            }
         } panel: {
             workspaceSidePanel
         }
@@ -33,6 +42,32 @@ extension MainView {
             }
 #endif
     }
+
+#if os(macOS)
+    private var desktopWorkspaceInspector: some View {
+        let chat = activeChatViewModel ?? viewModel.selectedTabID.flatMap {
+            viewModel.tabStates[$0]?.projectKanbanState?.chatViewModel
+        }
+        let isChatVisible = (viewModel.selectedAppSection == .chats || viewModel.selectedAppSection == .projects)
+            && activeChatViewModel != nil
+        let endpoint = chat?.sessionEndpoint
+            ?? viewModel.selectedTabID.flatMap { viewModel.tabEndpoints[$0] }
+            ?? viewModel.endpoint
+        return DesktopWorkspaceInspector(
+            apiClient: SloppyAPIClient(endpoint: endpoint),
+            chat: chat,
+            context: viewModel.workspaceContext,
+            projectNavigation: projectModeCommandContext,
+            observesWorkers: !isChatVisible,
+            onOpenWorker: { session in viewModel.openSessionChatTab(session, endpointOverride: endpoint) },
+            onOpenTool: selectWorkspaceSidePanelItem,
+            onOpenOutput: { path in
+                if let chat { viewModel.openSourceFile(SourceFileReference(path: path), from: chat) }
+            }
+        )
+        .id("\(endpoint.cacheNamespace)|\(viewModel.workspaceContext?.projectId ?? "")")
+    }
+#endif
 
     @ViewBuilder
     func workspaceBottomPanelOverlay(maximumHeight: CGFloat) -> some View {
@@ -125,9 +160,21 @@ extension MainView {
             Image(systemName: "sidebar.right")
                 .frame(width: 24, height: 24)
         }
-        .help(isWorkspacePanelPresented ? "Hide side panel" : "Show side panel")
+        .help(sidePanelHelp)
         .accessibilityIdentifier("workspace.dock.toggle")
         .accessibilityLabel("Side panel")
+#if os(macOS)
+        .contextMenu {
+            ForEach(WorkspaceSidePanelItem.allCases) { item in
+                Button { selectWorkspaceSidePanelItem(item) } label: { Label(item.title, systemImage: item.systemImage) }
+                    .disabled(item.requiresProject && viewModel.workspaceContext == nil)
+            }
+        }
+#endif
+    }
+
+    private var sidePanelHelp: String {
+        isWorkspacePanelPresented ? "Hide side panel" : "Show side panel"
     }
 
     func openWorkspacePanel(mode: WorkspacePanelMode) {

@@ -46,7 +46,7 @@ public struct BackendUpdatesSection: View {
                         Text("The backend will restart after installation. Active work may be interrupted.")
                             .foregroundStyle(.secondary)
                         Button("Update Backend") { showsConfirmation = true }
-                            .buttonStyle(.borderedProminent)
+                            .appPrimaryButton()
                             .disabled(model.isChecking || model.isInstalling)
                             .accessibilityIdentifier("backend.update.install")
                     } else {
@@ -95,6 +95,7 @@ public struct BackendUpdateReminder: View {
     @State private var model: BackendUpdateModel
     @State private var showsUpdates = false
     @Environment(\.scenePhase) private var scenePhase
+    @Environment(\.theme) private var theme
 
     public init(endpoint: SloppyInstanceEndpoint) {
         _model = State(initialValue: BackendUpdateModel(endpoint: endpoint))
@@ -117,10 +118,19 @@ public struct BackendUpdateReminder: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Dismiss backend update reminder")
                 }
+#if os(macOS)
+                .foregroundStyle(theme.colors.textPrimary)
+#else
                 .foregroundStyle(Color(red: 36 / 255, green: 37 / 255, blue: 33 / 255))
+#endif
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
+#if os(macOS)
+                .background(theme.colors.surface)
+                .overlay(alignment: .bottom) { Divider().overlay(theme.colors.border) }
+#else
                 .background(Color(red: 200 / 255, green: 226 / 255, blue: 174 / 255))
+#endif
             }
         }
         .task(id: scenePhase) {

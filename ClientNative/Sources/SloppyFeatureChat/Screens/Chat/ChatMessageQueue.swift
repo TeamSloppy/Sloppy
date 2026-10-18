@@ -10,17 +10,20 @@ struct ChatQueuedMessage: Identifiable, Equatable, Sendable {
     let content: String
     let attachments: [ChatComposerAttachment]
     let quotes: [ChatComposerQuote]
+    let references: [ChatComposerReference]
 
     init(
         id: UUID = UUID(),
         content: String,
         attachments: [ChatComposerAttachment],
-        quotes: [ChatComposerQuote] = []
+        quotes: [ChatComposerQuote] = [],
+        references: [ChatComposerReference] = []
     ) {
         self.id = id
         self.content = content
         self.attachments = attachments
         self.quotes = quotes
+        self.references = references
     }
 
     var displayText: String {
@@ -39,9 +42,10 @@ struct ChatMessageQueue {
     mutating func enqueue(
         content: String,
         attachments: [ChatComposerAttachment],
-        quotes: [ChatComposerQuote] = []
+        quotes: [ChatComposerQuote] = [],
+        references: [ChatComposerReference] = []
     ) -> ChatQueuedMessage {
-        let message = ChatQueuedMessage(content: content, attachments: attachments, quotes: quotes)
+        let message = ChatQueuedMessage(content: content, attachments: attachments, quotes: quotes, references: references)
         messages.append(message)
         return message
     }

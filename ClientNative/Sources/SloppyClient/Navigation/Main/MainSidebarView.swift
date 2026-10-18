@@ -16,7 +16,11 @@ enum MainSidebarSelection: Hashable {
 
 @MainActor
 struct MainSidebarView: View {
+#if os(macOS)
+    static let expandedWidth: CGFloat = 280
+#else
     static let expandedWidth: CGFloat = 348
+#endif
     static let collapsedWidth: CGFloat = 150
     static let minimumWidth: CGFloat = 220
     static let maximumWidth: CGFloat = 800

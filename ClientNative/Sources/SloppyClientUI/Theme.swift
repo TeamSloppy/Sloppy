@@ -70,6 +70,32 @@ public struct AppColors: Sendable, Hashable {
         statusWarning:  .fromHex(0xB7791F),
         statusNeutral:  .fromHex(0x6B7280)
     )
+
+    /// Neutral desktop chrome; agent and status colors remain semantic accents.
+    public static var desktopDark: AppColors {
+        var colors = dark
+        colors.background = .fromHex(0x191919)
+        colors.surface = .fromHex(0x202020)
+        colors.surfaceRaised = .fromHex(0x2B2B2B)
+        colors.surfaceGlass = .fromHex(0x151515)
+        colors.surfaceGlow = .fromHex(0x252525)
+        colors.textPrimary = .fromHex(0xE8E6E3)
+        colors.textSecondary = .fromHex(0xB5B3AF)
+        colors.textMuted = .fromHex(0x979591)
+        colors.border = .fromHex(0x343434)
+        colors.borderBold = .fromHex(0x484848)
+        colors.accent = .fromHex(0xE8E6E3)
+        colors.accentCyan = .fromHex(0xB6C3CE)
+        return colors
+    }
+
+    static var platformDark: AppColors {
+#if os(macOS)
+        desktopDark
+#else
+        dark
+#endif
+    }
 }
 
 // MARK: - AppTypography
@@ -131,7 +157,7 @@ public struct AppTheme: Sendable, Hashable {
     public var borders: AppBorders
 
     public static let sloppyDark = AppTheme(
-        colors: .dark,
+        colors: .platformDark,
         typography: .default,
         spacing: .default,
         borders: .default

@@ -171,7 +171,7 @@ public struct SitesScreen: View {
             .buttonStyle(.borderless)
             .help("Refresh sites")
             Button("Create", systemImage: "plus", action: onCreate)
-                .buttonStyle(.borderedProminent)
+                .appPrimaryButton()
         }
         .padding(.horizontal, 28)
         .padding(.top, 24)
@@ -214,6 +214,9 @@ public struct SitesScreen: View {
                 )
             }
             .listStyle(.inset)
+#if os(macOS)
+            .scrollContentBackground(.hidden)
+#endif
         }
     }
 

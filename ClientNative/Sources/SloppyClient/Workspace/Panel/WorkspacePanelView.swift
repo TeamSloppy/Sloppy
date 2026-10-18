@@ -417,6 +417,7 @@ struct WorkspaceSidePanelPickerView: View {
             Spacer(minLength: theme.spacing.xxl)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("workspace.side-panel.picker")
     }
 }

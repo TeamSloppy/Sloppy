@@ -130,14 +130,16 @@ struct SidebarSessionRow: View {
 
     private var content: some View {
         HStack(spacing: theme.spacing.s) {
-            SidebarSessionAvatar(agentID: session.agentId, agents: avatarAgents,
-                                 activity: activity, requiresApproval: requiresApproval)
+#if !os(macOS)
+            sessionIndicator
+#endif
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: theme.typography.body))
                     .foregroundColor(isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
                     .lineLimit(1)
 
+#if !os(macOS)
                 if showsProjectName {
                     HStack(spacing: theme.spacing.xs) {
                         Image(systemName: "folder")
@@ -154,14 +156,21 @@ struct SidebarSessionRow: View {
                         .foregroundColor(theme.colors.textMuted)
                         .lineLimit(1)
                 }
+#endif
             }
             Spacer(minLength: 0)
+#if os(macOS)
+            sessionIndicator
+#endif
             if isPinned {
                 Icons.symbol(.pushPin, size: theme.typography.caption)
                     .foregroundColor(theme.colors.textMuted)
             }
         }
         .padding(.horizontal, theme.spacing.s)
+#if os(macOS)
+        .padding(.leading, 24 + theme.spacing.s)
+#endif
         .padding(.vertical, 6)
         .frame(minHeight: MainSidebarView.rowMinimumHeight)
         .background {
@@ -171,6 +180,11 @@ struct SidebarSessionRow: View {
             }
         }
         .contentShape(Rectangle())
+    }
+
+    private var sessionIndicator: some View {
+        SidebarSessionAvatar(agentID: session.agentId, agents: avatarAgents,
+                             activity: activity, requiresApproval: requiresApproval)
     }
 }
 

@@ -29,6 +29,9 @@ extension MainView {
         .environment(\.chatFileOpenHandler, { reference, chat in
             viewModel.openSourceFile(reference, from: chat)
         })
+        .environment(\.chatComposerReferenceOpenHandler, { reference, chat in
+            viewModel.openComposerReference(reference, from: chat)
+        })
         .task(id: attentionScenePhase) {
             guard attentionScenePhase == .active else { return }
             while !Task.isCancelled {
@@ -160,6 +163,7 @@ extension MainView {
 #endif
 
                 ToolbarItemGroup(placement: .primaryAction) {
+#if !os(macOS)
                     if !isCanvasWorkspaceSelected,
                        viewModel.selectedAppSection == .chats,
                        let activeChatViewModel {
@@ -173,7 +177,7 @@ extension MainView {
                     }
 
 
-#if !os(macOS)
+                    // Mobile keeps its compact context menu in the toolbar.
                     if !isCanvasWorkspaceSelected,
                        viewModel.selectedAppSection != .artifacts,
                        viewModel.selectedAppSection != .sites,
@@ -193,6 +197,9 @@ extension MainView {
                     }
 #endif
 
+#if os(macOS)
+                    workspaceSidePanelButton
+#else
                     if idiom != .phone,
                        !isCanvasWorkspaceSelected,
                        viewModel.selectedAppSection != .artifacts,
@@ -203,6 +210,7 @@ extension MainView {
                        viewModel.selectedAppSection != .pullRequests {
                         workspaceSidePanelButton
                     }
+#endif
                 }
             }
         }

@@ -389,10 +389,10 @@ final class MainViewModel {
         case .sideChat:
             if tab.chat == nil {
                 tab.chat = makeChatTabState(endpoint: source).viewModel
-                if let context = dock.context {
-                    tab.chat?.applyNavigationRequest(.init(id: 1,
-                        context: .project(projectId: context.projectId, projectName: context.projectName, agentId: nil)))
-                }
+                let context: ChatNavigationRequest.Context = dock.context.map {
+                    .project(projectId: $0.projectId, projectName: $0.projectName, agentId: nil)
+                } ?? .blank
+                tab.chat?.applyNavigationRequest(.init(id: 1, context: context, opensPreferredSession: false))
             }
         case .terminal:
             if tab.terminal == nil {

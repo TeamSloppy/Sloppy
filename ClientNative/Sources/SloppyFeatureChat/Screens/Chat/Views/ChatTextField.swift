@@ -44,6 +44,7 @@ struct ChatTextField: View {
     @State private var editorHeight = Constants.editorMinimumHeight
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
+    @Environment(\.chatComposerReferenceOpenHandler) private var referenceOpenHandler
     @Environment(ChatScreenViewModel.self) private var viewModel
 
     private var agentDisplayName: String {
@@ -65,7 +66,11 @@ struct ChatTextField: View {
             tagColor: c.accentAcid
         )
             .frame(height: editorHeight)
+#if os(macOS)
+            .padding(.horizontal, 0)
+#else
             .padding(.horizontal, idiom == .phone ? 0 : Constants.fieldHorizontalPadding)
+#endif
             .padding(.vertical, sp.s)
             .frame(
                 minWidth: 0, maxWidth: .infinity, minHeight: Constants.fieldHeight,
@@ -119,7 +124,7 @@ struct ChatTextField: View {
             selection: $draft.selection,
             isFocused: $isTextFieldFocused,
             measuredHeight: $editorHeight,
-            placeholder: idiom == .phone ? "Plan, ask, build…" : "Ask \(agentDisplayName)",
+            placeholder: "Ask \(agentDisplayName) or type / for commands",
             fontSize: fontSize,
             primaryColor: primaryColor,
             placeholderColor: placeholderColor,
@@ -137,7 +142,10 @@ struct ChatTextField: View {
             moveSuggestionSelection: viewModel.moveComposerSuggestionSelection,
             applySelectedSuggestion: viewModel.applySelectedComposerSuggestion,
             submit: submit,
-            pasteAttachment: pasteAttachmentsFromSystemPasteboard
+            pasteAttachment: pasteAttachmentsFromSystemPasteboard,
+            references: draft.references,
+            openReference: { reference in referenceOpenHandler?(reference, viewModel) },
+            registerReferences: viewModel.registerComposerReferences
         )
         #else
         UIKitChatComposerTextEditor(

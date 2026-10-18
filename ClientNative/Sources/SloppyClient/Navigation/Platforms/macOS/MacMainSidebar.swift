@@ -17,6 +17,14 @@ struct PlatformMainSidebar: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
+            Text("sloppy.")
+                .font(.system(size: 29, weight: .heavy))
+                .tracking(-1.2)
+                .foregroundStyle(theme.colors.textPrimary)
+                .padding(.horizontal, theme.spacing.m)
+                .padding(.top, theme.spacing.s)
+                .accessibilityAddTraits(.isHeader)
+
             ScrollView {
                 MacSidebarPrimaryActions(viewModel: viewModel)
 
@@ -41,6 +49,7 @@ struct PlatformMainSidebar: View {
             .modifier(SidebarScrollFade())
             .refreshable { await viewModel.refreshContent() }
         }
+        .background(theme.colors.surfaceGlass)
         .safeAreaInset(edge: .bottom, spacing: 0) {
             VStack(alignment: .leading, spacing: 0) {
                 HStack(spacing: theme.spacing.s) {
@@ -85,7 +94,7 @@ struct PlatformMainSidebar: View {
                                 .font(.system(size: theme.typography.body, weight: .semibold))
                                 .foregroundColor(theme.colors.textPrimary)
                                 .frame(width: 32, height: 32)
-                                .background(theme.colors.accent, in: Circle())
+                                .background(theme.colors.surfaceRaised, in: Circle())
 
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(viewModel.selectedInstanceTitle)
@@ -132,11 +141,6 @@ struct PlatformMainSidebar: View {
             }
             .background {
                 SidebarFooterBackground()
-            }
-        }
-        .background(alignment: .bottom) {
-            if let composerBackdropHeight {
-                ComposerBackdrop(height: composerBackdropHeight)
             }
         }
     }

@@ -15,6 +15,7 @@ public struct OverviewScreen: View {
                 projectsSection
                 agentsSection
             }
+            .desktopContentWidth()
         }
     }
 
@@ -45,6 +46,14 @@ private struct _HeroSection: View {
         let ty = theme.typography
 
         return VStack(alignment: .leading, spacing: sp.s) {
+#if os(macOS)
+            Text("Overview")
+                .font(.system(size: ty.title, weight: .semibold))
+                .foregroundStyle(c.textPrimary)
+            Text("Projects, agents and current work")
+                .font(.system(size: ty.body))
+                .foregroundStyle(c.textSecondary)
+#else
             Text("SLOPPY")
                 .font(.system(size: ty.hero))
                 .foregroundColor(c.textPrimary)
@@ -56,6 +65,7 @@ private struct _HeroSection: View {
             Text("SYSTEM OVERVIEW")
                 .font(.system(size: ty.caption))
                 .foregroundColor(c.textMuted)
+#endif
         }
         .padding(sp.l)
     }
@@ -141,9 +151,11 @@ private struct BrutalistStatCard: View {
         let ty = theme.typography
 
         return VStack(alignment: .leading, spacing: 0) {
+#if !os(macOS)
             Color.clear
                 .frame(height: bo.thick)
                 .background(accentColor)
+#endif
 
             VStack(alignment: .leading, spacing: sp.xs) {
                 Text(value)
@@ -155,7 +167,11 @@ private struct BrutalistStatCard: View {
             }
             .padding(sp.m)
         }
+#if os(macOS)
+        .desktopPanel()
+#else
         .background(c.surface)
         .border(c.border, lineWidth: bo.thin)
+#endif
     }
 }

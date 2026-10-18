@@ -141,7 +141,11 @@ struct ChatUsageScreen: View {
         }
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(16)
+#if os(macOS)
+        .desktopPanel()
+#else
         .background(theme.colors.surface, in: RoundedRectangle(cornerRadius: 14))
+#endif
     }
 
     private var usageList: some View {

@@ -17,6 +17,11 @@ struct ProjectListView: View {
 
         return ScrollView {
             VStack(alignment: .leading, spacing: sp.l) {
+#if os(macOS)
+                Text("Projects")
+                    .font(.system(size: ty.title, weight: .semibold))
+                    .foregroundStyle(c.textPrimary)
+#endif
                 if isLoading && projects.isEmpty {
                     LoadingSkeleton("Loading projects…")
                 } else if projects.isEmpty {
@@ -32,10 +37,15 @@ struct ProjectListView: View {
                                     accentColor: c.accent
                                 )
                             }
+#if os(macOS)
+                            .buttonStyle(.plain)
+#endif
+                            .accessibilityIdentifier("projects.card.\(project.id)")
                         }
                     }
                 }
             }
+            .desktopContentWidth()
             .padding(sp.l)
         }
         .mobileScreenBackground()

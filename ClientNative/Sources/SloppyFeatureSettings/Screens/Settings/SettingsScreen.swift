@@ -241,6 +241,7 @@ public struct SettingsScreen: View {
 
     public var body: some View {
         settingsShell
+        .desktopScreenStyle()
         .onAppear {
             if idiom != .phone, selectedSection == nil {
                 selectedSection = initialSection
@@ -316,6 +317,10 @@ public struct SettingsScreen: View {
             }
         }
         .listStyle(.sidebar)
+#if os(macOS)
+        .scrollContentBackground(.hidden)
+        .background(theme.colors.surfaceGlass)
+#endif
         .mobileScreenBackground()
         .navigationTitle("Settings")
         .toolbar {

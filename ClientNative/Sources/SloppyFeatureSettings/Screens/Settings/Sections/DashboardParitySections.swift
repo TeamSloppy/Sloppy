@@ -33,7 +33,7 @@ struct ModelRoutingSection: View {
                     .padding(.vertical, 8)
                     Spacer()
                     Button("Save") { save() }
-                        .buttonStyle(.borderedProminent)
+                        .appPrimaryButton()
                         .padding(.horizontal, 16)
                         .padding(.vertical, 8)
                 }
@@ -145,7 +145,7 @@ struct BrowserSection: View {
                 updated.browser = draft
                 onSave(updated)
             }
-            .buttonStyle(.borderedProminent)
+            .appPrimaryButton()
             .padding(.horizontal, 16)
             .padding(.vertical, 12)
         }
@@ -261,7 +261,7 @@ struct MCPSection: View {
                     updated.mcp = SloppyConfig.MCP(servers: servers)
                     onSave(updated)
                 }
-                .buttonStyle(.borderedProminent)
+                .appPrimaryButton()
                 .padding(.horizontal, 16)
                 .padding(.vertical, 12)
             }
@@ -348,7 +348,7 @@ struct UISection: View {
                         updated.toolBudgetExhausted = toolBudgetExhausted
                         onSave(updated)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .appPrimaryButton()
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                 }
@@ -380,7 +380,7 @@ struct TUISection: View {
                         updated.tui.defaultEditor = defaultEditor
                         onSave(updated)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .appPrimaryButton()
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                 }
@@ -439,7 +439,7 @@ struct CompactorSection: View {
                         updated.compactor = draft
                         onSave(updated)
                     }
-                    .buttonStyle(.borderedProminent)
+                    .appPrimaryButton()
                     .padding(.horizontal, 16)
                     .padding(.vertical, 12)
                 }

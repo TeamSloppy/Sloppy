@@ -8,18 +8,76 @@ import Testing
 @Suite("Sidebar agent navigation", .serialized)
 @MainActor
 struct SidebarAgentNavigationTests {
-    private func makeViewModel(api: SloppyAPIClient? = nil) -> MainViewModel {
+    private func makeViewModel(api: SloppyAPIClient? = nil, cacheStore: ClientCacheStore? = nil) -> MainViewModel {
         let endpoint = api?.endpoint ?? SloppyInstanceEndpoint.direct(baseURL: URL(string: "http://localhost:9")!)
         return MainViewModel(
             endpoint: endpoint,
             settings: ClientSettings(),
             connectionMonitor: ConnectionMonitor(baseURL: endpoint.coordinatorBaseURL),
-            cacheStore: ClientCacheStore(path: ":memory:"),
+            cacheStore: cacheStore ?? ClientCacheStore(path: ":memory:"),
             apiClient: api,
             responseNotificationScheduler: SidebarNavigationNotifications(),
             onOpenSettings: { _ in },
             onOpenWorkspace: {}
         )
+    }
+
+    @Test(arguments: [false, true])
+    func openingSideChatStartsBlankInsteadOfProjectHistory(hasProject: Bool) async throws {
+        let fixture = SidebarLongChatFixture()
+        let cache = ClientCacheStore(path: ":memory:")
+        let agent = APIAgentRecord(id: "first", displayName: "First")
+        await cache.cacheAgents([agent])
+        let viewModel = makeViewModel(api: fixture.api, cacheStore: cache)
+        let previous = (viewModel.settings.lastAgentId, viewModel.settings.lastProjectId, viewModel.settings.lastSessionId)
+        defer {
+            for tab in viewModel.workspaceDockState.tabs { tab.chat?.closeSession() }
+            closeChats(viewModel)
+            viewModel.settings.lastAgentId = previous.0
+            viewModel.settings.lastProjectId = previous.1
+            viewModel.settings.lastSessionId = previous.2
+        }
+        viewModel.createBlankChatTab()
+        let primaryID = try #require(viewModel.selectedTabID)
+        let primary = try #require(viewModel.tabStates[primaryID]?.chatState?.viewModel)
+        await primary.waitForInitialData()
+        primary.pickAgent(agent)
+        primary.selectedSessionId = "primary-session"
+        let dock = viewModel.workspaceDockState
+        if hasProject {
+            dock.context = .init(projectId: "workspace", projectName: "Workspace")
+        }
+        await cache.cacheAgents([agent])
+        let tab = viewModel.openWorkspaceDockTab(.sideChat)
+        let side = try #require(tab.chat)
+        viewModel.addToSideChat("Selected text")
+        await side.waitForInitialData()
+        try await Task.sleep(for: .milliseconds(100))
+
+        #expect(side.selectedSessionId == nil)
+        #expect(side.transcript.messages.isEmpty)
+        #expect(side.activeProjectIdForWorkspacePanel == (hasProject ? "workspace" : nil))
+        #expect(side.composerDraft.text == "Selected text")
+        #expect(primary.selectedSessionId == "primary-session")
+        #expect(viewModel.selectedTabID == primaryID)
+        dock.hide()
+        dock.toggleVisibility()
+        #expect(dock.selectedTab?.chat === side)
+        #expect(side.composerDraft.text == "Selected text")
+        let another = viewModel.openWorkspaceDockTab(.sideChat)
+        await another.chat?.waitForInitialData()
+        #expect(another.id != tab.id)
+        #expect(another.chat !== side)
+        #expect(side.composerDraft.text == "Selected text")
+        if hasProject {
+            #expect(side.sendMessage(content: "Independent task"))
+            try await waitUntil { fixture.posts.contains { $0.url?.path.hasSuffix("/sessions") == true } }
+            let request = try #require(fixture.posts.first { $0.url?.path.hasSuffix("/sessions") == true })
+            let body = try #require(request.httpBody)
+            let payload = try #require(JSONSerialization.jsonObject(with: body) as? [String: Any])
+            #expect(payload["separateChat"] as? Bool == true)
+            #expect(payload["projectId"] as? String == "workspace")
+        }
     }
 
     @Test(arguments: [MainAppSection.chats, .pullRequests, .usage, .workspace])

@@ -6,6 +6,14 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 extension ChatScreenViewModel {
+    func registerComposerReferences(_ references: [ChatComposerReference]) {
+        composerDraft.registerReferences(references.map {
+            var reference = $0
+            if reference.endpoint == nil { reference.endpoint = sessionEndpoint }
+            return reference
+        })
+    }
+
     public func openSettings(_ destination: ClientSettingsDestination = .general) {
         onOpenSettings(destination)
     }
@@ -43,6 +51,7 @@ extension ChatScreenViewModel {
             guard let self else { return }
             let suggestions = await loadComposerSuggestions(query: query, agentId: agent.id)
             guard !Task.isCancelled, composerSuggestionRequestID == requestID else { return }
+            registerComposerReferences(suggestions.compactMap(\.reference))
             setComposerSuggestions(suggestions)
         }
     }
@@ -67,6 +76,7 @@ extension ChatScreenViewModel {
             cursorOffset: composerSuggestionCursorOffset
         ) else { return }
         let application = query.applying(suggestion, to: composerDraft.text)
+        if let reference = suggestion.reference { registerComposerReferences([reference]) }
         composerDraft.text = application.text
         let insertionPoint = composerDraft.text.index(
             composerDraft.text.startIndex,
@@ -85,12 +95,12 @@ extension ChatScreenViewModel {
         switch query.trigger {
         case "/":
             let response = try? await apiClient.fetchChatSlashCommands(agentId: agentId)
-            return filterCommands(response?.commands ?? [], query: query.term, skillsOnly: false)
+            return filterCommands(response?.commands ?? [], query: query.term, skillsOnly: false, agentId: agentId)
         case "@":
             async let commands = try? await apiClient.fetchChatSlashCommands(agentId: agentId)
             async let files = loadProjectFiles(matching: query.term, projectId: activeProjectId)
             async let sessionResults = try? apiClient.fetchSessionMentions(query: query.term)
-            let skillItems = filterCommands((await commands)?.commands ?? [], query: query.term, skillsOnly: true)
+            let skillItems = filterCommands((await commands)?.commands ?? [], query: query.term, skillsOnly: true, agentId: agentId)
             let sessionItems = ((await sessionResults) ?? []).sorted { lhs, rhs in
                 let lhsLocal = lhs.projectId == activeProjectId
                 let rhsLocal = rhs.projectId == activeProjectId
@@ -106,7 +116,8 @@ extension ChatScreenViewModel {
                 .map {
                     ChatComposerSuggestion(
                         id: "task:\($0.id)", kind: .task, title: $0.title,
-                        subtitle: $0.status.replacingOccurrences(of: "_", with: " "), insertion: "#\($0.id)"
+                        subtitle: $0.status.replacingOccurrences(of: "_", with: " "), insertion: "#\($0.id)",
+                        reference: .init(rawText: "#\($0.id)", title: $0.title, target: .task(projectId: projectId, taskId: $0.id))
                     )
                 }
         default:
@@ -117,7 +128,8 @@ extension ChatScreenViewModel {
     private func filterCommands(
         _ commands: [AgentChatSlashCommandItem],
         query: String,
-        skillsOnly: Bool
+        skillsOnly: Bool,
+        agentId: String
     ) -> [ChatComposerSuggestion] {
         commands
             .filter { !skillsOnly || $0.source == "skill" }
@@ -131,7 +143,11 @@ extension ChatScreenViewModel {
                     kind: isSkill ? .skill : .command,
                     title: prefix + $0.name,
                     subtitle: $0.description,
-                    insertion: prefix + $0.name
+                    insertion: prefix + $0.name,
+                    reference: .init(rawText: prefix + $0.name, title: isSkill ? ($0.displayName ?? $0.name) : prefix + $0.name,
+                                     detail: [$0.description, $0.argument].compactMap { $0 }.joined(separator: "\n\n"),
+                                     target: isSkill ? .skill(agentId: agentId, skillId: $0.skillId ?? $0.name)
+                                         : .command(agentId: agentId, name: $0.name))
                 )
             }
     }
@@ -189,7 +205,11 @@ extension ChatScreenViewModel {
             kind: .file,
             title: path,
             subtitle: "Project file",
-            insertion: "@\(path)"
+            insertion: "@\(path)",
+            reference: activeProjectId.map {
+                .init(rawText: "@\(path)", title: URL(fileURLWithPath: path).lastPathComponent,
+                      detail: path, target: .file(projectId: $0, path: path))
+            }
         )
     }
 

@@ -171,6 +171,7 @@ extension ChatScreenViewModel {
         preferredTaskId: String? = nil,
         opensPreferredSession: Bool = true
     ) {
+        createsSeparateProjectChat = !opensPreferredSession
         let agent = agentForNavigation(request) ?? selectedAgent ?? agents.first
         guard let agent else {
             selectedAgent = nil
@@ -242,7 +243,7 @@ extension ChatScreenViewModel {
     ) {
         disconnectCurrentSession()
         saveActiveComposerDraft()
-        createsSeparateProjectChat = false
+        createsSeparateProjectChat = !opensPreferredSession
         selectedAgent = agent
         selectedSessionId = nil
         restoreModelSelection(agentId: agent.id, sessionId: nil)

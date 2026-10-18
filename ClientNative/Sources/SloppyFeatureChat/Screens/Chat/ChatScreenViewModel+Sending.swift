@@ -11,7 +11,7 @@ extension ChatScreenViewModel {
               !isSending, !isAwaitingAgentResponse, activeInputRequest == nil else { return }
         sendMessageImmediately(
             content: "Prepare Play for the result of this chat. Inspect the exact checkout/worktree and runnable projects you worked on. Save verified build and launch recipes using session.launch.configure, with one configuration per target (web, macOS app, or iOS Simulator). Recommend the target relevant to this work. Use current uncommitted files. Do not merge, deploy, or install into /Applications. If this is only a library with no runnable target, explain that clearly.",
-            attachments: [], quotes: [], agent: agent, clearsComposer: false
+            attachments: [], quotes: [], agent: agent, clearsComposer: false, references: []
         )
     }
 
@@ -48,7 +48,7 @@ extension ChatScreenViewModel {
         attachments: [ChatComposerAttachment],
         quotes: [ChatComposerQuote]
     ) {
-        messageQueue.enqueue(content: content, attachments: attachments, quotes: quotes)
+        messageQueue.enqueue(content: content, attachments: attachments, quotes: quotes, references: composerDraft.references)
         queuedMessages = messageQueue.messages
         clearActiveComposerDraft()
     }
@@ -58,8 +58,10 @@ extension ChatScreenViewModel {
         attachments: [ChatComposerAttachment],
         quotes: [ChatComposerQuote],
         agent: APIAgentRecord,
-        clearsComposer: Bool = true
+        clearsComposer: Bool = true,
+        references: [ChatComposerReference]? = nil
     ) {
+        let references = references ?? composerDraft.references
         let messageContent = ChatComposerQuote.messageContent(content, quotes: quotes, attachments: attachments)
         sendErrorMessage = nil
         clearWorkingTreeSourceControl()
@@ -116,7 +118,7 @@ extension ChatScreenViewModel {
                         await postMessage(
                             content: messageContent, draftContent: content, attachments: attachments,
                             quotes: quotes, agentId: agent.id, sessionId: summary.id, optimistic: optimistic,
-                            selectedModel: sendModel, reasoningEffort: sendReasoningEffort
+                            selectedModel: sendModel, reasoningEffort: sendReasoningEffort, references: references
                         )
                         return
                     }
@@ -138,13 +140,13 @@ extension ChatScreenViewModel {
                         quotes: quotes,
                         agentId: agent.id,
                         sessionId: summary.id,
-                        optimistic: optimistic, selectedModel: sendModel, reasoningEffort: sendReasoningEffort
+                        optimistic: optimistic, selectedModel: sendModel, reasoningEffort: sendReasoningEffort, references: references
                     )
                 } catch {
                     guard selectedAgent?.id == agent.id, selectedSessionId == nil,
                           activeComposerDraftKey == originDraftKey else {
                         if let originDraftKey {
-                            composerDraftsByKey[originDraftKey] = StoredComposerDraft(text: content, attachments: attachments, quotes: quotes)
+                            composerDraftsByKey[originDraftKey] = StoredComposerDraft(text: content, attachments: attachments, quotes: quotes, references: references)
                             let key = deliveryKey(agentId: agent.id, sessionId: originDraftKey)
                             suspendedDeliveries[key]?.isSending = false
                             suspendedDeliveries[key]?.isAwaitingResponse = false
@@ -156,7 +158,7 @@ extension ChatScreenViewModel {
                     isAwaitingAgentResponse = false
                     activeRunStatus = nil
                     transcript.removeAll { $0.id == optimistic.id }
-                    restoreComposerDraft(content: content, attachments: attachments, quotes: quotes)
+                    restoreComposerDraft(content: content, attachments: attachments, quotes: quotes, references: references)
                     sendErrorMessage = "Could not create session: \(error.localizedDescription)"
                 }
             }
@@ -172,7 +174,7 @@ extension ChatScreenViewModel {
                 quotes: quotes,
                 agentId: agent.id,
                 sessionId: sessionId,
-                optimistic: optimistic, selectedModel: sendModel, reasoningEffort: sendReasoningEffort
+                optimistic: optimistic, selectedModel: sendModel, reasoningEffort: sendReasoningEffort, references: references
             )
         }
     }
@@ -247,7 +249,8 @@ extension ChatScreenViewModel {
         sessionId: String,
         optimistic: ChatMessage,
         selectedModel: String?,
-        reasoningEffort: String?
+        reasoningEffort: String?,
+        references: [ChatComposerReference] = []
     ) async {
         let key = deliveryKey(agentId: agentId, sessionId: sessionId)
         defer {
@@ -302,14 +305,14 @@ extension ChatScreenViewModel {
                 transcript.removeAll { $0.id == optimistic.id }
                 isAwaitingAgentResponse = false
                 activeRunStatus = nil
-                restoreComposerDraft(content: draftContent, attachments: attachments, quotes: quotes)
+                restoreComposerDraft(content: draftContent, attachments: attachments, quotes: quotes, references: references)
                 sendErrorMessage = errorMessage
             } else {
                 suspendedDeliveries[key]?.optimisticMessages.removeAll { $0.id == optimistic.id }
                 suspendedDeliveries[key]?.isAwaitingResponse = false
                 suspendedDeliveries[key]?.errorMessage = errorMessage
                 composerDraftsByKey["session:\(sessionId)"] = StoredComposerDraft(
-                    text: draftContent, attachments: attachments, quotes: quotes
+                    text: draftContent, attachments: attachments, quotes: quotes, references: references
                 )
             }
         }
@@ -396,7 +399,7 @@ extension ChatScreenViewModel {
             await postMessage(
                 content: content, draftContent: message.content, attachments: message.attachments,
                 quotes: message.quotes, agentId: agentId, sessionId: sessionId, optimistic: optimistic,
-                selectedModel: delivery.selectedModel, reasoningEffort: delivery.reasoningEffort
+                selectedModel: delivery.selectedModel, reasoningEffort: delivery.reasoningEffort, references: message.references
             )
         }
     }
@@ -420,7 +423,7 @@ extension ChatScreenViewModel {
             content: message.content,
             attachments: message.attachments,
             quotes: message.quotes,
-            agent: agent, clearsComposer: false
+            agent: agent, clearsComposer: false, references: message.references
         )
         isDrainingQueuedMessages = false
     }

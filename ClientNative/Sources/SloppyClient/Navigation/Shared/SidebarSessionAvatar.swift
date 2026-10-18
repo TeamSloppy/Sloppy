@@ -38,7 +38,17 @@ struct SidebarSessionAvatar: View {
         requiresApproval ? .needsInput : activity?.avatarEmotion ?? .idle
     }
 
+    @ViewBuilder
     var body: some View {
+#if os(macOS)
+        if requiresApproval || activity != nil {
+            statusBadge
+                .accessibilityElement(children: .ignore)
+                .accessibilityLabel(requiresApproval ? "Requires approval" : statusLabel)
+                .accessibilityIdentifier("sidebar.session.status")
+                .help(requiresApproval ? "Requires approval" : statusLabel)
+        }
+#else
         ZStack {
             if visibleAgents.count > 1 {
                 ForEach(Array(visibleAgents.enumerated()), id: \.element.id) { index, agent in
@@ -64,6 +74,7 @@ struct SidebarSessionAvatar: View {
         .accessibilityLabel(requiresApproval ? "Agent requires approval" : statusLabel)
         .accessibilityIdentifier("sidebar.session.avatar")
         .help(requiresApproval ? "Requires approval" : statusLabel)
+#endif
     }
 
     private var statusLabel: String {

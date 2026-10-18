@@ -1,5 +1,6 @@
 import Foundation
 import SwiftUI
+import SloppyClientCore
 import UniformTypeIdentifiers
 
 #if os(macOS)
@@ -32,6 +33,9 @@ struct AppKitChatComposerTextEditor: NSViewRepresentable {
     let applySelectedSuggestion: @MainActor () -> Bool
     let submit: @MainActor () -> Void
     let pasteAttachment: @MainActor () -> Bool
+    var references: [ChatComposerReference] = []
+    var openReference: (@MainActor (ChatComposerReference) -> Void)? = nil
+    var registerReferences: @MainActor ([ChatComposerReference]) -> Void = { _ in }
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -62,12 +66,15 @@ struct AppKitChatComposerTextEditor: NSViewRepresentable {
         textView.onPasteAttachment = { [weak coordinator = context.coordinator] in
             coordinator?.parent.pasteAttachment() ?? false
         }
+        textView.onOpenReference = { [weak coordinator = context.coordinator] in coordinator?.parent.openReference?($0) }
+        textView.onImportReferences = { [weak coordinator = context.coordinator] in coordinator?.parent.registerReferences($0) }
 
         configure(scrollView: scrollView, textView: textView, style: nativeStyle)
-        textView.setStyledText(text, style: nativeStyle)
+        textView.setStyledText(text, style: nativeStyle, references: references)
         textView.setSelectedRange(
-            ChatComposerNativeSelection.nativeRange(from: selection, in: text)
+            textView.displayRange(for: ChatComposerNativeSelection.nativeRange(from: selection, in: text)
                 ?? NSRange(location: (text as NSString).length, length: 0)
+            )
         )
         context.coordinator.updateHeight()
         return scrollView
@@ -97,19 +104,22 @@ struct AppKitChatComposerTextEditor: NSViewRepresentable {
 
         let canReplaceText = !textView.hasMarkedText() || text.isEmpty
         if canReplaceText {
-            let didReplaceText = textView.string != text
+            let presentation = ComposerReferencePresentation.attributed(text, references: references, style: style)
+            let didReplaceText = textView.rawText != text || textView.string != presentation.string
+                || textView.referenceMetadata != references || !textView.matchesStyle(style)
             if didReplaceText {
-                textView.setStyledText(text, style: style)
+                textView.setStyledText(text, style: style, references: references, presentation: presentation)
             } else {
                 textView.applyStyle(style)
             }
 
-            let targetSelection = ChatComposerNativeSelection.nativeRange(
+            let rawSelection = ChatComposerNativeSelection.nativeRange(
                 from: selection,
                 in: text
             ) ?? (didReplaceText
                 ? NSRange(location: (text as NSString).length, length: 0)
-                : textView.selectedRange())
+                : textView.rawSelectedRange)
+            let targetSelection = textView.displayRange(for: rawSelection)
             if textView.selectedRange() != targetSelection {
                 textView.setSelectedRange(targetSelection)
             }
@@ -129,6 +139,8 @@ struct AppKitChatComposerTextEditor: NSViewRepresentable {
         coordinator.textView?.onApplySelectedSuggestion = nil
         coordinator.textView?.onSubmit = nil
         coordinator.textView?.onPasteAttachment = nil
+        coordinator.textView?.onOpenReference = nil
+        coordinator.textView?.onImportReferences = nil
         scrollView.onLayout = nil
     }
 
@@ -189,6 +201,13 @@ struct AppKitChatComposerTextEditor: NSViewRepresentable {
             self.parent = parent
         }
 
+        func textView(_ textView: NSTextView, clickedOnLink link: Any, at charIndex: Int) -> Bool {
+            guard let storage = textView.textStorage, charIndex >= 0, charIndex < storage.length,
+                  let attachment = storage.attribute(.attachment, at: charIndex, effectiveRange: nil) as? ComposerReferenceAttachment else { return false }
+            parent.openReference?(attachment.reference)
+            return true
+        }
+
         func textDidChange(_ notification: Notification) {
             guard !isApplyingUpdate,
                   let textView = notification.object as? ComposerNSTextView else { return }
@@ -196,8 +215,9 @@ struct AppKitChatComposerTextEditor: NSViewRepresentable {
             if !textView.hasMarkedText() {
                 textView.applyStyle(parent.nativeStyle, force: true)
             }
-            let updatedText = textView.string
-            let updatedRange = textView.selectedRange()
+            let updatedText = textView.rawText
+            let updatedRange = textView.rawSelectedRange
+            parent.registerReferences(textView.inlineReferences)
             parent.cursorOffsetChanged(
                 ChatComposerNativeSelection.characterOffset(
                     forUTF16Location: updatedRange.location,
@@ -214,9 +234,9 @@ struct AppKitChatComposerTextEditor: NSViewRepresentable {
 
         func textViewDidChangeSelection(_ notification: Notification) {
             guard !isApplyingUpdate,
-                  let textView = notification.object as? NSTextView else { return }
-            let updatedText = textView.string
-            let updatedRange = textView.selectedRange()
+                  let textView = notification.object as? ComposerNSTextView else { return }
+            let updatedText = textView.rawText
+            let updatedRange = textView.rawSelectedRange
             parent.selection = ChatComposerNativeSelection.textSelection(
                 from: updatedRange,
                 in: updatedText
@@ -380,8 +400,28 @@ final class ComposerNSTextView: NSTextView {
     var onApplySelectedSuggestion: (@MainActor () -> Bool)?
     var onSubmit: (@MainActor () -> Void)?
     var onPasteAttachment: (@MainActor () -> Bool)?
+    var onOpenReference: (@MainActor (ChatComposerReference) -> Void)?
+    var onImportReferences: (@MainActor ([ChatComposerReference]) -> Void)?
+    private(set) var referenceMetadata: [ChatComposerReference] = []
+
+    var rawText: String { ComposerReferenceProjection(attributedString()).rawText }
+    var rawSelectedRange: NSRange { ComposerReferenceProjection(attributedString()).rawRange(selectedRange()) }
+    func displayRange(for rawRange: NSRange) -> NSRange {
+        ComposerReferenceProjection(attributedString()).displayRange(rawRange)
+    }
+    var inlineReferences: [ChatComposerReference] {
+        Self.references(in: attributedString())
+    }
+    private static func references(in text: NSAttributedString) -> [ChatComposerReference] {
+        var values: [ChatComposerReference] = []
+        text.enumerateAttribute(.attachment, in: NSRange(location: 0, length: text.length)) { value, _, _ in
+            if let attachment = value as? ComposerReferenceAttachment { values.append(attachment.reference) }
+        }
+        return values
+    }
 
     private var appliedStyle: AppKitComposerTextStyle?
+    func matchesStyle(_ style: AppKitComposerTextStyle) -> Bool { appliedStyle == style }
     private var codeBlockRanges: [NSRange] = []
 
     override init(frame frameRect: NSRect, textContainer container: NSTextContainer?) {
@@ -443,6 +483,11 @@ final class ComposerNSTextView: NSTextView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 1, !event.modifierFlags.contains(.shift), let onOpenReference,
+           let reference = reference(at: convert(event.locationInWindow, from: nil)) {
+            onOpenReference(reference)
+            return
+        }
         window?.makeFirstResponder(self)
         super.mouseDown(with: event)
     }
@@ -467,11 +512,55 @@ final class ComposerNSTextView: NSTextView {
     }
 
     override func paste(_ sender: Any?) {
+        let pasteboard = NSPasteboard.general
+        if let data = pasteboard.data(forType: Self.referencePasteboardType),
+           let references = try? JSONDecoder().decode([ChatComposerReference].self, from: data),
+           let text = pasteboard.string(forType: .string) {
+            onImportReferences?(references)
+            insertText(text, replacementRange: selectedRange())
+            return
+        }
         if Self.pasteboardContainsAttachment(.general),
            onPasteAttachment?() == true {
             return
         }
         super.paste(sender)
+    }
+
+    static let referencePasteboardType = NSPasteboard.PasteboardType("team.sloppy.composer-references")
+    override var writablePasteboardTypes: [NSPasteboard.PasteboardType] { [.string, Self.referencePasteboardType] }
+
+    override func writeSelection(to pasteboard: NSPasteboard, type: NSPasteboard.PasteboardType) -> Bool {
+        let selected = attributedString().attributedSubstring(from: selectedRange())
+        if type == .string { return pasteboard.setString(ComposerReferenceProjection(selected).rawText, forType: .string) }
+        if type == Self.referencePasteboardType, let data = try? JSONEncoder().encode(Self.references(in: selected)) {
+            return pasteboard.setData(data, forType: type)
+        }
+        return super.writeSelection(to: pasteboard, type: type)
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        guard let layoutManager, let textContainer else { return }
+        let value = attributedString()
+        value.enumerateAttribute(.attachment, in: NSRange(location: 0, length: value.length)) { attachment, range, _ in
+            guard attachment is ComposerReferenceAttachment else { return }
+            let glyphs = layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+            let rect = layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer)
+                .offsetBy(dx: textContainerOrigin.x, dy: textContainerOrigin.y)
+            addCursorRect(rect, cursor: .pointingHand)
+        }
+    }
+
+    private func reference(at point: NSPoint) -> ChatComposerReference? {
+        guard let layoutManager, let textContainer, let textStorage, textStorage.length > 0 else { return nil }
+        let location = NSPoint(x: point.x - textContainerOrigin.x, y: point.y - textContainerOrigin.y)
+        let index = layoutManager.characterIndex(for: location, in: textContainer, fractionOfDistanceBetweenInsertionPoints: nil)
+        guard index < textStorage.length,
+              let attachment = textStorage.attribute(.attachment, at: index, effectiveRange: nil) as? ComposerReferenceAttachment else { return nil }
+        let glyphs = layoutManager.glyphRange(forCharacterRange: NSRange(location: index, length: 1), actualCharacterRange: nil)
+        guard layoutManager.boundingRect(forGlyphRange: glyphs, in: textContainer).contains(location) else { return nil }
+        return attachment.reference
     }
 
     override func validateUserInterfaceItem(_ item: any NSValidatedUserInterfaceItem) -> Bool {
@@ -488,13 +577,15 @@ final class ComposerNSTextView: NSTextView {
         return super.validateMenuItem(menuItem)
     }
 
-    func setStyledText(_ text: String, style: AppKitComposerTextStyle) {
-        let selectedRange = selectedRange()
-        codeBlockRanges = ChatComposerCodeFence.ranges(in: text)
-        textStorage?.setAttributedString(styledText(text, style: style))
+    func setStyledText(_ text: String, style: AppKitComposerTextStyle, references: [ChatComposerReference] = [], presentation: NSAttributedString? = nil) {
+        let selectedRange = rawSelectedRange
+        let value = presentation ?? ComposerReferencePresentation.attributed(text, references: references, style: style)
+        textStorage?.setAttributedString(value)
+        referenceMetadata = references
         appliedStyle = style
         typingAttributes = style.baseAttributes
-        setSelectedRange(clamped(selectedRange, for: text))
+        setSelectedRange(displayRange(for: clamped(selectedRange, for: text)))
+        applyStyle(style, force: true)
         updatePlaceholderVisibility()
         needsDisplay = true
     }
@@ -506,10 +597,15 @@ final class ComposerNSTextView: NSTextView {
         let text = string
         codeBlockRanges = ChatComposerCodeFence.ranges(in: text)
         textStorage.beginEditing()
-        textStorage.setAttributes(
-            style.baseAttributes,
-            range: NSRange(location: 0, length: textStorage.length)
-        )
+        let snapshot = NSAttributedString(attributedString: textStorage)
+        snapshot.enumerateAttribute(.attachment, in: NSRange(location: 0, length: snapshot.length)) { value, range, _ in
+            if let attachment = value as? ComposerReferenceAttachment {
+                textStorage.setAttributes([.attachment: attachment, .font: style.font, .toolTip: attachment.reference.rawText,
+                                           .link: ComposerReferencePresentation.link(for: attachment.reference)], range: range)
+            } else {
+                textStorage.setAttributes(style.baseAttributes, range: range)
+            }
+        }
         applyTokenColors(to: textStorage, text: text, style: style)
         textStorage.endEditing()
         appliedStyle = style
@@ -543,15 +639,6 @@ final class ComposerNSTextView: NSTextView {
 
     private func updatePlaceholderVisibility() {
         placeholderLabel.isHidden = !string.isEmpty
-    }
-
-    private func styledText(
-        _ text: String,
-        style: AppKitComposerTextStyle
-    ) -> NSAttributedString {
-        let result = NSMutableAttributedString(string: text, attributes: style.baseAttributes)
-        applyTokenColors(to: result, text: text, style: style)
-        return result
     }
 
     private func applyTokenColors(

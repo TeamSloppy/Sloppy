@@ -74,6 +74,25 @@ public struct ChatComposerOverlay: View {
 
     @ViewBuilder
     private var composerBar: some View {
+#if os(macOS)
+        VStack(spacing: theme.spacing.s) {
+            if !viewModel.composerSuggestions.isEmpty {
+                ComposerSuggestionsView(
+                    suggestions: viewModel.composerSuggestions,
+                    selectedSuggestionID: viewModel.composerSuggestionSelection.selectedID,
+                    select: viewModel.applyComposerSuggestion
+                )
+                .frame(maxWidth: maximumComposerWidth)
+                .disabled(viewModel.activeInputRequest != nil)
+            }
+            composerControls
+        }
+#else
+        composerControls
+#endif
+    }
+
+    private var composerControls: some View {
         VStack(spacing: theme.spacing.s) {
             if let approval = viewModel.pendingToolApproval {
                 ChatToolApprovalCard(
@@ -95,17 +114,12 @@ public struct ChatComposerOverlay: View {
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
-            #if os(macOS)
-            if let sourceControl = viewModel.workingTreeSourceControl {
-                ChatComposerChangeSummaryView(sourceControl: sourceControl)
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-            }
-            #endif
-
+#if !os(macOS)
             if !viewModel.parallelAgents.agents.isEmpty {
                 ChatWorkerActivityCard(viewModel: viewModel)
                     .frame(maxWidth: maximumComposerWidth)
             }
+#endif
 
             ChatComposerView(
                 draft: viewModel.composerDraft,

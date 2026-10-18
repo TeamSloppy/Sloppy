@@ -83,7 +83,7 @@ struct RemoteSettingsSection: View {
                     Button(busy ? "Enabling…" : "Enable Remote") {
                         Task { await enableRemote() }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .appPrimaryButton()
                     .disabled(busy || invite.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .accessibilityIdentifier("settings.remote.enable")
                     Text("Already have a space? Paste an Add host QR link instead.")
@@ -135,7 +135,7 @@ struct RemoteSettingsSection: View {
                     Button(busy ? "Creating…" : "Create pairing QR") {
                         Task { await createPairing(kind: .mobile) }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .appPrimaryButton()
                     .disabled(busy)
                     .accessibilityIdentifier("settings.remote.createPairing")
                     Button("Add host") {
@@ -185,7 +185,7 @@ struct RemoteSettingsSection: View {
                                 Button("Reject") { Task { await decide(item.id, approve: false) } }
                                     .buttonStyle(.bordered)
                                 Button("Approve") { Task { await decide(item.id, approve: true) } }
-                                    .buttonStyle(.borderedProminent)
+                                    .appPrimaryButton()
                             }
                             .padding(16)
                             SettingsDivider()
@@ -258,7 +258,7 @@ struct RemoteSettingsSection: View {
                     Button(busy ? "Waiting for approval…" : "Request access") {
                         Task { await claimPairing() }
                     }
-                    .buttonStyle(.borderedProminent)
+                    .appPrimaryButton()
                     .disabled(busy || setupCode.isEmpty)
                 }
                 .padding(16)

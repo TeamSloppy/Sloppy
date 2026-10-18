@@ -29,7 +29,6 @@ struct ProjectModeView: View {
                                 .background(theme.colors.surface)
                         }
                     }
-                ProjectModeRail(selectedSection: state.selectedSection, onSelect: onSelectSection)
             }
 #elseif os(iOS)
             TabView(selection: Binding(

@@ -263,7 +263,7 @@ struct ScheduledTasksScreen: View {
                 } label: {
                     Label("Create", systemImage: "plus")
                 }
-                .buttonStyle(.glassProminent)
+                .appPrimaryButton(glass: true)
                 .buttonBorderShape(.capsule)
                 .controlSize(.regular)
                 .tint(Color.accentColor)
@@ -292,7 +292,7 @@ struct ScheduledTasksScreen: View {
             }
             .padding(.horizontal, 12)
             .frame(minHeight: 38)
-            .backportGlassEffect(
+            .appSurface(
                 .regular.interactive(),
                 in: RoundedRectangle(cornerRadius: 11, style: .continuous)
             )
@@ -527,7 +527,7 @@ private struct ScheduledTaskEmptyState: View {
                 .font(.system(size: 26, weight: .medium))
                 .foregroundColor(c.accentCyan)
                 .frame(width: 58, height: 58)
-                .backportGlassEffect(
+                .appSurface(
                     .regular.tint(c.accentCyan.opacity(0.14)),
                     in: RoundedRectangle(cornerRadius: 18, style: .continuous)
                 )
@@ -546,7 +546,7 @@ private struct ScheduledTaskEmptyState: View {
 
             if let actionTitle, let action {
                 Button(actionTitle, action: action)
-                    .buttonStyle(.glass)
+                    .appSecondaryButton()
                     .buttonBorderShape(.capsule)
                     .controlSize(.large)
                     .tint(Color.accentColor)
@@ -637,6 +637,9 @@ private struct ScheduledTaskRow: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
+#if os(macOS)
+        .desktopPanel(isSelected: isSelected)
+#else
         .background(
             isSelected ? Color.accentColor.opacity(0.13) : c.surface,
             in: RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -645,6 +648,7 @@ private struct ScheduledTaskRow: View {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
                 .stroke(isSelected ? Color.accentColor.opacity(0.50) : c.border, lineWidth: theme.borders.thin)
         }
+#endif
         .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
@@ -708,12 +712,12 @@ private struct ScheduledTaskDetail: View {
                                 systemImage: task.enabled ? "pause.fill" : "play.fill"
                             )
                         }
-                        .buttonStyle(.glass)
+                        .appSecondaryButton()
 
                         Button(action: onEdit) {
                             Label("Edit", systemImage: "pencil")
                         }
-                        .buttonStyle(.glassProminent)
+                        .appPrimaryButton(glass: true)
                         .tint(Color.accentColor)
 
                         Menu {
@@ -1156,7 +1160,7 @@ private struct ScheduledTaskEditor: View {
                         Text(draft.taskID == nil ? "Create task" : "Save changes")
                     }
                 }
-                .buttonStyle(.glassProminent)
+                .appPrimaryButton(glass: true)
                 .tint(Color.accentColor)
                 .keyboardShortcut(.defaultAction)
                 .disabled(isSaving || !isDraftValid)

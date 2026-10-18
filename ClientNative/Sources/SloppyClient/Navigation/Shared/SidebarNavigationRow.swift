@@ -32,7 +32,7 @@ struct SidebarNavigationRow: View {
         HStack(spacing: theme.spacing.s) {
             if let icon {
                 Icons.symbol(icon, size: theme.typography.body)
-                    .foregroundColor(isSelected ? theme.colors.accentCyan : theme.colors.textMuted)
+                    .foregroundColor(navigationIconColor)
                     .frame(width: 22)
             } else {
                 Color.clear.frame(width: 22)
@@ -46,9 +46,9 @@ struct SidebarNavigationRow: View {
                 Text("\(badgeCount)")
                     .font(.caption.weight(.semibold))
                     .monospacedDigit()
-                    .foregroundStyle(Color.fromHex(0x242521))
+                    .foregroundStyle(badgeTextColor)
                     .padding(.horizontal, 7).padding(.vertical, 3)
-                    .background(Color.fromHex(0xc8e2ae), in: Capsule())
+                    .background(badgeBackground, in: Capsule())
                     .accessibilityLabel("\(badgeCount) items need attention")
                     .accessibilityIdentifier("sidebar.attention.badge")
             }
@@ -61,6 +61,30 @@ struct SidebarNavigationRow: View {
         .padding(.vertical, 6)
         .padding(.horizontal, 4)
         .frame(minHeight: MainSidebarView.rowMinimumHeight)
+    }
+
+    private var navigationIconColor: Color {
+#if os(macOS)
+        isSelected ? theme.colors.textPrimary : theme.colors.textMuted
+#else
+        isSelected ? theme.colors.accentCyan : theme.colors.textMuted
+#endif
+    }
+
+    private var badgeTextColor: Color {
+#if os(macOS)
+        theme.colors.textPrimary
+#else
+        .fromHex(0x242521)
+#endif
+    }
+
+    private var badgeBackground: Color {
+#if os(macOS)
+        theme.colors.surfaceRaised
+#else
+        .fromHex(0xc8e2ae)
+#endif
     }
 }
 

@@ -25,6 +25,7 @@ extension ChatScreenViewModel {
             activeComposerDraftKey = nextKey
             let storedDraft = composerDraftsByKey[nextKey]
             composerDraft.text = storedDraft?.text ?? ""
+            composerDraft.references = storedDraft?.references ?? []
             composerAttachments = storedDraft?.attachments ?? []
             composerQuotes = storedDraft?.quotes ?? []
             if sessionId == nil, let agentId,
@@ -56,7 +57,8 @@ extension ChatScreenViewModel {
             composerDraftsByKey[activeComposerDraftKey] = StoredComposerDraft(
                 text: composerDraft.text,
                 attachments: composerAttachments,
-                quotes: composerQuotes
+                quotes: composerQuotes,
+                references: composerDraft.references
             )
         }
     }
@@ -77,9 +79,11 @@ extension ChatScreenViewModel {
     func restoreComposerDraft(
         content: String,
         attachments: [ChatComposerAttachment],
-        quotes: [ChatComposerQuote]
+        quotes: [ChatComposerQuote],
+        references: [ChatComposerReference] = []
     ) {
         composerDraft.text = content
+        composerDraft.references = references
         composerAttachments = attachments
         composerQuotes = quotes
         saveActiveComposerDraft()

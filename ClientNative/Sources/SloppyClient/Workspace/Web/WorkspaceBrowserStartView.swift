@@ -27,6 +27,24 @@ struct WorkspaceBrowserStartView: View {
                                         action: { onOpenTool(item) }
                                     )
                                 }
+#if os(macOS)
+                                Menu {
+                                    ForEach(WorkspaceSidePanelItem.allCases) { item in
+                                        Button { onOpenTool(item) } label: {
+                                            Label(item.title, systemImage: item.systemImage)
+                                        }
+                                        .disabled(item.requiresProject && !allowsProjectTools)
+                                    }
+                                } label: {
+                                    Label("More tools…", systemImage: "square.grid.2x2")
+                                        .font(.system(size: 14))
+                                        .padding(.horizontal, 14)
+                                        .frame(maxWidth: .infinity, minHeight: 48, alignment: .leading)
+                                        .background(theme.colors.surfaceGlow, in: RoundedRectangle(cornerRadius: 10))
+                                }
+                                .menuStyle(.borderlessButton)
+                                .accessibilityIdentifier("workspace-browser-more-tools")
+#endif
                             }
                         }
                     }
@@ -68,6 +86,7 @@ struct WorkspaceBrowserStartView: View {
             }
         }
         .background(theme.colors.surface)
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("workspace-browser-start")
     }
 }

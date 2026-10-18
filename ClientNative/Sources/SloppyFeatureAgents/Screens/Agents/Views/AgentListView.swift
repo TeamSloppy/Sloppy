@@ -64,6 +64,7 @@ struct AgentListView: View {
                     }
                 }
             }
+            .desktopContentWidth()
             .padding(sp.l)
         }
         .background(c.background)
@@ -179,6 +180,9 @@ private struct AgentCard: View {
             }
         }
         .padding(sp.m)
+#if os(macOS)
+        .desktopPanel()
+#else
         .background {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
                 .fill(c.surfaceRaised.opacity(0.72))
@@ -187,6 +191,7 @@ private struct AgentCard: View {
                         .stroke(c.border, lineWidth: 1)
                 }
         }
+#endif
         .contentShape(.rect)
     }
 
@@ -246,7 +251,11 @@ private struct HeaderMetric: View {
         .frame(minWidth: 62)
         .padding(.vertical, 8)
         .padding(.horizontal, 10)
+#if os(macOS)
+        .desktopPanel(cornerRadius: 10)
+#else
         .background(color.opacity(0.09), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+#endif
     }
 }
 
