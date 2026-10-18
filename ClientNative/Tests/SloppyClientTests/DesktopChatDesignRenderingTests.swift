@@ -73,6 +73,8 @@ struct DesktopChatDesignRenderingTests {
         chat.transcript.replaceAll([])
         try await Task.sleep(for: .milliseconds(300))
         if let directory = ProcessInfo.processInfo.environment["SLOPPY_DESIGN_SCREENSHOTS"] {
+            window.setContentSize(NSSize(width: 2300, height: 900))
+            try await Task.sleep(for: .milliseconds(150))
             for frame in 0..<2 {
                 host.layoutSubtreeIfNeeded()
                 let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
