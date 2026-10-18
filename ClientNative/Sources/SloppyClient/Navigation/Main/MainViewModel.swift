@@ -370,10 +370,10 @@ final class MainViewModel {
         self.chatViewModel.parallelAgents.onSessionSummaryChange = { [weak self] summary in
             guard let self else { return }
             var tagged = summary
-            tagged.sourceInstanceID = settings.discoveredInstances.first { $0.endpoint == chatViewModel.sessionEndpoint }?.id
+            tagged.sourceInstanceID = self.settings.discoveredInstances.first { $0.endpoint == self.chatViewModel.sessionEndpoint }?.id
                 ?? summary.sourceInstanceID
-            chatViewModel.mergeSessionSummary(tagged)
-            synchronizeSidebarSessionCatalog()
+            self.chatViewModel.mergeSessionSummary(tagged)
+            self.synchronizeSidebarSessionCatalog()
         }
     }
 
