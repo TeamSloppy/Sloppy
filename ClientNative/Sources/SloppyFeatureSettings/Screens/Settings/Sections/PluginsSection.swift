@@ -473,7 +473,7 @@ private struct LegacyPluginConnectionsSection: View {
                 HStack {
                     Button("Remove", role: .destructive) { draft.remove(at: selectedIndex); selectedIndex = max(0, selectedIndex - 1) }
                     Spacer()
-                    Button("Save") { var updated = config; updated.plugins = draft; onSave(updated) }.buttonStyle(.borderedProminent)
+                    Button("Save") { var updated = config; updated.plugins = draft; onSave(updated) }.appPrimaryButton()
                 }.padding()
             }
         }

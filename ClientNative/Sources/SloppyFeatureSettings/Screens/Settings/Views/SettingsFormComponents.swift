@@ -152,7 +152,7 @@ struct SettingsSaveBar: View {
                 Button("Cancel", action: onCancel)
                     .buttonStyle(.bordered)
                 Button("Save Changes", action: onSave)
-                    .buttonStyle(.borderedProminent)
+                    .appPrimaryButton()
             }
             .padding(.vertical, 8)
         }
@@ -181,12 +181,16 @@ private struct SettingsCardBackground: ViewModifier {
 
     func body(content: Content) -> some View {
         content
+#if os(macOS)
+            .desktopPanel()
+#else
             .background(Color(white: colorScheme == .dark ? 0.12 : 1),
                         in: RoundedRectangle(cornerRadius: 12))
             .overlay {
                 RoundedRectangle(cornerRadius: 12)
                     .strokeBorder(.primary.opacity(0.08), lineWidth: 1)
             }
+#endif
     }
 }
 

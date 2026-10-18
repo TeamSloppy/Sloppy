@@ -141,7 +141,7 @@ struct AgentSkillsView: View {
             )
             .frame(maxWidth: .infinity, minHeight: 280)
             Button("Browse catalog") { section = .catalog }
-                .buttonStyle(.borderedProminent)
+                .appPrimaryButton()
                 .tint(theme.colors.accent)
                 .frame(maxWidth: .infinity)
         } else {
@@ -294,8 +294,12 @@ private struct InstalledSkillCard: View {
             }
         }
         .padding(theme.spacing.m)
+#if os(macOS)
+        .desktopPanel()
+#else
         .background(theme.colors.surfaceRaised.opacity(0.65), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay { RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(theme.colors.border, lineWidth: 1) }
+#endif
     }
 
     private var repositoryLabel: String {
@@ -350,8 +354,12 @@ private struct CatalogSkillCard: View {
             }
         }
         .padding(theme.spacing.m)
+#if os(macOS)
+        .desktopPanel()
+#else
         .background(theme.colors.surfaceRaised.opacity(0.65), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
         .overlay { RoundedRectangle(cornerRadius: 16, style: .continuous).stroke(theme.colors.border, lineWidth: 1) }
+#endif
     }
 
     private var descriptionText: String {

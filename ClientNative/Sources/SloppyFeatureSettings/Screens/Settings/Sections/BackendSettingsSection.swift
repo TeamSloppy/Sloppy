@@ -117,7 +117,7 @@ struct BackendSettingsSection: View {
                             Button(model.isInstalled ? "Reinstall Latest Version" : "Install Latest Version") {
                                 model.install()
                             }
-                            .buttonStyle(.borderedProminent)
+                            .appPrimaryButton()
                         }
                     }
 

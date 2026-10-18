@@ -114,7 +114,7 @@ public struct AttentionScreen: View {
                 Image(systemName: "arrow.clockwise")
                     .frame(width: 20, height: 20)
             }
-            .buttonStyle(.glass)
+            .appSecondaryButton()
             .buttonBorderShape(.circle)
             .disabled(inbox.isLoading)
             .help("Refresh attention")
@@ -202,11 +202,15 @@ public struct AttentionScreen: View {
                 Text(finding.nextStep).font(.subheadline).textSelection(.enabled)
             }
             .padding(theme.spacing.m).frame(maxWidth: .infinity, alignment: .leading)
+#if os(macOS)
+        .desktopPanel()
+#else
             .background(theme.colors.surface, in: RoundedRectangle(cornerRadius: 20))
             .overlay {
                 RoundedRectangle(cornerRadius: 20)
                     .stroke(theme.colors.border, lineWidth: theme.borders.thin)
             }
+#endif
             if let until = finding.snoozedUntil, until > date {
                 Label("Snoozed until \(until.formatted(date: .abbreviated, time: .shortened))", systemImage: "clock")
                     .font(.caption).foregroundStyle(theme.colors.textMuted)
@@ -233,15 +237,15 @@ public struct AttentionScreen: View {
         HStack(spacing: 12) {
             if let url = DeepLink.session(agentId: finding.agentId, sessionId: finding.sessionId).url {
                 Link(destination: url) { Label("Discuss with agent", systemImage: "bubble") }
-                    .buttonStyle(.glass)
+                    .appSecondaryButton()
                     .accessibilityIdentifier("attention.discuss.\(finding.id)")
             }
             if let project = finding.source.projectId, let task = finding.source.taskId,
                let url = DeepLink.task(projectId: project, taskId: task).url {
-                Link("Open task", destination: url).buttonStyle(.glass)
+                Link("Open task", destination: url).appSecondaryButton()
             } else if let raw = finding.source.url, let url = URL(string: raw),
                       ["https", "http"].contains(url.scheme?.lowercased() ?? "") {
-                Link("Open source", destination: url).buttonStyle(.glass)
+                Link("Open source", destination: url).appSecondaryButton()
             }
         }
         .tint(theme.colors.textPrimary)

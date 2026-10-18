@@ -79,7 +79,7 @@ struct AccountSettingsSection: View {
                         .foregroundColor(theme.colors.textMuted)
                     Spacer()
                     Button("Save Profile", action: saveProfile)
-                        .buttonStyle(.borderedProminent)
+                        .appPrimaryButton()
                         .disabled(isWorking || normalizedName.isEmpty)
                 }
             }
@@ -105,7 +105,7 @@ struct AccountSettingsSection: View {
                     }
                     Spacer()
                     Button("Change Password", action: changePassword)
-                        .buttonStyle(.borderedProminent)
+                        .appPrimaryButton()
                         .disabled(isWorking || currentPassword.isEmpty || newPassword.isEmpty || newPassword != confirmedPassword)
                 }
             }
@@ -164,7 +164,7 @@ struct AccountSettingsSection: View {
                         .labelsHidden()
                         .controlSize(.large)
                     Button("Create Token", action: createApplicationToken)
-                        .buttonStyle(.borderedProminent)
+                        .appPrimaryButton()
                         .disabled(isWorking || normalizedTokenName.isEmpty)
                 }
 

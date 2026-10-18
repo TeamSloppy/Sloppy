@@ -240,7 +240,7 @@ public struct ProjectKanbanView: View {
             } label: {
                 Label("New Task", systemImage: "plus")
             }
-            .buttonStyle(.glassProminent)
+            .appPrimaryButton(glass: true)
             .buttonBorderShape(.capsule)
             .tint(Color.accentColor)
             .accessibilityHint("Creates a task in \(projectName)")
@@ -391,7 +391,7 @@ public struct ProjectKanbanView: View {
             } label: {
                 Label("Create Task", systemImage: "plus")
             }
-            .buttonStyle(.glassProminent)
+            .appPrimaryButton(glass: true)
             .tint(Color.accentColor)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)

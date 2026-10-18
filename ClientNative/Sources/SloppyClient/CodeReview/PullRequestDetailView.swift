@@ -603,8 +603,12 @@ struct PullRequestDetailView: View {
             .accessibilityLabel("Requested fix at \(draft.filePath) line \(draft.line)")
         }
         .padding(14)
+#if os(macOS)
+        .desktopPanel(cornerRadius: 10)
+#else
         .background(Color.fromHex(0xc8e2ae).opacity(0.08), in: RoundedRectangle(cornerRadius: 10))
         .overlay { RoundedRectangle(cornerRadius: 10).stroke(Color.secondary.opacity(0.22)) }
+#endif
         .disabled(isChatBusy)
         .accessibilityIdentifier("code-review-fix-\(draft.id)")
     }
@@ -637,9 +641,11 @@ struct PullRequestDetailView: View {
                     }
                     .frame(minHeight: isCompact ? 28 : 18)
                 }
-                .buttonStyle(.borderedProminent)
+                .appPrimaryButton()
+#if !os(macOS)
                 .tint(Color.fromHex(0xc8e2ae))
                 .foregroundStyle(reviewCount == 0 || detail == nil || isChatBusy ? Color.secondary : Color.fromHex(0x242521))
+#endif
                 .disabled(reviewCount == 0 || detail == nil || isChatBusy)
                 .accessibilityIdentifier("code-review-send-review")
             }
@@ -734,7 +740,7 @@ struct PullRequestDetailView: View {
             HStack {
                 Spacer()
                 Button("Send reply") { Task { await sendReply(to: comment) } }
-                    .buttonStyle(.borderedProminent)
+                    .appPrimaryButton()
                     .disabled(
                         replyDrafts[comment.id, default: ""].trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
                         || postingReplyCommentIDs.contains(comment.id)

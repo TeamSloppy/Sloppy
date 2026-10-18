@@ -110,13 +110,29 @@ public struct ChatBubbleView: View {
                 .padding(.vertical, sp.s)
                 .background {
                     RoundedRectangle(cornerRadius: Self.userBubbleRadius)
-                        .fill(userBubbleTint?.opacity(0.22) ?? c.surfaceGlow)
+                        .fill(userMessageFill)
                         .overlay {
                             RoundedRectangle(cornerRadius: Self.userBubbleRadius)
-                                .stroke(userBubbleTint?.opacity(0.45) ?? c.border.opacity(0.72), lineWidth: theme.borders.thin)
+                                .stroke(userMessageBorder, lineWidth: theme.borders.thin)
                         }
                 }
         }
+    }
+
+    private var userMessageFill: Color {
+#if os(macOS)
+        theme.colors.surfaceRaised
+#else
+        userBubbleTint?.opacity(0.22) ?? theme.colors.surfaceGlow
+#endif
+    }
+
+    private var userMessageBorder: Color {
+#if os(macOS)
+        .clear
+#else
+        userBubbleTint?.opacity(0.45) ?? theme.colors.border.opacity(0.72)
+#endif
     }
 
     @ViewBuilder
@@ -162,7 +178,9 @@ public struct ChatBubbleView: View {
                 }
                 .font(.system(size: theme.typography.body, weight: .semibold))
                 .foregroundStyle(theme.colors.textSecondary)
-                #if os(visionOS)
+                #if os(macOS)
+                .buttonStyle(.plain)
+                #elseif os(visionOS)
                 .backportGlassEffect(.regular, in: .capsule)
                 #else
                 .buttonStyle(.glass)

@@ -20,12 +20,22 @@ public struct EmptyStateView: View {
             Text("—")
                 .font(.system(size: ty.title))
                 .foregroundColor(c.textMuted)
-            Text(text.uppercased())
+            Text(displayText)
                 .font(.system(size: ty.caption))
                 .foregroundColor(c.textMuted)
         }
         .padding(.vertical, sp.xl)
         .padding(.horizontal, sp.l)
+#if !os(macOS)
         .border(c.border, lineWidth: bo.thin)
+#endif
+    }
+
+    private var displayText: String {
+#if os(macOS)
+        text
+#else
+        text.uppercased()
+#endif
     }
 }

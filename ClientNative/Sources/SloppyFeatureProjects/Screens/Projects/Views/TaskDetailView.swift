@@ -143,7 +143,7 @@ public struct TaskDetailView: View {
                         .padding(.horizontal, 12)
                         .padding(.vertical, 8)
                 }
-                .buttonStyle(.glassProminent)
+                .appPrimaryButton(glass: true)
                 .tint(theme.colors.accent)
                 .controlSize(.large)
                 .buttonBorderShape(.capsule)
@@ -211,7 +211,7 @@ public struct TaskDetailView: View {
             Button(action: onClose) {
                 Label("Back", systemImage: "chevron.left")
             }
-            .buttonStyle(.glass)
+            .appSecondaryButton()
             .keyboardShortcut(.cancelAction)
             .help("Close task details")
             .accessibilityLabel("Close task details")
@@ -262,7 +262,7 @@ public struct TaskDetailView: View {
                     .font(.headline)
                 Spacer()
                 #if !os(iOS)
-                editPropertiesButton.buttonStyle(.glass)
+                editPropertiesButton.appSecondaryButton()
                 #endif
             }
             detailRow(label: "Task ID", value: task.id)

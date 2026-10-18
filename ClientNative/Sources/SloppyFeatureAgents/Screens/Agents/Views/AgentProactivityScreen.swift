@@ -194,7 +194,7 @@ public struct AgentProactivityScreen: View {
                     Text(saving ? "Saving…" : "Save changes").fontWeight(.semibold)
                 }.frame(maxWidth: .infinity).padding(.vertical, 6)
             }
-            .buttonStyle(.borderedProminent)
+            .appPrimaryButton()
             .tint(theme.colors.accent)
             .disabled(saving)
             .accessibilityIdentifier("proactivity.save")
@@ -303,7 +303,7 @@ public struct AgentProactivityScreen: View {
             }
             HStack(spacing: 10) {
                 if let url = DeepLink.session(agentId: agentID, sessionId: finding.sessionId).url {
-                    Link("Discuss", destination: url).buttonStyle(.borderedProminent).tint(theme.colors.accent)
+                    Link("Discuss", destination: url).appPrimaryButton().tint(theme.colors.accent)
                 }
                 if let project = finding.source.projectId, let task = finding.source.taskId,
                    let url = DeepLink.task(projectId: project, taskId: task).url {

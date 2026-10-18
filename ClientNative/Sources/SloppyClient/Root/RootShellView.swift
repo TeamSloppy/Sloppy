@@ -43,6 +43,7 @@ struct RootShellView: View {
             #endif
         }
             .environment(viewModel)
+            .desktopScreenStyle()
             .mobileScreenBackground()
         #if os(visionOS)
             .theme(.sloppyDark)
@@ -115,7 +116,7 @@ private struct RootShellContent: View {
 
         return ZStack(alignment: .topLeading) {
             #if os(macOS)
-            AppAtmosphericBackground()
+            theme.colors.background
                 .ignoresSafeArea()
             #else
             theme.colors.background

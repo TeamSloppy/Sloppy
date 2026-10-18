@@ -32,7 +32,7 @@ struct ConsoleSettingsSection: View {
                     Text("\(snapshot.instances.filter { $0.status == .active }.count) instances · \(snapshot.devices.filter { $0.status == .active }.count) trusted devices")
                     #if os(macOS)
                     Button("Connect this Sloppy instance") { Task { await perform { try await ConsoleAccountClient.shared.bind(localCoreURL: settings.baseURL) } } }
-                        .buttonStyle(.borderedProminent).disabled(busy)
+                        .appPrimaryButton().disabled(busy)
                     ForEach(snapshot.proposals) { proposal in
                         Button("Review \(proposal.kind.rawValue.replacingOccurrences(of: "_", with: " "))") { reviewed = proposal }.disabled(busy)
                     }
@@ -43,11 +43,11 @@ struct ConsoleSettingsSection: View {
                         Button("Request access again") {
                             Task { await perform(successMessage: ConsoleAccountError.deviceApprovalRequired.localizedDescription) { try await ConsoleAccountClient.shared.requestDeviceAccessAgain() } }
                         }
-                        .buttonStyle(.borderedProminent).disabled(busy)
+                        .appPrimaryButton().disabled(busy)
                         .accessibilityIdentifier("settings.console.requestAccessAgain")
                     } else {
                         Button("Connect to a server", systemImage: "server.rack") { showConnectionSetup = true }
-                            .buttonStyle(.borderedProminent).disabled(busy)
+                            .appPrimaryButton().disabled(busy)
                     }
                     #if os(iOS)
                     QRCodeScannerButton { url in
@@ -60,7 +60,7 @@ struct ConsoleSettingsSection: View {
                     Button("Sign out of Console") { Task { await perform { try await ConsoleAccountClient.shared.signOut() }; self.snapshot = nil } }.disabled(busy)
                 } else {
                     Text("Connect your account for cloud Relay, automatic mesh and company access. Sloppy also works without an account.").foregroundStyle(.secondary)
-                    Button("Connect Sloppy Console") { Task { await signIn() } }.buttonStyle(.borderedProminent).disabled(busy).accessibilityIdentifier("settings.console.signIn")
+                    Button("Connect Sloppy Console") { Task { await signIn() } }.appPrimaryButton().disabled(busy).accessibilityIdentifier("settings.console.signIn")
                 }
                 if let message { Text(message).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
             }.padding(16)
@@ -92,7 +92,7 @@ struct ConsoleSettingsSection: View {
                 Text("Target: \(proposal.targetID.uuidString)").font(.caption.monospaced())
                 Text("Compare the device key and certificate fingerprint with the target device before approving. Terminal and agent execution grant command execution on this host.").font(.caption).foregroundStyle(.secondary)
                 ScrollView { Text(reviewText(proposal)).font(.caption.monospaced()).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading) }.frame(minHeight: 140)
-                HStack { Button("Cancel") { reviewed = nil }; Spacer(); Button("Approve and sign") { Task { await perform { try await ConsoleAccountClient.shared.approve(proposal, localCoreURL: settings.baseURL) }; reviewed = nil } }.buttonStyle(.borderedProminent).disabled(busy) }
+                HStack { Button("Cancel") { reviewed = nil }; Spacer(); Button("Approve and sign") { Task { await perform { try await ConsoleAccountClient.shared.approve(proposal, localCoreURL: settings.baseURL) }; reviewed = nil } }.appPrimaryButton().disabled(busy) }
             }.padding(24).frame(minWidth: 320, minHeight: 330)
         }
     }

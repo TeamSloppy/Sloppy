@@ -92,7 +92,7 @@ struct AuthenticationScreen: View {
                         .foregroundColor(c.statusWarning)
                         .padding(sp.m)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .backportGlassEffect(
+                        .appSurface(
                             .regular.tint(c.statusWarning.opacity(0.15)),
                             in: RoundedRectangle(cornerRadius: 16, style: .continuous)
                         )
@@ -129,7 +129,7 @@ struct AuthenticationScreen: View {
                         .contentShape(Capsule())
                     }
                     .buttonStyle(.plain)
-                    .backportGlassEffect(.regular.interactive().tint(c.accentCyan), in: .capsule)
+                    .appSurface(.regular.interactive().tint(c.accentCyan), in: .capsule)
                     .disabled(!canSubmit)
                     .keyboardShortcut(.defaultAction)
                 }
@@ -143,7 +143,7 @@ struct AuthenticationScreen: View {
             .padding(sp.xxl)
             .frame(maxWidth: 420)
             .padding(.horizontal, sp.m)
-            .backportGlassEffect(
+            .appSurface(
                 .regular,
                 in: RoundedRectangle(cornerRadius: 28, style: .continuous)
             )
@@ -308,7 +308,7 @@ struct AuthenticationScreen: View {
             .textFieldStyle(.plain)
             .padding(.horizontal, theme.spacing.m)
             .padding(.vertical, theme.spacing.m)
-            .backportGlassEffect(.regular, in: .capsule)
+            .appSurface(.regular, in: .capsule)
     }
 
     private func secureAuthenticationField(_ title: String, text: Binding<String>) -> some View {
@@ -316,7 +316,7 @@ struct AuthenticationScreen: View {
             .textFieldStyle(.plain)
             .padding(.horizontal, theme.spacing.m)
             .padding(.vertical, theme.spacing.m)
-            .backportGlassEffect(.regular, in: .capsule)
+            .appSurface(.regular, in: .capsule)
     }
 
     private func submit() {

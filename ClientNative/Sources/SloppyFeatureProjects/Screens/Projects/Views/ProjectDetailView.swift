@@ -68,7 +68,11 @@ struct ProjectDetailView: View {
                 DetailRow("Teams", value: "\(project.teams?.count ?? 0)")
             }
             .padding(sp.l)
+#if os(macOS)
+            .desktopPanel()
+#else
             .border(c.border, lineWidth: bo.thin)
+#endif
             .padding(sp.l)
         }
     }
@@ -102,7 +106,11 @@ struct ProjectDetailView: View {
                         }
                         .padding(sp.m)
                         .background(c.surface)
-                        .border(c.border, lineWidth: bo.thin)
+            #if os(macOS)
+            .desktopPanel()
+#else
+            .border(c.border, lineWidth: bo.thin)
+#endif
                     }
                 }
             }
@@ -136,7 +144,11 @@ struct ProjectDetailView: View {
                         }
                         .padding(sp.m)
                         .background(c.surface)
-                        .border(c.border, lineWidth: bo.thin)
+            #if os(macOS)
+            .desktopPanel()
+#else
+            .border(c.border, lineWidth: bo.thin)
+#endif
                     }
                 }
             }

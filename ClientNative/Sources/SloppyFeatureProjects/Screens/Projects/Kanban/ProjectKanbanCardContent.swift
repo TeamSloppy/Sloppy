@@ -54,6 +54,9 @@ struct ProjectKanbanCardContent: View {
         .multilineTextAlignment(.leading)
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(theme.spacing.m)
+#if os(macOS)
+        .desktopPanel(isSelected: isHovered)
+#else
         .background {
             RoundedRectangle(cornerRadius: 16, style: .continuous)
                 .fill(isHovered ? theme.colors.surfaceRaised : theme.colors.surface)
@@ -64,6 +67,7 @@ struct ProjectKanbanCardContent: View {
         }
         .shadow(color: .black.opacity(isHovered ? 0.24 : 0), radius: isHovered ? 10 : 0, y: isHovered ? 4 : 0)
         .scaleEffect(isHovered ? 1.01 : 1)
+#endif
         .onHover { isHovered = $0 }
         .animation(.easeOut(duration: 0.16), value: isHovered)
     }

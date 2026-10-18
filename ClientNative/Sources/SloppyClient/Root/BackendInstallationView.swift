@@ -154,7 +154,7 @@ struct BackendInstallationView: View {
             HStack(spacing: 12) {
                 Button("Don’t Ask Again") { model.decline() }.buttonStyle(.bordered)
                 Button("Install Sloppy") { model.install() }
-                    .buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.defaultAction)
+                    .appPrimaryButton().controlSize(.large).keyboardShortcut(.defaultAction)
             }
             Text("Installed privately for this app in Application Support")
                 .font(.footnote).foregroundStyle(.tertiary)
@@ -244,7 +244,7 @@ struct BackendInstallationView: View {
             Text(message).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 620)
             HStack {
                 Button("Continue Without Backend") { model.continueToApp() }
-                Button("Try Again") { model.install() }.buttonStyle(.borderedProminent).keyboardShortcut(.defaultAction)
+                Button("Try Again") { model.install() }.appPrimaryButton().keyboardShortcut(.defaultAction)
             }
             if !model.logLines.isEmpty {
                 ScrollView {
@@ -264,7 +264,7 @@ struct BackendInstallationView: View {
             Text("Sloppy Is Ready").font(.largeTitle.bold())
             Text("Installed \(version) and verified the backend executable.").foregroundStyle(.secondary)
             Button("Continue") { model.continueToApp() }
-                .buttonStyle(.borderedProminent).controlSize(.large).keyboardShortcut(.defaultAction)
+                .appPrimaryButton().controlSize(.large).keyboardShortcut(.defaultAction)
         }
     }
 }

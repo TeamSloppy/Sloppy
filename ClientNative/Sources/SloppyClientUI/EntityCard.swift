@@ -29,6 +29,9 @@ public struct EntityCard: View {
             Button(action: onTap) {
                 cardContent
             }
+#if os(macOS)
+            .buttonStyle(.plain)
+#endif
         } else {
             cardContent
         }
@@ -43,7 +46,7 @@ public struct EntityCard: View {
         return HStack(spacing: 0) {
             HStack(spacing: sp.m) {
                 VStack(alignment: .leading, spacing: sp.xs) {
-                    Text(title.uppercased())
+                    Text(displayTitle)
                         .font(.system(size: ty.body))
                         .foregroundColor(c.textPrimary)
                     Text(subtitle)
@@ -62,7 +65,20 @@ public struct EntityCard: View {
             }
             .padding(sp.m)
         }
+#if os(macOS)
+        .frame(minHeight: 72)
+#else
         .frame(idealHeight: 56, maxHeight: 75)
+#endif
+        .desktopPanel()
+    }
+
+    private var displayTitle: String {
+#if os(macOS)
+        title
+#else
+        title.uppercased()
+#endif
     }
 }
 

@@ -46,7 +46,10 @@ struct MainSidebarRefreshTests {
 
         #expect(!source.contains("@Environment(\\.safeAreaInsets)"))
         #expect(!source.contains("toolbarContentClearance"))
-        #expect(!source.contains(".padding(.top"))
+        let scrollStart = try #require(source.range(of: "ScrollView {"))
+        // The wordmark may have local spacing; the scrolling sidebar and its
+        // root must not add a title-bar-sized top clearance.
+        #expect(!source[scrollStart.lowerBound...].contains(".padding(.top"))
     }
 
     @Test("sidebar actions and recents scroll together while the footer stays fixed")

@@ -91,7 +91,7 @@ struct ConnectionSetupView: View {
                         Button(isConnecting ? "Connecting" : "Connect") {
                             connectManual()
                         }
-                        .buttonStyle(.glassProminent)
+                        .appPrimaryButton(glass: true)
                         .tint(c.accentCyan)
                         .disabled(isConnecting || ServerAddress.parse(host: hostDraft, port: portDraft) == nil)
                         .accessibilityIdentifier("connection.setup.connect")
@@ -177,7 +177,7 @@ struct ConnectionSetupView: View {
                                 .padding(.horizontal, theme.spacing.s)
                         }
                         .buttonStyle(.plain)
-                        .backportGlassEffect(.regular.interactive(), in: .capsule)
+                        .appSurface(.regular.interactive(), in: .capsule)
                         .disabled(isScanning)
                     }
 

@@ -179,10 +179,12 @@ struct ChatSegmentCollapsibleCard: View {
         let sp = theme.spacing
 
         HStack(spacing: sp.s) {
+#if !os(macOS)
             Image(systemName: segmentSystemImage)
                 .font(.system(size: theme.typography.caption))
                 .foregroundColor(c.textMuted)
                 .frame(width: 18)
+#endif
 
             if isRunning {
                 ChatShimmerText(text: segmentTitle)
@@ -194,6 +196,13 @@ struct ChatSegmentCollapsibleCard: View {
                     .lineLimit(1)
             }
 
+#if os(macOS)
+            if hasExpandableContent {
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(.system(size: 10))
+                    .foregroundStyle(c.textMuted)
+            }
+#endif
             if let durationText {
                 Text(durationText)
                     .font(.system(size: theme.typography.micro))
@@ -201,18 +210,24 @@ struct ChatSegmentCollapsibleCard: View {
                     .lineLimit(1)
             }
 
+#if !os(macOS)
             Spacer(minLength: 0)
-
             if hasExpandableContent {
                 Icons.symbol(isExpanded ? .collapseContent : .expandMore, size: theme.typography.caption)
                     .foregroundColor(c.textMuted)
             }
+#endif
         }
         .contentShape(Rectangle())
         .onTapGesture {
             withAnimation(.easeInOut(duration: 0.1)) {
                 isExpanded.toggle()
             }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(hasExpandableContent ? .isButton : [])
+        .accessibilityAction {
+            if hasExpandableContent { isExpanded.toggle() }
         }
     }
 

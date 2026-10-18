@@ -92,14 +92,15 @@ struct ChatBubbleRenderingTests {
         #expect(groupSource.contains(".buttonStyle(.plain)"))
     }
 
-    @Test("chat messages use Codex-like flat typography and a subtle user bubble")
-    func chatMessagesUseCodexLikeVisualTreatment() throws {
+    @Test("chat messages use flat typography and preserve mobile bubble colors")
+    func chatMessagesUseFlatVisualTreatment() throws {
         let source = try source
 
         #expect(source.contains("private static let userBubbleRadius: CGFloat = 18"))
         #expect(source.contains(".fill(c.surfaceGlow)"))
-        #expect(source.contains("userBubbleTint?.opacity(0.22) ?? c.surfaceGlow"))
-        #expect(source.contains("userBubbleTint?.opacity(0.45) ?? c.border.opacity(0.72)"))
+        #expect(source.contains(".fill(userMessageFill)"))
+        #expect(source.contains("userBubbleTint?.opacity(0.22) ?? theme.colors.surfaceGlow"))
+        #expect(source.contains("userBubbleTint?.opacity(0.45) ?? theme.colors.border.opacity(0.72)"))
         #expect(source.contains(".lineSpacing(4)"))
     }
 

@@ -160,11 +160,15 @@ extension View {
         textFieldStyle(.plain)
             .padding(.horizontal, 12)
             .padding(.vertical, 9)
-            .backportGlassEffect(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+            .appSurface(.regular, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     func activityCard(_ theme: Theme) -> some View {
         padding(12).frame(maxWidth: .infinity, alignment: .leading)
+#if os(macOS)
+            .desktopPanel()
+#else
             .background(theme.colors.surfaceRaised.opacity(0.45), in: RoundedRectangle(cornerRadius: 12))
+#endif
     }
 }
