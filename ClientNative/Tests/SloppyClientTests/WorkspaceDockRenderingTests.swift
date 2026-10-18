@@ -74,7 +74,7 @@ struct WorkspaceDockRenderingTests {
         #expect(AppKitTestAccessibility.element(in: host, identifier: "workspace.dock.tools") != nil)
     }
 
-    @Test func middleClickClosesSideTabsAndStartsNewBrowser() async throws {
+    @Test func middleClickClosesLastTabAndHidesPanel() async throws {
         let state = WorkspaceDockState()
         state.open(.sideChat)
         state.open(.browser)
@@ -119,8 +119,12 @@ struct WorkspaceDockRenderingTests {
             #expect(!state.tabs.contains(where: { $0.id == tabID }))
         }
 
+        #expect(state.tabs.isEmpty)
+        #expect(!state.isPresented)
+        #expect(state.selectedTab == nil)
+        state.toggleVisibility()
+        try await Task.sleep(for: .milliseconds(50))
         #expect(state.tabs.count == 1)
-        #expect(state.isPresented)
         #expect(state.selectedTab?.kind == .browser)
         if let directory = ProcessInfo.processInfo.environment["SLOPPY_DOCK_SCREENSHOTS"] {
             host.layoutSubtreeIfNeeded()

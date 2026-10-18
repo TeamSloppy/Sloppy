@@ -86,6 +86,9 @@ final class WorkspaceDockState {
         if selectedID == id {
             selectedID = tabs.isEmpty ? nil : tabs[min(index, tabs.count - 1)].id
         }
+#if os(macOS)
+        if tabs.isEmpty { hide() }
+#endif
     }
 
     func closeSelectedTabOrHide() {

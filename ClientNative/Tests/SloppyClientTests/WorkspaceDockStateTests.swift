@@ -140,7 +140,7 @@ struct WorkspaceDockStateTests {
         #expect(dock.selectedID == third.id)
     }
 
-    @Test func closingSelectedSidePanelTabsLeavesThePickerVisible() {
+    @Test func closingSelectedSidePanelTabsHidesPanelAfterLastTab() {
         let dock = WorkspaceDockState()
         let first = dock.open(.browser)
         dock.open(.sideChat)
@@ -153,10 +153,18 @@ struct WorkspaceDockStateTests {
         dock.closeSelectedTabOrHide()
         #expect(dock.tabs.isEmpty)
         #expect(dock.selectedID == nil)
+#if os(macOS)
+        #expect(!dock.isPresented)
+        dock.toggleVisibility()
         #expect(dock.isPresented)
-
+        #expect(dock.tabs.count == 1)
+        #expect(dock.selectedTab?.kind == .browser)
+        #expect(dock.selectedID != first.id)
+#else
+        #expect(dock.isPresented)
         dock.closeSelectedTabOrHide()
         #expect(!dock.isPresented)
+#endif
     }
 
     @Test func widthCanGrowBeyondOldLimitAndFitsSmallWindows() {
