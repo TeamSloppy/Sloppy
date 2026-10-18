@@ -84,11 +84,11 @@ struct ChatComposerRenderingTests {
         #expect(source.contains("Icons.symbol(.add, size: 18)"))
     }
 
-    @Test("desktop composer uses a compact single-row layout")
-    func desktopComposerUsesCompactSingleRowLayout() throws {
+    @Test("desktop composer keeps a bounded width and separate text and controls")
+    func desktopComposerUsesBoundedLayout() throws {
         let source = try chatComposerSource
 
-        #expect(source.contains("public static let desktopPanelWidth: CGFloat = 800"))
+        #expect(source.contains("public static let desktopPanelWidth: CGFloat = 900"))
         #expect(source.contains("public static let panelWidth: CGFloat = 900"))
         #expect(source.contains("usesDesktopComposer ? Self.desktopPanelWidth : Self.panelWidth"))
         #expect(source.contains("public static let panelHeight: CGFloat = Constants.fieldHeight"))
@@ -100,8 +100,8 @@ struct ChatComposerRenderingTests {
         #expect(!source.contains("modelPickerBottomPadding"))
     }
 
-    @Test("desktop composer keeps add and trailing actions outside the text field")
-    func desktopComposerKeepsActionsOutsideTextField() throws {
+    @Test("desktop composer separates the flat text surface from its settings")
+    func desktopComposerSeparatesSettings() throws {
         let source = try chatComposerSource
         let surfaceStart = try #require(source.range(of: "private var desktopComposerInputSurface"))
         let mobileStart = try #require(source.range(of: "#if !os(macOS)", range: surfaceStart.upperBound..<source.endIndex))
@@ -111,9 +111,12 @@ struct ChatComposerRenderingTests {
         #expect(source.contains("ComposerAddMenu("))
         #expect(source.contains("desktopComposerInputSurface"))
         #expect(source.contains("MobileComposerCircleButton("))
-        #expect(!surfaceSource.contains("ComposerAddMenu("))
+        #expect(surfaceSource.contains("ComposerAddMenu("))
         #expect(!surfaceSource.contains("MobileComposerCircleButton("))
-        #expect(surfaceSource.contains(".glassEffect("))
+        #expect(surfaceSource.contains("desktopServerPicker"))
+        #expect(surfaceSource.contains("desktopModelPicker"))
+        #expect(surfaceSource.contains("Button(action: handleTrailingAction)"))
+        #expect(surfaceSource.contains(".background(theme.colors.surfaceGlow, in: RoundedRectangle(cornerRadius: 18))"))
         #expect(!surfaceSource.contains("theme.colors.surface.opacity(0.98)"))
     }
 
@@ -144,7 +147,7 @@ struct ChatComposerRenderingTests {
     func reasoningPickerKeepsAgentSelectionAsPaddedMenuRow() throws {
         let source = try chatComposerSource
 
-        #expect(source.components(separatedBy: ".menuStyle(.borderlessButton)").count == 2)
+        #expect(source.components(separatedBy: ".menuStyle(.borderlessButton)").count == 3)
         #expect(source.contains("private var agentPicker: some View"))
         #expect(source.contains("Text(selectedAgent?.displayName ?? \"Agent\")"))
         #expect(source.contains(".menuIndicator(.hidden)"))

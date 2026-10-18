@@ -65,7 +65,11 @@ struct ChatTextField: View {
             tagColor: c.accentAcid
         )
             .frame(height: editorHeight)
+#if os(macOS)
+            .padding(.horizontal, 0)
+#else
             .padding(.horizontal, idiom == .phone ? 0 : Constants.fieldHorizontalPadding)
+#endif
             .padding(.vertical, sp.s)
             .frame(
                 minWidth: 0, maxWidth: .infinity, minHeight: Constants.fieldHeight,
@@ -119,7 +123,7 @@ struct ChatTextField: View {
             selection: $draft.selection,
             isFocused: $isTextFieldFocused,
             measuredHeight: $editorHeight,
-            placeholder: idiom == .phone ? "Plan, ask, build…" : "Ask \(agentDisplayName)",
+            placeholder: "Ask \(agentDisplayName) or type / for commands",
             fontSize: fontSize,
             primaryColor: primaryColor,
             placeholderColor: placeholderColor,

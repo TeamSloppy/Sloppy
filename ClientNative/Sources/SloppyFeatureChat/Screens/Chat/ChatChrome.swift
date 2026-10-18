@@ -102,7 +102,11 @@ struct ChatChrome: View {
 
     private func contentWidth(for availableWidth: CGFloat) -> CGFloat {
         let horizontalInset = idiom == .phone ? theme.spacing.s * 2 : theme.spacing.l * 2
+#if os(macOS)
+        return max(0, min(ChatComposerView.desktopPanelWidth - theme.spacing.s * 2, availableWidth - horizontalInset))
+#else
         return max(0, min(chatContentWidth, availableWidth - horizontalInset))
+#endif
     }
 
     private func heroWidth(for contentWidth: CGFloat) -> CGFloat {
