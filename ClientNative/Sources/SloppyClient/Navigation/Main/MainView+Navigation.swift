@@ -141,13 +141,21 @@ extension MainView {
                     max: viewModel.sidebarMaximumWidth
                 )
                 .navigationDestination(for: MainSidebarSelection.self) { _ in
-                    contentArea()
-                        .onAppear {
-                            viewModel.dismissMobileSidebar()
-                        }
+                    Group {
+#if os(macOS)
+                        desktopWorkspaceDetail
+#else
+                        contentArea()
+#endif
+                    }
+                    .onAppear { viewModel.dismissMobileSidebar() }
                 }
         } detail: {
+#if os(macOS)
+            desktopWorkspaceDetail
+#else
             contentArea()
+#endif
         }
         .navigationSplitViewStyle(.balanced)
 #endif

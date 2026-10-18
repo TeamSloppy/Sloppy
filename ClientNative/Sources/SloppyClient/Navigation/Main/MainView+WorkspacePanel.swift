@@ -18,10 +18,25 @@ extension MainView {
     @ViewBuilder
     var workspacePanelContainer: some View {
 #if os(macOS)
+        contentView
+            .focusedSceneValue(\.projectModeCommands, projectModeCommandContext)
+#else
+        contentView
+            .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
+            .inspector(isPresented: Binding(get: { isWorkspacePanelPresented }, set: { isWorkspacePanelPresented = $0 })) {
+                workspaceSidePanel
+                    .inspectorColumnWidth(min: 240, ideal: viewModel.workspaceDockState.preferredWidth, max: 1200)
+            }
+#endif
+    }
+
+#if os(macOS)
+    /// Keep the native sidebar and toolbar outside the dock's clipping boundary.
+    var desktopWorkspaceDetail: some View {
         WorkspaceResizableSidePanel(state: viewModel.workspaceDockState, reservedContentWidth: 304) {
             GeometryReader { geometry in
                 HStack(spacing: 0) {
-                    contentView
+                    contentArea()
                         .frame(width: max(0, geometry.size.width - 304))
                         .clipped()
                     desktopWorkspaceInspector
@@ -32,16 +47,8 @@ extension MainView {
         } panel: {
             workspaceSidePanel
         }
-        .focusedSceneValue(\.projectModeCommands, projectModeCommandContext)
-#else
-        contentView
-            .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
-            .inspector(isPresented: Binding(get: { isWorkspacePanelPresented }, set: { isWorkspacePanelPresented = $0 })) {
-                workspaceSidePanel
-                    .inspectorColumnWidth(min: 240, ideal: viewModel.workspaceDockState.preferredWidth, max: 1200)
-            }
-#endif
     }
+#endif
 
 #if os(macOS)
     private var desktopWorkspaceInspector: some View {
