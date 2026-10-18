@@ -7,6 +7,32 @@ import Testing
 
 @Suite("Session creation", .serialized)
 struct SessionCreationTests {
+    @Test("catalog includes worker sessions and falls back on older servers", arguments: [false, true])
+    func workerCatalog(supportsCatalog: Bool) async throws {
+        let capture = SessionCreationRequestCapture()
+        SessionCreationURLProtocol.install { request in
+            capture.set(request)
+            let isCatalog = request.url?.path == "/v1/agent-sessions"
+            if isCatalog {
+                let query = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems ?? []
+                #expect(query.contains { $0.name == "includeWorkers" && $0.value == "true" })
+                #expect(query.contains { $0.name == "agentId" && $0.value == "agent/one" })
+            }
+            let response = try #require(HTTPURLResponse(url: request.url!, statusCode: isCatalog && !supportsCatalog ? 404 : 200,
+                httpVersion: nil, headerFields: ["Content-Type": "application/json"]))
+            let data = Data(#"[{"id":"child","agentId":"agent/one","title":"Task","parentSessionId":"root","messageCount":0,"updatedAt":"2026-09-17T08:00:00Z","kind":"long_chat_worker"}]"#.utf8)
+            return (response, data)
+        }
+        defer { SessionCreationURLProtocol.reset() }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [SessionCreationURLProtocol.self]
+        let client = SloppyAPIClient(baseURL: URL(string: "https://sessions.sloppy.test")!,
+            session: URLSession(configuration: configuration), authSessionStore: AuthSessionStore(persistence: .memory))
+        let sessions = try await client.fetchAgentSessions(agentId: "agent/one", includeWorkers: true)
+        #expect(sessions.first?.parentSessionId == "root")
+        #expect(capture.snapshot()?.url?.path == (supportsCatalog ? "/v1/agent-sessions" : "/v1/agents/agent/one/sessions"))
+    }
+
     @Test("forked session sends its parent and preserves scope")
     func forkedSessionPayload() async throws {
         let capture = SessionCreationRequestCapture()

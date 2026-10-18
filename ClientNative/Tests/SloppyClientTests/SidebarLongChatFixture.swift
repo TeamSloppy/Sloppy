@@ -5,9 +5,9 @@ final class SidebarLongChatFixture: @unchecked Sendable {
     let api: SloppyAPIClient
     private let host: String
 
-    init(delayedAgentID: String? = nil, fails: Bool = false) {
+    init(delayedAgentID: String? = nil, fails: Bool = false, agents: [APIAgentRecord] = []) {
         host = "sidebar-agent-\(UUID().uuidString).invalid"
-        SidebarLongChatURLProtocol.storage.register(host: host, delayedAgentID: delayedAgentID, fails: fails)
+        SidebarLongChatURLProtocol.storage.register(host: host, delayedAgentID: delayedAgentID, fails: fails, agents: agents)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [SidebarLongChatURLProtocol.self]
         api = SloppyAPIClient(baseURL: URL(string: "http://\(host)")!,
@@ -59,14 +59,15 @@ private final class SidebarLongChatURLProtocol: URLProtocol, @unchecked Sendable
             var delayedAgentID: String?
             var fails: Bool
             var posts: [URLRequest] = []
+            var agents: [APIAgentRecord] = []
         }
         private let lock = NSLock()
         private var scenarios: [String: Scenario] = [:]
 
-        func register(host: String, delayedAgentID: String?, fails: Bool) {
+        func register(host: String, delayedAgentID: String?, fails: Bool, agents: [APIAgentRecord]) {
             lock.lock()
             defer { lock.unlock() }
-            scenarios[host] = Scenario(delayedAgentID: delayedAgentID, fails: fails)
+            scenarios[host] = Scenario(delayedAgentID: delayedAgentID, fails: fails, agents: agents)
         }
 
         func posts(host: String) -> [URLRequest] {
@@ -79,6 +80,11 @@ private final class SidebarLongChatURLProtocol: URLProtocol, @unchecked Sendable
             lock.lock()
             defer { lock.unlock() }
             let host = request.url?.host ?? ""
+            if request.httpMethod == "GET", request.url?.path == "/v1/agents" {
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .iso8601
+                return ((try? encoder.encode(scenarios[host]?.agents ?? [])) ?? Data(), 200, 0)
+            }
             guard request.httpMethod == "POST" else { return (Data("[]".utf8), 200, 0) }
             scenarios[host]?.posts.append(request)
             guard request.url?.path.hasSuffix("/long-chat") == true else { return (Data(), 404, 0) }

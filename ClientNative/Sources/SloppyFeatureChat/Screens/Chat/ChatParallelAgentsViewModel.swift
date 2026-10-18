@@ -75,6 +75,7 @@ public struct ChatParallelAgent: Identifiable, Sendable {
 public final class ChatParallelAgentsViewModel {
     public private(set) var agents: [ChatParallelAgent] = []
     public private(set) var errorMessage: String?
+    @ObservationIgnored public var onSessionSummaryChange: @MainActor (ChatSessionSummary) -> Void = { _ in }
     @ObservationIgnored private let apiClient: SloppyAPIClient
 
     public init(apiClient: SloppyAPIClient) {
@@ -104,6 +105,7 @@ public final class ChatParallelAgentsViewModel {
                     {
                         var summary = detail.summary
                         summary.sourceInstanceID = parent.summary.sourceInstanceID
+                        summary.parentSessionId = summary.parentSessionId ?? sessionID
                         next.append(
                             ChatParallelAgent(
                                 detail: ChatSessionDetail(summary: summary, events: detail.events, stateEvents: detail.stateEvents),
@@ -112,12 +114,17 @@ public final class ChatParallelAgentsViewModel {
                         // A starting/unavailable child must not hide the other agents or claim active work.
                         let summary = ChatSessionSummary(
                             id: link.childSessionId, agentId: agentID, title: link.title,
-                            sourceInstanceID: parent.summary.sourceInstanceID
+                            updatedAt: parent.summary.updatedAt,
+                            projectId: parent.summary.projectId, workspaceId: parent.summary.workspaceId,
+                            sourceInstanceID: parent.summary.sourceInstanceID, parentSessionId: sessionID
                         )
                         next.append(ChatParallelAgent(detail: ChatSessionDetail(summary: summary)))
                     }
                 }
                 guard !Task.isCancelled else { return }
+                for worker in next where agents.first(where: { $0.id == worker.id })?.summary != worker.summary {
+                    onSessionSummaryChange(worker.summary)
+                }
                 agents = next
                 errorMessage = nil
             } catch {
