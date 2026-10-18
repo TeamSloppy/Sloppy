@@ -84,20 +84,7 @@ struct ConnectionSetupView: View {
                     isScanning = false
                     isConnecting = false
                 }
-#if os(macOS)
-                .toolbar {
-                    ToolbarSpacer(.flexible)
-                    ToolbarItem(placement: .automatic) {
-                        Button(isConnecting ? "Connecting" : "Connect") {
-                            connectManual()
-                        }
-                        .appPrimaryButton(glass: true)
-                        .tint(c.accentCyan)
-                        .disabled(isConnecting || ServerAddress.parse(host: hostDraft, port: portDraft) == nil)
-                        .accessibilityIdentifier("connection.setup.connect")
-                    }
-                }
-#else
+#if !os(macOS)
                 .safeAreaInset(edge: .bottom) {
                     Button {
                         connectManual()
@@ -145,6 +132,16 @@ struct ConnectionSetupView: View {
 
                         manualField("Port", hint: "25101", text: $portDraft)
                     }
+
+#if os(macOS)
+                    Button(isConnecting ? "Connecting…" : "Connect") {
+                        connectManual()
+                    }
+                    .appPrimaryButton()
+                    .disabled(isConnecting || ServerAddress.parse(host: hostDraft, port: portDraft) == nil)
+                    .accessibilityIdentifier("connection.setup.connect")
+                    .frame(maxWidth: .infinity, alignment: .trailing)
+#endif
 
                     DisclosureGroup("Connecting from another device?") {
                         Text("Use your computer’s LAN address on Wi-Fi, or its public address remotely. On an iPhone or iPad, localhost points to this device.")
