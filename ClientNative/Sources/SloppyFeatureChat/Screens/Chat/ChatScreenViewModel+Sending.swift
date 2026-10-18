@@ -21,6 +21,10 @@ extension ChatScreenViewModel {
               activeInputRequest == nil else {
             return false
         }
+#if os(macOS)
+        quoteAnnotationPresenter.close()
+#endif
+        if let id = editingComposerQuoteID { finishComposerQuoteEditing(id: id) }
         let attachments = composerAttachments
         let quotes = composerQuotes
         guard !content.isEmpty || !attachments.isEmpty || !quotes.isEmpty else { return false }

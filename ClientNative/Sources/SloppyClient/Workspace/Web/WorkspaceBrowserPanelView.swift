@@ -5,6 +5,7 @@ import SloppyClientUI
 struct WorkspaceBrowserPanelView: View {
     @Bindable var viewModel: WorkspaceWebViewModel
     @Environment(\.theme) private var theme
+    @Environment(\.openURL) private var openURL
     var onOpenTool: (@MainActor (WorkspaceSidePanelItem) -> Void)? = nil
     var allowsProjectTools = false
     @FocusState private var isAddressFocused: Bool
@@ -29,23 +30,33 @@ struct WorkspaceBrowserPanelView: View {
                 .padding(.horizontal, 4)
                 .background(theme.colors.surfaceRaised, in: Capsule())
 
-                TextField("Enter a URL", text: $viewModel.addressText)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 13))
-                    .foregroundStyle(theme.colors.textPrimary)
-                    .focused($isAddressFocused)
-                    .onSubmit {
-                        viewModel.openAddress()
-                        isAddressFocused = false
+                HStack(spacing: 4) {
+                    TextField("Enter a URL", text: $viewModel.addressText)
+                        .textFieldStyle(.plain)
+                        .font(.system(size: 13))
+                        .foregroundStyle(theme.colors.textPrimary)
+                        .focused($isAddressFocused)
+                        .onSubmit {
+                            viewModel.openAddress()
+                            isAddressFocused = false
+                        }
+                        .accessibilityLabel("Browser address")
+                        .accessibilityIdentifier("workspace-browser-address")
+
+                    navigationButton("arrow.up.right", title: "Open in default browser", enabled: externalBrowserURL != nil) {
+                        if let url = externalBrowserURL {
+                            openURL(url)
+                        }
                     }
-                    .padding(.horizontal, 16)
-                    .frame(minWidth: 60, minHeight: 36)
-                    .background(theme.colors.surfaceRaised, in: Capsule())
-                    .overlay {
-                        Capsule().strokeBorder(isAddressFocused ? theme.colors.borderBold : theme.colors.border, lineWidth: 1)
-                    }
-                    .accessibilityLabel("Browser address")
-                    .accessibilityIdentifier("workspace-browser-address")
+                    .accessibilityIdentifier("workspace-browser-open-external")
+                }
+                .padding(.leading, 16)
+                .padding(.trailing, 6)
+                .frame(minWidth: 60, minHeight: 36)
+                .background(theme.colors.surfaceRaised, in: Capsule())
+                .overlay {
+                    Capsule().strokeBorder(isAddressFocused ? theme.colors.borderBold : theme.colors.border, lineWidth: 1)
+                }
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 10)
@@ -76,6 +87,13 @@ struct WorkspaceBrowserPanelView: View {
                 }
         }
         .background(theme.colors.surface)
+    }
+
+    private var externalBrowserURL: URL? {
+        guard let url = viewModel.currentURL,
+              let scheme = url.scheme?.lowercased(),
+              scheme == "http" || scheme == "https" else { return nil }
+        return url
     }
 
     private func navigationButton(

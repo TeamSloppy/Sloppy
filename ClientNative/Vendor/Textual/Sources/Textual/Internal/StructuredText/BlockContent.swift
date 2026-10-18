@@ -2,6 +2,7 @@ import SwiftUI
 
 extension StructuredText {
   struct BlockContent<Content: AttributedStringProtocol>: View {
+    @Environment(\.textualTextSelectionScope) private var selectionScope
     private let parent: PresentationIntent.IntentType?
     private let content: Content
 
@@ -17,6 +18,7 @@ extension StructuredText {
         ForEach(runs.indices, id: \.self) { index in
           let run = runs[index]
           Block(intent: run.intent, content: content[run.range])
+            .environment(\.textualTextSelectionScope, "\(selectionScope)/\(index)")
         }
       }
     }
