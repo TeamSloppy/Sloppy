@@ -352,6 +352,7 @@ public final class ChatScreenViewModel {
         self.onPlanArtifact = onPlanArtifact
         self.responseNotificationScheduler = responseNotificationScheduler
         self.onOpenSettings = onOpenSettings
+        self.parallelAgents.onSessionSummaryChange = { [weak self] summary in self?.mergeSessionSummary(summary) }
     }
 
 }

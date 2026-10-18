@@ -61,7 +61,7 @@ private final class BootstrapURLProtocol: URLProtocol, @unchecked Sendable {
             data = (try? encoder.encode([APIAgentRecord(id: "first", displayName: "First")])) ?? Data()
         case "/v1/projects":
             data = (try? encoder.encode([APIProjectRecord(id: "workspace", name: "Workspace", kind: .workspace)])) ?? Data()
-        case "/v1/agents/first/sessions":
+        case "/v1/agents/first/sessions", "/v1/agent-sessions":
             data = (try? encoder.encode([ChatSessionSummary(id: "existing-chat", agentId: "first", title: "Existing chat")])) ?? Data()
         default:
             data = Data("[]".utf8)

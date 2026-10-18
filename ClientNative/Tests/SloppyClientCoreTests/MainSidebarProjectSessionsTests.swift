@@ -25,7 +25,6 @@ struct MainSidebarProjectSessionsTests {
 
         #expect(source.contains("ChatSidebarSections.build("))
         #expect(source.contains("sessions: visibleSessions"))
-        #expect(source.contains("return viewModel.sidebarSessionCatalog.filter(requiresApproval)"))
         #expect(source.contains("defaultSourceInstanceID: viewModel.sidebarDefaultSourceInstanceID"))
         #expect(mainViewModelSource.contains("!settings.isSessionArchived($0.storageID)"))
         #expect(mainViewModelSource.contains("tagged.sourceInstanceID = activeInstanceID"))
@@ -40,7 +39,6 @@ struct MainSidebarProjectSessionsTests {
         #expect(chatViewModelSource.contains("onSessionSummaryChange(summary)"))
         #expect(source.contains("ForEach(sections.projectGroups.prefix(viewModel.visibleProjectCount))"))
         #expect(source.contains("ForEach(sessions, id: \\.storageID)"))
-        #expect(source.contains("SidebarSessionItem(\n                        viewModel: viewModel,\n                        session: $0,"))
         #expect(source.contains("showsProjectName: false"))
     }
 

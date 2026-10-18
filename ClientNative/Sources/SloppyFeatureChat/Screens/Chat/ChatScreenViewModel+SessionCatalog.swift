@@ -60,7 +60,7 @@ extension ChatScreenViewModel {
             if let projectId {
                 _ = try? await apiClient.openLongChat(agentId: agent.id, projectId: projectId)
             }
-            let fetched = try await apiClient.fetchAgentSessions(agentId: agent.id, projectId: projectId)
+            let fetched = try await apiClient.fetchAgentSessions(agentId: agent.id, projectId: projectId, includeWorkers: true)
             guard generation == sessionLoadGeneration else { return }
             let filtered = fetched.filter { $0.kind != "heartbeat" }
             sessions = sortSessions(filtered)
@@ -95,7 +95,7 @@ extension ChatScreenViewModel {
                 group.addTask {
                     SessionCatalogFetchResult(
                         agentId: agent.id,
-                        sessions: try? await apiClient.fetchAgentSessions(agentId: agent.id)
+                        sessions: try? await apiClient.fetchAgentSessions(agentId: agent.id, includeWorkers: true)
                     )
                 }
             }
