@@ -139,6 +139,7 @@ struct SidebarSessionRow: View {
                     .foregroundColor(isSelected ? theme.colors.textPrimary : theme.colors.textSecondary)
                     .lineLimit(1)
 
+#if !os(macOS)
                 if showsProjectName {
                     HStack(spacing: theme.spacing.xs) {
                         Image(systemName: "folder")
@@ -155,6 +156,7 @@ struct SidebarSessionRow: View {
                         .foregroundColor(theme.colors.textMuted)
                         .lineLimit(1)
                 }
+#endif
             }
             Spacer(minLength: 0)
 #if os(macOS)
@@ -166,6 +168,9 @@ struct SidebarSessionRow: View {
             }
         }
         .padding(.horizontal, theme.spacing.s)
+#if os(macOS)
+        .padding(.leading, 24 + theme.spacing.s)
+#endif
         .padding(.vertical, 6)
         .frame(minHeight: MainSidebarView.rowMinimumHeight)
         .background {
