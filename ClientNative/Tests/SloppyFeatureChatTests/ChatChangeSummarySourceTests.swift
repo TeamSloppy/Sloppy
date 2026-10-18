@@ -29,19 +29,13 @@ struct ChatChangeSummarySourceTests {
         #expect(summary.contains("accessibilityIdentifier(\"chat.change-summary\")"))
     }
 
-    @Test("macOS composer shows a compact working-tree summary above its input")
-    func composerRendersCompactChangeSummary() throws {
-        let screen = try source("Sources", "SloppyFeatureChat", "Screens", "Chat", "ChatScreen.swift")
-        let summary = try source(
-            "Sources", "SloppyFeatureChat", "Screens", "Chat", "Views", "ChatChangeSummaryView.swift"
-        )
-
-        #expect(screen.contains("ChatComposerChangeSummaryView(sourceControl: sourceControl)"))
-        #expect(screen.contains("if let sourceControl = viewModel.workingTreeSourceControl"))
-        #expect(summary.contains("sourceControl.fileChanges.count"))
-        #expect(summary.contains("sourceControl.linesAdded"))
-        #expect(summary.contains("sourceControl.linesDeleted"))
-        #expect(summary.contains("accessibilityIdentifier(\"chat.composer.change-summary\")"))
+    @Test("working-tree details live in workspace blocks instead of above the composer")
+    func workspaceRendersChangeSummary() throws {
+        let composer = try source("Sources", "SloppyFeatureChat", "Screens", "Chat", "ChatComposerOverlay.swift")
+        let inspector = try source("Sources", "SloppyClient", "Workspace", "Panel", "DesktopWorkspaceInspector.swift")
+        #expect(!composer.contains("ChatComposerChangeSummaryView("))
+        #expect(inspector.contains("environment.desktopChangesCard"))
+        #expect(inspector.contains("panel.synchronizeSourceControl(sourceControl)"))
     }
 
     @Test("compact summary title pluralizes changed files")

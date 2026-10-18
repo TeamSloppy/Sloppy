@@ -61,7 +61,23 @@ final class WorkspaceDockState {
         isPresented = true
     }
 
-    func toggleVisibility() { isPresented.toggle() }
+    func toggleVisibility() {
+#if os(macOS)
+        if isPresented {
+            hide()
+        } else if selectedTab == nil {
+            if let browser = tabs.first(where: { $0.kind == .browser }) {
+                select(browser)
+            } else {
+                open(.browser)
+            }
+        } else {
+            isPresented = true
+        }
+#else
+        isPresented.toggle()
+#endif
+    }
     func hide() { isPresented = false }
 
     func close(_ id: UUID) {

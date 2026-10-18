@@ -11,6 +11,7 @@ import SloppyUITestSupport
 @MainActor
 struct WorkspaceDockRenderingTests {
     @Test func blankBrowserToolsOpenTabsAndAddressActionFocusesField() async throws {
+        AppKitTestAccessibility.enable()
         let state = WorkspaceDockState()
         let tab = state.open(.browser)
         let model = try #require(tab.browser)
@@ -45,28 +46,35 @@ struct WorkspaceDockRenderingTests {
             }
         }
 
-        // Send real clicks through the AppKit event path at the fixture's control centers.
-        func click(_ point: NSPoint) throws {
-            window.makeKeyAndOrderFront(nil)
-            for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
-                let event = try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [],
-                    timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
-                    context: nil, eventNumber: 1, clickCount: 1, pressure: 1))
-                window.sendEvent(event)
-            }
-            host.layoutSubtreeIfNeeded()
-        }
-        try click(NSPoint(x: 350, y: 150))
+        let focus = try #require(AppKitTestAccessibility.element(in: host, identifier: "workspace-browser-focus-address"))
+        #expect(AppKitTestAccessibility.press(focus))
+        try await Task.sleep(for: .milliseconds(100))
         #expect(window.firstResponder is NSTextView)
-        try click(NSPoint(x: 170, y: 263))
+        let retainedRuntime = model.ensureBrowserRuntime()
+        let addTab = try #require(AppKitTestAccessibility.element(in: host, identifier: "workspace.dock.add-tab"))
+        #expect(AppKitTestAccessibility.press(addTab))
+        try await Task.sleep(for: .milliseconds(100))
+        let newBrowser = try #require(state.selectedTab)
+        #expect(newBrowser.kind == .browser)
+        #expect(newBrowser.id != tab.id)
+        #expect(state.tabs.count == 2)
+        #expect(tab.browser === model)
+        #expect(model.ensureBrowserRuntime() === retainedRuntime)
+        state.close(newBrowser.id)
+        state.select(tab)
+        try await Task.sleep(for: .milliseconds(100))
+        let files = try #require(AppKitTestAccessibility.element(in: host, identifier: "workspace-browser-tool.files"))
+        _ = AppKitTestAccessibility.press(files)
         #expect(state.selectedID == tab.id)
-        try click(NSPoint(x: 500, y: 319))
+        let terminal = try #require(AppKitTestAccessibility.element(in: host, identifier: "workspace-browser-tool.terminal"))
+        #expect(AppKitTestAccessibility.press(terminal))
         #expect(state.selectedTab?.kind == .terminal)
         #expect(state.tabs.count == 2)
         #expect(tab.browser === model)
+        #expect(AppKitTestAccessibility.element(in: host, identifier: "workspace.dock.tools") != nil)
     }
 
-    @Test func middleClickClosesSideTabsAndRevealsTerminalBrowserPicker() async throws {
+    @Test func middleClickClosesSideTabsAndStartsNewBrowser() async throws {
         let state = WorkspaceDockState()
         state.open(.sideChat)
         state.open(.browser)
@@ -111,15 +119,15 @@ struct WorkspaceDockRenderingTests {
             #expect(!state.tabs.contains(where: { $0.id == tabID }))
         }
 
-        #expect(state.tabs.isEmpty)
+        #expect(state.tabs.count == 1)
         #expect(state.isPresented)
-        #expect(state.selectedTab == nil)
+        #expect(state.selectedTab?.kind == .browser)
         if let directory = ProcessInfo.processInfo.environment["SLOPPY_DOCK_SCREENSHOTS"] {
             host.layoutSubtreeIfNeeded()
             let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
             host.cacheDisplay(in: host.bounds, to: bitmap)
             let image = try #require(bitmap.representation(using: .png, properties: [:]))
-            try image.write(to: URL(fileURLWithPath: directory).appendingPathComponent("dock-empty-picker.png"))
+            try image.write(to: URL(fileURLWithPath: directory).appendingPathComponent("dock-new-browser.png"))
         }
     }
 

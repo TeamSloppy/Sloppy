@@ -76,3 +76,75 @@ struct ChatWorkerActivityCard: View {
         .accessibilityIdentifier("chat.worker-activity")
     }
 }
+
+#if os(macOS)
+/// Workers remain discoverable without taking permanent space from the composer.
+@MainActor
+public struct ChatWorkerActivityPanel: View {
+    let workers: [ChatParallelAgent]
+    let onOpenWorker: @MainActor (String) -> Void
+    @State private var isExpanded = false
+    @Environment(\.theme) private var theme
+
+    public init(workers: [ChatParallelAgent], onOpenWorker: @escaping @MainActor (String) -> Void) {
+        self.workers = workers
+        self.onOpenWorker = onOpenWorker
+    }
+
+    public var body: some View {
+        let active = workers.filter { $0.isWorking || $0.state == .waitingInput }.count
+        VStack(alignment: .leading, spacing: 0) {
+            Button { isExpanded.toggle() } label: {
+                HStack {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("Workers · \(workers.count)").font(.callout.weight(.medium))
+                            .foregroundStyle(theme.colors.textSecondary)
+                        Text(active == 0 ? "No active workers" : "\(active) active")
+                            .font(.caption).foregroundStyle(theme.colors.textMuted)
+                    }
+                    Spacer(minLength: 0)
+                    Image(systemName: isExpanded ? "chevron.up" : "chevron.down")
+                        .font(.caption).foregroundStyle(theme.colors.textMuted)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("chat.worker-activity.toggle")
+            .accessibilityValue(isExpanded ? "Expanded" : "Collapsed")
+            if isExpanded {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(workers) { worker in
+                        Button { onOpenWorker(worker.summary.id) } label: {
+                            HStack(alignment: .top, spacing: 8) {
+                                AgentBotAvatar(agentID: worker.summary.agentId, size: 22)
+                                VStack(alignment: .leading, spacing: 3) {
+                                    Text(worker.summary.title).lineLimit(2)
+                                        .foregroundStyle(theme.colors.textPrimary)
+                                    Text(worker.status).font(.caption)
+                                        .foregroundStyle(theme.colors.textMuted)
+                                }
+                                Spacer(minLength: 0)
+                                Image(systemName: "chevron.right").font(.caption2)
+                                    .foregroundStyle(theme.colors.textMuted)
+                            }
+                            .contentShape(Rectangle())
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("chat.worker.\(worker.summary.id)")
+                    }
+                }
+                .padding(.top, 8)
+            }
+        }
+        .tint(theme.colors.textMuted)
+        .padding(14)
+        .background(theme.colors.background, in: RoundedRectangle(cornerRadius: 12))
+        .overlay {
+            RoundedRectangle(cornerRadius: 12).strokeBorder(theme.colors.border, lineWidth: 1)
+                .allowsHitTesting(false)
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityIdentifier("chat.worker-activity")
+    }
+}
+#endif

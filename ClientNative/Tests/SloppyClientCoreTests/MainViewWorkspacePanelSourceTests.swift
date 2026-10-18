@@ -17,7 +17,7 @@ struct MainViewWorkspacePanelSourceTests {
         let mainViewModel = try source("Sources/SloppyClient/Navigation/Main/MainViewModel.swift")
 
         #expect(mainViewModel.contains("var workspaceDockState: WorkspaceDockState"))
-        #expect(mainView.contains("WorkspaceResizableSidePanel(state: viewModel.workspaceDockState)"))
+        #expect(mainView.contains("WorkspaceResizableSidePanel(state: viewModel.workspaceDockState,"))
         #expect(mainView.contains("WorkspaceDockView(state: viewModel.workspaceDockState"))
         #expect(mainView.contains("viewModel.workspaceDockState.toggleVisibility()"))
         #expect(mainView.contains(".inspector(isPresented: Binding("))

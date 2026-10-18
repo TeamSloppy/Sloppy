@@ -95,17 +95,12 @@ public struct ChatComposerOverlay: View {
                 .transition(.opacity.combined(with: .move(edge: .bottom)))
             }
 
-            #if os(macOS)
-            if let sourceControl = viewModel.workingTreeSourceControl {
-                ChatComposerChangeSummaryView(sourceControl: sourceControl)
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
-            }
-            #endif
-
+#if !os(macOS)
             if !viewModel.parallelAgents.agents.isEmpty {
                 ChatWorkerActivityCard(viewModel: viewModel)
                     .frame(maxWidth: maximumComposerWidth)
             }
+#endif
 
             ChatComposerView(
                 draft: viewModel.composerDraft,

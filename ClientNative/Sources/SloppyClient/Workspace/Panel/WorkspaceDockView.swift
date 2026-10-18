@@ -62,13 +62,25 @@ struct WorkspaceDockView<Content: View>: View {
                         }
                     }
                 }
+#if os(macOS)
+                Button { onOpen(.browser) } label: {
+                    Image(systemName: "plus")
+                        .font(.system(size: 15, weight: .light))
+                        .foregroundStyle(theme.colors.textSecondary)
+                        .frame(width: 30, height: 36)
+                }
+                .help("New browser tab")
+                .accessibilityLabel("New browser tab")
+                .accessibilityIdentifier("workspace.dock.add-tab")
+#endif
+
                 Menu {
                     ForEach(WorkspaceSidePanelItem.allCases) { kind in
                         Button { onOpen(kind) } label: { Label(kind.title, systemImage: kind.systemImage) }
                             .disabled(kind.requiresProject && state.context == nil)
                     }
                 } label: {
-                    Image(systemName: "plus")
+                    Image(systemName: toolsMenuSymbol)
                         .font(.system(size: 15, weight: .light))
                         .foregroundStyle(theme.colors.textSecondary)
                         .frame(width: 30, height: 36)
@@ -76,8 +88,9 @@ struct WorkspaceDockView<Content: View>: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
-                .help("New panel tab")
-                .accessibilityIdentifier("workspace.dock.add-tab")
+                .help(toolsMenuTitle)
+                .accessibilityLabel(toolsMenuTitle)
+                .accessibilityIdentifier(toolsMenuIdentifier)
 
             }
             .buttonStyle(.plain)
@@ -89,8 +102,16 @@ struct WorkspaceDockView<Content: View>: View {
                     .id(tab.id)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
+#if os(macOS)
+                ProgressView()
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .task {
+                        if state.isPresented, state.selectedTab == nil { onOpen(.browser) }
+                    }
+#else
                 WorkspaceSidePanelPickerView(onSelect: onOpen)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+#endif
             }
         }
         .background(theme.colors.surface)
@@ -100,7 +121,32 @@ struct WorkspaceDockView<Content: View>: View {
                 .strokeBorder(theme.colors.border, lineWidth: 1)
                 .allowsHitTesting(false)
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("workspace.dock")
+    }
+
+    private var toolsMenuSymbol: String {
+#if os(macOS)
+        "ellipsis"
+#else
+        "plus"
+#endif
+    }
+
+    private var toolsMenuTitle: String {
+#if os(macOS)
+        "Workspace tools"
+#else
+        "New panel tab"
+#endif
+    }
+
+    private var toolsMenuIdentifier: String {
+#if os(macOS)
+        "workspace.dock.tools"
+#else
+        "workspace.dock.add-tab"
+#endif
     }
 }
 
@@ -110,6 +156,7 @@ import AppKit
 @MainActor
 struct WorkspaceResizableSidePanel<Content: View, Panel: View>: View {
     @Bindable var state: WorkspaceDockState
+    var reservedContentWidth: CGFloat = 0
     @ViewBuilder let content: () -> Content
     @ViewBuilder let panel: () -> Panel
     @State private var dragStart: CGFloat?
@@ -117,10 +164,13 @@ struct WorkspaceResizableSidePanel<Content: View, Panel: View>: View {
 
     var body: some View {
         GeometryReader { geometry in
-            let width = WorkspaceDockState.visibleWidth(preferred: state.preferredWidth, available: geometry.size.width)
+            let available = max(0, geometry.size.width - reservedContentWidth)
+            let width = WorkspaceDockState.visibleWidth(preferred: state.preferredWidth, available: available)
             HStack(spacing: 0) {
                 content()
-                    .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
+                    .frame(width: max(0, geometry.size.width - (state.isPresented ? width : 0)))
+                    .frame(maxHeight: .infinity)
+                    .clipped()
                 if state.isPresented {
                     panel().frame(width: width).frame(maxHeight: .infinity).clipped()
                         .overlay(alignment: .leading) {
@@ -128,7 +178,7 @@ struct WorkspaceResizableSidePanel<Content: View, Panel: View>: View {
                                 let start = dragStart ?? width
                                 dragStart = start
                                 state.preferredWidth = WorkspaceDockState.visibleWidth(
-                                    preferred: start - translation, available: geometry.size.width)
+                                    preferred: start - translation, available: available)
                             } onEnd: {
                                 dragStart = nil
                             }
@@ -139,7 +189,7 @@ struct WorkspaceResizableSidePanel<Content: View, Panel: View>: View {
                             .accessibilityValue("\(Int(width)) points")
                             .accessibilityAdjustableAction { direction in
                                 state.preferredWidth = WorkspaceDockState.visibleWidth(
-                                    preferred: width + (direction == .increment ? 40 : -40), available: geometry.size.width)
+                                    preferred: width + (direction == .increment ? 40 : -40), available: available)
                             }
                         }
                         .transition(reduceMotion ? .identity : .move(edge: .trailing).combined(with: .opacity))

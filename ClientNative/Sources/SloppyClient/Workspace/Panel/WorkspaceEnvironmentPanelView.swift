@@ -22,12 +22,64 @@ struct WorkspaceEnvironmentPanelView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: theme.spacing.m) {
+#if os(macOS)
+                desktopEnvironmentCard
+                desktopChangesCard
+#else
                 environmentCard
                 projectCard
+#endif
             }
             .padding(theme.spacing.m)
         }
         .accessibilityIdentifier("workspace.environment-panel")
+    }
+
+    var desktopEnvironmentCard: some View {
+        panelCard {
+            VStack(alignment: .leading, spacing: 4) {
+                HStack {
+                    Text("Environment").font(.callout.weight(.medium))
+                    Spacer()
+                    Button { Task { await viewModel.refreshEnvironment() } } label: {
+                        Image(systemName: "arrow.clockwise").font(.caption)
+                    }
+                    .buttonStyle(.plain)
+                    .help("Refresh environment")
+                    .accessibilityLabel("Refresh environment")
+                }
+                .foregroundStyle(theme.colors.textSecondary)
+                environmentRow(title: environmentTitle, detail: endpointLabel, systemImage: "desktopcomputer")
+                environmentRow(
+                    title: viewModel.project?.name ?? viewModel.context?.projectName ?? "Project",
+                    detail: viewModel.project?.projectRootPath ?? "Workspace path unavailable",
+                    systemImage: "folder"
+                )
+                environmentRow(
+                    title: sourceControl?.branch ?? "Unknown branch",
+                    detail: sourceControlProviderTitle,
+                    systemImage: "arrow.triangle.branch"
+                )
+                Button { onOpenTerminal?() } label: {
+                    Label("Open project terminal", systemImage: "terminal")
+                        .font(.caption)
+                        .foregroundStyle(theme.colors.textSecondary)
+                }
+                .buttonStyle(.plain)
+                .disabled(onOpenTerminal == nil)
+            }
+        }
+        .accessibilityIdentifier("workspace.inspector.environment")
+    }
+
+    var desktopChangesCard: some View {
+        panelCard {
+            VStack(alignment: .leading, spacing: theme.spacing.s) {
+                changesSection
+                codeReviewRows
+            }
+        }
+        .accessibilityIdentifier("workspace.inspector.changes")
     }
 
     private var environmentCard: some View {
@@ -214,12 +266,20 @@ struct WorkspaceEnvironmentPanelView: View {
         content()
             .padding(theme.spacing.m)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .background(theme.colors.surfaceRaised.opacity(0.78 as CGFloat))
+            .background(panelBackground)
             .clipShape(RoundedRectangle(cornerRadius: 14))
             .overlay {
                 RoundedRectangle(cornerRadius: 14)
                     .stroke(theme.colors.border, lineWidth: theme.borders.thin)
             }
+    }
+
+    private var panelBackground: Color {
+#if os(macOS)
+        theme.colors.background
+#else
+        theme.colors.surfaceRaised.opacity(0.78 as CGFloat)
+#endif
     }
 
     private func environmentRow(

@@ -6,6 +6,22 @@ import Testing
 @Suite("Workspace dock state")
 @MainActor
 struct WorkspaceDockStateTests {
+    @Test func openingEmptyDockStartsWithBrowserAndReopenKeepsItsPage() {
+        let dock = WorkspaceDockState()
+        dock.toggleVisibility()
+        #expect(dock.isPresented)
+        #expect(dock.tabs.count == 1)
+        #expect(dock.selectedTab?.kind == .browser)
+        let browser = dock.selectedTab
+        browser?.browser?.currentURL = URL(string: "https://example.com/docs")
+        dock.toggleVisibility()
+        #expect(!dock.isPresented)
+        dock.toggleVisibility()
+        #expect(dock.selectedTab === browser)
+        #expect(dock.tabs.count == 1)
+        #expect(dock.selectedTab?.browser?.currentURL?.absoluteString == "https://example.com/docs")
+    }
+
     @Test func preparingReviewChatDoesNotPresentAnEmptyPanel() {
         let dock = WorkspaceDockState()
         let tab = dock.open(.sideChat, present: false)
