@@ -81,7 +81,12 @@ struct WorkspaceBrowserPanelView: View {
                         WorkspaceBrowserStartView(
                             allowsProjectTools: allowsProjectTools,
                             onOpenTool: onOpenTool,
-                            onFocusAddress: { isAddressFocused = true }
+                            onFocusAddress: { isAddressFocused = true },
+                            recentSites: Array(viewModel.history.sites.prefix(8)),
+                            onOpenRecentSite: { url in
+                                viewModel.addressText = url.absoluteString
+                                viewModel.openAddress()
+                            }
                         )
                     }
                 }

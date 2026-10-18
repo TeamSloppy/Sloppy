@@ -6,6 +6,8 @@ struct WorkspaceBrowserStartView: View {
     let allowsProjectTools: Bool
     let onOpenTool: (@MainActor (WorkspaceSidePanelItem) -> Void)?
     let onFocusAddress: @MainActor () -> Void
+    let recentSites: [WorkspaceBrowserRecentSite]
+    let onOpenRecentSite: @MainActor (URL) -> Void
     @Environment(\.theme) private var theme
 
     var body: some View {
@@ -76,6 +78,22 @@ struct WorkspaceBrowserStartView: View {
                         .buttonStyle(.plain)
                         .accessibilityIdentifier("workspace-browser-focus-address")
                     }
+
+                    VStack(alignment: .leading, spacing: 10) {
+                        Text("Recent sites")
+                            .font(.system(size: 14, weight: .medium))
+                        if recentSites.isEmpty {
+                            Text("Sites you visit will appear here.")
+                                .font(.system(size: 12))
+                                .foregroundStyle(theme.colors.textMuted)
+                        } else {
+                            ForEach(Array(recentSites.enumerated()), id: \.element.id) { index, site in
+                                WorkspaceBrowserRecentSiteRow(site: site, index: index, action: { onOpenRecentSite(site.url) })
+                            }
+                        }
+                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("workspace-browser-recent-sites")
                 }
                 .foregroundStyle(theme.colors.textPrimary)
                 .frame(maxWidth: 820)
@@ -88,6 +106,41 @@ struct WorkspaceBrowserStartView: View {
         .background(theme.colors.surface)
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("workspace-browser-start")
+    }
+}
+
+@MainActor
+private struct WorkspaceBrowserRecentSiteRow: View {
+    let site: WorkspaceBrowserRecentSite
+    let index: Int
+    let action: @MainActor () -> Void
+    @Environment(\.theme) private var theme
+    @State private var isHovered = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 12) {
+                Image(systemName: "globe").frame(width: 20)
+                    .foregroundStyle(theme.colors.textSecondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(site.title).font(.system(size: 14)).lineLimit(1)
+                    Text(site.url.absoluteString).font(.system(size: 12))
+                        .foregroundStyle(theme.colors.textMuted)
+                        .lineLimit(1).truncationMode(.middle)
+                }
+                Spacer(minLength: 0)
+                Image(systemName: "arrow.up.right").foregroundStyle(theme.colors.textMuted)
+            }
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .background(isHovered ? theme.colors.surfaceRaised : .clear, in: RoundedRectangle(cornerRadius: 10))
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovered = $0 }
+        .help(site.url.absoluteString)
+        .accessibilityIdentifier("workspace-browser-recent.\(index)")
     }
 }
 
