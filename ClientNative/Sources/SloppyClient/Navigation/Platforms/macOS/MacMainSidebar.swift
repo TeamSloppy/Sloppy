@@ -24,6 +24,7 @@ struct PlatformMainSidebar: View {
                 .padding(.horizontal, theme.spacing.m)
                 .padding(.top, theme.spacing.s)
                 .accessibilityAddTraits(.isHeader)
+                .accessibilityIdentifier("sidebar.wordmark")
 
             ScrollView {
                 MacSidebarPrimaryActions(viewModel: viewModel)
