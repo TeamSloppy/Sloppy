@@ -15,6 +15,50 @@
     var exclusionRects: [CGRect]
     var openURL: OpenURLAction
     var selectionActions: [TextSelectionAction]
+    var annotationScope = "root"
+    var annotations: [TextAnnotation] = [] {
+      didSet {
+        needsDisplay = true
+        for annotation in annotations {
+          if let context = annotationContext(for: annotation.location) { annotation.resolve(context) }
+        }
+      }
+    }
+    private var clickedAnnotation: TextAnnotation?
+
+    func annotationRange(for location: TextAnnotationLocation) -> TextRange? {
+      guard location.scope == annotationScope,
+        location.content == model.text(in: TextRange(start: model.startPosition, end: model.endPosition)),
+        location.range.location >= 0, location.range.length > 0,
+        location.range.location <= (location.content as NSString).length,
+        location.range.length <= (location.content as NSString).length - location.range.location,
+        let start = model.position(from: model.startPosition, offset: location.range.location),
+        let end = model.position(from: start, offset: location.range.length)
+      else { return nil }
+      return TextRange(start: start, end: end)
+    }
+
+    func annotationContext(for location: TextAnnotationLocation) -> TextSelectionContext? {
+      guard let range = annotationRange(for: location) else { return nil }
+      return TextSelectionContext(text: model.text(in: range), location: location, sourceView: self) { [weak self] in
+        guard let self, let range = annotationRange(for: location) else { return .zero }
+        return model.firstRect(for: range)
+      }
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+      super.draw(dirtyRect)
+      for annotation in annotations {
+        guard let range = annotationRange(for: annotation.location) else { continue }
+        for selection in model.selectionRects(for: range) {
+          NSColor.selectedTextBackgroundColor.withAlphaComponent(0.2).setFill()
+          NSBezierPath(roundedRect: selection.rect, xRadius: 2, yRadius: 2).fill()
+          NSColor.secondaryLabelColor.withAlphaComponent(0.65).setFill()
+          NSRect(x: selection.rect.minX, y: selection.rect.maxY - 1,
+                 width: selection.rect.width, height: 1).fill()
+        }
+      }
+    }
 
     override var acceptsFirstResponder: Bool { true }
     override var isFlipped: Bool { true }
@@ -23,6 +67,12 @@
     private var dragStart: TextPosition?
     private var selectionAnchor: TextPosition?
     private var didDragSelection = false
+    let selectionToolbar = TextSelectionToolbar()
+
+    override func viewDidMoveToWindow() {
+      super.viewDidMoveToWindow()
+      if window == nil { selectionToolbar.close() }
+    }
 
     init(
       model: TextSelectionModel,
@@ -57,9 +107,18 @@
     }
 
     override func mouseDown(with event: NSEvent) {
+      selectionToolbar.close()
       window?.makeFirstResponder(self)
       didDragSelection = false
       let location = convert(event.locationInWindow, from: nil)
+      clickedAnnotation = event.clickCount == 1 ? annotations.first { annotation in
+        guard let range = annotationRange(for: annotation.location) else { return false }
+        return model.selectionRects(for: range).contains { $0.rect.contains(location) }
+      } : nil
+      if clickedAnnotation != nil {
+        dragStart = model.closestPosition(to: location)
+        return
+      }
 
       switch event.clickCount {
       case 1:
@@ -85,6 +144,7 @@
     }
 
     override func mouseDragged(with event: NSEvent) {
+      clickedAnnotation = nil
       guard let dragStart else {
         return
       }
@@ -102,18 +162,31 @@
 
     override func mouseUp(with event: NSEvent) {
       dragStart = nil
-      guard didDragSelection,
-        let selectedRange = model.selectedRange,
-        !selectedRange.isCollapsed,
-        !selectionActions.isEmpty
-      else {
+      if let annotation = clickedAnnotation,
+        let context = annotationContext(for: annotation.location) {
+        clickedAnnotation = nil
+        annotation.activate(context)
         return
       }
+      if didDragSelection || event.clickCount > 1 { showSelectionToolbar() }
+    }
 
-      NSMenu.popUpContextMenu(makeContextMenu(), with: event, for: self)
+    private func selectionContext() -> TextSelectionContext? {
+      guard let range = model.selectedRange, !range.isCollapsed else { return nil }
+      let location = TextAnnotationLocation(scope: annotationScope,
+        content: model.text(in: TextRange(start: model.startPosition, end: model.endPosition)),
+        range: NSRange(location: model.offset(from: model.startPosition, to: range.start),
+                       length: model.offset(from: range.start, to: range.end)))
+      return annotationContext(for: location)
+    }
+
+    func showSelectionToolbar() {
+      guard let context = selectionContext() else { selectionToolbar.close(); return }
+      selectionToolbar.show(actions: selectionActions, context: context)
     }
 
     override func rightMouseDown(with event: NSEvent) {
+      selectionToolbar.close()
       let location = convert(event.locationInWindow, from: nil)
       updateSelectionForContextMenu(at: location)
 
@@ -121,6 +194,7 @@
     }
 
     override func menu(for event: NSEvent) -> NSMenu? {
+      selectionToolbar.close()
       let location = convert(event.locationInWindow, from: nil)
       updateSelectionForContextMenu(at: location)
 
@@ -129,6 +203,7 @@
 
     override func selectAll(_ sender: Any?) {
       model.selectedRange = TextRange(start: model.startPosition, end: model.endPosition)
+      showSelectionToolbar()
     }
 
     override func keyDown(with event: NSEvent) {
@@ -259,7 +334,8 @@
         return
       }
 
-      selectionActions[sender.tag].perform(with: model.text(in: selectedRange))
+      guard let context = selectionContext() else { return }
+      selectionActions[sender.tag].perform(with: context)
     }
 
     private func modifySelection(
@@ -290,6 +366,7 @@
       // scroll to make the new position visible
       let caretRect = model.caretRect(for: newPosition)
       scrollToVisible(caretRect)
+      showSelectionToolbar()
     }
 
     private func resetSelection() {

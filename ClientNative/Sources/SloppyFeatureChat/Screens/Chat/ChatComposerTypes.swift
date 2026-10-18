@@ -3,6 +3,7 @@ import Observation
 import SloppyClientCore
 import SloppyClientUI
 import SwiftUI
+import Textual
 import UniformTypeIdentifiers
 
 public enum ChatComposerDictationPhase: Sendable, Equatable {
@@ -57,14 +58,22 @@ public struct ChatComposerAttachment: Identifiable, Sendable, Equatable {
 }
 
 public struct ChatComposerQuote: Identifiable, Sendable, Equatable {
+    public struct Source: Sendable, Equatable {
+        public let messageID: String
+        public let segmentIndex: Int
+        public let location: TextAnnotationLocation
+    }
+
     public let id: UUID
     public let text: String
     public var comment: String
+    public let source: Source?
 
-    public init(id: UUID = UUID(), text: String, comment: String = "") {
+    public init(id: UUID = UUID(), text: String, comment: String = "", source: Source? = nil) {
         self.id = id
         self.text = text
         self.comment = comment
+        self.source = source
     }
 
     static func messageContent(

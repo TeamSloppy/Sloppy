@@ -1,6 +1,7 @@
 import Foundation
 import SloppyClientCore
 import Testing
+import Textual
 @testable import SloppyFeatureChat
 
 @Suite("Chat annotations")
@@ -83,6 +84,57 @@ struct ChatAnnotationTests {
         #expect(model.composerAttachments.first?.data == bytes)
         model.updateImageAnnotations(id: attachment.id, annotations: [])
         #expect(model.composerAttachments.first?.annotations.isEmpty == true)
+    }
+
+    @Test("empty comments are removed only when editing finishes")
+    @MainActor
+    func emptyCommentRemovesOnlyItsAnnotation() throws {
+        let api = SloppyAPIClient()
+        let model = ChatScreenViewModel(apiClient: api, cacheStore: ClientCacheStore(path: ":memory:"),
+            settings: ClientSettings(), connectionMonitor: ConnectionMonitor(baseURL: api.baseURL),
+            restoresLastSession: false, responseNotificationScheduler: AnnotationTestNotifications(),
+            onOpenSettings: { _ in })
+        model.addQuoteToComposer("First")
+        model.addQuoteToComposer("Second")
+        let first = try #require(model.composerQuotes.first?.id)
+        let second = try #require(model.composerQuotes.last?.id)
+        model.updateComposerQuote(id: first, comment: "Keep this")
+        model.updateComposerQuote(id: second, comment: "Original")
+        model.updateComposerQuote(id: second, comment: "")
+        #expect(model.composerQuotes.count == 2)
+        model.updateComposerQuote(id: second, comment: "Replacement")
+        model.finishComposerQuoteEditing(id: second)
+        #expect(model.composerQuotes.last?.comment == "Replacement")
+        model.updateComposerQuote(id: second, comment: " \n \t")
+        model.finishComposerQuoteEditing(id: second)
+        #expect(model.composerQuotes.map(\.id) == [first])
+        #expect(model.composerQuotes.first?.comment == "Keep this")
+        #expect(model.pendingComposerQuotes.map(\.id) == [first])
+    }
+
+    @Test("source ranges survive draft switching and queued delivery")
+    @MainActor
+    func anchoredDraftAndQueue() throws {
+        let api = SloppyAPIClient()
+        let model = ChatScreenViewModel(apiClient: api, cacheStore: ClientCacheStore(path: ":memory:"),
+            settings: ClientSettings(), connectionMonitor: ConnectionMonitor(baseURL: api.baseURL),
+            restoresLastSession: false, responseNotificationScheduler: AnnotationTestNotifications(),
+            onOpenSettings: { _ in })
+        let text = "Текст 👋 и команда"
+        let range = (text as NSString).range(of: "👋 и команда")
+        let quote = ChatComposerQuote(text: "👋 и команда", comment: "Исправить", source: .init(
+            messageID: "message-1", segmentIndex: 2,
+            location: TextAnnotationLocation(scope: "root/1", content: text, range: range)))
+        model.syncComposerDraft(toSessionId: "one", projectId: nil, taskId: nil, agentId: "agent")
+        model.composerQuotes = [quote]
+        model.saveActiveComposerDraft()
+        model.syncComposerDraft(toSessionId: "two", projectId: nil, taskId: nil, agentId: "agent")
+        #expect(model.composerQuotes.isEmpty)
+        model.syncComposerDraft(toSessionId: "one", projectId: nil, taskId: nil, agentId: "agent")
+        #expect(model.composerQuotes == [quote])
+        var queue = ChatMessageQueue()
+        queue.enqueue(content: "Apply", attachments: [], quotes: model.composerQuotes)
+        #expect(queue.dequeue()?.quotes == [quote])
     }
 }
 

@@ -196,11 +196,10 @@ struct ChatComputerUsePictureInPictureView: View {
 
     @State private var capture = ChatComputerUseCaptureModel()
     @State private var isExpanded = false
+    private static let headerHeight: CGFloat = 42
 
     var body: some View {
-        VStack(spacing: 0) {
-            header
-
+        ZStack(alignment: .top) {
             ZStack {
                 Color.black
 
@@ -210,19 +209,24 @@ struct ChatComputerUsePictureInPictureView: View {
                         .scaledToFit()
                 } else if capture.needsPermission {
                     permissionPrompt
+                        .padding(.top, Self.headerHeight)
                 } else if let errorMessage = capture.errorMessage {
                     captureError(errorMessage)
+                        .padding(.top, Self.headerHeight)
                 } else {
                     ProgressView()
                         .controlSize(.small)
                         .tint(.white)
+                        .padding(.top, Self.headerHeight)
                 }
             }
-            .frame(height: isExpanded ? 280 : 168)
+            .frame(height: Self.headerHeight + (isExpanded ? 280 : 168))
             .clipped()
+
+            header
+                .background(.ultraThinMaterial)
         }
         .frame(width: isExpanded ? 500 : 300)
-        .background(.regularMaterial)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -268,7 +272,7 @@ struct ChatComputerUsePictureInPictureView: View {
         }
         .font(.caption)
         .padding(.horizontal, 11)
-        .frame(height: 42)
+        .frame(height: Self.headerHeight)
     }
 
     @ViewBuilder

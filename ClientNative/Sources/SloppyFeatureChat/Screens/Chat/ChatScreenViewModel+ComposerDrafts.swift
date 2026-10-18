@@ -21,6 +21,10 @@ extension ChatScreenViewModel {
         // Cache/network bootstrap may resolve the same context more than once.
         // The live composer (including selection) is authoritative until we leave it.
         if activeComposerDraftKey != nextKey {
+#if os(macOS)
+            quoteAnnotationPresenter.close()
+#endif
+            if let id = editingComposerQuoteID { finishComposerQuoteEditing(id: id) }
             saveActiveComposerDraft()
             activeComposerDraftKey = nextKey
             let storedDraft = composerDraftsByKey[nextKey]
@@ -64,6 +68,10 @@ extension ChatScreenViewModel {
     }
 
     func clearActiveComposerDraft() {
+#if os(macOS)
+        quoteAnnotationPresenter.close()
+#endif
+        editingComposerQuoteID = nil
         guard let activeComposerDraftKey else {
             composerDraft.text = ""
             composerAttachments = []
