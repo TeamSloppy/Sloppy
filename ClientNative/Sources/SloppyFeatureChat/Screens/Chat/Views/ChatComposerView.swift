@@ -103,7 +103,9 @@ public struct ChatComposerView: View {
     private var regularBody: some View {
         let c = theme.colors
         let sp = theme.spacing
+#if !os(macOS)
         let autocompleteGap = theme.spacing.s
+#endif
 
         return VStack(spacing: sp.s) {
             if !usesDesktopComposer {
@@ -172,6 +174,7 @@ public struct ChatComposerView: View {
             alignment: .leading
         )
         .frame(maxWidth: maximumPanelWidth)
+#if !os(macOS)
         .overlay(alignment: .top) {
             if !viewModel.composerSuggestions.isEmpty {
                 ComposerSuggestionsView(
@@ -182,6 +185,7 @@ public struct ChatComposerView: View {
                 .offset(y: -(ComposerSuggestionsView.panelHeight + autocompleteGap))
             }
         }
+#endif
         .disabled(viewModel.activeInputRequest != nil)
         .accessibilityHint(
             viewModel.activeInputRequest == nil

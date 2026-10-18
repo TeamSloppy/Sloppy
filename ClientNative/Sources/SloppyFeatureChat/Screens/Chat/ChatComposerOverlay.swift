@@ -74,6 +74,25 @@ public struct ChatComposerOverlay: View {
 
     @ViewBuilder
     private var composerBar: some View {
+#if os(macOS)
+        VStack(spacing: theme.spacing.s) {
+            if !viewModel.composerSuggestions.isEmpty {
+                ComposerSuggestionsView(
+                    suggestions: viewModel.composerSuggestions,
+                    selectedSuggestionID: viewModel.composerSuggestionSelection.selectedID,
+                    select: viewModel.applyComposerSuggestion
+                )
+                .frame(maxWidth: maximumComposerWidth)
+                .disabled(viewModel.activeInputRequest != nil)
+            }
+            composerControls
+        }
+#else
+        composerControls
+#endif
+    }
+
+    private var composerControls: some View {
         VStack(spacing: theme.spacing.s) {
             if let approval = viewModel.pendingToolApproval {
                 ChatToolApprovalCard(
