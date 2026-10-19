@@ -2495,6 +2495,8 @@ func agentSessionBootstrapIncludesToolCallProtocol() async throws {
     #expect(bootstrapMessage.contains("[Worker rules]"))
     #expect(bootstrapMessage.contains("[Tools usage rules]"))
     #expect(bootstrapMessage.contains("native function calls"))
+    #expect(bootstrapMessage.contains("By default, discover MCP schemas with `mcp.list_tools"))
+    #expect(bootstrapMessage.contains("`system.search_tools` is optional"))
     #expect(bootstrapMessage.contains("`cron`"))
 }
 

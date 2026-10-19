@@ -442,6 +442,7 @@ actor MCPClientRegistry {
     private var connections: [String: MCPServerConnection] = [:]
     private var dynamicToolsByID: [String: MCPDynamicTool] = [:]
     private var dynamicDiscoveryLoaded = false
+    private var discoveryConfigurationRevision = 0
     private var dynamicDiscoveryLastFailureAt: Date?
     private var toolTraitsByServer: [String: [String: ToolTraits]] = [:]
 
@@ -465,6 +466,7 @@ actor MCPClientRegistry {
         self.toolTraitsByServer = [:]
         self.dynamicToolsByID = [:]
         self.dynamicDiscoveryLoaded = false
+        self.discoveryConfigurationRevision += 1
         self.dynamicDiscoveryLastFailureAt = nil
     }
 
@@ -628,6 +630,8 @@ actor MCPClientRegistry {
     /// Read-only snapshot for accounting; measuring usage must not trigger discovery.
     func cachedDynamicTools() -> [MCPDynamicTool] { Array(dynamicToolsByID.values) }
 
+    func dynamicDiscoveryIsComplete() -> Bool { dynamicDiscoveryLoaded }
+
     func dynamicTools() async -> [MCPDynamicTool] {
         await refreshDynamicToolsIfNeeded()
         return dynamicToolsByID.values.sorted { $0.id < $1.id }
@@ -729,14 +733,26 @@ actor MCPClientRegistry {
             return
         }
 
+        let configurationRevision = discoveryConfigurationRevision
         var discovered: [String: MCPDynamicTool] = [:]
         var failedServers: [String] = []
         for server in config.servers where server.enabled && server.exposeTools {
             do {
-                let response = try await withDiscoveryTimeout(milliseconds: max(250, server.timeoutMs)) {
-                    try await self.listTools(serverID: server.id)
+                let tools = try await withDiscoveryTimeout(milliseconds: max(250, server.timeoutMs)) {
+                    var tools: [MCP.Tool] = []
+                    var cursor: String?
+                    var seenCursors = Set<String>()
+                    repeat {
+                        let page = try await self.listTools(serverID: server.id, cursor: cursor)
+                        tools += page.tools
+                        cursor = page.nextCursor
+                        if let cursor, !seenCursors.insert(cursor).inserted || seenCursors.count > 1_000 {
+                            throw MCPRegistryError.invalidResult("MCP tools/list pagination did not terminate")
+                        }
+                    } while cursor != nil
+                    return tools
                 }
-                for tool in response.tools {
+                for tool in tools {
                     let toolID = Self.dynamicToolID(
                         serverID: server.id,
                         toolName: tool.name,
@@ -762,13 +778,11 @@ actor MCPClientRegistry {
                 )
             }
         }
-        if !discovered.isEmpty || failedServers.isEmpty {
-            dynamicToolsByID = discovered
-            dynamicDiscoveryLoaded = failedServers.isEmpty
-            dynamicDiscoveryLastFailureAt = failedServers.isEmpty ? nil : Date()
-        } else {
-            dynamicDiscoveryLastFailureAt = Date()
-        }
+        // A config update may have invalidated this discovery while network calls suspended the actor.
+        guard configurationRevision == discoveryConfigurationRevision else { return }
+        dynamicToolsByID = discovered
+        dynamicDiscoveryLoaded = failedServers.isEmpty
+        dynamicDiscoveryLastFailureAt = failedServers.isEmpty ? nil : Date()
     }
 
     private func withDiscoveryTimeout<T: Sendable>(

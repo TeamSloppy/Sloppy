@@ -1,8 +1,11 @@
 import SwiftUI
+import SloppyClientUI
 
 struct SettingsSearchField: View {
     @Binding var text: String
     @FocusState private var isFocused: Bool
+    @Environment(\.theme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
 
     var body: some View {
         HStack(spacing: 8) {
@@ -28,10 +31,11 @@ struct SettingsSearchField: View {
         .font(.system(size: 13))
         .padding(.horizontal, 10)
         .frame(height: 34)
-        .background(.primary.opacity(0.06), in: RoundedRectangle(cornerRadius: 8))
+        .background(colorScheme == .dark ? theme.colors.surfaceGlow : theme.colors.surface,
+                    in: RoundedRectangle(cornerRadius: 8))
         .overlay {
             RoundedRectangle(cornerRadius: 8)
-                .strokeBorder(isFocused ? Color.accentColor : .primary.opacity(0.08), lineWidth: 1)
+                .strokeBorder(isFocused ? theme.colors.borderBold : theme.colors.border, lineWidth: 1)
         }
     }
 }

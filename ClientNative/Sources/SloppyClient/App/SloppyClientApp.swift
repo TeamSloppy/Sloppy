@@ -253,11 +253,12 @@ struct SloppyClientApp: App {
             SettingsScreen(
                 settings: viewModel.settings,
                 onChangeServer: viewModel.changeServer,
-                onLogout: viewModel.logout
+                onLogout: viewModel.logout,
+                onOpenUsageSession: { session in viewModel.openUsageSession(session) }
             )
-                .frame(minWidth: 1120, minHeight: 760)
+                .frame(minWidth: 860, minHeight: 620)
         }
-        .defaultSize(width: 1360, height: 880)
+        .defaultSize(width: 980, height: 740)
         .windowResizability(.contentMinSize)
 
         MenuBarExtra("Sloppy", image: "SloppyMenuBarIcon") {

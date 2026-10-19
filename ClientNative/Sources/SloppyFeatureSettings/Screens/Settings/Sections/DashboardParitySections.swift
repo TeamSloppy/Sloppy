@@ -524,7 +524,7 @@ struct ApprovalsSection: View {
                     .disabled(isLoading)
                 }
                 TextField("Search by name or ID…", text: $query)
-                    .textFieldStyle(.roundedBorder)
+                    .appTextField()
 
                 if filteredUsers.isEmpty && !isLoading {
                     Text("No access users yet. Approve pending requests from the Channels section.")

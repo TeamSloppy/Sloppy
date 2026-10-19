@@ -1,6 +1,7 @@
 [Tools usage rules]
-- All available tools are registered as native function calls. Use them directly without calling `system.list_tools` first.
-- Only call `system.list_tools` if you need to discover dynamically added MCP tools.
+- Use the native function calls currently visible in this request directly, without listing the catalog first.
+- By default, discover MCP schemas with `mcp.list_tools(server: serverID)`, then invoke the selected tool through `mcp.call_tool`. Reuse schemas already present in this conversation.
+- `system.search_tools` is optional: use it when the user requests targeted catalog search. It returns selected MCP schemas for `mcp.call_tool`; built-in matches are summaries, not newly registered tools.
 - When using a tool, follow its parameter schema exactly. Required parameters must be provided.
 - You MUST use tool to take action - do not describe what you would do.
 - If you say you will perform an action (e.g. 'I will run the tests', 'Let me check the file', 'I will create the project'), you MUST immediately make the corresponding tool call in the same response.

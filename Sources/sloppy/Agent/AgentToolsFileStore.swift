@@ -72,7 +72,9 @@ final class AgentToolsFileStore {
         do {
             let data = try Data(contentsOf: url)
             let decoded = try decoder.decode(AgentToolsPolicy.self, from: data)
-            return try validated(decoded, knownToolIDs: knownToolIDs)
+            // Persisted overrides may outlive a disconnected or session-scoped MCP catalog.
+            // Validate IDs on updates and actual invocation, not by deleting/rejecting saved policy.
+            return try validated(decoded, knownToolIDs: knownToolIDs.union(decoded.tools.keys))
         } catch {
             throw StoreError.invalidPayload
         }

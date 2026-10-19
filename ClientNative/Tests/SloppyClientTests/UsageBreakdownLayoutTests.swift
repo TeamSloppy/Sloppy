@@ -5,6 +5,7 @@ import SwiftUI
 import Testing
 import SloppyClientCore
 @testable import SloppyClient
+@testable import SloppyFeatureSettings
 
 @MainActor
 @Test func usageBreakdownReflowsOnDesktopAndPhoneWidths() throws {

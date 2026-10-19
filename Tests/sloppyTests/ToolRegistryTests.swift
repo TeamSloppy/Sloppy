@@ -35,7 +35,7 @@ struct ToolRegistryTests {
             "mcp.install_server", "mcp.uninstall_server",
             "agents.list",
             "channel.history",
-            "system.list_tools", "session.complete",
+            "system.list_tools", "system.search_tools", "session.complete",
             "planning.select_route", "planning.request_input", "planning.progress_update",
             "cron",
             "project.list", "project.current", "project.create", "project.update", "project.delete",

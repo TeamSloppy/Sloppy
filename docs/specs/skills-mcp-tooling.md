@@ -64,6 +64,12 @@ Sloppy extends agent capabilities through installed skills and configured MCP se
 - Collisions are resolved by namespacing, prefixing, or deterministic rejection with an actionable error.
 - Tool policy filters the final catalog before exposure to an agent session.
 
+### FR-6a: Targeted catalog discovery
+- Default MCP discovery uses `mcp.list_tools`, reusing schemas already in the conversation. `system.search_tools` optionally retrieves compact catalog matches and selected MCP schemas when the user requests targeted search.
+- MCP execution remains through `mcp.call_tool` with target policy and delegated scope checks.
+- Search metrics distinguish estimated schema size from actual provider token/cache usage.
+- See [Tool catalog discovery](tool-discovery.md) for the Stage 1 contract and deferred native loading design.
+
 ### FR-7: Security and approvals
 - Stdio MCP commands and install commands are potentially dangerous and should be subject to explicit operator action.
 - Sensitive headers and environment-derived secrets must be redacted in API responses and logs.

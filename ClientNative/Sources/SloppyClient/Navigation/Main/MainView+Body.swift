@@ -11,8 +11,12 @@ extension MainView {
             if viewModel.hasLoadedInitialContent {
                 workspacePanelContainer
             } else {
+#if os(macOS)
+                MainLoadingView(status: "Opening your workspace…")
+#else
                 LoadingSkeleton("Loading Inbox…")
                     .mobileScreenBackground()
+#endif
             }
         }
         .onChange(of: viewModel.settings.discoveredInstances) { _, _ in

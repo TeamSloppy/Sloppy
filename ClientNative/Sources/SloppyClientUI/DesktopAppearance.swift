@@ -3,6 +3,15 @@ import SwiftUI
 /// Shared desktop surfaces. Mobile and spatial controls keep their native treatment.
 public extension View {
     @ViewBuilder
+    func appTextField() -> some View {
+#if os(macOS)
+        modifier(DesktopTextFieldSurface())
+#else
+        textFieldStyle(.roundedBorder)
+#endif
+    }
+
+    @ViewBuilder
     func appSurface<S: InsettableShape>(_ glass: Glass = .regular, in shape: S) -> some View {
 #if os(macOS)
         modifier(DesktopPanelSurface(shape: shape))
@@ -59,6 +68,27 @@ public extension View {
 #else
         buttonStyle(.glass)
 #endif
+    }
+}
+
+private struct DesktopTextFieldSurface: ViewModifier {
+    @Environment(\.theme) private var theme
+    @Environment(\.colorScheme) private var colorScheme
+    @FocusState private var isFocused: Bool
+
+    func body(content: Content) -> some View {
+        content
+            .textFieldStyle(.plain)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 9)
+            .background(colorScheme == .dark ? theme.colors.surfaceGlow : theme.colors.surface,
+                        in: RoundedRectangle(cornerRadius: 8))
+            .overlay {
+                RoundedRectangle(cornerRadius: 8)
+                    .strokeBorder(isFocused ? theme.colors.textMuted : theme.colors.border, lineWidth: 1)
+                    .allowsHitTesting(false)
+            }
+            .focused($isFocused)
     }
 }
 

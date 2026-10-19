@@ -4,6 +4,7 @@ import SloppyClientUI
 import SloppyFeatureAgents
 import SloppyFeatureChat
 import SloppyFeatureProjects
+import SloppyFeatureSettings
 import SwiftUI
 
 @MainActor

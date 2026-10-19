@@ -7,8 +7,9 @@ protocol MCPToolDiscovering: Sendable {
 }
 
 enum ToolCatalog {
+    static let builtInRegistry = ToolRegistry.makeDefault()
     /// Tool catalog entries auto-generated from the ToolRegistry.
-    static let builtInEntries: [AgentToolCatalogEntry] = ToolRegistry.makeDefault().catalogEntries
+    static let builtInEntries: [AgentToolCatalogEntry] = builtInRegistry.catalogEntries
 
     static func entries(mcpRegistry: (any MCPToolDiscovering)?) async -> [AgentToolCatalogEntry] {
         guard let mcpRegistry else {
@@ -50,9 +51,11 @@ enum ToolCatalog {
         }
     }
 
-    static let knownToolIDs: Set<String> = ToolRegistry.makeDefault().knownToolIDs
+    static let knownToolIDs: Set<String> = builtInRegistry.knownToolIDs
 
     private static func parameterSchema(for toolID: String) -> JSONValue {
+        if toolID == "system.search_tools", let data = try? JSONEncoder().encode(SystemSearchToolsTool().parameters),
+           let schema = try? JSONDecoder().decode(JSONValue.self, from: data) { return schema }
         if toolID == "long_chat.delegate", let data = try? JSONEncoder().encode(LongChatTool(action: "delegate").parameters),
            let schema = try? JSONDecoder().decode(JSONValue.self, from: data) { return schema }
         return parameterSchemas[toolID] ?? .object(["type": .string("object")])

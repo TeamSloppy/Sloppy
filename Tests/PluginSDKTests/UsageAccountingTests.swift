@@ -78,6 +78,45 @@ import Protocols
         #expect(result.calls.first?.serverId == "research")
         #expect(result.components.first?.method == .estimate)
     }
+    @Test(arguments: [
+        #"{"error":null,"usage":{"input_tokens":22,"output_tokens":3,"input_tokens_details":{"cached_tokens":12}}}"#,
+        #"{"usage":{"input_tokens":22,"output_tokens":3,"input_tokens_details":{"cached_tokens":12}}}"#,
+        "event: response.completed\ndata: {\"type\":\"response.completed\",\"response\":{\"error\":null,\"usage\":{\"input_tokens\":22,\"output_tokens\":3,\"input_tokens_details\":{\"cached_tokens\":12}}}}\n\ndata: [DONE]\n\n",
+    ])
+    func successfulResponsesIgnoreNullErrors(response: String) async {
+        let decoder = UsageWireDecoder(context: context())
+        let record = await decoder.record(requestId: "success", body: data(#"{"input":[]}"#),
+            response: data(response), createdAt: Date(), failed: false)
+        #expect(!record.failed)
+        #expect(record.complete)
+        #expect(record.usage?.total == 25)
+        #expect(record.usage?.cachedInput == 12)
+    }
+
+    @Test(arguments: [
+        #"{"error":{"code":"test"},"usage":{"input_tokens":22,"output_tokens":3}}"#,
+        #"{"error":"test","usage":{"input_tokens":22,"output_tokens":3}}"#,
+        #"{"type":"response.failed","response":{"error":null,"usage":{"input_tokens":22,"output_tokens":3}}}"#,
+        #"{"type":"error","error":null,"usage":{"input_tokens":22,"output_tokens":3}}"#,
+        "data: {\"type\":\"error\",\"error\":{\"code\":\"test\"}}\n\ndata: {\"type\":\"response.completed\",\"response\":{\"error\":null,\"usage\":{\"input_tokens\":22,\"output_tokens\":3}}}\n\n",
+    ])
+    func providerFailuresSurviveNullErrorFields(response: String) async {
+        let decoder = UsageWireDecoder(context: context())
+        let record = await decoder.record(requestId: "failure", body: data(#"{"input":[]}"#),
+            response: data(response), createdAt: Date(), failed: false)
+        #expect(record.failed)
+        #expect(record.usage?.total == 25)
+    }
+
+    @Test func transportFailureSurvivesSuccessfulResponse() async {
+        let decoder = UsageWireDecoder(context: context())
+        let record = await decoder.record(requestId: "transport-failure", body: data(#"{"input":[]}"#),
+            response: data(#"{"error":null,"usage":{"input_tokens":22,"output_tokens":3}}"#),
+            createdAt: Date(), failed: true)
+        #expect(record.failed)
+        #expect(record.usage?.total == 25)
+    }
+
     @Test func failuresAndMediaPreserveUsageWithIncompleteCoverage() async {
         let decoder = UsageWireDecoder(context:context())
         let result = await decoder.record(requestId:"failed",body:data(#"{"input":[{"role":"user","content":[{"type":"input_image","image_url":"redacted"}]}]}"#),

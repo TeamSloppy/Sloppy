@@ -108,7 +108,10 @@ public actor UsageWireDecoder {
         var cacheIsSeparateInput = false
         for event in decoded {
             let object = event["response"] as? [String: Any] ?? event
-            if ["error", "response.failed"].contains(event["type"] as? String ?? "") || object["error"] != nil { record.failed = true }
+            let hasProviderError = object["error"].map { !($0 is NSNull) } ?? false
+            if ["error", "response.failed"].contains(event["type"] as? String ?? "") || hasProviderError {
+                record.failed = true
+            }
             if let message = object["message"] as? [String: Any],
                !(message["tool_calls"] as? [[String: Any]] ?? []).isEmpty { record.complete = false }
             let usage = object["usage"] as? [String: Any] ?? (object["message"] as? [String: Any])?["usage"] as? [String: Any]

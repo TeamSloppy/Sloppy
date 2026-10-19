@@ -21,6 +21,8 @@ struct PullRequestDetailView: View {
     let onSendReview: @MainActor (CodeReviewDetail, CodeReviewSubmission) async throws -> Void
 
     @Environment(\.openURL) private var openURL
+    @Environment(\.theme) private var theme
+    @State private var availableWidth: CGFloat = 0
     @State private var mode = Mode.code
     @AppStorage("client_code_review_diff_layout") private var diffLayout = CodeReviewDiffLayout.sideBySide
     @AppStorage("client_code_review_mobile_diff_layout") private var mobileDiffLayout = CodeReviewDiffLayout.oneSide
@@ -85,6 +87,8 @@ struct PullRequestDetailView: View {
             content
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .desktopScreenStyle()
+        .onGeometryChange(for: CGFloat.self) { $0.size.width } action: { availableWidth = $0 }
 #if os(iOS)
         .navigationTitle(item.number.map { "PR #\($0)" } ?? "Pull Request")
         .navigationBarTitleDisplayMode(.inline)
@@ -119,6 +123,28 @@ struct PullRequestDetailView: View {
 
     @ViewBuilder
     private var header: some View {
+#if os(macOS)
+        if availableWidth < 560 {
+            VStack(alignment: .leading, spacing: 10) {
+                HStack(spacing: 8) {
+                    backButton
+                    Text(item.title).font(.callout.weight(.medium)).lineLimit(2)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    moreMenu
+                }
+                modePicker
+            }
+            .padding(12)
+        } else {
+            wideHeader
+        }
+#else
+        wideHeader
+#endif
+    }
+
+    @ViewBuilder
+    private var wideHeader: some View {
         if isCompact {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 8) {
@@ -159,6 +185,7 @@ struct PullRequestDetailView: View {
                 .buttonStyle(.borderless)
                 .frame(width: isCompact ? 36 : 24, height: isCompact ? 44 : 32)
                 .accessibilityLabel("Back to pull requests")
+                .accessibilityIdentifier("code-review-back")
         }
     }
 
@@ -520,9 +547,11 @@ struct PullRequestDetailView: View {
 
                     }
 #if os(macOS)
-                    Divider()
-                    fileNavigator(detail)
-                        .frame(width: 220)
+                    if availableWidth >= 900 {
+                        Divider()
+                        fileNavigator(detail)
+                            .frame(width: 220)
+                    }
 #endif
                 }
             }
@@ -614,13 +643,33 @@ struct PullRequestDetailView: View {
     }
 
     private var diffLayoutPicker: some View {
+        Group {
+#if os(macOS)
+            if availableWidth < 400 {
+                Menu(effectiveDiffLayout.title) { diffLayoutOptions }
+                    .menuStyle(.borderlessButton)
+                    .fixedSize()
+            } else {
+                segmentedDiffLayoutPicker
+            }
+#else
+            segmentedDiffLayoutPicker
+#endif
+        }
+        .accessibilityIdentifier("code-review-diff-layout")
+    }
+
+    private var diffLayoutOptions: some View {
         Picker("Diff layout", selection: diffLayoutBinding) {
             ForEach(CodeReviewDiffLayout.allCases) { layout in Text(layout.title).tag(layout) }
         }
+    }
+
+    private var segmentedDiffLayoutPicker: some View {
+        diffLayoutOptions
         .labelsHidden()
         .pickerStyle(.segmented)
         .frame(width: 220)
-        .accessibilityIdentifier("code-review-diff-layout")
     }
 
     private var reviewCount: Int {
@@ -629,29 +678,64 @@ struct PullRequestDetailView: View {
 
     private var reviewToolbar: some View {
         VStack(alignment: .leading, spacing: 4) {
-            HStack(spacing: 12) {
-                Text(reviewCount == 1 ? "1 comment" : "\(reviewCount) comments")
-                    .font(.callout).foregroundStyle(.secondary)
-                Spacer(minLength: 8)
-                if !isCompact, mode == .code { diffLayoutPicker }
-                Button(action: sendReview) {
-                    HStack(spacing: 6) {
-                        if isChatBusy { ProgressView().controlSize(.small) }
-                        Text("Send Review").fontWeight(.semibold)
-                    }
-                    .frame(minHeight: isCompact ? 28 : 18)
+#if os(macOS)
+            if availableWidth < 560 {
+                HStack(spacing: 8) {
+                    reviewCountLabel
+                    Spacer(minLength: 0)
+                    sendReviewButton
                 }
-                .appPrimaryButton()
-#if !os(macOS)
-                .tint(Color.fromHex(0xc8e2ae))
-                .foregroundStyle(reviewCount == 0 || detail == nil || isChatBusy ? Color.secondary : Color.fromHex(0x242521))
-#endif
-                .disabled(reviewCount == 0 || detail == nil || isChatBusy)
-                .accessibilityIdentifier("code-review-send-review")
+                if mode == .code {
+                    HStack(spacing: 10) {
+                        compactFileNavigator
+                        diffLayoutPicker
+                        Spacer(minLength: 0)
+                    }
+                    .padding(.top, 6)
+                }
+            } else {
+                wideReviewToolbar
             }
+#else
+            wideReviewToolbar
+#endif
             if let draftStatus { Text(draftStatus).font(.caption).foregroundStyle(.secondary) }
         }
         .padding(.horizontal, 14).padding(.vertical, 10)
+    }
+
+    private var reviewCountLabel: some View {
+        Text(reviewCount == 1 ? "1 comment" : "\(reviewCount) comments")
+            .font(.callout).foregroundStyle(.secondary)
+    }
+
+    private var wideReviewToolbar: some View {
+        HStack(spacing: 12) {
+            reviewCountLabel
+            Spacer(minLength: 8)
+#if os(macOS)
+            if mode == .code, availableWidth < 900 { compactFileNavigator }
+#endif
+            if !isCompact, mode == .code { diffLayoutPicker }
+            sendReviewButton
+        }
+    }
+
+    private var sendReviewButton: some View {
+        Button(action: sendReview) {
+            HStack(spacing: 6) {
+                if isChatBusy { ProgressView().controlSize(.small) }
+                Text("Send Review").fontWeight(.semibold)
+            }
+            .frame(minHeight: isCompact ? 28 : 18)
+        }
+        .appPrimaryButton()
+#if !os(macOS)
+        .tint(Color.fromHex(0xc8e2ae))
+        .foregroundStyle(reviewCount == 0 || detail == nil || isChatBusy ? Color.secondary : Color.fromHex(0x242521))
+#endif
+        .disabled(reviewCount == 0 || detail == nil || isChatBusy)
+        .accessibilityIdentifier("code-review-send-review")
     }
 
     private func sendReview() {
@@ -683,21 +767,44 @@ struct PullRequestDetailView: View {
                 Text("Changed files").font(.headline).padding(.bottom, 6)
                 ForEach(files) { file in
                     Button {
-                        focusedComment = nil
-                        focusedFilePath = file.displayPath
+                        focusFile(file)
                     } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "doc.text")
                             Text(file.displayPath).lineLimit(2).frame(maxWidth: .infinity, alignment: .leading)
-                            Text("+\(file.additions) −\(file.deletions)").font(.caption.monospacedDigit())
+                            Text("+\(file.additions)").foregroundStyle(.green)
+                            Text("−\(file.deletions)").foregroundStyle(.red)
                         }
                         .font(.caption).padding(7)
-                        .background(focusedFilePath == file.displayPath ? Color.secondary.opacity(0.12) : .clear)
+                        .background(focusedFilePath == file.displayPath ? theme.colors.surfaceRaised : .clear,
+                                    in: RoundedRectangle(cornerRadius: 6))
                     }
                     .buttonStyle(.plain)
                 }
             }.padding(12)
         }
+    }
+
+    private func focusFile(_ file: CodeReviewDiffFile) {
+        focusedComment = nil
+        focusedFilePath = file.displayPath
+    }
+
+    private var compactFileNavigator: some View {
+        Menu {
+            ForEach(files) { file in
+                Button { focusFile(file) } label: {
+                    Label(file.displayPath, systemImage: focusedFilePath == file.displayPath ? "checkmark" : "doc.text")
+                }
+            }
+        } label: {
+            Image(systemName: "doc.on.doc")
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .help("Changed files")
+        .accessibilityLabel("Changed files")
+        .accessibilityIdentifier("code-review-files-menu")
     }
 
     private func commentActions(_ comment: CodeReviewComment) -> some View {

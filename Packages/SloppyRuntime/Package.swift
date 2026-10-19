@@ -15,7 +15,7 @@ let package = Package(
         .package(path: "../SwiftTiktoken"),
         .package(url: "https://github.com/apple/swift-log.git", from: "1.6.0"),
         .package(url: "https://github.com/apple/swift-metrics.git", from: "2.4.1"),
-        .package(url: "https://github.com/mattt/AnyLanguageModel.git", branch: "main"),
+        .package(path: "../../Vendor/AnyLanguageModel"),
     ],
     targets: [
         .target(name: "Protocols", dependencies: [

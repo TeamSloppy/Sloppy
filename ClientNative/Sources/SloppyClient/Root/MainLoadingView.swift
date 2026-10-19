@@ -1,10 +1,46 @@
 import SwiftUI
+import SloppyClientUI
 
 struct MainLoadingView: View {
+    var status = "Opening Sloppy…"
     @State private var shimmerPhase: CGFloat = -1
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.theme) private var theme
 
     var body: some View {
+#if os(macOS)
+        VStack(spacing: 20) {
+            Text("sloppy.")
+                .font(.system(size: 40, weight: .heavy))
+                .tracking(-1.65)
+                .foregroundStyle(theme.colors.textPrimary)
+            VStack(spacing: 12) {
+                if !reduceMotion {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(theme.colors.textMuted)
+                }
+                Text(status)
+                    .font(.callout)
+                    .foregroundStyle(theme.colors.textMuted)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: 360)
+            }
+        }
+        .padding(32)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(theme.colors.background)
+        .allowsHitTesting(false)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel("Loading Sloppy")
+        .accessibilityValue(status)
+        .accessibilityIdentifier("app.startup-loading")
+#else
+        mobileLoading
+#endif
+    }
+
+    private var mobileLoading: some View {
         ZStack {
             projectLogo
                 .resizable()

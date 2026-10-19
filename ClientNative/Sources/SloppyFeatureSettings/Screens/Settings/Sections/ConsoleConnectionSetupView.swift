@@ -279,7 +279,7 @@ public struct ConsoleConnectionSetupView: View {
                     #endif
                     Text("Or copy Certificate SHA-256 from the same screen.").font(.footnote).foregroundStyle(.secondary)
                     TextField("Certificate SHA-256", text: $fingerprint)
-                        .font(.body.monospaced()).textFieldStyle(.roundedBorder)
+                        .font(.body.monospaced()).appTextField()
                         #if os(iOS)
                         .textInputAutocapitalization(.never).autocorrectionDisabled()
                         #endif

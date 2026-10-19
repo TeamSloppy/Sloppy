@@ -41,6 +41,7 @@ struct ToolContext: @unchecked Sendable {
     let sharedMemoryEnabled: Bool
     let channelID: String?
     let policy: AgentToolsPolicy
+    let discoveryAllowedToolIDs: Set<String>?
     let workspaceRootURL: URL
     let readOnlyRoots: [String]
     let currentDirectoryURL: URL
@@ -83,6 +84,7 @@ struct ToolContext: @unchecked Sendable {
         sharedMemoryEnabled: Bool = true,
         channelID: String? = nil,
         policy: AgentToolsPolicy,
+        discoveryAllowedToolIDs: Set<String>? = nil,
         workspaceRootURL: URL,
         readOnlyRoots: [String] = [],
         currentDirectoryURL: URL? = nil,
@@ -119,6 +121,7 @@ struct ToolContext: @unchecked Sendable {
         self.sharedMemoryEnabled = sharedMemoryEnabled
         self.channelID = channelID?.trimmingCharacters(in: .whitespacesAndNewlines)
         self.policy = policy
+        self.discoveryAllowedToolIDs = discoveryAllowedToolIDs
         self.workspaceRootURL = workspaceRootURL
         self.fileMutations = fileMutations
         self.readOnlyRoots = readOnlyRoots

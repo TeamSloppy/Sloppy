@@ -242,16 +242,6 @@ private struct MacSidebarPrimaryActions: View {
                 )
             }
 
-            if !viewModel.settings.hiddenSidebarItems.contains("usage") {
-                SidebarNavigationRow(
-                    icon: .usage,
-                    title: "Usage",
-                    isSelected: viewModel.selectedAppSection == .usage,
-                    navigationValue: .usage,
-                    action: viewModel.selectUsage
-                )
-            }
-            
             if !viewModel.settings.hiddenSidebarItems.contains("artifacts") {
                 SidebarNavigationRow(
                     icon: .description,
@@ -280,7 +270,6 @@ private struct SidebarCustomizationMenu: View {
             Toggle("Pull Requests", isOn: visibility(for: "pullRequests"))
             Toggle("Scheduled", isOn: visibility(for: "scheduled"))
             Toggle("Agents", isOn: visibility(for: "agents"))
-            Toggle("Usage", isOn: visibility(for: "usage"))
             Toggle("Workspace", isOn: visibility(for: "workspace"))
             Toggle("Artifacts", isOn: visibility(for: "artifacts"))
             Divider()

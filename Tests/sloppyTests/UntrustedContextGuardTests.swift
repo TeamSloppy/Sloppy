@@ -33,7 +33,7 @@ func sessionWithoutUntrustedToolResultsIsNotTainted() {
 
 @Test
 func webBrowserAndMCPToolResultsTaintSession() {
-    for tool in ["web.fetch", "web.search", "browser.read", "safari.tabs", "mcp.call_tool", "channel.history"] {
+    for tool in ["web.fetch", "web.search", "browser.read", "safari.tabs", "mcp.call_tool", "channel.history", "system.search_tools"] {
         let events = [userMessageEvent(), toolResultEvent(tool)]
 
         #expect(UntrustedContextGuard.isTainted(events: events), "\(tool) should taint the session")
@@ -66,6 +66,9 @@ func taintedSessionForcesApprovalForRiskyCallsOnly() {
     ))
     #expect(!UntrustedContextGuard.requiresPerInvocationApproval(
         sessionEvents: tainted, settings: settings, callRequiresHumanApproval: false
+    ))
+    #expect(UntrustedContextGuard.requiresPerInvocationApproval(
+        sessionEvents: [toolResultEvent("system.search_tools")], settings: settings, callRequiresHumanApproval: true
     ))
     #expect(!UntrustedContextGuard.requiresPerInvocationApproval(
         sessionEvents: clean, settings: settings, callRequiresHumanApproval: true

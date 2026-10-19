@@ -9,7 +9,7 @@ enum LongChatCoordinatorPolicy {
         "sessions.list", "sessions.history", "sessions.status", "agents.list",
         "skills.list", "skills.search", "project.list", "project.current", "project.task_list", "project.task_get",
         "workspace.get", "workspace.elements.query", "planning.select_route", "planning.request_input",
-        "session.complete", "debug.read_logs", "system.list_tools",
+        "session.complete", "debug.read_logs", "system.list_tools", "system.search_tools",
     ]
     static let managementTools: Set<String> = [
         "long_chat.delegate", "long_chat.status", "long_chat.message", "long_chat.cancel", "long_chat.retry",

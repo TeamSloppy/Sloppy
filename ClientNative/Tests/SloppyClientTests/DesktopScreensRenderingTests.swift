@@ -57,6 +57,7 @@ struct DesktopScreensRenderingTests {
                                              errorMessage: nil, onRefresh: {}))),
             ("projects", AnyView(ProjectListView(projects: projects, isLoading: false, onRefresh: {}))),
             ("settings", form),
+            ("startup", AnyView(MainLoadingView(status: "Opening your workspace…"))),
         ]
         for (name, content) in cases {
             for scheme in name == "settings" ? [ColorScheme.dark, .light] : [.dark] {

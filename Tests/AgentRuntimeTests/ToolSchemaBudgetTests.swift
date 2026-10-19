@@ -26,6 +26,26 @@ private let catalog: [any Tool] = [
     SizedTool("workspace.update"), SizedTool("session.complete"),
 ]
 
+@Test func toolSchemaBudgetPrioritizesDefaultMCPPathOverOptionalSearch() {
+    let tools: [any Tool] = [
+        SizedTool("system.search_tools"),
+        SizedTool("mcp.list_tools"),
+        SizedTool("mcp.call_tool"),
+    ]
+    let estimator = TokenPressureEstimator()
+    let defaultPathCost = tools.dropFirst().reduce(0) {
+        $0 + ToolSchemaBudget.schemaTokens(of: $1, estimator: estimator)
+    }
+    let selection = ToolSchemaBudget(windowFraction: 1).select(from: tools, windowTokens: defaultPathCost)
+    #expect(Set(selection.tools.map(\.name)) == ["mcp.list_tools", "mcp.call_tool"])
+    #expect(selection.droppedNames == ["system.search_tools"])
+
+    let allCost = defaultPathCost + ToolSchemaBudget.schemaTokens(of: tools[0], estimator: estimator)
+    let ample = ToolSchemaBudget(windowFraction: 1).select(from: tools, windowTokens: allCost)
+    #expect(ample.tools.map(\.name) == tools.map(\.name))
+    #expect(ample.droppedNames.isEmpty)
+}
+
 @Test
 func toolSchemaBudgetKeepsEverythingWhenWindowIsLarge() {
     let selection = ToolSchemaBudget().select(from: catalog, windowTokens: 500_000)

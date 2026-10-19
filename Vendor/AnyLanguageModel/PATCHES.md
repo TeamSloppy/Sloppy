@@ -16,3 +16,7 @@ when an unrelated dependency makes the AsyncHTTPClient module available.
 
 Keep these guards when refreshing upstream sources. The transport can be switched
 only by enabling the trait and adapting the caller deliberately.
+
+The SwiftSyntax requirement also accepts the 601 and 602 release lines. This lets
+the portable runtime share Studio and AdaScript's SwiftSyntax 602 dependency while
+keeping the existing 600 release line available to standalone consumers.

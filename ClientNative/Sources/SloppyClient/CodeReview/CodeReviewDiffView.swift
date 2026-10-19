@@ -76,6 +76,7 @@ struct CodeReviewSideBySideDiffView: View {
 
     @State private var document: CodeReviewDiffRenderDocument?
     @State private var hoveredCellID: String?
+    @Environment(\.theme) private var theme
 
     @State private var codeColumnWidth: CGFloat = 620
     @State private var viewportHeight: CGFloat = 0
@@ -139,7 +140,7 @@ struct CodeReviewSideBySideDiffView: View {
             .onChange(of: highlightedLine) { _, _ in scrollToFocus(document, proxy: proxy) }
             .onChange(of: highlightedSide) { _, _ in scrollToFocus(document, proxy: proxy) }
         }
-        .background(.background)
+        .background(diffCanvas)
     }
 
     @ViewBuilder
@@ -155,6 +156,8 @@ struct CodeReviewSideBySideDiffView: View {
                 Text(path)
                     .font(.callout.monospaced().weight(.semibold))
                     .lineLimit(1)
+                    .truncationMode(.middle)
+                    .help(path)
                 Text("+\(additions)")
                     .foregroundStyle(.green)
                 Text("−\(deletions)")
@@ -164,9 +167,9 @@ struct CodeReviewSideBySideDiffView: View {
             .font(.caption)
             .padding(.horizontal, 12)
             .frame(width: totalWidth, height: 38)
-            .background(.quaternary.opacity(0.5))
+            .background(diffChrome)
             .overlay {
-                Rectangle().stroke(Color.secondary.opacity(0.2), lineWidth: 1)
+                Rectangle().stroke(diffDivider, lineWidth: 1)
             }
         case .hunkHeader(let header):
             HStack(spacing: 0) {
@@ -177,14 +180,14 @@ struct CodeReviewSideBySideDiffView: View {
                 Spacer(minLength: 0)
             }
             .frame(width: totalWidth, height: 26)
-            .background(Color.accentColor.opacity(0.08))
+            .background(diffHunkChrome)
         case .code(let row):
             VStack(spacing: 0) {
                 if layout == .sideBySide {
                     HStack(spacing: 0) {
                         diffCell(row.old, side: .old, filePath: item.filePath, rowID: row.id)
                         Rectangle()
-                            .fill(Color.secondary.opacity(0.2))
+                            .fill(diffDivider)
                             .frame(width: 1, height: lineHeight)
                         diffCell(row.new, side: .new, filePath: item.filePath, rowID: row.id)
                     }
@@ -309,7 +312,7 @@ struct CodeReviewSideBySideDiffView: View {
     private func cellBackground(_ cell: CodeReviewDiffCell, isOldSide: Bool, filePath: String) -> Color {
         if let highlightedLine, isHighlighted(filePath), cell.lineNumber == highlightedLine,
            highlightedSide == nil || highlightedSide == (isOldSide ? .old : .new) {
-            return Color.accentColor.opacity(0.24)
+            return diffHighlight
         }
         switch cell.kind {
         case .deletion:
@@ -321,6 +324,46 @@ struct CodeReviewSideBySideDiffView: View {
         case .context:
             return isOldSide ? Color.secondary.opacity(0.015) : .clear
         }
+    }
+
+    private var diffCanvas: Color {
+#if os(macOS)
+        theme.colors.background
+#else
+        Color(.systemBackground)
+#endif
+    }
+
+    private var diffChrome: AnyShapeStyle {
+#if os(macOS)
+        AnyShapeStyle(theme.colors.surface)
+#else
+        AnyShapeStyle(.quaternary.opacity(0.5))
+#endif
+    }
+
+    private var diffHunkChrome: Color {
+#if os(macOS)
+        theme.colors.surface
+#else
+        Color.accentColor.opacity(0.08)
+#endif
+    }
+
+    private var diffDivider: Color {
+#if os(macOS)
+        theme.colors.border
+#else
+        Color.secondary.opacity(0.2)
+#endif
+    }
+
+    private var diffHighlight: Color {
+#if os(macOS)
+        theme.colors.surfaceRaised
+#else
+        Color.accentColor.opacity(0.24)
+#endif
     }
 
     private var totalWidth: CGFloat {

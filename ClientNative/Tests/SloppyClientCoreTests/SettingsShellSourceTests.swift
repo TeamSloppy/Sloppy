@@ -63,7 +63,7 @@ struct SettingsShellSourceTests {
         #expect(!screen.contains("Color.white.opacity(0.04)"))
         #expect(!client.contains("SectionHeader(\"Client\""))
         #expect(forms.contains("Toggle(isOn:"))
-        #expect(forms.contains(".textFieldStyle(.roundedBorder)"))
+        #expect(forms.contains(".appTextField()"))
     }
 
     @Test("settings screen exposes dashboard section inventory")

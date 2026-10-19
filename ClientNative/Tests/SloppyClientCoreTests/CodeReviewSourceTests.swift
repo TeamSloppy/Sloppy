@@ -120,7 +120,6 @@ struct CodeReviewSourceTests {
         #expect(api.contains("/v1/code-reviews?"))
         #expect(api.contains("fetchCodeReviewDetail"))
         #expect(screen.contains("PullRequestsScreen"))
-        #expect(screen.contains("HSplitView"))
         #expect(screen.contains("PullRequestDetailView"))
         #expect(screen.contains("response.failures"))
         #expect(screen.contains("CodeReviewFilterStore"))

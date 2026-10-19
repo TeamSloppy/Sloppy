@@ -18,6 +18,7 @@ struct PullRequestsScreen: View {
     @State private var recoveryMessage: String?
     @State private var selectedReviewID: CodeReviewReference?
     @State private var isShowingArcadiaCredential = false
+    @Environment(\.theme) private var theme
 
 #if !os(macOS)
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -42,6 +43,7 @@ struct PullRequestsScreen: View {
         reviewLayout
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .mobileScreenBackground()
+            .desktopScreenStyle()
             .navigationTitle("Pull Requests")
 #if os(iOS)
             .navigationBarTitleDisplayMode(.inline)
@@ -59,11 +61,20 @@ struct PullRequestsScreen: View {
     @ViewBuilder
     private var reviewLayout: some View {
 #if os(macOS)
-        HSplitView {
-            inboxPane
-                .frame(minWidth: 330, idealWidth: 410, maxWidth: 520)
-            detailPane(showsBackButton: false)
-                .frame(minWidth: 520, maxWidth: .infinity, maxHeight: .infinity)
+        GeometryReader { geometry in
+            if geometry.size.width >= 940 {
+                HStack(spacing: 0) {
+                    inboxPane
+                        .frame(width: min(360, geometry.size.width * 0.34))
+                    Divider()
+                    detailPane(showsBackButton: false)
+                        .frame(minWidth: 0, maxWidth: .infinity, maxHeight: .infinity)
+                }
+            } else if selectedItem != nil {
+                detailPane(showsBackButton: true)
+            } else {
+                inboxPane
+            }
         }
 #else
         if horizontalSizeClass == .compact {
@@ -85,12 +96,13 @@ struct PullRequestsScreen: View {
             Divider()
             content
         }
+        .accessibilityIdentifier("code-review-inbox")
     }
 
     @ViewBuilder
     private func detailPane(showsBackButton: Bool) -> some View {
         if let selectedItem {
-            reviewDetail(selectedItem)
+            reviewDetail(selectedItem, showsBackButton: showsBackButton)
         } else {
             ContentUnavailableView(
                 "Select a Pull Request",
@@ -101,8 +113,9 @@ struct PullRequestsScreen: View {
         }
     }
 
-    private func reviewDetail(_ item: CodeReviewItem) -> some View {
-        PullRequestDetailView(apiClient: apiClient, item: item, showsBackButton: false, onBack: {},
+    private func reviewDetail(_ item: CodeReviewItem, showsBackButton: Bool = false) -> some View {
+        PullRequestDetailView(apiClient: apiClient, item: item, showsBackButton: showsBackButton,
+            onBack: { selectedReviewID = nil },
             onBeginReview: onBeginReview, onLinkChat: onLinkChat, onSendReview: onSendReview)
             .id(item.reviewReference)
     }
@@ -126,7 +139,12 @@ struct PullRequestsScreen: View {
     }
 
     private var filterControls: some View {
-        VStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 10) {
+#if os(macOS)
+            Text("Pull Requests")
+                .font(.title2.weight(.semibold))
+                .padding(.bottom, 6)
+#endif
             HStack(spacing: 10) {
                 Picker("Role", selection: $filters.role) {
                     ForEach(CodeReviewInboxRoleFilter.allCases) { role in
@@ -250,6 +268,9 @@ struct PullRequestsScreen: View {
             )
             .frame(maxWidth: .infinity, maxHeight: .infinity)
         } else {
+#if os(macOS)
+            desktopInbox
+#else
             List(selection: $selectedReviewID) {
                 if !response.failures.isEmpty {
                     Section("Provider issues") {
@@ -274,9 +295,6 @@ struct PullRequestsScreen: View {
 
                 Section {
                     ForEach(filteredItems, id: \.reviewReference) { item in
-#if os(macOS)
-                        PullRequestRow(item: item).tag(item.reviewReference)
-#else
                         if horizontalSizeClass == .compact {
                             NavigationLink {
                                 reviewDetail(item).mobileScreenBackground()
@@ -287,15 +305,58 @@ struct PullRequestsScreen: View {
                         } else {
                             PullRequestRow(item: item).tag(item.reviewReference)
                         }
-#endif
                     }
                 } header: {
                     Text("\(filteredItems.count) pull requests")
                 }
             }
             .listStyle(.sidebar)
+#endif
         }
     }
+
+#if os(macOS)
+    private var desktopInbox: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 2) {
+                ForEach(response.failures.sorted(by: { $0.key < $1.key }), id: \.key) { entry in
+                    Label("\(providerName(for: entry.key)): \(entry.value)", systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(theme.colors.statusWarning)
+                        .padding(10)
+                }
+                Text("\(filteredItems.count) pull requests")
+                    .font(.caption)
+                    .foregroundStyle(theme.colors.textMuted)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 10)
+                ForEach(filteredItems, id: \.reviewReference) { item in
+                    Button { selectedReviewID = item.reviewReference } label: {
+                        PullRequestRow(item: item)
+                            .padding(.horizontal, 12)
+                            .padding(.vertical, 6)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(selectedReviewID == item.reviewReference ? theme.colors.surfaceRaised : .clear,
+                                        in: RoundedRectangle(cornerRadius: 8))
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("code-review-open-\(item.id)")
+                    .accessibilityAddTraits(selectedReviewID == item.reviewReference ? [.isSelected] : [])
+                }
+            }
+            .padding(8)
+        }
+        .background(theme.colors.background)
+        .focusable()
+        .focusEffectDisabled()
+        .onMoveCommand { direction in
+            guard !filteredItems.isEmpty, direction == .up || direction == .down else { return }
+            let current = filteredItems.firstIndex { $0.reviewReference == selectedReviewID }
+            let next = direction == .down ? min((current ?? -1) + 1, filteredItems.count - 1) : max((current ?? 1) - 1, 0)
+            selectedReviewID = filteredItems[next].reviewReference
+        }
+    }
+#endif
 
     private func providerName(for id: String) -> String {
         response.providers.first(where: { $0.id == id })?.displayName ?? id
@@ -320,11 +381,6 @@ struct PullRequestsScreen: View {
                !response.items.contains(where: { CodeReviewReference(item: $0) == selectedReviewID }) {
                 self.selectedReviewID = nil
             }
-#if os(macOS)
-            if selectedReviewID == nil {
-                selectedReviewID = response.items.first.map(CodeReviewReference.init(item:))
-            }
-#endif
         } catch {
             errorMessage = error.localizedDescription
             recoveryMessage = recoverySuggestion(for: error)

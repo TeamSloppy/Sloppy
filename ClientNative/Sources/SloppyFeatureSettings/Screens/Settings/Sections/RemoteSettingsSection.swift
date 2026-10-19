@@ -78,7 +78,7 @@ struct RemoteSettingsSection: View {
                     Text("Connect this Mac to your private Sloppy Remote space.")
                         .foregroundStyle(.secondary)
                     TextField("Service invite", text: $invite)
-                        .textFieldStyle(.roundedBorder)
+                        .appTextField()
                         .accessibilityIdentifier("settings.remote.invite")
                     Button(busy ? "Enabling…" : "Enable Remote") {
                         Task { await enableRemote() }
@@ -89,7 +89,7 @@ struct RemoteSettingsSection: View {
                     Text("Already have a space? Paste an Add host QR link instead.")
                         .foregroundStyle(.secondary)
                     TextField("sloppy://remote-pair?code=…", text: $setupCode)
-                        .textFieldStyle(.roundedBorder)
+                        .appTextField()
                     Button("Join existing space") {
                         Task { await claimHostSetup() }
                     }
@@ -98,9 +98,9 @@ struct RemoteSettingsSection: View {
                     Text("Lost every trusted device? Use a saved recovery code.")
                         .foregroundStyle(.secondary)
                     TextField("Personal space ID", text: $recoverySpaceID)
-                        .textFieldStyle(.roundedBorder)
+                        .appTextField()
                     SecureField("Recovery code", text: $recoveryCode)
-                        .textFieldStyle(.roundedBorder)
+                        .appTextField()
                     Button("Recover this space") {
                         Task { await recoverHost() }
                     }
@@ -252,7 +252,7 @@ struct RemoteSettingsSection: View {
                     Text("Scan the QR shown on your Mac with Camera, or paste its Sloppy setup link here.")
                         .foregroundStyle(.secondary)
                     TextField("sloppy://remote-pair?code=…", text: $setupCode)
-                        .textFieldStyle(.roundedBorder)
+                        .appTextField()
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                     Button(busy ? "Waiting for approval…" : "Request access") {

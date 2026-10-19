@@ -3190,7 +3190,7 @@ actor AgentSessionOrchestrator {
                 [Runtime capabilities]
                 - This session runs with a persistent channel history and agent bootstrap context.
                 - You have access to tools via native function calling. Use them directly — do not output JSON tool-call objects as text.
-                - All tools are already registered and available. Do not call `system.list_tools` unless you need to discover dynamically added MCP tools.
+                - Use the currently visible native tools directly. By default, discover MCP schemas with `mcp.list_tools` and invoke a selected tool through `mcp.call_tool`; reuse schemas already in this conversation. `system.search_tools` is optional when the user requests targeted catalog search. Search does not register additional native tools.
                 - To schedule recurring messages or actions, use the `cron` tool with a cron expression and a command string.
                 """
         )
@@ -3234,8 +3234,9 @@ actor AgentSessionOrchestrator {
             fallback:
                 """
                 [Tools usage rules]
-                - All available tools are registered as native function calls. Use them directly without calling `system.list_tools` first.
-                - Only call `system.list_tools` if you need to discover dynamically added MCP tools.
+                - Use the native function calls currently visible in this request directly, without listing the catalog first.
+                - By default, discover MCP schemas with `mcp.list_tools(server: serverID)`, then invoke the selected tool through `mcp.call_tool`. Reuse schemas already present in this conversation.
+                - `system.search_tools` is optional: use it when the user requests targeted catalog search. It returns selected MCP schemas for `mcp.call_tool`; built-in matches are summaries, not newly registered tools.
                 - When using a tool, follow its parameter schema exactly. Required parameters must be provided.
                 """
         )
