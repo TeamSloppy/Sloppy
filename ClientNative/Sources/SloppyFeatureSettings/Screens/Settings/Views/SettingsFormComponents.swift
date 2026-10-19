@@ -18,7 +18,9 @@ struct SettingsSectionCard<Content: View>: View {
             Text(title)
                 .font(.system(size: 13, weight: .semibold))
                 .foregroundStyle(.secondary)
+#if !os(macOS)
                 .padding(.horizontal, 4)
+#endif
 
             VStack(alignment: .leading, spacing: 0) {
                 content()
@@ -48,6 +50,23 @@ struct SettingsFieldRow: View {
     }
 
     var body: some View {
+#if os(macOS)
+        HStack(alignment: .top, spacing: 24) {
+            Text(label)
+                .font(.callout)
+                .foregroundStyle(theme.colors.textPrimary)
+                .frame(width: 140, alignment: .leading)
+                .padding(.top, 10)
+            VStack(alignment: .leading, spacing: 6) {
+                input
+                if let hint {
+                    Text(hint).font(.caption).foregroundStyle(theme.colors.textMuted)
+                }
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .padding(.vertical, 8)
+#else
         let c = theme.colors
         let sp = theme.spacing
         let ty = theme.typography
@@ -67,7 +86,7 @@ struct SettingsFieldRow: View {
             .labelsHidden()
             .accessibilityLabel(label)
             .font(.system(size: ty.body))
-            .textFieldStyle(.roundedBorder)
+            .appTextField()
             .controlSize(.large)
 
             if let hint {
@@ -78,6 +97,21 @@ struct SettingsFieldRow: View {
         }
         .padding(.horizontal, sp.m)
         .padding(.vertical, sp.s)
+#endif
+    }
+
+    private var input: some View {
+        Group {
+            if isSecure {
+                SecureField(label, text: binding, prompt: Text("••••••••"))
+            } else {
+                TextField(label, text: binding, prompt: Text(""))
+            }
+        }
+        .labelsHidden()
+        .accessibilityLabel(label)
+        .font(.callout)
+        .appTextField()
     }
 }
 
@@ -114,7 +148,9 @@ struct SettingsToggleRow: View {
             .accessibilityLabel(label)
             .toggleStyle(.switch)
         }
+#if !os(macOS)
         .padding(.horizontal, sp.m)
+#endif
         .padding(.vertical, 12)
     }
 }
@@ -170,7 +206,11 @@ struct SettingsSectionSurface<Content: View>: View {
 
     var body: some View {
         content
+#if os(macOS)
+            .padding(.vertical, 20)
+#else
             .padding(16)
+#endif
             .frame(maxWidth: .infinity, alignment: .leading)
             .modifier(SettingsCardBackground())
     }
@@ -178,11 +218,14 @@ struct SettingsSectionSurface<Content: View>: View {
 
 private struct SettingsCardBackground: ViewModifier {
     @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.theme) private var theme
 
     func body(content: Content) -> some View {
         content
 #if os(macOS)
-            .desktopPanel()
+            .overlay(alignment: .bottom) {
+                Rectangle().fill(theme.colors.border).frame(height: 1).allowsHitTesting(false)
+            }
 #else
             .background(Color(white: colorScheme == .dark ? 0.12 : 1),
                         in: RoundedRectangle(cornerRadius: 12))

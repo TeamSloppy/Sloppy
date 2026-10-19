@@ -13,6 +13,8 @@ struct ToolRegistry: Sendable {
         return tools.values.filter { seen.insert($0.toolID).inserted }
     }
 
+    func tool(for id: String) -> (any CoreTool)? { tools[id] }
+
     init(tools: [any CoreTool]) {
         var map: [String: any CoreTool] = [:]
         for tool in tools {
@@ -159,6 +161,7 @@ struct ToolRegistry: Sendable {
             AgentsListTool(),
             ChannelHistoryTool(),
             SystemListToolsTool(),
+            SystemSearchToolsTool(),
             CronTool(),
             HeartbeatReportTool(),
             ProjectListTool(),

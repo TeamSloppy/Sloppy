@@ -21,6 +21,7 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
     case account
     case client
     case backend
+    case usage
     case migrations
     case remote
     case mesh
@@ -54,6 +55,7 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
         switch self {
         case .account: "Account"
         case .client: "General"
+        case .usage: "Usage"
         case .migrations: "Data Migration"
         case .backend: "Sloppy Backend"
         case .remote: "Remote"
@@ -88,6 +90,7 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
         switch self {
         case .account: "Profile, password, recovery codes, application tokens, and sign out."
         case .client: "Connection, appearance, accent, and desktop behavior."
+        case .usage: "Model tokens and usage by chat, tool, MCP server, and skill."
         case .migrations: "Import skills, MCP, conversations, projects, memory and instructions."
         case .backend: "Install or update the local Sloppy backend from GitHub Releases."
         case .remote: "Connect your devices with a private Sloppy Remote space."
@@ -124,6 +127,8 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
             ["account", "profile", "name", "login", "password", "recovery", "token", "sign out"]
         case .client:
             ["general", "connection", "appearance", "accent", "desktop", "window"]
+        case .usage:
+            ["usage", "tokens", "statistics", "tools", "mcp", "skills", "consumption"]
         case .migrations:
             ["migration", "import", "codex", "claude", "openclaw", "hermes", "memory"]
         case .backend:
@@ -183,7 +188,7 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
 
     var group: SettingsScreenSectionGroup {
         switch self {
-        case .account, .client, .backend, .remote, .mesh, .migrations:
+        case .account, .client, .backend, .remote, .mesh, .migrations, .usage:
             .client
         case .providers, .semanticDecisions, .proactivity, .searchTools, .channels, .plugins, .nodeHost, .visor, .acp, .proxy, .gitSync, .rawConfig:
             .config
@@ -206,9 +211,11 @@ public struct SettingsScreen: View {
     private let onDismiss: (() -> Void)?
     private let onChangeServer: (@MainActor () -> Void)?
     private let onLogout: (@MainActor () -> Void)?
+    private let onOpenUsageSession: (@MainActor (ChatSessionSummary) -> Void)?
 
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
+    @Environment(\.openURL) private var openURL
 
     private let api: SloppyAPIClient
 
@@ -217,13 +224,16 @@ public struct SettingsScreen: View {
         initialDestination: ClientSettingsDestination = .general,
         onDismiss: (() -> Void)? = nil,
         onChangeServer: (@MainActor () -> Void)? = nil,
-        onLogout: (@MainActor () -> Void)? = nil
+        onLogout: (@MainActor () -> Void)? = nil,
+        onOpenUsageSession: (@MainActor (ChatSessionSummary) -> Void)? = nil,
+        apiClient: SloppyAPIClient? = nil
     ) {
         self.settings = settings ?? ClientSettings()
         self.onDismiss = onDismiss
         self.onChangeServer = onChangeServer
         self.onLogout = onLogout
-        self.api = SloppyAPIClient(baseURL: (settings ?? ClientSettings()).baseURL)
+        self.onOpenUsageSession = onOpenUsageSession
+        self.api = apiClient ?? SloppyAPIClient(endpoint: self.settings.activeInstanceEndpoint)
         let initialSection: SettingsScreenSection
         switch initialDestination {
         case .account:
@@ -234,6 +244,8 @@ public struct SettingsScreen: View {
             initialSection = .migrations
         case .providers:
             initialSection = .providers
+        case .usage:
+            initialSection = .usage
         }
         self.initialSection = initialSection
         self._selectedSection = State(initialValue: nil)
@@ -247,18 +259,25 @@ public struct SettingsScreen: View {
                 selectedSection = initialSection
                 return
             }
-            if displayedSection != .account {
+            if displayedSection != .account, displayedSection != .usage {
                 loadConfig()
             }
         }
         .onChange(of: selectedSection) { _, section in
-            if section != nil, section != .account, config == nil {
+            if section != nil, section != .account, section != .usage, config == nil {
                 loadConfig()
             }
         }
     }
 
     private var settingsShell: some View {
+#if os(macOS)
+        DesktopSettingsLayout(onDismiss: onDismiss) {
+            DesktopSettingsSidebar(selection: $selectedSection, query: $searchQuery, sections: filteredSections)
+        } detail: {
+            settingsDetailPane
+        }
+#else
         return NavigationSplitView(preferredCompactColumn: $preferredCompactColumn, sidebar: {
             settingsSidebar
                 #if !os(macOS)
@@ -268,10 +287,8 @@ public struct SettingsScreen: View {
         }, detail: {
             settingsDetailPane
         })
-        #if os(macOS)
-        .frame(minWidth: 1120, maxWidth: .infinity, minHeight: 760, maxHeight: .infinity)
-        #endif
         .background(theme.colors.background)
+#endif
     }
 
     private var settingsSidebar: some View {
@@ -311,6 +328,7 @@ public struct SettingsScreen: View {
                         ForEach(groupSections, id: \.self) { section in
                             Label(section.title, systemImage: section.iconName)
                                 .tag(section)
+                                .accessibilityIdentifier("settings.section.\(section.rawValue)")
                         }
                     }
                 }
@@ -345,7 +363,11 @@ public struct SettingsScreen: View {
                 headerSection
                 detailContent(for: displayedSection)
             }
+#if os(macOS)
+            .frame(maxWidth: 680, alignment: .leading)
+#else
             .frame(maxWidth: 760, alignment: .leading)
+#endif
             .padding(idiom == .phone ? sp.m : sp.xl)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
@@ -366,14 +388,22 @@ public struct SettingsScreen: View {
 
         return VStack(alignment: .leading, spacing: sp.s) {
             Text(displayedSection.title)
+#if os(macOS)
+                .font(.system(size: 26, weight: .semibold))
+#else
                 .font(.system(size: ty.title, weight: .semibold))
+#endif
                 .foregroundColor(c.textPrimary)
             Text(displayedSection.subtitle)
+#if os(macOS)
+                .font(.system(size: 13))
+#else
                 .font(.system(size: ty.body))
+#endif
                 .foregroundColor(c.textSecondary)
             if displayedSection != .backend, displayedSection != .account,
                displayedSection != .client, displayedSection != .remote,
-               displayedSection != .mesh, !statusText.isEmpty {
+               displayedSection != .mesh, displayedSection != .usage, !statusText.isEmpty {
                 Text(statusText)
                     .font(.system(size: ty.caption))
                     .foregroundColor(c.textMuted)
@@ -386,6 +416,15 @@ public struct SettingsScreen: View {
         switch section {
         case .account:
             AccountSettingsSection(apiClient: api, onLogout: onLogout ?? {})
+        case .usage:
+            ChatUsageScreen(apiClient: api, instanceTitle: api.baseURL.host ?? "Connected instance",
+                isEmbeddedInSettings: true) { session in
+                    if let onOpenUsageSession {
+                        onOpenUsageSession(session)
+                    } else if let url = DeepLink.session(agentId: session.agentId, sessionId: session.id).url {
+                        openURL(url)
+                    }
+                }
         case .client:
             ClientSettingsSection(
                 settings: settings,
@@ -586,6 +625,7 @@ private extension SettingsScreenSection {
         switch self {
         case .account: "person.crop.circle"
         case .client: "gearshape"
+        case .usage: "chart.bar"
         case .migrations: "tray.and.arrow.down"
         case .backend: "shippingbox.and.arrow.backward"
         case .remote: "iphone.gen3.radiowaves.left.and.right"

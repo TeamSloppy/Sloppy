@@ -213,6 +213,11 @@ struct ChatTranscriptPane: View {
         hasher.combine(agentPaletteID)
         hasher.combine(userBubbleAgentID)
         hasher.combine(userBubblePaletteID)
+#if os(macOS)
+        for quote in viewModel.composerQuotes where quote.source != nil {
+            hasher.combine(quote.id)
+        }
+#endif
         return UInt(bitPattern: hasher.finalize())
     }
 

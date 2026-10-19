@@ -12,6 +12,10 @@ protocol WorkspaceWebViewControlling: AnyObject {
 @Observable
 @MainActor
 final class WorkspaceWebViewModel {
+    let history: WorkspaceBrowserHistory
+#if os(macOS)
+    let annotations = WorkspaceBrowserAnnotations()
+#endif
     var currentURL: URL?
     var addressText: String = ""
     var pageTitle: String?
@@ -21,6 +25,10 @@ final class WorkspaceWebViewModel {
     var lastError: String?
     weak var controller: WorkspaceWebViewControlling?
     var browserRuntime: WorkspaceBrowserToolRuntime?
+
+    init(history: WorkspaceBrowserHistory = .shared) {
+        self.history = history
+    }
 
 #if os(macOS)
     func ensureBrowserRuntime() -> WorkspaceBrowserToolRuntime {
@@ -35,7 +43,14 @@ final class WorkspaceWebViewModel {
             canGoBack = webView.canGoBack
             canGoForward = webView.canGoForward
             lastError = error
+            if error == nil, !webView.isLoading {
+                history.updateTitle(url: webView.url, title: webView.title)
+            }
         }
+        runtime.onNavigationFinished = { [weak self] webView in
+            self?.history.record(url: webView.url, title: webView.title)
+        }
+        runtime.onNavigationStarted = { [weak self] in self?.annotations.stopPicking() }
         browserRuntime = runtime
         controller = runtime
         return runtime

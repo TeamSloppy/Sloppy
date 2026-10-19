@@ -90,11 +90,7 @@ public struct ChatScreen: View {
         .environment(viewModel.connectionMonitor)
         .environment(
             \.chatTextSelectionActions,
-            ChatTextSelectionActions(
-                addToChat: viewModel.addQuoteToComposer,
-                moreDetails: viewModel.askForMoreDetails,
-                askInSideChat: onAskInSideChat
-            )
+            textSelectionActions
         )
         .fileImporter(
             isPresented: $viewModel.isAttachmentPickerShown,
@@ -114,6 +110,20 @@ public struct ChatScreen: View {
 #if os(iOS)
         .modifier(ChatCameraAttachmentPickerModifier(viewModel: viewModel))
 #endif
+    }
+
+    private var textSelectionActions: ChatTextSelectionActions {
+        var actions = ChatTextSelectionActions(addToChat: viewModel.addQuoteToComposer,
+            moreDetails: viewModel.askForMoreDetails, askInSideChat: onAskInSideChat)
+#if os(macOS)
+        actions.addAnnotation = viewModel.addAnchoredQuoteToComposer
+        actions.annotations = viewModel.composerQuotes
+        actions.editAnnotation = viewModel.editAnchoredComposerQuote
+        actions.resolveAnnotation = { [weak viewModel] id, context in
+            viewModel?.quoteAnnotationPresenter.anchors[id] = context
+        }
+#endif
+        return actions
     }
 }
 

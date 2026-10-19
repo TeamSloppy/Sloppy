@@ -12,6 +12,8 @@
 
   struct AppKitTextInteractionOverlay: NSViewRepresentable {
     @Environment(\.textualTextSelectionActions) private var selectionActions
+    @Environment(\.textualTextAnnotations) private var annotations
+    @Environment(\.textualTextSelectionScope) private var selectionScope
 
     private let model: TextSelectionModel
     private let overflowFrames: [CGRect]
@@ -22,12 +24,15 @@
     }
 
     func makeNSView(context: Context) -> NSTextInteractionView {
-      NSTextInteractionView(
+      let view = NSTextInteractionView(
         model: model,
         exclusionRects: overflowFrames,
         openURL: context.environment.openURL,
         selectionActions: selectionActions
       )
+      view.annotationScope = selectionScope
+      view.annotations = annotations
+      return view
     }
 
     func updateNSView(_ nsView: NSTextInteractionView, context: Context) {
@@ -35,6 +40,8 @@
       nsView.exclusionRects = overflowFrames
       nsView.openURL = context.environment.openURL
       nsView.selectionActions = selectionActions
+      nsView.annotationScope = selectionScope
+      nsView.annotations = annotations
     }
   }
 #endif

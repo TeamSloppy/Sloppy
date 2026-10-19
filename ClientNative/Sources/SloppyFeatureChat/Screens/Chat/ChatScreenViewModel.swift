@@ -81,6 +81,10 @@ public final class ChatScreenViewModel {
     public let composerDraft = ChatComposerDraft()
     public internal(set) var composerAttachments: [ChatComposerAttachment] = []
     public internal(set) var composerQuotes: [ChatComposerQuote] = []
+    var editingComposerQuoteID: UUID?
+#if os(macOS)
+    @ObservationIgnored let quoteAnnotationPresenter = ChatQuoteAnnotationPresenter()
+#endif
     internal(set) var queuedMessages: [ChatQueuedMessage] = []
     public var isAttachmentPickerShown = false
     public var isCameraPickerShown = false
@@ -348,6 +352,7 @@ public final class ChatScreenViewModel {
         self.onPlanArtifact = onPlanArtifact
         self.responseNotificationScheduler = responseNotificationScheduler
         self.onOpenSettings = onOpenSettings
+        self.parallelAgents.onSessionSummaryChange = { [weak self] summary in self?.mergeSessionSummary(summary) }
     }
 
 }

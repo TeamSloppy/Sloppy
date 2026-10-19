@@ -654,9 +654,10 @@ public actor SloppyAPIClient {
     public func fetchAgentSessions(
         agentId: String,
         projectId: String? = nil,
-        limit: Int? = nil
+        limit: Int? = nil,
+        includeWorkers: Bool = false
     ) async throws -> [ChatSessionSummary] {
-        try await sessions.fetchAgentSessions(agentId: agentId, projectId: projectId, limit: limit)
+        try await sessions.fetchAgentSessions(agentId: agentId, projectId: projectId, limit: limit, includeWorkers: includeWorkers)
     }
 
     public func fetchAgentSession(

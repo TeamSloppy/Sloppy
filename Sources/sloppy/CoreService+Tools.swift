@@ -450,6 +450,21 @@ extension CoreService {
                     let toolExecution = self.toolExecution
                     let invocationPolicy = effectivePolicy
                     let invocationRequest = effectiveRequest
+                    var discoveryAllowedToolIDs = sessionSubagentToolAllowList[normalizedSessionID]
+                    if needsReadEffects {
+                        let readScope: Set<String>
+                        if peerConversationSessions.contains(normalizedSessionID) {
+                            readScope = LongChatCoordinatorPolicy.readTools.union(readOnlyMCPTools)
+                                .union(SessionCommunicationPolicy.tools).subtracting(["session.complete"])
+                        } else if sessionDetail.summary.kind == .longChat {
+                            readScope = LongChatCoordinatorPolicy.readTools.union(readOnlyMCPTools)
+                                .union(SessionCommunicationPolicy.tools).union(LongChatCoordinatorPolicy.managementTools)
+                        } else {
+                            readScope = workerReadTools.union(["runtime.exec"]).subtracting(SubagentDelegation.hardDeniedToolIDs)
+                        }
+                        discoveryAllowedToolIDs = discoveryAllowedToolIDs.map { $0.intersection(readScope) } ?? readScope
+                    }
+                    let invocationDiscoveryScope = discoveryAllowedToolIDs
                     let timeoutMs = toolInvocationHardTimeoutMs(request: invocationRequest, policy: invocationPolicy)
                     result = await runToolInvocationWithHardTimeout(
                         toolID: invocationRequest.tool,
@@ -466,7 +481,8 @@ extension CoreService {
                                 policy: invocationPolicy,
                                 currentProjectID: sessionDetail.summary.projectId,
                                 currentDirectoryURL: currentDirectoryURL,
-                                sessionMCPRegistry: sessionMCPRegistry
+                                sessionMCPRegistry: sessionMCPRegistry,
+                                discoveryAllowedToolIDs: invocationDiscoveryScope
                             )
                         }
                     }

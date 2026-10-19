@@ -8,6 +8,12 @@ struct ChatTextSelectionActions {
     var addToChat: (@MainActor @Sendable (String) -> Void)?
     var moreDetails: (@MainActor @Sendable (String) -> Void)?
     var askInSideChat: (@MainActor @Sendable (String) -> Void)?
+#if os(macOS)
+    var addAnnotation: (@MainActor @Sendable (TextSelectionContext, String, Int) -> Void)? = nil
+    var annotations: [ChatComposerQuote] = []
+    var editAnnotation: (@MainActor @Sendable (UUID, TextSelectionContext) -> Void)? = nil
+    var resolveAnnotation: (@MainActor @Sendable (UUID, TextSelectionContext) -> Void)? = nil
+#endif
 
     var textualActions: [TextSelectionAction] {
         [
@@ -20,7 +26,7 @@ struct ChatTextSelectionActions {
                 }
             },
             moreDetails.map { handler in
-                TextSelectionAction("More details") { text in
+                TextSelectionAction("More details", showsInToolbar: false) { text in
                     DispatchQueue.main.async {
                         handler(text)
                     }
@@ -31,6 +37,32 @@ struct ChatTextSelectionActions {
             },
         ].compactMap { $0 }
     }
+
+#if os(macOS)
+    func textualActions(messageID: String?, segmentIndex: Int) -> [TextSelectionAction] {
+        guard let addAnnotation, let messageID else { return textualActions }
+        return [TextSelectionAction("Add to chat", contextualHandler: { context in
+            DispatchQueue.main.async { addAnnotation(context, messageID, segmentIndex) }
+        })] + [
+            moreDetails.map { handler in
+                TextSelectionAction("More details", showsInToolbar: false) { text in
+                    DispatchQueue.main.async { handler(text) }
+                }
+            },
+            askInSideChat.map { TextSelectionAction("Ask in side chat", handler: $0) },
+        ].compactMap { $0 }
+    }
+
+    func textAnnotations(messageID: String?, segmentIndex: Int) -> [TextAnnotation] {
+        annotations.compactMap { quote in
+            guard let source = quote.source, source.messageID == messageID,
+                  source.segmentIndex == segmentIndex else { return nil }
+            return TextAnnotation(id: quote.id, location: source.location,
+                activate: { editAnnotation?(quote.id, $0) },
+                resolve: { resolveAnnotation?(quote.id, $0) })
+        }
+    }
+#endif
 }
 
 extension EnvironmentValues {
@@ -236,7 +268,9 @@ public struct ChatBubbleView: View {
                     ChatMarkdownTextStack(
                         text: segment.text ?? "…",
                         allowsTextSelection: !isStreamingAssistant && !isActivelyWorking,
-                        renderImmediately: !isStreamingAssistant
+                        renderImmediately: !isStreamingAssistant,
+                        annotationMessageID: message.id,
+                        annotationSegmentIndex: index
                     )
                 }
             }

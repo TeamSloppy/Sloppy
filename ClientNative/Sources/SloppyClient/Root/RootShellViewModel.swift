@@ -297,6 +297,14 @@ final class RootShellViewModel {
         presentedSettings = nil
     }
 
+    func openUsageSession(_ session: ChatSessionSummary) {
+        guard let url = DeepLink.session(agentId: session.agentId, sessionId: session.id).url else { return }
+        handleDeepLink(url)
+        #if os(macOS)
+        presentMainWindow()
+        #endif
+    }
+
     func changeServer() {
         let baseURL = currentBaseURL
         stopConnectedServices()

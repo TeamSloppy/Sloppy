@@ -218,7 +218,9 @@ public struct ChatComposerView: View {
                 ChatComposerQuoteStrip(
                     quotes: viewModel.composerQuotes,
                     update: viewModel.updateComposerQuote,
-                    remove: viewModel.removeComposerQuote
+                    remove: viewModel.removeComposerQuote,
+                    edit: viewModel.editComposerQuote,
+                    finish: viewModel.finishComposerQuoteEditing
                 )
                 .padding(.horizontal, theme.spacing.s)
                 .padding(.top, theme.spacing.s)

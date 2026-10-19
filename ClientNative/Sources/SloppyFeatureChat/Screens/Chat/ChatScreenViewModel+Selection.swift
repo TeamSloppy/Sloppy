@@ -71,6 +71,10 @@ extension ChatScreenViewModel {
 
     /// Releases a detached presentation's current session without cancelling delivery.
     public func closeSession() {
+#if os(macOS)
+        quoteAnnotationPresenter.close()
+#endif
+        if let id = editingComposerQuoteID { finishComposerQuoteEditing(id: id) }
         pendingSessionSummary = nil
         pendingNavigationRequest = nil
         saveActiveComposerDraft()
@@ -138,15 +142,37 @@ extension ChatScreenViewModel {
 
     public func updateImageAnnotations(id: ChatComposerAttachment.ID, annotations: [ChatImageAnnotation]) {
         guard let index = composerAttachments.firstIndex(where: { $0.id == id }) else { return }
+        if annotations.isEmpty, !composerAttachments[index].annotations.isEmpty,
+           composerAttachments[index].annotations.allSatisfy({ $0.browserSource != nil }) {
+            removeComposerAttachment(id: id)
+            return
+        }
         composerAttachments[index].annotations = annotations
         saveActiveComposerDraft()
     }
 
     public func removeComposerQuote(id: ChatComposerQuote.ID) {
+#if os(macOS)
+        quoteAnnotationPresenter.anchors.removeValue(forKey: id)
+        if editingComposerQuoteID == id { quoteAnnotationPresenter.close() }
+#endif
+        if editingComposerQuoteID == id { editingComposerQuoteID = nil }
         composerQuotes.removeAll { $0.id == id }
         pendingComposerQuotes.removeAll { $0.id == id }
         saveActiveComposerDraft()
     }
+
+    func finishComposerQuoteEditing(id: UUID) {
+        if editingComposerQuoteID == id { editingComposerQuoteID = nil }
+        guard let quote = composerQuotes.first(where: { $0.id == id }) else { return }
+        let comment = quote.comment.trimmingCharacters(in: .whitespacesAndNewlines)
+        if comment.isEmpty { removeComposerQuote(id: id) }
+        else { updateComposerQuote(id: id, comment: comment) }
+    }
+
+#if !os(macOS)
+    func editComposerQuote(id: UUID) -> Bool { false }
+#endif
 
     public func insertCodeBlock() {
         let text = composerDraft.text

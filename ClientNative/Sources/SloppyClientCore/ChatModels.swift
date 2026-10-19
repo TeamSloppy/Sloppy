@@ -324,6 +324,7 @@ public struct ChatSessionSummary: Codable, Sendable, Equatable, Identifiable {
     public var taskId: String?
     public var workspaceId: String?
     public var sourceInstanceID: String?
+    public var parentSessionId: String?
 
     public init(
         id: String,
@@ -335,7 +336,8 @@ public struct ChatSessionSummary: Codable, Sendable, Equatable, Identifiable {
         projectId: String? = nil,
         taskId: String? = nil,
         workspaceId: String? = nil,
-        sourceInstanceID: String? = nil
+        sourceInstanceID: String? = nil,
+        parentSessionId: String? = nil
     ) {
         self.id = id
         self.agentId = agentId
@@ -347,6 +349,7 @@ public struct ChatSessionSummary: Codable, Sendable, Equatable, Identifiable {
         self.taskId = taskId
         self.workspaceId = workspaceId
         self.sourceInstanceID = sourceInstanceID
+        self.parentSessionId = parentSessionId
     }
 
     /// Presents the conversation name without rewriting persisted or user-defined titles.

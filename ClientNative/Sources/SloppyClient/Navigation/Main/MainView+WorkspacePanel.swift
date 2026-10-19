@@ -130,7 +130,8 @@ extension MainView {
                 )
             }
         case .browser:
-            WorkspaceBrowserPanelView(viewModel: viewModel.workspacePanelViewModel.webViewModel)
+            WorkspaceBrowserPanelView(viewModel: viewModel.workspacePanelViewModel.webViewModel,
+                                      onAnnotate: browserAnnotationReceiver)
         case .review, .files:
             if let workspaceContext = viewModel.workspaceContext {
                 WorkspacePanelView(

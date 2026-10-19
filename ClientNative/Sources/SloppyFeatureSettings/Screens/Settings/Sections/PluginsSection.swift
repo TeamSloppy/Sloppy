@@ -184,7 +184,7 @@ struct PluginsSection: View {
                 Button("Install ZIP") { isImportingZIP = true }
                     .accessibilityIdentifier("agent-plugins-install-zip")
                 TextField("https://example.com/plugin.zip", text: $downloadURL)
-                    .textFieldStyle(.roundedBorder)
+                    .appTextField()
                 Button("Install from URL") {
                     let value = downloadURL.trimmingCharacters(in: .whitespacesAndNewlines)
                     guard !value.isEmpty else { return }
@@ -231,7 +231,7 @@ struct PluginsSection: View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
                 TextField("Search packages", text: $model.search)
-                    .textFieldStyle(.roundedBorder)
+                    .appTextField()
                     .accessibilityIdentifier("agent-plugins-store-search")
                 Picker("Registry", selection: $model.selectedRegistryID) {
                     Text("All Registries").tag(String?.none)

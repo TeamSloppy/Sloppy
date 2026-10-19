@@ -1,5 +1,6 @@
 import AnyLanguageModel
 import Foundation
+import Metrics
 import Protocols
 
 struct MCPListServersTool: CoreTool {
@@ -104,12 +105,31 @@ struct MCPCallToolTool: CoreTool {
             toolArguments = [:]
         }
 
+        // Discovery never grants access. Re-resolve the target against this invocation's
+        // session registry and policy, including delegated scope, before calling the server.
+        guard let target = await context.mcpRegistry.dynamicTools().first(where: {
+            $0.serverID == serverID && $0.toolName == toolName
+        }) else {
+            let complete = await context.mcpRegistry.dynamicDiscoveryIsComplete()
+            Counter(label: "sloppy.tool.discovery.mcp_calls", dimensions: [("outcome", complete ? "unknown_target" : "discovery_incomplete")]).increment()
+            return toolFailure(tool: name, code: complete ? "unknown_tool" : "mcp_discovery_incomplete",
+                message: complete ? "The MCP tool is not exposed by this session's catalog." : "The MCP catalog could not be fully loaded; retry discovery before calling this tool.",
+                retryable: !complete)
+        }
+        let entry = ToolDiscoveryEntry(id: target.id, title: target.title, description: target.description,
+            parameterNames: [], mcp: target)
+        guard ToolDiscoveryService.isVisible(entry, policy: context.policy, allowedIDs: context.discoveryAllowedToolIDs) else {
+            Counter(label: "sloppy.tool.discovery.mcp_calls", dimensions: [("outcome", "forbidden")]).increment()
+            return toolFailure(tool: name, code: "tool_forbidden", message: "The MCP tool is outside the permitted tool scope.", retryable: false)
+        }
+
         do {
             let result = try await context.mcpRegistry.callTool(
                 serverID: serverID,
                 name: toolName,
                 arguments: toolArguments
             )
+            Counter(label: "sloppy.tool.discovery.mcp_calls", dimensions: [("outcome", result.isError == true ? "server_error" : "success")]).increment()
             var data: [String: JSONValue] = [
                 "server": .string(serverID),
                 "tool": .string(toolName),
@@ -123,6 +143,7 @@ struct MCPCallToolTool: CoreTool {
             }
             return toolSuccess(tool: name, data: .object(data))
         } catch {
+            Counter(label: "sloppy.tool.discovery.mcp_calls", dimensions: [("outcome", "transport_error")]).increment()
             return toolFailure(tool: name, code: "mcp_error", message: String(describing: error), retryable: true)
         }
     }

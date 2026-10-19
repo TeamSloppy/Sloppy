@@ -117,7 +117,8 @@ final class ToolExecutionService: @unchecked Sendable {
         policy: AgentToolsPolicy,
         currentProjectID: String? = nil,
         currentDirectoryURL: URL? = nil,
-        sessionMCPRegistry: MCPClientRegistry? = nil
+        sessionMCPRegistry: MCPClientRegistry? = nil,
+        discoveryAllowedToolIDs: Set<String>? = nil
     ) async -> ToolInvocationResult {
         await artifactRetention.sweepIfNeeded(workspaceRootURL: workspaceRootURL)
         let context = makeContext(
@@ -129,7 +130,8 @@ final class ToolExecutionService: @unchecked Sendable {
             currentDirectoryURL: currentDirectoryURL,
             environmentOverrides: await sessionEnvironmentOverrides(sessionID),
             userID: latestUserID(agentID: agentID, sessionID: sessionID),
-            sessionMCPRegistry: sessionMCPRegistry
+            sessionMCPRegistry: sessionMCPRegistry,
+            discoveryAllowedToolIDs: discoveryAllowedToolIDs
         )
         if let result = await registry.invoke(request: request, context: context) {
             return context.outputArtifacts.bound(result, maxBytes: min(50 * 1024, max(1, policy.guardrails.maxExecOutputBytes)))
@@ -172,7 +174,8 @@ final class ToolExecutionService: @unchecked Sendable {
         currentDirectoryURL: URL? = nil,
         environmentOverrides: [String: String] = [:],
         userID: String? = nil,
-        sessionMCPRegistry: MCPClientRegistry? = nil
+        sessionMCPRegistry: MCPClientRegistry? = nil,
+        discoveryAllowedToolIDs: Set<String>? = nil
     ) -> ToolContext {
         let boundApply = applyAgentMarkdown.map { handler in
             { (field: AgentMarkdownDocumentField, markdown: String) async throws in
@@ -187,6 +190,7 @@ final class ToolExecutionService: @unchecked Sendable {
             sharedMemoryEnabled: sharedMemoryEnabled,
             channelID: channelID,
             policy: policy,
+            discoveryAllowedToolIDs: discoveryAllowedToolIDs,
             workspaceRootURL: workspaceRootURL,
             readOnlyRoots: agentSkillsStore?.sharedSkillsRootPaths() ?? [],
             currentDirectoryURL: currentDirectoryURL,

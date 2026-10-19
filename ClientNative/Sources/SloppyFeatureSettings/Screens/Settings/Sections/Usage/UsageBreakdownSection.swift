@@ -1,6 +1,7 @@
 import Foundation
 import SwiftUI
 import SloppyClientCore
+import SloppyClientUI
 
 @MainActor
 struct UsageBreakdownSection: View {
@@ -10,6 +11,7 @@ struct UsageBreakdownSection: View {
     let revision: Int
     let sessions: [String: ChatSessionSummary]
     let onOpenSession: (ChatSessionSummary) -> Void
+    @Environment(\.theme) private var theme
     @State private var provider = ""
     @State private var model = ""
     @State private var serverId = ""
@@ -36,20 +38,24 @@ struct UsageBreakdownSection: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             Divider()
-            Text("Tools, MCP & skills").font(.title2.bold())
+            Text("Tools, MCP & skills").font(.title3.weight(.semibold))
+            Text("Group by").font(.caption).foregroundStyle(theme.colors.textMuted)
             Picker("Group by", selection: $grouping) {
                 Text("Tools").tag("tool")
                 Text("MCP").tag("server")
                 Text("Skills").tag("skill")
             }
-            .pickerStyle(.segmented).frame(maxWidth: 480)
+            .pickerStyle(.segmented).labelsHidden().frame(maxWidth: 480, alignment: .leading)
+            .accessibilityIdentifier("usage.grouping")
             DisclosureGroup("Filters") {
-                VStack(alignment: .leading, spacing: 8) {
-                    TextField("Provider identifier", text: $provider)
-                    TextField("Exact model identifier", text: $model)
-                    TextField("MCP server identifier", text: $serverId)
+                SettingsSectionSurface {
+                    VStack(alignment: .leading, spacing: 16) {
+                        SettingsFieldRow("Provider", hint: "Provider identifier", text: $provider)
+                        SettingsFieldRow("Model", hint: "Exact model identifier", text: $model)
+                        SettingsFieldRow("MCP server", hint: "Server identifier", text: $serverId)
+                    }
                 }
-                .textFieldStyle(.roundedBorder)
+                .padding(.top, 8)
             }
             if loading { ProgressView("Loading breakdown…") }
             if let error {
@@ -96,6 +102,7 @@ struct UsageBreakdownSection: View {
                 }
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("usage-breakdown.section")
         .task(id: requestKey) { await load() }
         .task(id: "\(requestKey)|\(selected ?? "")") { await loadCalls(append: false) }

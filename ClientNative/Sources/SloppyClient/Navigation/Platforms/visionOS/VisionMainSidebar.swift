@@ -1,6 +1,7 @@
 #if os(visionOS)
 import SloppyFeatureAgents
 import SloppyFeatureSites
+import SloppyFeatureSettings
 import SwiftUI
 
 @MainActor

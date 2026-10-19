@@ -316,3 +316,22 @@ func disablingToolRevokesItsPermanentApprovals() throws {
     let updated = try store.updatePolicy(agentID: "agent-1", request: AgentToolsUpdateRequest(tools: ["runtime.exec": false]), knownToolIDs: ToolCatalog.knownToolIDs)
     #expect(updated.approvalGrants == [grants[2]])
 }
+
+@Test("Saved MCP overrides survive a fresh built-in authorization while the server is unavailable")
+func authorizationPreservesSavedMCPOverridesWithoutDiscovery() async throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent("tools-discovery-policy-\(UUID())")
+    defer { try? FileManager.default.removeItem(at: root) }
+    try FileManager.default.createDirectory(at: root.appendingPathComponent("dev"), withIntermediateDirectories: true)
+    let store = AgentToolsFileStore(agentsRootURL: root)
+    _ = try store.updatePolicy(agentID: "dev", request: .init(tools: ["mcp.offline.search": false]),
+        knownToolIDs: ToolCatalog.knownToolIDs.union(["mcp.offline.search"]))
+    let discovery = SpyMCPToolDiscovery(dynamicToolIDs: [])
+    let auth = ToolAuthorizationService(store: store, mcpRegistry: discovery)
+    let builtin = try await auth.authorize(agentID: "dev", toolID: "system.search_tools")
+    #expect(builtin.allowed)
+    #expect(builtin.policy.tools["mcp.offline.search"] == false)
+    #expect(await discovery.dynamicToolIDCallCount() == 0)
+    let absent = try await auth.authorize(agentID: "dev", toolID: "mcp.offline.search")
+    #expect(!absent.allowed)
+    #expect(absent.error?.code == "unknown_tool")
+}

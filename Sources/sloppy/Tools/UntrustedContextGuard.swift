@@ -9,6 +9,7 @@ import Protocols
 enum UntrustedContextGuard {
     private static let untrustedOutputTools: Set<String> = [
         "channel.history",
+        "system.search_tools", // MCP descriptions and schemas are server-controlled content.
     ]
 
     private static let untrustedOutputPrefixes = ["web.", "browser.", "safari.", "mcp."]

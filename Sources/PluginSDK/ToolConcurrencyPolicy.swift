@@ -10,7 +10,7 @@ public enum ToolConcurrencyPolicy {
         "memory.recall", "memory.get", "memory.search", "memory.source",
         "sessions.list", "sessions.history", "sessions.status", "agents.list",
         "skills.list", "skills.search", "project.list", "project.current", "project.task_list", "project.task_get",
-        "workspace.get", "workspace.elements.query", "debug.read_logs", "system.list_tools",
+        "workspace.get", "workspace.elements.query", "debug.read_logs", "system.list_tools", "system.search_tools",
     ]
 
     /// Splits `count` calls into consecutive segments. A segment is either a run of concurrency-safe

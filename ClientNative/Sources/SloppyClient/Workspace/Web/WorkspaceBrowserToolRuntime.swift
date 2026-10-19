@@ -24,6 +24,8 @@ final class WorkspaceBrowserToolRuntime: NSObject {
     // The runtime owns the page so hiding the panel never destroys an agent's page.
     let webView: WKWebView
     var onStateChange: (@MainActor (WKWebView, String?) -> Void)?
+    var onNavigationFinished: (@MainActor (WKWebView) -> Void)?
+    var onNavigationStarted: (@MainActor () -> Void)?
     private var navigationError: Error?
     private var navigationPending = false
     private var titleObservation: NSKeyValueObservation?
@@ -223,6 +225,7 @@ extension WorkspaceBrowserToolRuntime: WKNavigationDelegate, WKUIDelegate, Works
     func goForward() { navigationError = nil; webView.goForward() }
 
     func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+        onNavigationStarted?()
         navigationError = nil
         navigationPending = true
         onStateChange?(webView, nil)
@@ -230,6 +233,7 @@ extension WorkspaceBrowserToolRuntime: WKNavigationDelegate, WKUIDelegate, Works
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         navigationPending = false
         onStateChange?(webView, nil)
+        onNavigationFinished?(webView)
     }
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         navigationPending = false

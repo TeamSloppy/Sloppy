@@ -52,6 +52,7 @@ public struct ChatSidebarDayGroup: Sendable, Identifiable {
 }
 
 public struct ChatSidebarSections: Sendable {
+    public var tree: ChatSidebarSessionTree
     public var pinned: [ChatSessionSummary]
     public var sessions: [ChatSessionSummary]
     public var dayGroups: [ChatSidebarDayGroup]
@@ -61,12 +62,14 @@ public struct ChatSidebarSections: Sendable {
         pinned: [ChatSessionSummary] = [],
         sessions: [ChatSessionSummary] = [],
         dayGroups: [ChatSidebarDayGroup] = [],
-        projectGroups: [ChatSidebarProjectGroup] = []
+        projectGroups: [ChatSidebarProjectGroup] = [],
+        tree: ChatSidebarSessionTree = .init()
     ) {
         self.pinned = pinned
         self.sessions = sessions
         self.dayGroups = dayGroups
         self.projectGroups = projectGroups
+        self.tree = tree
     }
 
     public static func build(
@@ -78,7 +81,9 @@ public struct ChatSidebarSections: Sendable {
         defaultSourceInstanceID: String? = nil,
         calendar: Calendar = .autoupdatingCurrent
     ) -> ChatSidebarSections {
-        let sortedSessions = sessions.sorted {
+        let tree = ChatSidebarSessionTree(sessions: sessions, pinnedSessionIDs: pinnedSessionIds,
+                                          defaultSourceInstanceID: defaultSourceInstanceID)
+        let sortedSessions = tree.roots.sorted {
             if $0.updatedAt == $1.updatedAt {
                 return $0.id < $1.id
             }
@@ -100,7 +105,8 @@ public struct ChatSidebarSections: Sendable {
                 pinned: pinned,
                 sessions: unpinned,
                 dayGroups: dayGroups,
-                projectGroups: []
+                projectGroups: [],
+                tree: tree
             )
 
         case .projects:
@@ -132,7 +138,8 @@ public struct ChatSidebarSections: Sendable {
             return ChatSidebarSections(
                 pinned: pinned,
                 sessions: [],
-                projectGroups: groups
+                projectGroups: groups,
+                tree: tree
             )
         }
     }

@@ -18,6 +18,16 @@ struct SplashScreen: View {
     @Environment(\.theme) private var theme
 
     var body: some View {
+#if os(macOS)
+        MainLoadingView(status: status)
+            .task { await attemptConnection() }
+#else
+        mobileSplash
+            .task { await attemptConnection() }
+#endif
+    }
+
+    private var mobileSplash: some View {
         let c = theme.colors
         let sp = theme.spacing
         let ty = theme.typography
@@ -56,7 +66,6 @@ struct SplashScreen: View {
             Spacer()
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .center)
-        .task { await attemptConnection() }
     }
 
     @MainActor

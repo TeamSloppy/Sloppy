@@ -3,6 +3,7 @@ import Observation
 import SloppyClientCore
 import SloppyClientUI
 import SwiftUI
+import Textual
 import UniformTypeIdentifiers
 
 public enum ChatComposerDictationPhase: Sendable, Equatable {
@@ -57,14 +58,22 @@ public struct ChatComposerAttachment: Identifiable, Sendable, Equatable {
 }
 
 public struct ChatComposerQuote: Identifiable, Sendable, Equatable {
+    public struct Source: Sendable, Equatable {
+        public let messageID: String
+        public let segmentIndex: Int
+        public let location: TextAnnotationLocation
+    }
+
     public let id: UUID
     public let text: String
     public var comment: String
+    public let source: Source?
 
-    public init(id: UUID = UUID(), text: String, comment: String = "") {
+    public init(id: UUID = UUID(), text: String, comment: String = "", source: Source? = nil) {
         self.id = id
         self.text = text
         self.comment = comment
+        self.source = source
     }
 
     static func messageContent(
@@ -83,7 +92,10 @@ public struct ChatComposerQuote: Identifiable, Sendable, Equatable {
         let imageAnnotations = attachments.enumerated().compactMap { index, attachment -> String? in
             guard !attachment.annotations.isEmpty else { return nil }
             let notes = attachment.annotations.enumerated().map { number, annotation in
-                "\(number + 1). (\(annotation.region.coordinateDescription)) \(annotation.comment)"
+                let note = "\(number + 1). (\(annotation.region.coordinateDescription)) \(annotation.comment)"
+                guard let source = annotation.browserSource else { return note }
+                return note + "\nPage URL: \(source.url.absoluteString)\nPage title: \(source.title)"
+                    + (source.selector.map { "\nCSS selector: \($0)" } ?? "")
             }.joined(separator: "\n")
             return "Image annotations — attachment \(index + 1): \(attachment.name)\n"
                 + "Coordinates are percentages of the original image; origin is top-left.\n\(notes)"

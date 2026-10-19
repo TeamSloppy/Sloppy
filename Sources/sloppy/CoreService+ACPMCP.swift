@@ -37,9 +37,10 @@ extension CoreService {
 
         [ACP client MCP servers]
         The client supplied these MCP servers for this session: \(servers.joined(separator: ", ")).
-        Their tools are accessible through the native mcp.list_tools and mcp.call_tool functions.
-        Use mcp.list_tools(server: serverID) to read exact tool names and schemas, then
-        mcp.call_tool(server: serverID, tool: toolName, arguments: JSON-encoded argument object).
+        By default, use mcp.list_tools(server: serverID) to discover names and schemas,
+        then mcp.call_tool(server: serverID, tool: toolName, arguments: JSON-encoded argument object).
+        Reuse schemas already present in this conversation. system.search_tools(query: capability, server: serverID)
+        is optional when the user requests targeted catalog search.
         Discover the supplied tools before concluding that editor, scene, build or play capabilities are unavailable.
         Issue these calls one at a time with the complete JSON arguments object.
         """

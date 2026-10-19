@@ -8,6 +8,8 @@ struct ChatMarkdownTextStack: View {
     let text: String
     var allowsTextSelection = true
     var renderImmediately = true
+    var annotationMessageID: String? = nil
+    var annotationSegmentIndex = 0
 
     @Environment(\.theme) private var theme
     @Environment(\.chatTextSelectionActions) private var selectionActions
@@ -18,7 +20,10 @@ struct ChatMarkdownTextStack: View {
         if allowsTextSelection {
             structuredText
                 .textual.textSelection(.enabled)
-                .textual.textSelectionActions(selectionActions.textualActions)
+                .textual.textSelectionActions(selectionActions.textualActions(
+                    messageID: annotationMessageID, segmentIndex: annotationSegmentIndex))
+                .textual.textAnnotations(selectionActions.textAnnotations(
+                    messageID: annotationMessageID, segmentIndex: annotationSegmentIndex))
         } else {
             structuredText
         }

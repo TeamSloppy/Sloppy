@@ -252,7 +252,8 @@ private struct RootShellContent: View {
             onLogout: {
                 viewModel.dismissSettings()
                 viewModel.logout()
-            }
+            },
+            onOpenUsageSession: { session in viewModel.openUsageSession(session) }
         )
     }
 }

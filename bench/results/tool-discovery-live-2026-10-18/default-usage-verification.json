@@ -1,0 +1,135 @@
+{
+  "model": "openai-oauth:gpt-6.1-sol",
+  "provider": "Sloppy OpenAI Codex OAuth / chatgpt.com",
+  "catalog": "16 synthetic read-only MCP tools",
+  "binary_sha256": "3e5997dd3efcf73e70421878c5522c8bb0070e2c92d0b10b9bf9b9cb076cb548",
+  "state_root": "/var/folders/cp/2pym2k7n6z52p2j9vvxn3_cr0000gn/T/sloppy-default-usage-live-trzt8pxv",
+  "turns": [
+    {
+      "route": "default",
+      "session_id": "session-36d2fd05-7348-413a-ad13-f91443451b01",
+      "wall_seconds": 13.235925750108436,
+      "tool_calls": [
+        "mcp.list_tools",
+        "mcp.call_tool"
+      ],
+      "validated_receipt": true,
+      "expected_route": true,
+      "requests": [
+        {
+          "id": "74EE2BBD-DBBD-4C58-B3DD-CF9DCF9DADBE",
+          "channel_id": "agent:bench-default-usage-16:session:session-36d2fd05-7348-413a-ad13-f91443451b01",
+          "session_id": "session-36d2fd05-7348-413a-ad13-f91443451b01",
+          "agent_id": "bench-default-usage-16",
+          "provider": "openai-oauth",
+          "model": "openai-oauth:gpt-6.1-sol",
+          "created_at": "2026-10-18T20:01:07.592Z",
+          "prompt_tokens": 12294,
+          "completion_tokens": 24,
+          "cached_tokens": 0,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 0,
+          "failed": 0,
+          "complete": 1
+        },
+        {
+          "id": "1BDCE206-BE05-4F0E-94BD-52D6C57EBEE3",
+          "channel_id": "agent:bench-default-usage-16:session:session-36d2fd05-7348-413a-ad13-f91443451b01",
+          "session_id": "session-36d2fd05-7348-413a-ad13-f91443451b01",
+          "agent_id": "bench-default-usage-16",
+          "provider": "openai-oauth",
+          "model": "openai-oauth:gpt-6.1-sol",
+          "created_at": "2026-10-18T20:01:11.529Z",
+          "prompt_tokens": 14731,
+          "completion_tokens": 40,
+          "cached_tokens": 12160,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 0,
+          "failed": 0,
+          "complete": 1
+        },
+        {
+          "id": "E009E5BE-B6B8-4DEF-B53B-8C962F4269A1",
+          "channel_id": "agent:bench-default-usage-16:session:session-36d2fd05-7348-413a-ad13-f91443451b01",
+          "session_id": "session-36d2fd05-7348-413a-ad13-f91443451b01",
+          "agent_id": "bench-default-usage-16",
+          "provider": "openai-oauth",
+          "model": "openai-oauth:gpt-6.1-sol",
+          "created_at": "2026-10-18T20:01:15.554Z",
+          "prompt_tokens": 14931,
+          "completion_tokens": 8,
+          "cached_tokens": 12160,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 0,
+          "failed": 0,
+          "complete": 1
+        }
+      ],
+      "usage_present": true,
+      "no_failed_requests": true
+    },
+    {
+      "route": "explicit-search",
+      "session_id": "session-560c9116-2ec2-4ffb-889d-2358943b7091",
+      "wall_seconds": 11.916466083028354,
+      "tool_calls": [
+        "system.search_tools",
+        "mcp.call_tool"
+      ],
+      "validated_receipt": true,
+      "expected_route": true,
+      "requests": [
+        {
+          "id": "1C895272-1547-4DBC-98A4-8AA827ADDBEB",
+          "channel_id": "agent:bench-default-usage-16:session:session-560c9116-2ec2-4ffb-889d-2358943b7091",
+          "session_id": "session-560c9116-2ec2-4ffb-889d-2358943b7091",
+          "agent_id": "bench-default-usage-16",
+          "provider": "openai-oauth",
+          "model": "openai-oauth:gpt-6.1-sol",
+          "created_at": "2026-10-18T20:01:20.884Z",
+          "prompt_tokens": 12311,
+          "completion_tokens": 40,
+          "cached_tokens": 0,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 0,
+          "failed": 0,
+          "complete": 1
+        },
+        {
+          "id": "21EC0233-1FB4-4F9C-A42E-8D21F263AD53",
+          "channel_id": "agent:bench-default-usage-16:session:session-560c9116-2ec2-4ffb-889d-2358943b7091",
+          "session_id": "session-560c9116-2ec2-4ffb-889d-2358943b7091",
+          "agent_id": "bench-default-usage-16",
+          "provider": "openai-oauth",
+          "model": "openai-oauth:gpt-6.1-sol",
+          "created_at": "2026-10-18T20:01:24.886Z",
+          "prompt_tokens": 12691,
+          "completion_tokens": 40,
+          "cached_tokens": 12160,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 0,
+          "failed": 0,
+          "complete": 1
+        },
+        {
+          "id": "AFF84CA9-5EC8-425E-B2B7-EE0278A8296A",
+          "channel_id": "agent:bench-default-usage-16:session:session-560c9116-2ec2-4ffb-889d-2358943b7091",
+          "session_id": "session-560c9116-2ec2-4ffb-889d-2358943b7091",
+          "agent_id": "bench-default-usage-16",
+          "provider": "openai-oauth",
+          "model": "openai-oauth:gpt-6.1-sol",
+          "created_at": "2026-10-18T20:01:29.884Z",
+          "prompt_tokens": 12891,
+          "completion_tokens": 8,
+          "cached_tokens": 12160,
+          "cache_creation_tokens": 0,
+          "reasoning_tokens": 0,
+          "failed": 0,
+          "complete": 1
+        }
+      ],
+      "usage_present": true,
+      "no_failed_requests": true
+    }
+  ]
+}

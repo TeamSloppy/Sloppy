@@ -56,6 +56,7 @@ struct AccountSettingsSection: View {
                 HStack(spacing: theme.spacing.m) {
                     Text(initials(for: name.isEmpty ? user.login : name))
                         .font(.system(size: theme.typography.heading, weight: .semibold))
+                        .foregroundStyle(theme.colors.background)
                         .frame(width: 48, height: 48)
                         .background(theme.colors.accent, in: Circle())
 
@@ -81,6 +82,7 @@ struct AccountSettingsSection: View {
                     Button("Save Profile", action: saveProfile)
                         .appPrimaryButton()
                         .disabled(isWorking || normalizedName.isEmpty)
+                        .accessibilityIdentifier("settings.account.save-profile")
                 }
             }
         }
@@ -160,7 +162,7 @@ struct AccountSettingsSection: View {
 
                 HStack(spacing: theme.spacing.m) {
                     TextField("Token name", text: $newTokenName)
-                        .textFieldStyle(.roundedBorder)
+                        .appTextField()
                         .labelsHidden()
                         .controlSize(.large)
                     Button("Create Token", action: createApplicationToken)
@@ -226,27 +228,35 @@ struct AccountSettingsSection: View {
     }
 
     private func profileField(_ title: String, text: Binding<String>) -> some View {
+#if os(macOS)
+        SettingsFieldRow(title, text: text)
+#else
         VStack(alignment: .leading, spacing: theme.spacing.xs) {
             Text(title)
                 .font(.system(size: theme.typography.caption, weight: .medium))
                 .foregroundColor(theme.colors.textSecondary)
             TextField(title, text: text, prompt: Text(""))
-                .textFieldStyle(.roundedBorder)
+                .appTextField()
                 .labelsHidden()
                 .controlSize(.large)
         }
+#endif
     }
 
     private func secureField(_ title: String, text: Binding<String>) -> some View {
+#if os(macOS)
+        SettingsFieldRow(title, text: text, isSecure: true)
+#else
         VStack(alignment: .leading, spacing: theme.spacing.xs) {
             Text(title)
                 .font(.system(size: theme.typography.caption, weight: .medium))
                 .foregroundColor(theme.colors.textSecondary)
             SecureField(title, text: text, prompt: Text("••••••••"))
-                .textFieldStyle(.roundedBorder)
+                .appTextField()
                 .labelsHidden()
                 .controlSize(.large)
         }
+#endif
     }
 
     private func initials(for value: String) -> String {

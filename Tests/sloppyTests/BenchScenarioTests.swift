@@ -17,8 +17,8 @@ private final class FakeMemoryDriver: BenchScenarioDriver, @unchecked Sendable {
     var forgetsEverything = false
 
     private func mutate<T>(_ body: (inout State) -> T) -> T { state.withLock { body(&storage) } }
-    var sessions: [String] { mutate { $0.sessions } }
-    var checkpoints: Int { mutate { $0.checkpoints } }
+    var sessions: [String] { self.mutate { $0.sessions } }
+    var checkpoints: Int { self.mutate { $0.checkpoints } }
 
     func prepareAgent() async throws -> String { "fake-agent" }
 

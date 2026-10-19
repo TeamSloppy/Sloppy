@@ -18,6 +18,7 @@ struct MainLoadingViewSourceTests {
         let chatViewModel = try source("Sources/SloppyFeatureChat/Screens/Chat/ChatScreenViewModel.swift")
 
         #expect(mainView.contains("if viewModel.hasLoadedInitialContent"))
+        #expect(mainView.contains("MainLoadingView(status: \"Opening your workspace…\")"))
         #expect(mainView.contains("LoadingSkeleton(\"Loading Inbox…\")"))
         #expect(mainViewModel.contains("didLoadProjects && didLoadSidebarCatalog"))
         #expect(!mainViewModel.contains("return selectedChatViewModel.didLoadInitialData"))
@@ -25,7 +26,7 @@ struct MainLoadingViewSourceTests {
         #expect(chatViewModel.contains("public internal(set) var didLoadInitialData = false"))
     }
 
-    @Test("loading screen shimmers the project logo and respects reduced motion")
+    @Test("mobile loading retains the project logo and respects reduced motion")
     func loadingScreenShimmersProjectLogo() throws {
         let source = try source("Sources/SloppyClient/Root/MainLoadingView.swift")
 

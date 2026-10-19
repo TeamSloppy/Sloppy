@@ -74,6 +74,7 @@ struct SidebarSessionRow: View {
     var body: some View {
         primaryAction
         .buttonStyle(SidebarHoverButtonStyle(isHovered: isHovered, isSelected: isSelected))
+        .accessibilityIdentifier("sidebar.session.\(session.storageID)")
         .onHover { isHovered = $0 }
         .sheet(isPresented: $isRenamePresented) {
             ChatRenameSheet(title: session.title) { title in

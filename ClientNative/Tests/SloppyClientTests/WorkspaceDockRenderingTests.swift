@@ -217,17 +217,30 @@ struct WorkspaceDockRenderingTests {
         }
     }
 
-    @Test func enterInAddressFieldLoadsPageWithoutOpenButton() async throws {
+    @Test func enterLoadsPageAndArrowOpensCurrentPageExternally() async throws {
+        AppKitTestAccessibility.enable()
         let server = try BrowserHTTPFixture()
         let url = try await server.start()
-        let model = WorkspaceWebViewModel()
-        let host = NSHostingView(rootView: WorkspaceBrowserPanelView(viewModel: model))
+        let suite = "WorkspaceBrowserHistoryTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let model = WorkspaceWebViewModel(history: WorkspaceBrowserHistory(defaults: defaults))
+        var externallyOpenedURL: URL?
+        let host = NSHostingView(rootView: WorkspaceBrowserPanelView(viewModel: model)
+            .environment(\.openURL, OpenURLAction { url in
+                externallyOpenedURL = url
+                return .handled
+            })
+            .environment(\.theme, .sloppyDark)
+            .preferredColorScheme(.dark))
         let window = NSWindow(contentRect: NSRect(x: 150, y: 150, width: 700, height: 500),
                               styleMask: [.titled], backing: .buffered, defer: false)
         window.contentView = host
         window.makeKeyAndOrderFront(nil)
         defer { window.orderOut(nil) }
         try await Task.sleep(for: .milliseconds(200))
+        let externalButton = try #require(AppKitTestAccessibility.element(in: host, identifier: "workspace-browser-open-external"))
+        #expect((externalButton as AnyObject).isAccessibilityEnabled?() == false)
         func descendants(_ view: NSView) -> [NSView] { view.subviews.flatMap { [$0] + descendants($0) } }
         let field = try #require(descendants(host).compactMap { $0 as? NSTextField }.first {
             $0.accessibilityIdentifier() == "workspace-browser-address" || $0.placeholderString == "Enter a URL"
@@ -248,6 +261,69 @@ struct WorkspaceDockRenderingTests {
         #expect(model.currentURL == url)
         #expect(try await model.ensureBrowserRuntime().read().title == "Loaded through HTTP")
         #expect(model.pageTitle == "Loaded through HTTP")
+        #expect(model.history.sites.first?.url == url)
+        #expect(model.history.sites.first?.title == "Loaded through HTTP")
+        model.addressText = "https://example.com/unsent-draft"
+        try await Task.sleep(for: .milliseconds(100))
+        let loadedExternalButton = try #require(AppKitTestAccessibility.element(in: host, identifier: "workspace-browser-open-external"))
+        #expect((loadedExternalButton as AnyObject).isAccessibilityEnabled?() == true)
+        #expect(AppKitTestAccessibility.press(loadedExternalButton))
+        #expect(externallyOpenedURL == url)
+        #expect(model.currentURL == url)
+        if let directory = ProcessInfo.processInfo.environment["SLOPPY_DOCK_SCREENSHOTS"] {
+            model.addressText = url.absoluteString
+            for width in [320.0, 700.0] {
+                window.setContentSize(NSSize(width: width, height: 500))
+                try await Task.sleep(for: .milliseconds(150))
+                host.layoutSubtreeIfNeeded()
+                let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+                let image = try #require(bitmap.representation(using: .png, properties: [:]))
+                try image.write(to: URL(fileURLWithPath: directory).appendingPathComponent("browser-external-\(Int(width)).png"))
+            }
+        }
+        withExtendedLifetime(server) {}
+    }
+
+    @Test func recentSiteOpensInANewBrowserTab() async throws {
+        AppKitTestAccessibility.enable()
+        let suite = "WorkspaceBrowserHistoryTests.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let history = WorkspaceBrowserHistory(defaults: defaults)
+        let server = try BrowserHTTPFixture()
+        let url = try await server.start()
+        let previous = WorkspaceWebViewModel(history: history)
+        _ = try await previous.ensureBrowserRuntime().open(url: url.absoluteString)
+        #expect(history.sites.first?.url == url)
+        let model = WorkspaceWebViewModel(history: history)
+        let host = NSHostingView(rootView: WorkspaceBrowserPanelView(viewModel: model)
+            .environment(\.theme, .sloppyDark).preferredColorScheme(.dark))
+        let window = NSWindow(contentRect: NSRect(x: 150, y: 150, width: 700, height: 600),
+                              styleMask: [.titled, .resizable], backing: .buffered, defer: false)
+        window.contentView = host
+        window.makeKeyAndOrderFront(nil)
+        defer { window.orderOut(nil) }
+        try await Task.sleep(for: .milliseconds(200))
+        if let directory = ProcessInfo.processInfo.environment["SLOPPY_DOCK_SCREENSHOTS"] {
+            for width in [320.0, 700.0] {
+                window.setContentSize(NSSize(width: width, height: 600))
+                try await Task.sleep(for: .milliseconds(100))
+                host.layoutSubtreeIfNeeded()
+                let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+                host.cacheDisplay(in: host.bounds, to: bitmap)
+                let image = try #require(bitmap.representation(using: .png, properties: [:]))
+                try image.write(to: URL(fileURLWithPath: directory).appendingPathComponent("recent-sites-\(Int(width)).png"))
+            }
+        }
+        let recent = try #require(AppKitTestAccessibility.element(in: host, identifier: "workspace-browser-recent.0"))
+        #expect(AppKitTestAccessibility.press(recent))
+        for _ in 0..<200 where model.pageTitle != "Loaded through HTTP" {
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        #expect(model.currentURL == url)
+        #expect(model.pageTitle == "Loaded through HTTP")
+        #expect(history.sites.count == 1)
         withExtendedLifetime(server) {}
     }
 

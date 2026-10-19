@@ -4,10 +4,19 @@ import SloppyClientCore
 import SloppyClientUI
 
 @MainActor
-struct ChatUsageScreen: View {
+public struct ChatUsageScreen: View {
     let apiClient: SloppyAPIClient
     let instanceTitle: String
     let onOpenSession: (ChatSessionSummary) -> Void
+    private let isEmbeddedInSettings: Bool
+
+    public init(apiClient: SloppyAPIClient, instanceTitle: String, isEmbeddedInSettings: Bool = false,
+                onOpenSession: @escaping (ChatSessionSummary) -> Void) {
+        self.apiClient = apiClient
+        self.instanceTitle = instanceTitle
+        self.isEmbeddedInSettings = isEmbeddedInSettings
+        self.onOpenSession = onOpenSession
+    }
 
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
@@ -38,51 +47,67 @@ struct ChatUsageScreen: View {
         }
     }
 
-    var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
-                header
-                periodControls
-                if isLoading {
-                    ProgressView("Loading usage…").frame(maxWidth: .infinity, minHeight: 180)
-                } else if let errorMessage {
-                    ContentUnavailableView {
-                        Label("Usage unavailable", systemImage: "exclamationmark.triangle")
-                    } description: {
-                        Text(errorMessage)
-                    } actions: {
-                        Button("Retry") { refreshID += 1 }
-                    }
-                } else {
-                    totals
-                    Text("Recorded model tokens on this instance. Shares show each chat’s portion of token usage during the period. Subscription quota percentages are unavailable. Routing calls are excluded.")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                    if let catalogWarning {
-                        Label(catalogWarning, systemImage: "exclamationmark.triangle")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
-                    }
-                    if summaries.isEmpty {
-                        ContentUnavailableView("No recorded usage", systemImage: "chart.bar",
-                                               description: Text("There are no recorded model calls in this period. Providers that do not report usage cannot be counted."))
-                    } else {
-                        usageList
-                    }
+    public var body: some View {
+        Group {
+            if isEmbeddedInSettings {
+                usageContent
+            } else {
+                ScrollView {
+                    usageContent
+                        .padding(idiom == .phone ? 16 : 28)
+                        .frame(maxWidth: 1100, alignment: .leading)
+                        .frame(maxWidth: .infinity)
                 }
-                UsageBreakdownSection(apiClient: apiClient, from: usageFrom, to: usageTo, revision: refreshID,
-                    sessions: sessionsByChannel, onOpenSession: onOpenSession)
             }
-            .padding(idiom == .phone ? 16 : 28)
-            .frame(maxWidth: 1100, alignment: .leading)
-            .frame(maxWidth: .infinity)
         }
         .refreshable { await load() }
         .mobileScreenBackground()
+        .desktopScreenStyle()
         .navigationTitle("Usage")
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("chat-usage.screen")
         .task(id: "\(period.rawValue)|\(startDate)|\(endDate)|\(refreshID)|\(apiClient.endpoint.cacheNamespace)") {
             await load()
+        }
+    }
+
+    private var usageContent: some View {
+        VStack(alignment: .leading, spacing: 24) {
+            if !isEmbeddedInSettings { header }
+            periodControls
+            if isLoading {
+                HStack(spacing: 10) {
+                    ProgressView().controlSize(.small)
+                    Text("Loading usage…").font(.callout).foregroundStyle(theme.colors.textMuted)
+                }
+                .frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
+            } else if let errorMessage {
+                ContentUnavailableView {
+                    Label("Usage unavailable", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text(errorMessage)
+                } actions: {
+                    Button("Retry") { refreshID += 1 }
+                }
+            } else {
+                totals
+                Text("Recorded model tokens on this instance. Shares show each chat’s portion of token usage during the period. Subscription quota percentages are unavailable. Routing calls are excluded.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                if let catalogWarning {
+                    Label(catalogWarning, systemImage: "exclamationmark.triangle")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+                if summaries.isEmpty {
+                    ContentUnavailableView("No recorded usage", systemImage: "chart.bar",
+                                           description: Text("There are no recorded model calls in this period. Providers that do not report usage cannot be counted."))
+                } else {
+                    usageList
+                }
+            }
+            UsageBreakdownSection(apiClient: apiClient, from: usageFrom, to: usageTo, revision: refreshID,
+                sessions: sessionsByChannel, onOpenSession: onOpenSession)
         }
     }
 
@@ -104,20 +129,49 @@ struct ChatUsageScreen: View {
 
     private var periodControls: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Picker("Period", selection: $period) {
-                ForEach(UsagePeriod.allCases) { Text($0.rawValue).tag($0) }
+            HStack {
+                Text("Period")
+                Spacer(minLength: 8)
+                if isEmbeddedInSettings { Text("Instance: \(instanceTitle)") }
             }
-            .pickerStyle(.segmented)
-            .frame(maxWidth: 480)
+            .font(.caption).foregroundStyle(theme.colors.textMuted)
+            if idiom == .phone, isEmbeddedInSettings {
+                VStack(alignment: .leading, spacing: 12) {
+                    periodPicker
+                    refreshButton
+                }
+            } else {
+                HStack(spacing: 16) {
+                    periodPicker
+                    if isEmbeddedInSettings { refreshButton }
+                }
+            }
             if period == .custom {
                 ViewThatFits(in: .horizontal) {
-                    HStack {
-                        datePickers
-                    }
+                    HStack { datePickers }
                     VStack(alignment: .leading) { datePickers }
                 }
             }
         }
+    }
+
+    private var periodPicker: some View {
+        Picker("Period", selection: $period) {
+            ForEach(UsagePeriod.allCases) { Text($0.rawValue).tag($0) }
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+        .frame(maxWidth: 480, alignment: .leading)
+        .accessibilityIdentifier("usage.period")
+    }
+
+    private var refreshButton: some View {
+        Button { refreshID += 1 } label: {
+            Label("Refresh", systemImage: "arrow.clockwise")
+        }
+        .appSecondaryButton()
+        .disabled(isLoading)
+        .accessibilityIdentifier("usage.refresh")
     }
 
     @ViewBuilder private var datePickers: some View {
@@ -140,10 +194,10 @@ struct ChatUsageScreen: View {
             Text(value.formatted()).font(.title2.bold()).monospacedDigit()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
-        .padding(16)
 #if os(macOS)
-        .desktopPanel()
+        .padding(.vertical, 12)
 #else
+        .padding(16)
         .background(theme.colors.surface, in: RoundedRectangle(cornerRadius: 14))
 #endif
     }
@@ -156,7 +210,15 @@ struct ChatUsageScreen: View {
                 Text("Largest usage first").font(.caption).foregroundStyle(.secondary)
             }
             TextField("Search chats", text: $searchText)
-                .textFieldStyle(.roundedBorder)
+#if os(macOS)
+                .textFieldStyle(.plain)
+                .padding(.horizontal, 10)
+                .padding(.vertical, 8)
+                .background(theme.colors.surfaceGlow, in: RoundedRectangle(cornerRadius: 8))
+                .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(theme.colors.border, lineWidth: 1) }
+#else
+                .appTextField()
+#endif
             LazyVStack(spacing: 0) {
                 ForEach(visibleSummaries) { summary in
                     let session = sessionsByChannel[summary.id]
@@ -169,6 +231,7 @@ struct ChatUsageScreen: View {
                                     }
                                     .buttonStyle(.plain)
                                     .help("Open chat")
+                                    .accessibilityIdentifier("usage.open-session.\(session.id)")
                                 } else {
                                     Text(title(for: summary)).font(.headline)
                                 }
@@ -197,7 +260,7 @@ struct ChatUsageScreen: View {
                         .font(.caption)
                     }
                     .padding(.vertical, 16)
-                    Divider()
+                    if summary.id != visibleSummaries.last?.id { Divider() }
                 }
             }
             if visibleSummaries.isEmpty {

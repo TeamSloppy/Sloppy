@@ -367,6 +367,14 @@ final class MainViewModel {
             .detailOnly
             #endif
         }()
+        self.chatViewModel.parallelAgents.onSessionSummaryChange = { [weak self] summary in
+            guard let self else { return }
+            var tagged = summary
+            tagged.sourceInstanceID = self.settings.discoveredInstances.first { $0.endpoint == self.chatViewModel.sessionEndpoint }?.id
+                ?? summary.sourceInstanceID
+            self.chatViewModel.mergeSessionSummary(tagged)
+            self.synchronizeSidebarSessionCatalog()
+        }
     }
 
     var workspaceDockState: WorkspaceDockState {
@@ -1085,7 +1093,7 @@ final class MainViewModel {
                             sessionsGroup.addTask {
                                 let cache = ClientCacheStore(namespace: instance.endpoint.cacheNamespace)
                                 let sessions: [ChatSessionSummary]
-                                if let fetched = try? await client.fetchAgentSessions(agentId: agent.id) {
+                                if let fetched = try? await client.fetchAgentSessions(agentId: agent.id, includeWorkers: true) {
                                     sessions = fetched
                                     await cache.cacheSessions(agentId: agent.id, projectId: nil, sessions: fetched)
                                 } else {

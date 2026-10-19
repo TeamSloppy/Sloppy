@@ -3,13 +3,33 @@ import SwiftUI
 /// An application-specific command shown for selected Textual content.
 public struct TextSelectionAction: Sendable {
   public let title: String
+  public let showsInToolbar: Bool
   private let handler: @MainActor @Sendable (String) -> Void
+#if canImport(AppKit) && !targetEnvironment(macCatalyst)
+  private var contextualHandler: (@MainActor @Sendable (TextSelectionContext) -> Void)?
+
+  public init(_ title: String, showsInToolbar: Bool = true,
+              contextualHandler: @escaping @MainActor @Sendable (TextSelectionContext) -> Void) {
+    self.title = title
+    self.showsInToolbar = showsInToolbar
+    self.handler = { _ in }
+    self.contextualHandler = contextualHandler
+  }
+
+  @MainActor
+  func perform(with context: TextSelectionContext) {
+    if let contextualHandler { contextualHandler(context) }
+    else { handler(context.text) }
+  }
+#endif
 
   public init(
     _ title: String,
+    showsInToolbar: Bool = true,
     handler: @escaping @MainActor @Sendable (String) -> Void
   ) {
     self.title = title
+    self.showsInToolbar = showsInToolbar
     self.handler = handler
   }
 

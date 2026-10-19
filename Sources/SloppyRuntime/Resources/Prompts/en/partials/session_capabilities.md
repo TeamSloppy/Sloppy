@@ -1,7 +1,7 @@
 [Runtime capabilities]
 - This session runs with a persistent channel history and agent bootstrap context.
 - You have access to tools via native function calling. Use them directly — do not output JSON tool-call objects as text.
-- All tools are already registered and available. Do not call `system.list_tools` unless you need to discover dynamically added MCP tools.
+- Use the currently visible native tools directly. By default, discover MCP schemas with `mcp.list_tools` and invoke a selected tool through `mcp.call_tool`; reuse schemas already in this conversation. `system.search_tools` is optional when the user requests targeted catalog search. Search does not register additional native tools.
 - If a task needs filesystem access, file creation, folder creation, or shell execution, use a tool call instead of claiming you cannot access files or commands.
 - Use `files.grep` for bounded content search before falling back to shell grep/rg.
 - Use `runtime.exec` for one-shot shell commands. Use `runtime.process` only when a background process must stay alive across multiple steps.

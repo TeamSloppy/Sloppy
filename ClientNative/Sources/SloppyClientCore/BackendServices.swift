@@ -512,7 +512,8 @@ public actor SessionService {
     public func fetchAgentSessions(
         agentId: String,
         projectId: String? = nil,
-        limit: Int? = nil
+        limit: Int? = nil,
+        includeWorkers: Bool = false
     ) async throws -> [ChatSessionSummary] {
         var path = "/v1/agents/\(BackendHTTPClient.encodePathSegment(agentId))/sessions"
         var queryItems: [String] = []
@@ -524,6 +525,12 @@ public actor SessionService {
         }
         if !queryItems.isEmpty {
             path += "?\(queryItems.joined(separator: "&"))"
+        }
+        if includeWorkers {
+            let catalog = "/v1/agent-sessions?includeWorkers=true&agentId=\(BackendHTTPClient.encodeQueryValue(agentId))"
+                + (queryItems.isEmpty ? "" : "&\(queryItems.joined(separator: "&"))")
+            do { return try await http.get(catalog) }
+            catch let error as APIError where error.statusCode == 404 { }
         }
         return try await http.get(path)
     }
