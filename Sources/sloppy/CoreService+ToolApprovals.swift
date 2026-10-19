@@ -117,6 +117,7 @@ extension CoreService: ToolApprovalBridge {
             return nil
         }
 
+        let chatMode = sessionApprovalMode(agentID: agentID, sessionID: sessionID)
         let displaySessionID = toolApprovalDisplaySessionID(agentID: agentID, sessionID: sessionID)
         let record = await toolApprovalService.createPending(
             agentId: agentID,
@@ -127,13 +128,18 @@ extension CoreService: ToolApprovalBridge {
             toolCallId: toolCallID,
             request: request,
             approvalKind: .riskyTool,
-            publishRequest: displaySessionID == nil
+            publishRequest: displaySessionID == nil && chatMode == nil
         )
-        let semanticResolved = await resolveSubagentToolApprovalIfPossible(record)
-        if !semanticResolved, displaySessionID != nil {
+        let semanticResolved: Bool
+        if let chatMode {
+            semanticResolved = await resolveSessionToolApproval(record, mode: chatMode)
+        } else {
+            semanticResolved = await resolveSubagentToolApprovalIfPossible(record)
+        }
+        if !semanticResolved, displaySessionID != nil || chatMode != nil {
             await toolApprovalService.publishPendingRequest(id: record.id)
         }
-        if !semanticResolved, approvalSettings?.policy != .approveForMe {
+        if !semanticResolved, chatMode != nil || approvalSettings?.policy != .approveForMe {
             await appendToolApprovalPausedStatusIfNeeded(
                 agentID: agentID,
                 sessionID: sessionID,
@@ -151,7 +157,7 @@ extension CoreService: ToolApprovalBridge {
         }
         if !semanticResolved {
             _ = await channelDelivery.presentToolApproval(record)
-            await resolveToolApproval(record, approvalSettings: approvalSettings)
+            await resolveToolApproval(record, approvalSettings: chatMode == nil ? approvalSettings : nil)
         }
         let result = await toolApprovalService.waitForDecision(id: record.id)
         if case .timedOut(let timedOut) = result {
@@ -289,6 +295,7 @@ extension CoreService: ToolApprovalBridge {
             reason: reason,
             argumentDiagnostics: request.argumentDiagnostics
         )
+        let chatMode = sessionApprovalMode(agentID: agentID, sessionID: sessionID)
         let displaySessionID = toolApprovalDisplaySessionID(agentID: agentID, sessionID: sessionID)
         let record = await toolApprovalService.createPending(
             agentId: agentID,
@@ -299,14 +306,19 @@ extension CoreService: ToolApprovalBridge {
             request: approvalRequest,
             approvalKind: .missingAccess,
             grants: grants,
-            publishRequest: displaySessionID == nil
+            publishRequest: displaySessionID == nil && chatMode == nil
         )
         let approvalSettings = try? await toolsAuthorization.policy(agentID: agentID).approval
-        let semanticResolved = await resolveSubagentToolApprovalIfPossible(record)
-        if !semanticResolved, displaySessionID != nil {
+        let semanticResolved: Bool
+        if let chatMode {
+            semanticResolved = await resolveSessionToolApproval(record, mode: chatMode)
+        } else {
+            semanticResolved = await resolveSubagentToolApprovalIfPossible(record)
+        }
+        if !semanticResolved, displaySessionID != nil || chatMode != nil {
             await toolApprovalService.publishPendingRequest(id: record.id)
         }
-        if !semanticResolved, approvalSettings?.policy != .approveForMe {
+        if !semanticResolved, chatMode != nil || approvalSettings?.policy != .approveForMe {
             await appendToolApprovalPausedStatusIfNeeded(
                 agentID: agentID,
                 sessionID: sessionID,
@@ -324,7 +336,7 @@ extension CoreService: ToolApprovalBridge {
         }
         if !semanticResolved {
             _ = await channelDelivery.presentToolApproval(record)
-            await resolveToolApproval(record, approvalSettings: approvalSettings)
+            await resolveToolApproval(record, approvalSettings: chatMode == nil ? approvalSettings : nil)
         }
         let result = await toolApprovalService.waitForDecision(id: record.id)
         if case .timedOut(let timedOut) = result {

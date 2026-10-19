@@ -14,6 +14,7 @@ extension ChatScreenViewModel {
     }
 
     func restoreModelSelection(agentId: String, sessionId: String?) {
+        restoreApprovalMode(agentId: agentId, sessionId: sessionId)
         selectedModelId = modelPreferences.selection(
             server: apiClient.endpoint.cacheNamespace,
             agentId: agentId,

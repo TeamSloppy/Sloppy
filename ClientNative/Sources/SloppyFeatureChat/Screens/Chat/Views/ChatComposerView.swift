@@ -173,6 +173,10 @@ public struct ChatComposerView: View {
                 }
             }
             .frame(minHeight: currentPanelHeight, alignment: .bottom)
+#if !os(macOS)
+            ChatApprovalModePicker(viewModel: viewModel)
+                .padding(.horizontal, sp.m)
+#endif
         }
         .environment(viewModel)
         .padding(.horizontal, sp.s)
@@ -303,6 +307,7 @@ public struct ChatComposerView: View {
             desktopComposerInputSurface
             HStack(spacing: theme.spacing.s) {
                 desktopServerPicker
+                ChatApprovalModePicker(viewModel: viewModel)
                 Spacer(minLength: theme.spacing.s)
                 desktopModelPicker.layoutPriority(1)
                 ComposerContextUsageView(usage: viewModel.contextUsage)
@@ -349,6 +354,7 @@ public struct ChatComposerView: View {
         }
         .menuStyle(.borderlessButton)
         .frame(maxWidth: 180, alignment: .leading)
+        .fixedSize(horizontal: true, vertical: false)
         .help(title)
         .disabled(connectionActions?.instances.isEmpty ?? true)
         .accessibilityIdentifier("chat.composer.server-picker")

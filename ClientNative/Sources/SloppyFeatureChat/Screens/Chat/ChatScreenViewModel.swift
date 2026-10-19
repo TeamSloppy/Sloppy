@@ -43,6 +43,13 @@ public final class ChatScreenViewModel {
     public internal(set) var pendingToolApproval: PendingToolApprovalRecord?
     public internal(set) var isResolvingToolApproval = false
     public internal(set) var toolApprovalErrorMessage: String?
+    public internal(set) var selectedApprovalMode: ChatApprovalMode = .askForApproval
+    public internal(set) var isSavingApprovalMode = false
+    public internal(set) var isLoadingApprovalMode = false
+    public internal(set) var approvalModeErrorMessage: String?
+    var approvalModesBySession: [String: ChatApprovalMode] = [:]
+    var approvalModeRevision = UUID()
+    @ObservationIgnored var approvalModeSaveTask: Task<ChatApprovalPolicy, Error>?
     public internal(set) var activeInputRequest: ChatPlanInputRequest?
     public internal(set) var isSubmittingInputResponse = false
     public internal(set) var inputRequestErrorMessage: String?

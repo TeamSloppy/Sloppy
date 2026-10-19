@@ -216,6 +216,7 @@ public actor CoreService {
     let providerProbeService: ProviderProbeService
     let searchProviderService: SearchProviderService
     let agentCatalogStore: AgentCatalogFileStore
+    var visorToolApprovalReviewOverride: (@Sendable (SubagentToolApprovalContext) async -> SemanticToolApprovalDecision?)?
     let sessionStore: AgentSessionFileStore
     let actorBoardStore: ActorBoardFileStore
     let workflowDefinitionStore: WorkflowDefinitionFileStore

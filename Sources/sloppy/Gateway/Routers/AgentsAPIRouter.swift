@@ -322,6 +322,31 @@ struct AgentsAPIRouter: APIRouter {
             }
         }
 
+        router.get("/v1/agents/:agentId/sessions/:sessionId/approval-policy", metadata: RouteMetadata(summary: "Chat approval policy", description: "Read or save the chat approval mode inherited by workers", tags: ["Agents"])) { request in
+            do {
+                let result = try await service.getSessionApprovalPolicy(agentID: request.pathParam("agentId") ?? "", sessionID: request.pathParam("sessionId") ?? "")
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: result)
+            } catch let error as CoreService.AgentSessionError {
+                return CoreRouter.agentSessionErrorResponse(error, fallback: ErrorCode.sessionNotFound)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": "session_approval_policy_failed"])
+            }
+        }
+
+        router.put("/v1/agents/:agentId/sessions/:sessionId/approval-policy", metadata: RouteMetadata(summary: "Chat approval policy", description: "Read or save the chat approval mode inherited by workers", tags: ["Agents"])) { request in
+            guard let body = request.body, let policy = CoreRouter.decode(body, as: SessionApprovalPolicy.self) else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            do {
+                let result = try await service.setSessionApprovalPolicy(agentID: request.pathParam("agentId") ?? "", sessionID: request.pathParam("sessionId") ?? "", policy: policy)
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: result)
+            } catch let error as CoreService.AgentSessionError {
+                return CoreRouter.agentSessionErrorResponse(error, fallback: ErrorCode.sessionNotFound)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": "session_approval_policy_failed"])
+            }
+        }
+
         router.post("/v1/agents/:agentId/sessions/:sessionId/title", metadata: RouteMetadata(summary: "Rename agent chat", description: "Saves a custom session title", tags: ["Agents"])) { request in
             guard let body = request.body,
                   let payload = CoreRouter.decode(body, as: AgentSessionRenameRequest.self) else {

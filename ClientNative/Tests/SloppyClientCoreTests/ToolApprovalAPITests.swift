@@ -7,6 +7,32 @@ import Testing
 
 @Suite("Tool approval API", .serialized)
 struct ToolApprovalAPITests {
+    @Test("chat policy is scoped to the encoded agent and session", arguments: ChatApprovalMode.allCases)
+    func chatApprovalPolicy(mode: ChatApprovalMode) async throws {
+        let capture = ToolApprovalRequestCapture()
+        ToolApprovalURLProtocol.install { request in
+            capture.set(request)
+            return (
+                try #require(HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)),
+                try JSONEncoder().encode(ChatApprovalPolicy(mode: mode))
+            )
+        }
+        defer { ToolApprovalURLProtocol.reset() }
+        let configuration = URLSessionConfiguration.ephemeral
+        configuration.protocolClasses = [ToolApprovalURLProtocol.self]
+        let client = SloppyAPIClient(baseURL: URL(string: "https://approvals.sloppy.test")!,
+            session: URLSession(configuration: configuration), authSessionStore: AuthSessionStore(persistence: .memory))
+
+        let saved = try await client.setChatApprovalPolicy(agentId: "agent/one", sessionId: "chat/two", mode: mode)
+        #expect(saved.mode == mode)
+        let request = try #require(capture.snapshot())
+        #expect(request.httpMethod == "PUT")
+        #expect(request.url?.absoluteString.contains("/agents/agent%2Fone/sessions/chat%2Ftwo/approval-policy") == true)
+        #expect(try payload(request)["mode"] as? String == mode.rawValue)
+        #expect(try await client.fetchChatApprovalPolicy(agentId: "agent/one", sessionId: "chat/two").mode == mode)
+        #expect(capture.snapshot()?.httpMethod == "GET")
+    }
+
     @Test("approval scopes reach the server", arguments: ClientToolApprovalDecisionScope.allCases)
     func approvalScopePayload(scope: ClientToolApprovalDecisionScope) async throws {
         let capture = ToolApprovalRequestCapture()

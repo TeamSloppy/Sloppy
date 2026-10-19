@@ -649,6 +649,19 @@ public actor SloppyAPIClient {
         try await http.get("/v1/tool-approvals/pending")
     }
 
+    public func fetchChatApprovalPolicy(agentId: String, sessionId: String) async throws -> ChatApprovalPolicy {
+        let agent = BackendHTTPClient.encodePathSegment(agentId)
+        let session = BackendHTTPClient.encodePathSegment(sessionId)
+        return try await http.get("/v1/agents/\(agent)/sessions/\(session)/approval-policy")
+    }
+
+    @discardableResult
+    public func setChatApprovalPolicy(agentId: String, sessionId: String, mode: ChatApprovalMode) async throws -> ChatApprovalPolicy {
+        let agent = BackendHTTPClient.encodePathSegment(agentId)
+        let session = BackendHTTPClient.encodePathSegment(sessionId)
+        return try await http.put("/v1/agents/\(agent)/sessions/\(session)/approval-policy", body: ChatApprovalPolicy(mode: mode))
+    }
+
     // MARK: - Session REST API
 
     public func fetchAgentSessions(

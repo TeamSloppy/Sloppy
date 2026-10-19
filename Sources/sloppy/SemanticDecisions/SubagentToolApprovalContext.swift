@@ -14,7 +14,7 @@ struct SubagentToolApprovalContext: Encodable, Sendable {
     var reason: String?
 }
 
-enum SemanticToolApprovalDecision: String, Sendable {
+enum SemanticToolApprovalDecision: String, Codable, Sendable {
     case approve
     case reject
     case askUser = "ask_user"

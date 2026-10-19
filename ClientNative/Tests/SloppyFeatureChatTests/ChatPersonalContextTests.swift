@@ -421,6 +421,13 @@ private final class PersonalChatURLProtocol: URLProtocol, @unchecked Sendable {
 
     override func startLoading() {
         guard let url = request.url else { return }
+        if url.path.hasSuffix("/approval-policy") {
+            let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data(#"{"mode":"ask_for_approval"}"#.utf8))
+            client?.urlProtocolDidFinishLoading(self)
+            return
+        }
         guard request.httpMethod == "POST" else {
             let held = Self.lock.withLock {
                 guard Self.holdsGETs else { return false }

@@ -253,6 +253,8 @@ extension CoreService {
         )
 
         var effectivePolicy = authorization.policy
+        let chatApprovalMode = sessionApprovalMode(agentID: normalizedAgentID, sessionID: normalizedSessionID)
+        if chatApprovalMode != nil { effectivePolicy.approval.policy = .onRequest }
         let approvalSessionGrants = await sessionApprovalGrants(
             agentID: normalizedAgentID,
             sessionID: normalizedSessionID,
@@ -417,7 +419,7 @@ extension CoreService {
                         toolCallID: toolCallEvent.id,
                         requireApproval: untrustedContextForcesApproval || (readOnlyWorkerExec && (!readOnlyExecApprovalGranted ||
                             effectiveRequest.arguments != request.arguments)) || (!missingAccessApprovalGranted &&
-                            !sessionToolApprovalBypass.contains(normalizedSessionID) &&
+                            (chatApprovalMode != nil || !sessionToolApprovalBypass.contains(normalizedSessionID)) &&
                             (requireApproval || effectivePolicy.approval.enabled ||
                                 sessionToolApprovalRequired.contains(normalizedSessionID))),
                         approvalSettings: effectivePolicy.approval,

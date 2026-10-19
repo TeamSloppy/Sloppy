@@ -76,7 +76,7 @@ actor SemanticModelRouter {
                 ]
             ))
             await usageMeter.record(channelID: channelID, usage: response.usage)
-            guard response.confidence.isFinite, response.confidence >= config.minimumConfidence else { return nil }
+            guard response.confidence.isFinite, response.confidence >= config.minimumConfidence else { return .askUser }
             return SemanticToolApprovalDecision(rawValue: response.choice)
         } catch {
             logger.warning("Subagent tool review unavailable; asking the user", metadata: [

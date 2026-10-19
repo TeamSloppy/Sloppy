@@ -6,6 +6,55 @@ import Testing
 @Suite("Chat delivery reliability", .serialized)
 @MainActor
 struct ChatDeliveryReliabilityTests {
+    @Test("returning to a chat waits for its in-flight approval mode save")
+    func approvalSaveDuringNavigation() async throws {
+        let fixture = try await DeliveryFixture.make()
+        defer { fixture.finish() }
+        fixture.server.holdsApprovalPolicySaves = true
+        fixture.model.selectApprovalMode(.approveForMe)
+        try await fixture.wait { fixture.server.heldApprovalPolicySaveCount == 1 }
+        fixture.model.selectSession("two")
+        fixture.model.selectSession("one")
+        #expect(fixture.model.isLoadingApprovalMode)
+        fixture.server.releaseApprovalPolicySaves()
+        try await fixture.wait { !fixture.model.isLoadingApprovalMode }
+        #expect(fixture.model.selectedApprovalMode == .approveForMe)
+        #expect(fixture.server.approvalMode(sessionId: "one") == "approve_for_me")
+    }
+
+    @Test("approval mode persists per chat and is restored when switching chats")
+    func chatApprovalModeSelection() async throws {
+        let fixture = try await DeliveryFixture.make()
+        defer { fixture.finish() }
+        fixture.model.selectApprovalMode(.approveForMe)
+        try await fixture.wait { !fixture.model.isSavingApprovalMode }
+        #expect(fixture.model.selectedApprovalMode == .approveForMe)
+        #expect(fixture.server.approvalMode(sessionId: "one") == "approve_for_me")
+        fixture.model.selectSession("two")
+        try await fixture.wait { !fixture.model.isLoadingApprovalMode }
+        #expect(fixture.model.selectedApprovalMode == .askForApproval)
+        fixture.model.selectSession("one")
+        try await fixture.wait { !fixture.model.isLoadingApprovalMode }
+        #expect(fixture.model.selectedApprovalMode == .approveForMe)
+    }
+
+    @Test("a failed mode save keeps the previous mode and prevents sending under a misleading policy")
+    func failedChatApprovalModeSave() async throws {
+        let fixture = try await DeliveryFixture.make()
+        defer { fixture.finish() }
+        fixture.server.approvalPolicyStatus = 503
+        fixture.model.selectApprovalMode(.approveForMe)
+        try await fixture.wait { !fixture.model.isSavingApprovalMode }
+        #expect(fixture.model.selectedApprovalMode == .askForApproval)
+        #expect(fixture.model.approvalModeErrorMessage != nil)
+        #expect(!fixture.model.sendMessage(content: "must wait for policy"))
+        #expect(fixture.server.posts.isEmpty)
+        fixture.server.approvalPolicyStatus = 200
+        fixture.model.reloadApprovalMode()
+        try await fixture.wait { !fixture.model.isLoadingApprovalMode }
+        #expect(fixture.model.approvalModeErrorMessage == nil)
+    }
+
     @Test("renaming persists and updates the selected chat without losing its scope", arguments: [Optional<String>.none, .some("remote-instance")])
     func renameChat(instanceID: String?) async throws {
         let fixture = try await DeliveryFixture.make(kind: "long_chat")
@@ -384,7 +433,7 @@ private struct DeliveryFixture {
         await model.waitForInitialData()
         model.pickSession(.init(id: "one", agentId: "agent", title: "One", kind: kind))
         let fixture = Self(model: model, server: server, stream: pair.continuation, notifications: notifications, settings: settings, previousSettings: previousSettings)
-        try await fixture.wait { !model.isLoadingTranscript }
+        try await fixture.wait { !model.isLoadingTranscript && !model.isLoadingApprovalMode }
         model.sessions = [.init(id: "one", agentId: "agent", title: "One", kind: kind)]
         return fixture
     }
@@ -434,6 +483,32 @@ private final class DeliveryHTTPState: @unchecked Sendable {
     let kind: String
     init(kind: String) { self.kind = kind }
     private var storedApprovals: [PendingToolApprovalRecord] = []
+    private var storedApprovalModes: [String: String] = [:]
+    private var storedApprovalPolicyStatus = 200
+    private var holdApprovalSaves = false
+    private var pendingApprovalSaves: [(DeliveryURLProtocol, String, String)] = []
+    var holdsApprovalPolicySaves: Bool {
+        get { lock.withLock { holdApprovalSaves } }
+        set { lock.withLock { holdApprovalSaves = newValue } }
+    }
+    var heldApprovalPolicySaveCount: Int { lock.withLock { pendingApprovalSaves.count } }
+    func releaseApprovalPolicySaves() {
+        let pending = lock.withLock {
+            let pending = pendingApprovalSaves
+            pendingApprovalSaves = []
+            holdApprovalSaves = false
+            for (_, sessionId, mode) in pending { storedApprovalModes[sessionId] = mode }
+            return pending
+        }
+        for (request, _, mode) in pending { request.respond("{\"mode\":\"\(mode)\"}") }
+    }
+    var approvalPolicyStatus: Int {
+        get { lock.withLock { storedApprovalPolicyStatus } }
+        set { lock.withLock { storedApprovalPolicyStatus = newValue } }
+    }
+    func approvalMode(sessionId: String) -> String {
+        lock.withLock { storedApprovalModes[sessionId] ?? "ask_for_approval" }
+    }
     var approvals: [PendingToolApprovalRecord] {
         get { lock.withLock { storedApprovals } }
         set { lock.withLock { storedApprovals = newValue } }
@@ -484,6 +559,35 @@ private final class DeliveryHTTPState: @unchecked Sendable {
 
     func receive(_ request: DeliveryURLProtocol) {
         let path = request.request.url!.path
+        if path.hasSuffix("/approval-policy") {
+            let sessionId = String(path.components(separatedBy: "/sessions/").last!.split(separator: "/").first!)
+            guard approvalPolicyStatus == 200 else {
+                request.respond("{}", status: approvalPolicyStatus)
+                return
+            }
+            if request.request.httpMethod == "PUT" {
+                var data = request.request.httpBody ?? Data()
+                if let stream = request.request.httpBodyStream {
+                    stream.open()
+                    defer { stream.close() }
+                    var buffer = [UInt8](repeating: 0, count: 4096)
+                    while stream.hasBytesAvailable {
+                        let count = stream.read(&buffer, maxLength: buffer.count)
+                        if count <= 0 { break }
+                        data.append(contentsOf: buffer.prefix(count))
+                    }
+                }
+                if let body = try? JSONSerialization.jsonObject(with: data) as? [String: String], let mode = body["mode"] {
+                    if holdsApprovalPolicySaves {
+                        lock.withLock { pendingApprovalSaves.append((request, sessionId, mode)) }
+                        return
+                    }
+                    lock.withLock { storedApprovalModes[sessionId] = mode }
+                }
+            }
+            request.respond("{\"mode\":\"\(approvalMode(sessionId: sessionId))\"}")
+            return
+        }
         if path.hasSuffix("/title") {
             var data = request.request.httpBody ?? Data()
             if let stream = request.request.httpBodyStream {
