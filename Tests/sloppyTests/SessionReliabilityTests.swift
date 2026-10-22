@@ -59,10 +59,10 @@ struct SessionReliabilityTests {
         #expect(ledger.actions[0].assignmentId == "assignment-1")
     }
 
-    @Test func falseDenialIsRevisedAndRecheckedBeforePublication() async {
+    @Test func falseDenialIsCorrectedInOneReviewWithoutExposingInternalIDs() async {
         let ledger = SessionActionLedger(events: events())
-        let corrected = "I attempted delegation (call attempt), but acceptanceCriteria had the wrong type. No worker started."
-        let replies = ReviewReplies([#"{"supported":false,"correctedResponse":"\#(corrected)"}"#, #"{"supported":true,"correctedResponse":null}"#])
+        let corrected = "The task could not be assigned because its completion requirements were malformed. No worker started."
+        let replies = ReviewReplies([#"{"supported":false,"correctedResponse":"\#(corrected)"}"#])
         let answer = await CoordinatorResponseReview.verifiedResponse(
             candidate: "There was no delegation call. I invented the attempt.", userRequest: "What error?", ledger: ledger,
             review: { prompt in
@@ -70,14 +70,15 @@ struct SessionReliabilityTests {
                 return await replies.next()
             })
         #expect(answer == corrected)
-        #expect(await replies.count == 2)
+        #expect(await replies.count == 1)
     }
 
     @Test func invalidReviewCannotPublishUnsupportedExplanation() async {
         let ledger = SessionActionLedger(events: events())
         let answer = await CoordinatorResponseReview.verifiedResponse(candidate: "Permission was denied.", userRequest: "Why?", ledger: ledger, review: { _ in "not JSON" })
         #expect(answer == ledger.factualFallback)
-        #expect(answer.contains("invalid_arguments") && answer.contains("attempt"))
+        #expect(!answer.contains("invalid_arguments") && !answer.contains("callEventId"))
+        #expect(!answer.contains("Permission was denied"))
     }
 
     @Test func successfulToolTransportDoesNotHideFailedCommand() {
@@ -87,7 +88,113 @@ struct SessionReliabilityTests {
                 toolResult: .init(tool: "runtime.exec", ok: true, data: .object(["exitCode": .number(255), "timedOut": .bool(false)]), callEventId: "ocr")),
         ])
         #expect(ledger.actions[0].ok == true && ledger.actions[0].exitCode == 255)
-        #expect(ledger.factualFallback.contains("process exit code 255"))
+        #expect(ledger.context.contains("255"))
+    }
+
+    @Test func delegationReviewRetainsObjectiveTaskIdentityAndLatestQueueState() throws {
+        let raw = #"{"id":"assignment-1","title":"Chat navigation","tasks":[{"id":"task-92226","title":"Scroll to latest","objective":"Add the down button in ClientNative"}]}"#
+        var records = events(ok: true)
+        let assignment = try JSONDecoder().decode(Protocols.JSONValue.self, from: Data(raw.utf8))
+        records[0].toolCall?.arguments = ["assignment": assignment]
+        records[1].toolResult?.data = assignment
+        let queued = taskEvent(id: "task-92226", status: .queued)
+        let running = taskEvent(id: "task-92226", status: .running)
+        let ledger = SessionActionLedger(events: records, detailsLimit: 6, taskEvents: [queued, running])
+        #expect(ledger.actions[0].assignmentId == "assignment-1")
+        #expect(ledger.actions[0].details?.arguments != nil)
+        #expect(ledger.context.contains("Add the down button in ClientNative"))
+        #expect(ledger.context.contains("task-92226"))
+        #expect(ledger.tasks.count == 1 && ledger.tasks[0].status == .running)
+    }
+
+    @Test func reportReadPreservesItsContentAndCompleteness() {
+        let report = "Delivered new chat and annotation zoom. 29 tests passed. Physical pinch remains unverified."
+        let ledger = SessionActionLedger(events: [
+            .init(id: "read-report", agentId: "a", sessionId: "s", type: .toolCall,
+                toolCall: .init(tool: "files.read", arguments: ["path": .string("/workspace/REPORT.md")])),
+            .init(agentId: "a", sessionId: "s", type: .toolResult,
+                toolResult: .init(tool: "files.read", ok: true,
+                    data: .object(["content": .string(report), "truncated": .bool(false)]), callEventId: "read-report")),
+        ], detailsLimit: 6)
+        #expect(ledger.actions[0].details?.result?.asObject?["content"] == .string(report))
+        #expect(ledger.actions[0].details?.result?.asObject?["truncated"] == .bool(false))
+        #expect(ledger.actions[0].details?.truncated == false)
+    }
+
+    @Test func workerNotificationIsReviewedWithResultsEvenWithoutCoordinatorToolCalls() async {
+        var completed = taskEvent(id: "scroll", status: .failed)
+        completed.task.attempts[0].summary = "Scrolling implemented; final live app verification is blocked."
+        completed.task.attempts[0].evidence = ["7 pagination tests passed", "21 native layout tests passed"]
+        completed.task.attempts[0].artifacts = ["/workspace/scroll-tests.log"]
+        let next = taskEvent(id: "annotations", status: .running)
+        let ledger = SessionActionLedger(events: [], taskEvents: [completed, next])
+        let replies = ReviewReplies([#"{"supported":true,"correctedResponse":null}"#])
+        let answer = await CoordinatorResponseReview.verifiedResponse(
+            candidate: "Scrolling is implemented and tests passed; live app verification remains. Annotation work has started.",
+            userRequest: "Worker update", ledger: ledger, isWorkerNotification: true,
+            review: { prompt in
+                #expect(prompt.contains("21 native layout tests passed"))
+                #expect(prompt.contains("/workspace/scroll-tests.log"))
+                #expect(prompt.contains("annotations") && prompt.contains("running"))
+                #expect(prompt.contains("live app verification is blocked"))
+                return await replies.next()
+            })
+        #expect(answer.contains("Annotation work has started"))
+        #expect(await replies.count == 1)
+    }
+
+    @Test func ordinaryConversationDoesNotReviewOldTaskActivity() async {
+        let ledger = SessionActionLedger(events: [], taskEvents: [taskEvent(id: "old-task", status: .completed)])
+        let replies = ReviewReplies([])
+        let answer = await CoordinatorResponseReview.verifiedResponse(candidate: "You're welcome!", userRequest: "Thanks!",
+            ledger: ledger, review: { _ in await replies.next() })
+        #expect(answer == "You're welcome!")
+        #expect(await replies.count == 0)
+    }
+
+    @Test func workerEvidenceIsBoundedWithoutLosingTrailingLimitations() throws {
+        let updates = (0..<20).map { index in
+            var update = taskEvent(id: "task-\(index)", status: .failed)
+            update.task.attempts[0].summary = "Implemented. " + String(repeating: "details ", count: 5_000) + "Physical pinch remains unverified."
+            update.task.attempts[0].evidence = Array(repeating: String(repeating: "check ", count: 1_000), count: 20)
+            return update
+        }
+        let ledger = SessionActionLedger(events: [], taskEvents: updates)
+        #expect(ledger.tasks.count == 12)
+        #expect(ledger.tasks.first?.taskId == "task-19")
+        #expect(ledger.tasks.first?.summary?.contains("Physical pinch remains unverified.") == true)
+        #expect(ledger.tasks.first?.truncated == true)
+        #expect(try JSONEncoder().encode(ledger).count < 40_000)
+        let historical = SessionActionLedger(events: updates.map {
+            .init(agentId: "a", sessionId: "s", type: .longChatTask, longChatTask: $0)
+        })
+        #expect(historical.tasks.isEmpty)
+    }
+
+    @Test func reviewDetailsAreBoundedAndDoNotIncludeBinaryOrCredentialFields() throws {
+        let ledger = SessionActionLedger(events: [
+            .init(id: "check", agentId: "a", sessionId: "s", type: .toolCall,
+                toolCall: .init(tool: "runtime.exec", arguments: ["command": .string("swift"), "env": .object(["TOKEN": .string("secret-token")])])),
+            .init(agentId: "a", sessionId: "s", type: .toolResult,
+                toolResult: .init(tool: "runtime.exec", ok: true, data: .object([
+                    "exitCode": .number(1), "stdout": .string(String(repeating: "x", count: 100_000) + "Test run failed"),
+                    "imageBase64": .string("private-image"), "accessToken": .string("secret-token"),
+                ]), callEventId: "check")),
+        ], detailsLimit: 6)
+        let encoded = String(decoding: try JSONEncoder().encode(ledger), as: UTF8.self)
+        #expect(encoded.count < 12_000)
+        #expect(!encoded.contains("private-image") && !encoded.contains("secret-token"))
+        #expect(encoded.contains("Test run failed"))
+        #expect(ledger.actions[0].details?.truncated == true)
+        #expect(ledger.actions[0].exitCode == 1)
+    }
+
+    private func taskEvent(id: String, status: LongChatTaskStatus) -> LongChatTaskEvent {
+        var attempt = LongChatAttempt(number: 1)
+        attempt.status = status
+        return .init(assignmentId: "assignment-1", task: .init(
+            id: id, key: id, title: id, objective: "Implement requested ClientNative changes", projectId: "sloppy",
+            resourceKeys: ["project:sloppy"], dependsOn: [], attempts: [attempt]), reason: status.rawValue)
     }
 
     @Test func missingOrInvalidImageKeepsMetadataWithoutInventingPixels() throws {

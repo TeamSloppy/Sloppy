@@ -3,6 +3,37 @@ import SloppyFeatureChat
 
 @MainActor
 extension MainViewModel {
+    func openWorkerSessionInSidePanel(_ session: ChatSessionSummary, from chat: ChatScreenViewModel) {
+        let state = selectedTabID.flatMap { tabStates[$0] }
+        guard state?.chatState?.viewModel === chat
+            || state?.projectKanbanState?.chatViewModel === chat
+            || (workspaceDockState.isPresented && workspaceDockState.selectedTab?.chat === chat)
+            || (selectedTabID == nil && chatViewModel === chat) else { return }
+        openSessionInSidePanel(session, endpoint: chat.sessionEndpoint)
+    }
+
+    func openSessionInSidePanel(_ session: ChatSessionSummary, endpoint: SloppyInstanceEndpoint) {
+        if selectedTabID == nil { createBlankChatTab() }
+        let dock = workspaceDockState
+        let reference = ChatComposerReference(rawText: session.id, title: session.displayTitle,
+            target: .session(agentId: session.agentId, sessionId: session.id), endpoint: endpoint)
+        if let tab = dock.tabs.first(where: {
+            $0.referencedObject?.target == reference.target && $0.chat?.sessionEndpoint == endpoint
+        }) {
+            tab.referencedObject = reference
+            if tab.chat?.selectedSessionId != session.id || tab.chat?.selectedAgent?.id != session.agentId {
+                tab.chat?.openSessionFromSummary(session)
+            }
+            dock.select(tab)
+        } else {
+            let tab = dock.open(.sideChat)
+            tab.referencedObject = reference
+            tab.chat = makeChatTabState(endpoint: endpoint).viewModel
+            tab.chat?.openSessionFromSummary(session)
+        }
+        markSidebarSessionResultViewed(session)
+    }
+
     func openComposerReference(_ reference: ChatComposerReference, from chat: ChatScreenViewModel) {
         let endpoint = reference.endpoint ?? chat.sessionEndpoint
         let api = endpoint == apiClient.endpoint ? apiClient : SloppyAPIClient(endpoint: endpoint)

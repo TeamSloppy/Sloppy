@@ -401,6 +401,8 @@ struct ProjectsAPIRouter: APIRouter {
             do {
                 let response = try await service.taskSyncTokenStatus(projectID: projectId, providerId: providerId)
                 return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch let error as CoreKeychain.AccessError {
+                return CoreRouter.json(status: HTTPStatus.conflict, payload: ["error": "task_sync_keychain_unavailable", "message": error.localizedDescription])
             } catch {
                 return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "task_sync_token_status_failed"])
             }
@@ -417,6 +419,8 @@ struct ProjectsAPIRouter: APIRouter {
             do {
                 let response = try await service.setTaskSyncToken(projectID: projectId, providerId: providerId, token: payload.token)
                 return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch let error as CoreKeychain.AccessError {
+                return CoreRouter.json(status: HTTPStatus.conflict, payload: ["error": "task_sync_keychain_unavailable", "message": error.localizedDescription])
             } catch {
                 return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "task_sync_token_set_failed"])
             }
@@ -428,6 +432,8 @@ struct ProjectsAPIRouter: APIRouter {
             do {
                 let response = try await service.clearTaskSyncToken(projectID: projectId, providerId: providerId)
                 return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch let error as CoreKeychain.AccessError {
+                return CoreRouter.json(status: HTTPStatus.conflict, payload: ["error": "task_sync_keychain_unavailable", "message": error.localizedDescription])
             } catch {
                 return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "task_sync_token_clear_failed"])
             }

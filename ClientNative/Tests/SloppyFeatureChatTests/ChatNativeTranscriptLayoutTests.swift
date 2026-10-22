@@ -708,6 +708,67 @@ struct ChatNativeTranscriptLayoutTests {
         #expect(third.synchronousMeasurementPasses == unchangedMeasurements)
     }
 
+    @Test("jump reports distance and reaches oversized tail including composer clearance")
+    func jumpToActualBottom() async throws {
+        let fixture = TranscriptFixture(heights: [140, 140, 1800])
+        defer { fixture.close() }
+        var states: [Bool] = []
+        var parent = fixture.coordinator.parent
+        parent.onBottomStateChange = { states.append($0) }
+        fixture.coordinator.update(parent: parent, initial: false)
+        fixture.coordinator.startObservingScroll()
+        await fixture.settle()
+        let height = fixture.layout.collectionViewContentSize.height
+        #expect(abs(fixture.scroll.contentView.bounds.maxY - height) <= 1)
+        NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: fixture.scroll)
+        fixture.scroll.contentView.scroll(to: NSPoint(x: 0, y: 100))
+        fixture.scroll.reflectScrolledClipView(fixture.scroll.contentView)
+        NotificationCenter.default.post(name: NSScrollView.didEndLiveScrollNotification, object: fixture.scroll)
+        await fixture.settle()
+        #expect(states.last == false)
+        let request = AppKitChatTranscriptCollection(
+            items: parent.items, contentWidth: 400, topInset: 0, bottomInset: 120,
+            scrollToEndRequest: 1, renderRevision: 2, reduceMotion: true,
+            onBottomStateChange: { states.append($0) }, renderer: parent.renderer
+        )
+        fixture.coordinator.update(parent: request, initial: false)
+        await fixture.settle()
+        #expect(abs(fixture.scroll.contentView.bounds.maxY - height - 120) <= 1)
+        #expect(states.last == true)
+    }
+
+    @Test("empty hydration and viewport resizing retain bottom without stealing history")
+    func hydrationAndResize() async throws {
+        let fixture = TranscriptFixture(heights: [])
+        defer { fixture.close() }
+        fixture.coordinator.startObservingScroll()
+        await fixture.settle()
+        let parent = AppKitChatTranscriptCollection(
+            items: [140, 1800].enumerated().map { index, height in
+                .init(id: "hydrated-\(index)", content: .revealEarlier(count: height))
+            }, contentWidth: 400, topInset: 0, bottomInset: 80,
+            scrollToEndRequest: 0, renderRevision: 2, reduceMotion: true,
+            renderer: fixture.coordinator.parent.renderer
+        )
+        fixture.coordinator.update(parent: parent, initial: false)
+        await fixture.settle()
+        #expect(abs(fixture.scroll.contentView.bounds.maxY - fixture.layout.collectionViewContentSize.height - 80) <= 1)
+        fixture.scroll.setFrameSize(NSSize(width: 500, height: 200))
+        fixture.coordinator.viewportDidLayout()
+        await fixture.settle()
+        #expect(abs(fixture.scroll.contentView.bounds.maxY - fixture.layout.collectionViewContentSize.height - 80) <= 1)
+        NotificationCenter.default.post(name: NSScrollView.willStartLiveScrollNotification, object: fixture.scroll)
+        fixture.scroll.contentView.scroll(to: NSPoint(x: 0, y: 100))
+        fixture.scroll.reflectScrolledClipView(fixture.scroll.contentView)
+        NotificationCenter.default.post(name: NSScrollView.didEndLiveScrollNotification, object: fixture.scroll)
+        await fixture.settle()
+        let before = fixture.scroll.contentView.bounds.minY
+        fixture.scroll.setFrameSize(NSSize(width: 500, height: 260))
+        fixture.coordinator.viewportDidLayout()
+        await fixture.settle()
+        #expect(abs(fixture.scroll.contentView.bounds.minY - before) <= 1)
+    }
+
     @Test("a reader's live scroll cancels pending initial positioning")
     func readerScrollCancelsInitialPositioning() async {
         let fixture = TranscriptFixture(heights: Array(repeating: 140, count: 40))

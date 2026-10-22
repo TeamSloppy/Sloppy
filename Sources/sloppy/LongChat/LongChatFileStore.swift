@@ -172,7 +172,7 @@ final class LongChatFileStore {
         for assignment in conversation.assignments {
             for task in assignment.tasks where task.status == .queued {
                 guard result.count < max(0, 3 - active),
-                    task.readOnly == true || locks.isDisjoint(with: task.resourceKeys),
+                    task.readOnly == true || !LongChatResourceLocks.conflicts(task.resourceKeys, with: locks),
                     task.dependsOn.allSatisfy({ key in
                         assignment.tasks.contains { $0.key == key && $0.status == .completed }
                     })

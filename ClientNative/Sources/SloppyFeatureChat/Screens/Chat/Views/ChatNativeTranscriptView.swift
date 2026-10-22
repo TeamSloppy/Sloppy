@@ -45,6 +45,7 @@ struct ChatNativeTranscriptView: View {
     let renderRevision: UInt
     var presentationRevision: UInt = 0
     let reduceMotion: Bool
+    var onBottomStateChange: @MainActor (Bool) -> Void = { _ in }
     let onVisibleItemChange: @MainActor (String?) -> Void
     var onReachedTop: @MainActor () -> Void = {}
     let renderer: @MainActor (ChatTranscriptNativeItem) -> AnyView
@@ -65,6 +66,7 @@ struct ChatNativeTranscriptView: View {
             reduceMotion: reduceMotion,
             onVisibleItemChange: onVisibleItemChange,
             onReachedTop: onReachedTop,
+            onBottomStateChange: onBottomStateChange,
             renderer: renderer
         )
         #else

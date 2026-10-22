@@ -137,70 +137,73 @@ struct ChatQueuedMessagesCard: View {
     let cancel: @MainActor (UUID) -> Void
 
     @Environment(\.theme) private var theme
-    @Environment(\.colorScheme) private var colorScheme
-    @ScaledMetric(relativeTo: .caption) private var rowHeight: CGFloat = 56
-
-    private var foreground: Color {
-        .fromHex(colorScheme == .dark ? 0xf5f2e9 : 0x242521)
-    }
-
-    private var secondaryForeground: Color {
-        .fromHex(colorScheme == .dark ? 0xb5bfad : 0x6d7066)
-    }
+    @ScaledMetric(relativeTo: .caption) private var rowHeight: CGFloat = 44
 
     var body: some View {
-        VStack(alignment: .leading, spacing: theme.spacing.s) {
-            Label(
-                messages.count == 1 ? "Message queued" : "\(messages.count) messages queued",
-                systemImage: "clock"
-            )
-            .font(.system(size: theme.typography.caption, weight: .semibold))
-            Text("Sent in order after the current turn finishes")
+        if !messages.isEmpty {
+            VStack(alignment: .leading, spacing: theme.spacing.xs) {
+                Label(
+                    messages.count == 1 ? "Message queued" : "\(messages.count) messages queued",
+                    systemImage: "clock"
+                )
                 .font(.system(size: theme.typography.caption))
-                .foregroundStyle(secondaryForeground)
-            ScrollView {
-                VStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
-                        if index > 0 {
-                            Rectangle()
-                                .fill(Color.fromHex(colorScheme == .dark ? 0x52604a : 0xd5d7ca))
-                                .frame(height: 1)
-                        }
-                        HStack(spacing: theme.spacing.s) {
-                            Text("\(index + 1)")
-                                .monospacedDigit()
-                                .foregroundStyle(secondaryForeground)
-                            Text(message.displayText)
-                                .lineLimit(2)
-                            if !message.attachments.isEmpty {
-                                Label("\(message.attachments.count)", systemImage: "paperclip")
-                                    .foregroundStyle(secondaryForeground)
+                .foregroundStyle(theme.colors.textSecondary)
+                .help("Sent in order after the current turn finishes")
+                .accessibilityHint("Sent in order after the current turn finishes")
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 0) {
+                        ForEach(Array(messages.enumerated()), id: \.element.id) { index, message in
+                            if index > 0 {
+                                Rectangle()
+                                    .fill(theme.colors.border)
+                                    .frame(height: 1)
                             }
-                            Spacer(minLength: 0)
-                            Button {
-                                cancel(message.id)
-                            } label: {
-                                Image(systemName: "xmark")
-                                    .frame(minWidth: 44, minHeight: 44)
-                                    .contentShape(Rectangle())
+                            HStack(spacing: theme.spacing.s) {
+                                Text("\(index + 1)")
+                                    .monospacedDigit()
+                                    .foregroundStyle(theme.colors.textSecondary)
+                                    .fixedSize()
+                                Text(message.displayText)
+                                    .lineLimit(2)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .help(message.displayText)
+                                if !message.attachments.isEmpty {
+                                    Label("\(message.attachments.count)", systemImage: "paperclip")
+                                        .foregroundStyle(theme.colors.textSecondary)
+                                        .fixedSize()
+                                        .accessibilityLabel("\(message.attachments.count) attachments")
+                                }
+                                Button {
+                                    cancel(message.id)
+                                } label: {
+                                    Image(systemName: "xmark")
+                                        .foregroundStyle(theme.colors.textSecondary)
+                                        .frame(minWidth: 44, minHeight: 44)
+                                        .contentShape(Rectangle())
+                                }
+                                .buttonStyle(.plain)
+                                .help("Remove queued message")
+                                .accessibilityLabel("Remove queued message \(index + 1)")
+                                .accessibilityIdentifier("chat.message-queue.remove.\(message.id)")
                             }
-                            .buttonStyle(.plain)
-                            .help("Remove queued message")
-                            .accessibilityLabel("Remove queued message \(index + 1)")
-                            .accessibilityIdentifier("chat.message-queue.remove.\(message.id)")
+                            .font(.system(size: theme.typography.caption))
+                            .frame(height: max(44, rowHeight))
                         }
-                        .font(.system(size: theme.typography.caption))
-                        .padding(.vertical, theme.spacing.xs)
                     }
                 }
+                .frame(height: max(44, rowHeight) * CGFloat(min(messages.count, 3))
+                       + CGFloat(max(0, min(messages.count, 3) - 1)))
             }
-            .frame(height: rowHeight * CGFloat(min(messages.count, 3)))
+            .foregroundStyle(theme.colors.textPrimary)
+            .padding(.leading, theme.spacing.s)
+            .padding(.trailing, theme.spacing.xs)
+            .padding(.vertical, theme.spacing.s)
+            .background(theme.colors.surfaceRaised, in: RoundedRectangle(cornerRadius: 12))
+            .overlay {
+                RoundedRectangle(cornerRadius: 12)
+                    .stroke(theme.colors.border, lineWidth: theme.borders.thin)
+            }
+            .accessibilityIdentifier("chat.message-queue")
         }
-        .foregroundStyle(foreground)
-        .padding(.horizontal, theme.spacing.m)
-        .padding(.vertical, theme.spacing.s)
-        .background(Color.fromHex(colorScheme == .dark ? 0x20261e : 0xf5f2e9),
-                    in: RoundedRectangle(cornerRadius: 14))
-        .accessibilityIdentifier("chat.message-queue")
     }
 }

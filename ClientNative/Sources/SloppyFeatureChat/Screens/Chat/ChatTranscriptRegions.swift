@@ -46,6 +46,7 @@ struct ChatTranscriptRegion: View {
             userBubbleAgentID: viewModel.isLongChat ? viewModel.selectedAgent?.id : nil,
             userBubblePaletteID: viewModel.selectedAgent?.pet?.visual?.paletteId
         )
+        .id("\(viewModel.selectedAgent?.id ?? ""):\(viewModel.selectedSessionId ?? "")")
     }
 }
 

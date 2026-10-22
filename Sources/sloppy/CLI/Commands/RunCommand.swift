@@ -46,6 +46,7 @@ struct RunCommand: AsyncParsableCommand {
         var runtimeLogger: Logger?
 
         do {
+            try CoreKeychain.disableInteraction()
             let homeDirectory = CoreConfig.resolvedHomeDirectoryPath()
             var explicitConfigPath = normalizedServerConfigPath(configPath)
             var config: CoreConfig

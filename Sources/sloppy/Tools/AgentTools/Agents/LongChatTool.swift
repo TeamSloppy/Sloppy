@@ -12,7 +12,7 @@ struct LongChatTool: CoreTool {
         switch action {
         case "delegate":
             return
-                "Delegate tasks asynchronously and return IDs immediately. Supply a typed assignment object. acceptanceCriteria is one string describing all criteria. Stable requestKey deduplicates within the originating user turn. Include context, attachment paths and exact scope in objectives. Validation failures include correction guidance: fix the specified fields and call again with the same requestKey. Never wait for completion."
+                "Delegate tasks asynchronously; independent tasks run in parallel, up to three per conversation. Use disjoint path: file/directory scopes for parallel changes in one checkout. Supply a typed assignment object. acceptanceCriteria is one string describing all criteria. Stable requestKey deduplicates within the originating user turn. Include context, attachment paths and exact scope in objectives. Validation failures include correction guidance: fix the specified fields and call again with the same requestKey. Never wait for completion."
         case "status": return "Read persisted assignments, tasks and attempts in this long chat."
         case "message":
             return "Send a clarification to an existing task. Do not use this to expand the user's authorization."
@@ -59,7 +59,7 @@ struct LongChatTool: CoreTool {
                 .init(name: "key", description: "Unique task key.", schema: DynamicGenerationSchema(type: String.self)),
                 .init(name: "title", description: "Task title.", schema: DynamicGenerationSchema(type: String.self)),
                 .init(name: "objective", description: "Full authorized objective, including context and attachment paths. Workers do not inherit the conversation.", schema: DynamicGenerationSchema(type: String.self)),
-                .init(name: "resourceKeys", description: "Stable IDs for every resource to mutate; empty for read-only work.", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self))),
+                .init(name: "resourceKeys", description: "Every owned edit scope: path:<project-relative file or directory>, e.g. path:Sources/Feature.swift. Disjoint paths run in parallel; overlapping paths serialize. Explicit project:<id>/workspace:<absolute checkout> locks serialize the whole project. Without path scopes the project gets a conservative checkout lock. Also include stable integration IDs for external mutations. Empty only for read-only work.", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self))),
                 .init(name: "dependsOn", description: "Other task keys that must finish first.", schema: DynamicGenerationSchema(arrayOf: DynamicGenerationSchema(type: String.self))),
                 .init(name: "projectId", description: "Optional project ID.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
                 .init(name: "readOnly", description: "True for inspection, false for authorized changes.", schema: DynamicGenerationSchema(type: Bool.self)),

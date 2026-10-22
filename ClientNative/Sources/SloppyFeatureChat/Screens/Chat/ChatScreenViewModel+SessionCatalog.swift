@@ -57,7 +57,7 @@ extension ChatScreenViewModel {
         sessions = sortSessions(cached.filter { $0.kind != "heartbeat" })
 
         do {
-            if let projectId {
+            if let projectId, !createsSeparateProjectChat {
                 _ = try? await apiClient.openLongChat(agentId: agent.id, projectId: projectId)
             }
             let fetched = try await apiClient.fetchAgentSessions(agentId: agent.id, projectId: projectId, includeWorkers: true)
@@ -216,7 +216,8 @@ extension ChatScreenViewModel {
             await loadSessions(for: agent, projectId: activeSessionProjectFilter)
         }
 
-        if !loadsCachedSessionsOnly, let projectId = activeProjectId, activeTaskId == nil,
+        if !loadsCachedSessionsOnly, !createsSeparateProjectChat,
+           let projectId = activeProjectId, activeTaskId == nil,
            let main = try? await apiClient.openLongChat(agentId: agent.id, projectId: projectId) {
             upsertSessionSummary(main)
             if restoresLastSession, selectedSessionId == nil, pendingSessionSummary == nil,

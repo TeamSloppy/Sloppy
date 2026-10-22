@@ -3356,7 +3356,9 @@ func nativeSessionReceivesActualImageBytesAndRestoresThemAfterRestart() async th
 
 private actor CoordinatorRecoveryCalls {
     var calls = 0
+    var reviews = 0
     func next() -> Int { defer { calls += 1 }; return calls }
+    func recordReview() { reviews += 1 }
 }
 
 private struct RecoveringCoordinatorModel: LanguageModel {
@@ -3366,6 +3368,7 @@ private struct RecoveringCoordinatorModel: LanguageModel {
     func respond<Content>(within session: LanguageModelSession, to prompt: Prompt, generating type: Content.Type,
         includeSchemaInPrompt: Bool, options: GenerationOptions) async throws -> LanguageModelSession.Response<Content> where Content: Generable {
         if prompt.description.contains("[Coordinator factual report review]") {
+            await calls.recordReview()
             let text = #"{"supported":true,"correctedResponse":null}"#
             return .init(content: text as! Content, rawContent: GeneratedContent(text), transcriptEntries: [])
         }
@@ -3428,11 +3431,37 @@ func coordinatorRepairsDelegationAndDoesNotPublishFailedDraft() async throws {
     let session = try await orchestrator.createSession(agentID: "coordinator", request: .init(kind: .longChat))
     let result = try await orchestrator.postMessage(agentID: "coordinator", sessionID: session.id, request: .init(userId: "local", content: "Import my skills", mode: .build))
     #expect(await provider.calls.calls == 2)
+    #expect(await provider.calls.reviews == 1)
     #expect(published.prompts.isEmpty)
     let detail = try store.loadSession(agentID: "coordinator", sessionID: session.id)
     #expect(detail.events.compactMap(\.toolResult).map(\.ok) == [false, true])
     #expect(result.appendedEvents.compactMap(\.message).flatMap(\.segments).compactMap(\.text).contains("Assignment created; the worker will continue separately."))
     #expect(result.appendedEvents.last?.runStatus?.stage == .done)
+    #expect(await runtime.hasCachedChannelSession(channelId: "agent:coordinator:session:\(session.id)"))
+}
+
+@Test
+func coordinatorOrdinaryReplySkipsReviewDespiteHistoricalToolCalls() async throws {
+    let models = [ProviderModelOption(id: "mock:conversation", title: "Conversation", capabilities: ["tools"])]
+    let (catalog, store, root) = try makeAgentSessionFixture(
+        agentID: "conversation", selectedModel: "mock:conversation", availableModels: models)
+    defer { try? FileManager.default.removeItem(at: root.deletingLastPathComponent()) }
+    let provider = SessionCapturingModelProvider(models: ["mock:conversation"])
+    let runtime = RuntimeSystem(modelProvider: provider, defaultModel: "mock:conversation")
+    let orchestrator = AgentSessionOrchestrator(
+        runtime: runtime, sessionStore: store, agentCatalogStore: catalog, availableModels: models)
+    let session = try await orchestrator.createSession(agentID: "conversation", request: .init(kind: .longChat))
+    _ = try store.appendEvents(agentID: "conversation", sessionID: session.id, events: [
+        .init(id: "old-read", agentId: "conversation", sessionId: session.id, type: .toolCall,
+            toolCall: .init(tool: "files.read", arguments: ["path": .string("/workspace/REPORT.md")])),
+        .init(agentId: "conversation", sessionId: session.id, type: .toolResult,
+            toolResult: .init(tool: "files.read", ok: true, data: .object(["content": .string("Previous result")]), callEventId: "old-read")),
+    ])
+    let response = try await orchestrator.postMessage(agentID: "conversation", sessionID: session.id,
+        request: .init(userId: "local", content: "Thanks!", mode: .ask))
+    #expect(provider.callStore.prompts.count == 1)
+    #expect(response.appendedEvents.compactMap(\.message).flatMap(\.segments).compactMap(\.text).contains("Captured."))
+    #expect(await runtime.hasCachedChannelSession(channelId: "agent:conversation:session:\(session.id)"))
 }
 
 
@@ -3478,6 +3507,7 @@ func coordinatorRecoveryStopsAfterTwoPassesAndKeepsHandoffIncomplete() async thr
     let session = try await orchestrator.createSession(agentID: "bounded", request: .init(kind: .longChat))
     let result = try await orchestrator.postMessage(agentID: "bounded", sessionID: session.id, request: .init(userId: "local", content: "Import skills", mode: .build))
     #expect(await provider.calls.calls == 3)
+    #expect(await provider.calls.reviews == 1)
     #expect(result.appendedEvents.last?.runStatus?.label == "Handoff failed")
     #expect(result.appendedEvents.last?.runStatus?.executionOutcome?.state == .failed)
     #expect(result.appendedEvents.last?.runStatus?.executionOutcome?.code == "delegation_failed")

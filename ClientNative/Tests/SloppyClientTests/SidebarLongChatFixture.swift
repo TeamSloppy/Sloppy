@@ -5,9 +5,11 @@ final class SidebarLongChatFixture: @unchecked Sendable {
     let api: SloppyAPIClient
     private let host: String
 
-    init(delayedAgentID: String? = nil, fails: Bool = false, agents: [APIAgentRecord] = []) {
+    init(delayedAgentID: String? = nil, fails: Bool = false, agents: [APIAgentRecord] = [],
+         sessions: [ChatSessionSummary] = [], delayedSessionID: String? = nil) {
         host = "sidebar-agent-\(UUID().uuidString).invalid"
-        SidebarLongChatURLProtocol.storage.register(host: host, delayedAgentID: delayedAgentID, fails: fails, agents: agents)
+        SidebarLongChatURLProtocol.storage.register(host: host, delayedAgentID: delayedAgentID, fails: fails,
+            agents: agents, sessions: sessions, delayedSessionID: delayedSessionID)
         let configuration = URLSessionConfiguration.ephemeral
         configuration.protocolClasses = [SidebarLongChatURLProtocol.self]
         api = SloppyAPIClient(baseURL: URL(string: "http://\(host)")!,
@@ -60,14 +62,18 @@ private final class SidebarLongChatURLProtocol: URLProtocol, @unchecked Sendable
             var fails: Bool
             var posts: [URLRequest] = []
             var agents: [APIAgentRecord] = []
+            var sessions: [ChatSessionSummary] = []
+            var delayedSessionID: String?
         }
         private let lock = NSLock()
         private var scenarios: [String: Scenario] = [:]
 
-        func register(host: String, delayedAgentID: String?, fails: Bool, agents: [APIAgentRecord]) {
+        func register(host: String, delayedAgentID: String?, fails: Bool, agents: [APIAgentRecord],
+                      sessions: [ChatSessionSummary], delayedSessionID: String?) {
             lock.lock()
             defer { lock.unlock() }
-            scenarios[host] = Scenario(delayedAgentID: delayedAgentID, fails: fails, agents: agents)
+            scenarios[host] = Scenario(delayedAgentID: delayedAgentID, fails: fails, agents: agents,
+                sessions: sessions, delayedSessionID: delayedSessionID)
         }
 
         func posts(host: String) -> [URLRequest] {
@@ -84,6 +90,20 @@ private final class SidebarLongChatURLProtocol: URLProtocol, @unchecked Sendable
                 let encoder = JSONEncoder()
                 encoder.dateEncodingStrategy = .iso8601
                 return ((try? encoder.encode(scenarios[host]?.agents ?? [])) ?? Data(), 200, 0)
+            }
+            if request.httpMethod == "GET", let url = request.url, url.path.contains("/sessions") {
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .iso8601
+                let sessions = scenarios[host]?.sessions ?? []
+                if url.lastPathComponent == "sessions" {
+                    return ((try? encoder.encode(sessions)) ?? Data(), 200, 0)
+                }
+                if let summary = sessions.first(where: { $0.id == url.lastPathComponent }),
+                   let data = try? encoder.encode(summary),
+                   let object = try? JSONSerialization.jsonObject(with: data),
+                   let detail = try? JSONSerialization.data(withJSONObject: ["summary": object, "events": []]) {
+                    return (detail, 200, scenarios[host]?.delayedSessionID == summary.id ? 0.2 : 0)
+                }
             }
             guard request.httpMethod == "POST" else { return (Data("[]".utf8), 200, 0) }
             scenarios[host]?.posts.append(request)

@@ -143,6 +143,20 @@ struct ChatScreenContent: View {
             rootSafeAreaInsets: rootSafeAreaInsets,
             composerTabActions: composerTabActions
         )
+#if os(macOS)
+        .safeAreaInset(edge: .top, alignment: .leading, spacing: 0) {
+            if viewModel.activeParentSessionID != nil {
+                Button(action: viewModel.returnToParentChat) {
+                    Label("Back to parent chat", systemImage: "chevron.left")
+                        .font(.callout)
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("chat.back-to-parent")
+            }
+        }
+#endif
         .onAppear {
             viewModel.loadInitialData()
         }

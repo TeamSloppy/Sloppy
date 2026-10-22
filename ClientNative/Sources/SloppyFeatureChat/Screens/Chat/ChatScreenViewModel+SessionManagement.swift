@@ -76,6 +76,7 @@ extension ChatScreenViewModel {
         }
 
         pendingSessionSummary = nil
+        upsertSessionSummary(session)
         openSession(session)
     }
 

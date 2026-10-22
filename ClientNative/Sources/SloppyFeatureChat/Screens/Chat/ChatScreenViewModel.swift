@@ -85,6 +85,7 @@ public final class ChatScreenViewModel {
     }
 
     public var sessionEndpoint: SloppyInstanceEndpoint { apiClient.endpoint }
+    @ObservationIgnored public var onOpenWorkerSession: (@MainActor (ChatSessionSummary, ChatScreenViewModel) -> Void)?
     public let composerDraft = ChatComposerDraft()
     public internal(set) var composerAttachments: [ChatComposerAttachment] = []
     public internal(set) var composerQuotes: [ChatComposerQuote] = []
@@ -166,9 +167,40 @@ public final class ChatScreenViewModel {
 
     public func openLongChatWorker(_ sessionID: String) {
         guard let agent = selectedAgent else { return }
+        let parentID = selectedSessionId
         Task { @MainActor in
             do {
                 let detail = try await apiClient.fetchAgentSession(agentId: agent.id, sessionId: sessionID, eventLimit: 1)
+                guard selectedAgent?.id == agent.id, selectedSessionId == parentID else { return }
+                var summary = detail.summary
+                summary.parentSessionId = summary.parentSessionId ?? parentID
+                upsertSessionSummary(summary)
+                if let onOpenWorkerSession {
+                    onOpenWorkerSession(summary, self)
+                } else {
+                    openSession(summary)
+                }
+            } catch { sendErrorMessage = error.localizedDescription }
+        }
+    }
+
+    public var activeParentSessionID: String? {
+        let parentID = (sessions + sessionCatalog).first { $0.id == selectedSessionId }?.parentSessionId
+        guard let parentID, !parentID.isEmpty, parentID != selectedSessionId else { return nil }
+        return parentID
+    }
+
+    public func returnToParentChat() {
+        guard let parentID = activeParentSessionID, let agent = selectedAgent else { return }
+        if let parent = (sessions + sessionCatalog).first(where: { $0.id == parentID }) {
+            openSession(parent)
+            return
+        }
+        let childID = selectedSessionId
+        Task { @MainActor in
+            do {
+                let detail = try await apiClient.fetchAgentSession(agentId: agent.id, sessionId: parentID, eventLimit: 1)
+                guard selectedAgent?.id == agent.id, selectedSessionId == childID else { return }
                 upsertSessionSummary(detail.summary)
                 openSession(detail.summary)
             } catch { sendErrorMessage = error.localizedDescription }

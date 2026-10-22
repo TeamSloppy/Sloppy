@@ -30,6 +30,7 @@ struct SidebarSubchatRenderingTests {
         defer {
             model.chatViewModel.closeSession()
             for state in model.tabStates.values { state.chatState?.viewModel.closeSession() }
+            for tab in model.workspaceDockState.tabs { tab.chat?.closeSession() }
             settings.discoveredInstances = old.0; settings.instanceSelection = old.1; settings.chatSidebarMode = old.2
             settings.lastAgentId = old.3; settings.lastProjectId = old.4; settings.lastSessionId = old.5
             if let layout { UserDefaults.standard.set(layout, forKey: "client_chat_sidebar_layout_mode") }
@@ -73,12 +74,19 @@ struct SidebarSubchatRenderingTests {
         let reopened = try #require(AppKitTestAccessibility.element(in: host, identifier: "sidebar.session.\(child.storageID)"))
         #expect(AppKitTestAccessibility.press(reopened))
         try await Task.sleep(for: .milliseconds(150))
-        #expect(model.selectedChatSessionID == child.id)
+        #expect(model.selectedChatSessionID == root.id)
+        let dock = model.workspaceDockState
+        await dock.selectedTab?.chat?.waitForInitialData()
+        #expect(dock.isPresented)
+        #expect(dock.selectedTab?.chat?.selectedSessionId == child.id)
+        #expect(model.selectedTabID == tabID)
         #expect(model.tabEndpoints[try #require(model.selectedTabID)] == fixture.api.endpoint)
         let grandchildRow = try #require(AppKitTestAccessibility.element(in: host, identifier: "sidebar.session.\(nested.storageID)"))
         #expect(AppKitTestAccessibility.press(grandchildRow))
-        for _ in 0..<100 where model.selectedChatSessionID != nested.id { try await Task.sleep(for: .milliseconds(10)) }
-        #expect(model.selectedChatSessionID == nested.id)
+        await dock.selectedTab?.chat?.waitForInitialData()
+        #expect(model.selectedChatSessionID == root.id)
+        #expect(dock.selectedTab?.chat?.selectedSessionId == nested.id)
+        #expect(model.selectedTabID == tabID)
         try await Task.sleep(for: .milliseconds(100))
         if let directory = ProcessInfo.processInfo.environment["SLOPPY_SIDEBAR_SCREENSHOTS"] {
             host.layoutSubtreeIfNeeded()
@@ -87,6 +95,23 @@ struct SidebarSubchatRenderingTests {
             let data = try #require(bitmap.representation(using: .png, properties: [:]))
             try data.write(to: URL(fileURLWithPath: directory).appendingPathComponent("sidebar-subchats.png"))
         }
+
+        // Recover the state produced by the previous in-place worker navigation.
+        parentChat.composerDraft.text = "Unsent parent draft"
+        parentChat.openSessionFromSummary(child)
+        let recoveryHost = NSHostingView(rootView: ChatScreen(viewModel: parentChat,
+            showsContextToolbar: false, showsNavigationToolbar: false)
+            .environment(\.theme, .sloppyDark).preferredColorScheme(.dark))
+        let recoveryWindow = NSWindow(contentRect: NSRect(x: 100, y: 100, width: 900, height: 650),
+            styleMask: [.titled], backing: .buffered, defer: false)
+        recoveryWindow.contentView = recoveryHost
+        recoveryWindow.makeKeyAndOrderFront(nil)
+        defer { recoveryWindow.orderOut(nil) }
+        try await Task.sleep(for: .milliseconds(200))
+        let back = try #require(AppKitTestAccessibility.element(in: recoveryHost, identifier: "chat.back-to-parent"))
+        #expect(AppKitTestAccessibility.press(back))
+        #expect(parentChat.selectedSessionId == root.id)
+        #expect(parentChat.composerDraft.text == "Unsent parent draft")
     }
 }
 

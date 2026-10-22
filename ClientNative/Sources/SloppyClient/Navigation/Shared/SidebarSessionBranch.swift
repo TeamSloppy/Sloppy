@@ -14,7 +14,11 @@ struct SidebarSessionBranch: View {
     @Environment(\.theme) private var theme
 
     private var expanded: Bool {
-        expansion ?? (viewModel.selectedChatStorageID == session.storageID || tree.contains(viewModel.selectedChatStorageID, under: session))
+        expansion ?? (containsSelection(viewModel.selectedChatStorageID) || containsSelection(viewModel.selectedSideChatStorageID))
+    }
+
+    private func containsSelection(_ storageID: String?) -> Bool {
+        storageID == session.storageID || tree.contains(storageID, under: session)
     }
 
     var body: some View {
@@ -46,7 +50,10 @@ struct SidebarSessionBranch: View {
         }
         .accessibilityElement(children: .contain)
         .onChange(of: viewModel.selectedChatStorageID) { _, selected in
-            if selected == session.storageID || tree.contains(selected, under: session) { expansion = true }
+            if containsSelection(selected) { expansion = true }
+        }
+        .onChange(of: viewModel.selectedSideChatStorageID) { _, selected in
+            if containsSelection(selected) { expansion = true }
         }
     }
 }

@@ -23,6 +23,7 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
     let reduceMotion: Bool
     let onVisibleItemChange: @MainActor (String?) -> Void
     let onReachedTop: @MainActor () -> Void
+    var onBottomStateChange: @MainActor (Bool) -> Void = { _ in }
     let renderer: @MainActor (ChatTranscriptNativeItem) -> AnyView
 
     init(
@@ -39,6 +40,7 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
         reduceMotion: Bool,
         onVisibleItemChange: @escaping @MainActor (String?) -> Void = { _ in },
         onReachedTop: @escaping @MainActor () -> Void = {},
+        onBottomStateChange: @escaping @MainActor (Bool) -> Void = { _ in },
         renderer: @escaping @MainActor (ChatTranscriptNativeItem) -> AnyView
     ) {
         self.items = items
@@ -54,6 +56,7 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
         self.reduceMotion = reduceMotion
         self.onVisibleItemChange = onVisibleItemChange
         self.onReachedTop = onReachedTop
+        self.onBottomStateChange = onBottomStateChange
         self.renderer = renderer
     }
 
@@ -77,11 +80,13 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
         scrollView.drawsBackground = false
         scrollView.backgroundColor = .clear
         scrollView.borderType = .noBorder
-        scrollView.hasVerticalScroller = false
+        scrollView.hasVerticalScroller = true
+        // Native preference decides legacy vs overlay; do not suppress accessible scrollbars.
+        scrollView.scrollerStyle = NSScroller.preferredScrollerStyle
         scrollView.autohidesScrollers = true
         scrollView.contentView.postsBoundsChangedNotifications = true
         scrollView.onLayout = { [weak coordinator = context.coordinator] in
-            coordinator?.updateCollectionWidth()
+            coordinator?.viewportDidLayout()
         }
 
         context.coordinator.collectionView = collectionView
@@ -120,6 +125,8 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
         private var scrollObserver: NSObjectProtocol?
         private var liveScrollObserver: NSObjectProtocol?
         private var isNearBottom = true
+        private var reportedBottomState: Bool?
+        private var isDismantled = false
         private var previousLayoutHeight: CGFloat = 0
         private var pendingScrollToEnd = false
         private var scrollToEndScheduled = false
@@ -233,8 +240,7 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
 
         private func scheduleHeightUpdate(for itemID: String, preservesInitialBottom: Bool = false) {
             pendingHeightUpdateIDs.insert(itemID)
-            let followsChangingTail = parent.autoFollowChangingTail
-                && trailingContentItem(in: parent.items)?.id == itemID
+            let followsChangingTail = isNearBottom
             heightUpdateFollowsBottom = heightUpdateFollowsBottom
                 || ((followsChangingTail || preservesInitialBottom) && isNearBottom)
             guard !heightUpdateScheduled else { return }
@@ -243,7 +249,7 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
             let positionsInitially = pendingScrollToEnd
             let generation = parentUpdateGeneration
             DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
+                guard let self, !self.isDismantled else { return }
                 let followsBottom = self.heightUpdateFollowsBottom
                 self.heightUpdateFollowsBottom = false
                 self.heightUpdateScheduled = false
@@ -254,7 +260,7 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
                 // Forcing a subtree layout here can schedule another height update
                 // while the current one is still draining the main queue.
                 DispatchQueue.main.async { [weak self] in
-                    guard let self, self.parentUpdateGeneration == generation else { return }
+                    guard let self, !self.isDismantled, self.parentUpdateGeneration == generation else { return }
                     if positionsInitially {
                         self.schedulePendingScrollToEnd()
                         return
@@ -283,7 +289,7 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
             guard pendingScrollToEnd, !scrollToEndScheduled else { return }
             scrollToEndScheduled = true
             DispatchQueue.main.async { [weak self] in
-                guard let self else { return }
+                guard let self, !self.isDismantled else { return }
                 self.scrollToEndScheduled = false
                 guard self.pendingScrollToEnd else { return }
                 self.scrollToBottom(animated: false)
@@ -335,6 +341,9 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
         }
 
         func stopObservingScroll() {
+            isDismantled = true
+            pendingScrollToEnd = false
+            parentUpdateGeneration &+= 1
             if let liveScrollEndObserver {
                 NotificationCenter.default.removeObserver(liveScrollEndObserver)
                 self.liveScrollEndObserver = nil
@@ -421,7 +430,7 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
                 || identitiesChanged
                 || !visibleChangedIDs.isEmpty
             let viewportAnchor = requiresViewportUpdate
-                ? captureViewportAnchor(followsBottom: followsBottom)
+                ? captureViewportAnchor(followsBottom: followsBottom || bottomInsetChanged || widthChanged)
                 : nil
 
             self.parent = parent
@@ -467,7 +476,7 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
                 parentUpdateGeneration &+= 1
                 let generation = parentUpdateGeneration
                 DispatchQueue.main.async { [weak self, weak collectionView] in
-                    guard let self, let collectionView,
+                    guard let self, !self.isDismantled, let collectionView,
                           self.parentUpdateGeneration == generation else { return }
                     collectionView.layoutSubtreeIfNeeded()
                     if targetedScroll, let target = parent.scrollTarget {
@@ -571,33 +580,48 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
             let visibleBottom = scrollView.contentView.bounds.maxY
             isNearBottom = contentHeight <= scrollView.contentView.bounds.height
                 || visibleBottom >= contentHeight + parent.bottomInset - 44
+            reportBottomState()
+        }
+
+        private func reportBottomState() {
+            guard reportedBottomState != isNearBottom else { return }
+            reportedBottomState = isNearBottom
+            let value = isNearBottom
+            DispatchQueue.main.async { [weak self] in
+                guard let self, !self.isDismantled, self.reportedBottomState == value else { return }
+                self.parent.onBottomStateChange(value)
+            }
+        }
+
+        func viewportDidLayout() {
+            updateCollectionWidth()
+            guard let collectionView, let scrollView else { return }
+            let height = collectionView.collectionViewLayout?.collectionViewContentSize.height ?? 0
+            let expectedOrigin = max(-parent.topInset, height + parent.bottomInset - scrollView.contentView.bounds.height)
+            let gap = expectedOrigin - scrollView.contentView.bounds.minY
+            if isNearBottom && !isUserScrolling && abs(gap) > 1 {
+                pendingScrollToEnd = true
+                schedulePendingScrollToEnd()
+            } else {
+                updateNearBottom(preservesLayoutPosition: true)
+            }
         }
 
         private func scrollToBottom(animated: Bool) {
-            guard let collectionView, !parent.items.isEmpty else { return }
-            let indexPath = IndexPath(item: parent.items.count - 1, section: 0)
-            if animated {
-                NSAnimationContext.runAnimationGroup { context in
-                    context.duration = 0.16
-                    collectionView.animator().scrollToItems(at: [indexPath], scrollPosition: .bottom)
-                }
-            } else {
-                collectionView.scrollToItems(at: [indexPath], scrollPosition: .bottom)
-            }
-            // Track the requested position while asynchronous measurements settle.
-            // A transient estimated content height must not cancel bottom following.
+            guard let collectionView, let scrollView else { return }
+            collectionView.layoutSubtreeIfNeeded()
+            let height = collectionView.collectionViewLayout?.collectionViewContentSize.height ?? 0
+            // scrollToItems(.bottom) can align the start of an oversized cell and
+            // excludes the composer clearance. Position the clip view at its real end.
+            let origin = NSPoint(x: 0, y: max(-parent.topInset,
+                height + parent.bottomInset - scrollView.contentView.bounds.height))
+            scrollView.contentView.scroll(to: origin)
+            scrollView.reflectScrolledClipView(scrollView.contentView)
             isNearBottom = true
-            // Self-sizing rows preceding the tail can move it after the first
-            // scroll. Finish initial positioning once the tail is measured and
-            // actually visible, without repeatedly following history updates.
-            if measuredRows[parent.items[indexPath.item].id] != nil,
-               collectionView.item(at: indexPath) != nil,
-               let scrollView {
-                let height = collectionView.collectionViewLayout?.collectionViewContentSize.height ?? 0
-                if height <= scrollView.contentView.bounds.height
-                    || scrollView.contentView.bounds.maxY >= height + parent.bottomInset - 1 {
-                    pendingScrollToEnd = false
-                }
+            reportBottomState()
+            if let last = parent.items.last, measuredRows[last.id] != nil,
+               abs(height + parent.bottomInset - scrollView.contentView.bounds.maxY) <= 1 {
+                pendingScrollToEnd = false
             }
         }
 

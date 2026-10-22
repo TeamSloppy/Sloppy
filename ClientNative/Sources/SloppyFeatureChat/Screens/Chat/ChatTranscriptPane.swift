@@ -42,6 +42,7 @@ struct ChatTranscriptPane: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.chatTextSelectionActions) private var textSelectionActions
     @Environment(\.chatFileOpenHandler) private var fileOpenHandler
+    @State private var isAtBottom = true
     @State private var visibleTranscriptItemID: String?
     @State private var scrollTarget: ChatTranscriptScrollTarget?
     @State private var scrollTargetRequestID: UInt = 0
@@ -60,6 +61,7 @@ struct ChatTranscriptPane: View {
                 renderRevision: nativeRenderRevision,
                 presentationRevision: nativePresentationRevision,
                 reduceMotion: reduceMotion,
+                onBottomStateChange: { isAtBottom = $0 },
                 onVisibleItemChange: { itemID in
                     visibleTranscriptItemID = itemID
                 },
@@ -67,6 +69,22 @@ struct ChatTranscriptPane: View {
                 renderer: renderNativeItem
             )
 #if os(macOS)
+            .overlay(alignment: .bottom) {
+                if !isAtBottom && !transcript.messages.isEmpty {
+                    Button(action: viewModel.requestTranscriptScrollToEnd) {
+                        Image(systemName: "arrow.down")
+                            .font(.system(size: 16, weight: .semibold))
+                            .frame(width: 44, height: 44)
+                            .background(.regularMaterial, in: Circle())
+                            .overlay(Circle().strokeBorder(.separator, lineWidth: 1))
+                    }
+                    .buttonStyle(.plain)
+                    .help("Jump to latest message")
+                    .accessibilityLabel("Jump to latest message")
+                    .accessibilityIdentifier("chat.jump-to-latest")
+                    .padding(.bottom, composerScrollInset + 12)
+                }
+            }
             .overlay(alignment: .leading) {
                 if !conversationWaypoints.isEmpty,
                    proxy.size.width >= contentWidth + 2 * (30 + theme.spacing.m) {

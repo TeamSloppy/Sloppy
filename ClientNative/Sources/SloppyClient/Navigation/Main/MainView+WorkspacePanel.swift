@@ -66,7 +66,7 @@ extension MainView {
             context: viewModel.workspaceContext,
             projectNavigation: projectModeCommandContext,
             observesWorkers: !isChatVisible,
-            onOpenWorker: { session in viewModel.openSessionChatTab(session, endpointOverride: endpoint) },
+            onOpenWorker: { session in viewModel.openSessionInSidePanel(session, endpoint: endpoint) },
             onOpenTool: selectWorkspaceSidePanelItem,
             onOpenOutput: { path in
                 if let chat { viewModel.openSourceFile(SourceFileReference(path: path), from: chat) }

@@ -150,11 +150,34 @@ struct ChatAnnotationInteractionTests {
         AppKitTestAccessibility.enable()
         var saved: [ChatImageAnnotation] = []
         let host = NSHostingView(rootView: ChatImageAnnotationEditor(attachment: attachment, save: { saved = $0 })
+            .environment(\.theme, scheme == .dark ? .sloppyDark : .sloppyLight)
             .preferredColorScheme(scheme))
         let window = makeWindow(host: host, size: CGSize(width: 1000, height: 820))
         defer { window.orderOut(nil) }
         try await Task.sleep(for: .milliseconds(200))
         try capture(host, name: "image-before-click")
+        let zoomIn = try #require(AppKitTestAccessibility.element(in: host, identifier: "chat.image.annotations.zoom-in"))
+        #expect(AppKitTestAccessibility.press(zoomIn))
+        #expect(AppKitTestAccessibility.press(zoomIn))
+        try await Task.sleep(for: .milliseconds(100))
+        try capture(host, name: scheme == .dark ? "image-zoom-dark" : "image-zoom-light")
+        let canvas = try #require(descendants(host).compactMap { $0 as? ChatImageAnnotationPointerInput.AnnotationPointerView }.first)
+        // Pan uses the real pointer path and must not create a note.
+        canvas.isPanning = true
+        let panStart = canvas.convert(CGPoint(x: 300, y: 200), to: nil)
+        let panEnd = canvas.convert(CGPoint(x: 340, y: 220), to: nil)
+        for (type, location) in [(NSEvent.EventType.leftMouseDown, panStart), (.leftMouseDragged, panEnd), (.leftMouseUp, panEnd)] {
+            let event = try #require(NSEvent.mouseEvent(with: type, location: location,
+                modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                windowNumber: window.windowNumber, context: nil, eventNumber: 3, clickCount: 1, pressure: 1))
+            switch type {
+            case .leftMouseDown: canvas.mouseDown(with: event)
+            case .leftMouseDragged: canvas.mouseDragged(with: event)
+            default: canvas.mouseUp(with: event)
+            }
+        }
+        canvas.isPanning = false
+        try await Task.sleep(for: .milliseconds(100))
         let point = host.convert(NSPoint(x: host.bounds.midX, y: host.bounds.height * 0.4), to: nil)
         for type in [NSEvent.EventType.leftMouseDown, .leftMouseUp] {
             let event = try #require(NSEvent.mouseEvent(with: type, location: point,
@@ -186,6 +209,10 @@ struct ChatAnnotationInteractionTests {
         areaEditor.insertText("Widen this area", replacementRange: NSRange(location: 0, length: 0))
         try await Task.sleep(for: .milliseconds(100))
         try capture(host, name: scheme == .dark ? "image-dark" : "image-light")
+        let fit = try #require(AppKitTestAccessibility.element(in: host, identifier: "chat.image.annotations.fit"))
+        #expect(AppKitTestAccessibility.press(fit))
+        try await Task.sleep(for: .milliseconds(100))
+        try capture(host, name: scheme == .dark ? "image-fit-dark" : "image-fit-light")
         let save = try #require(AppKitTestAccessibility.element(in: host, identifier: "chat.image.annotations.save"))
         #expect(AppKitTestAccessibility.press(save))
         #expect(saved.count == 2)

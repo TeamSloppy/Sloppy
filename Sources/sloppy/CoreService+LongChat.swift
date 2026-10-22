@@ -168,7 +168,8 @@ extension CoreService {
                             userMessageAlreadyPersisted: true,
                             additionalContext: SessionCommunicationPolicy.instructions + "\n" + LongChatCoordinatorPolicy.instructions
                                 + "\n[Current assignments — authoritative persisted state]\n" + snapshot + "\n" + actionLedger,
-                            responseMessageID: responseID, peerOrigin: turn.peerOrigin)
+                            responseMessageID: responseID, peerOrigin: turn.peerOrigin,
+                            isWorkerNotification: turn.isNotification)
                     } catch {
                         if longChatIsStopping { return }
                         let event = AgentSessionEvent(
@@ -218,6 +219,8 @@ extension CoreService {
                             "id": .string(task.id), "key": .string(task.key), "title": .string(task.title),
                             "dependsOn": .array(task.dependsOn.map(JSONValue.string)),
                             "status": .string(task.status.rawValue),
+                            "resourceKeys": .array(task.resourceKeys.prefix(32).map(JSONValue.string)),
+                            "readOnly": .bool(task.readOnly ?? task.resourceKeys.isEmpty),
                             "attempt": .number(Double(task.attempts.last?.number ?? 0)),
                             "summary": .string(String((task.attempts.last?.summary ?? "").prefix(1000))),
                             "automaticRetryAllowed": .bool(task.attempts.last?.automaticRetryAllowed != false),
@@ -308,21 +311,13 @@ extension CoreService {
         var request = request
         for i in request.tasks.indices {
             request.tasks[i].projectId = request.tasks[i].projectId ?? conversation.projectId
+            var repositoryPath: String?
             if let projectID = request.tasks[i].projectId {
                 let project = try await getProject(id: projectID)
-                if let repoPath = project.repoPath {
-                    let canonical = URL(fileURLWithPath: repoPath).standardizedFileURL.resolvingSymlinksInPath().path
-                    request.tasks[i].resourceKeys.append("workspace:" + canonical)
-                }
-                let key = "project:\(projectID)"
-                if !request.tasks[i].resourceKeys.contains(key) { request.tasks[i].resourceKeys.append(key) }
+                repositoryPath = project.repoPath
             }
-            request.tasks[i].resourceKeys = Array(
-                Set(
-                    request.tasks[i].resourceKeys.map {
-                        $0.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
-                    })
-            ).sorted()
+            request.tasks[i].resourceKeys = try LongChatResourceLocks.canonicalKeys(
+                request.tasks[i].resourceKeys, projectID: request.tasks[i].projectId, repositoryPath: repositoryPath)
             request.tasks[i].readOnly = request.tasks[i].readOnly ?? request.tasks[i].resourceKeys.isEmpty
             guard !request.tasks[i].resourceKeys.contains(""),
                 request.tasks[i].readOnly != false || !request.tasks[i].resourceKeys.isEmpty

@@ -1,0 +1,36 @@
+[1/1] Compiling plugin GenerateManual
+[2/2] Compiling plugin GenerateDoccReference
+Building for debugging...
+[2/9] Write sources
+[3/9] Write swift-version-3CD7052B146186F2.txt
+[5/7] Emitting module SloppyFeatureChatTests
+[6/7] Compiling SloppyFeatureChatTests ChatQueuedMessagesRenderingTests.swift
+[6/8] Write Objects.LinkFileList
+[7/8] Linking SloppyClientPackageTests
+Build complete! (14.05s)
+Test Suite 'Selected tests' started at 2026-10-20 22:51:50.889.
+Test Suite 'SloppyClientPackageTests.xctest' started at 2026-10-20 22:51:50.900.
+Test Suite 'SloppyClientPackageTests.xctest' passed at 2026-10-20 22:51:50.900.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.000) seconds
+Test Suite 'Selected tests' passed at 2026-10-20 22:51:50.900.
+	 Executed 0 tests, with 0 failures (0 unexpected) in 0.000 (0.011) seconds
+􀟈  Test run started.
+􀄵  Testing Library Version: 1902
+􀄵  Target Platform: arm64e-apple-macos14.0
+􀟈  Suite "Queued message appearance" started.
+􀟈  Suite "Chat message queue" started.
+􀟈  Test "queued message can be cancelled by identity" started.
+􀟈  Test "queue uses the active semantic surface even with a mismatched system scheme" started.
+􀟈  Test "queued quotes keep their identity and send as Markdown blockquotes" started.
+􀟈  Test "queued messages preserve order and attachments" started.
+􁁛  Test "queued message can be cancelled by identity" passed after 0.001 seconds.
+􁁛  Test "queued messages preserve order and attachments" passed after 0.001 seconds.
+􁁛  Test "queued quotes keep their identity and send as Markdown blockquotes" passed after 0.001 seconds.
+􁁛  Suite "Chat message queue" passed after 0.001 seconds.
+􁁛  Test "queue uses the active semantic surface even with a mismatched system scheme" passed after 1.245 seconds.
+􀟈  Test "narrow multiple and long previews keep cancellation reachable and ordered" started.
+􁁛  Test "narrow multiple and long previews keep cancellation reachable and ordered" passed after 0.413 seconds.
+􀟈  Test "empty queue occupies no composer space" started.
+􁁛  Test "empty queue occupies no composer space" passed after 0.005 seconds.
+􁁛  Suite "Queued message appearance" passed after 1.665 seconds.
+􁁛  Test run with 6 tests in 2 suites passed after 1.665 seconds.

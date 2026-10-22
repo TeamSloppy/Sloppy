@@ -280,7 +280,7 @@ struct SidebarSessionItem: View {
 }
 
 @MainActor
-private struct SidebarProjectGroupView: View {
+struct SidebarProjectGroupView: View {
     let viewModel: MainViewModel
     let group: ChatSidebarProjectGroup
     let tree: ChatSidebarSessionTree
@@ -342,10 +342,9 @@ private struct SidebarProjectGroupView: View {
                 }
                 .buttonStyle(.plain)
                 .foregroundColor(theme.colors.textMuted)
-                .opacity(Double(isHovered ? 1 : 0))
-                .allowsHitTesting(isHovered)
-                .accessibilityLabel("Open conversation in \(group.project.name)")
-                .help("Open conversation")
+                .accessibilityLabel("New chat in \(group.project.name)")
+                .accessibilityIdentifier("sidebar.project.\(group.id).new-chat")
+                .help("New chat")
 
                 Image(systemName: "line.3.horizontal")
                     .font(.system(size: theme.typography.caption, weight: .semibold))

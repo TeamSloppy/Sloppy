@@ -149,6 +149,16 @@ final class MainViewModel {
         }?.storageID ?? sessionID
     }
 
+    var selectedSideChatStorageID: String? {
+        let dock = workspaceDockState
+        guard dock.isPresented, let chat = dock.selectedTab?.chat,
+              let sessionID = chat.selectedSessionId else { return nil }
+        return sidebarSessionCatalog.first {
+            $0.id == sessionID
+                && ($0.sourceInstanceID.flatMap(endpoint(for:)) ?? endpoint) == chat.sessionEndpoint
+        }?.storageID
+    }
+
     var sidebarSelectedAgentID: String? {
         if let openingSidebarAgentID { return openingSidebarAgentID }
         if selectedAppSection == .agents { return selectedSidebarAgent?.id }
@@ -269,7 +279,7 @@ final class MainViewModel {
         tabs.first(where: { $0.id == selectedTabID })?.key
     }
 
-    private func markSidebarSessionResultViewed(_ session: ChatSessionSummary) {
+    func markSidebarSessionResultViewed(_ session: ChatSessionSummary) {
         guard let record = sidebarSessionActivities[session.storageID],
               record.activity == .completed || record.activity == .failed,
               let eventID = record.eventID,
@@ -367,6 +377,11 @@ final class MainViewModel {
             .detailOnly
             #endif
         }()
+#if os(macOS)
+        self.chatViewModel.onOpenWorkerSession = { [weak self] session, chat in
+            self?.openWorkerSessionInSidePanel(session, from: chat)
+        }
+#endif
         self.chatViewModel.parallelAgents.onSessionSummaryChange = { [weak self] summary in
             guard let self else { return }
             var tagged = summary
@@ -647,11 +662,25 @@ final class MainViewModel {
     }
 
     func openSessionChatTab(_ session: ChatSessionSummary, endpointOverride: SloppyInstanceEndpoint?) {
+#if os(macOS)
+        if let parentID = session.parentSessionId, !parentID.isEmpty, parentID != session.id {
+            let source = endpointOverride ?? session.sourceInstanceID.flatMap(endpoint(for:)) ?? endpoint
+            openSessionInSidePanel(session, endpoint: source)
+            return
+        }
+#endif
         selectAppSection(.chats)
         updateSelectedSidebarItem(.chats)
         dismissMobileSidebar()
 
         let sourceEndpoint = endpointOverride ?? session.sourceInstanceID.flatMap(endpoint(for:)) ?? endpoint
+        if let existing = tabs.first(where: {
+            $0.key == .chatSession(session.storageID) && tabEndpoints[$0.id] == sourceEndpoint
+        }) {
+            selectedTabID = existing.id
+            markSidebarSessionResultViewed(session)
+            return
+        }
         let chatState = makeChatTabState(endpoint: sourceEndpoint)
         chatState.viewModel.openSessionFromSummary(session)
         let tab = WorkspaceTab(
@@ -817,31 +846,31 @@ final class MainViewModel {
         let projectEndpoint = project.sourceInstanceID.flatMap(endpoint(for:)) ?? endpoint
         let chatState = makeChatTabState(endpoint: projectEndpoint)
         chatNavigationSerial += 1
-        applyNavigationRequestOnNextTurn(
+        // Establish the fresh draft before bootstrap can restore another context.
+        chatState.viewModel.applyNavigationRequest(
             ChatNavigationRequest(
                 id: chatNavigationSerial,
                 context: .project(
                     projectId: project.id,
                     projectName: project.name,
                     agentId: project.actors?.first
-                )
-            ),
-            to: chatState.viewModel,
-            loadInitialData: true
+                ),
+                opensPreferredSession: false
+            )
         )
 
         let draftID = "draft-\(UUID().uuidString)"
         let tab = WorkspaceTab(
             key: .chatSession(draftID),
             kind: .chat,
-            title: "Main Chat",
-            payload: .chatSession(sessionID: draftID, title: "Main Chat")
+            title: "New chat",
+            payload: .chatSession(sessionID: draftID, title: "New chat")
         )
-        showInSelectedTab(
-            tab,
-            state: WorkspaceTabState(contentState: .chat(chatState)),
-            endpoint: projectEndpoint
-        )
+        // Keep existing conversations and their live composer/delivery state intact.
+        tabs.append(tab)
+        tabStates[tab.id] = WorkspaceTabState(contentState: .chat(chatState))
+        tabEndpoints[tab.id] = projectEndpoint
+        selectedTabID = tab.id
     }
 
     func selectTask(
@@ -1809,6 +1838,11 @@ final class MainViewModel {
             responseNotificationScheduler: responseNotificationScheduler,
             onOpenSettings: { destination in self.onOpenSettings(destination) }
         )
+#if os(macOS)
+        viewModel.onOpenWorkerSession = { [weak self] session, chat in
+            self?.openWorkerSessionInSidePanel(session, from: chat)
+        }
+#endif
         viewModel.loadInitialData()
         return ChatTabState(viewModel: viewModel)
     }

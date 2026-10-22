@@ -215,6 +215,8 @@ extension CoreService {
                         Execute ONLY this assignment and its authorized scope. Do not delegate or message the user outside this child session. When done call agent_delegate.finish with completed, failed or blocked, a summary, evidence and artifact links. Plain text without that tool is not completion. If user input is needed use planning.request_input and wait. Tool permissions are handled when you call the tool. Never invent verification or repeat an external mutation whose success is uncertain.
                         [Execution scope]
                         readOnly: \(task.readOnly ?? task.resourceKeys.isEmpty). runtime.exec is available; call it for necessary foreground commands. For builds and long tests omit timeoutMs to use the configured maximum; clean builds can take 20 minutes or longer. Do not set a short command deadline just to wait for output. Workers have no total-age deadline from Visor. For read-only work Core obtains user or semantic approval before execution. Do not use runtime.process to bypass command approval. Other changes remain outside a read-only task's scope.
+                        [Parallel work boundaries]
+                        \(Self.longChatWorkerPathInstructions(task))
                         [Objective]
                         \(task.objective)
                         [Source attachments]
@@ -246,6 +248,16 @@ extension CoreService {
 
     func readOnlyLongChatMCPTools() async -> Set<String> {
         Set(await mcpRegistry.dynamicTools().filter(\.readOnlyHint).map(\.id))
+    }
+
+    static func longChatWorkerPathInstructions(_ task: LongChatTask) -> String {
+        let paths = LongChatResourceLocks.pathScopes(task.resourceKeys)
+        guard !paths.isEmpty else { return "Preserve unrelated work and stay within the assigned objective." }
+        return """
+            Other workers can edit this checkout concurrently. Your declared source-edit scopes are:
+            \(paths.map { "- " + $0 }.joined(separator: "\n"))
+            Read shared context as needed, but edit source files only inside these scopes. If a shared file outside them must change, report it to the coordinator before editing so it can schedule dependent integration work. Do not switch branches, reset, stash or overwrite another worker's changes. Keep build/test outputs and temporary artifacts in a task-specific scratch location; avoid cleaning shared build caches. Coordinate shared validation with sibling workers so builds run after their source edits settle. These scopes coordinate work and do not expand tool permissions.
+            """
     }
 
     func longChatWorkerTools(

@@ -3,7 +3,6 @@ import PluginSDK
 import Protocols
 #if canImport(Security)
 import Security
-import LocalAuthentication
 #endif
 
 extension CoreService {
@@ -102,7 +101,7 @@ extension CoreService {
     ) async throws -> ProjectTaskSyncDiscoveryResponse {
         let project = try await taskSyncProject(projectID)
         let tokenMode = request.tokenMode ?? project.taskSyncSettings.tokenMode
-        let token = resolvedTaskSyncToken(projectID: project.id, providerId: request.providerId, tokenMode: tokenMode)
+        let token = try resolvedTaskSyncToken(projectID: project.id, providerId: request.providerId, tokenMode: tokenMode)
         guard token != nil else { throw TaskSyncError.tokenMissing }
         if request.providerId != "github" {
             guard let provider = taskSyncProvider(id: request.providerId),
@@ -157,7 +156,7 @@ extension CoreService {
         var project = try await taskSyncProject(projectID)
         let tokenMode = request.tokenMode ?? .inherit
         let provider = GitHubProjectTaskSyncProvider()
-        let token = resolvedTaskSyncToken(projectID: project.id, providerId: request.providerId, tokenMode: tokenMode)
+        let token = try resolvedTaskSyncToken(projectID: project.id, providerId: request.providerId, tokenMode: tokenMode)
         let legacyProjectURL = request.projectURL?.trimmingCharacters(in: .whitespacesAndNewlines)
         guard token != nil || !(legacyProjectURL ?? "").isEmpty else { throw TaskSyncError.tokenMissing }
         let fallbackRepo = try request.defaultRepo
@@ -237,7 +236,7 @@ extension CoreService {
               !rawSource.value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
         else { throw TaskSyncError.unsupportedProvider }
         let tokenMode = request.tokenMode ?? .override
-        let token = resolvedTaskSyncToken(projectID: project.id, providerId: request.providerId, tokenMode: tokenMode)
+        let token = try resolvedTaskSyncToken(projectID: project.id, providerId: request.providerId, tokenMode: tokenMode)
         guard token != nil else { throw TaskSyncError.tokenMissing }
         let descriptor = try await provider.resolveProject(
             url: rawSource.value,
@@ -299,8 +298,8 @@ extension CoreService {
         guard let provider = taskSyncProvider(id: providerId) else {
             throw TaskSyncError.unsupportedProvider
         }
-        let token = resolvedTaskSyncToken(projectID: project.id, providerId: providerId, tokenMode: settings.tokenMode)
         do {
+            let token = try resolvedTaskSyncToken(projectID: project.id, providerId: providerId, tokenMode: settings.tokenMode)
             if full {
                 settings.syncSchedule.lastRunAt = nil
             }
@@ -421,7 +420,7 @@ extension CoreService {
     ) async throws -> ProjectTaskSyncTokenStatusResponse {
         guard taskSyncProvider(id: providerId) != nil else { throw TaskSyncError.unsupportedProvider }
         let project = try await taskSyncProject(projectID)
-        try? clearOverrideToken(projectID: project.id, providerId: providerId)
+        try clearOverrideToken(projectID: project.id, providerId: providerId)
         _ = try await updateTaskSyncSettings(
             projectID: project.id,
             request: ProjectTaskSyncSettingsUpdateRequest(tokenMode: .inherit)
@@ -434,7 +433,7 @@ extension CoreService {
         providerId: String
     ) async throws -> ProjectTaskSyncTokenStatusResponse {
         let project = try await taskSyncProject(projectID)
-        let override = overrideToken(projectID: project.id, providerId: providerId)
+        let override = try overrideToken(projectID: project.id, providerId: providerId)
         return ProjectTaskSyncTokenStatusResponse(
             tokenMode: project.taskSyncSettings.tokenMode,
             hasOverrideToken: override != nil,
@@ -481,8 +480,8 @@ extension CoreService {
         var task = project.tasks[index]
         guard task.externalMetadata?.origin != providerId else { return }
         guard task.externalMetadata?.externalIssueId != nil || task.externalMetadata?.externalIssueNumber != nil else { return }
-        let token = resolvedTaskSyncToken(projectID: project.id, providerId: providerId, tokenMode: project.taskSyncSettings.tokenMode)
         do {
+            let token = try resolvedTaskSyncToken(projectID: project.id, providerId: providerId, tokenMode: project.taskSyncSettings.tokenMode)
             let metadata = try await provider.createOrUpdateTask(task, settings: project.taskSyncSettings, token: token)
             task.externalMetadata = metadata
             task.tags = Array(Set(task.tags + [providerId, "sloppy:\(project.id)"])).sorted()
@@ -550,8 +549,8 @@ extension CoreService {
             saveTaskComments(updated, projectID: projectID, taskID: taskID)
             return
         }
-        let token = resolvedTaskSyncToken(projectID: project.id, providerId: providerId, tokenMode: project.taskSyncSettings.tokenMode)
         do {
+            let token = try resolvedTaskSyncToken(projectID: project.id, providerId: providerId, tokenMode: project.taskSyncSettings.tokenMode)
             comment.externalMetadata = try await provider.mirrorComment(comment, task: task, settings: project.taskSyncSettings, token: token)
             var updated = await listTaskComments(projectID: projectID, taskID: taskID)
             if let index = updated.firstIndex(where: { $0.id == commentID }) {
@@ -615,10 +614,10 @@ extension CoreService {
         }
     }
 
-    private func overrideToken(projectID: String, providerId: String) -> String? {
+    private func overrideToken(projectID: String, providerId: String) throws -> String? {
         if providerId == "startrek" {
             #if canImport(Security)
-            return taskSyncKeychainToken(projectID: projectID, providerId: providerId)
+            return try taskSyncKeychainToken(projectID: projectID, providerId: providerId)
             #else
             return nil
             #endif
@@ -629,9 +628,9 @@ extension CoreService {
         return token.isEmpty ? nil : token
     }
 
-    private func resolvedTaskSyncToken(projectID: String, providerId: String, tokenMode: TaskSyncTokenMode) -> String? {
+    private func resolvedTaskSyncToken(projectID: String, providerId: String, tokenMode: TaskSyncTokenMode) throws -> String? {
         if tokenMode == .override {
-            return overrideToken(projectID: projectID, providerId: providerId)
+            return try overrideToken(projectID: projectID, providerId: providerId)
         }
         if providerId == "github" {
             return githubAuthService.currentToken()
@@ -661,37 +660,16 @@ extension CoreService {
     }
 
     private func saveTaskSyncKeychainToken(_ token: String, projectID: String, providerId: String) throws {
-        let query = taskSyncKeychainQuery(projectID: projectID, providerId: providerId)
-        SecItemDelete(query as CFDictionary)
-        var value = query
-        value[kSecValueData as String] = Data(token.utf8)
-        let status = SecItemAdd(value as CFDictionary, nil)
-        guard status == errSecSuccess else {
-            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
-        }
+        try CoreKeychain.save(Data(token.utf8), query: taskSyncKeychainQuery(projectID: projectID, providerId: providerId))
     }
 
-    private func taskSyncKeychainToken(projectID: String, providerId: String) -> String? {
-        var query = taskSyncKeychainQuery(projectID: projectID, providerId: providerId)
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        // A rebuilt background daemon may need renewed Keychain approval.
-        // Never hold CoreService while an OS authorization dialog waits for input.
-        let authentication = LAContext()
-        authentication.interactionNotAllowed = true
-        query[kSecUseAuthenticationContext as String] = authentication
-        var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess,
-              let data = result as? Data
-        else { return nil }
+    private func taskSyncKeychainToken(projectID: String, providerId: String) throws -> String? {
+        guard let data = try CoreKeychain.read(query: taskSyncKeychainQuery(projectID: projectID, providerId: providerId)) else { return nil }
         return String(data: data, encoding: .utf8)
     }
 
     private func deleteTaskSyncKeychainToken(projectID: String, providerId: String) throws {
-        let status = SecItemDelete(taskSyncKeychainQuery(projectID: projectID, providerId: providerId) as CFDictionary)
-        guard status == errSecSuccess || status == errSecItemNotFound else {
-            throw NSError(domain: NSOSStatusErrorDomain, code: Int(status))
-        }
+        try CoreKeychain.delete(query: taskSyncKeychainQuery(projectID: projectID, providerId: providerId))
     }
     #endif
 

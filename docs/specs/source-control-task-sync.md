@@ -68,6 +68,7 @@ Sloppy project work often maps to files in a Git repository and issues in an ext
 ### FR-7: Secret/token handling
 - Provider tokens are stored securely and represented as redacted status in API/UI.
 - Clearing a token disables sync operations that require it but preserves non-secret configuration.
+- On macOS, Core disables Keychain authorization dialogs for the lifetime of the server process, including the legacy login keychain used by StartTrack overrides. Locked or inaccessible credentials produce a sync health error; token endpoints return `409 task_sync_keychain_unavailable` with recovery guidance. They are not reported as missing or silently replaced. Saving an existing token updates it in place. After rebuilding an ad-hoc-signed executable, access may need to be granted again in Keychain Access; Core does not change item access rules or copy the token elsewhere.
 
 ## 7. Public API Surface
 Representative endpoints:

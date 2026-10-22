@@ -473,7 +473,8 @@ actor AgentSessionOrchestrator {
         userMessageAlreadyPersisted: Bool = false,
         additionalContext: String? = nil,
         responseMessageID: String? = nil,
-        peerOrigin: AgentSessionPeerOrigin? = nil
+        peerOrigin: AgentSessionPeerOrigin? = nil,
+        isWorkerNotification: Bool = false
     ) async throws -> AgentSessionMessageResponse {
         let effectiveRequest = Self.requestByApplyingOneShotModeCommand(request)
         let preResponseStartedAt = Date()
@@ -760,7 +761,7 @@ actor AgentSessionOrchestrator {
                         agentID: agentID, sessionID: sessionID, userID: effectiveRequest.userId,
                         content: """
                         [Coordinator tool recovery]
-                        An accepted operation failed with correctable arguments or a transient error. Continue the authorized work. Read the recorded error and hint, correct the invalid fields and retry the tool; reuse the same requestKey for delegation. Do not repeat the same malformed arguments, broaden scope, bypass authorization, or poll workers. A successful delegation completes this coordinator handoff. If correction is impossible, explain the concrete recorded blocker and cite its call ID. This recovery is bounded to two passes.
+                        An accepted operation failed with correctable arguments or a transient error. Continue the authorized work. Read the recorded error and hint, correct the invalid fields and retry the tool; reuse the same requestKey for delegation. Do not repeat the same malformed arguments, broaden scope, bypass authorization, or poll workers. A successful delegation completes this coordinator handoff. If correction is impossible, explain the concrete blocker in plain language. Keep internal IDs in diagnostics. This recovery is bounded to two passes.
                         Continue in the selected route; do not call planning.select_route again.
                         Recovery reason: \(failure.map { "Correct failed call " + $0.callEventId } ?? "Build/Debug execution was accepted but no assignment was created. Delegate the authorized work now or request necessary user input.")
                         \(ledger.context)
@@ -775,10 +776,13 @@ actor AgentSessionOrchestrator {
                     let currentLedger = SessionActionLedger(events: Array(detail.events.dropFirst(coordinatorEventStart)))
                     let handoffRequired = (runtimeOutcome.selectedAutoRouteMode ?? requestMode) == .build || (runtimeOutcome.selectedAutoRouteMode ?? requestMode) == .debug
                     coordinatorHandoffFailed = handoffRequired && !currentLedger.actions.contains { $0.tool == "long_chat.delegate" && $0.ok == true }
-                    let ledger = SessionActionLedger(events: detail.events)
+                    let ledger = SessionActionLedger(
+                        events: Array(detail.events.dropFirst(coordinatorEventStart)), detailsLimit: 6,
+                        taskEvents: detail.events.compactMap(\.longChatTask))
                     let reviewChannelID = self.sessionChannelID(agentID: agentID, sessionID: sessionID)
+                    let candidate = runtimeOutcome.assistantText
                     runtimeOutcome.assistantText = await CoordinatorResponseReview.verifiedResponse(
-                        candidate: runtimeOutcome.assistantText, userRequest: content, ledger: ledger,
+                        candidate: candidate, userRequest: content, ledger: ledger, isWorkerNotification: isWorkerNotification,
                         review: { [runtime] prompt in
                             await runtime.generateText(prompt: prompt, model: selectedModel, maxTokens: 2048,
                                 channelId: reviewChannelID)
@@ -787,8 +791,11 @@ actor AgentSessionOrchestrator {
                         runtimeOutcome.wasInterrupted = true
                         runtimeOutcome.assistantText = ""
                     }
-                    // Rehydrate from persisted events next turn so unreviewed drafts cannot become history.
-                    await runtime.invalidateChannelSession(channelId: self.sessionChannelID(agentID: agentID, sessionID: sessionID))
+                    // Preserve the warm session when its answer was accepted. Rehydrate only when
+                    // the answer changed, so an unreviewed draft cannot become future history.
+                    if runtimeOutcome.assistantText != candidate {
+                        await runtime.invalidateChannelSession(channelId: reviewChannelID)
+                    }
                 }
             }
             let completionMode = runtimeOutcome.selectedAutoRouteMode ?? requestMode
