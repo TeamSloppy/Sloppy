@@ -341,6 +341,7 @@ public final class ChatScreenViewModel {
     @ObservationIgnored var isLoadingInitialData = false
     @ObservationIgnored var initialDataTask: Task<Void, Never>?
     @ObservationIgnored var sessionLoadGeneration = 0
+    @ObservationIgnored var pendingProjectDraft: StoredComposerDraft?
     @ObservationIgnored var composerDraftsByKey: [String: StoredComposerDraft] = [:]
     @ObservationIgnored var activeComposerDraftKey: String?
     @ObservationIgnored var pendingComposerTextMutation: PendingComposerTextMutation?

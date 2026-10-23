@@ -105,8 +105,20 @@ private final class SidebarLongChatURLProtocol: URLProtocol, @unchecked Sendable
                     return (detail, 200, scenarios[host]?.delayedSessionID == summary.id ? 0.2 : 0)
                 }
             }
+            if request.url?.path.hasSuffix("/approval-policy") == true {
+                return (Data(#"{"mode":"ask_for_approval"}"#.utf8), 200, 0)
+            }
             guard request.httpMethod == "POST" else { return (Data("[]".utf8), 200, 0) }
             scenarios[host]?.posts.append(request)
+            if request.url?.path.hasSuffix("/sessions") == true {
+                let payload = request.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }
+                let summary = ChatSessionSummary(id: "created", agentId: "agent", title: "New session",
+                    projectId: payload?["projectId"] as? String)
+                scenarios[host]?.sessions.append(summary)
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .iso8601
+                return ((try? encoder.encode(summary)) ?? Data(), 200, 0)
+            }
             guard request.url?.path.hasSuffix("/long-chat") == true else { return (Data(), 404, 0) }
             if scenarios[host]?.fails == true { return (Data("{}".utf8), 500, 0) }
             let agentID = request.url?.pathComponents.dropLast().last ?? ""

@@ -47,32 +47,42 @@ struct SloppyCLIClient {
     let token: String
     let verbose: Bool
     let localAuthSession: SloppyCLILocalAuthSession?
+    var localOwnerCredential: CoreLocalClientCredential?
+    var authRootURL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath)
     /// Per-request timeout for non-streaming calls; long-running calls (e.g. a full agent turn) raise it.
     var requestTimeout: TimeInterval = 30
 
     private var session: URLSession { .shared }
 
-    static func resolve(url: String?, token: String?, verbose: Bool) -> SloppyCLIClient {
-        let resolvedURL = url
-            ?? ProcessInfo.processInfo.environment["SLOPPY_URL"]
-            ?? loadURLFromConfig()
-            ?? "http://127.0.0.1:25101"
-
+    static func resolve(
+        url: String?, token: String?, verbose: Bool,
+        environment: [String: String] = ProcessInfo.processInfo.environment,
+        currentDirectoryURL: URL = URL(fileURLWithPath: FileManager.default.currentDirectoryPath),
+        homeDirectoryURL: URL = URL(fileURLWithPath: CoreConfig.resolvedHomeDirectoryPath())
+    ) -> SloppyCLIClient {
+        let roots = [homeDirectoryURL, currentDirectoryURL]
+        let configData = loadConfigData(roots: roots)
+        let resolvedURL = url ?? environment["SLOPPY_URL"]
+            ?? loadURLFromConfig(configData) ?? "http://127.0.0.1:25101"
         let normalizedURL = resolvedURL.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
-        let explicitToken = token
-            ?? ProcessInfo.processInfo.environment["SLOPPY_TOKEN"]
-            ?? loadTokenFromConfig()
-        let localAuth = explicitToken == nil ? SloppyCLILocalAuthStore.load(baseURL: normalizedURL) : nil
-        let resolvedToken = explicitToken
-            ?? localAuth?.accessToken
-            ?? "dev-token"
-
-        return SloppyCLIClient(
+        let explicitToken = token ?? environment["SLOPPY_TOKEN"]
+        let localAuth = explicitToken == nil
+            ? SloppyCLILocalAuthStore.load(baseURL: normalizedURL, rootURL: currentDirectoryURL) : nil
+        var client = SloppyCLIClient(
             baseURL: normalizedURL,
-            token: resolvedToken,
+            token: explicitToken ?? localAuth?.accessToken ?? loadTokenFromConfig(configData) ?? "dev-token",
             verbose: verbose,
             localAuthSession: localAuth
         )
+        client.authRootURL = currentDirectoryURL
+        // Never replace explicit credentials or a signed-in user's identity with owner access.
+        if explicitToken == nil, localAuth == nil, let baseURL = URL(string: normalizedURL) {
+            client.localOwnerCredential = roots.lazy.flatMap { root in
+                [root.appendingPathComponent(".sloppy/local-client.json"),
+                 root.appendingPathComponent("local-client.json")]
+            }.compactMap { SloppyCLILocalOwnerAuth.load($0, for: baseURL) }.first
+        }
+        return client
     }
 
     init(baseURL: String, token: String, verbose: Bool, localAuthSession: SloppyCLILocalAuthSession? = nil) {
@@ -82,8 +92,8 @@ struct SloppyCLIClient {
         self.localAuthSession = localAuthSession
     }
 
-    private static func loadURLFromConfig() -> String? {
-        guard let data = loadConfigData(),
+    private static func loadURLFromConfig(_ data: Data?) -> String? {
+        guard let data,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let listen = json["listen"] as? [String: Any],
               let host = listen["host"] as? String,
@@ -93,8 +103,8 @@ struct SloppyCLIClient {
         return "http://\(h):\(port)"
     }
 
-    private static func loadTokenFromConfig() -> String? {
-        guard let data = loadConfigData(),
+    private static func loadTokenFromConfig(_ data: Data?) -> String? {
+        guard let data,
               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
               let auth = json["auth"] as? [String: Any],
               let token = auth["token"] as? String,
@@ -103,16 +113,11 @@ struct SloppyCLIClient {
         return token
     }
 
-    private static func loadConfigData() -> Data? {
+    private static func loadConfigData(roots: [URL]) -> Data? {
         let candidates = [".sloppy/sloppy.json", "sloppy.json"]
-        let fm = FileManager.default
-        let cwd = fm.currentDirectoryPath
-        let home = CoreConfig.resolvedHomeDirectoryPath(fileManager: fm)
-
-        let roots = [home, cwd]
         for root in roots {
             for relative in candidates {
-                let path = (root as NSString).appendingPathComponent(relative)
+                let path = root.appendingPathComponent(relative).path
                 if let data = try? Data(contentsOf: URL(fileURLWithPath: path)) {
                     return data
                 }
@@ -185,7 +190,12 @@ struct SloppyCLIClient {
                 }
 
                 do {
-                    let (lines, response) = try await SloppyCLILineStream.open(request: request)
+                    var (lines, response) = try await SloppyCLILineStream.open(request: request)
+                    if (response as? HTTPURLResponse)?.statusCode == 401,
+                       let recoveredToken = try await recoverAuthentication() {
+                        request.setValue("Bearer \(recoveredToken)", forHTTPHeaderField: "Authorization")
+                        (lines, response) = try await SloppyCLILineStream.open(request: request)
+                    }
                     guard let httpResponse = response as? HTTPURLResponse else {
                         continuation.finish(throwing: CLIClientError.noData)
                         return
@@ -216,8 +226,8 @@ struct SloppyCLIClient {
     private func request(method: String, urlString: String, body: Data?, contentType: String = "application/json") async throws -> Data {
         do {
             return try await sendRequest(method: method, urlString: urlString, body: body, token: token, contentType: contentType)
-        } catch CLIClientError.httpError(let code, _) where code == 401 && localAuthSession != nil {
-            guard let refreshedToken = try await refreshLocalAuthSession() else {
+        } catch CLIClientError.httpError(let code, _) where code == 401 && (localAuthSession != nil || localOwnerCredential != nil) {
+            guard let refreshedToken = try await recoverAuthentication() else {
                 throw CLIClientError.httpError(code, "identity session expired; run `sloppy auth login` again")
             }
             return try await sendRequest(method: method, urlString: urlString, body: body, token: refreshedToken, contentType: contentType)
@@ -277,6 +287,12 @@ struct SloppyCLIClient {
         return data
     }
 
+    private func recoverAuthentication() async throws -> String? {
+        if localAuthSession != nil { return try await refreshLocalAuthSession() }
+        guard let localOwnerCredential else { return nil }
+        return try await SloppyCLILocalOwnerAuth.exchange(localOwnerCredential).accessToken
+    }
+
     private func refreshLocalAuthSession() async throws -> String? {
         guard let localAuthSession else { return nil }
         guard let url = URL(string: baseURL + "/v1/auth/refresh") else {
@@ -314,7 +330,7 @@ struct SloppyCLIClient {
             refreshTokenExpiresAt: refreshed.refreshTokenExpiresAt,
             user: refreshed.user
         )
-        try SloppyCLILocalAuthStore.save(updated)
+        try SloppyCLILocalAuthStore.save(updated, rootURL: authRootURL)
         return refreshed.accessToken
     }
 }

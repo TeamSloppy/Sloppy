@@ -107,6 +107,21 @@ struct SessionReliabilityTests {
         #expect(ledger.tasks.count == 1 && ledger.tasks[0].status == .running)
     }
 
+    @Test func failedTaskOverridesAcceptedDelegationDuringReportReview() async {
+        var failed = taskEvent(id: "cleanup", status: .failed)
+        failed.task.attempts[0].summary = "Blocked by HTTP 401; zero projects deleted; backup not created."
+        let ledger = SessionActionLedger(events: events(ok: true), detailsLimit: 6, taskEvents: [failed])
+        let correction = "Cleanup stopped: no projects were deleted because authentication failed."
+        let answer = await CoordinatorResponseReview.verifiedResponse(
+            candidate: "Cleanup is running and a backup will be created.", userRequest: "Clean up projects", ledger: ledger,
+            review: { prompt in
+                #expect(prompt.contains("zero projects deleted; backup not created"))
+                #expect(prompt.contains("failed/cancelled task facts override an earlier accepted delegation"))
+                return #"{"supported":false,"correctedResponse":"\#(correction)"}"#
+            })
+        #expect(answer == correction)
+    }
+
     @Test func reportReadPreservesItsContentAndCompleteness() {
         let report = "Delivered new chat and annotation zoom. 29 tests passed. Physical pinch remains unverified."
         let ledger = SessionActionLedger(events: [

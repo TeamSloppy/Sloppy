@@ -3,10 +3,42 @@ import Protocols
 import SloppyNodeCore
 import SloppyNodeCore
 import Testing
+import Logging
 @testable import sloppy
 
 @Suite("Local owner auth")
 struct LocalOwnerAuthTests {
+    #if !os(Windows)
+    @Test("CLI recovers a legacy-token 401 through the local owner exchange")
+    func cliLocalOwnerRecovery() async throws {
+        try await withFixture { service, router, _, fileURL in
+            let server = CoreHTTPServer(host: "127.0.0.1", port: 0, router: router,
+                                       logger: .sloppy(label: "sloppy.cli.auth.tests"))
+            try server.start()
+            defer { try? server.shutdown() }
+            let port = try #require(server.boundPort)
+            try await service.publishLocalClientCredential(port: port, fileURL: fileURL)
+            let root = fileURL.deletingLastPathComponent()
+            let client = SloppyCLIClient.resolve(url: "http://127.0.0.1:\(port)", token: nil, verbose: false,
+                environment: [:], currentDirectoryURL: root, homeDirectoryURL: root)
+            #expect(client.localOwnerCredential != nil)
+            let data = try await client.get("/v1/projects")
+            #expect((try JSONSerialization.jsonObject(with: data)) is [Any])
+            #expect(!FileManager.default.fileExists(atPath: SloppyCLILocalAuthStore.authURL(rootURL: root).path))
+
+            let explicit = SloppyCLIClient.resolve(url: client.baseURL, token: "wrong-token", verbose: false,
+                environment: [:], currentDirectoryURL: root, homeDirectoryURL: root)
+            #expect(explicit.localOwnerCredential == nil)
+            do {
+                _ = try await explicit.get("/v1/projects")
+                Issue.record("Explicit invalid credentials must not gain owner access")
+            } catch CLIClientError.httpError(let code, _) {
+                #expect(code == 401)
+            }
+        }
+    }
+    #endif
+
     @Test("A private filesystem credential opens an ordinary owner session")
     func localExchangeAndRotation() async throws {
         try await withFixture { service, router, owner, fileURL in

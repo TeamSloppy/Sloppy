@@ -6,6 +6,23 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 extension ChatScreenViewModel {
+    public var canReuseNewChatDraft: Bool {
+        selectedSessionId == nil && pendingSessionSummary == nil && transcript.isEmpty && !isSending
+    }
+
+    public func prepareNewProjectChat(
+        _ request: ChatNavigationRequest,
+        preservingDraftFrom source: ChatScreenViewModel?
+    ) {
+        if let source {
+            pendingProjectDraft = StoredComposerDraft(
+                text: source.composerDraft.text, attachments: source.composerAttachments,
+                quotes: source.composerQuotes, references: source.composerDraft.references
+            )
+        }
+        applyNavigationRequest(request)
+    }
+
     func syncComposerDraft(
         toSessionId sessionId: String?,
         projectId: String?,
@@ -27,7 +44,8 @@ extension ChatScreenViewModel {
             if let id = editingComposerQuoteID { finishComposerQuoteEditing(id: id) }
             saveActiveComposerDraft()
             activeComposerDraftKey = nextKey
-            let storedDraft = composerDraftsByKey[nextKey]
+            let storedDraft = pendingProjectDraft ?? composerDraftsByKey[nextKey]
+            pendingProjectDraft = nil
             composerDraft.text = storedDraft?.text ?? ""
             composerDraft.references = storedDraft?.references ?? []
             composerAttachments = storedDraft?.attachments ?? []

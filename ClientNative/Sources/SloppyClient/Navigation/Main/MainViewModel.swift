@@ -840,37 +840,37 @@ final class MainViewModel {
 
     func showNewProjectChat(project: APIProjectRecord) {
         selectAppSection(.projects)
-        updateSelectedSidebarItem(.project(project.id))
+        updateSelectedSidebarItem(.project(scopedProjectID(project)))
         dismissMobileSidebar()
 
         let projectEndpoint = project.sourceInstanceID.flatMap(endpoint(for:)) ?? endpoint
-        let chatState = makeChatTabState(endpoint: projectEndpoint)
+        let current = selectedTabID.flatMap { tabStates[$0]?.chatState?.viewModel }
+        let draft = current.flatMap { $0.canReuseNewChatDraft ? $0 : nil }
+        if let draft, draft.sessionEndpoint == projectEndpoint,
+           draft.activeProjectIdForWorkspacePanel == project.id {
+            return
+        }
+        let chatState: ChatTabState
+        if let draft, draft.sessionEndpoint == projectEndpoint {
+            chatState = ChatTabState(viewModel: draft)
+        } else {
+            chatState = makeChatTabState(endpoint: projectEndpoint)
+        }
         chatNavigationSerial += 1
-        // Establish the fresh draft before bootstrap can restore another context.
-        chatState.viewModel.applyNavigationRequest(
+        chatState.viewModel.prepareNewProjectChat(
             ChatNavigationRequest(
                 id: chatNavigationSerial,
-                context: .project(
-                    projectId: project.id,
-                    projectName: project.name,
-                    agentId: project.actors?.first
-                ),
+                context: .project(projectId: project.id, projectName: project.name, agentId: project.actors?.first),
                 opensPreferredSession: false
-            )
+            ),
+            preservingDraftFrom: draft
         )
-
         let draftID = "draft-\(UUID().uuidString)"
         let tab = WorkspaceTab(
-            key: .chatSession(draftID),
-            kind: .chat,
-            title: "New chat",
+            key: .chatSession(draftID), kind: .chat, title: "New chat",
             payload: .chatSession(sessionID: draftID, title: "New chat")
         )
-        // Keep existing conversations and their live composer/delivery state intact.
-        tabs.append(tab)
-        tabStates[tab.id] = WorkspaceTabState(contentState: .chat(chatState))
-        tabEndpoints[tab.id] = projectEndpoint
-        selectedTabID = tab.id
+        showInSelectedTab(tab, state: WorkspaceTabState(contentState: .chat(chatState)), endpoint: projectEndpoint)
     }
 
     func selectTask(
