@@ -220,7 +220,7 @@ When all depth levels complete successfully, `completeSwarmRoot` marks the root 
 
 ## Task data model
 
-Swarm-related fields on `ProjectTask` (`Sources/Protocols/APIModels.swift`):
+Swarm-related fields on `ProjectTask` (`Sources/Protocols/API/TaskAPIModels.swift`):
 
 | Field | Type | Description |
 |---|---|---|

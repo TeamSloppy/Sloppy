@@ -61,7 +61,7 @@
   - Planner output is injected as structured context before executor execution.
 
 - **Integration Points**:
-  - `Sources/Protocols/APIModels.swift`: add `plannerModel` to `AgentConfigDetail` and `AgentConfigUpdateRequest`.
+  - `Sources/Protocols/API/AgentAPIModels.swift`: add `plannerModel` to `AgentConfigDetail` and `AgentConfigUpdateRequest`.
   - `Sources/sloppy/Agent/AgentCatalogFileStore.swift`: read/write/canonicalize `plannerModel`.
   - `Sources/sloppy/CoreService+Agents.swift`: widen available model validation for `plannerModel`.
   - `Sources/sloppy/Agent/AgentSessionOrchestrator.swift`: compute planner/executor model IDs for native runs.

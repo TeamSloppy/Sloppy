@@ -135,7 +135,7 @@ Kanban workers may still use direct chat, tools, branches, or Swarm internally. 
   - Manual completion of a never-claimed task may synthesize a zero-duration attempt so handoff evidence still has a durable home.
 
 - **Integration Points**:
-  - Protocol models: `Sources/Protocols/APIModels.swift`
+  - Protocol models: `Sources/Protocols/API/TaskAPIModels.swift`, `Sources/Protocols/API/ProjectAPIModels.swift`
   - Project task CRUD and archive logic: `Sources/sloppy/CoreService+Projects.swift`
   - Task execution/review lifecycle: `Sources/sloppy/CoreService+TaskLifecycle.swift`
   - Activity/comment/log recording: `Sources/sloppy/CoreService+TaskActivity.swift`

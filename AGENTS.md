@@ -184,7 +184,7 @@ Install prebuilt binaries without building: [`scripts/install.sh`](scripts/insta
 
 ### Swift targets
 
-- `Sources/Protocols`: shared domain and wire models (`APIModels`, runtime models, ACP/node payloads, JSON helpers, event envelopes). This is the bottom dependency for runtime-facing modules.
+- `Sources/Protocols`: shared domain and wire models (HTTP API models under `Sources/Protocols/API/*APIModels.swift`, runtime models, ACP/node payloads, JSON helpers, event envelopes). This is the bottom dependency for runtime-facing modules.
 - `Sources/PluginSDK`: plugin contracts and model-provider bridge points (`GatewayPlugin`, `ToolPlugin`, `MemoryPlugin`, `ModelProviderPlugin`, AnyLanguageModel integration, provider auth helpers).
 - `Sources/ChannelPluginSupport`: shared support for built-in and external channel plugins.
 - `Sources/ChannelPluginTelegram`: built-in Telegram gateway plugin.
@@ -263,7 +263,7 @@ Typical debugging flow:
 
 ### Add a new API endpoint
 
-1. **Model** — add `XxxRequest` / `XxxRecord` structs to `Sources/Protocols/APIModels.swift` under the relevant `// MARK:` section.
+1. **Model** — add `XxxRequest` / `XxxRecord` structs to the matching domain file in `Sources/Protocols/API/` (`AgentAPIModels`, `ProjectAPIModels`, `TaskAPIModels`, `ChannelAPIModels`, `ProviderAPIModels`, `WorkflowAPIModels`, etc.); create a new `<Domain>APIModels.swift` for a new domain.
 2. **Service method** — add the method to `Sources/sloppy/CoreService.swift` in the correct domain section. Use a typed error enum.
 3. **Router** — add the route to the appropriate `XxxAPIRouter` in `Sources/sloppy/Gateway/Routers/`. If creating a new router, register it through `CoreRouter+HTTPRoutes.swift` / `CoreRouterRegistrar.swift`.
 4. **Test** — add a test in `Tests/sloppyTests/` using Swift Testing macros (`@Test`, `#expect`).
@@ -279,10 +279,10 @@ Typical debugging flow:
 
 ### Add a new SQLite table or column
 
-1. **Schema** — update `Sources/sloppy/Storage/schema.sql` and any migration/bootstrap logic in `Sources/sloppy/CorePersistenceFactory.swift`.
+1. **Schema** — update `Sources/sloppy/Storage/schema.sql` for fresh databases, and for existing ones append a `MigrationStep` (next version number, transactional) to `steps` in `Sources/sloppy/SQLiteStore+Migrations.swift`; never add statements to the baseline `apply*Migrations` functions. Bootstrap logic lives in `Sources/sloppy/CorePersistenceFactory.swift`.
 2. **CRUD methods** — add the read/write methods to `Sources/sloppy/SQLiteStore.swift` inside the `#if canImport(CSQLite3)` guard with a matching in-memory fallback.
 3. **Protocol** — add the method signature to the `PersistenceStore` protocol in `Sources/sloppy/Stores/PersistenceStore.swift`.
-4. **Models/API** — update `Sources/Protocols/APIModels.swift` if the persisted data crosses the API/runtime boundary.
+4. **Models/API** — update the matching file in `Sources/Protocols/API/` if the persisted data crosses the API/runtime boundary.
 5. **Verify** — `swift test --filter SQLite` or the narrow affected test, then `swift build -c release --product sloppy`.
 
 ### Add a Dashboard view
@@ -315,7 +315,7 @@ Contextual rules for specific file areas live in `.cursor/rules/`:
 
 - `router-pattern.mdc` — HTTP router structure and patterns
 - `tool-pattern.mdc` — agent tool implementation
-- `api-models.mdc` — APIModels.swift conventions
+- `api-models.mdc` — `Sources/Protocols/API/*APIModels.swift` conventions
 - `core-service.mdc` — CoreService domain map and patterns
 - `sqlite-store.mdc` — SQLite C API patterns and migrations
 - `tests.mdc` — Swift Testing framework usage
