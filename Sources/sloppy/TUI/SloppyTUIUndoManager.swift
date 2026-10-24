@@ -157,7 +157,7 @@ struct SloppyTUIUndoManager {
         return Baseline(rootURL: root, fingerprints: fingerprints, contents: contents)
     }
 
-    mutating func recordChanges(rootURL: URL, baseline: Baseline) -> RecordResult {
+    mutating func recordChanges(rootURL: URL, baseline: Baseline, turnKey: String? = nil) -> RecordResult {
         let root = rootURL.standardizedFileURL
         let current = scanFingerprints(rootURL: root)
         var candidatePathSet = Set(baseline.fingerprints.keys)
@@ -219,7 +219,7 @@ struct SloppyTUIUndoManager {
             return .noChanges
         }
 
-        undoStack.append(Transaction(paths: recordedPaths, before: before, after: after))
+        undoStack.append(Transaction(paths: recordedPaths, before: before, after: after, turnKey: turnKey))
         if undoStack.count > Self.maxHistoryDepth {
             undoStack.removeFirst(undoStack.count - Self.maxHistoryDepth)
         }
@@ -237,6 +237,19 @@ struct SloppyTUIUndoManager {
         undoStack.removeLast()
         redoStack.append(transaction)
         return ApplyResult(direction: .undo, paths: transaction.paths)
+    }
+
+    /// Undoes every recorded turn starting at the earliest one whose key is in `turnKeys`, newest first.
+    mutating func undoTurns(withKeys turnKeys: Set<String>, rootURL: URL) throws -> ApplyResult {
+        guard let firstIndex = undoStack.firstIndex(where: { $0.turnKey.map(turnKeys.contains) == true }) else {
+            throw Error.nothingToUndo
+        }
+        var paths: [String] = []
+        while undoStack.count > firstIndex {
+            let result = try undo(rootURL: rootURL)
+            paths.append(contentsOf: result.paths.filter { !paths.contains($0) })
+        }
+        return ApplyResult(direction: .undo, paths: paths)
     }
 
     mutating func redo(rootURL: URL) throws -> ApplyResult {
@@ -483,21 +496,23 @@ struct SloppyTUISessionUndoManagers {
     struct Baseline {
         var sessionID: String
         var baseline: SloppyTUIUndoManager.Baseline
+        var turnKey: String? = nil
     }
 
     private var managers: [String: SloppyTUIUndoManager] = [:]
 
-    func makeBaseline(sessionID: String, rootURL: URL) -> Baseline {
+    func makeBaseline(sessionID: String, rootURL: URL, turnKey: String? = nil) -> Baseline {
         let manager = managers[sessionID] ?? SloppyTUIUndoManager()
         return Baseline(
             sessionID: sessionID,
-            baseline: manager.makeBaseline(rootURL: rootURL)
+            baseline: manager.makeBaseline(rootURL: rootURL),
+            turnKey: turnKey
         )
     }
 
     mutating func recordChanges(_ baseline: Baseline) -> SloppyTUIUndoManager.RecordResult {
         var manager = managers[baseline.sessionID] ?? SloppyTUIUndoManager()
-        let result = manager.recordChanges(rootURL: baseline.baseline.rootURL, baseline: baseline.baseline)
+        let result = manager.recordChanges(rootURL: baseline.baseline.rootURL, baseline: baseline.baseline, turnKey: baseline.turnKey)
         managers[baseline.sessionID] = manager
         return result
     }
@@ -507,6 +522,12 @@ struct SloppyTUISessionUndoManagers {
         let result = try manager.undo(rootURL: rootURL)
         managers[sessionID] = manager
         return result
+    }
+
+    mutating func undoTurns(sessionID: String, turnKeys: Set<String>, rootURL: URL) throws -> SloppyTUIUndoManager.ApplyResult {
+        var manager = managers[sessionID] ?? SloppyTUIUndoManager()
+        defer { managers[sessionID] = manager }
+        return try manager.undoTurns(withKeys: turnKeys, rootURL: rootURL)
     }
 
     mutating func redo(sessionID: String, rootURL: URL) throws -> SloppyTUIUndoManager.ApplyResult {
@@ -542,6 +563,7 @@ private struct Transaction: Equatable {
     var paths: [String]
     var before: [String: FileState]
     var after: [String: FileState]
+    var turnKey: String?
 }
 
 private enum FileState: Equatable {

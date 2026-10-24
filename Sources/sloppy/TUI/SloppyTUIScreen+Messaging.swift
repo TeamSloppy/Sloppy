@@ -9,7 +9,8 @@ import TauTUI
 
 @MainActor
 extension SloppyTUIScreen {
-    func submit(_ raw: String) async {
+    /// - Parameter queueOnly: When the agent is busy, hold the message until the run finishes instead of interrupting it.
+    func submit(_ raw: String, queueOnly: Bool = false) async {
         let value = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         if shellModeEnabled {
             await submitShellCommand(raw: raw, value: value)
@@ -33,7 +34,7 @@ extension SloppyTUIScreen {
                     context: pendingContext,
                     uploads: pendingUploads,
                     clearsPendingInputs: true,
-                    interruptActiveRun: true,
+                    interruptActiveRun: !queueOnly,
                     titleSource: value
                 )
                 return
@@ -43,6 +44,10 @@ extension SloppyTUIScreen {
         }
 
         if shouldHandleSlashCommand(value) {
+            if queueOnly, isPosting {
+                await queueMessage(value, isSlashCommand: true)
+                return
+            }
             await handleCommand(value)
             return
         }
@@ -55,7 +60,7 @@ extension SloppyTUIScreen {
                 context: pendingContext,
                 uploads: pendingUploads,
                 clearsPendingInputs: true,
-                interruptActiveRun: true,
+                interruptActiveRun: !queueOnly,
                 titleSource: value
             )
             return
@@ -233,7 +238,8 @@ extension SloppyTUIScreen {
                 contentCharacters: content.count
             ))
             await Task.yield()
-            let undoBaseline = await makeUndoBaseline()
+            let turnMessageID = UUID().uuidString
+            let undoBaseline = await makeUndoBaseline(turnKey: turnMessageID)
             if !runtime.config.onboarding.completed {
                 updateSendProgress(.init(
                     stage: .updatingOnboarding,
@@ -265,7 +271,8 @@ extension SloppyTUIScreen {
                     attachments: uploads,
                     spawnSubSession: spawnSubSession,
                     reasoningEffort: reasoningEffort,
-                    mode: chatMode
+                    mode: chatMode,
+                    clientMessageId: turnMessageID
                 )
             )
             if clearsPendingInputsOnSuccess {
@@ -521,6 +528,7 @@ extension SloppyTUIScreen {
         spawnSubSession: Bool = false,
         clearsPendingInputs: Bool = false,
         interruptActiveRun: Bool = false,
+        isSlashCommand: Bool = false,
         titleSource: String? = nil
     ) async {
         _ = queuedMessages.enqueue(
@@ -528,6 +536,7 @@ extension SloppyTUIScreen {
             context: context,
             uploads: uploads,
             spawnSubSession: spawnSubSession,
+            isSlashCommand: isSlashCommand,
             titleSource: titleSource
         )
         if clearsPendingInputs {
@@ -562,14 +571,18 @@ extension SloppyTUIScreen {
 
         isDrainingQueuedMessages = true
         renderTimeline()
-        await sendMessage(
-            message.text,
-            context: message.context,
-            uploads: message.uploads,
-            spawnSubSession: message.spawnSubSession,
-            clearsPendingInputsOnSuccess: false,
-            titleSource: message.titleSource
-        )
+        if message.isSlashCommand {
+            await handleCommand(message.text)
+        } else {
+            await sendMessage(
+                message.text,
+                context: message.context,
+                uploads: message.uploads,
+                spawnSubSession: message.spawnSubSession,
+                clearsPendingInputsOnSuccess: false,
+                titleSource: message.titleSource
+            )
+        }
         isDrainingQueuedMessages = false
         await sendNextQueuedMessageIfIdle()
     }

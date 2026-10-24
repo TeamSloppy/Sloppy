@@ -7,6 +7,7 @@ struct SloppyTUIQueuedMessage: Identifiable {
     var context: String?
     var uploads: [AgentAttachmentUpload]
     var spawnSubSession: Bool
+    var isSlashCommand: Bool = false
     var titleSource: String? = nil
 
     var displayText: String {
@@ -36,6 +37,7 @@ struct SloppyTUIMessageQueue {
         context: String? = nil,
         uploads: [AgentAttachmentUpload] = [],
         spawnSubSession: Bool = false,
+        isSlashCommand: Bool = false,
         titleSource: String? = nil
     ) -> SloppyTUIQueuedMessage {
         let message = SloppyTUIQueuedMessage(
@@ -44,6 +46,7 @@ struct SloppyTUIMessageQueue {
             context: context,
             uploads: uploads,
             spawnSubSession: spawnSubSession,
+            isSlashCommand: isSlashCommand,
             titleSource: titleSource
         )
         nextID += 1

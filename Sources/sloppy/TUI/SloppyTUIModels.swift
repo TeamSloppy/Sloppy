@@ -17,6 +17,7 @@ enum SloppyTUIPickerKind: Equatable {
     case projectTask
     case planInput
     case theme
+    case forkPoint
 }
 
 enum SloppyTUIOperationStatusKind: String, Equatable, Hashable, Sendable {

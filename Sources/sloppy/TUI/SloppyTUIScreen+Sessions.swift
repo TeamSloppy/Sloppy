@@ -201,13 +201,13 @@ extension SloppyTUIScreen {
         """
     }
 
-    func makeUndoBaseline() async -> SloppyTUISessionUndoManagers.Baseline? {
+    func makeUndoBaseline(turnKey: String? = nil) async -> SloppyTUISessionUndoManagers.Baseline? {
         guard !service.isRemote else {
             return nil
         }
         do {
             let rootURL = try await service.resolveProjectWorkspaceRoot(projectID: project.id)
-            return sessionUndoManagers.makeBaseline(sessionID: session.id, rootURL: rootURL)
+            return sessionUndoManagers.makeBaseline(sessionID: session.id, rootURL: rootURL, turnKey: turnKey)
         } catch {
             return nil
         }

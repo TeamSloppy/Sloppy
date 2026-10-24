@@ -66,8 +66,21 @@ extension CoreService {
         let checkpointSessionID = request.checkpointSessionId
             .flatMap { normalizedSessionID($0.trimmingCharacters(in: .whitespacesAndNewlines)) }
 
+        var request = request
+        let forkedEvents = try forkedSessionEvents(agentID: normalizedAgentID, request: &request)
+
         do {
             let session = try await sessionOrchestrator.createSession(agentID: normalizedAgentID, request: request)
+            if !forkedEvents.isEmpty {
+                let copies = forkedEvents.map { event -> AgentSessionEvent in
+                    var copy = event
+                    copy.id = UUID().uuidString
+                    copy.sessionId = session.id
+                    return copy
+                }
+                _ = try sessionStore.appendEvents(agentID: normalizedAgentID, sessionID: session.id, events: copies)
+                try await sessionOrchestrator.prepareSessionContext(agentID: normalizedAgentID, sessionID: session.id)
+            }
             if request.separateChat == true || (userID == nil && request.projectId != nil) {
                 do {
                     try longChats().transaction { state in
@@ -105,6 +118,36 @@ extension CoreService {
         } catch {
             throw mapSessionOrchestratorError(error)
         }
+    }
+
+    /// Resolves the conversation history a forked session starts with and detaches the request from its source.
+    ///
+    /// Forks carry their own copy of the history, so the parent link is dropped to keep the model from also
+    /// recovering the source session's later turns.
+    private func forkedSessionEvents(agentID: String, request: inout AgentSessionCreateRequest) throws -> [AgentSessionEvent] {
+        guard let rawSourceID = request.forkFromSessionId else { return [] }
+        let beforeMessageID = request.forkBeforeMessageId
+        request.forkFromSessionId = nil
+        request.forkBeforeMessageId = nil
+        request.parentSessionId = nil
+        guard let sourceID = normalizedSessionID(rawSourceID.trimmingCharacters(in: .whitespacesAndNewlines)) else {
+            throw AgentSessionError.invalidSessionID
+        }
+        let source: AgentSessionDetail
+        do {
+            source = try sessionStore.loadSession(agentID: agentID, sessionID: sourceID)
+        } catch {
+            throw mapSessionStoreError(error)
+        }
+        var events = source.events
+        if let beforeMessageID {
+            guard let cut = events.firstIndex(where: { $0.message?.id == beforeMessageID }) else {
+                throw AgentSessionError.invalidPayload
+            }
+            events = Array(events[..<cut])
+        }
+        let history: Set<AgentSessionEventType> = [.message, .toolCall, .toolResult]
+        return events.filter { history.contains($0.type) }
     }
 
     public func renameAgentSession(agentID: String, sessionID: String, title: String) throws -> AgentSessionSummary {

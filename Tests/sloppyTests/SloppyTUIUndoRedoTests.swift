@@ -200,3 +200,27 @@ private func makeUndoRedoRoot() throws -> URL {
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
     return root
 }
+
+@Test
+func tuiUndoTurnsRevertsFromEarliestMatchingTurnOnly() throws {
+    let root = try makeUndoRedoRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let fileURL = root.appendingPathComponent("note.txt")
+    try Data("zero".utf8).write(to: fileURL)
+
+    var manager = SloppyTUIUndoManager()
+    for (index, text) in ["one", "two", "three"].enumerated() {
+        let baseline = manager.makeBaseline(rootURL: root)
+        try Data(text.utf8).write(to: fileURL)
+        _ = manager.recordChanges(rootURL: root, baseline: baseline, turnKey: "turn-\(index + 1)")
+    }
+
+    let result = try manager.undoTurns(withKeys: ["turn-2", "turn-3"], rootURL: root)
+
+    #expect(result.paths == ["note.txt"])
+    #expect(try String(contentsOf: fileURL, encoding: .utf8) == "one")
+    #expect(manager.canUndo)
+    #expect(throws: SloppyTUIUndoManager.Error.nothingToUndo) {
+        try manager.undoTurns(withKeys: ["turn-9"], rootURL: root)
+    }
+}

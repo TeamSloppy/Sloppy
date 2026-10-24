@@ -99,3 +99,12 @@ import Testing
         hasQueuedInterruptRequest: true
     ))
 }
+
+@Test func queuedSlashCommandsKeepTheirKindThroughTheQueue() {
+    var queue = SloppyTUIMessageQueue()
+    _ = queue.enqueue(text: "/compact", isSlashCommand: true)
+    _ = queue.enqueue(text: "plain")
+
+    #expect(queue.dequeue()?.isSlashCommand == true)
+    #expect(queue.dequeue()?.isSlashCommand == false)
+}

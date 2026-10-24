@@ -70,6 +70,8 @@ extension SloppyTUIScreen {
             await addDirectoryToCurrentSession(raw)
         case "fork":
             await forkCurrentSession(task: args.joined(separator: " "))
+        case "rewind":
+            await showForkPointPicker()
         case "themes", "theme":
             showThemePicker()
         case "bar":

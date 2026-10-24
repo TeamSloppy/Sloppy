@@ -76,6 +76,118 @@ extension SloppyTUIScreen {
         }
     }
 
+    func showForkPointPicker() async {
+        guard hasPersistedSession else {
+            appendLocalCard("No session yet. Send a message first or open an existing session with `/sessions`.")
+            return
+        }
+        guard !isPosting else {
+            appendLocalCard("A message is in flight. Use `/stop` before forking from an earlier message.")
+            return
+        }
+        let detail: AgentSessionDetail
+        do {
+            detail = try await service.getAgentSession(agentID: agent.id, sessionID: session.id)
+        } catch {
+            appendLocalCard("Could not load session history: \(String(describing: error))")
+            return
+        }
+        let items: [SloppyTUIPickerItem] = detail.events.compactMap { event in
+            guard event.type == .message, let message = event.message, message.role == .user else { return nil }
+            let text = message.segments
+                .filter { $0.kind == .text }
+                .compactMap(\.text)
+                .joined(separator: "\n")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !text.isEmpty else { return nil }
+            let firstLine = text.split(separator: "\n", omittingEmptySubsequences: true).first.map(String.init) ?? text
+            return SloppyTUIPickerItem(
+                value: message.id,
+                label: String(firstLine.prefix(80)),
+                description: text,
+                isCurrent: false
+            )
+        }.reversed()
+        guard !items.isEmpty else {
+            appendLocalCard("No earlier user messages to fork from.")
+            return
+        }
+        activePicker = SloppyTUIPicker(
+            kind: .forkPoint,
+            title: "Fork from message",
+            items: Array(items),
+            selectedIndex: 0,
+            allItems: Array(items),
+            supportsSearch: true
+        )
+        refreshStaticChrome(statusLine: "select a message to fork from, Enter to confirm, Esc to cancel")
+    }
+
+    /// Forks the conversation just before `beforeMessageID`, rolls back file edits made from that turn on,
+    /// and puts the original message into the composer so it can be edited and resent.
+    func forkSession(beforeMessageID: String, draft: String) async {
+        let sourceSession = session
+        let laterTurnKeys: Set<String>
+        do {
+            let detail = try await service.getAgentSession(agentID: agent.id, sessionID: sourceSession.id)
+            let userMessageIDs = detail.events.compactMap { event -> String? in
+                guard let message = event.message, message.role == .user else { return nil }
+                return message.id
+            }
+            guard let index = userMessageIDs.firstIndex(of: beforeMessageID) else {
+                appendLocalCard("That message is no longer in the session.")
+                return
+            }
+            laterTurnKeys = Set(userMessageIDs[index...])
+        } catch {
+            appendLocalCard("Fork failed: \(String(describing: error))")
+            return
+        }
+
+        var rollbackSummary: String?
+        if !service.isRemote {
+            do {
+                let rootURL = try await service.resolveProjectWorkspaceRoot(projectID: project.id)
+                let result = try sessionUndoManagers.undoTurns(
+                    sessionID: sourceSession.id,
+                    turnKeys: laterTurnKeys,
+                    rootURL: rootURL
+                )
+                rollbackSummary = undoRedoSummary(result)
+                scheduleProjectFileReindex()
+            } catch SloppyTUIUndoManager.Error.nothingToUndo {
+                rollbackSummary = nil
+            } catch {
+                rollbackSummary = "File rollback skipped: \(error.localizedDescription)"
+            }
+        }
+
+        do {
+            let child = try await service.createAgentSession(
+                agentID: agent.id,
+                request: AgentSessionCreateRequest(
+                    title: "Fork of \(SloppyTUITheme.sessionDisplayTitle(sourceSession))",
+                    projectId: project.id,
+                    forkFromSessionId: sourceSession.id,
+                    forkBeforeMessageId: beforeMessageID
+                )
+            )
+            session = child
+            persistSelection()
+            streamSession()
+            await reloadSession()
+            editor.setText(draft)
+            appendLocalCard(
+                ["Forked into `\(child.title)` before the selected message. Edit it and press Enter to resend.", rollbackSummary]
+                    .compactMap { $0 }
+                    .joined(separator: "\n\n"),
+                autoDismissAfter: 12
+            )
+        } catch {
+            appendLocalCard("Fork failed: \(String(describing: error))")
+        }
+    }
+
     func changeBarColor(_ rawColor: String?) {
         guard let rawColor, !rawColor.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             appendLocalCard("Usage: `/bar <red|blue|green|yellow|purple|orange|pink|cyan|default>`")
@@ -644,6 +756,8 @@ extension SloppyTUIScreen {
             await answerPlanInput(with: item)
         case .theme:
             applyTheme(item.value)
+        case .forkPoint:
+            await forkSession(beforeMessageID: item.value, draft: item.description ?? "")
         }
     }
 

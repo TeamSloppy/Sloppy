@@ -196,6 +196,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         SloppyTUISlashCommand("compact", "Free up context by summarizing the conversation so far"),
         SloppyTUISlashCommand("add_dir", "Add a working directory to this session", argument: "path"),
         SloppyTUISlashCommand("fork", "Create a branch of the current conversation", argument: "task"),
+        SloppyTUISlashCommand("rewind", "Fork from an earlier message, edit it and roll back file changes"),
         SloppyTUISlashCommand("themes", "Switch TUI color theme"),
         SloppyTUISlashCommand("bar", "Change color bar", argument: "red|blue|green|yellow|purple|orange|pink|cyan|default"),
         SloppyTUISlashCommand("copy", "Copy last agent response to clipboard"),
@@ -247,6 +248,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         "add_dir",
         "add-dir",
         "fork",
+        "rewind",
         "themes",
         "theme",
         "bar",
@@ -336,6 +338,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     var lastChangeBatch: ProjectWorkingTreeChangeBatch?
     var lastRenderedSessionEventIDs: Set<String> = []
     var activePicker: SloppyTUIPicker?
+    var lastEscapePressAt: Date?
     var pendingPlanInputRequest: PlanInputRequest?
     var pendingToolApproval: ToolApprovalRecord?
     var pendingToolApprovalPreviewCard: (approvalID: String, cardID: Int)?
@@ -633,6 +636,12 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
             return
         }
         if handleRunInterrupt(input) {
+            return
+        }
+        if handleForkShortcut(input) {
+            return
+        }
+        if handleQueueOnlySubmit(input) {
             return
         }
         if handleModeCycle(input) {

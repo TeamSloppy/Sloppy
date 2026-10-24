@@ -1248,6 +1248,50 @@ extension SloppyTUIScreen {
         return false
     }
 
+    /// Pressing Esc twice on an idle, empty composer opens the fork-point picker.
+    func handleForkShortcut(_ input: TerminalInput) -> Bool {
+        guard case .key(.escape, let modifiers) = input, modifiers.isEmpty else {
+            return false
+        }
+        guard !isPosting, activePicker == nil, sessionListMode == .hidden,
+              editor.getText().isEmpty
+        else {
+            lastEscapePressAt = nil
+            return false
+        }
+        let now = Date()
+        if let last = lastEscapePressAt, now.timeIntervalSince(last) < 0.6 {
+            lastEscapePressAt = nil
+            Task { @MainActor in await self.showForkPointPicker() }
+            return true
+        }
+        lastEscapePressAt = now
+        return false
+    }
+
+    /// Tab while a run is active queues the draft without interrupting the run.
+    ///
+    /// Tab stays with the editor when it is completing a slash command, `@` path or `#` task token.
+    func handleQueueOnlySubmit(_ input: TerminalInput) -> Bool {
+        guard isPosting, !shellModeEnabled,
+              case .key(.tab, let modifiers) = input, modifiers.isEmpty
+        else {
+            return false
+        }
+        let value = editor.getText().trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !value.isEmpty else {
+            return false
+        }
+        if value.hasPrefix("/") {
+            guard shouldHandleSlashCommand(value) else { return false }
+        } else if let lastWord = value.split(whereSeparator: \.isWhitespace).last,
+                  lastWord.hasPrefix("@") || lastWord.hasPrefix("#") {
+            return false
+        }
+        Task { @MainActor in await self.submit(value, queueOnly: true) }
+        return true
+    }
+
     func handleModeCycle(_ input: TerminalInput) -> Bool {
         guard case .key(.tab, let modifiers) = input, modifiers.isEmpty else {
             return false
