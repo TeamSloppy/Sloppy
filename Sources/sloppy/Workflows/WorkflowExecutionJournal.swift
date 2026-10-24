@@ -3,6 +3,7 @@ import Protocols
 
 struct WorkflowExecutionState: Codable, Sendable {
     var schemaVersion = 1
+    var resumeAfterShutdown: Bool? = nil
     var definition: WorkflowDefinition
     var originalInput: [String: JSONValue]
     var run: WorkflowRun
@@ -29,10 +30,10 @@ struct WorkflowExecutionFileStore: Sendable {
         try JSONEncoder().encode(state).write(to: location(state.run.id), options: .atomic)
     }
 
-    func list() throws -> [WorkflowExecutionState] {
+    func identifiers() throws -> [String] {
         guard FileManager.default.fileExists(atPath: root.path) else { return [] }
         return try FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)
-            .filter { $0.pathExtension == "json" }.compactMap { try load($0.deletingPathExtension().lastPathComponent) }
+            .filter { $0.pathExtension == "json" }.map { $0.deletingPathExtension().lastPathComponent }
     }
 
     private func location(_ id: String) throws -> URL {
@@ -49,6 +50,7 @@ actor WorkflowExecutionJournal {
     private let files: WorkflowExecutionFileStore
     private let store: any PersistenceStore
     private(set) var failed = false
+    private(set) var suspended = false
 
     init(state: WorkflowExecutionState, files: WorkflowExecutionFileStore, store: any PersistenceStore) {
         self.state = state
@@ -116,7 +118,14 @@ actor WorkflowExecutionJournal {
         await store.saveWorkflowPendingAction(action)
     }
 
+    func suspend() throws {
+        defer { suspended = true }
+        state.resumeAfterShutdown = true
+        try commit()
+    }
+
     private func commit() throws {
+        guard !suspended else { throw CancellationError() }
         guard !failed else { throw CoreService.WorkflowError.storageFailure }
         do { try files.save(state) }
         catch { failed = true; throw error }

@@ -7915,11 +7915,13 @@ public struct WorkflowDefinitionUpsertRequest: Codable, Sendable, Equatable {
 }
 
 public struct WorkflowRunCreateRequest: Codable, Sendable, Equatable {
+    public var background: Bool?
     public var taskId: String?
     public var startedBy: String
     public var input: [String: JSONValue]
 
-    public init(taskId: String? = nil, startedBy: String, input: [String: JSONValue] = [:]) {
+    public init(taskId: String? = nil, startedBy: String, input: [String: JSONValue] = [:], background: Bool? = nil) {
+        self.background = background
         self.taskId = taskId
         self.startedBy = startedBy
         self.input = input
@@ -8035,11 +8037,13 @@ public struct WorkflowPendingAction: Codable, Sendable, Equatable {
 }
 
 public struct WorkflowActionResolveRequest: Codable, Sendable, Equatable {
+    public var background: Bool?
     public var decision: WorkflowHumanDecision
     public var comment: String?
     public var resolvedBy: String
 
-    public init(decision: WorkflowHumanDecision, comment: String? = nil, resolvedBy: String) {
+    public init(decision: WorkflowHumanDecision, comment: String? = nil, resolvedBy: String, background: Bool? = nil) {
+        self.background = background
         self.decision = decision
         self.comment = comment
         self.resolvedBy = resolvedBy

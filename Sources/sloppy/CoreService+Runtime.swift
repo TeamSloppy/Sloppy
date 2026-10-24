@@ -16,6 +16,7 @@ extension CoreService {
         }
         await recoveryManager.recoverIfNeeded()
         await startEventPersistence()
+        await restoreWorkflowExecutionsIfNeeded()
         await recoverLongChatsIfNeeded()
         await recoverSessionMessagesIfNeeded()
         await restorePlanInputAutoApprovalsIfNeeded()

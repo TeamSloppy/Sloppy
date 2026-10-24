@@ -28,7 +28,15 @@ Use `{{input.<key>}}` and `{{nodes.<id>.output.text}}` to pass input and previou
 Optional `model`, `reasoningEffort`, and `mode` use the ordinary agent-session settings.
 The step output includes `agentId`, `sessionId`, `text`, and `agentOutcome`.
 Inspect that session for details on errors or input waits; neither counts as success.
-Existing-session continuation is not supported yet.
+Input waits keep the workflow pending. Answer the original session's input request to
+continue; Human Input blocks require a nonempty response in the action comment.
+Each run pins its graph version, original input, prior outputs and step/session IDs.
+Approval decisions and user answers resume that run, including after a server restart.
+Interrupted agent steps retain their session history. An external operation without a
+confirmed persisted result blocks for reconciliation instead of being repeated.
+Sharing one session across different graph nodes is not supported yet.
+The Dashboard starts and resumes runs in the background and refreshes their status.
+API clients can opt in with `background: true`; existing calls remain synchronous.
 
 Currently executable blocks: manual trigger, agent/AI transform, Bash, JavaScript/Python,
 registered tools, HTTP, human approval/input decisions, typed field conditions, task status

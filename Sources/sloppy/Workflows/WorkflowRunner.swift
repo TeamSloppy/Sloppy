@@ -10,6 +10,9 @@ struct WorkflowRunner {
         var runId: String? = nil
         var stepId: String? = nil
         var stepStartedAt: Date? = nil
+        var resumingStep: WorkflowRunStep? = nil
+        var resumeAfterShutdown = false
+        var runStartedAt: Date? = nil
         var reportProgress: (@Sendable ([String: JSONValue]) async throws -> Void)? = nil
     }
 
@@ -140,6 +143,53 @@ struct WorkflowRunner {
         }
     }
 
+    func restore(
+        state: WorkflowExecutionState, persistence: Persistence,
+        updateTask: @Sendable (String, String, String) async throws -> Void,
+        executeTool: ToolExecutor? = nil
+    ) async -> Result {
+        var context = Context(projectId: state.run.projectId, taskId: state.run.taskId, startedBy: state.run.startedBy,
+                              input: state.originalInput, runId: state.run.id)
+        context.runStartedAt = state.run.startedAt
+        if state.run.status == .queued { return await start(definition: state.definition, context: context, persistence: persistence, updateTask: updateTask, executeTool: executeTool) }
+        do {
+            guard let nodeID = state.run.currentNodeIds.first,
+                  let node = state.definition.nodes.first(where: { $0.id == nodeID }) else {
+                return try await fail(run: state.run, message: "Checkpoint has no executable cursor.", persistence: persistence)
+            }
+            let step = state.steps.last { $0.nodeId == nodeID }
+            if step?.status == .succeeded {
+                if node.type == .end {
+                    var run = state.run
+                    run.status = endStatus(from: node) ?? .failed
+                    run.currentNodeIds = []
+                    run.finishedAt = step?.finishedAt ?? Date()
+                    try await persistence.saveRun(run)
+                    return run.status == .completed ? .completed(run) : .failed(run, "Terminal checkpoint restored.")
+                }
+                return await resume(definition: state.definition, run: state.run, resolvedNodeID: nodeID, output: step?.output ?? [:],
+                                    persistence: persistence, updateTask: updateTask, executeTool: executeTool,
+                                    originalInput: state.originalInput, previousSteps: state.steps, resolvedStepID: step?.id)
+            }
+            if step?.status == .failed { return try await fail(run: state.run, message: step?.error ?? "Step failed before restart.", persistence: persistence) }
+            if let step, step.status == .running, node.type == .toolCheck || node.type == .updateTask {
+                var blocked = state.run
+                blocked.status = .blocked
+                var interrupted = step
+                interrupted.status = .waiting
+                interrupted.error = "Server stopped during an external operation. Reconcile its result before retrying; it was not replayed."
+                try await persistence.saveStep(interrupted)
+                try await persistence.saveRun(blocked)
+                return .failed(blocked, interrupted.error ?? "Reconciliation required.")
+            }
+            context.resumingStep = step
+            context.resumeAfterShutdown = state.resumeAfterShutdown == true
+            return try await walk(definition: state.definition, run: state.run, currentNodeID: nodeID, context: context,
+                                  initialOutput: state.steps.last(where: { $0.status == .succeeded })?.output ?? state.originalInput,
+                                  persistence: persistence, updateTask: updateTask, executeTool: executeTool, previousSteps: state.steps)
+        } catch { return .failed(state.run, "Workflow recovery checkpoint failed: \(error)") }
+    }
+
     private func walk(
         definition: WorkflowDefinition,
         run: WorkflowRun,
@@ -161,8 +211,11 @@ struct WorkflowRunner {
             if step.status == .succeeded { nodeOutputs[step.nodeId] = .object(["output": .object(step.output)]) }
         }
 
+        var resumingStep = context.resumingStep
         while let activeNodeID = nodeID {
-            visitedCounts[activeNodeID, default: 0] += 1
+            let continuedStep = resumingStep?.nodeId == activeNodeID ? resumingStep : nil
+            resumingStep = nil
+            if continuedStep == nil { visitedCounts[activeNodeID, default: 0] += 1 }
             guard visitedCounts[activeNodeID, default: 0] <= 25 else {
                 return try await fail(run: run, message: "Workflow exceeded the maximum step attempt limit.", persistence: persistence)
             }
@@ -173,10 +226,10 @@ struct WorkflowRunner {
             run.status = .running
             run.currentNodeIds = [node.id]
             try await persistence.saveRun(run)
-            let scopedInput = workflowScopedInput(current: previousOutput, contextInput: context.input, nodeOutputs: nodeOutputs)
+            let scopedInput = continuedStep?.input ?? workflowScopedInput(current: previousOutput, contextInput: context.input, nodeOutputs: nodeOutputs)
 
-            let stepID = "step_\(UUID().uuidString.lowercased())"
-            let startedAt = Date()
+            let stepID = continuedStep?.id ?? "step_\(UUID().uuidString.lowercased())"
+            let startedAt = continuedStep?.startedAt ?? Date()
             switch node.type {
             case .humanApproval, .humanInput:
                 let action = makePendingAction(node: node, run: run, context: context)
@@ -220,6 +273,8 @@ struct WorkflowRunner {
                 return run.status == .completed ? .completed(run) : .failed(run, "Workflow ended with \(run.status.rawValue).")
 
             case .updateTask:
+                try await persistence.saveStep(WorkflowRunStep(id: stepID, runId: run.id, nodeId: node.id,
+                    status: .running, input: scopedInput, startedAt: startedAt))
                 do {
                     guard let taskId = context.taskId, let status = stringValue(node.config["status"]) else {
                         return try await failStep(run: run, nodeID: node.id, input: scopedInput,
@@ -243,12 +298,13 @@ struct WorkflowRunner {
             case .agentStep, .toolCheck:
                 try await persistence.saveStep(WorkflowRunStep(
                     id: stepID, runId: run.id, nodeId: node.id, status: .running,
-                    input: scopedInput, startedAt: startedAt
+                    input: scopedInput, output: continuedStep?.output ?? [:], startedAt: startedAt
                 ))
                 var stepContext = context
+                stepContext.resumingStep = continuedStep
                 stepContext.stepId = stepID
                 stepContext.stepStartedAt = startedAt
-                let progressStep = WorkflowRunStep(id: stepID, runId: run.id, nodeId: node.id, status: .running, input: scopedInput, startedAt: startedAt)
+                let progressStep = WorkflowRunStep(id: stepID, runId: run.id, nodeId: node.id, status: .running, input: scopedInput, output: continuedStep?.output ?? [:], startedAt: startedAt)
                 stepContext.reportProgress = { output in
                     var step = progressStep
                     step.output = output
@@ -277,6 +333,11 @@ struct WorkflowRunner {
                         input: scopedInput, output: failedOutput, error: message,
                         startedAt: startedAt, finishedAt: Date()
                     ))
+                    if toolResult.error?.code == "workflow_reconciliation_required" {
+                        run.status = .blocked
+                        try await persistence.saveRun(run)
+                        return .failed(run, message)
+                    }
                     return try await fail(run: run, message: message, persistence: persistence)
                 }
                 previousOutput = toolResult.dataObject.merging([
@@ -331,7 +392,7 @@ struct WorkflowRunner {
             status: status,
             currentNodeIds: currentNodeIds,
             startedBy: context.startedBy,
-            startedAt: Date(),
+            startedAt: context.runStartedAt ?? Date(),
             finishedAt: finishedAt
         )
     }

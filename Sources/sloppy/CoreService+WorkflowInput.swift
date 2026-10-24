@@ -2,20 +2,26 @@ import Foundation
 import Protocols
 
 extension CoreService {
-    func reconcileWorkflowAgentSession(agentID: String, sessionID: String, response: AgentSessionMessageResponse) async {
+    func reconcileWorkflowAgentSession(agentID: String, sessionID: String, response: AgentSessionMessageResponse? = nil) async {
+        guard !workflowIsStopping else { return }
         do {
             let key = sessionChannelID(agentID: agentID, sessionID: sessionID)
             for runID in workflowWaitingSessions[key] ?? [] {
-                guard let state = try workflowExecutionFiles.load(runID), state.run.status == .waitingForAgent else {
+                guard let state = try workflowExecutionFiles.load(runID) else {
                     workflowWaitingSessions[key]?.remove(runID)
                     continue
                 }
-                guard !activeWorkflowRuns.contains(state.run.id),
+                if activeWorkflowRuns.contains(runID) {
+                    workflowReconciliationPending.insert(runID)
+                    continue
+                }
+                guard state.run.status == .waitingForAgent,
                       let step = state.steps.last(where: { $0.nodeId == state.run.currentNodeIds.first }),
                       step.output["agentId"]?.asString == agentID, step.output["sessionId"]?.asString == sessionID else { continue }
                 activeWorkflowRuns.insert(state.run.id)
-                defer { activeWorkflowRuns.remove(state.run.id) }
                 let journal = WorkflowExecutionJournal(state: state, files: workflowExecutionFiles, store: store)
+                workflowJournals[state.run.id] = journal
+                defer { releaseWorkflowExecution(state.run.id) }
                 _ = try await finishWaitingWorkflowAgent(journal: journal, response: response)
             }
         } catch {
