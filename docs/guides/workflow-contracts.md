@@ -65,3 +65,31 @@ object string, preserving boolean, null and numeric values.
 
 The Dashboard exposes output format/schema and transition-rule controls. Invalid JSON
 in these controls prevents Save and Run until corrected.
+
+## Agent sessions
+
+`config.sessionMode` chooses `new` (the default) or `shared`. New sessions receive the
+step's workflow input and outputs; sharing retains the native conversation and tool history.
+Shared mode also requires `config.sessionSourceNodeId`, identifying an earlier agent step
+in this run using the same agent. For example, a revision step can select Implementation
+while an independent reviewer keeps a new session.
+
+```json
+{"agentId":"developer","prompt":"Apply the review comments.","sessionMode":"shared","sessionSourceNodeId":"implementation"}
+```
+
+The source must have executed successfully; its session must be completed and idle, with
+the same project/task scope. A skipped source, another agent, or unavailable history fails
+explicitly. It never falls back to a fresh session. Runs do not share sessions with one another.
+Raw `config.sessionId` remains unsuitable as an execution policy; use the source-step field.
+
+The binding and `sessionAfterEventId` boundary are checkpointed before posting the new
+request. A shared step reads only its own later events for output and terminal status,
+including after input waits or server restart. Earlier messages remain available to the
+model through the native session. A missing boundary fails rather than reading unrelated
+history. Old checkpoints without a boundary retain their original fresh-session behavior.
+Keep the output envelope open to additional execution metadata; close a `result` subtree
+with `additionalProperties: false` when a strict payload is needed.
+
+The Dashboard's custom session-source dropdown lists preceding steps using the selected
+agent. Parallel execution, session compaction policy and worktree selection are later stages.

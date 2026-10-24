@@ -22,6 +22,7 @@ import {
 } from "./projectWorkflows";
 
 import { WorkflowOutputControls, WorkflowTransitionControls } from "./WorkflowContractControls";
+import { WorkflowSessionControls } from "./WorkflowSessionControls";
 
 type AnyRecord = Record<string, any>;
 
@@ -1419,6 +1420,10 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
                     rows={4}
                   />
                 </label>
+                {selectedNode.type === "agent_step" ? <WorkflowSessionControls key={`session-${selectedNode.id}`} node={selectedNode} workflow={draft!} onChange={(config) => {
+                  setNodeConfigText(JSON.stringify(config, null, 2));
+                  updateSelectedNode({ config });
+                }} /> : null}
                 <WorkflowOutputControls key={selectedNode.id} node={selectedNode} onChange={updateSelectedNodeConfig} onError={setContractError} />
                 <div className="project-workflow-data-hints">
                   <strong>Data</strong>
