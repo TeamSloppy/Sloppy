@@ -37,16 +37,12 @@ extension CoreService {
         else { return await workflowRunDetail(run: state.run) }
         let key = sessionChannelID(agentID: agentID, sessionID: sessionID)
         workflowWaitingSessions[key, default: []].insert(state.run.id)
-        let resolved: AgentSessionMessageResponse
-        if let response { resolved = response }
-        else {
-            let detail = try getAgentSession(agentID: agentID, sessionID: sessionID)
-            resolved = .init(summary: detail.summary, appendedEvents: detail.events, routeDecision: nil)
-        }
+        let detail = try getAgentSession(agentID: agentID, sessionID: sessionID)
+        let resolved = AgentSessionMessageResponse(summary: detail.summary, appendedEvents: detail.events, routeDecision: response?.routeDecision)
         let format = state.definition.nodes.first { $0.id == step.nodeId }?.config["outputFormat"]?.asString ?? "text"
         let result = Self.workflowAgentResult(response: resolved, output: step.output, outputFormat: format)
-        let stage = resolved.appendedEvents.filter { $0.importOrigin == nil }.compactMap(\.runStatus).last?.stage
-        if stage != .done && stage != .interrupted && !WorkflowAgentOutcome.isWaiting(result) {
+        let stage = (try? Self.workflowAgentEvents(resolved.appendedEvents, output: step.output))?.compactMap(\.runStatus).last?.stage
+        if stage != .done && stage != .interrupted && !WorkflowAgentOutcome.isWaiting(result) && result.error?.code != "workflow_agent_history_missing" {
             return await workflowRunDetail(run: state.run)
         }
         try await journal.recordAgentResult(stepID: step.id, result: result)

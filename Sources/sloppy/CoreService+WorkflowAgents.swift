@@ -18,8 +18,9 @@ extension CoreService {
             return failure("workflow_agent_invalid", "Agent step requires agentId and a nonempty prompt.")
         }
         let blockKind = value("blockKind") ?? value("block_kind") ?? "agent"
+        guard WorkflowSessionPolicy.mode(node) != nil else { return failure("workflow_agent_invalid", "Invalid sessionMode.") }
         guard ["agent", "agent_step", "ai_transform"].contains(blockKind), value("sessionId") == nil else {
-            return failure("workflow_agent_unsupported", "This step requires a supported agent block and a new session; existing-session continuation is not implemented.")
+            return failure("workflow_agent_unsupported", "Use a supported agent block and sessionMode/sessionSourceNodeId; raw sessionId is not an execution policy.")
         }
         guard let mode = AgentChatMode(rawValue: value("mode") ?? "auto") else {
             return failure("workflow_agent_invalid", "Invalid agent chat mode.")
@@ -42,7 +43,8 @@ extension CoreService {
                 }
                 session = detail.summary
                 output["sessionId"] = .string(sessionID)
-                let events = detail.events.filter { $0.importOrigin == nil }
+                output["sessionAfterEventId"] = context.resumingStep?.output["sessionAfterEventId"]
+                let events = try Self.workflowAgentEvents(detail.events, output: output)
                 let explicitInterrupt = events.contains { $0.runControl?.action == .interrupt || $0.runControl?.action == .interruptTree || $0.inputResponse?.status == .cancelled }
                 if explicitInterrupt { return failure("workflow_agent_cancelled", "The agent session was explicitly interrupted.", data: output) }
                 let status = events.compactMap(\.runStatus).last
@@ -50,7 +52,7 @@ extension CoreService {
                 let answeredPause = (events.lastIndex { $0.inputResponse?.status == .answered } ?? -1)
                     > (events.lastIndex { $0.runStatus != nil } ?? -1)
                 if completed || (status?.stage == .paused && !answeredPause) || ((status?.stage == .done || status?.stage == .interrupted) && !context.resumeAfterShutdown) {
-                    return Self.workflowAgentResult(response: .init(summary: detail.summary, appendedEvents: events, routeDecision: nil), output: output, outputFormat: outputFormat)
+                    return Self.workflowAgentResult(response: .init(summary: detail.summary, appendedEvents: detail.events, routeDecision: nil), output: output, outputFormat: outputFormat)
                 }
                 var results: [String: AgentToolResultEvent] = [:]
                 for event in events { if let result = event.toolResult, let id = result.callEventId { results[id] = result } }
@@ -59,10 +61,9 @@ extension CoreService {
                 }
                 continuation = events.contains { $0.message?.role == .user }
             } else {
-                session = try await createAgentSession(agentID: agentID, request: AgentSessionCreateRequest(
-                    title: "Workflow: \(node.title)", separateChat: true,
-                    projectId: context.projectId, taskId: context.taskId
-                ))
+                session = try await selectWorkflowAgentSession(node: node, context: context, input: input, agentID: agentID)
+                let initial = try getAgentSession(agentID: agentID, sessionID: session.id)
+                output["sessionAfterEventId"] = initial.events.last.map { .string($0.id) } ?? .null
             }
             output["sessionId"] = .string(session.id)
             try await context.reportProgress?(output)
@@ -94,7 +95,15 @@ extension CoreService {
     }
 
     static func workflowAgentResult(response: AgentSessionMessageResponse, output: [String: JSONValue], outputFormat: String = "text") -> ToolInvocationResult {
-        let events = response.appendedEvents.filter { $0.importOrigin == nil }
+        let events: [AgentSessionEvent]
+        do { events = try workflowAgentEvents(response.appendedEvents, output: output) }
+        catch {
+            var failed = output
+            failed["agentOutcome"] = .string(ExecutionState.failed.rawValue)
+            failed.removeValue(forKey: "agentStage")
+            return .init(tool: "workflow.agent", ok: false, data: .object(failed),
+                error: .init(code: "workflow_agent_history_missing", message: String(describing: error), retryable: false))
+        }
         let status = events.compactMap(\.runStatus).last
         let outcome = status?.executionOutcome
         var data = output
