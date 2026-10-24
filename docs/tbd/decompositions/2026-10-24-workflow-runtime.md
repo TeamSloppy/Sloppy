@@ -3,18 +3,18 @@
 - Created: 2026-10-24.
 - Scope and order authorized by the user's instruction to implement the preceding Kent comparison plan, starting with false success and real agents.
 - Trunk: main. Working branch for the first slice: codex/workflow-agent-execution.
-- Delivery: [draft PR #60](https://github.com/TeamSloppy/Sloppy/pull/60), not merged or marked ready for review.
+- Delivery: [PR #60](https://github.com/TeamSloppy/Sloppy/pull/60) merged to main; the following slices are tracked below.
 - Target: <=600 added + removed reviewable lines per slice; cap 1000. Documentation excluded. Earlier Dashboard and unrelated TUI changes stay outside these slices.
 
 | # | Purpose | Size budget | Integration | Depends on | Status |
 |---|---|---|---|---|---|
-| 1 | Fail explicitly for unexecuted steps and run agent nodes through real, project-scoped sessions; persist their results | 600 | Self-contained correction through existing executor/session APIs; remove the unsafe success fallback | — | in-review |
-| 2a | Pin the graph and persist full execution checkpoints; restore approvals idempotently | 600 | Atomic execution journal, existing SQLite history API retained | 1 | in-review |
-| 2b | Resume waiting agent sessions and collect human input without losing prior outputs | 600 | Typed waiting outcome and session reconciliation; original session retained | 2a | in-review |
-| 2c | Recover queued, completed and interrupted execution at startup without repeating uncertain side effects | 600 | Rehydrate history from checkpoints; safe recovery or explicit reconciliation | 2b | in-review |
-| 3a | Validate transitions and template references before execution; reject ambiguous routing | 600 | Additive typed conditions; preserve valid legacy keys and drafts; validate before replacing saved graphs | 2c | implemented |
-| 3b | Validate output contracts and expose structured agent results and transition controls | 600 | Optional output schema and JSON mode; legacy text mode retained | 3a | implemented |
-| 3c | Choose new or shared agent sessions and persist each step's message boundary | 600 | Default remains new; shared sessions explicitly reference an earlier step in the same run | 3b | implemented |
+| 1 | Fail explicitly for unexecuted steps and run agent nodes through real, project-scoped sessions; persist their results | 600 | Self-contained correction through existing executor/session APIs; remove the unsafe success fallback | — | merged to main |
+| 2a | Pin the graph and persist full execution checkpoints; restore approvals idempotently | 600 | Atomic execution journal, existing SQLite history API retained | 1 | merged to feature branch |
+| 2b | Resume waiting agent sessions and collect human input without losing prior outputs | 600 | Typed waiting outcome and session reconciliation; original session retained | 2a | merged to feature branch |
+| 2c | Recover queued, completed and interrupted execution at startup without repeating uncertain side effects | 600 | Rehydrate history from checkpoints; safe recovery or explicit reconciliation | 2b | merged to feature branch |
+| 3a | Validate transitions and template references before execution; reject ambiguous routing | 600 | Additive typed conditions; preserve valid legacy keys and drafts; validate before replacing saved graphs | 2c | in-review |
+| 3b | Validate output contracts and expose structured agent results and transition controls | 600 | Optional output schema and JSON mode; legacy text mode retained | 3a | in-review |
+| 3c | Choose new or shared agent sessions and persist each step's message boundary | 600 | Default remains new; shared sessions explicitly reference an earlier step in the same run | 3b | in-review |
 | 4 | Execute multiple branches and wait at a join; aggregate outputs and cancellation | 600 per fan-out/join sub-slice | Validate executable topology; unsupported graphs fail until fully supported | 2, 3 | planned |
 | 5 | Bind task input and execution workspace/worktree policy; recovery and status delivery | 600 per task/worktree sub-slice | Explicit execution policy using existing project machinery | 2 | planned |
 
@@ -45,9 +45,9 @@ Slice 1 boundaries at delivery: agent steps used fresh sessions; input/approval 
 - 2026-10-24: The user explicitly requested approval, user-answer and server-restart continuation. Split the approved state phase into 2a/2b/2c to keep each change reviewable; all three remain the current task. PR 60 remains draft and is the stack base, with no implicit merge authorization.
 - Slice 2a: 539 reviewable lines. All 36 workflow tests passed, including a SQLite-backed CoreService recreation after the live definition was modified/deleted, original input and upstream output preservation, idempotent approval, persistence failure and loop-attempt budget continuity.
 
-- Slice 2a is [draft PR 61](https://github.com/TeamSloppy/Sloppy/pull/61), stacked on PR 60.
+- Slice 2a is [PR 61](https://github.com/TeamSloppy/Sloppy/pull/61), merged to the PR 60 feature branch.
 - Slice 2b: all 38 workflow tests passed, including a real `planning.request_input` tool call followed by an answer or cancellation in the original session. Manual Human Input requires a response and passes it downstream. Dashboard typecheck and an isolated browser fixture verified the response field, disabled empty Continue, and exact comment payload.
-- Slice 2b is [draft PR 62](https://github.com/TeamSloppy/Sloppy/pull/62), stacked on PR 61.
+- Slice 2b is [PR 62](https://github.com/TeamSloppy/Sloppy/pull/62), merged to the PR 61 feature branch.
 - 2026-10-25, slice 2c: startup rebuilds the query index from atomic checkpoints and restores the pinned cursor. Completed steps are skipped; interrupted agent steps continue in the original session. Uncertain external effects remain blocked for reconciliation. Shutdown fences subsequent writes from the old executor.
 - Dashboard requests background execution and polls active/waiting runs. Decisions are persisted before returning a background receipt. Existing API clients retain synchronous behavior. Polling retries transient failures while the server restarts.
 - Final Swift validation: 94 tests in seven workflow/session/heartbeat/input suites passed. Recovery covers answers and cancellations saved before restart or submitted afterward, including the gap before the next model request. A moved cursor does not reuse a previous visit to the same node after a loop. Earlier race coverage also passed three additional runs.
@@ -56,7 +56,7 @@ Slice 1 boundaries at delivery: agent steps used fresh sessions; input/approval 
 - The browser fixture verified the response UI and background queued-to-completed refresh after a simulated fetch failure. Backend proof comes from SQLite-backed service recreation and the actual native session pipeline with a local model fixture; the production Sloppy server was not restarted.
 - Recovery assumes a single Core owner per workspace. Automatic replay of an external operation whose result was not durably recorded is intentionally blocked; operator reconciliation remains required. Full-suite coverage is limited as recorded under slice 1.
 - 2026-10-25: The user explicitly authorized publishing the final commits and creating the draft PR for slice 2c.
-- Slice 2c is [draft PR 63](https://github.com/TeamSloppy/Sloppy/pull/63), stacked on PR 62.
+- Slice 2c is [PR 63](https://github.com/TeamSloppy/Sloppy/pull/63), merged to the PR 62 feature branch.
 
 ## Output and session stage
 
@@ -70,3 +70,5 @@ Slice 1 boundaries at delivery: agent steps used fresh sessions; input/approval 
 - Full `swift test --parallel --skip-build` recorded 62 issues across 18 test files and was stopped at the explicit 180-second limit. All seven workflow suites passed within that run. No clean full-suite result or baseline classification is claimed for the other failures (tools/bridge/terminal/Visor/session/memory/runtime/HTTP/TUI tests).
 - Final macOS release builds passed for both `sloppy` and `SloppyNode` with all three slices. The production service was not restarted or deployed.
 - 2026-10-25: The user explicitly authorized creating all three stage-3 draft PRs in TeamSloppy/Sloppy. The three implementation branches are pushed.
+- Created draft PRs: [64, transitions](https://github.com/TeamSloppy/Sloppy/pull/64) based on the recovery branch, [65, outputs](https://github.com/TeamSloppy/Sloppy/pull/65) based on PR 64, and [66, sessions](https://github.com/TeamSloppy/Sloppy/pull/66) based on PR 65. All three are attached to the chat.
+- Publication status was checked live: PRs 61–63 are merged into their preceding feature branches; the recovery commit is not an ancestor of current main. The new PR chain preserves the planned small diffs rather than folding those dependencies into PR 64. Integration of the earlier feature-branch merges into main is a separate action.
