@@ -11,7 +11,7 @@
 | 1 | Fail explicitly for unexecuted steps and run agent nodes through real, project-scoped sessions; persist their results | 600 | Self-contained correction through existing executor/session APIs; remove the unsafe success fallback | — | in-review |
 | 2a | Pin the graph and persist full execution checkpoints; restore approvals idempotently | 600 | Atomic execution journal, existing SQLite history API retained | 1 | in-review |
 | 2b | Resume waiting agent sessions and collect human input without losing prior outputs | 600 | Typed waiting outcome and session reconciliation; original session retained | 2a | in-review |
-| 2c | Recover queued, completed and interrupted execution at startup without repeating uncertain side effects | 600 | Rehydrate history from checkpoints; safe recovery or explicit reconciliation | 2b | implemented |
+| 2c | Recover queued, completed and interrupted execution at startup without repeating uncertain side effects | 600 | Rehydrate history from checkpoints; safe recovery or explicit reconciliation | 2b | in-review |
 | 3 | Validate transition outputs and missing references; add independent/continued session context | 600 per context/output sub-slice | Additive contracts; existing serialized graphs migrate explicitly | 2 | planned |
 | 4 | Execute multiple branches and wait at a join; aggregate outputs and cancellation | 600 per fan-out/join sub-slice | Validate executable topology; unsupported graphs fail until fully supported | 2, 3 | planned |
 | 5 | Bind task input and execution workspace/worktree policy; recovery and status delivery | 600 per task/worktree sub-slice | Explicit execution policy using existing project machinery | 2 | planned |
@@ -54,3 +54,4 @@ Slice 1 boundaries at delivery: agent steps used fresh sessions; input/approval 
 - The browser fixture verified the response UI and background queued-to-completed refresh after a simulated fetch failure. Backend proof comes from SQLite-backed service recreation and the actual native session pipeline with a local model fixture; the production Sloppy server was not restarted.
 - Recovery assumes a single Core owner per workspace. Automatic replay of an external operation whose result was not durably recorded is intentionally blocked; operator reconciliation remains required. Full-suite coverage is limited as recorded under slice 1.
 - 2026-10-25: The user explicitly authorized publishing the final commits and creating the draft PR for slice 2c.
+- Slice 2c is [draft PR 63](https://github.com/TeamSloppy/Sloppy/pull/63), stacked on PR 62.
