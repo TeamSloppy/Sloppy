@@ -9,7 +9,9 @@
 | # | Purpose | Size budget | Integration | Depends on | Status |
 |---|---|---|---|---|---|
 | 1 | Fail explicitly for unexecuted steps and run agent nodes through real, project-scoped sessions; persist their results | 600 | Self-contained correction through existing executor/session APIs; remove the unsafe success fallback | — | in-review |
-| 2 | Pin the graph version and persist/restore original input, node outputs and attempt counts across approvals | 600 | Backward-compatible optional persisted state with tests for old records | 1 | planned |
+| 2a | Pin the graph and persist full execution checkpoints; restore approvals idempotently | 600 | Atomic execution journal, existing SQLite history API retained | 1 | in-progress |
+| 2b | Resume waiting agent sessions and collect human input without losing prior outputs | 600 | Typed waiting outcome and session reconciliation; original session retained | 2a | planned |
+| 2c | Recover queued, completed and interrupted execution at startup without repeating uncertain side effects | 600 | Rehydrate history from checkpoints; safe recovery or explicit reconciliation | 2b | planned |
 | 3 | Validate transition outputs and missing references; add independent/continued session context | 600 per context/output sub-slice | Additive contracts; existing serialized graphs migrate explicitly | 2 | planned |
 | 4 | Execute multiple branches and wait at a join; aggregate outputs and cancellation | 600 per fan-out/join sub-slice | Validate executable topology; unsupported graphs fail until fully supported | 2, 3 | planned |
 | 5 | Bind task input and execution workspace/worktree policy; recovery and status delivery | 600 per task/worktree sub-slice | Explicit execution policy using existing project machinery | 2 | planned |
@@ -35,3 +37,8 @@ No temporary toggle or replacement framework is introduced. The old no-op succes
 - macOS release builds passed: `swift build -c release --product sloppy` and `swift build -c release --product SloppyNode`. GitHub CI was still running at handoff.
 
 Current boundaries: agent steps use fresh sessions; input/approval waits are preserved in the linked agent session and stop the workflow with an explicit non-success result. Continuing the parent from such waits belongs to the checkpoint/resume slice. Start requests retain the existing synchronous API behavior; durable background scheduling is part of the next execution-state slice.
+
+## State/resume stage
+
+- 2026-10-24: The user explicitly requested approval, user-answer and server-restart continuation. Split the approved state phase into 2a/2b/2c to keep each change reviewable; all three remain the current task. PR 60 remains draft and is the stack base, with no implicit merge authorization.
+- Slice 2a: 539 reviewable lines. All 36 workflow tests passed, including a SQLite-backed CoreService recreation after the live definition was modified/deleted, original input and upstream output preservation, idempotent approval, persistence failure and loop-attempt budget continuity.

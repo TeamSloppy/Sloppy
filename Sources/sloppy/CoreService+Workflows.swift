@@ -95,33 +95,25 @@ extension CoreService {
         guard issues.isEmpty else {
             throw WorkflowError.validationFailed(issues)
         }
-        let runner = WorkflowRunner()
-        let persistence = WorkflowRunner.Persistence(
-            saveRun: { [store] run in await store.saveWorkflowRun(run) },
-            saveStep: { [store] step in await store.saveWorkflowRunStep(step) },
-            saveAction: { [store] action in await store.saveWorkflowPendingAction(action) }
-        )
-        let result = await runner.start(
+        let run = WorkflowRun(id: "run_\(UUID().uuidString.lowercased())", workflowId: definition.id,
+                              workflowVersion: definition.version, projectId: projectID, taskId: request.taskId,
+                              status: .queued, startedBy: request.startedBy)
+        let journal = WorkflowExecutionJournal(state: .init(definition: definition, originalInput: request.input, run: run),
+                                               files: workflowExecutionFiles, store: store)
+        activeWorkflowRuns.insert(run.id)
+        defer { activeWorkflowRuns.remove(run.id) }
+        try await journal.flush()
+        _ = await WorkflowRunner().start(
             definition: definition,
-            context: .init(projectId: projectID, taskId: request.taskId, startedBy: request.startedBy, input: request.input),
-            persistence: persistence,
-            updateTask: { [weak self] projectId, taskId, status in
-                _ = try await self?.updateProjectTask(
-                    projectID: projectId,
-                    taskID: taskId,
-                    request: ProjectTaskUpdateRequest(status: status, changedBy: "user")
-                )
-            },
+            context: .init(projectId: projectID, taskId: request.taskId, startedBy: request.startedBy, input: request.input, runId: run.id),
+            persistence: await journal.persistence,
+            updateTask: workflowTaskUpdater(),
             executeTool: { [weak self] node, context, input in
                 await self?.executeWorkflowToolNode(node: node, context: context, input: input)
             }
         )
-        let run: WorkflowRun
-        switch result {
-        case .completed(let value), .waitingForHuman(let value, _), .failed(let value, _):
-            run = value
-        }
-        return await workflowRunDetail(run: run)
+        guard await !journal.failed else { throw WorkflowError.storageFailure }
+        return await workflowRunDetail(run: journal.snapshot().run)
     }
 
     public func listWorkflowRuns(projectID: String) async -> [WorkflowRun] {
@@ -140,58 +132,79 @@ extension CoreService {
     }
 
     public func resolveWorkflowPendingAction(projectID: String, actionID: String, request: WorkflowActionResolveRequest) async throws -> WorkflowRunDetail {
-        guard let action = await store.resolveWorkflowPendingAction(actionId: actionID, resolvedAt: Date()),
-              action.projectId == projectID
-        else {
-            throw WorkflowError.actionNotFound
-        }
-        guard let run = await store.getWorkflowRun(id: action.workflowRunId) else {
-            throw WorkflowError.runNotFound
-        }
-        let definition = try await getWorkflowDefinition(projectID: projectID, workflowID: run.workflowId)
+        let actions = await store.listWorkflowPendingActions(projectId: projectID, includeResolved: true)
+        guard let action = actions.first(where: { $0.id == actionID }) else { throw WorkflowError.actionNotFound }
+        guard let run = await store.getWorkflowRun(id: action.workflowRunId), run.projectId == projectID else { throw WorkflowError.runNotFound }
+        let journal = try await workflowJournal(run: run)
+        let state = await journal.snapshot()
+        guard let savedAction = state.actions.first(where: { $0.id == actionID }) else { throw WorkflowError.actionNotFound }
+        if savedAction.resolvedAt != nil { return await workflowRunDetail(run: state.run) }
+        guard activeWorkflowRuns.insert(run.id).inserted else { throw WorkflowError.invalidPayload }
+        defer { activeWorkflowRuns.remove(run.id) }
         let output: [String: JSONValue] = [
             "decision": .string(request.decision.rawValue),
             "comment": request.comment.map(JSONValue.string) ?? .null,
             "resolvedBy": .string(request.resolvedBy)
         ]
-        let runner = WorkflowRunner()
-        let persistence = WorkflowRunner.Persistence(
-            saveRun: { [store] run in await store.saveWorkflowRun(run) },
-            saveStep: { [store] step in await store.saveWorkflowRunStep(step) },
-            saveAction: { [store] action in await store.saveWorkflowPendingAction(action) }
-        )
-        _ = await runner.resume(
-            definition: definition,
-            run: run,
-            resolvedNodeID: action.nodeId,
-            output: output,
-            persistence: persistence,
-            updateTask: { [weak self] projectId, taskId, status in
-                _ = try await self?.updateProjectTask(
-                    projectID: projectId,
-                    taskID: taskId,
-                    request: ProjectTaskUpdateRequest(status: status, changedBy: "user")
-                )
-            },
-            executeTool: { [weak self] node, context, input in
-                await self?.executeWorkflowToolNode(node: node, context: context, input: input)
-            }
-        )
-        guard let updatedRun = await store.getWorkflowRun(id: run.id) else {
-            throw WorkflowError.runNotFound
-        }
-        return await workflowRunDetail(run: updatedRun)
+        try await journal.resolve(actionID: actionID, output: output)
+        return try await continueWorkflow(journal: journal, nodeID: action.nodeId, output: output)
     }
 
-    private func workflowRunDetail(run: WorkflowRun) async -> WorkflowRunDetail {
-        WorkflowRunDetail(
+    var workflowExecutionFiles: WorkflowExecutionFileStore {
+        .init(root: workspaceRootURL.appendingPathComponent("workflow-runs", isDirectory: true))
+    }
+
+    func workflowJournal(run: WorkflowRun) async throws -> WorkflowExecutionJournal {
+        if let state = try workflowExecutionFiles.load(run.id) {
+            return WorkflowExecutionJournal(state: state, files: workflowExecutionFiles, store: store)
+        }
+        // Legacy runs can only be upgraded while their exact graph version still exists.
+        let definition = try await getWorkflowDefinition(projectID: run.projectId, workflowID: run.workflowId)
+        guard definition.version == run.workflowVersion else { throw WorkflowError.validationFailed([
+            .init(severity: "error", message: "The original workflow version is unavailable; this run cannot safely resume.")
+        ]) }
+        let steps = await store.listWorkflowRunSteps(runId: run.id)
+        let state = WorkflowExecutionState(definition: definition, originalInput: steps.first?.input["input"]?.asObject ?? [:],
+                                           run: run, steps: steps, actions: await store.listWorkflowPendingActions(runId: run.id))
+        let journal = WorkflowExecutionJournal(state: state, files: workflowExecutionFiles, store: store)
+        try await journal.flush()
+        return journal
+    }
+
+    func continueWorkflow(journal: WorkflowExecutionJournal, nodeID: String, output: [String: JSONValue]) async throws -> WorkflowRunDetail {
+        let state = await journal.snapshot()
+        _ = await WorkflowRunner().resume(
+            definition: state.definition, run: state.run, resolvedNodeID: nodeID, output: output,
+            persistence: await journal.persistence, updateTask: workflowTaskUpdater(),
+            executeTool: { [weak self] node, context, input in
+                await self?.executeWorkflowToolNode(node: node, context: context, input: input)
+            }, originalInput: state.originalInput, previousSteps: state.steps,
+            resolvedStepID: state.steps.last(where: { $0.nodeId == nodeID })?.id
+        )
+        guard await !journal.failed else { throw WorkflowError.storageFailure }
+        return await workflowRunDetail(run: journal.snapshot().run)
+    }
+
+    private func workflowTaskUpdater() -> @Sendable (String, String, String) async throws -> Void {
+        { [weak self] projectId, taskId, status in
+            guard let self else { throw WorkflowError.storageFailure }
+            _ = try await self.updateProjectTask(projectID: projectId, taskID: taskId,
+                request: ProjectTaskUpdateRequest(status: status, changedBy: "user"))
+        }
+    }
+
+    func workflowRunDetail(run: WorkflowRun) async -> WorkflowRunDetail {
+        if let state = try? workflowExecutionFiles.load(run.id) {
+            return WorkflowRunDetail(run: state.run, steps: state.steps, pendingActions: state.actions)
+        }
+        return WorkflowRunDetail(
             run: run,
             steps: await store.listWorkflowRunSteps(runId: run.id),
             pendingActions: await store.listWorkflowPendingActions(runId: run.id)
         )
     }
 
-    private func executeWorkflowToolNode(
+    func executeWorkflowToolNode(
         node: WorkflowNode,
         context: WorkflowRunner.Context,
         input: [String: JSONValue]

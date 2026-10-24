@@ -219,6 +219,7 @@ public actor CoreService {
     var visorToolApprovalReviewOverride: (@Sendable (SubagentToolApprovalContext) async -> SemanticToolApprovalDecision?)?
     let sessionStore: AgentSessionFileStore
     let actorBoardStore: ActorBoardFileStore
+    var activeWorkflowRuns: Set<String> = []
     let workflowDefinitionStore: WorkflowDefinitionFileStore
     let automationDefinitionStore: AutomationDefinitionFileStore
     let sessionOrchestrator: AgentSessionOrchestrator

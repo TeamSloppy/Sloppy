@@ -36,12 +36,7 @@ extension CoreService {
                 projectId: context.projectId, taskId: context.taskId
             ))
             output["sessionId"] = .string(session.id)
-            if let runID = context.runId, let stepID = context.stepId {
-                await store.saveWorkflowRunStep(WorkflowRunStep(
-                    id: stepID, runId: runID, nodeId: node.id, status: .running,
-                    input: input, output: output, startedAt: context.stepStartedAt ?? Date()
-                ))
-            }
+            try await context.reportProgress?(output)
             let encodedInput = try JSONEncoder().encode(input)
             let content = resolveWorkflowTemplateString(prompt, input: input)
                 + "\n\n[Workflow input]\n" + String(decoding: encodedInput, as: UTF8.self)
