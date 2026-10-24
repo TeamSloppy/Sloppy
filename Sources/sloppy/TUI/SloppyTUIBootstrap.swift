@@ -25,7 +25,9 @@ struct SloppyTUIBootstrap {
         self.environment = environment
     }
 
-    func prepare() async throws -> SloppyTUIRuntime {
+    func prepare(
+        loadModelCatalog: @Sendable (CoreService) async -> Void = { await $0.refreshOAuthModelCacheIfNeeded() }
+    ) async throws -> SloppyTUIRuntime {
         let homeDirectory = CoreConfig.resolvedHomeDirectoryPath(environment: environment)
         var explicitConfigPath = normalizedServerConfigPath(configPath)
         var config: CoreConfig
@@ -77,6 +79,8 @@ struct SloppyTUIBootstrap {
         }
 
         let service = CoreService(config: config, configPath: resolvedConfigPath, currentDirectory: homeDirectory)
+        // TUI does not bootstrap channel plugins, which normally load the exact model windows.
+        await loadModelCatalog(service)
         await service.bootstrapSourceControlPlugins()
         let backend = LocalSloppyTUIBackend(service: service)
 

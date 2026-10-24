@@ -207,7 +207,14 @@ extension SloppyTUIScreen {
         }
         do {
             let rootURL = try await service.resolveProjectWorkspaceRoot(projectID: project.id)
-            return sessionUndoManagers.makeBaseline(sessionID: session.id, rootURL: rootURL, turnKey: turnKey)
+            let sessionID = session.id
+            return await Task.detached(priority: .userInitiated) {
+                SloppyTUISessionUndoManagers.Baseline(
+                    sessionID: sessionID,
+                    baseline: SloppyTUIUndoManager().makeBaseline(rootURL: rootURL),
+                    turnKey: turnKey
+                )
+            }.value
         } catch {
             return nil
         }

@@ -6,7 +6,7 @@ struct SloppyTUIUndoManager {
         case redo
     }
 
-    struct Baseline {
+    struct Baseline: Sendable {
         var rootURL: URL
         fileprivate var fingerprints: [String: FileFingerprint]
         fileprivate var contents: [String: Data]
@@ -266,30 +266,74 @@ struct SloppyTUIUndoManager {
 
     private func scanFingerprints(rootURL: URL) -> [String: FileFingerprint] {
         var result: [String: FileFingerprint] = [:]
+        if let paths = gitWorkspacePaths(rootURL: rootURL) {
+            for path in paths {
+                let components = path.split(separator: "/")
+                // An uninitialized submodule queried from inside itself is reported as "./".
+                guard !components.isEmpty, !path.hasPrefix("/"),
+                      !components.contains("."), !components.contains(".."),
+                      !components.contains(where: { Self.excludedDirectoryNames.contains(String($0)) }) else { continue }
+                let url = rootURL.appendingPathComponent(path)
+                guard let values = try? url.resourceValues(forKeys: Self.fingerprintKeys),
+                      values.isSymbolicLink != true else { continue }
+                if values.isDirectory == true {
+                    // Git lists submodules and nested repositories as directories.
+                    let prefix = path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+                    for (nestedPath, fingerprint) in scanFingerprints(rootURL: url) {
+                        result[prefix + "/" + nestedPath] = fingerprint
+                    }
+                } else if values.isRegularFile == true {
+                    result[path] = FileFingerprint(sizeBytes: values.fileSize ?? 0, modifiedAt: values.contentModificationDate)
+                }
+            }
+            return result
+        }
         walk(directoryURL: rootURL, relativeDirectory: "", result: &result)
         return result
     }
 
+    /// Git applies repository, nested and global ignore rules without visiting ignored build trees.
+    private func gitWorkspacePaths(rootURL: URL) -> [String]? {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+        process.arguments = ["git", "--no-optional-locks", "-C", rootURL.path, "ls-files", "--cached", "--others", "--exclude-standard", "-z"]
+        let output = Pipe()
+        process.standardOutput = output
+        process.standardError = FileHandle.nullDevice
+        process.standardInput = FileHandle.nullDevice
+        do { try process.run() } catch { return nil }
+        // Drain before waiting: a large repository can fill the pipe buffer.
+        let data = output.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else { return nil }
+        return Array(Set(data.split(separator: 0).map { String(decoding: $0, as: UTF8.self) }))
+    }
+
+    private static let fingerprintKeys: Set<URLResourceKey> = [
+        .isDirectoryKey, .isRegularFileKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey,
+    ]
+
     private func walk(directoryURL: URL, relativeDirectory: String, result: inout [String: FileFingerprint]) {
         let urls = (try? fileManager.contentsOfDirectory(
             at: directoryURL,
-            includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey],
+            includingPropertiesForKeys: Array(Self.fingerprintKeys),
             options: []
         )) ?? []
 
         for url in urls {
             let name = url.lastPathComponent
             let relativePath = relativeDirectory.isEmpty ? name : "\(relativeDirectory)/\(name)"
-            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey])
-            if values?.isDirectory == true {
+            guard let values = try? url.resourceValues(forKeys: Self.fingerprintKeys),
+                  values.isSymbolicLink != true else { continue }
+            if values.isDirectory == true {
                 guard !Self.excludedDirectoryNames.contains(name) else {
                     continue
                 }
                 walk(directoryURL: url, relativeDirectory: relativePath, result: &result)
-            } else {
+            } else if values.isRegularFile == true {
                 result[relativePath] = FileFingerprint(
-                    sizeBytes: values?.fileSize ?? 0,
-                    modifiedAt: values?.contentModificationDate
+                    sizeBytes: values.fileSize ?? 0,
+                    modifiedAt: values.contentModificationDate
                 )
             }
         }
@@ -493,7 +537,7 @@ struct SloppyTUIUndoManager {
 }
 
 struct SloppyTUISessionUndoManagers {
-    struct Baseline {
+    struct Baseline: Sendable {
         var sessionID: String
         var baseline: SloppyTUIUndoManager.Baseline
         var turnKey: String? = nil
@@ -608,7 +652,7 @@ private enum FileState: Equatable {
     }
 }
 
-private struct FileFingerprint: Equatable {
+private struct FileFingerprint: Equatable, Sendable {
     var sizeBytes: Int
     var modifiedAt: Date?
 }

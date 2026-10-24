@@ -194,6 +194,95 @@ func tuiSessionDiffComparesEarliestRecordedStateToCurrentFile() throws {
     #expect(!diff.diff.contains("-two"))
 }
 
+@Test
+func tuiUndoSnapshotHonorsGitIgnoresAndKeepsTrackedAndUntrackedFiles() throws {
+    let root = try makeUndoRedoRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    try undoGit(root, ["init", "-q"])
+    try Data("cache/\n".utf8).write(to: root.appendingPathComponent(".gitignore"))
+    let cache = root.appendingPathComponent("cache", isDirectory: true)
+    try FileManager.default.createDirectory(at: cache, withIntermediateDirectories: true)
+    let tracked = cache.appendingPathComponent("tracked.txt")
+    let ignored = cache.appendingPathComponent("generated.txt")
+    let unusualName = "new file\n日本語.txt"
+    let untracked = root.appendingPathComponent(unusualName)
+    for url in [tracked, ignored, untracked] { try Data("before".utf8).write(to: url) }
+    try undoGit(root, ["add", "-f", "cache/tracked.txt"])
+
+    var manager = SloppyTUIUndoManager()
+    let baseline = manager.makeBaseline(rootURL: root)
+    for url in [tracked, ignored, untracked] { try Data("after".utf8).write(to: url) }
+    #expect(manager.recordChanges(rootURL: root, baseline: baseline) == .recorded(paths: ["cache/tracked.txt", unusualName]))
+    _ = try manager.undo(rootURL: root)
+    #expect(try String(contentsOf: tracked, encoding: .utf8) == "before")
+    #expect(try String(contentsOf: untracked, encoding: .utf8) == "before")
+    #expect(try String(contentsOf: ignored, encoding: .utf8) == "after")
+    _ = try manager.redo(rootURL: root)
+    #expect(try String(contentsOf: tracked, encoding: .utf8) == "after")
+}
+
+@Test
+func tuiUndoSnapshotIncludesNestedRepositoriesWithTheirIgnoreRules() throws {
+    let root = try makeUndoRedoRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    let nested = root.appendingPathComponent("nested", isDirectory: true)
+    try FileManager.default.createDirectory(at: nested, withIntermediateDirectories: true)
+    try undoGit(root, ["init", "-q"])
+    try undoGit(nested, ["init", "-q"])
+    try Data("generated.txt\n".utf8).write(to: nested.appendingPathComponent(".gitignore"))
+    let source = nested.appendingPathComponent("source.txt")
+    let ignored = nested.appendingPathComponent("generated.txt")
+    for url in [source, ignored] { try Data("before".utf8).write(to: url) }
+
+    var manager = SloppyTUIUndoManager()
+    let baseline = manager.makeBaseline(rootURL: root)
+    for url in [source, ignored] { try Data("after".utf8).write(to: url) }
+    #expect(manager.recordChanges(rootURL: root, baseline: baseline) == .recorded(paths: ["nested/source.txt"]))
+    _ = try manager.undo(rootURL: root)
+    #expect(try String(contentsOf: source, encoding: .utf8) == "before")
+}
+
+@Test
+func tuiUndoSnapshotSkipsUninitializedSubmoduleRoot() throws {
+    let root = try makeUndoRedoRoot()
+    defer { try? FileManager.default.removeItem(at: root) }
+    try undoGit(root, ["init", "-q"])
+    try undoGit(root, ["update-index", "--add", "--cacheinfo", "160000," + String(repeating: "1", count: 40) + ",nested"])
+    try FileManager.default.createDirectory(at: root.appendingPathComponent("nested"), withIntermediateDirectories: true)
+    var manager = SloppyTUIUndoManager()
+    let baseline = manager.makeBaseline(rootURL: root)
+    #expect(manager.recordChanges(rootURL: root, baseline: baseline) == .noChanges)
+}
+
+@Test
+func tuiUndoSnapshotDoesNotFollowSymbolicLinksOutsideWorkspace() throws {
+    let root = try makeUndoRedoRoot()
+    let external = try makeUndoRedoRoot()
+    defer {
+        try? FileManager.default.removeItem(at: root)
+        try? FileManager.default.removeItem(at: external)
+    }
+    let file = external.appendingPathComponent("source.txt")
+    try Data("before".utf8).write(to: file)
+    try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("linked-file"), withDestinationURL: file)
+    try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("linked-directory"), withDestinationURL: external)
+    var manager = SloppyTUIUndoManager()
+    let baseline = manager.makeBaseline(rootURL: root)
+    try Data("after".utf8).write(to: file)
+    #expect(manager.recordChanges(rootURL: root, baseline: baseline) == .noChanges)
+}
+
+private func undoGit(_ root: URL, _ arguments: [String]) throws {
+    let process = Process()
+    process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+    process.arguments = ["git", "-C", root.path] + arguments
+    process.standardOutput = FileHandle.nullDevice
+    process.standardError = FileHandle.nullDevice
+    try process.run()
+    process.waitUntilExit()
+    #expect(process.terminationStatus == 0)
+}
+
 private func makeUndoRedoRoot() throws -> URL {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("sloppy-tui-undo-redo-\(UUID().uuidString)", isDirectory: true)
