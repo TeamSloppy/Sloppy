@@ -43,14 +43,18 @@ extension CoreService {
             let detail = try getAgentSession(agentID: agentID, sessionID: sessionID)
             resolved = .init(summary: detail.summary, appendedEvents: detail.events, routeDecision: nil)
         }
-        let result = Self.workflowAgentResult(response: resolved, output: step.output)
+        let format = state.definition.nodes.first { $0.id == step.nodeId }?.config["outputFormat"]?.asString ?? "text"
+        let result = Self.workflowAgentResult(response: resolved, output: step.output, outputFormat: format)
         let stage = resolved.appendedEvents.filter { $0.importOrigin == nil }.compactMap(\.runStatus).last?.stage
         if stage != .done && stage != .interrupted && !WorkflowAgentOutcome.isWaiting(result) {
             return await workflowRunDetail(run: state.run)
         }
         try await journal.recordAgentResult(stepID: step.id, result: result)
         if !WorkflowAgentOutcome.isWaiting(result) { workflowWaitingSessions[key]?.remove(state.run.id) }
-        if result.ok { return try await continueWorkflow(journal: journal, nodeID: step.nodeId, output: result.data?.asObject ?? [:]) }
+        if result.ok {
+            let saved = await journal.snapshot()
+            return try await continueWorkflow(journal: journal, nodeID: step.nodeId, output: saved.steps.first { $0.id == step.id }?.output ?? [:])
+        }
         return await workflowRunDetail(run: journal.snapshot().run)
     }
 }

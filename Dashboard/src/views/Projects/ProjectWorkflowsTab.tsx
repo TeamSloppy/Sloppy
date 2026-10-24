@@ -21,6 +21,8 @@ import {
   workflowNodePorts
 } from "./projectWorkflows";
 
+import { WorkflowOutputControls, WorkflowTransitionControls } from "./WorkflowContractControls";
+
 type AnyRecord = Record<string, any>;
 
 interface ProjectWorkflowsTabProps {
@@ -486,6 +488,8 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
   const [selectedRunId, setSelectedRunId] = useState("");
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
+  const [contractError, setContractError] = useState("");
+  useEffect(() => setContractError(""), [selectedNodeId, selectedEdgeId, project.id]);
   const [draft, setDraft] = useState<AnyRecord | null>(null);
   const [selectedRunDetail, setSelectedRunDetail] = useState<AnyRecord | null>(null);
   const [viewTransform, setViewTransform] = useState({ x: 0, y: 0, scale: 1 });
@@ -961,6 +965,7 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
   }
 
   async function saveWorkflow() {
+    if (contractError) { setStatusText(contractError); return; }
     if (!draft?.id) return;
     setIsBusy(true);
     try {
@@ -979,6 +984,7 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
   }
 
   async function startRun() {
+    if (contractError) { setStatusText(contractError); return; }
     if (!draft?.id) return;
     if (isDirty) {
       await saveWorkflow();
@@ -1336,6 +1342,7 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
             <header className="project-workflows-panel-header">
               <strong>Inspector</strong>
             </header>
+            {contractError ? <p role="alert">{contractError}</p> : null}
             {selectedNode ? (
               <article className="project-workflow-editor-card">
                 <label>
@@ -1412,6 +1419,7 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
                     rows={4}
                   />
                 </label>
+                <WorkflowOutputControls key={selectedNode.id} node={selectedNode} onChange={updateSelectedNodeConfig} onError={setContractError} />
                 <div className="project-workflow-data-hints">
                   <strong>Data</strong>
                   <code>{"{{input}}"}</code>
@@ -1419,7 +1427,6 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
                     <span key={entry.nodeId}>
                       <small>{entry.title}</small>
                       <code>{entry.output}</code>
-                      <code>{entry.error}</code>
                     </span>
                   ))}
                 </div>
@@ -1524,14 +1531,7 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
             ) : selectedEdge ? (
               <article className="project-workflow-editor-card">
                 <strong>{selectedEdge.sourceNodeId} → {selectedEdge.targetNodeId}</strong>
-                <label>
-                  Condition label
-                  <input
-                    value={selectedEdge.conditionKey || ""}
-                    onChange={(event) => updateSelectedEdge({ conditionKey: event.target.value })}
-                    placeholder="approved / failed / ok"
-                  />
-                </label>
+                <WorkflowTransitionControls key={selectedEdge.id} edge={selectedEdge} onChange={updateSelectedEdge} onError={setContractError} />
                 <button type="button" className="project-workflow-danger" onClick={deleteSelectedEdge}>
                   Delete connection
                 </button>

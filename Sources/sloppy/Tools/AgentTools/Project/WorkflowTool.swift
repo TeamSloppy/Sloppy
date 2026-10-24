@@ -31,6 +31,7 @@ struct WorkflowTool: CoreTool {
             .init(name: "sourceNodeId", description: "Source node ID.", schema: DynamicGenerationSchema(type: String.self)),
             .init(name: "targetNodeId", description: "Target node ID.", schema: DynamicGenerationSchema(type: String.self)),
             .init(name: "conditionKey", description: "Optional branch label matched against step output.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "condition", description: "Optional JSON object with path and equals, e.g. {\"path\":\"result.verdict\",\"equals\":\"approved\"}. Do not combine with conditionKey.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "sourceSocket", description: "Optional source socket: top, right, bottom, or left.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "targetSocket", description: "Optional target socket: top, right, bottom, or left.", schema: DynamicGenerationSchema(type: String.self), isOptional: true)
         ])
@@ -294,11 +295,18 @@ struct WorkflowTool: CoreTool {
             else {
                 throw WorkflowToolParseError.invalidPayload
             }
+            var condition: WorkflowEdgeCondition?
+            if let value = object["condition"], value != .null {
+                let fields = try workflowConfig(from: value)
+                guard let path = fields["path"]?.asString, let expected = fields["equals"] else { throw WorkflowToolParseError.invalidPayload }
+                condition = .init(path: path, equals: expected)
+            }
             return WorkflowEdge(
                 id: id,
                 sourceNodeId: sourceNodeID,
                 targetNodeId: targetNodeID,
                 conditionKey: object["conditionKey"]?.asString,
+                condition: condition,
                 sourceSocket: object["sourceSocket"]?.asString,
                 targetSocket: object["targetSocket"]?.asString
             )

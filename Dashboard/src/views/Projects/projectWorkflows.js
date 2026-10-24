@@ -205,7 +205,7 @@ export function buildWorkflowGraphLayout(workflow) {
     const target = workflowNodePoint(targetNode, "left");
     return [{
       id: String(edge?.id || `edge-${index}`),
-      label: edge?.conditionKey ? String(edge.conditionKey) : "",
+      label: edge?.condition ? `${edge.condition.path} = ${JSON.stringify(edge.condition.equals)}` : edge?.conditionKey ? String(edge.conditionKey) : "",
       path: buildWorkflowLinkPath(source, target),
       midX: (source.x + target.x) / 2,
       midY: (source.y + target.y) / 2
