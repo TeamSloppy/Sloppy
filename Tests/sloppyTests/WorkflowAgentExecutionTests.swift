@@ -185,21 +185,29 @@ struct WorkflowAgentExecutionTests {
     }
 }
 
-private actor WorkflowModelProbe {
+actor WorkflowModelProbe {
     nonisolated let started: AsyncStream<Void>
     private let events: AsyncStream<Void>.Continuation
     private let gated: Bool
     private let failing: Bool
+    private var requestsInput: Bool
     private var released = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
     private(set) var prompts: [String] = []
 
-    init(gated: Bool = false, failing: Bool = false) {
+    init(gated: Bool = false, failing: Bool = false, requestsInput: Bool = false) {
         let stream = AsyncStream<Void>.makeStream()
         started = stream.stream
         events = stream.continuation
         self.gated = gated
         self.failing = failing
+        self.requestsInput = requestsInput
+    }
+
+    func takeInputRequest() -> Bool {
+        let result = requestsInput
+        requestsInput = false
+        return result
     }
 
     func response(prompt: String) async throws -> String {
@@ -219,7 +227,7 @@ private actor WorkflowModelProbe {
 
 private enum WorkflowModelError: Error { case unavailable, unsupportedContent }
 
-private actor WorkflowModelProvider: ModelProvider {
+actor WorkflowModelProvider: ModelProvider {
     nonisolated let id = "workflow-test"
     nonisolated let supportedModels = ["mock:test-model"]
     let probe: WorkflowModelProbe
@@ -232,6 +240,20 @@ private struct WorkflowLanguageModel: LanguageModel {
     let probe: WorkflowModelProbe
     func respond<Content>(within session: LanguageModelSession, to prompt: Prompt, generating type: Content.Type, includeSchemaInPrompt: Bool, options: GenerationOptions) async throws -> LanguageModelSession.Response<Content> where Content: Generable {
         guard type == String.self else { throw WorkflowModelError.unsupportedContent }
+        if await probe.takeInputRequest() {
+            guard let delegate = session.toolExecutionDelegate else { throw WorkflowModelError.unavailable }
+            let call = Transcript.ToolCall(id: UUID().uuidString, toolName: "planning.request_input",
+                arguments: try GeneratedContent(json: #"{"questions":[{"id":"choice","question":"Continue?","options":[{"id":"yes","label":"Yes"},{"id":"no","label":"No"}]}]}"#))
+            await delegate.didGenerateToolCalls([call], in: session)
+            let decision = await delegate.toolCallDecision(for: call, in: session)
+            var entries: [Transcript.Entry] = [.toolCalls(.init([call]))]
+            if case .provideOutput(let segments) = decision {
+                let output = Transcript.ToolOutput(id: call.id, toolName: call.toolName, segments: segments)
+                await delegate.didExecuteToolCall(call, output: output, in: session)
+                entries.append(.toolOutput(output))
+            }
+            return .init(content: "Input requested" as! Content, rawContent: GeneratedContent("Input requested"), transcriptEntries: ArraySlice(entries))
+        }
         let text = try await probe.response(prompt: prompt.description)
         return .init(content: text as! Content, rawContent: GeneratedContent(text), transcriptEntries: [])
     }

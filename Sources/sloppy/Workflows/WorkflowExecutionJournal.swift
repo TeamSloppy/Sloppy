@@ -83,6 +83,19 @@ actor WorkflowExecutionJournal {
         try await flush()
     }
 
+    func recordAgentResult(stepID: String, result: ToolInvocationResult) async throws {
+        guard let index = state.steps.firstIndex(where: { $0.id == stepID }) else { throw CoreService.WorkflowError.invalidPayload }
+        let waiting = WorkflowAgentOutcome.isWaiting(result)
+        state.steps[index].output = result.data?.asObject ?? [:]
+        if result.ok { state.steps[index].output["status"] = .string("succeeded") }
+        state.steps[index].status = result.ok ? .succeeded : waiting ? .waiting : .failed
+        state.steps[index].error = result.ok || waiting ? nil : result.error?.message
+        state.steps[index].finishedAt = waiting ? nil : Date()
+        state.run.status = result.ok ? .running : waiting ? .waitingForAgent : .failed
+        if !result.ok && !waiting { state.run.finishedAt = Date() }
+        try await flush()
+    }
+
     private func save(run: WorkflowRun) async throws {
         state.run = run
         try commit()
@@ -107,5 +120,15 @@ actor WorkflowExecutionJournal {
         guard !failed else { throw CoreService.WorkflowError.storageFailure }
         do { try files.save(state) }
         catch { failed = true; throw error }
+    }
+}
+
+enum WorkflowAgentOutcome {
+    static func isWaiting(_ result: ToolInvocationResult) -> Bool {
+        let output = result.data?.asObject
+        let outcome = output?["agentOutcome"]?.asString.flatMap(ExecutionState.init(rawValue:))
+        if let outcome { return outcome == .waitingInput || outcome == .waitingApproval }
+        let stage = output?["agentStage"]?.asString.flatMap(AgentRunStage.init(rawValue:))
+        return stage == .thinking || stage == .searching || stage == .responding || stage == .paused
     }
 }

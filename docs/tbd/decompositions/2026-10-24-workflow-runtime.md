@@ -9,8 +9,8 @@
 | # | Purpose | Size budget | Integration | Depends on | Status |
 |---|---|---|---|---|---|
 | 1 | Fail explicitly for unexecuted steps and run agent nodes through real, project-scoped sessions; persist their results | 600 | Self-contained correction through existing executor/session APIs; remove the unsafe success fallback | — | in-review |
-| 2a | Pin the graph and persist full execution checkpoints; restore approvals idempotently | 600 | Atomic execution journal, existing SQLite history API retained | 1 | in-progress |
-| 2b | Resume waiting agent sessions and collect human input without losing prior outputs | 600 | Typed waiting outcome and session reconciliation; original session retained | 2a | planned |
+| 2a | Pin the graph and persist full execution checkpoints; restore approvals idempotently | 600 | Atomic execution journal, existing SQLite history API retained | 1 | in-review |
+| 2b | Resume waiting agent sessions and collect human input without losing prior outputs | 600 | Typed waiting outcome and session reconciliation; original session retained | 2a | in-progress |
 | 2c | Recover queued, completed and interrupted execution at startup without repeating uncertain side effects | 600 | Rehydrate history from checkpoints; safe recovery or explicit reconciliation | 2b | planned |
 | 3 | Validate transition outputs and missing references; add independent/continued session context | 600 per context/output sub-slice | Additive contracts; existing serialized graphs migrate explicitly | 2 | planned |
 | 4 | Execute multiple branches and wait at a join; aggregate outputs and cancellation | 600 per fan-out/join sub-slice | Validate executable topology; unsupported graphs fail until fully supported | 2, 3 | planned |
@@ -42,3 +42,6 @@ Current boundaries: agent steps use fresh sessions; input/approval waits are pre
 
 - 2026-10-24: The user explicitly requested approval, user-answer and server-restart continuation. Split the approved state phase into 2a/2b/2c to keep each change reviewable; all three remain the current task. PR 60 remains draft and is the stack base, with no implicit merge authorization.
 - Slice 2a: 539 reviewable lines. All 36 workflow tests passed, including a SQLite-backed CoreService recreation after the live definition was modified/deleted, original input and upstream output preservation, idempotent approval, persistence failure and loop-attempt budget continuity.
+
+- Slice 2a is [draft PR 61](https://github.com/TeamSloppy/Sloppy/pull/61), stacked on PR 60.
+- Slice 2b: all 38 workflow tests passed, including a real `planning.request_input` tool call followed by an answer or cancellation in the original session. Manual Human Input requires a response and passes it downstream. Dashboard typecheck and an isolated browser fixture verified the response field, disabled empty Continue, and exact comment payload.

@@ -113,7 +113,7 @@ extension CoreService {
             }
         )
         guard await !journal.failed else { throw WorkflowError.storageFailure }
-        return await workflowRunDetail(run: journal.snapshot().run)
+        return try await finishWaitingWorkflowAgent(journal: journal)
     }
 
     public func listWorkflowRuns(projectID: String) async -> [WorkflowRun] {
@@ -139,6 +139,9 @@ extension CoreService {
         let state = await journal.snapshot()
         guard let savedAction = state.actions.first(where: { $0.id == actionID }) else { throw WorkflowError.actionNotFound }
         if savedAction.resolvedAt != nil { return await workflowRunDetail(run: state.run) }
+        guard savedAction.decisions.contains(request.decision) else { throw WorkflowError.invalidPayload }
+        if state.definition.nodes.first(where: { $0.id == action.nodeId })?.type == .humanInput,
+           request.comment?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false { throw WorkflowError.invalidPayload }
         guard activeWorkflowRuns.insert(run.id).inserted else { throw WorkflowError.invalidPayload }
         defer { activeWorkflowRuns.remove(run.id) }
         let output: [String: JSONValue] = [
@@ -182,7 +185,7 @@ extension CoreService {
             resolvedStepID: state.steps.last(where: { $0.nodeId == nodeID })?.id
         )
         guard await !journal.failed else { throw WorkflowError.storageFailure }
-        return await workflowRunDetail(run: journal.snapshot().run)
+        return try await finishWaitingWorkflowAgent(journal: journal)
     }
 
     private func workflowTaskUpdater() -> @Sendable (String, String, String) async throws -> Void {
