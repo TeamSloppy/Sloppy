@@ -12,7 +12,9 @@
 | 2a | Pin the graph and persist full execution checkpoints; restore approvals idempotently | 600 | Atomic execution journal, existing SQLite history API retained | 1 | in-review |
 | 2b | Resume waiting agent sessions and collect human input without losing prior outputs | 600 | Typed waiting outcome and session reconciliation; original session retained | 2a | in-review |
 | 2c | Recover queued, completed and interrupted execution at startup without repeating uncertain side effects | 600 | Rehydrate history from checkpoints; safe recovery or explicit reconciliation | 2b | in-review |
-| 3 | Validate transition outputs and missing references; add independent/continued session context | 600 per context/output sub-slice | Additive contracts; existing serialized graphs migrate explicitly | 2 | planned |
+| 3a | Validate transitions and template references before execution; reject ambiguous routing | 600 | Additive typed conditions; preserve valid legacy keys and drafts; validate before replacing saved graphs | 2c | implemented |
+| 3b | Validate output contracts and expose structured agent results and transition controls | 600 | Optional output schema and JSON mode; legacy text mode retained | 3a | in-progress |
+| 3c | Choose new or shared agent sessions and persist each step's message boundary | 600 | Default remains new; shared sessions explicitly reference an earlier step in the same run | 3b | planned |
 | 4 | Execute multiple branches and wait at a join; aggregate outputs and cancellation | 600 per fan-out/join sub-slice | Validate executable topology; unsupported graphs fail until fully supported | 2, 3 | planned |
 | 5 | Bind task input and execution workspace/worktree policy; recovery and status delivery | 600 per task/worktree sub-slice | Explicit execution policy using existing project machinery | 2 | planned |
 
@@ -55,3 +57,9 @@ Slice 1 boundaries at delivery: agent steps used fresh sessions; input/approval 
 - Recovery assumes a single Core owner per workspace. Automatic replay of an external operation whose result was not durably recorded is intentionally blocked; operator reconciliation remains required. Full-suite coverage is limited as recorded under slice 1.
 - 2026-10-25: The user explicitly authorized publishing the final commits and creating the draft PR for slice 2c.
 - Slice 2c is [draft PR 63](https://github.com/TeamSloppy/Sloppy/pull/63), stacked on PR 62.
+
+## Output and session stage
+
+- 2026-10-25: The user requested the next approved stage: output/transition validation and new/shared sessions. The existing per-output/context slice budget is refined into 3a/3b/3c without expanding scope. Existing PRs remain drafts; no merge or production deployment is implied.
+- Optional contracts and explicit session policies deliver complete behavior within each slice. No temporary toggle, replacement runtime or cleanup debt is introduced. Parallel branches and automatic compaction remain outside this stage.
+- Slice 3a: 53 workflow tests passed, including typed equality without coercion, ambiguous/default routing, unresolved references before tool execution, preserved saved definitions on invalid updates, resume attempt identity and legacy wire compatibility. Dashboard typecheck passed. Input fixtures now supply the input their prompts actually require.

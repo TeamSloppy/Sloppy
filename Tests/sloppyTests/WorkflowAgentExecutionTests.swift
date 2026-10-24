@@ -47,7 +47,7 @@ struct WorkflowAgentExecutionTests {
         let probe = WorkflowModelProbe(failing: true)
         let (service, projectID, _, workflow) = try await fixture(probe: probe)
         let result = try await service.startWorkflowRun(projectID: projectID, workflowID: workflow.id,
-                                                       request: .init(startedBy: "human", input: [:]))
+                                                       request: .init(startedBy: "human", input: ["ticket": .string("WF-42")]))
         #expect(result.run.status == .failed)
         let step = try #require(result.steps.first { $0.nodeId == "agent" })
         #expect(step.status == .failed)
@@ -99,7 +99,7 @@ struct WorkflowAgentExecutionTests {
         _ = try await service.updateWorkflowDefinition(projectID: projectID, workflowID: workflow.id,
                                                        request: .init(name: workflow.name, lanes: workflow.lanes, nodes: nodes, edges: workflow.edges))
         let result = try await service.startWorkflowRun(projectID: projectID, workflowID: workflow.id,
-                                                       request: .init(startedBy: "human", input: [:]))
+                                                       request: .init(startedBy: "human", input: ["ticket": .string("WF-42")]))
         #expect(result.run.status == .failed)
         #expect(try await service.listAgentSessions(agentID: agentID).isEmpty)
         await service.shutdownChannelPlugins()
@@ -119,7 +119,7 @@ struct WorkflowAgentExecutionTests {
                 workflow.edges[0], WorkflowEdge(id: "e2", sourceNodeId: "agent", targetNodeId: "review"),
                 WorkflowEdge(id: "e3", sourceNodeId: "review", targetNodeId: "done")
             ]))
-        let result = try await service.startWorkflowRun(projectID: projectID, workflowID: workflow.id, request: .init(startedBy: "human", input: [:]))
+        let result = try await service.startWorkflowRun(projectID: projectID, workflowID: workflow.id, request: .init(startedBy: "human", input: ["ticket": .string("WF-42")]))
         #expect(result.run.status == .completed)
         #expect(await probe.prompts.contains { $0.contains("Review Workflow model answer") })
         #expect(try await service.listAgentSessions(agentID: agentID).count == 2)
@@ -130,12 +130,12 @@ struct WorkflowAgentExecutionTests {
     func concurrentStartsReturnTheirOwnRun() async throws {
         let probe = WorkflowModelProbe(gated: true)
         let (service, projectID, _, workflow) = try await fixture(probe: probe)
-        let first = Task { try await service.startWorkflowRun(projectID: projectID, workflowID: workflow.id, request: .init(startedBy: "first", input: [:])) }
+        let first = Task { try await service.startWorkflowRun(projectID: projectID, workflowID: workflow.id, request: .init(startedBy: "first", input: ["ticket": .string("WF-42")])) }
         defer { first.cancel(); Task { await probe.release(); await service.shutdownChannelPlugins() } }
         var starts = probe.started.makeAsyncIterator()
         _ = await starts.next()
         let firstRun = try #require(await service.listWorkflowRuns(projectID: projectID).first)
-        let second = Task { try await service.startWorkflowRun(projectID: projectID, workflowID: workflow.id, request: .init(startedBy: "second", input: [:])) }
+        let second = Task { try await service.startWorkflowRun(projectID: projectID, workflowID: workflow.id, request: .init(startedBy: "second", input: ["ticket": .string("WF-42")])) }
         defer { second.cancel() }
         _ = await starts.next()
         #expect(await service.listWorkflowRuns(projectID: projectID).count == 2)
@@ -156,7 +156,7 @@ struct WorkflowAgentExecutionTests {
         nodes[1].config = ["blockKind": .string(blockKind), "language": .string("swift"), "workflowId": .string(workflow.id)]
         _ = try await service.updateWorkflowDefinition(projectID: projectID, workflowID: workflow.id,
             request: .init(name: workflow.name, lanes: workflow.lanes, nodes: nodes, edges: workflow.edges))
-        let result = try await service.startWorkflowRun(projectID: projectID, workflowID: workflow.id, request: .init(startedBy: "human", input: [:]))
+        let result = try await service.startWorkflowRun(projectID: projectID, workflowID: workflow.id, request: .init(startedBy: "human", input: ["ticket": .string("WF-42")]))
         #expect(result.run.status == .failed)
         #expect(!result.steps.contains { $0.nodeId == "done" })
         #expect(await service.listWorkflowRuns(projectID: projectID).count == 1)

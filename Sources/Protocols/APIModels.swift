@@ -7836,11 +7836,22 @@ public struct WorkflowNode: Codable, Sendable, Equatable {
     }
 }
 
+public struct WorkflowEdgeCondition: Codable, Sendable, Equatable {
+    public var path: String
+    public var equals: JSONValue
+
+    public init(path: String, equals: JSONValue) {
+        self.path = path
+        self.equals = equals
+    }
+}
+
 public struct WorkflowEdge: Codable, Sendable, Equatable {
     public var id: String
     public var sourceNodeId: String
     public var targetNodeId: String
     public var conditionKey: String?
+    public var condition: WorkflowEdgeCondition?
     public var sourceSocket: String?
     public var targetSocket: String?
 
@@ -7849,6 +7860,7 @@ public struct WorkflowEdge: Codable, Sendable, Equatable {
         sourceNodeId: String,
         targetNodeId: String,
         conditionKey: String? = nil,
+        condition: WorkflowEdgeCondition? = nil,
         sourceSocket: String? = nil,
         targetSocket: String? = nil
     ) {
@@ -7856,6 +7868,7 @@ public struct WorkflowEdge: Codable, Sendable, Equatable {
         self.sourceNodeId = sourceNodeId
         self.targetNodeId = targetNodeId
         self.conditionKey = conditionKey
+        self.condition = condition
         self.sourceSocket = sourceSocket
         self.targetSocket = targetSocket
     }
