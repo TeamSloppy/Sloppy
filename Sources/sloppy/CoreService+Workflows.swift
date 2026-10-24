@@ -32,6 +32,7 @@ extension CoreService {
 
     public func createWorkflowDefinition(projectID: String, request: WorkflowDefinitionUpsertRequest) async throws -> WorkflowDefinition {
         _ = try await getProject(id: projectID)
+        try validateWorkflowRequest(projectID: projectID, request: request)
         let definition: WorkflowDefinition
         do {
             definition = try workflowDefinitionStore.create(projectID: projectID, request: request)
@@ -50,6 +51,7 @@ extension CoreService {
 
     public func updateWorkflowDefinition(projectID: String, workflowID: String, request: WorkflowDefinitionUpsertRequest) async throws -> WorkflowDefinition {
         _ = try await getProject(id: projectID)
+        try validateWorkflowRequest(projectID: projectID, request: request)
         do {
             let updated = try workflowDefinitionStore.update(projectID: projectID, workflowID: workflowID, request: request)
             let issues = validateWorkflowDefinition(updated).filter { $0.severity == "error" }
@@ -66,6 +68,13 @@ extension CoreService {
         } catch {
             throw WorkflowError.storageFailure
         }
+    }
+
+    private func validateWorkflowRequest(projectID: String, request: WorkflowDefinitionUpsertRequest) throws {
+        let candidate = WorkflowDefinition(id: "validation", projectId: projectID, name: request.name,
+            lanes: request.lanes, nodes: request.nodes, edges: request.edges, enabled: request.enabled)
+        let issues = validateWorkflowDefinition(candidate).filter { $0.severity == "error" }
+        if !issues.isEmpty { throw WorkflowError.validationFailed(issues) }
     }
 
     public func deleteWorkflowDefinition(projectID: String, workflowID: String) async throws {
@@ -424,6 +433,10 @@ extension CoreService {
 func resolveWorkflowTemplateValue(_ value: JSONValue, input: [String: JSONValue]) -> JSONValue {
     switch value {
     case .string(let raw):
+        if raw.hasPrefix("{{"), raw.hasSuffix("}}"),
+           let paths = try? WorkflowGraphContracts.references(in: value), paths.count == 1,
+           !raw.dropFirst(2).dropLast(2).contains("}}"),
+           let resolved = WorkflowGraphContracts.value(at: paths[0], in: input) { return resolved }
         return .string(resolveWorkflowTemplateString(raw, input: input))
     case .array(let values):
         return .array(values.map { resolveWorkflowTemplateValue($0, input: input) })
@@ -457,17 +470,7 @@ func resolveWorkflowTemplateString(_ raw: String, input: [String: JSONValue]) ->
 }
 
 private func workflowTemplateValue(path: String, input: [String: JSONValue]) -> JSONValue? {
-    let parts = path.split(separator: ".").map(String.init).filter { !$0.isEmpty }
-    guard let first = parts.first, var value = input[first] else {
-        return nil
-    }
-    for part in parts.dropFirst() {
-        guard case .object(let object) = value, let next = object[part] else {
-            return nil
-        }
-        value = next
-    }
-    return value
+    WorkflowGraphContracts.value(at: path, in: input)
 }
 
 private func workflowTemplateString(_ value: JSONValue) -> String {

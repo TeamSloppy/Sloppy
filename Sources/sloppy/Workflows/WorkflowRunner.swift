@@ -52,7 +52,7 @@ struct WorkflowRunner {
         for edge in definition.edges where !nodeIDs.contains(edge.sourceNodeId) || !nodeIDs.contains(edge.targetNodeId) {
             issues.append(WorkflowValidationIssue(severity: "error", message: "Workflow contains an edge with missing source or target node.", nodeId: edge.sourceNodeId))
         }
-        return issues
+        return issues + WorkflowGraphContracts.validate(definition)
     }
 
     func start(
@@ -119,10 +119,10 @@ struct WorkflowRunner {
                 finishedAt: Date()
             )
             try await persistence.saveStep(waitingStep)
-            guard let nextNodeID = nextNodeID(after: resolvedNodeID, output: output, definition: definition) else {
-                return try await failStep(run: run, nodeID: resolvedNodeID, input: output,
-                                      message: "No matching transition after node \(resolvedNodeID).", persistence: persistence)
-            }
+            let nextNodeID: String
+            do { nextNodeID = try WorkflowGraphContracts.next(after: resolvedNodeID, output: output, definition: definition) }
+            catch { return try await failStep(run: run, nodeID: resolvedNodeID, input: waitingStep.input,
+                message: String(describing: error), persistence: persistence, stepID: waitingStep.id, output: output) }
             var resumed = run
             resumed.status = .running
             resumed.currentNodeIds = [nextNodeID]
@@ -232,6 +232,9 @@ struct WorkflowRunner {
 
             let stepID = continuedStep?.id ?? "step_\(UUID().uuidString.lowercased())"
             let startedAt = continuedStep?.startedAt ?? Date()
+            do { try WorkflowGraphContracts.validateReferences(node: node, input: scopedInput) }
+            catch { return try await failStep(run: run, nodeID: node.id, input: scopedInput,
+                message: String(describing: error), persistence: persistence, stepID: stepID, startedAt: startedAt) }
             switch node.type {
             case .humanApproval, .humanInput:
                 let action = makePendingAction(node: node, run: run, context: context)
@@ -354,11 +357,11 @@ struct WorkflowRunner {
                 previousOutput = node.config.merging(["status": .string("succeeded")]) { current, _ in current }
             }
 
-            guard let next = nextNodeID(after: node.id, output: previousOutput, definition: definition) else {
-                return try await failStep(run: run, nodeID: node.id, input: scopedInput,
-                                      message: "No matching transition after node \(node.id).", persistence: persistence,
-                                      stepID: stepID, startedAt: startedAt, output: previousOutput)
-            }
+            let next: String
+            do { next = try WorkflowGraphContracts.next(after: node.id, output: previousOutput, definition: definition) }
+            catch { return try await failStep(run: run, nodeID: node.id, input: scopedInput,
+                message: String(describing: error), persistence: persistence,
+                stepID: stepID, startedAt: startedAt, output: previousOutput) }
 
             let step = WorkflowRunStep(
                 id: stepID,
@@ -443,29 +446,6 @@ struct WorkflowRunner {
             "input": .object(contextInput),
             "nodes": .object(nodeOutputs)
         ]) { _, reserved in reserved }
-    }
-
-    private func nextNodeID(after nodeID: String, output: [String: JSONValue], definition: WorkflowDefinition) -> String? {
-        let edges = definition.edges.filter { $0.sourceNodeId == nodeID }
-        if let matched = edges.first(where: { edgeMatches($0.conditionKey, output: output) }) {
-            return matched.targetNodeId
-        }
-        return edges.first(where: { $0.conditionKey == nil })?.targetNodeId
-    }
-
-    private func edgeMatches(_ conditionKey: String?, output: [String: JSONValue]) -> Bool {
-        guard let conditionKey, !conditionKey.isEmpty else {
-            return false
-        }
-        if case .bool(true)? = output[conditionKey] {
-            return true
-        }
-        for key in ["conditionKey", "decision", "status", "result"] {
-            if stringValue(output[key]) == conditionKey {
-                return true
-            }
-        }
-        return false
     }
 
     private func endStatus(from node: WorkflowNode) -> WorkflowRunStatus? {

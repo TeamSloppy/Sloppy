@@ -420,6 +420,7 @@ function normalizeWorkflow(raw: AnyRecord | null) {
       sourceNodeId: asString(edge?.sourceNodeId),
       targetNodeId: asString(edge?.targetNodeId),
       conditionKey: asString(edge?.conditionKey),
+      condition: edge?.condition || undefined,
       sourceSocket: normalizeSocket(edge?.sourceSocket, "right"),
       targetSocket: normalizeSocket(edge?.targetSocket, "left")
     }))
@@ -460,6 +461,7 @@ function workflowPayload(draft: AnyRecord) {
       sourceNodeId: edge.sourceNodeId,
       targetNodeId: edge.targetNodeId,
       conditionKey: edge.conditionKey || undefined,
+      condition: edge.condition || undefined,
       sourceSocket: edge.sourceSocket || undefined,
       targetSocket: edge.targetSocket || undefined
     }))
