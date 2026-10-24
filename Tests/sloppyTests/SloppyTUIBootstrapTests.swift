@@ -1,6 +1,43 @@
 import Foundation
+@testable import AgentRuntime
+import Protocols
 import Testing
 @testable import sloppy
+
+@Test
+func tuiBootstrapLoadsModelWindowBeforeFirstTurn() async throws {
+    let tempRoot = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-tui-model-catalog-\(UUID().uuidString)", isDirectory: true)
+    try FileManager.default.createDirectory(at: tempRoot, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: tempRoot) }
+
+    let configPath = tempRoot.appendingPathComponent("sloppy.json").path
+    var config = CoreConfig.default
+    config.workspace = .init(name: "workspace", basePath: tempRoot.path)
+    try JSONEncoder().encode(config).write(to: URL(fileURLWithPath: configPath))
+    let authDirectory = config.resolvedWorkspaceRootURL(currentDirectory: tempRoot.path)
+        .appendingPathComponent("auth", isDirectory: true)
+    try FileManager.default.createDirectory(at: authDirectory, withIntermediateDirectories: true)
+    try Data(#"{"auth_mode":"chatgpt","tokens":{"access_token":"test-token","account_id":"test-account"},"last_refresh":"2026-10-23T00:00:00Z"}"#.utf8)
+        .write(to: authDirectory.appendingPathComponent("openai-oauth-auth.json"))
+
+    let runtime = try await SloppyTUIBootstrap(
+        configPath: configPath, cwd: tempRoot.path, environment: ["HOME": tempRoot.path]
+    ).prepare(loadModelCatalog: { service in
+        await service.cacheOAuthModels([
+            ProviderModelOption(
+                id: "gpt-6.1-sol", title: "Test model", contextWindow: "128K",
+                capabilities: ["tools"], contextWindowTokens: 128_000
+            )
+        ])
+    })
+    defer { Task { await runtime.service.shutdownChannelPlugins() } }
+    let backend = try #require(runtime.service as? LocalSloppyTUIBackend)
+    let models = await backend.service.availableAgentModels()
+    #expect(models.first { $0.id == "openai-oauth:gpt-6.1-sol" }?.contextWindowTokens == 128_000)
+    #expect(await backend.service.runtime.catalogContextLimitsByModel["openai-oauth:gpt-6.1-sol"]?.contextWindowTokens == 128_000)
+    #expect(await runtime.service.listChannelPlugins().isEmpty)
+}
 
 @Test
 func tuiBootstrapDoesNotStartChannelPluginsBeforeRendering() async throws {
@@ -27,7 +64,7 @@ func tuiBootstrapDoesNotStartChannelPluginsBeforeRendering() async throws {
         configPath: configPath,
         cwd: tempRoot.path,
         environment: ["HOME": tempRoot.path]
-    ).prepare()
+    ).prepare(loadModelCatalog: { _ in })
     defer { Task { await runtime.service.shutdownChannelPlugins() } }
 
     let plugins = await runtime.service.listChannelPlugins()
@@ -67,7 +104,7 @@ func tuiBootstrapRegistersSourceControlPluginsBeforeRendering() async throws {
         configPath: configPath,
         cwd: tempRoot.path,
         environment: ["HOME": tempRoot.path]
-    ).prepare()
+    ).prepare(loadModelCatalog: { _ in })
     defer { Task { await runtime.service.shutdownChannelPlugins() } }
 
     let localBackend = try #require(runtime.service as? LocalSloppyTUIBackend)
