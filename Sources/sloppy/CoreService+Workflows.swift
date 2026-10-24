@@ -101,7 +101,7 @@ extension CoreService {
             saveStep: { [store] step in await store.saveWorkflowRunStep(step) },
             saveAction: { [store] action in await store.saveWorkflowPendingAction(action) }
         )
-        _ = await runner.start(
+        let result = await runner.start(
             definition: definition,
             context: .init(projectId: projectID, taskId: request.taskId, startedBy: request.startedBy, input: request.input),
             persistence: persistence,
@@ -116,8 +116,10 @@ extension CoreService {
                 await self?.executeWorkflowToolNode(node: node, context: context, input: input)
             }
         )
-        guard let run = (await store.listWorkflowRuns(projectId: projectID)).first(where: { $0.workflowId == workflowID }) else {
-            throw WorkflowError.storageFailure
+        let run: WorkflowRun
+        switch result {
+        case .completed(let value), .waitingForHuman(let value, _), .failed(let value, _):
+            run = value
         }
         return await workflowRunDetail(run: run)
     }
@@ -194,6 +196,9 @@ extension CoreService {
         context: WorkflowRunner.Context,
         input: [String: JSONValue]
     ) async -> ToolInvocationResult? {
+        if node.type == .agentStep {
+            return await executeWorkflowAgentNode(node: node, context: context, input: input)
+        }
         guard let request = workflowToolInvocationRequest(node: node, context: context, input: input) else {
             return nil
         }
@@ -242,6 +247,9 @@ extension CoreService {
 
         case "code":
             let language = (stringValue(node.config["language"]) ?? "javascript").lowercased()
+            guard language == "javascript" || language == "python" else {
+                return workflowInvalidToolRequest(tool: "runtime.exec", message: "Code blocks currently support javascript and python only.")
+            }
             let source = stringValue(node.config["source"]).map { resolveWorkflowTemplateString($0, input: input) }
             let filePath = stringValue(node.config["filePath"]).map { resolveWorkflowTemplateString($0, input: input) }
             let command: String
@@ -291,18 +299,9 @@ extension CoreService {
             )
 
         case "sub_workflow":
-            guard let workflowID = stringValue(node.config["workflowId"]) else {
-                return workflowInvalidToolRequest(tool: "project.workflow", message: "`workflowId` is required for sub-workflow block.")
-            }
-            return ToolInvocationRequest(
+            return workflowInvalidToolRequest(
                 tool: "project.workflow",
-                arguments: [
-                    "operation": .string("start"),
-                    "projectId": .string(context.projectId),
-                    "workflowId": .string(workflowID),
-                    "taskId": context.taskId.map(JSONValue.string) ?? .null
-                ],
-                reason: "Workflow node \(node.id): \(node.title)"
+                message: "Sub-workflow completion tracking is not implemented; a start receipt cannot complete this step."
             )
 
         default:

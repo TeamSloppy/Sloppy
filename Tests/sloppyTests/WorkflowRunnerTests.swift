@@ -130,35 +130,63 @@ func workflowRunnerConditionFollowsMatchingConditionKey() async throws {
     #expect(await recorder.steps.contains { $0.nodeId == "rejected" })
 }
 
-@Test
-func workflowRunnerRecordsAgentAndToolStepsAsWorkflowActions() async throws {
-    let runner = WorkflowRunner()
+@Test(arguments: [WorkflowNodeType.agentStep, .toolCheck])
+func workflowRunnerRejectsStepsWithoutExecutor(type: WorkflowNodeType) async throws {
+    let recorder = WorkflowRecorder()
     let definition = workflowDefinition(nodes: [
         WorkflowNode(id: "start", type: .trigger, title: "Start", laneId: "system"),
-        WorkflowNode(id: "agent", type: .agentStep, title: "Agent", laneId: "system", config: ["blockKind": .string("agent")]),
-        WorkflowNode(id: "tool", type: .toolCheck, title: "Tool", laneId: "system", config: ["blockKind": .string("bash")]),
+        WorkflowNode(id: "work", type: type, title: "Work", laneId: "system"),
         WorkflowNode(id: "done", type: .end, title: "Done", laneId: "system")
     ], edges: [
-        WorkflowEdge(id: "e1", sourceNodeId: "start", targetNodeId: "agent"),
-        WorkflowEdge(id: "e2", sourceNodeId: "agent", targetNodeId: "tool"),
-        WorkflowEdge(id: "e3", sourceNodeId: "tool", targetNodeId: "done")
+        WorkflowEdge(id: "e1", sourceNodeId: "start", targetNodeId: "work"),
+        WorkflowEdge(id: "e2", sourceNodeId: "work", targetNodeId: "done")
     ])
-    let recorder = WorkflowRecorder()
-
-    let result = await runner.start(
-        definition: definition,
-        context: .init(projectId: "project-1", taskId: nil, startedBy: "human:admin", input: [:]),
-        persistence: recorder.persistence,
-        updateTask: recorder.updateTask
+    let result = await WorkflowRunner().start(
+        definition: definition, context: .init(projectId: "project-1", startedBy: "human", input: [:]),
+        persistence: recorder.persistence, updateTask: recorder.updateTask
     )
+    guard case .failed(let run, _) = result else { Issue.record("Unexecuted work must fail"); return }
+    #expect(run.status == .failed)
+    #expect(await recorder.steps.contains { $0.nodeId == "work" && $0.status == .failed })
+    #expect(await recorder.steps.allSatisfy { $0.status != .succeeded || $0.nodeId == "start" })
+}
 
-    guard case .completed(let run) = result else {
-        Issue.record("Expected completed workflow run.")
-        return
+@Test(arguments: [WorkflowNodeType.notify, .projectTask, .condition])
+func workflowRunnerRejectsUnimplementedBlocks(type: WorkflowNodeType) async throws {
+    let recorder = WorkflowRecorder()
+    let definition = workflowDefinition(nodes: [
+        WorkflowNode(id: "start", type: .trigger, title: "Start", laneId: "system"),
+        WorkflowNode(id: "work", type: type, title: "Work", laneId: "system", config: ["expression": .string("true")]),
+        WorkflowNode(id: "done", type: .end, title: "Done", laneId: "system")
+    ], edges: [WorkflowEdge(id: "e1", sourceNodeId: "start", targetNodeId: "work"), WorkflowEdge(id: "e2", sourceNodeId: "work", targetNodeId: "done")])
+    let result = await WorkflowRunner().start(
+        definition: definition, context: .init(projectId: "project-1", startedBy: "human", input: [:]),
+        persistence: recorder.persistence, updateTask: recorder.updateTask
+    )
+    guard case .failed = result else { Issue.record("Unsupported block must fail"); return }
+    #expect(await recorder.steps.contains { $0.nodeId == "work" && $0.status == .failed })
+    #expect(await recorder.steps.allSatisfy { $0.nodeId != "done" })
+}
+
+@Test(arguments: [false, true])
+func workflowRunnerRejectsMissingTransition(resuming: Bool) async throws {
+    let recorder = WorkflowRecorder()
+    let definition = workflowDefinition(nodes: [WorkflowNode(id: "start", type: .trigger, title: "Start", laneId: "system")], edges: [])
+    let context = WorkflowRunner.Context(projectId: "project-1", startedBy: "human", input: [:])
+    let result: WorkflowRunner.Result
+    if resuming {
+        result = await WorkflowRunner().resume(
+            definition: definition,
+            run: WorkflowRun(id: "run", workflowId: definition.id, workflowVersion: 1, projectId: "project-1", status: .waitingForHuman, startedBy: "human"),
+            resolvedNodeID: "start", output: ["decision": .string("rejected")],
+            persistence: recorder.persistence, updateTask: recorder.updateTask
+        )
+    } else {
+        result = await WorkflowRunner().start(definition: definition, context: context, persistence: recorder.persistence, updateTask: recorder.updateTask)
     }
-    #expect(run.status == .completed)
-    #expect(await recorder.steps.contains { $0.nodeId == "agent" && $0.status == .succeeded })
-    #expect(await recorder.steps.contains { $0.nodeId == "tool" && $0.status == .succeeded })
+    guard case .failed(let run, let message) = result else { Issue.record("A dead end must fail"); return }
+    #expect(run.status == .failed)
+    #expect(message.contains("No matching transition"))
 }
 
 @Test
@@ -285,6 +313,20 @@ func workflowRunnerFailsWhenInjectedExecutorFails() async throws {
     #expect(run.status == .failed)
     #expect(message == "tool failed")
     #expect(await recorder.steps.contains { $0.nodeId == "tool" && $0.status == .failed && $0.error == "tool failed" })
+}
+
+@Test(arguments: ["typo", "running", "waiting_for_human"])
+func workflowRunnerRejectsInvalidEndStatus(status: String) async throws {
+    let recorder = WorkflowRecorder()
+    let definition = workflowDefinition(nodes: [
+        WorkflowNode(id: "start", type: .trigger, title: "Start", laneId: "system"),
+        WorkflowNode(id: "done", type: .end, title: "Done", laneId: "system", config: ["status": .string(status)])
+    ], edges: [WorkflowEdge(id: "e1", sourceNodeId: "start", targetNodeId: "done")])
+    let result = await WorkflowRunner().start(definition: definition,
+        context: .init(projectId: "project-1", startedBy: "human", input: [:]),
+        persistence: recorder.persistence, updateTask: recorder.updateTask)
+    guard case .failed(let run, _) = result else { Issue.record("Invalid terminal status must fail"); return }
+    #expect(run.status == .failed)
 }
 
 private func workflowDefinition(nodes: [WorkflowNode], edges: [WorkflowEdge]) -> WorkflowDefinition {

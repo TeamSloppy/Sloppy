@@ -8,6 +8,8 @@ struct WorkflowRunner {
         var startedBy: String
         var input: [String: JSONValue]
         var runId: String? = nil
+        var stepId: String? = nil
+        var stepStartedAt: Date? = nil
     }
 
     struct Persistence: Sendable {
@@ -102,12 +104,8 @@ struct WorkflowRunner {
         )
         await persistence.saveStep(waitingStep)
         guard let nextNodeID = nextNodeID(after: resolvedNodeID, output: output, definition: definition) else {
-            var completed = run
-            completed.status = .completed
-            completed.currentNodeIds = []
-            completed.finishedAt = Date()
-            await persistence.saveRun(completed)
-            return .completed(completed)
+            return await failStep(run: run, nodeID: resolvedNodeID, input: output,
+                                  message: "No matching transition after node \(resolvedNodeID).", persistence: persistence)
         }
         var resumed = run
         resumed.status = .running
@@ -155,17 +153,19 @@ struct WorkflowRunner {
             await persistence.saveRun(run)
             let scopedInput = workflowScopedInput(current: previousOutput, contextInput: context.input, nodeOutputs: nodeOutputs)
 
+            let stepID = "step_\(UUID().uuidString.lowercased())"
+            let startedAt = Date()
             switch node.type {
             case .humanApproval, .humanInput:
                 let action = makePendingAction(node: node, run: run, context: context)
                 let step = WorkflowRunStep(
-                    id: "step_\(UUID().uuidString.lowercased())",
+                    id: stepID,
                     runId: run.id,
                     nodeId: node.id,
                     status: .waiting,
                     input: scopedInput,
                     output: ["status": .string("waiting")],
-                    startedAt: Date()
+                    startedAt: startedAt
                 )
                 await persistence.saveStep(step)
                 run.status = .waitingForHuman
@@ -175,19 +175,23 @@ struct WorkflowRunner {
                 return .waitingForHuman(run, action)
 
             case .end:
+                guard let terminalStatus = endStatus(from: node) else {
+                    return await failStep(run: run, nodeID: node.id, input: scopedInput,
+                                          message: "End node has an invalid terminal status.", persistence: persistence)
+                }
                 let output = node.config
                 let step = WorkflowRunStep(
-                    id: "step_\(UUID().uuidString.lowercased())",
+                    id: stepID,
                     runId: run.id,
                     nodeId: node.id,
                     status: .succeeded,
                     input: scopedInput,
                     output: output,
-                    startedAt: Date(),
+                    startedAt: startedAt,
                     finishedAt: Date()
                 )
                 await persistence.saveStep(step)
-                run.status = endStatus(from: node)
+                run.status = terminalStatus
                 run.currentNodeIds = []
                 run.finishedAt = Date()
                 await persistence.saveRun(run)
@@ -195,67 +199,83 @@ struct WorkflowRunner {
 
             case .updateTask:
                 do {
-                    if let taskId = context.taskId, let status = stringValue(node.config["status"]) {
-                        try await updateTask(context.projectId, taskId, status)
+                    guard let taskId = context.taskId, let status = stringValue(node.config["status"]) else {
+                        return await failStep(run: run, nodeID: node.id, input: scopedInput,
+                                              message: "Update Task requires taskId and status.", persistence: persistence)
                     }
+                    try await updateTask(context.projectId, taskId, status)
                 } catch {
-                    return await fail(run: run, message: "Failed to update project task.", persistence: persistence)
+                    return await failStep(run: run, nodeID: node.id, input: scopedInput,
+                                          message: "Failed to update project task.", persistence: persistence)
                 }
                 previousOutput = node.config.merging(["status": .string("succeeded")]) { current, _ in current }
 
             case .condition:
+                let blockKind = stringValue(node.config["blockKind"]) ?? stringValue(node.config["block_kind"])
+                if stringValue(node.config["expression"]) != nil || blockKind == "expression" || blockKind == "merge" || blockKind == "loop" {
+                    return await failStep(run: run, nodeID: node.id, input: scopedInput,
+                                          message: "Expression, Loop and Merge execution is not implemented.", persistence: persistence)
+                }
                 previousOutput = context.input.merging(node.config) { _, new in new }
 
             case .agentStep, .toolCheck:
-                if let toolResult = await executeTool?(node, context, scopedInput) {
-                    guard toolResult.ok else {
-                        let message = toolResult.error?.message ?? "Workflow tool node failed."
-                        let failedStep = WorkflowRunStep(
-                            id: "step_\(UUID().uuidString.lowercased())",
-                            runId: run.id,
-                            nodeId: node.id,
-                            status: .failed,
-                            input: scopedInput,
-                            output: toolResult.dataObject,
-                            error: message,
-                            startedAt: Date(),
-                            finishedAt: Date()
-                        )
-                        await persistence.saveStep(failedStep)
-                        return await fail(run: run, message: message, persistence: persistence)
-                    }
-                    previousOutput = toolResult.dataObject.merging([
-                        "status": .string("succeeded"),
-                        "tool": .string(toolResult.tool)
-                    ]) { current, _ in current }
-                } else {
-                    previousOutput = node.config.merging(["status": .string("succeeded")]) { current, _ in current }
+                await persistence.saveStep(WorkflowRunStep(
+                    id: stepID, runId: run.id, nodeId: node.id, status: .running,
+                    input: scopedInput, startedAt: startedAt
+                ))
+                var stepContext = context
+                stepContext.stepId = stepID
+                stepContext.stepStartedAt = startedAt
+                let toolResult = await executeTool?(node, stepContext, scopedInput) ?? ToolInvocationResult(
+                    tool: "project.workflow", ok: false,
+                    error: ToolErrorPayload(code: "workflow_executor_unavailable",
+                                            message: "No executor for workflow node \(node.id).", retryable: false)
+                )
+                guard toolResult.ok else {
+                    var failedOutput = toolResult.dataObject
+                    failedOutput["errorCode"] = toolResult.error.map { .string($0.code) } ?? .string("workflow_execution_incomplete")
+                    let message = toolResult.error?.message ?? "Workflow node did not complete successfully."
+                    await persistence.saveStep(WorkflowRunStep(
+                        id: stepID, runId: run.id, nodeId: node.id, status: .failed,
+                        input: scopedInput, output: failedOutput, error: message,
+                        startedAt: startedAt, finishedAt: Date()
+                    ))
+                    return await fail(run: run, message: message, persistence: persistence)
                 }
+                previousOutput = toolResult.dataObject.merging([
+                    "status": .string("succeeded"), "tool": .string(toolResult.tool)
+                ]) { current, _ in current }
 
-            case .trigger, .projectTask, .notify:
+            case .projectTask, .notify:
+                return await failStep(run: run, nodeID: node.id, input: scopedInput,
+                                      message: "Workflow node type \(node.type.rawValue) is not implemented.", persistence: persistence)
+
+            case .trigger:
                 previousOutput = node.config.merging(["status": .string("succeeded")]) { current, _ in current }
             }
 
+            guard let next = nextNodeID(after: node.id, output: previousOutput, definition: definition) else {
+                return await failStep(run: run, nodeID: node.id, input: scopedInput,
+                                      message: "No matching transition after node \(node.id).", persistence: persistence,
+                                      stepID: stepID, startedAt: startedAt, output: previousOutput)
+            }
+
             let step = WorkflowRunStep(
-                id: "step_\(UUID().uuidString.lowercased())",
+                id: stepID,
                 runId: run.id,
                 nodeId: node.id,
                 status: .succeeded,
                 input: scopedInput,
                 output: previousOutput,
-                startedAt: Date(),
+                startedAt: startedAt,
                 finishedAt: Date()
             )
             await persistence.saveStep(step)
             nodeOutputs[node.id] = .object(["output": .object(previousOutput)])
-            nodeID = nextNodeID(after: node.id, output: previousOutput, definition: definition)
+            nodeID = next
         }
 
-        run.status = .completed
-        run.currentNodeIds = []
-        run.finishedAt = Date()
-        await persistence.saveRun(run)
-        return .completed(run)
+        return await fail(run: run, message: "Workflow stopped before an End node.", persistence: persistence)
     }
 
     private func makeRun(
@@ -291,6 +311,18 @@ struct WorkflowRunner {
             decisions: [.approved, .rejected, .changesRequested],
             createdAt: Date()
         )
+    }
+
+    private func failStep(
+        run: WorkflowRun, nodeID: String, input: [String: JSONValue],
+        message: String, persistence: Persistence, stepID: String? = nil,
+        startedAt: Date = Date(), output: [String: JSONValue] = [:]
+    ) async -> Result {
+        await persistence.saveStep(WorkflowRunStep(
+            id: stepID ?? "step_\(UUID().uuidString.lowercased())", runId: run.id, nodeId: nodeID,
+            status: .failed, input: input, output: output, error: message, startedAt: startedAt, finishedAt: Date()
+        ))
+        return await fail(run: run, message: message, persistence: persistence)
     }
 
     private func fail(run: WorkflowRun, message: String, persistence: Persistence) async -> Result {
@@ -336,11 +368,13 @@ struct WorkflowRunner {
         return false
     }
 
-    private func endStatus(from node: WorkflowNode) -> WorkflowRunStatus {
-        guard let raw = stringValue(node.config["status"]) else {
+    private func endStatus(from node: WorkflowNode) -> WorkflowRunStatus? {
+        guard node.config["status"] != nil else {
             return .completed
         }
-        return WorkflowRunStatus(rawValue: raw) ?? .completed
+        guard let raw = stringValue(node.config["status"]), let status = WorkflowRunStatus(rawValue: raw),
+              [.completed, .failed, .blocked, .cancelled].contains(status) else { return nil }
+        return status
     }
 
     private func stringValue(_ value: JSONValue?) -> String? {

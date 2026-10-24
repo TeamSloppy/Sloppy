@@ -230,3 +230,12 @@ test("describeWorkflowStep includes output and error detail instead of only fail
     }
   );
 });
+
+test("agent step preview shows the answer ahead of execution metadata", () => {
+  const description = describeWorkflowStep({
+    nodeId: "review", status: "succeeded",
+    output: { agentId: "reviewer", sessionId: "session", agentOutcome: "completed", model: "mock", text: "Verified the implementation." }
+  });
+  assert.equal(description.output, "Verified the implementation.");
+  assert.equal(description.detail, "Verified the implementation.");
+});

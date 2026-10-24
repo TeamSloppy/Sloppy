@@ -116,7 +116,7 @@ export function describeWorkflowStep(step) {
   const nodeId = asString(step?.nodeId, "node");
   const status = asString(step?.status, "unknown").replace(/_/g, " ");
   const error = asString(step?.error);
-  const output = formatWorkflowValue(step?.output);
+  const output = asString(step?.output?.text) || formatWorkflowValue(step?.output);
   return {
     title: `${nodeId}: ${status}`,
     detail: error || output || "",
