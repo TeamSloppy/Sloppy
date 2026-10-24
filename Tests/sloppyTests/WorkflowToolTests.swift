@@ -62,6 +62,30 @@ func workflowToolRejectsInvalidGraphWithValidationIssues() async throws {
 }
 
 @Test
+func workflowToolPreservesTypedConditionsAndRejectsMalformedOnes() async throws {
+    let fixture = try await makeWorkflowToolFixture()
+    let condition: JSONValue = .object(["path": .string("status"), "equals": .bool(false)])
+    for value in [condition, .string(String(decoding: try JSONEncoder().encode(condition), as: UTF8.self))] {
+        var arguments = starterWorkflowArguments(projectID: fixture.projectID, taskID: fixture.taskID)
+        var edges = try #require(arguments["edges"]?.asArray)
+        var first = try #require(edges[0].asObject)
+        first.removeValue(forKey: "conditionKey")
+        first["condition"] = value
+        edges[0] = .object(first)
+        arguments["edges"] = .array(edges)
+        let result = await WorkflowTool().invoke(arguments: arguments, context: fixture.context)
+        #expect(result.ok)
+        let id = try #require(result.data?.asObject?["workflowId"]?.asString)
+        let saved = try await fixture.service.getWorkflowDefinition(projectID: fixture.projectID, workflowID: id)
+        #expect(saved.edges.first?.condition == .init(path: "status", equals: .bool(false)))
+        first["condition"] = .object(["path": .string("status")])
+        edges[0] = .object(first)
+        arguments["edges"] = .array(edges)
+        #expect(!(await WorkflowTool().invoke(arguments: arguments, context: fixture.context)).ok)
+    }
+}
+
+@Test
 func workflowToolStartsAndReportsWorkflowRunUrl() async throws {
     let fixture = try await makeWorkflowToolFixture()
     let tool = WorkflowTool()

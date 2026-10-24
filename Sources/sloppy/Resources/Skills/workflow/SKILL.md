@@ -35,6 +35,13 @@ Approval decisions and user answers resume that run, including after a server re
 Interrupted agent steps retain their session history. An external operation without a
 confirmed persisted result blocks for reconciliation instead of being repeated.
 Sharing one session across different graph nodes is not supported yet.
+Optional `config.outputSchema` validates the complete step output. It supports type,
+properties, required, items, enum, minLength and boolean additionalProperties; unsupported
+keywords fail validation. `config.outputFormat: "json"` makes an agent return strict JSON
+stored in `output.result`, with the original answer retained in `output.text`.
+Use edge `condition: {"path":"result.verdict","equals":"approved"}` for typed branches,
+or legacy conditionKey, never both. Missing fields, references and ambiguous routes fail.
+Use at most one fallback edge per node. Full-value tool templates retain JSON types.
 The Dashboard starts and resumes runs in the background and refreshes their status.
 API clients can opt in with `background: true`; existing calls remain synchronous.
 

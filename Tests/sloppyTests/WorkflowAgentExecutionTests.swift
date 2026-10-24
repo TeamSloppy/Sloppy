@@ -190,17 +190,19 @@ actor WorkflowModelProbe {
     private let events: AsyncStream<Void>.Continuation
     private let gated: Bool
     private let failing: Bool
+    private let answers: [String]
     private var requestsInput: Bool
     private var released = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
     private(set) var prompts: [String] = []
 
-    init(gated: Bool = false, failing: Bool = false, requestsInput: Bool = false) {
+    init(gated: Bool = false, failing: Bool = false, requestsInput: Bool = false, answers: [String] = ["Workflow model answer"]) {
         let stream = AsyncStream<Void>.makeStream()
         started = stream.stream
         events = stream.continuation
         self.gated = gated
         self.failing = failing
+        self.answers = answers
         self.requestsInput = requestsInput
     }
 
@@ -215,7 +217,7 @@ actor WorkflowModelProbe {
         events.yield(())
         if gated && !released { await withCheckedContinuation { waiters.append($0) } }
         if failing { throw WorkflowModelError.unavailable }
-        return "Workflow model answer"
+        return answers.isEmpty ? "" : answers[min(prompts.count - 1, answers.count - 1)]
     }
 
     func release() {
