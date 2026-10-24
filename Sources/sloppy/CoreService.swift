@@ -220,6 +220,7 @@ public actor CoreService {
     let sessionStore: AgentSessionFileStore
     let actorBoardStore: ActorBoardFileStore
     var activeWorkflowRuns: Set<String> = []
+    var workflowWaitingSessions: [String: Set<String>] = [:]
     let workflowDefinitionStore: WorkflowDefinitionFileStore
     let automationDefinitionStore: AutomationDefinitionFileStore
     let sessionOrchestrator: AgentSessionOrchestrator

@@ -48,7 +48,9 @@ extension CoreService {
                 )
             )
             try Task.checkCancellation()
-            return Self.workflowAgentResult(response: response, output: output)
+            let persisted = try getAgentSession(agentID: agentID, sessionID: session.id)
+            return Self.workflowAgentResult(response: .init(summary: persisted.summary, appendedEvents: persisted.events,
+                                                            routeDecision: response.routeDecision), output: output)
         } catch {
             return failure(Task.isCancelled ? "workflow_agent_cancelled" : "workflow_agent_failed",
                            "Agent step failed: \(error)", data: output)
@@ -56,12 +58,14 @@ extension CoreService {
     }
 
     static func workflowAgentResult(response: AgentSessionMessageResponse, output: [String: JSONValue]) -> ToolInvocationResult {
-        let status = response.appendedEvents.compactMap(\.runStatus).last
+        let events = response.appendedEvents.filter { $0.importOrigin == nil }
+        let status = events.compactMap(\.runStatus).last
         let outcome = status?.executionOutcome
         var data = output
+        data.removeValue(forKey: "agentStage")
         data["agentOutcome"] = outcome.map { .string($0.state.rawValue) } ?? .null
         data["model"] = status?.selectedModel.map(JSONValue.string) ?? .null
-        if let text = response.appendedEvents.compactMap(\.message).last(where: { $0.role == .assistant }) {
+        if let text = events.compactMap(\.message).last(where: { $0.role == .assistant }) {
             data["text"] = .string(text.segments.filter { $0.kind == .text }.compactMap(\.text).joined(separator: "\n"))
         }
         guard status?.stage == .done, outcome?.state == .completed else {

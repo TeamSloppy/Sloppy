@@ -671,6 +671,7 @@ extension CoreService {
                     response: response
                 )
             }
+            await reconcileWorkflowAgentSession(agentID: normalizedAgentID, sessionID: normalizedSessionID, response: response)
             return response
         } catch {
             throw mapSessionOrchestratorError(error)

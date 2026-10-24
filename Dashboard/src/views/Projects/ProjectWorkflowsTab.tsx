@@ -497,6 +497,7 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
   const [nodeConfigText, setNodeConfigText] = useState("{}");
   const [agentSearch, setAgentSearch] = useState("");
   const [agentDropdownOpen, setAgentDropdownOpen] = useState(false);
+  const [actionResponses, setActionResponses] = useState<Record<string, string>>({});
   const [viewportSize, setViewportSize] = useState(() => ({
     width: typeof window !== "undefined" ? window.innerWidth : 0,
     height: typeof window !== "undefined" ? window.innerHeight : 0
@@ -999,6 +1000,7 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
     try {
       await resolveProjectWorkflowAction(project.id, String(action.id), {
         decision,
+        comment: actionResponses[String(action.id)] || null,
         resolvedBy: "human:admin"
       });
       await load({ keepSelection: true, silent: true });
@@ -1560,10 +1562,19 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
               <article className="project-workflow-action" key={action.id}>
                 <strong>{action.prompt}</strong>
                 <small>{action.assignee}</small>
+                <label>
+                  Response or comment
+                  <textarea rows={3} value={actionResponses[String(action.id)] || ""}
+                    aria-label={`Response for ${action.prompt}`}
+                    onChange={(event) => setActionResponses((previous) => ({ ...previous, [String(action.id)]: event.target.value }))} />
+                </label>
                 <div>
-                  <button type="button" onClick={() => resolveAction(action, "approved")} disabled={isBusy}>Approve</button>
-                  <button type="button" onClick={() => resolveAction(action, "rejected")} disabled={isBusy}>Reject</button>
-                  <button type="button" onClick={() => resolveAction(action, "changes_requested")} disabled={isBusy}>Changes</button>
+                  {(action.decisions || ["approved", "rejected", "changes_requested"]).map((decision: string) => (
+                    <button key={decision} type="button" onClick={() => resolveAction(action, decision)}
+                      disabled={isBusy || (action.decisions?.length === 1 && !actionResponses[String(action.id)]?.trim())}>
+                      {decision === "approved" ? (action.decisions?.length === 1 ? "Continue" : "Approve") : decision === "rejected" ? "Reject" : "Changes"}
+                    </button>
+                  ))}
                 </div>
               </article>
             ))}

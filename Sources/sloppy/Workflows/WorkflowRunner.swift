@@ -24,6 +24,7 @@ struct WorkflowRunner {
     enum Result: Sendable, Equatable {
         case completed(WorkflowRun)
         case waitingForHuman(WorkflowRun, WorkflowPendingAction)
+        case waitingForAgent(WorkflowRun)
         case failed(WorkflowRun, String)
     }
 
@@ -258,6 +259,15 @@ struct WorkflowRunner {
                     error: ToolErrorPayload(code: "workflow_executor_unavailable",
                                             message: "No executor for workflow node \(node.id).", retryable: false)
                 )
+                if node.type == .agentStep && WorkflowAgentOutcome.isWaiting(toolResult) {
+                    try await persistence.saveStep(WorkflowRunStep(
+                        id: stepID, runId: run.id, nodeId: node.id, status: .waiting,
+                        input: scopedInput, output: toolResult.dataObject, startedAt: startedAt
+                    ))
+                    run.status = .waitingForAgent
+                    try await persistence.saveRun(run)
+                    return .waitingForAgent(run)
+                }
                 guard toolResult.ok else {
                     var failedOutput = toolResult.dataObject
                     failedOutput["errorCode"] = toolResult.error.map { .string($0.code) } ?? .string("workflow_execution_incomplete")
@@ -335,7 +345,7 @@ struct WorkflowRunner {
             taskId: context.taskId,
             assignee: stringValue(node.config["assignee"]) ?? context.startedBy,
             prompt: stringValue(node.config["prompt"]) ?? node.title,
-            decisions: [.approved, .rejected, .changesRequested],
+            decisions: node.type == .humanInput ? [.approved] : [.approved, .rejected, .changesRequested],
             createdAt: Date()
         )
     }
