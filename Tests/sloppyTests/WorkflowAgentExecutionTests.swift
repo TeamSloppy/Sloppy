@@ -192,11 +192,12 @@ actor WorkflowModelProbe {
     private let failing: Bool
     private let answers: [String]
     private var requestsInput: Bool
+    private let inputAfter: Int
     private var released = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
     private(set) var prompts: [String] = []
 
-    init(gated: Bool = false, failing: Bool = false, requestsInput: Bool = false, answers: [String] = ["Workflow model answer"]) {
+    init(gated: Bool = false, failing: Bool = false, requestsInput: Bool = false, answers: [String] = ["Workflow model answer"], inputAfter: Int = 0) {
         let stream = AsyncStream<Void>.makeStream()
         started = stream.stream
         events = stream.continuation
@@ -204,9 +205,11 @@ actor WorkflowModelProbe {
         self.failing = failing
         self.answers = answers
         self.requestsInput = requestsInput
+        self.inputAfter = inputAfter
     }
 
     func takeInputRequest() -> Bool {
+        guard prompts.count >= inputAfter else { return false }
         let result = requestsInput
         requestsInput = false
         return result

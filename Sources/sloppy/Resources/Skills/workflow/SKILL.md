@@ -34,7 +34,13 @@ Each run pins its graph version, original input, prior outputs and step/session 
 Approval decisions and user answers resume that run, including after a server restart.
 Interrupted agent steps retain their session history. An external operation without a
 confirmed persisted result blocks for reconciliation instead of being repeated.
-Sharing one session across different graph nodes is not supported yet.
+Agent steps default to `config.sessionMode: "new"`. Set `sessionMode: "shared"` with
+`sessionSourceNodeId` referencing an earlier completed agent step in the same run, using
+the same agent. This continues that session's history while preserving separate outputs.
+The source must be completed/idle and keep the same project/task scope; unavailable
+sources fail instead of silently creating new context. Do not use raw config.sessionId.
+Persisted message boundaries prevent an older answer from completing the new step.
+Session compaction policies remain unsupported.
 Optional `config.outputSchema` validates the complete step output. It supports type,
 properties, required, items, enum, minLength and boolean additionalProperties; unsupported
 keywords fail validation. `config.outputFormat: "json"` makes an agent return strict JSON

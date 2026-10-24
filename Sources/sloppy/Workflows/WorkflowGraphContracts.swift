@@ -45,6 +45,7 @@ enum WorkflowGraphContracts {
         let nodeIDs = Set(definition.nodes.map(\.id))
         if Set(definition.edges.map(\.id)).count != definition.edges.count { issue("Duplicate transition identifiers.", node: "") }
         for node in definition.nodes {
+            if let message = WorkflowSessionPolicy.validationIssue(node: node, definition: definition) { issue(message, node: node.id) }
             do { try WorkflowOutputContract.validateDefinition(node.config["outputSchema"]) }
             catch { issue(String(describing: error), node: node.id) }
             if let format = node.config["outputFormat"], format != .null,
