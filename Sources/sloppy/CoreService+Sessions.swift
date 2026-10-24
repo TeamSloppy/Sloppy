@@ -857,6 +857,7 @@ extension CoreService {
                     await toolExecution.cleanupSessionProcesses(interruptedSessionID)
                 }
             }
+            await reconcileWorkflowAgentSession(agentID: normalizedAgentID, sessionID: normalizedSessionID)
             return response
         } catch {
             throw mapSessionOrchestratorError(error)

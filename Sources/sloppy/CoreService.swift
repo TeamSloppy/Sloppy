@@ -220,6 +220,11 @@ public actor CoreService {
     let sessionStore: AgentSessionFileStore
     let actorBoardStore: ActorBoardFileStore
     var activeWorkflowRuns: Set<String> = []
+    var workflowJournals: [String: WorkflowExecutionJournal] = [:]
+    var workflowRecoveryTasks: [String: Task<Void, Never>] = [:]
+    var workflowRecoveryIndexTask: Task<Void, Never>?
+    var workflowIsStopping = false
+    var workflowReconciliationPending: Set<String> = []
     var workflowWaitingSessions: [String: Set<String>] = [:]
     let workflowDefinitionStore: WorkflowDefinitionFileStore
     let automationDefinitionStore: AutomationDefinitionFileStore
@@ -785,6 +790,9 @@ public actor CoreService {
                     summary: summary,
                     events: events
                 )
+                if events.contains(where: { $0.runStatus?.stage == .done || $0.runStatus?.stage == .interrupted || $0.runStatus?.stage == .paused }) {
+                    await self.reconcileWorkflowAgentSession(agentID: agentID, sessionID: sessionID)
+                }
             }
             await self.sessionOrchestrator.updateTokenUsageObserver { [weak self] agentID, sessionID, usage in
                 guard let self else {
@@ -799,6 +807,7 @@ public actor CoreService {
             }
             await self.resumePendingMemoryImports()
             await self.resumePendingMigrations()
+            await self.restoreWorkflowExecutionsIfNeeded()
         }
     }
 

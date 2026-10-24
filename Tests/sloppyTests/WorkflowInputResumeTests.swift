@@ -55,7 +55,7 @@ struct WorkflowInputResumeTests {
         await service.shutdownChannelPlugins()
     }
 
-    private func graph(agentID: String? = nil) -> WorkflowDefinitionUpsertRequest {
+    func graph(agentID: String? = nil) -> WorkflowDefinitionUpsertRequest {
         let config: [String: JSONValue] = agentID.map {
             ["blockKind": .string("agent"), "agentId": .string($0), "mode": .string("plan"), "prompt": .string("Ask the owner before continuing.")]
         } ?? ["prompt": .string("Provide a release label")]

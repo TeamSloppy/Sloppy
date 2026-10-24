@@ -86,6 +86,8 @@ extension CoreService {
     }
 
     public func startWorkflowRun(projectID: String, workflowID: String, request: WorkflowRunCreateRequest) async throws -> WorkflowRunDetail {
+        await restoreWorkflowExecutionsIfNeeded()
+        guard !workflowIsStopping else { throw CancellationError() }
         _ = try await getProject(id: projectID)
         let definition = try await getWorkflowDefinition(projectID: projectID, workflowID: workflowID)
         guard definition.enabled else {
@@ -101,8 +103,16 @@ extension CoreService {
         let journal = WorkflowExecutionJournal(state: .init(definition: definition, originalInput: request.input, run: run),
                                                files: workflowExecutionFiles, store: store)
         activeWorkflowRuns.insert(run.id)
-        defer { activeWorkflowRuns.remove(run.id) }
+        workflowJournals[run.id] = journal
+        var ownsExecution = true
+        defer { if ownsExecution { releaseWorkflowExecution(run.id) } }
         try await journal.flush()
+        if request.background == true {
+            releaseWorkflowExecution(run.id)
+            ownsExecution = false
+            scheduleWorkflowRecovery(run.id)
+            return WorkflowRunDetail(run: run)
+        }
         _ = await WorkflowRunner().start(
             definition: definition,
             context: .init(projectId: projectID, taskId: request.taskId, startedBy: request.startedBy, input: request.input, runId: run.id),
@@ -112,15 +122,18 @@ extension CoreService {
                 await self?.executeWorkflowToolNode(node: node, context: context, input: input)
             }
         )
+        if await journal.suspended { throw CancellationError() }
         guard await !journal.failed else { throw WorkflowError.storageFailure }
         return try await finishWaitingWorkflowAgent(journal: journal)
     }
 
     public func listWorkflowRuns(projectID: String) async -> [WorkflowRun] {
-        await store.listWorkflowRuns(projectId: projectID)
+        await restoreWorkflowExecutionsIfNeeded()
+        return await store.listWorkflowRuns(projectId: projectID)
     }
 
     public func getWorkflowRunDetail(projectID: String, runID: String) async throws -> WorkflowRunDetail {
+        await restoreWorkflowExecutionsIfNeeded()
         guard let run = await store.getWorkflowRun(id: runID), run.projectId == projectID else {
             throw WorkflowError.runNotFound
         }
@@ -128,10 +141,13 @@ extension CoreService {
     }
 
     public func listWorkflowPendingActions(projectID: String) async -> [WorkflowPendingAction] {
-        await store.listWorkflowPendingActions(projectId: projectID, includeResolved: false)
+        await restoreWorkflowExecutionsIfNeeded()
+        return await store.listWorkflowPendingActions(projectId: projectID, includeResolved: false)
     }
 
     public func resolveWorkflowPendingAction(projectID: String, actionID: String, request: WorkflowActionResolveRequest) async throws -> WorkflowRunDetail {
+        await restoreWorkflowExecutionsIfNeeded()
+        guard !workflowIsStopping else { throw CancellationError() }
         let actions = await store.listWorkflowPendingActions(projectId: projectID, includeResolved: true)
         guard let action = actions.first(where: { $0.id == actionID }) else { throw WorkflowError.actionNotFound }
         guard let run = await store.getWorkflowRun(id: action.workflowRunId), run.projectId == projectID else { throw WorkflowError.runNotFound }
@@ -143,13 +159,22 @@ extension CoreService {
         if state.definition.nodes.first(where: { $0.id == action.nodeId })?.type == .humanInput,
            request.comment?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false { throw WorkflowError.invalidPayload }
         guard activeWorkflowRuns.insert(run.id).inserted else { throw WorkflowError.invalidPayload }
-        defer { activeWorkflowRuns.remove(run.id) }
+        workflowJournals[run.id] = journal
+        var ownsExecution = true
+        defer { if ownsExecution { releaseWorkflowExecution(run.id) } }
         let output: [String: JSONValue] = [
             "decision": .string(request.decision.rawValue),
             "comment": request.comment.map(JSONValue.string) ?? .null,
             "resolvedBy": .string(request.resolvedBy)
         ]
         try await journal.resolve(actionID: actionID, output: output)
+        if request.background == true {
+            let resolved = await journal.snapshot()
+            releaseWorkflowExecution(run.id)
+            ownsExecution = false
+            scheduleWorkflowRecovery(run.id)
+            return WorkflowRunDetail(run: resolved.run, steps: resolved.steps, pendingActions: resolved.actions)
+        }
         return try await continueWorkflow(journal: journal, nodeID: action.nodeId, output: output)
     }
 
@@ -184,11 +209,12 @@ extension CoreService {
             }, originalInput: state.originalInput, previousSteps: state.steps,
             resolvedStepID: state.steps.last(where: { $0.nodeId == nodeID })?.id
         )
+        if await journal.suspended { throw CancellationError() }
         guard await !journal.failed else { throw WorkflowError.storageFailure }
         return try await finishWaitingWorkflowAgent(journal: journal)
     }
 
-    private func workflowTaskUpdater() -> @Sendable (String, String, String) async throws -> Void {
+    func workflowTaskUpdater() -> @Sendable (String, String, String) async throws -> Void {
         { [weak self] projectId, taskId, status in
             guard let self else { throw WorkflowError.storageFailure }
             _ = try await self.updateProjectTask(projectID: projectId, taskID: taskId,

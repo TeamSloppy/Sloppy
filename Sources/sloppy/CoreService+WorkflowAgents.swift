@@ -31,15 +31,43 @@ extension CoreService {
         var output: [String: JSONValue] = ["agentId": .string(agentID)]
         do {
             try Task.checkCancellation()
-            let session = try await createAgentSession(agentID: agentID, request: AgentSessionCreateRequest(
-                title: "Workflow: \(node.title)", separateChat: true,
-                projectId: context.projectId, taskId: context.taskId
-            ))
+            let session: AgentSessionSummary
+            var continuation = false
+            if let sessionID = context.resumingStep?.output["sessionId"]?.asString {
+                let detail = try getAgentSession(agentID: agentID, sessionID: sessionID)
+                guard detail.summary.projectId == context.projectId, detail.summary.taskId == context.taskId else {
+                    return failure("workflow_agent_scope_mismatch", "Saved session belongs to a different task or project.", data: output)
+                }
+                session = detail.summary
+                output["sessionId"] = .string(sessionID)
+                let events = detail.events.filter { $0.importOrigin == nil }
+                let explicitInterrupt = events.contains { $0.runControl?.action == .interrupt || $0.runControl?.action == .interruptTree || $0.inputResponse?.status == .cancelled }
+                if explicitInterrupt { return failure("workflow_agent_cancelled", "The agent session was explicitly interrupted.", data: output) }
+                let status = events.compactMap(\.runStatus).last
+                let completed = status?.stage == .done && status?.executionOutcome?.state == .completed
+                let answeredPause = (events.lastIndex { $0.inputResponse?.status == .answered } ?? -1)
+                    > (events.lastIndex { $0.runStatus != nil } ?? -1)
+                if completed || (status?.stage == .paused && !answeredPause) || ((status?.stage == .done || status?.stage == .interrupted) && !context.resumeAfterShutdown) {
+                    return Self.workflowAgentResult(response: .init(summary: detail.summary, appendedEvents: events, routeDecision: nil), output: output)
+                }
+                var results: [String: AgentToolResultEvent] = [:]
+                for event in events { if let result = event.toolResult, let id = result.callEventId { results[id] = result } }
+                if events.contains(where: { $0.toolCall != nil && (results[$0.id] == nil || results[$0.id]?.executionOutcome?.requiresReconciliation == true) }) {
+                    return failure("workflow_reconciliation_required", "An interrupted tool call has no persisted result. Reconcile it before continuing.", data: output)
+                }
+                continuation = events.contains { $0.message?.role == .user }
+            } else {
+                session = try await createAgentSession(agentID: agentID, request: AgentSessionCreateRequest(
+                    title: "Workflow: \(node.title)", separateChat: true,
+                    projectId: context.projectId, taskId: context.taskId
+                ))
+            }
             output["sessionId"] = .string(session.id)
             try await context.reportProgress?(output)
             let encodedInput = try JSONEncoder().encode(input)
-            let content = resolveWorkflowTemplateString(prompt, input: input)
-                + "\n\n[Workflow input]\n" + String(decoding: encodedInput, as: UTF8.self)
+            let content = continuation
+                ? "Continue the interrupted workflow step using the original request and persisted session history. Preserve completed work; inspect tool results before taking further action."
+                : resolveWorkflowTemplateString(prompt, input: input) + "\n\n[Workflow input]\n" + String(decoding: encodedInput, as: UTF8.self)
             let response = try await postAgentSessionMessage(
                 agentID: agentID, sessionID: session.id,
                 request: AgentSessionPostMessageRequest(

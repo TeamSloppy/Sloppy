@@ -650,11 +650,32 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
       return;
     }
     let isCancelled = false;
-    fetchProjectWorkflowRun(project.id, selectedRunId).then((detail: AnyRecord | null) => {
-      if (!isCancelled) setSelectedRunDetail(detail);
-    });
+    let timer: number | undefined;
+    async function refreshRun() {
+      let status: string | undefined;
+      try {
+        const [detail, pending] = await Promise.all([
+          fetchProjectWorkflowRun(project.id, selectedRunId), fetchProjectWorkflowActions(project.id)
+        ]);
+        if (isCancelled) return;
+        const run = (detail as AnyRecord | null)?.run as AnyRecord | undefined;
+        if (detail && run) {
+          setSelectedRunDetail(detail);
+          setRuns((previous) => previous.map((entry) => entry.id === run.id ? run : entry));
+        }
+        if (pending) setActions(pending);
+        status = run?.status;
+      } catch {
+        // Retain the last snapshot and retry while the server is restarting.
+      }
+      if (!isCancelled && (!status || !["completed", "failed", "cancelled", "blocked"].includes(status))) {
+        timer = window.setTimeout(refreshRun, status && ["waiting_for_agent", "waiting_for_human"].includes(status) ? 2000 : 1000);
+      }
+    }
+    void refreshRun();
     return () => {
       isCancelled = true;
+      window.clearTimeout(timer);
     };
   }, [project.id, selectedRunId]);
 
@@ -965,6 +986,7 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
       const detail = await startProjectWorkflowRun(project.id, String(draft.id), {
         taskId: selectedTask?.id || null,
         startedBy: "human:admin",
+        background: true,
         input: { source: "dashboard", message: "Manual workflow run" }
       });
       await load({ keepSelection: true, silent: true });
@@ -1000,6 +1022,7 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
     try {
       await resolveProjectWorkflowAction(project.id, String(action.id), {
         decision,
+        background: true,
         comment: actionResponses[String(action.id)] || null,
         resolvedBy: "human:admin"
       });
