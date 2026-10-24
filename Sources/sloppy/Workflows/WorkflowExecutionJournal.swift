@@ -89,7 +89,10 @@ actor WorkflowExecutionJournal {
         guard let index = state.steps.firstIndex(where: { $0.id == stepID }) else { throw CoreService.WorkflowError.invalidPayload }
         let waiting = WorkflowAgentOutcome.isWaiting(result)
         state.steps[index].output = result.data?.asObject ?? [:]
-        if result.ok { state.steps[index].output["status"] = .string("succeeded") }
+        if result.ok {
+            state.steps[index].output["status"] = .string("succeeded")
+            state.steps[index].output["tool"] = .string(result.tool)
+        }
         state.steps[index].status = result.ok ? .succeeded : waiting ? .waiting : .failed
         state.steps[index].error = result.ok || waiting ? nil : result.error?.message
         state.steps[index].finishedAt = waiting ? nil : Date()

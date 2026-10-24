@@ -25,6 +25,8 @@ extension CoreService {
             return failure("workflow_agent_invalid", "Invalid agent chat mode.")
         }
         let effort = value("reasoningEffort").flatMap(ReasoningEffort.init(rawValue:))
+        let outputFormat = value("outputFormat") ?? "text"
+        guard ["text", "json"].contains(outputFormat) else { return failure("workflow_agent_invalid", "Invalid outputFormat.") }
         if value("reasoningEffort") != nil && effort == nil {
             return failure("workflow_agent_invalid", "Invalid reasoningEffort.")
         }
@@ -48,7 +50,7 @@ extension CoreService {
                 let answeredPause = (events.lastIndex { $0.inputResponse?.status == .answered } ?? -1)
                     > (events.lastIndex { $0.runStatus != nil } ?? -1)
                 if completed || (status?.stage == .paused && !answeredPause) || ((status?.stage == .done || status?.stage == .interrupted) && !context.resumeAfterShutdown) {
-                    return Self.workflowAgentResult(response: .init(summary: detail.summary, appendedEvents: events, routeDecision: nil), output: output)
+                    return Self.workflowAgentResult(response: .init(summary: detail.summary, appendedEvents: events, routeDecision: nil), output: output, outputFormat: outputFormat)
                 }
                 var results: [String: AgentToolResultEvent] = [:]
                 for event in events { if let result = event.toolResult, let id = result.callEventId { results[id] = result } }
@@ -65,9 +67,15 @@ extension CoreService {
             output["sessionId"] = .string(session.id)
             try await context.reportProgress?(output)
             let encodedInput = try JSONEncoder().encode(input)
-            let content = continuation
+            var content = continuation
                 ? "Continue the interrupted workflow step using the original request and persisted session history. Preserve completed work; inspect tool results before taking further action."
                 : resolveWorkflowTemplateString(prompt, input: input) + "\n\n[Workflow input]\n" + String(decoding: encodedInput, as: UTF8.self)
+            if outputFormat == "json" {
+                content += "\n\n[Workflow result format]\nReturn a single JSON value, without Markdown fences or surrounding prose. It will be stored in output.result."
+                if let schema = config["outputSchema"]?.asObject?["properties"]?.asObject?["result"] {
+                    content += "\nResult schema: " + String(decoding: try JSONEncoder().encode(schema), as: UTF8.self)
+                }
+            }
             let response = try await postAgentSessionMessage(
                 agentID: agentID, sessionID: session.id,
                 request: AgentSessionPostMessageRequest(
@@ -78,14 +86,14 @@ extension CoreService {
             try Task.checkCancellation()
             let persisted = try getAgentSession(agentID: agentID, sessionID: session.id)
             return Self.workflowAgentResult(response: .init(summary: persisted.summary, appendedEvents: persisted.events,
-                                                            routeDecision: response.routeDecision), output: output)
+                                                            routeDecision: response.routeDecision), output: output, outputFormat: outputFormat)
         } catch {
             return failure(Task.isCancelled ? "workflow_agent_cancelled" : "workflow_agent_failed",
                            "Agent step failed: \(error)", data: output)
         }
     }
 
-    static func workflowAgentResult(response: AgentSessionMessageResponse, output: [String: JSONValue]) -> ToolInvocationResult {
+    static func workflowAgentResult(response: AgentSessionMessageResponse, output: [String: JSONValue], outputFormat: String = "text") -> ToolInvocationResult {
         let events = response.appendedEvents.filter { $0.importOrigin == nil }
         let status = events.compactMap(\.runStatus).last
         let outcome = status?.executionOutcome
@@ -104,6 +112,14 @@ extension CoreService {
                                         message: status?.details ?? "Agent did not report a completed execution outcome.",
                                         retryable: outcome?.retryable ?? false)
             )
+        }
+        if outputFormat == "json" {
+            guard let text = data["text"]?.asString,
+                  let result = try? JSONDecoder().decode(JSONValue.self, from: Data(text.utf8)) else {
+                return ToolInvocationResult(tool: "workflow.agent", ok: false, data: .object(data),
+                    error: .init(code: "workflow_output_invalid", message: "Agent result must be valid JSON without surrounding prose.", retryable: false))
+            }
+            data["result"] = result
         }
         return ToolInvocationResult(tool: "workflow.agent", ok: true, data: .object(data))
     }

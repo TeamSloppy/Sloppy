@@ -118,6 +118,11 @@ struct WorkflowRunner {
                 startedAt: previousSteps.last(where: { $0.id == resolvedStepID })?.startedAt ?? Date(),
                 finishedAt: Date()
             )
+            if let node = definition.nodes.first(where: { $0.id == resolvedNodeID }) {
+                do { try WorkflowOutputContract.validate(node: node, output: output) }
+                catch { return try await failStep(run: run, nodeID: node.id, input: waitingStep.input,
+                    message: String(describing: error), persistence: persistence, stepID: waitingStep.id, output: output) }
+            }
             try await persistence.saveStep(waitingStep)
             let nextNodeID: String
             do { nextNodeID = try WorkflowGraphContracts.next(after: resolvedNodeID, output: output, definition: definition) }
@@ -161,6 +166,9 @@ struct WorkflowRunner {
             // this node must not be mistaken for the current attempt after a loop.
             let step = state.steps.last?.nodeId == nodeID ? state.steps.last : nil
             if step?.status == .succeeded {
+                do { try WorkflowOutputContract.validate(node: node, output: step?.output ?? [:]) }
+                catch { return try await failStep(run: state.run, nodeID: node.id, input: step?.input ?? [:],
+                    message: String(describing: error), persistence: persistence, stepID: step?.id, output: step?.output ?? [:]) }
                 if node.type == .end {
                     var run = state.run
                     run.status = endStatus(from: node) ?? .failed
@@ -260,6 +268,9 @@ struct WorkflowRunner {
                                           message: "End node has an invalid terminal status.", persistence: persistence)
                 }
                 let output = node.config
+                do { try WorkflowOutputContract.validate(node: node, output: output) }
+                catch { return try await failStep(run: run, nodeID: node.id, input: scopedInput,
+                    message: String(describing: error), persistence: persistence, stepID: stepID, output: output) }
                 let step = WorkflowRunStep(
                     id: stepID,
                     runId: run.id,
@@ -357,6 +368,9 @@ struct WorkflowRunner {
                 previousOutput = node.config.merging(["status": .string("succeeded")]) { current, _ in current }
             }
 
+            do { try WorkflowOutputContract.validate(node: node, output: previousOutput) }
+            catch { return try await failStep(run: run, nodeID: node.id, input: scopedInput,
+                message: String(describing: error), persistence: persistence, stepID: stepID, output: previousOutput) }
             let next: String
             do { next = try WorkflowGraphContracts.next(after: node.id, output: previousOutput, definition: definition) }
             catch { return try await failStep(run: run, nodeID: node.id, input: scopedInput,

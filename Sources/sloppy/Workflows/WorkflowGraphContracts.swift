@@ -45,6 +45,12 @@ enum WorkflowGraphContracts {
         let nodeIDs = Set(definition.nodes.map(\.id))
         if Set(definition.edges.map(\.id)).count != definition.edges.count { issue("Duplicate transition identifiers.", node: "") }
         for node in definition.nodes {
+            do { try WorkflowOutputContract.validateDefinition(node.config["outputSchema"]) }
+            catch { issue(String(describing: error), node: node.id) }
+            if let format = node.config["outputFormat"], format != .null,
+               node.type != .agentStep || ![JSONValue.string("text"), .string("json")].contains(format) {
+                issue("outputFormat must be text or json on an agent step.", node: node.id)
+            }
             let edges = definition.edges.filter { $0.sourceNodeId == node.id }
             if node.type == .end && !edges.isEmpty { issue("End nodes cannot have outgoing transitions.", node: node.id) }
             if edges.filter({ $0.conditionKey == nil && $0.condition == nil }).count > 1 {
