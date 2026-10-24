@@ -157,7 +157,9 @@ struct WorkflowRunner {
                   let node = state.definition.nodes.first(where: { $0.id == nodeID }) else {
                 return try await fail(run: state.run, message: "Checkpoint has no executable cursor.", persistence: persistence)
             }
-            let step = state.steps.last { $0.nodeId == nodeID }
+            // A moved cursor may not have saved its new attempt yet. Older visits to
+            // this node must not be mistaken for the current attempt after a loop.
+            let step = state.steps.last?.nodeId == nodeID ? state.steps.last : nil
             if step?.status == .succeeded {
                 if node.type == .end {
                     var run = state.run

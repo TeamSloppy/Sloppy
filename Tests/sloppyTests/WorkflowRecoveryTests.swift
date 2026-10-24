@@ -40,8 +40,8 @@ struct WorkflowRecoveryTests {
         await restarted.shutdownChannelPlugins()
     }
 
-    @Test(arguments: [PlanInputResponseStatus.answered, .cancelled])
-    func userAnswersPersistedQuestionAfterRestart(status: PlanInputResponseStatus) async throws {
+    @Test(arguments: [PlanInputResponseStatus.answered, .cancelled], [false, true])
+    func userAnswersPersistedQuestionAfterRestart(status: PlanInputResponseStatus, answerSavedBeforeRestart: Bool) async throws {
         let config = CoreConfig.test
         let service = CoreService(config: config)
         await service.overrideModelProviderForTests(WorkflowModelProvider(probe: WorkflowModelProbe(requestsInput: true)), defaultModel: "mock:test-model")
@@ -55,16 +55,51 @@ struct WorkflowRecoveryTests {
         let step = try #require(paused.steps.first { $0.nodeId == "work" })
         let sessionID = try #require(step.output["sessionId"]?.asString)
         let input = try #require(try await service.getAgentSession(agentID: agentID, sessionID: sessionID).events.compactMap(\.inputRequest).last)
+        let payload = PlanInputAnswerRequest(status: status, answers: status == .answered ? [.init(questionId: "choice", selectedOptionId: "yes")] : [], userId: "owner")
+        if answerSavedBeforeRestart {
+            let response = PlanInputResponse(requestId: input.id, status: status, answers: payload.answers, userId: "owner")
+            _ = try await service.appendAgentSessionEvents(agentID: agentID, sessionID: sessionID, request: .init(events: [
+                .init(agentId: agentID, sessionId: sessionID, type: .inputResponse, inputResponse: response),
+                .init(agentId: agentID, sessionId: sessionID, type: .message,
+                      message: .init(role: .user, segments: [.init(kind: .text, text: "Persisted user answer: \(status.rawValue), choice yes")], userId: "owner"))
+            ]))
+        }
         await service.shutdownChannelPlugins()
         let restarted = CoreService(config: config)
         await restarted.overrideModelProviderForTests(WorkflowModelProvider(probe: WorkflowModelProbe()), defaultModel: "mock:test-model")
         await restarted.waitForStartup()
-        _ = try await restarted.answerAgentPlanInput(agentID: agentID, sessionID: sessionID, requestID: input.id,
-            payload: .init(status: status, answers: status == .answered ? [.init(questionId: "choice", selectedOptionId: "yes")] : [], userId: "owner"))
+        if !answerSavedBeforeRestart {
+            _ = try await restarted.answerAgentPlanInput(agentID: agentID, sessionID: sessionID, requestID: input.id, payload: payload)
+        }
         let finished = try await wait(restarted, run: paused.run, status: status == .answered ? .completed : .failed)
         #expect(finished.steps.first { $0.nodeId == "work" }?.id == step.id)
         #expect(try await restarted.listAgentSessions(agentID: agentID).count == 1)
         if status == .answered { #expect(finished.steps.first { $0.nodeId == "after" }?.output["stdout"] == .string("Workflow model answer:WF-42")) }
+        await restarted.shutdownChannelPlugins()
+    }
+
+    @Test
+    func cursorMovedBackToNodeDoesNotReuseItsEarlierAttempt() async throws {
+        let (service, config, initial, marker) = try await fixture()
+        var state = initial
+        state.definition.edges.insert(.init(id: "retry", sourceNodeId: "effect", targetNodeId: "start", conditionKey: "retry"), at: 1)
+        state.run.status = .running
+        state.run.currentNodeIds = ["effect"]
+        // The first visit requested another pass. The cursor has returned through
+        // Start, but the server stopped before saving the second effect attempt.
+        state.steps = [
+            .init(id: "previous-effect", runId: state.run.id, nodeId: "effect", status: .succeeded,
+                  output: ["retry": .bool(true)], startedAt: Date()),
+            .init(id: "latest-start", runId: state.run.id, nodeId: "start", status: .succeeded, startedAt: Date())
+        ]
+        try Data("x".utf8).write(to: marker)
+        try await service.workflowExecutionFiles.save(state)
+        await service.shutdownChannelPlugins()
+        let restarted = CoreService(config: config)
+        let finished = try await wait(restarted, run: state.run, status: .completed)
+        #expect(try String(contentsOf: marker, encoding: .utf8) == "xx")
+        #expect(finished.steps.filter { $0.nodeId == "effect" }.count == 2)
+        #expect(finished.steps.filter { $0.nodeId == "start" }.count == 1)
         await restarted.shutdownChannelPlugins()
     }
 

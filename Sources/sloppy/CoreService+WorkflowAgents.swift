@@ -41,11 +41,13 @@ extension CoreService {
                 session = detail.summary
                 output["sessionId"] = .string(sessionID)
                 let events = detail.events.filter { $0.importOrigin == nil }
-                let explicitInterrupt = events.contains { $0.runControl?.action == .interrupt || $0.runControl?.action == .interruptTree }
+                let explicitInterrupt = events.contains { $0.runControl?.action == .interrupt || $0.runControl?.action == .interruptTree || $0.inputResponse?.status == .cancelled }
                 if explicitInterrupt { return failure("workflow_agent_cancelled", "The agent session was explicitly interrupted.", data: output) }
                 let status = events.compactMap(\.runStatus).last
                 let completed = status?.stage == .done && status?.executionOutcome?.state == .completed
-                if completed || status?.stage == .paused || ((status?.stage == .done || status?.stage == .interrupted) && !context.resumeAfterShutdown) {
+                let answeredPause = (events.lastIndex { $0.inputResponse?.status == .answered } ?? -1)
+                    > (events.lastIndex { $0.runStatus != nil } ?? -1)
+                if completed || (status?.stage == .paused && !answeredPause) || ((status?.stage == .done || status?.stage == .interrupted) && !context.resumeAfterShutdown) {
                     return Self.workflowAgentResult(response: .init(summary: detail.summary, appendedEvents: events, routeDecision: nil), output: output)
                 }
                 var results: [String: AgentToolResultEvent] = [:]
