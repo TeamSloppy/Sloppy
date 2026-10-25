@@ -5,8 +5,8 @@ import Protocols
 
 @Suite("Workflow winner recovery", .timeLimit(.minutes(1)))
 struct WorkflowRaceRecoveryTests {
-    @Test
-    func persistedWinnerCancelsQueuedLosingChildBeforeEffects() async throws {
+    @Test(arguments: [WorkflowRunStatus.waitingForWorkflow, .running, .cancelled])
+    func persistedWinnerCancelsQueuedLosingChildBeforeEffects(interrupted: WorkflowRunStatus) async throws {
         let h = try await WorkflowCompletionHarness.make(disk: true)
         let child = try await h.define([h.shell("effect", "printf x >> losing-child-effect")])
         let parent = try await h.service.createWorkflowDefinition(projectID: h.project, request: .init(name: "Race recovery", lanes: [.init(id: "s", title: "System", kind: .system)], nodes: [
@@ -35,12 +35,12 @@ struct WorkflowRaceRecoveryTests {
         let winner = WorkflowParallelBranch(id: "a", run: .init(id: "branch-a", workflowId: parent.id, workflowVersion: parent.version,
             projectId: h.project, status: .completed, startedBy: "owner"), steps: [a])
         let loser = WorkflowParallelBranch(id: "child", run: .init(id: "branch-child", workflowId: parent.id, workflowVersion: parent.version,
-            projectId: h.project, status: .waitingForWorkflow, currentNodeIds: ["child"], startedBy: "owner"), steps: [losing])
+            projectId: h.project, status: interrupted == .cancelled ? .running : interrupted, currentNodeIds: ["child"], startedBy: "owner"), steps: [losing])
         a.runId = parentID; losing.runId = parentID
         let state = WorkflowExecutionState(definition: parent, originalInput: input,
-            run: .init(id: parentID, workflowId: parent.id, workflowVersion: parent.version, projectId: h.project, status: .running,
-                currentNodeIds: ["fork"], startedBy: "owner", environment: environment), steps: [fork, a, losing],
-            parallel: .init(nodeID: "fork", stepID: fork.id, branches: [winner, loser], visitCounts: ["fork": 1], winner: "a"))
+            run: .init(id: parentID, workflowId: parent.id, workflowVersion: parent.version, projectId: h.project, status: interrupted == .cancelled ? .cancelled : .running,
+                currentNodeIds: ["fork"], startedBy: "owner", finishedAt: interrupted == .cancelled ? Date() : nil, environment: environment), steps: [fork, a, losing],
+            parallel: .init(nodeID: "fork", stepID: fork.id, branches: [winner, loser], visitCounts: ["fork": 1], winner: interrupted == .cancelled ? nil : "a"))
         var childInput = input; childInput["__workflowAncestors"] = .array([.string(parent.id), .string(child.id)])
         let queued = WorkflowExecutionState(definition: child, originalInput: childInput,
             run: .init(id: childID, workflowId: child.id, workflowVersion: child.version, projectId: h.project, status: .queued, startedBy: "owner", environment: environment),
@@ -51,7 +51,7 @@ struct WorkflowRaceRecoveryTests {
         await h.service.shutdownChannelPlugins()
         let restarted = CoreService(config: h.config)
         defer { Task { await restarted.shutdownChannelPlugins() } }
-        _ = try await h.wait(parentID, service: restarted) { $0.run.status == .completed }
+        _ = try await h.wait(parentID, service: restarted) { $0.run.status == (interrupted == .cancelled ? .cancelled : .completed) }
         let cancelled = try await h.wait(childID, service: restarted) { $0.run.status == .cancelled }
         #expect(cancelled.run.status == .cancelled)
         #expect(!FileManager.default.fileExists(atPath: URL(fileURLWithPath: environment.workingDirectory).appendingPathComponent("losing-child-effect").path))

@@ -6,6 +6,7 @@ extension CoreService {
         func failure(_ message: String, code: String = "workflow_child_failed", data: [String: JSONValue] = [:]) -> ToolInvocationResult {
             .init(tool: "workflow.child", ok: false, data: .object(data), error: .init(code: code, message: message, retryable: false))
         }
+        var bindingOutput: [String: JSONValue] = [:]
         do {
             guard let target = node.config["workflowId"]?.asString, let step = context.stepId else { return failure("Sub-workflow requires a workflowId and durable attempt.") }
             let saved = context.resumingStep?.output ?? context.retryOutput ?? [:]
@@ -18,6 +19,7 @@ extension CoreService {
             let ancestors = context.input["__workflowAncestors"]?.asArray?.compactMap(\.asString) ?? []
             guard !ancestors.contains(target), ancestors.count < 8 else { return failure("Recursive workflow calls are not allowed.") }
             var output: [String: JSONValue] = ["childRunId": .string("run_\(key.lowercased())"), "childWorkflowId": .string(target)]
+            bindingOutput = output
             try await context.reportProgress?(output)
             let environment = try context.input["environment"].map { try JSONDecoder().decode(WorkflowEnvironmentBinding.self, from: JSONEncoder().encode($0)) }
             var childInput = context.input
@@ -42,7 +44,7 @@ extension CoreService {
             case .cancelled: return failure("Child workflow was cancelled.", code: "workflow_child_cancelled", data: output)
             default: return failure("Waiting for child workflow completion.", code: "workflow_child_waiting", data: output)
             }
-        } catch { return failure(String(describing: error)) }
+        } catch { return failure(String(describing: error), data: bindingOutput) }
     }
 
     func workflowWaitingChildSteps(_ state: WorkflowExecutionState) -> [WorkflowRunStep] {
@@ -54,8 +56,12 @@ extension CoreService {
     }
 
     func workflowChildLostRace(_ child: String) -> Bool {
+        let explicitResume = (try? workflowExecutionFiles.load(child))?.reconciliations?.last?.createdAt ?? .distantPast
         for parent in workflowWaitingChildren[child] ?? [] {
-            guard let state = try? workflowExecutionFiles.load(parent), let parallel = state.parallel, let winner = parallel.winner else { continue }
+            guard let state = try? workflowExecutionFiles.load(parent) else { continue }
+            if state.run.status == .cancelled, explicitResume <= (state.run.finishedAt ?? .distantFuture) { return true }
+            guard let parallel = state.parallel, let winner = parallel.winner,
+                  explicitResume <= (parallel.branches.first(where: { $0.id == winner })?.run.finishedAt ?? .distantFuture) else { continue }
             if parallel.branches.contains(where: { $0.id != winner && $0.steps.contains { $0.output["childRunId"]?.asString == child } }) { return true }
         }
         return false
@@ -72,7 +78,12 @@ extension CoreService {
             workflowWaitingChildren[key]?.remove(state.run.id)
             if workflowWaitingChildren[key]?.isEmpty == true { workflowWaitingChildren[key] = nil }
         }
-        for step in workflowWaitingChildSteps(state) {
+        var steps = workflowWaitingChildSteps(state)
+        if state.run.status == .cancelled { steps += state.steps }
+        if let parallel = state.parallel, let winner = parallel.winner {
+            steps += parallel.branches.filter { $0.id != winner }.flatMap(\.steps)
+        }
+        for step in steps where state.definition.nodes.contains(where: { $0.id == step.nodeId && WorkflowGraphContracts.blockKind($0) == "sub_workflow" }) {
             if let child = step.output["childRunId"]?.asString { workflowWaitingChildren[child, default: []].insert(state.run.id) }
         }
     }
