@@ -82,9 +82,16 @@ import SloppyMigration
         #expect(try reopened.loadSession(agentID: agentID, sessionID: sessionID).events == detail.events)
     }
     @Test func importedMCPStaysDisabledAndMemoryWaitsForModel() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("migration-mcp-" + UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
         var config = CoreConfig.test
         config.models = []
-        let service = CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder(), sharedSkillsRootURLs: [])
+        config.workspace.basePath = root.path
+        let configURL = root.appendingPathComponent("sloppy.json")
+        try JSONEncoder().encode(config).write(to: configURL)
+        let service = CoreService(config: config, configPath: configURL.path, currentDirectory: root.path,
+                                  persistenceBuilder: InMemoryCorePersistenceBuilder(), sharedSkillsRootURLs: [])
         var mcp = item(category: .mcp); mcp.mcp = .init(command: "must-not-be-executed", arguments: ["--fixture"])
         var memory = item(category: .memory); memory.files = [.init(path: "MEMORY.md", content: Data("Durable project knowledge".utf8))]
         let job = try await service.importMigration(.init(items: [mcp, memory])); let jobs = await service.migrations; await jobs.wait(job.id)

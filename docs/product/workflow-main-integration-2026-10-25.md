@@ -28,7 +28,11 @@ The sole Git conflict is modify/delete on `Sources/Protocols/APIModels.swift`. M
 
 Git merged the two workflow session-reconciliation hooks into `CoreService+Sessions.swift` alongside main's per-turn session changes. TUI sources and tests are inherited unchanged from main, including PR 67. The eight unrelated dirty files in the original checkout are left untouched; integration and verification use a separate worktree.
 
-The integration diff against main contains 5,827 reviewable code/test lines before this audit document (6,429 textual lines including existing docs, plus one existing screenshot). The user explicitly requested a single consolidated integration; this diff represents previously reviewed feature PRs rather than a new decomposition.
+The integration diff against main contains 5,836 reviewable code/test lines including the isolated migration fixture, plus documentation and one existing screenshot. The user explicitly requested a single consolidated integration; this diff represents previously reviewed feature PRs rather than a new decomposition.
+
+## Clean-checkout test fixture
+
+The selected 359-test integration run initially exposed one unrelated migration test that relied on a local `sloppy.json`. Its MCP import writes configuration, but the test supplied only an in-memory config. The test now serializes that config into its own temporary directory and passes explicit config/workspace paths; it neither depends on nor writes the developer's config. Production import behavior is unchanged.
 
 ## Upstream checks
 
