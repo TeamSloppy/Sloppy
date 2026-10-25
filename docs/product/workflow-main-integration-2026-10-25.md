@@ -4,7 +4,7 @@ The user explicitly authorized integrating all merged PR changes into `main`, re
 
 ## Audit
 
-The audit inspected every merged PR returned by GitHub (58 records), its merge commit, its source parent and current `origin/main` ancestry.
+The audit inspected every merged PR returned by GitHub (56 records), its merge commit, its source parent and current `origin/main` ancestry.
 
 | PRs | Before integration | Integration action |
 |---|---|---|
@@ -36,4 +36,4 @@ At audit time PR 70's release builds on Linux/macOS, SloppyNode on macOS/Windows
 
 ## Integration verification
 
-Validation results are recorded below before merging. Production deployment is separate from merging source into main.
+The integration PR records results from the consolidated source: workflow/session/input/heartbeat tests, TUI and SQLite migration checks, Dashboard tests/typecheck/build, and release builds for both executables. The existing disabled Swift CI test jobs are not counted as coverage. Production deployment is separate from merging source into main.

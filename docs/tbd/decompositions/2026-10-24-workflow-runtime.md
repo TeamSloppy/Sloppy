@@ -1,6 +1,7 @@
 # Workflow runtime — implementation slices
 
 - Created: 2026-10-24.
+- 2026-10-25 integration: the user authorized merging all completed PRs into main. The single consolidation preserves main's model/storage refactors and PR 67; see [the complete merge audit](../../product/workflow-main-integration-2026-10-25.md). The slice statuses below record their original delivery, before this consolidation.
 - Scope and order authorized by the user's instruction to implement the preceding Kent comparison plan, starting with false success and real agents.
 - Trunk: main. Working branch for the first slice: codex/workflow-agent-execution.
 - Delivery: [PR #60](https://github.com/TeamSloppy/Sloppy/pull/60) merged to main; the following slices are tracked below.
