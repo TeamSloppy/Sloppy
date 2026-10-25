@@ -219,6 +219,13 @@ public actor CoreService {
     var visorToolApprovalReviewOverride: (@Sendable (SubagentToolApprovalContext) async -> SemanticToolApprovalDecision?)?
     let sessionStore: AgentSessionFileStore
     let actorBoardStore: ActorBoardFileStore
+    var activeWorkflowRuns: Set<String> = []
+    var workflowJournals: [String: WorkflowExecutionJournal] = [:]
+    var workflowRecoveryTasks: [String: Task<Void, Never>] = [:]
+    var workflowRecoveryIndexTask: Task<Void, Never>?
+    var workflowIsStopping = false
+    var workflowReconciliationPending: Set<String> = []
+    var workflowWaitingSessions: [String: Set<String>] = [:]
     let workflowDefinitionStore: WorkflowDefinitionFileStore
     let automationDefinitionStore: AutomationDefinitionFileStore
     let sessionOrchestrator: AgentSessionOrchestrator
@@ -296,6 +303,9 @@ public actor CoreService {
     var longChatCurrentTurns: [String: String] = [:]
     var longChatWorkerRuns: [String: Task<Void, Never>] = [:]
     var sessionExtraRoots: [String: [String]] = [:]
+    var workflowTaskOwners: [String: String] = [:]
+    var workflowWaitingChildren: [String: Set<String>] = [:]
+    var workflowSessionDirectories: [String: String] = [:]
     var sessionWorkingDirectories: [String: String] = [:]
     var sessionAddedRoots: [String: [String]] = [:]
     var projectExecutionSessions: [String: (projectID: String, taskID: String, agentID: String, generation: Int)] = [:]
@@ -783,6 +793,9 @@ public actor CoreService {
                     summary: summary,
                     events: events
                 )
+                if events.contains(where: { $0.runStatus?.stage == .done || $0.runStatus?.stage == .interrupted || $0.runStatus?.stage == .paused }) {
+                    await self.reconcileWorkflowAgentSession(agentID: agentID, sessionID: sessionID)
+                }
             }
             await self.sessionOrchestrator.updateTokenUsageObserver { [weak self] agentID, sessionID, usage in
                 guard let self else {
@@ -797,6 +810,7 @@ public actor CoreService {
             }
             await self.resumePendingMemoryImports()
             await self.resumePendingMigrations()
+            await self.restoreWorkflowExecutionsIfNeeded()
         }
     }
 

@@ -41,6 +41,19 @@ func workflowToolProposesWorkflowAndReturnsDashboardUrl() async throws {
 }
 
 @Test
+func workflowToolRejectsMalformedInputBeforeStarting() async throws {
+    let fixture = try await makeWorkflowToolFixture()
+    let tool = WorkflowTool()
+    let proposal = await tool.invoke(arguments: starterWorkflowArguments(projectID: fixture.projectID, taskID: fixture.taskID), context: fixture.context)
+    let id = try #require(proposal.data?.asObject?["workflowId"]?.asString)
+    for value in [JSONValue.string("{broken"), .array([]), .number(1)] {
+        let result = await tool.invoke(arguments: ["operation": .string("start"), "projectId": .string(fixture.projectID), "workflowId": .string(id), "input": value], context: fixture.context)
+        #expect(!result.ok && result.error?.code == "invalid_arguments")
+        #expect(await fixture.service.listWorkflowRuns(projectID: fixture.projectID).isEmpty)
+    }
+}
+
+@Test
 func workflowToolRejectsInvalidGraphWithValidationIssues() async throws {
     let fixture = try await makeWorkflowToolFixture()
     let tool = WorkflowTool()
@@ -59,6 +72,30 @@ func workflowToolRejectsInvalidGraphWithValidationIssues() async throws {
     #expect(result.error?.code == "validation_failed")
     let issues = result.data?.asObject?["validationIssues"]?.asArray ?? []
     #expect(issues.isEmpty == false)
+}
+
+@Test
+func workflowToolPreservesTypedConditionsAndRejectsMalformedOnes() async throws {
+    let fixture = try await makeWorkflowToolFixture()
+    let condition: JSONValue = .object(["path": .string("status"), "equals": .bool(false)])
+    for value in [condition, .string(String(decoding: try JSONEncoder().encode(condition), as: UTF8.self))] {
+        var arguments = starterWorkflowArguments(projectID: fixture.projectID, taskID: fixture.taskID)
+        var edges = try #require(arguments["edges"]?.asArray)
+        var first = try #require(edges[0].asObject)
+        first.removeValue(forKey: "conditionKey")
+        first["condition"] = value
+        edges[0] = .object(first)
+        arguments["edges"] = .array(edges)
+        let result = await WorkflowTool().invoke(arguments: arguments, context: fixture.context)
+        #expect(result.ok)
+        let id = try #require(result.data?.asObject?["workflowId"]?.asString)
+        let saved = try await fixture.service.getWorkflowDefinition(projectID: fixture.projectID, workflowID: id)
+        #expect(saved.edges.first?.condition == .init(path: "status", equals: .bool(false)))
+        first["condition"] = .object(["path": .string("status")])
+        edges[0] = .object(first)
+        arguments["edges"] = .array(edges)
+        #expect(!(await WorkflowTool().invoke(arguments: arguments, context: fixture.context)).ok)
+    }
 }
 
 @Test

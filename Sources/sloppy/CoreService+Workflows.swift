@@ -32,6 +32,7 @@ extension CoreService {
 
     public func createWorkflowDefinition(projectID: String, request: WorkflowDefinitionUpsertRequest) async throws -> WorkflowDefinition {
         _ = try await getProject(id: projectID)
+        try validateWorkflowRequest(projectID: projectID, request: request)
         let definition: WorkflowDefinition
         do {
             definition = try workflowDefinitionStore.create(projectID: projectID, request: request)
@@ -50,6 +51,7 @@ extension CoreService {
 
     public func updateWorkflowDefinition(projectID: String, workflowID: String, request: WorkflowDefinitionUpsertRequest) async throws -> WorkflowDefinition {
         _ = try await getProject(id: projectID)
+        try validateWorkflowRequest(projectID: projectID, request: request)
         do {
             let updated = try workflowDefinitionStore.update(projectID: projectID, workflowID: workflowID, request: request)
             let issues = validateWorkflowDefinition(updated).filter { $0.severity == "error" }
@@ -66,6 +68,13 @@ extension CoreService {
         } catch {
             throw WorkflowError.storageFailure
         }
+    }
+
+    private func validateWorkflowRequest(projectID: String, request: WorkflowDefinitionUpsertRequest) throws {
+        let candidate = WorkflowDefinition(id: "validation", projectId: projectID, name: request.name,
+            lanes: request.lanes, nodes: request.nodes, edges: request.edges, enabled: request.enabled)
+        let issues = validateWorkflowDefinition(candidate).filter { $0.severity == "error" }
+        if !issues.isEmpty { throw WorkflowError.validationFailed(issues) }
     }
 
     public func deleteWorkflowDefinition(projectID: String, workflowID: String) async throws {
@@ -86,6 +95,34 @@ extension CoreService {
     }
 
     public func startWorkflowRun(projectID: String, workflowID: String, request: WorkflowRunCreateRequest) async throws -> WorkflowRunDetail {
+        try await startBoundWorkflowRun(projectID: projectID, workflowID: workflowID, request: request)
+    }
+
+    func startBoundWorkflowRun(projectID: String, workflowID: String, request: WorkflowRunCreateRequest,
+                              inheritedEnvironment: WorkflowEnvironmentBinding? = nil, ancestors: [String] = [], taskSnapshot: JSONValue? = nil) async throws -> WorkflowRunDetail {
+        await restoreWorkflowExecutionsIfNeeded()
+        guard !workflowIsStopping else { throw CancellationError() }
+        let runID: String
+        if let key = request.idempotencyKey {
+            guard let uuid = UUID(uuidString: key) else { throw WorkflowError.invalidPayload }
+            runID = "run_\(uuid.uuidString.lowercased())"
+            if let existing = try workflowExecutionFiles.load(runID) {
+                guard existing.run.projectId == projectID, existing.run.workflowId == workflowID,
+                      var original = existing.startRequest else { throw WorkflowError.invalidPayload }
+                var compared = request
+                original.background = nil; compared.background = nil
+                guard original == compared else { throw WorkflowError.invalidPayload }
+                return await workflowRunDetail(run: existing.run)
+            }
+        } else { runID = "run_\(UUID().uuidString.lowercased())" }
+        guard activeWorkflowRuns.insert(runID).inserted else { throw WorkflowError.invalidPayload }
+        var ownsExecution = true
+        defer { if ownsExecution { releaseWorkflowExecution(runID) } }
+        if ancestors.isEmpty, let task = request.taskId {
+            guard workflowTaskOwner(projectID: projectID, taskID: task) == nil else { throw ProjectError.conflict }
+            workflowTaskOwners[projectID + ":" + task] = runID
+        }
+        guard !ancestors.contains(workflowID), ancestors.count < 8 else { throw WorkflowGraphContracts.Violation("Recursive workflow or child workflow depth exceeded.") }
         _ = try await getProject(id: projectID)
         let definition = try await getWorkflowDefinition(projectID: projectID, workflowID: workflowID)
         guard definition.enabled else {
@@ -95,40 +132,56 @@ extension CoreService {
         guard issues.isEmpty else {
             throw WorkflowError.validationFailed(issues)
         }
-        let runner = WorkflowRunner()
-        let persistence = WorkflowRunner.Persistence(
-            saveRun: { [store] run in await store.saveWorkflowRun(run) },
-            saveStep: { [store] step in await store.saveWorkflowRunStep(step) },
-            saveAction: { [store] action in await store.saveWorkflowPendingAction(action) }
-        )
-        let result = await runner.start(
+        var boundInput = try await workflowInput(projectID: projectID, request: request)
+        if let taskSnapshot { boundInput["task"] = taskSnapshot }
+        boundInput["__workflowAncestors"] = .array((ancestors + [workflowID]).map(JSONValue.string))
+        let environment: WorkflowEnvironmentBinding
+        if let inheritedEnvironment { environment = inheritedEnvironment }
+        else {
+            var effective = request
+            if effective.environment == nil, let configured = definition.nodes.first(where: { $0.type == .trigger })?.config["executionEnvironment"] {
+                effective.environment = try JSONDecoder().decode(WorkflowEnvironmentRequest.self, from: JSONEncoder().encode(configured))
+            }
+            environment = try await planWorkflowEnvironment(projectID: projectID, runID: runID, request: effective)
+        }
+        let run = WorkflowRun(id: runID, workflowId: definition.id,
+                              workflowVersion: definition.version, projectId: projectID, taskId: request.taskId,
+                              status: .queued, startedBy: request.startedBy, environment: environment)
+        let journal = WorkflowExecutionJournal(state: .init(definition: definition, originalInput: boundInput, run: run, startRequest: request),
+                                               files: workflowExecutionFiles, store: store)
+        workflowJournals[run.id] = journal
+        if !ancestors.isEmpty { try Task.checkCancellation() }
+        try await journal.flush()
+        if !ancestors.isEmpty { try Task.checkCancellation() }
+        if request.background == true || (request.background == nil && (environment.request.mode == .newWorktree || environment.request.setupCommand != nil || definition.nodes.contains(where: { $0.type == .parallel || WorkflowGraphContracts.blockKind($0) == "sub_workflow" }))) {
+            releaseWorkflowExecution(run.id)
+            ownsExecution = false
+            scheduleWorkflowRecovery(run.id)
+            return WorkflowRunDetail(run: run)
+        }
+        guard try await prepareWorkflowEnvironment(journal) else { return await workflowRunDetail(run: journal.snapshot().run) }
+        let prepared = await journal.snapshot()
+        _ = await WorkflowRunner().start(
             definition: definition,
-            context: .init(projectId: projectID, taskId: request.taskId, startedBy: request.startedBy, input: request.input),
-            persistence: persistence,
-            updateTask: { [weak self] projectId, taskId, status in
-                _ = try await self?.updateProjectTask(
-                    projectID: projectId,
-                    taskID: taskId,
-                    request: ProjectTaskUpdateRequest(status: status, changedBy: "user")
-                )
-            },
+            context: .init(projectId: projectID, taskId: request.taskId, startedBy: request.startedBy, input: prepared.originalInput, runId: run.id),
+            persistence: await journal.persistence,
+            updateTask: workflowTaskUpdater(),
             executeTool: { [weak self] node, context, input in
                 await self?.executeWorkflowToolNode(node: node, context: context, input: input)
             }
         )
-        let run: WorkflowRun
-        switch result {
-        case .completed(let value), .waitingForHuman(let value, _), .failed(let value, _):
-            run = value
-        }
-        return await workflowRunDetail(run: run)
+        if await journal.suspended { throw CancellationError() }
+        guard await !journal.failed else { throw WorkflowError.storageFailure }
+        return try await finishWaitingWorkflowAgent(journal: journal)
     }
 
     public func listWorkflowRuns(projectID: String) async -> [WorkflowRun] {
-        await store.listWorkflowRuns(projectId: projectID)
+        await restoreWorkflowExecutionsIfNeeded()
+        return await store.listWorkflowRuns(projectId: projectID).map { (try? workflowExecutionFiles.load($0.id))?.run ?? $0 }
     }
 
     public func getWorkflowRunDetail(projectID: String, runID: String) async throws -> WorkflowRunDetail {
+        await restoreWorkflowExecutionsIfNeeded()
         guard let run = await store.getWorkflowRun(id: runID), run.projectId == projectID else {
             throw WorkflowError.runNotFound
         }
@@ -136,70 +189,131 @@ extension CoreService {
     }
 
     public func listWorkflowPendingActions(projectID: String) async -> [WorkflowPendingAction] {
-        await store.listWorkflowPendingActions(projectId: projectID, includeResolved: false)
+        await restoreWorkflowExecutionsIfNeeded()
+        return await store.listWorkflowPendingActions(projectId: projectID, includeResolved: false)
     }
 
     public func resolveWorkflowPendingAction(projectID: String, actionID: String, request: WorkflowActionResolveRequest) async throws -> WorkflowRunDetail {
-        guard let action = await store.resolveWorkflowPendingAction(actionId: actionID, resolvedAt: Date()),
-              action.projectId == projectID
-        else {
-            throw WorkflowError.actionNotFound
-        }
-        guard let run = await store.getWorkflowRun(id: action.workflowRunId) else {
-            throw WorkflowError.runNotFound
-        }
-        let definition = try await getWorkflowDefinition(projectID: projectID, workflowID: run.workflowId)
+        await restoreWorkflowExecutionsIfNeeded()
+        guard !workflowIsStopping else { throw CancellationError() }
+        let actions = await store.listWorkflowPendingActions(projectId: projectID, includeResolved: true)
+        guard let action = actions.first(where: { $0.id == actionID }) else { throw WorkflowError.actionNotFound }
+        guard let run = await store.getWorkflowRun(id: action.workflowRunId), run.projectId == projectID else { throw WorkflowError.runNotFound }
+        let journal = try await workflowJournal(run: run)
+        let state = await journal.snapshot()
+        guard let savedAction = state.actions.first(where: { $0.id == actionID }) else { throw WorkflowError.actionNotFound }
+        if savedAction.resolvedAt != nil { return await workflowRunDetail(run: state.run) }
+        guard savedAction.decisions.contains(request.decision) else { throw WorkflowError.invalidPayload }
+        if state.definition.nodes.first(where: { $0.id == action.nodeId })?.type == .humanInput,
+           request.comment?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false { throw WorkflowError.invalidPayload }
+        let alreadyActive = activeWorkflowRuns.contains(run.id)
+        guard !alreadyActive || state.parallel != nil else { throw WorkflowError.invalidPayload }
+        if !alreadyActive { activeWorkflowRuns.insert(run.id); workflowJournals[run.id] = journal }
+        var ownsExecution = !alreadyActive
+        defer { if ownsExecution { releaseWorkflowExecution(run.id) } }
         let output: [String: JSONValue] = [
             "decision": .string(request.decision.rawValue),
             "comment": request.comment.map(JSONValue.string) ?? .null,
             "resolvedBy": .string(request.resolvedBy)
         ]
-        let runner = WorkflowRunner()
-        let persistence = WorkflowRunner.Persistence(
-            saveRun: { [store] run in await store.saveWorkflowRun(run) },
-            saveStep: { [store] step in await store.saveWorkflowRunStep(step) },
-            saveAction: { [store] action in await store.saveWorkflowPendingAction(action) }
-        )
-        _ = await runner.resume(
-            definition: definition,
-            run: run,
-            resolvedNodeID: action.nodeId,
-            output: output,
-            persistence: persistence,
-            updateTask: { [weak self] projectId, taskId, status in
-                _ = try await self?.updateProjectTask(
-                    projectID: projectId,
-                    taskID: taskId,
-                    request: ProjectTaskUpdateRequest(status: status, changedBy: "user")
-                )
-            },
-            executeTool: { [weak self] node, context, input in
-                await self?.executeWorkflowToolNode(node: node, context: context, input: input)
-            }
-        )
-        guard let updatedRun = await store.getWorkflowRun(id: run.id) else {
-            throw WorkflowError.runNotFound
+        do { try await journal.resolve(actionID: actionID, output: output) }
+        catch WorkflowError.actionNotFound {
+            if await journal.snapshot().actions.first(where: { $0.id == actionID })?.resolvedAt != nil { return await workflowRunDetail(run: journal.snapshot().run) }
+            throw WorkflowError.actionNotFound
         }
-        return await workflowRunDetail(run: updatedRun)
+        if state.parallel != nil {
+            await journal.signalParallelInput()
+            if !alreadyActive { workflowReconciliationPending.insert(run.id) }
+            return await workflowRunDetail(run: journal.snapshot().run)
+        }
+        if request.background == true {
+            let resolved = await journal.snapshot()
+            releaseWorkflowExecution(run.id)
+            ownsExecution = false
+            scheduleWorkflowRecovery(run.id)
+            return WorkflowRunDetail(run: resolved.run, steps: resolved.steps, pendingActions: resolved.actions)
+        }
+        return try await continueWorkflow(journal: journal, nodeID: action.nodeId, output: output)
     }
 
-    private func workflowRunDetail(run: WorkflowRun) async -> WorkflowRunDetail {
-        WorkflowRunDetail(
+    var workflowExecutionFiles: WorkflowExecutionFileStore {
+        .init(root: workspaceRootURL.appendingPathComponent("workflow-runs", isDirectory: true))
+    }
+
+    func workflowJournal(run: WorkflowRun) async throws -> WorkflowExecutionJournal {
+        if let active = workflowJournals[run.id] { return active }
+        if let state = try workflowExecutionFiles.load(run.id) {
+            return WorkflowExecutionJournal(state: state, files: workflowExecutionFiles, store: store)
+        }
+        // Legacy runs can only be upgraded while their exact graph version still exists.
+        let definition = try await getWorkflowDefinition(projectID: run.projectId, workflowID: run.workflowId)
+        guard definition.version == run.workflowVersion else { throw WorkflowError.validationFailed([
+            .init(severity: "error", message: "The original workflow version is unavailable; this run cannot safely resume.")
+        ]) }
+        let steps = await store.listWorkflowRunSteps(runId: run.id)
+        guard steps.first?.input["input"]?.asObject?["environment"] == nil,
+              !definition.nodes.contains(where: { $0.type == .parallel }) else {
+            throw WorkflowError.validationFailed([.init(severity: "error", message: "The authoritative workflow checkpoint is missing; the pinned execution binding cannot be reconstructed safely.")])
+        }
+        let state = WorkflowExecutionState(definition: definition, originalInput: steps.first?.input["input"]?.asObject ?? [:],
+                                           run: run, steps: steps, actions: await store.listWorkflowPendingActions(runId: run.id))
+        let journal = WorkflowExecutionJournal(state: state, files: workflowExecutionFiles, store: store)
+        try await journal.flush()
+        return journal
+    }
+
+    func continueWorkflow(journal: WorkflowExecutionJournal, nodeID: String, output: [String: JSONValue]) async throws -> WorkflowRunDetail {
+        defer { Task { self.notifyWorkflowParents(await journal.snapshot().run.id) } }
+        guard try await prepareWorkflowEnvironment(journal) else { return await workflowRunDetail(run: journal.snapshot().run) }
+        let state = await journal.snapshot()
+        if state.parallel != nil {
+            return try await finishParallelInputs(journal: journal)
+        }
+        _ = await WorkflowRunner().resume(
+            definition: state.definition, run: state.run, resolvedNodeID: nodeID, output: output,
+            persistence: await journal.persistence, updateTask: workflowTaskUpdater(),
+            executeTool: { [weak self] node, context, input in
+                await self?.executeWorkflowToolNode(node: node, context: context, input: input)
+            }, originalInput: state.originalInput, previousSteps: state.steps,
+            resolvedStepID: state.steps.last(where: { $0.nodeId == nodeID })?.id
+        )
+        if await journal.suspended { throw CancellationError() }
+        guard await !journal.failed else { throw WorkflowError.storageFailure }
+        return try await finishWaitingWorkflowAgent(journal: journal)
+    }
+
+    func workflowTaskUpdater() -> @Sendable (String, String, String) async throws -> Void {
+        { [weak self] projectId, taskId, status in
+            guard let self else { throw WorkflowError.storageFailure }
+            _ = try await self.updateProjectTask(projectID: projectId, taskID: taskId,
+                request: ProjectTaskUpdateRequest(status: status, changedBy: "user"))
+        }
+    }
+
+    func workflowRunDetail(run: WorkflowRun) async -> WorkflowRunDetail {
+        if let state = try? workflowExecutionFiles.load(run.id) {
+            return WorkflowRunDetail(run: state.run, steps: state.steps, pendingActions: state.actions, reconciliations: state.reconciliations)
+        }
+        return WorkflowRunDetail(
             run: run,
             steps: await store.listWorkflowRunSteps(runId: run.id),
             pendingActions: await store.listWorkflowPendingActions(runId: run.id)
         )
     }
 
-    private func executeWorkflowToolNode(
+    func executeWorkflowToolNode(
         node: WorkflowNode,
         context: WorkflowRunner.Context,
         input: [String: JSONValue]
     ) async -> ToolInvocationResult? {
+        if node.type == .parallel { return await executeWorkflowParallel(node: node, context: context, input: input) }
+        if WorkflowGraphContracts.blockKind(node) == "sub_workflow" { return await executeWorkflowChild(node: node, context: context, input: input) }
+        if node.type == .projectTask { return executeWorkflowTaskNode(context: context) }
+        if node.type == .notify || WorkflowGraphContracts.blockKind(node) == "channel" { return await executeWorkflowNotify(node: node, context: context, input: input) }
         if node.type == .agentStep {
             return await executeWorkflowAgentNode(node: node, context: context, input: input)
         }
-        guard let request = workflowToolInvocationRequest(node: node, context: context, input: input) else {
+        guard var request = workflowToolInvocationRequest(node: node, context: context, input: input) else {
             return nil
         }
         if let workflowError = stringValue(request.arguments["__workflow_error"]) {
@@ -209,9 +323,19 @@ extension CoreService {
                 error: ToolErrorPayload(code: "workflow_block_invalid", message: workflowError, retryable: false)
             )
         }
-        if let agentID = workflowAgentID(startedBy: context.startedBy),
+        if request.tool == "runtime.exec", let root = context.input["environment"]?.asObject?["workingDirectory"]?.asString {
+            let configured = request.arguments["cwd"]?.asString
+            let cwd = configured.map { URL(fileURLWithPath: $0, relativeTo: URL(fileURLWithPath: root, isDirectory: true)).standardizedFileURL.path } ?? root
+            let resolved = canonicalWorkflowDirectory(cwd)
+            guard resolved == root || resolved.hasPrefix(root + "/") else {
+                return .init(tool: request.tool, ok: false, error: .init(code: "workflow_environment_scope", message: "A workflow process must stay inside its pinned execution directory.", retryable: false))
+            }
+            request.arguments["cwd"] = .string(resolved)
+        }
+        let result: ToolInvocationResult
+        if context.input["environment"] == nil, let agentID = workflowAgentID(startedBy: context.startedBy),
            let sessionID = workflowSessionID(node: node, context: context) {
-            return await invokeToolFromRuntime(
+            result = await invokeToolFromRuntime(
                 agentID: agentID,
                 sessionID: sessionID,
                 request: request,
@@ -219,8 +343,16 @@ extension CoreService {
                 requireApproval: false,
                 chatMode: nil
             )
+        } else {
+            result = await invokeStandaloneWorkflowTool(request: request, context: context)
         }
-        return await invokeStandaloneWorkflowTool(request: request, context: context)
+        if result.ok, result.tool == "runtime.exec" {
+            guard let exitCode = result.data?.asObject?["exitCode"]?.asNumber, exitCode == 0 else {
+                return .init(tool: result.tool, ok: false, data: result.data,
+                    error: .init(code: "workflow_process_failed", message: "Workflow process did not report a successful exit code.", retryable: false))
+            }
+        }
+        return result
     }
 
     private func workflowToolInvocationRequest(
@@ -292,9 +424,12 @@ extension CoreService {
             guard let toolName = stringValue(node.config["toolName"]) else {
                 return workflowInvalidToolRequest(tool: "project.workflow", message: "`toolName` is required for tool workflow block.")
             }
+            let resolved = resolveWorkflowTemplateValue(node.config["arguments"] ?? .object([:]), input: input)
+            let arguments = resolved.asObject ?? resolved.asString.flatMap { try? JSONDecoder().decode([String: JSONValue].self, from: Data($0.utf8)) }
+            guard let arguments else { return workflowInvalidToolRequest(tool: toolName, message: "Tool arguments must be a JSON object.") }
             return ToolInvocationRequest(
                 tool: toolName,
-                arguments: workflowArguments(from: resolveWorkflowTemplateValue(node.config["arguments"] ?? .object([:]), input: input)),
+                arguments: arguments,
                 reason: "Workflow node \(node.id): \(node.title)"
             )
 
@@ -342,11 +477,13 @@ extension CoreService {
             sessionID: sessionID,
             request: request,
             policy: AgentToolsPolicy(),
-            currentProjectID: context.projectId
+            currentProjectID: context.projectId,
+            currentDirectoryURL: context.input["environment"]?.asObject?["workingDirectory"]?.asString.map { URL(fileURLWithPath: $0) }
         )
     }
 
     private func workflowSessionID(context: WorkflowRunner.Context) -> String {
+        if context.input["environment"] != nil, let runID = context.runId { return "workflow-\(runID)" }
         if let sessionID = stringValue(context.input["sessionId"]) {
             return sessionID
         }
@@ -382,6 +519,10 @@ extension CoreService {
 func resolveWorkflowTemplateValue(_ value: JSONValue, input: [String: JSONValue]) -> JSONValue {
     switch value {
     case .string(let raw):
+        if raw.hasPrefix("{{"), raw.hasSuffix("}}"),
+           let paths = try? WorkflowGraphContracts.references(in: value), paths.count == 1,
+           !raw.dropFirst(2).dropLast(2).contains("}}"),
+           let resolved = WorkflowGraphContracts.value(at: paths[0], in: input) { return resolved }
         return .string(resolveWorkflowTemplateString(raw, input: input))
     case .array(let values):
         return .array(values.map { resolveWorkflowTemplateValue($0, input: input) })
@@ -415,17 +556,7 @@ func resolveWorkflowTemplateString(_ raw: String, input: [String: JSONValue]) ->
 }
 
 private func workflowTemplateValue(path: String, input: [String: JSONValue]) -> JSONValue? {
-    let parts = path.split(separator: ".").map(String.init).filter { !$0.isEmpty }
-    guard let first = parts.first, var value = input[first] else {
-        return nil
-    }
-    for part in parts.dropFirst() {
-        guard case .object(let object) = value, let next = object[part] else {
-            return nil
-        }
-        value = next
-    }
-    return value
+    WorkflowGraphContracts.value(at: path, in: input)
 }
 
 private func workflowTemplateString(_ value: JSONValue) -> String {

@@ -1280,6 +1280,11 @@ extension CoreService {
         projectID: String?,
         taskID: String? = nil
     ) async -> (workingDirectory: String?, extraRoots: [String]) {
+        if let directory = workflowSessionDirectory(sessionID) {
+            sessionWorkingDirectories[sessionID] = directory
+            sessionExtraRoots[sessionID] = [directory]
+            return (directory, [directory])
+        }
         if let taskContext = await toolContextForTask(projectID: projectID, taskID: taskID) {
             var roots = taskContext.extraRoots
             for addedRoot in sessionAddedRoots[sessionID] ?? [] where !roots.contains(addedRoot) {

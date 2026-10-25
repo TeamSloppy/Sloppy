@@ -91,6 +91,18 @@ struct GitWorktreeService: Sendable {
         throw GitWorktreeError.worktreeCreationFailed("Could not find an available branch name for \(branchBaseName)")
     }
 
+    func resolveRevision(repoPath: String, reference: String) async throws -> String {
+        let (code, output) = try await runGit(args: ["rev-parse", "--verify", "--end-of-options", "\(reference)^{commit}"], cwd: repoPath)
+        guard code == 0 else { throw GitWorktreeError.commandFailed(code, output) }
+        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    func commonDirectory(repoPath: String) async throws -> String {
+        let (code, output) = try await runGit(args: ["rev-parse", "--path-format=absolute", "--git-common-dir"], cwd: repoPath)
+        guard code == 0 else { throw GitWorktreeError.commandFailed(code, output) }
+        return URL(fileURLWithPath: output.trimmingCharacters(in: .whitespacesAndNewlines)).resolvingSymlinksInPath().path
+    }
+
     /// Removes a git worktree and its directory.
     func removeWorktree(repoPath: String, worktreePath: String) async throws {
         // Use a local FileManager so the service itself remains Sendable.

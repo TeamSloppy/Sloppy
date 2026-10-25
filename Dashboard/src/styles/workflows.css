@@ -1,0 +1,166 @@
+/* Workflow workbench: the graph owns the surface; tools open on demand. */
+.project-workflows-shell {
+  --bg: #111111;
+  --surface: #1e1e1d;
+  --surface-2: #242423;
+  --text: #eeede9;
+  --muted: #aaa9a2;
+  --line: #383835;
+  --line-strong: #55554f;
+  --accent: #c8e2ae;
+  position: relative;
+  min-width: 0;
+  gap: 0;
+  border: 1px solid var(--line);
+  border-radius: 18px;
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+}
+
+.project-workflows-shell.is-expanded {
+  position: fixed;
+  inset: 16px;
+  z-index: 100;
+}
+
+.project-workflows-shell [hidden] { display: none !important; }
+.project-workflows-shell button { font-family: inherit; box-shadow: none; text-transform: none; letter-spacing: normal; }
+.project-workflows-shell button:focus-visible,
+.project-workflows-shell article:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+.project-workflows-shell button:disabled { opacity: 0.4; cursor: default; }
+
+.project-workflows-shell .project-workflows-toolbar {
+  flex: 0 0 auto;
+  min-height: 64px;
+  padding: 12px 18px;
+  gap: 12px;
+  border-bottom: 1px solid #292928;
+}
+
+.project-workflows-heading { display: flex; align-items: center; gap: 10px; min-width: 0; }
+.project-workflows-title { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 4px 0; border: 0; background: transparent; color: var(--text); text-align: left; }
+.project-workflows-title strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; font-weight: 600; }
+.project-workflows-title .material-symbols-rounded { font-size: 20px; color: var(--muted); }
+.project-workflows-version { color: var(--muted); font-size: 11px; white-space: nowrap; }
+.project-workflows-shell .project-workflows-actions { flex-shrink: 0; gap: 8px; }
+.project-workflows-shell .project-workflows-actions > button { min-height: 34px; padding: 6px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--text); font-size: 12px; font-weight: 500; transform: none; }
+.project-workflows-shell .project-workflows-actions > .agents-create-inline { background: var(--accent); border-color: var(--accent); color: #242521; }
+.project-workflows-shell .project-workflows-actions .material-symbols-rounded { font-size: 17px; }
+.project-workflows-action-count { padding: 1px 5px; border-radius: 4px; background: var(--accent); color: #242521; font-size: 10px; }
+
+.project-workflows-shell .project-workflows-grid { position: relative; display: block; border: 0; background: var(--bg); }
+.project-workflows-shell .project-workflows-board-pane { width: 100%; height: 100% !important; min-height: 320px; }
+.project-workflows-shell .project-workflows-board-scroller { background-color: var(--bg); background-image: radial-gradient(circle, #343431 0.7px, transparent 0.9px); }
+.project-workflows-shell .project-workflows-board { position: absolute; inset: 0 auto auto 0; }
+.project-workflow-lane-group { position: absolute; box-sizing: border-box; border: 1px solid #393935; border-radius: 26px; background: #20201e80; pointer-events: none; }
+.project-workflow-lane-group > span { display: block; overflow: hidden; padding: 18px 20px; color: #aaa9a2; font-size: 12px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+
+.project-workflows-shell .project-workflows-fast-actions { top: 18px; left: 14px; bottom: auto; min-width: 0; gap: 3px; padding: 7px; border: 1px solid #3c3c38; border-radius: 15px; background: #222221; box-shadow: none; }
+.project-workflows-shell .project-workflows-fast-actions button { display: grid; place-items: center; width: 36px; height: 36px; min-height: 36px; padding: 0; border: 0; border-radius: 8px; background: transparent; color: #d6d5ce; text-align: center; }
+.project-workflows-shell .project-workflows-fast-actions .material-symbols-rounded { font-size: 22px; }
+.project-workflows-shell .project-workflows-fast-actions button:hover:not(:disabled),
+.project-workflows-shell button[aria-expanded="true"] { background: #373733; color: var(--accent); }
+.project-workflows-shell .project-workflows-zoom-value { font-size: 10px; font-variant-numeric: tabular-nums; }
+.project-workflows-control-divider { height: 1px; margin: 4px; background: #3d3d38; }
+.project-workflows-shell .project-workflows-icon-button { display: grid; place-items: center; width: 30px; height: 30px; flex-shrink: 0; padding: 0; border: 0; border-radius: 7px; background: transparent; color: var(--muted); }
+.project-workflows-shell .project-workflows-icon-button:hover { background: #33332f; color: var(--text); }
+.project-workflows-shell .project-workflows-help-button { position: absolute; bottom: 16px; left: 14px; width: 48px; height: 46px; border: 1px solid var(--line); border-radius: 13px; background: #222221; }
+.project-workflows-help { position: absolute; bottom: 18px; left: 76px; z-index: 12; width: min(300px, calc(100% - 90px)); padding: 18px; border: 1px solid var(--line); border-radius: 12px; background: #222221; font-size: 12px; line-height: 1.6; }
+.project-workflows-help strong { font-size: 14px; font-weight: 600; }
+.project-workflows-help p { margin: 8px 0 0; color: var(--muted); }
+.project-workflows-shell .project-workflows-board-status { right: 16px; bottom: 14px; left: auto; height: auto; max-width: calc(100% - 100px); padding: 5px 9px; border: 0; border-radius: 6px; background: #111111e8; color: var(--muted); font-size: 11px; }
+.project-workflows-shell .project-workflows-board-status.is-dirty { color: var(--accent); }
+
+.project-workflows-shell .project-workflow-node { box-sizing: border-box; height: 104px; min-height: 104px; padding: 17px 18px; border: 1px solid #484844; border-radius: 20px; background: #222221; color: var(--text); transition: border-color 120ms ease; box-shadow: none; transform: none; }
+.project-workflows-shell .project-workflow-node:hover { border-color: #77776e; box-shadow: none; transform: none; }
+.project-workflows-shell .project-workflow-node > div { display: flex; flex-direction: column; align-self: stretch; min-width: 0; width: 100%; }
+.project-workflows-shell .project-workflow-node > .material-symbols-rounded { display: none; }
+.project-workflows-shell .project-workflow-node strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-size: 16px; font-weight: 600; line-height: 1.3; }
+.project-workflows-shell .project-workflow-node small { margin-top: 4px; color: #a3a29a; font-size: 10px; }
+.project-workflows-shell .project-workflow-node em { display: block; overflow: hidden; margin-top: auto; padding: 0; border: 0; color: #c2c1b8; font-size: 12px; font-style: normal; font-weight: 400; text-transform: none; letter-spacing: normal; text-overflow: ellipsis; white-space: nowrap; }
+.project-workflows-shell .project-workflow-node.selected { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.project-workflows-shell .project-workflow-node.active { border-color: #79a7f7; box-shadow: 0 0 0 1px #79a7f7; }
+.project-workflows-shell .project-workflow-node.available-input { border-color: #7294c7; box-shadow: none; }
+.project-workflows-shell .project-workflow-node.step-succeeded { border-color: #9bbc80; }
+.project-workflows-shell .project-workflow-node.step-failed { border-color: #e08773; }
+.project-workflows-shell .project-workflow-node.step-waiting { border-color: #e1be7a; }
+.project-workflows-shell .project-workflow-node.selected { border-color: var(--accent); }
+.project-workflows-shell .project-workflow-socket { --port-stroke: #77776f; --port-fill: #222221; width: 24px; height: 24px; border: 0; border-radius: 50%; background: transparent; box-shadow: none; transform: translate(-50%, -50%); }
+.project-workflows-shell .project-workflow-socket::before { content: ""; position: absolute; top: 50%; left: 50%; box-sizing: border-box; width: 12px; height: 12px; border: 2px solid var(--port-stroke); border-radius: 50%; background: var(--port-fill); transform: translate(-50%, -50%); }
+.project-workflows-shell .project-workflow-socket.port-output { --port-stroke: #6b9aeb; --port-fill: #6b9aeb; }
+.project-workflows-shell .project-workflow-socket.port-input { --port-stroke: #77776f; --port-fill: #222221; }
+.project-workflows-shell .project-workflow-socket:hover,
+.project-workflows-shell .project-workflow-socket.hover,
+.project-workflows-shell .project-workflow-socket.source { --port-stroke: var(--accent); --port-fill: var(--accent); background: transparent; box-shadow: none; }
+.project-workflows-shell .project-workflow-socket:hover::before { box-shadow: 0 0 0 5px #c8e2ae24; }
+.project-workflows-shell .project-workflow-link { stroke: #6b9aeb; stroke-width: 2; opacity: 0.9; }
+.project-workflows-shell .project-workflow-link.approval { stroke: #d98e69; }
+.project-workflows-shell .project-workflow-link.selected { stroke: var(--accent); stroke-width: 3; }
+.project-workflows-shell .project-workflow-link.preview { stroke: var(--accent); stroke-width: 2; }
+.project-workflows-shell .project-workflow-link-flow { stroke: var(--accent); stroke-width: 2; }
+.project-workflow-edge-label { overflow: visible; pointer-events: auto; }
+.project-workflow-edge-label button { display: block; width: 100%; height: 26px; overflow: hidden; padding: 2px 10px; border: 1px solid #484844; border-radius: 14px; background: #222221; color: #e0dfd8; font-size: 11px; font-weight: 500; text-overflow: ellipsis; white-space: nowrap; }
+
+.project-workflows-shell .project-workflows-list,
+.project-workflows-shell .project-workflows-inspector { position: absolute; z-index: 20; top: 16px; bottom: 50px; width: 300px; max-width: calc(100% - 92px); gap: 12px; padding: 16px; border: 1px solid var(--line); border-radius: 14px; background: #20201f; color: var(--text); }
+.project-workflows-shell .project-workflows-list { left: 78px; }
+.project-workflows-shell .project-workflows-inspector { right: 16px; width: 324px; }
+.project-workflows-shell .project-workflows-panel-header { min-height: 28px; padding-bottom: 8px; border-bottom: 1px solid var(--line); font-size: 14px; letter-spacing: normal; text-transform: none; }
+.project-workflows-library-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+.project-workflows-library-actions button { display: flex; align-items: center; gap: 4px; padding: 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); color: var(--text); font-size: 12px; }
+.project-workflows-library-actions .material-symbols-rounded { font-size: 16px; }
+.project-workflows-shell .project-workflow-row { border: 1px solid transparent; border-radius: 8px; background: transparent; font-size: 13px; }
+.project-workflows-shell .project-workflow-row.active { border-color: #55554d; background: #30302b; box-shadow: none; }
+.project-workflows-shell .project-workflows-block-palette { gap: 0; }
+.project-workflows-shell .project-workflows-block-palette button { padding: 12px 4px; border: 0; border-bottom: 1px solid #343431; border-radius: 0; background: transparent; }
+.project-workflows-shell .project-workflows-block-palette button:hover:not(:disabled) { background: #2a2a27; }
+.project-workflows-shell .project-workflows-block-palette .material-symbols-rounded { color: #c2c5b9; }
+.project-workflows-shell .project-workflows-block-palette small { line-height: 1.5; }
+.project-workflows-shell .project-workflow-editor-card { gap: 14px; padding: 0; border: 0; background: transparent; }
+.project-workflows-shell .project-workflow-editor-card input,
+.project-workflows-shell .project-workflow-editor-card textarea { padding: 9px 10px; border-radius: 7px; background: #292927; color: var(--text); }
+.project-workflows-shell .project-workflow-editor-card textarea { line-height: 1.6; }
+.project-workflows-shell .project-workflow-action,
+.project-workflows-shell .project-workflow-run { padding: 12px; border: 1px solid var(--line); border-radius: 9px; background: #252523; font-size: 12px; line-height: 1.5; }
+.project-workflows-shell .project-workflow-run.active { border-color: var(--accent); box-shadow: none; }
+.project-workflows-shell .project-workflows-inspector section { padding-bottom: 12px; }
+.project-workflows-shell .project-workflows-inspector h3 { margin-top: 8px; font-size: 12px; font-weight: 500; color: var(--muted); }
+.project-workflows-shell .project-workflow-choice-grid button,
+.project-workflows-shell .project-workflow-action button { border-radius: 6px; }
+.project-workflows-shell .project-workflow-choice-grid button.active { background: #3e4935; color: var(--text); }
+.project-workflows-shell .project-workflow-danger { border-color: #ad6c5e; border-radius: 7px; background: transparent; color: #ecaa9c; }
+.project-workflows-shell .actor-team-search { color: var(--text); }
+.project-workflows-shell .actor-team-dropdown { background: #242423; color: var(--text); border-color: var(--line); }
+.project-workflows-shell .actor-team-dropdown-item:hover { background: #373733; }
+.project-workflows-shell .placeholder-text { color: var(--muted); font-size: 12px; }
+
+@media (max-width: 1040px) {
+  .project-workflows-shell .project-workflows-toolbar { flex-direction: row; align-items: center; }
+}
+
+@media (max-width: 640px) {
+  .project-workflows-shell { border-radius: 12px; }
+  .project-workflows-shell.is-expanded { inset: 4px; }
+  .project-workflows-shell .project-workflows-toolbar { min-height: 54px; padding: 8px 10px; gap: 6px; }
+  .project-workflows-title { gap: 5px; }
+  .project-workflows-title strong { font-size: 13px; }
+  .project-workflows-title > .material-symbols-rounded:first-child,
+  .project-workflows-version { display: none; }
+  .project-workflows-shell .project-workflows-actions { gap: 4px; }
+  .project-workflows-shell .project-workflows-actions > button { padding: 5px 7px; font-size: 11px; }
+  .project-workflows-shell .project-workflows-actions > .project-workflows-history { font-size: 0; gap: 0; }
+  .project-workflows-shell .project-workflows-inspector { right: 10px; max-width: calc(100% - 86px); }
+  .project-workflows-shell .project-workflows-list { left: 72px; }
+  .project-workflows-shell .project-workflows-fast-actions { left: 10px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .project-workflows-shell .project-workflow-link-flow { animation: none; }
+  .project-workflows-shell .project-workflow-node { transition: none; }
+}
+
+.project-workflow-launch, .project-workflow-binding, .project-workflow-field { display: grid; gap: 10px; min-width: 0; }
+.project-workflow-launch { gap: 18px; }
+.project-workflow-binding { padding: 12px 0; border-bottom: 1px solid var(--line); }
+.project-workflow-binding code { white-space: pre-wrap; overflow-wrap: anywhere; }
