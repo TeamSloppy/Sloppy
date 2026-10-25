@@ -19,8 +19,8 @@ extension WorkflowExecutionJournal {
         let cursors = state.parallel?.branches.filter { $0.run.status != .completed }.flatMap { $0.run.currentNodeIds } ?? []
         state.run.currentNodeIds = cursors.isEmpty ? [state.parallel?.nodeID ?? ""] : cursors
         let statuses = state.parallel?.branches.map { $0.run.status } ?? []
-        if statuses.allSatisfy({ [.waitingForHuman, .waitingForAgent, .completed].contains($0) }) {
-            state.run.status = statuses.contains(.waitingForHuman) ? .waitingForHuman : statuses.contains(.waitingForAgent) ? .waitingForAgent : .running
+        if statuses.allSatisfy({ [.waitingForHuman, .waitingForAgent, .waitingForWorkflow, .completed].contains($0) }) {
+            state.run.status = statuses.contains(.waitingForHuman) ? .waitingForHuman : statuses.contains(.waitingForAgent) ? .waitingForAgent : statuses.contains(.waitingForWorkflow) ? .waitingForWorkflow : .running
         } else { state.run.status = .running }
         try await persistParallelChange()
     }
@@ -28,6 +28,7 @@ extension WorkflowExecutionJournal {
     private func saveBranch(_ id: String, step: WorkflowRunStep) async throws {
         guard let parallel = state.parallel, let index = parallel.branches.firstIndex(where: { $0.id == id }) else { throw CoreService.WorkflowError.storageFailure }
         var branch = parallel.branches[index]
+        if let retry = branch.retryStepId, step.id != retry, branch.steps.first(where: { $0.id == retry })?.nodeId == step.nodeId { branch.retryStepId = nil }
         if let existing = branch.steps.firstIndex(where: { $0.id == step.id }) { branch.steps[existing] = step } else { branch.steps.append(step) }
         state.parallel?.branches[index] = branch
         var visible = step
@@ -43,6 +44,12 @@ extension WorkflowExecutionJournal {
         visible.workflowRunId = state.run.id
         state.actions.append(visible)
         try await persistParallelChange(action: visible)
+    }
+
+    func selectParallelWinner(_ id: String) async throws {
+        guard state.parallel?.winner == nil, state.parallel?.branches.contains(where: { $0.id == id && $0.run.status == .completed }) == true else { return }
+        state.parallel?.winner = id
+        try await persistParallelChange()
     }
 
     func recordBranchFailure(_ id: String, message: String, code: String) async throws {

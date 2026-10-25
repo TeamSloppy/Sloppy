@@ -6,6 +6,8 @@ import { fileURLToPath } from "node:url";
 
 import {
   buildWorkflowGraphLayout,
+  buildWorkflowConnection,
+  buildWorkflowLaneGroups,
   createBlankWorkflowRequest,
   describeWorkflowStep,
   workflowInputNodeReferences,
@@ -19,6 +21,46 @@ import {
 const dashboardRoot = dirname(dirname(fileURLToPath(import.meta.url)));
 const projectWorkflowsTabSource = readFileSync(join(dashboardRoot, "src", "views", "Projects", "ProjectWorkflowsTab.tsx"), "utf8");
 const projectsCss = readFileSync(join(dashboardRoot, "src", "styles", "projects.css"), "utf8");
+
+test("workflow routes keep straight connections and their labels between the ports", () => {
+  assert.deepEqual(buildWorkflowConnection({ x: 220, y: 52 }, { x: 420, y: 52 }), {
+    path: "M 220 52 L 420 52", labelX: 320, labelY: 52
+  });
+});
+
+test("workflow review loops route above the nodes with their label on the return segment", () => {
+  const result = buildWorkflowConnection({ x: 900, y: 252 }, { x: 400, y: 252 });
+  assert.match(result.path, /^M 900 252 L /);
+  assert.match(result.path, / Q /);
+  assert.match(result.path, / L 400 252$/);
+  assert.equal(result.labelY, 164);
+  assert.ok(result.labelX > 400 && result.labelX < 900);
+  assert.doesNotMatch(result.path, /NaN|Infinity/);
+  const cleared = buildWorkflowConnection({ x: 900, y: 252 }, { x: 400, y: 252 }, "right", "left", { loopY: 20 });
+  assert.equal(cleared.labelY, 20);
+});
+
+test("workflow routes preserve named and vertical socket endpoints", () => {
+  for (const [sourceSocket, targetSocket] of [["true", "input"], ["bottom", "top"], ["right", "top"]]) {
+    const result = buildWorkflowConnection({ x: 100, y: 80 }, { x: 350, y: 240 }, sourceSocket, targetSocket);
+    assert.match(result.path, /^M 100 80 L /);
+    assert.match(result.path, / L 350 240$/);
+    assert.doesNotMatch(result.path, /NaN|Infinity/);
+  }
+});
+
+test("team frames enclose only their own nodes and omit single-member lanes", () => {
+  const groups = buildWorkflowLaneGroups({
+    lanes: [{ id: "review", title: "Review team", kind: "team" }, { id: "owner", title: "Owner", kind: "team" }],
+    nodes: [
+      { laneId: "review", positionX: 400, positionY: 100 },
+      { laneId: "review", positionX: 400, positionY: 300 },
+      { laneId: "owner", positionX: 1000, positionY: 800 }
+    ]
+  });
+  assert.deepEqual(groups, [{ id: "review", title: "Review team", x: 374, y: 46, width: 272, height: 384 }]);
+  assert.deepEqual(buildWorkflowLaneGroups(null), []);
+});
 
 function cssRule(selector) {
   const escapedSelector = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -238,4 +280,23 @@ test("agent step preview shows the answer ahead of execution metadata", () => {
   });
   assert.equal(description.output, "Verified the implementation.");
   assert.equal(description.detail, "Verified the implementation.");
+});
+
+test("process and structured outputs take priority over execution metadata", () => {
+  assert.equal(describeWorkflowStep({ nodeId: "qa", status: "succeeded", output: {
+    command: "bash", arguments: ["-lc", "check"], exitCode: 0, status: "succeeded", stdout: "Checks passed"
+  } }).detail, "Checks passed");
+  assert.equal(describeWorkflowStep({ nodeId: "result", status: "succeeded", output: { result: false, status: "succeeded" } }).output, "false");
+});
+
+test("nearby forward ports stay straight instead of drawing return spikes", () => {
+  for (const gap of [2, 30, 60, 64]) {
+    assert.deepEqual(buildWorkflowConnection({ x: 270, y: 292 }, { x: 270 + gap, y: 292 }, "output", "input"), {
+      path: `M 270 292 L ${270 + gap} 292`, labelX: 270 + gap / 2, labelY: 292
+    });
+  }
+});
+
+test("legacy Merge exposes join ports rather than boolean routes", () => {
+  assert.deepEqual(workflowNodePorts({ type: "condition", config: { block_kind: "merge" } }).map((port) => port.id), ["input", "output"]);
 });

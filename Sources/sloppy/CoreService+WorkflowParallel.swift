@@ -26,32 +26,40 @@ extension CoreService {
                 return failure("Parallel checkpoint does not match the active step.")
             }
             let checkpoint = state
-            let failed = await withTaskGroup(of: Bool.self, returning: Bool.self) { group in
-                for branch in parallel.branches {
+            let failed = await withTaskGroup(of: (String, Bool).self, returning: Bool.self) { group in
+                for branch in parallel.branches where parallel.winner == nil || parallel.winner == branch.id {
                     group.addTask { [weak self] in
-                        guard let self else { return true }
-                        return await self.executeWorkflowBranch(branch, state: checkpoint, topology: topology, journal: journal, input: input)
+                        guard let self else { return (branch.id, true) }
+                        return (branch.id, await self.executeWorkflowBranch(branch, state: checkpoint, topology: topology, journal: journal, input: input))
                     }
                 }
                 var failed = false
-                for await result in group {
-                    if result {
+                var winner = parallel.winner
+                for await (id, result) in group {
+                    let won = !result && !failed && topology.strategy == "first_completed" && winner == nil
+                    if won { try? await journal.selectParallelWinner(id); winner = id }
+                    if (result && winner == nil) || won {
                         group.cancelAll()
-                        if !failed, await !journal.suspended {
+                        if (!failed || won), await !journal.suspended {
                             let current = await journal.snapshot()
                             let agents = current.parallel?.branches.filter { $0.run.status != .completed }.compactMap { branch in
                                 branch.steps.last { $0.output["sessionId"]?.asString != nil }
                             } ?? []
                             await cancelParallelAgentWaits(agents)
+                            await cancelParallelChildWaits(current, except: winner)
                         }
-                        failed = true
+                        if result { failed = true }
                     }
                 }
                 return failed
             }
             state = await journal.snapshot()
+            if await !journal.suspended, failed || state.parallel?.winner != nil {
+                await cancelParallelChildWaits(state, except: state.parallel?.winner)
+            }
             guard let branches = state.parallel?.branches else { return failure("Parallel checkpoint is unavailable.") }
-            if failed || branches.contains(where: { $0.run.status != .completed }) {
+            let winner = state.parallel?.winner
+            if failed || (winner == nil && branches.contains(where: { $0.run.status != .completed })) {
                 if await !journal.suspended {
                     try await journal.cancelParallelWaits()
                     registerWorkflowWaits(await journal.snapshot())
@@ -67,11 +75,14 @@ extension CoreService {
                 return failure(blocked ? "A parallel operation needs reconciliation before it can be retried." : "A parallel branch failed or could not complete.",
                     code: blocked ? "workflow_reconciliation_required" : cancelled ? "workflow_parallel_cancelled" : "workflow_parallel_failed", data: ["branches": .object(failures)])
             }
-            registerWorkflowWaits(state)
-            let results = Dictionary(uniqueKeysWithValues: branches.map { branch in
+            if winner != nil { try await journal.cancelParallelWaits() }
+            registerWorkflowWaits(await journal.snapshot())
+            registerWorkflowChildWaits(await journal.snapshot())
+            let joined = branches.filter { winner == nil || $0.id == winner }
+            let results = Dictionary(uniqueKeysWithValues: joined.map { branch in
                 (branch.id, JSONValue.object(branch.steps.last(where: { $0.status == .succeeded })?.output ?? [:]))
             })
-            let outputs = branches.flatMap(\.steps).filter { $0.status == .succeeded }.reduce(into: [String: JSONValue]()) {
+            let outputs = joined.flatMap(\.steps).filter { $0.status == .succeeded }.reduce(into: [String: JSONValue]()) {
                 $0[$1.nodeId] = .object(["output": .object($1.output)])
             }
             return .init(tool: "workflow.parallel", ok: true, data: .object(["branches": .object(results), "branchNodeOutputs": .object(outputs)]))
@@ -96,7 +107,7 @@ extension CoreService {
                 continue
             }
             let child = WorkflowExecutionState(resumeAfterShutdown: state.resumeAfterShutdown, definition: state.definition,
-                originalInput: state.originalInput, run: branch.run, steps: branch.steps, actions: branch.actions)
+                originalInput: state.originalInput, run: branch.run, steps: branch.steps, actions: branch.actions, retryStepId: branch.retryStepId)
             var context = WorkflowRunner.Context(projectId: state.run.projectId, taskId: state.run.taskId, startedBy: state.run.startedBy,
                 input: state.originalInput, runId: branch.run.id)
             context.startNodeId = branch.id
@@ -115,9 +126,11 @@ extension CoreService {
                 let code = Task.isCancelled ? "workflow_cancelled" : failed?.steps.last?.output["errorCode"]?.asString ?? "workflow_branch_failed"
                 if await !journal.suspended { try? await journal.recordBranchFailure(branch.id, message: message, code: code) }
                 return true
-            case .waitingForHuman, .waitingForAgent:
+            case .waitingForHuman, .waitingForAgent, .waitingForWorkflow:
                 let waiting = await journal.snapshot()
                 registerWorkflowWaits(waiting)
+                registerWorkflowChildWaits(waiting)
+                if workflowWaitingChildSteps(waiting).contains(where: { $0.runId == branch.run.id && workflowChildReady($0) }) { continue }
                 if workflowWaitingAgentSteps(waiting).contains(where: { $0.runId == branch.run.id && workflowAgentInputReady($0) }) { continue }
                 await journal.waitForParallelInput(after: revision)
             }

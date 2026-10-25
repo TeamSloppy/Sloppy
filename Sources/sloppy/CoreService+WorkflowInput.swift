@@ -24,6 +24,7 @@ extension CoreService {
                 workflowJournals[state.run.id] = journal
                 defer { releaseWorkflowExecution(state.run.id) }
                 _ = try await finishWaitingWorkflowAgent(journal: journal, response: response)
+                notifyWorkflowParents(runID)
             }
         } catch {
             logger.error("workflow.agent_reconciliation_failed", metadata: ["error": .string(String(describing: error))])
@@ -32,6 +33,11 @@ extension CoreService {
 
     func finishWaitingWorkflowAgent(journal: WorkflowExecutionJournal, response: AgentSessionMessageResponse? = nil) async throws -> WorkflowRunDetail {
         let state = await journal.snapshot()
+        registerWorkflowChildWaits(state)
+        if state.run.status == .waitingForWorkflow {
+            if workflowWaitingChildSteps(state).contains(where: workflowChildReady) { workflowReconciliationPending.insert(state.run.id) }
+            return await workflowRunDetail(run: state.run)
+        }
         if state.parallel != nil { return try await finishParallelInputs(journal: journal) }
         guard state.run.status == .waitingForAgent,
               let step = state.steps.last(where: { $0.nodeId == state.run.currentNodeIds.first }),

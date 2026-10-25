@@ -47,6 +47,9 @@ struct WorkflowTool: CoreTool {
             .init(name: "lanes", description: "Workflow lanes.", schema: DynamicGenerationSchema(arrayOf: laneSchema), isOptional: true),
             .init(name: "nodes", description: "Workflow nodes.", schema: DynamicGenerationSchema(arrayOf: nodeSchema), isOptional: true),
             .init(name: "edges", description: "Workflow edges.", schema: DynamicGenerationSchema(arrayOf: edgeSchema), isOptional: true),
+            .init(name: "input", description: "Workflow input as a JSON object string.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "environment", description: "Execution choice JSON: mode project/task_worktree/existing_worktree/new_worktree; optional path, baseRef, setupCommand.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
+            .init(name: "idempotencyKey", description: "Optional stable UUID to deduplicate starting the same run.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "startedBy", description: "Actor starting the workflow run.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "agentId", description: "Agent ID to link to an agent_step node.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
             .init(name: "sessionId", description: "Agent session ID to link to an agent_step node.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),
@@ -126,7 +129,13 @@ struct WorkflowTool: CoreTool {
         context: ToolContext
     ) async -> ToolInvocationResult {
         let startedBy = trimmedStringArgument(arguments, "startedBy") ?? "agent:\(context.agentID)"
-        var input = arguments["input"]?.asObject ?? [:]
+        var input: [String: JSONValue] = [:]
+        if let value = arguments["input"], value != .null {
+            guard let decoded = value.asObject ?? value.asString.flatMap({ try? JSONDecoder().decode([String: JSONValue].self, from: Data($0.utf8)) }) else {
+                return toolFailure(tool: name, code: "invalid_arguments", message: "Workflow input must be a JSON object.", retryable: false)
+            }
+            input = decoded
+        }
         if input["sessionId"] == nil {
             input["sessionId"] = .string(context.sessionID)
         }
@@ -143,7 +152,15 @@ struct WorkflowTool: CoreTool {
                 request: WorkflowRunCreateRequest(
                     taskId: trimmedStringArgument(arguments, "taskId"),
                     startedBy: startedBy,
-                    input: input
+                    input: input,
+                    background: true,
+                    environment: try arguments["environment"].flatMap { $0 == .null ? nil : $0 }.map { value in
+                        let data: Data
+                        if let text = value.asString { data = Data(text.utf8) }
+                        else { data = try JSONEncoder().encode(value) }
+                        return try JSONDecoder().decode(WorkflowEnvironmentRequest.self, from: data)
+                    },
+                    idempotencyKey: trimmedStringArgument(arguments, "idempotencyKey")
                 )
             )
             return toolSuccess(tool: name, data: responseJSON(projectID: projectID, workflowID: workflowID, runID: detail.run.id, issues: []))

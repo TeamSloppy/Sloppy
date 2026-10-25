@@ -134,7 +134,8 @@ struct WorkflowSessionTests {
     }
 
     private func fixture(answers: [String], requestsInput: Bool = false, inputAfter: Int = 0, disk: Bool = false) async throws -> (CoreService, CoreConfig, String, String) {
-        let config = CoreConfig.test
+        var config = CoreConfig.test
+        config.compactor.enabled = false // Keep ordered workflow answers independent of background memory requests.
         let service = disk ? CoreService(config: config) : CoreService(config: config, persistenceBuilder: InMemoryCorePersistenceBuilder())
         await service.overrideModelProviderForTests(WorkflowModelProvider(probe: WorkflowModelProbe(requestsInput: requestsInput, answers: answers, inputAfter: inputAfter)), defaultModel: "mock:test-model")
         let id = UUID().uuidString.lowercased()

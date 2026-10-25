@@ -2,7 +2,7 @@ import Foundation
 import Protocols
 
 extension CoreService {
-    func executeWorkflowAgentNode(
+    func executeWorkflowAgentRequest(
         node: WorkflowNode, context: WorkflowRunner.Context, input: [String: JSONValue]
     ) async -> ToolInvocationResult {
         let config = node.config
@@ -71,12 +71,18 @@ extension CoreService {
                 output["sessionAfterEventId"] = initial.events.last.map { .string($0.id) } ?? .null
             }
             output["sessionId"] = .string(session.id)
+            if let directory = context.input["environment"]?.asObject?["workingDirectory"]?.asString {
+                workflowSessionDirectories[session.id] = directory
+            }
             try await context.reportProgress?(output)
             try Task.checkCancellation()
             let encodedInput = try JSONEncoder().encode(input)
             var content = continuation
                 ? "Continue the interrupted workflow step using the original request and persisted session history. Preserve completed work; inspect tool results before taking further action."
                 : resolveWorkflowTemplateString(prompt, input: input) + "\n\n[Workflow input]\n" + String(decoding: encodedInput, as: UTF8.self)
+            if let directory = context.input["environment"]?.asObject?["workingDirectory"]?.asString {
+                content += "\n\n[Workflow execution binding]\nUse the pinned directory \(directory) and the task snapshot in workflow input. Live project/task labels may change independently."
+            }
             if outputFormat == "json" {
                 content += "\n\n[Workflow result format]\nReturn a single JSON value, without Markdown fences or surrounding prose. It will be stored in output.result."
                 if let schema = config["outputSchema"]?.asObject?["properties"]?.asObject?["result"] {

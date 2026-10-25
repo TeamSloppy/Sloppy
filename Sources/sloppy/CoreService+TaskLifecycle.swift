@@ -38,6 +38,7 @@ func sessionToolRoots(forWorkingDirectory workingDirectory: String) -> [String] 
 extension CoreService {
     func handleTaskBecameReady(projectID: String, taskID: String) async {
         await waitForStartup(dispatchReadyTasks: false)
+        guard workflowTaskOwner(projectID: projectID, taskID: taskID) == nil else { return }
 
         guard var project = await store.project(id: projectID),
               let taskIndex = project.tasks.firstIndex(where: { $0.id == taskID })
@@ -1562,6 +1563,9 @@ extension CoreService {
     }
 
     func cancelProjectTask(projectID: String, taskID: String, reason: String?) async throws -> ProjectRecord {
+        if let runID = workflowTaskOwner(projectID: projectID, taskID: taskID) {
+            _ = try await cancelWorkflowRun(projectID: projectID, runID: runID, request: .init(userId: "task-owner"))
+        }
         let note = reason?
             .trimmingCharacters(in: .whitespacesAndNewlines)
             .prefix(2_000)

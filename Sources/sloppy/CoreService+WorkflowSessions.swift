@@ -2,7 +2,7 @@ import Foundation
 import Protocols
 
 enum WorkflowSessionPolicy: String {
-    case new, shared
+    case new, shared, compact
 
     static func mode(_ node: WorkflowNode) -> Self? {
         guard let value = node.config["sessionMode"] else { return .new }
@@ -12,15 +12,15 @@ enum WorkflowSessionPolicy: String {
     static func validationIssue(node: WorkflowNode, definition: WorkflowDefinition) -> String? {
         guard node.config["sessionMode"] != nil || node.config["sessionSourceNodeId"] != nil else { return nil }
         guard node.type == .agentStep, let mode = mode(node) else {
-            return "sessionMode must be new or shared on an agent step."
+            return "sessionMode must be new, shared or compact on an agent step."
         }
-        guard mode == .shared else {
+        guard mode != .new else {
             return node.config["sessionSourceNodeId"] == nil ? nil : "A session source requires shared mode."
         }
         guard let sourceID = node.config["sessionSourceNodeId"]?.asString, sourceID != node.id,
               let source = definition.nodes.first(where: { $0.id == sourceID }), source.type == .agentStep,
               let agentID = node.config["agentId"]?.asString, !agentID.isEmpty,
-              source.config["agentId"]?.asString == agentID else {
+              (mode == .compact || source.config["agentId"]?.asString == agentID) else {
             return "Shared sessions require a different source agent step using the same agent."
         }
         var ancestors: Set<String> = []

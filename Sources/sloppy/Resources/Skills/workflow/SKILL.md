@@ -18,7 +18,7 @@ When active:
 - create a draft workflow proposal before substantial work
 - model work as lanes, nodes, and edges
 - use `project.workflow` for workflow state; do not write workflow files directly
-- link `agent_step` nodes to agent/session/delegated-task IDs through typed metadata
+- configure `agent_step` with agentId and an explicit new/shared/compact session policy; inspect persisted typed session bindings
 - update workflow state from runtime events and tool results, not model-output text
 - after creating or completing a workflow, provide the Dashboard workflow URL
 
@@ -40,7 +40,11 @@ the same agent. This continues that session's history while preserving separate 
 The source must be completed/idle and keep the same project/task scope; unavailable
 sources fail instead of silently creating new context. Do not use raw config.sessionId.
 Persisted message boundaries prevent an older answer from completing the new step.
-Session compaction policies remain unsupported.
+Use `sessionMode: "compact"` with `sessionSourceNodeId` for a summarized handoff into a
+fresh target session (the target agent may differ). The summary, source boundary,
+summary session and working session are checkpointed; restart does not resummarize a
+completed handoff. Summary input is bounded to the latest 64000 characters through the
+selected completed source turn, and the summary must contain at most 32000 characters.
 Optional `config.outputSchema` validates the complete step output. It supports type,
 properties, required, items, enum, minLength and boolean additionalProperties; unsupported
 keywords fail validation. `config.outputFormat: "json"` makes an agent return strict JSON
@@ -49,18 +53,47 @@ Use edge `condition: {"path":"result.verdict","equals":"approved"}` for typed br
 or legacy conditionKey, never both. Missing fields, references and ambiguous routes fail.
 Use at most one fallback edge per node. Full-value tool templates retain JSON types.
 The Dashboard starts and resumes runs in the background and refreshes their status.
-API clients can opt in with `background: true`; existing calls remain synchronous.
+API clients can use `background: true`. Parallel, child-workflow and environment setup
+runs default to background execution; explicit `background: false` waits for execution.
 
 Parallel nodes require `config.joinNodeId` and 2–16 distinct unconditional outgoing branches.
 Join nodes wait for all branches and expose their final outputs under `branches.<startNodeId>`.
 Branches must be disjoint until the Join; nested groups are unsupported. Each branch has
 a durable cursor and attempt history. Completed work is skipped after restart; uncertain
-external effects block for reconciliation. Input waits inside branches are not supported yet.
+external effects block for reconciliation. Human and native input waits resume their own
+branch independently. Join `config.strategy` defaults to `all`; `first_completed` selects
+a successful winner and cancels the remaining branches. Legacy condition/Merge nodes
+can serve as the explicitly owned join, with the same strategies.
 
-Currently executable blocks: manual trigger, agent/AI transform, Parallel/Join, Bash, JavaScript/Python,
-registered tools, HTTP, human approval/input decisions, typed field conditions, task status
-updates, and explicit End nodes. Expression evaluation, Loop/Merge blocks, Notify and Project
-Task execution and sub-workflow completion tracking are not implemented and fail explicitly. Every successful path must reach
-an End node; a missing matching transition fails the run. Multiple edges do not imply parallelism.
+Starting with taskId snapshots the real project task; templates can use `{{task.title}}`,
+`{{task.description}}` and `{{input.task.id}}`. Never substitute invented task fields.
+Use the `environment` JSON argument on `project.workflow start`: mode `project`,
+`task_worktree`, `existing_worktree` (path), or `new_worktree` (optional baseRef).
+Optional setupCommand runs once before graph execution. Base revision, provider,
+working directory and branch are pinned. Changed live task/project settings do not
+redirect a paused run. Task-owned workflows exclude competing root runs and ordinary
+task pickup until completion/cancellation (blocked runs retain ownership).
+Use an idempotencyKey UUID to deduplicate starting the same request. New worktrees are
+retained for inspection; workflows do not merge or remove them automatically.
+
+Executable blocks: trigger, Project Task snapshot, agent/AI transform, Parallel/Join,
+Bash, JavaScript/Python, registered tools, HTTP, human approval/input, typed conditions,
+Expression, bounded Loop, Merge, Notify/Channel, task status updates, sub-workflow and End.
+Expression supports field paths, exists(path), strict JSON equality/comparison, boolean
+operators and numeric arithmetic. A Loop expression can use one-based iteration;
+maxIterations is 1–24 (default 10), with the durable per-node attempt cap still 25.
+Notify requires a project channelId and message and succeeds only on a delivery receipt.
+Sub-workflow requires workflowId, waits for its real terminal state, rejects recursion,
+and pins an idempotent child-run binding. Inspect and repair a failed child before
+retrying the parent; retry retains the original child and its completed effects.
+Every successful path must reach an End; missing/ambiguous transitions fail explicitly.
+
+Use the run retry API/Dashboard reconciliation controls only after inspecting external
+effects. Retry records evidence and a fresh attempt without repeating completed earlier
+steps. Verified-result continuation validates the pinned output contract and actual
+native/child completion. Interrupted setup needs explicit reconciliation. Missing
+checkpoints never silently downgrade a pinned environment to legacy execution.
+The cancel API/Dashboard stops owned sessions/processes/children and retires pending
+questions; it does not roll back completed effects. Run history retains decisions.
 
 Do not create workflows outside this skill.

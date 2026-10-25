@@ -8,8 +8,10 @@ export function selectWorkflowAfterDelete(workflows, deletedWorkflowId) {
   return String(remaining[Math.min(index, remaining.length - 1)]?.id || "");
 }
 
-const NODE_WIDTH = 190;
-const NODE_HEIGHT = 92;
+export const WORKFLOW_NODE_WIDTH = 220;
+export const WORKFLOW_NODE_HEIGHT = 104;
+const NODE_WIDTH = WORKFLOW_NODE_WIDTH;
+const NODE_HEIGHT = WORKFLOW_NODE_HEIGHT;
 const CANVAS_PADDING = 96;
 const WORKFLOW_COMPACT_BREAKPOINT = 1040;
 
@@ -32,6 +34,8 @@ export function workflowNodePorts(node) {
   const type = asString(node?.type);
   const input = { id: "input", label: "input", direction: "input", socket: "left" };
   const output = { id: "output", label: "output", direction: "output", socket: "right" };
+
+  if (blockKind === "merge") return [input, output];
 
   if (type === "condition" || blockKind === "expression" || blockKind === "loop") {
     return [
@@ -116,7 +120,10 @@ export function describeWorkflowStep(step) {
   const nodeId = asString(step?.nodeId, "node");
   const status = asString(step?.status, "unknown").replace(/_/g, " ");
   const error = asString(step?.error);
-  const output = asString(step?.output?.text) || formatWorkflowValue(step?.output);
+  const output = asString(step?.output?.text) || asString(step?.output?.stdout)
+    || formatWorkflowValue(step?.output?.result)
+    || (step?.output?.tool === "workflow.project_task" ? asString(step?.output?.title) : "")
+    || formatWorkflowValue(step?.output);
   return {
     title: `${nodeId}: ${status}`,
     detail: error || output || "",
@@ -180,6 +187,80 @@ function buildWorkflowLinkPath(source, target) {
     `${target.x - distance} ${target.y}`,
     `${target.x} ${target.y}`
   ].join(" ");
+}
+
+// Keep labels on a straight section of the route, including backward review loops.
+export function buildWorkflowConnection(source, target, sourceSocket = "right", targetSocket = "left", options = {}) {
+  const side = (socket) => socket === "input" ? "left" : ["output", "true", "false"].includes(socket) ? "right" : socket;
+  const directions = { left: [-1, 0], right: [1, 0], top: [0, -1], bottom: [0, 1] };
+  const from = directions[side(sourceSocket)] || directions.right;
+  const to = directions[side(targetSocket)] || directions.left;
+  const forwardHorizontal = from[0] && to[0] === -from[0] && (target.x - source.x) * from[0] > 0;
+  const forwardVertical = from[1] && to[1] === -from[1] && (target.y - source.y) * from[1] > 0;
+  const offset = forwardHorizontal ? Math.min(32, Math.abs(target.x - source.x) / 3)
+    : forwardVertical ? Math.min(32, Math.abs(target.y - source.y) / 3) : 32;
+  const start = { x: source.x + from[0] * offset, y: source.y + from[1] * offset };
+  const end = { x: target.x + to[0] * offset, y: target.y + to[1] * offset };
+  let bends;
+  if (from[0] && to[0]) {
+    if (forwardHorizontal) {
+      const x = (start.x + end.x) / 2;
+      bends = [{ x, y: start.y }, { x, y: end.y }];
+    } else {
+      const y = asNumber(options.loopY, Math.min(source.y, target.y) - 88);
+      bends = [{ x: start.x, y }, { x: end.x, y }];
+    }
+  } else if (from[1] && to[1]) {
+    const y = (start.y + end.y) / 2;
+    bends = [{ x: start.x, y }, { x: end.x, y }];
+  } else {
+    bends = from[0] ? [{ x: end.x, y: start.y }] : [{ x: start.x, y: end.y }];
+  }
+  const points = [source, start, ...bends, end, target]
+    .filter((point, index, all) => index === 0 || point.x !== all[index - 1].x || point.y !== all[index - 1].y);
+  // Remove collinear points so a straight link does not fold back at its handles.
+  for (let index = points.length - 2; index > 0; index -= 1) {
+    const a = points[index - 1], b = points[index], c = points[index + 1];
+    if ((a.x === b.x && b.x === c.x && (b.y - a.y) * (c.y - b.y) >= 0)
+      || (a.y === b.y && b.y === c.y && (b.x - a.x) * (c.x - b.x) >= 0)) points.splice(index, 1);
+  }
+  let path = `M ${source.x} ${source.y}`;
+  let label = { x: (source.x + target.x) / 2, y: (source.y + target.y) / 2 };
+  let longest = -1;
+  for (let index = 1; index < points.length; index += 1) {
+    const a = points[index - 1], b = points[index];
+    const length = Math.hypot(b.x - a.x, b.y - a.y);
+    if (length > longest) {
+      longest = length;
+      label = { x: (a.x + b.x) / 2, y: (a.y + b.y) / 2 };
+    }
+    const c = points[index + 1];
+    if (!c) {
+      path += ` L ${b.x} ${b.y}`;
+      break;
+    }
+    const nextLength = Math.hypot(c.x - b.x, c.y - b.y);
+    const radius = Math.min(18, length / 2, nextLength / 2);
+    const before = { x: b.x - (b.x - a.x) / length * radius, y: b.y - (b.y - a.y) / length * radius };
+    const after = { x: b.x + (c.x - b.x) / nextLength * radius, y: b.y + (c.y - b.y) / nextLength * radius };
+    path += ` L ${before.x} ${before.y} Q ${b.x} ${b.y} ${after.x} ${after.y}`;
+  }
+  return { path, labelX: label.x, labelY: label.y };
+}
+
+// Team lanes describe ownership only; their frame does not imply parallel execution.
+export function buildWorkflowLaneGroups(workflow) {
+  const nodes = Array.isArray(workflow?.nodes) ? workflow.nodes : [];
+  return (Array.isArray(workflow?.lanes) ? workflow.lanes : []).flatMap((lane) => {
+    if (lane.kind !== "team") return [];
+    const members = nodes.filter((node) => node.laneId === lane.id);
+    if (members.length < 2) return [];
+    const minX = Math.min(...members.map((node) => asNumber(node.positionX, 0)));
+    const minY = Math.min(...members.map((node) => asNumber(node.positionY, 0)));
+    const maxX = Math.max(...members.map((node) => asNumber(node.positionX, 0) + NODE_WIDTH));
+    const maxY = Math.max(...members.map((node) => asNumber(node.positionY, 0) + NODE_HEIGHT));
+    return [{ id: lane.id, title: lane.title, x: minX - 26, y: minY - 54, width: maxX - minX + 52, height: maxY - minY + 80 }];
+  });
 }
 
 export function buildWorkflowGraphLayout(workflow) {

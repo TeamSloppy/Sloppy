@@ -11,6 +11,8 @@ struct WorkflowRunner {
         var stepId: String? = nil
         var stepStartedAt: Date? = nil
         var resumingStep: WorkflowRunStep? = nil
+        var retryInput: [String: JSONValue]? = nil
+        var retryOutput: [String: JSONValue]? = nil
         var resumeAfterShutdown = false
         var runStartedAt: Date? = nil
         var startNodeId: String? = nil
@@ -33,6 +35,7 @@ struct WorkflowRunner {
         case completed(WorkflowRun)
         case waitingForHuman(WorkflowRun, WorkflowPendingAction)
         case waitingForAgent(WorkflowRun)
+        case waitingForWorkflow(WorkflowRun)
         case failed(WorkflowRun, String)
     }
 
@@ -171,7 +174,8 @@ struct WorkflowRunner {
             }
             // A moved cursor may not have saved its new attempt yet. Older visits to
             // this node must not be mistaken for the current attempt after a loop.
-            let step = state.steps.last?.nodeId == nodeID ? state.steps.last : nil
+            let lastGraphStep = state.steps.last { $0.nodeId != "__environment" }
+            let step = lastGraphStep?.nodeId == nodeID ? lastGraphStep : nil
             if step?.status == .succeeded {
                 do { try WorkflowOutputContract.validate(node: node, output: step?.output ?? [:]) }
                 catch { return try await failStep(run: state.run, nodeID: node.id, input: step?.input ?? [:],
@@ -188,8 +192,8 @@ struct WorkflowRunner {
                                     persistence: persistence, updateTask: updateTask, executeTool: executeTool,
                                     originalInput: state.originalInput, previousSteps: state.steps, resolvedStepID: step?.id, branchContext: context)
             }
-            if step?.status == .failed { return try await fail(run: state.run, message: step?.error ?? "Step failed before restart.", persistence: persistence) }
-            if let step, step.status == .running, node.type == .toolCheck || node.type == .updateTask {
+            if step?.status == .failed && state.retryStepId != step?.id { return try await fail(run: state.run, message: step?.error ?? "Step failed before restart.", persistence: persistence) }
+            if let step, state.retryStepId != step.id, step.status == .running, (node.type == .toolCheck && WorkflowGraphContracts.blockKind(node) != "sub_workflow") || node.type == .updateTask || node.type == .notify {
                 var blocked = state.run
                 blocked.status = .blocked
                 var interrupted = step
@@ -199,7 +203,9 @@ struct WorkflowRunner {
                 try await persistence.saveRun(blocked)
                 return .failed(blocked, interrupted.error ?? "Reconciliation required.")
             }
-            context.resumingStep = step
+            context.resumingStep = state.retryStepId == step?.id ? nil : step
+            context.retryInput = state.retryStepId == step?.id ? step?.input : nil
+            context.retryOutput = state.retryStepId == step?.id ? step?.output : nil
             context.resumeAfterShutdown = state.resumeAfterShutdown == true
             return try await walk(definition: state.definition, run: state.run, currentNodeID: nodeID, context: context,
                                   initialOutput: state.steps.last(where: { $0.status == .succeeded })?.output ?? state.originalInput,
@@ -225,10 +231,20 @@ struct WorkflowRunner {
         var visitedCounts = context.initialVisitCounts
         for step in previousSteps {
             visitedCounts[step.nodeId, default: 0] += 1
-            if step.status == .succeeded { nodeOutputs[step.nodeId] = .object(["output": .object(step.output)]) }
+            if step.status == .succeeded {
+                nodeOutputs[step.nodeId] = .object(["output": .object(step.output)])
+                if let fork = definition.nodes.first(where: { $0.id == step.nodeId && $0.type == .parallel }) {
+                    let topology = try WorkflowParallelTopology(definition: definition, fork: fork)
+                    let selected = Set(step.output["branches"]?.asObject?.keys.map { $0 } ?? [])
+                    for (branch, region) in topology.branches where !selected.contains(branch) {
+                        for id in region { nodeOutputs.removeValue(forKey: id) }
+                    }
+                }
+            }
         }
 
         var resumingStep = context.resumingStep
+        var retryInput = context.retryInput
         while let activeNodeID = nodeID {
             if Task.isCancelled { return try await fail(run: run, message: "Workflow execution cancelled.", persistence: persistence) }
             if activeNodeID == context.stopNodeId {
@@ -251,8 +267,9 @@ struct WorkflowRunner {
             run.status = .running
             run.currentNodeIds = [node.id]
             try await persistence.saveRun(run)
-            let scopedInput = continuedStep?.input ?? workflowScopedInput(current: previousOutput, contextInput: context.input, nodeOutputs: nodeOutputs)
+            let scopedInput = continuedStep?.input ?? retryInput ?? workflowScopedInput(current: previousOutput, contextInput: context.input, nodeOutputs: nodeOutputs)
 
+            retryInput = nil
             let stepID = continuedStep?.id ?? "step_\(UUID().uuidString.lowercased())"
             let startedAt = continuedStep?.startedAt ?? Date()
             do { try WorkflowGraphContracts.validateReferences(node: node, input: scopedInput) }
@@ -320,13 +337,18 @@ struct WorkflowRunner {
 
             case .condition:
                 let blockKind = stringValue(node.config["blockKind"]) ?? stringValue(node.config["block_kind"])
-                if stringValue(node.config["expression"]) != nil || blockKind == "expression" || blockKind == "merge" || blockKind == "loop" {
-                    return try await failStep(run: run, nodeID: node.id, input: scopedInput,
-                                          message: "Expression, Loop and Merge execution is not implemented.", persistence: persistence)
-                }
-                previousOutput = previousOutput.merging(node.config) { _, new in new }
+                if blockKind == "merge" {
+                    previousOutput = previousOutput.merging(["strategy": node.config["strategy"] ?? .string("all")]) { _, new in new }
+                } else if node.config["expression"] != nil || blockKind == "expression" || blockKind == "loop" {
+                    do { previousOutput = try WorkflowExpression.run(node: node, input: scopedInput, iteration: visitedCounts[node.id] ?? 1) }
+                    catch { return try await failStep(run: run, nodeID: node.id, input: scopedInput, message: String(describing: error), persistence: persistence, stepID: stepID) }
+                } else { previousOutput = previousOutput.merging(node.config) { _, new in new } }
 
-            case .agentStep, .toolCheck, .parallel:
+            case .agentStep, .toolCheck, .parallel, .notify, .projectTask:
+                if node.type == .parallel {
+                    let topology = try WorkflowParallelTopology(definition: definition, fork: node)
+                    for region in topology.branches.values { for id in region { nodeOutputs.removeValue(forKey: id) } }
+                }
                 try await persistence.saveStep(WorkflowRunStep(
                     id: stepID, runId: run.id, nodeId: node.id, status: .running,
                     input: scopedInput, output: continuedStep?.output ?? [:], startedAt: startedAt
@@ -346,6 +368,13 @@ struct WorkflowRunner {
                     error: ToolErrorPayload(code: "workflow_executor_unavailable",
                                             message: "No executor for workflow node \(node.id).", retryable: false)
                 )
+                if toolResult.error?.code == "workflow_child_waiting" {
+                    try await persistence.saveStep(.init(id: stepID, runId: run.id, nodeId: node.id, status: .waiting,
+                        input: scopedInput, output: toolResult.dataObject, startedAt: startedAt))
+                    run.status = .waitingForWorkflow
+                    try await persistence.saveRun(run)
+                    return .waitingForWorkflow(run)
+                }
                 if node.type == .agentStep && WorkflowAgentOutcome.isWaiting(toolResult) {
                     try await persistence.saveStep(WorkflowRunStep(
                         id: stepID, runId: run.id, nodeId: node.id, status: .waiting,
@@ -364,7 +393,7 @@ struct WorkflowRunner {
                         input: scopedInput, output: failedOutput, error: message,
                         startedAt: startedAt, finishedAt: Date()
                     ))
-                    if toolResult.error?.code == "workflow_parallel_cancelled" {
+                    if ["workflow_parallel_cancelled", "workflow_child_cancelled"].contains(toolResult.error?.code ?? "") {
                         run.status = .cancelled
                         run.currentNodeIds = []
                         run.finishedAt = Date()
@@ -385,9 +414,6 @@ struct WorkflowRunner {
                     nodeOutputs.merge(outputs) { _, new in new }
                 }
 
-            case .projectTask, .notify:
-                return try await failStep(run: run, nodeID: node.id, input: scopedInput,
-                                      message: "Workflow node type \(node.type.rawValue) is not implemented.", persistence: persistence)
 
             case .join:
                 break
@@ -485,7 +511,10 @@ struct WorkflowRunner {
     ) -> [String: JSONValue] {
         current.merging([
             "input": .object(contextInput),
-            "nodes": .object(nodeOutputs)
+            "nodes": .object(nodeOutputs),
+            "task": contextInput["task"] ?? .null,
+            "environment": contextInput["environment"] ?? .null,
+            "cwd": contextInput["cwd"] ?? .null
         ]) { _, reserved in reserved }
     }
 

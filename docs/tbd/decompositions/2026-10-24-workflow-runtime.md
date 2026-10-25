@@ -4,7 +4,7 @@
 - Scope and order authorized by the user's instruction to implement the preceding Kent comparison plan, starting with false success and real agents.
 - Trunk: main. Working branch for the first slice: codex/workflow-agent-execution.
 - Delivery: [PR #60](https://github.com/TeamSloppy/Sloppy/pull/60) merged to main; the following slices are tracked below.
-- Target: <=600 added + removed reviewable lines per slice; cap 1000. Documentation excluded. Earlier Dashboard and unrelated TUI changes stay outside these slices.
+- Target: <=600 added + removed reviewable lines per slice; cap 1000. Documentation excluded. Earlier Dashboard changes stayed outside slices 1–4 and are included in the user-requested one-branch completion pass. Unrelated TUI/Xcode preferences remain excluded.
 
 | # | Purpose | Size budget | Integration | Depends on | Status |
 |---|---|---|---|---|---|
@@ -18,7 +18,7 @@
 | 4a | Execute bounded automatic parallel branches, join outputs and checkpoint each branch | 600 | Explicit Parallel/Join nodes; uncertain interrupted operations block rather than replay | 3c | in-review |
 | 4b | Continue parallel groups after human/agent input and cancel siblings safely | 600 | Reuse the existing action/session APIs and per-branch checkpoints | 4a | in-review |
 | 4c | Expose Parallel/Join controls and document executable graph constraints | 600 | UI follows the completed backend; preserve legacy sequential graphs | 4b | in-review |
-| 5 | Bind task input and execution workspace/worktree policy; recovery and status delivery | 600 per task/worktree sub-slice | Explicit execution policy using existing project machinery | 2 | planned |
+| 5 | Complete task/environment binding, recovery controls and the remaining workflow blocks/editor | One branch / existing PR 70, per explicit user override | Additive pinned bindings and existing project/session/provider APIs | 4c | implemented |
 
 ## First slice
 
@@ -91,3 +91,19 @@ Slice 1 boundaries at delivery: agent steps used fresh sessions; input/approval 
 - Final parallel-stack release validation: macOS release builds passed for both `sloppy` and `SloppyNode`; both release CLI help commands exited successfully. Production services were not restarted or deployed. Full-suite limitations from the preceding stage remain; this stage claims the selected 113-test regression run.
 
 - Published and attached draft PRs: [68, automatic branches and Join](https://github.com/TeamSloppy/Sloppy/pull/68), [69, parallel input continuation/cancellation](https://github.com/TeamSloppy/Sloppy/pull/69), and [70, Parallel/Join editor controls](https://github.com/TeamSloppy/Sloppy/pull/70). The stack targets the existing shared-session feature branch and is not merged or deployed.
+
+## Completion pass — one branch / one existing PR
+
+- 2026-10-25: The user explicitly requested finishing the entire remaining plan unattended in one branch because the earlier PR split was inconvenient. Continue on `codex/workflow-parallel-controls` and update existing draft PR 70. This instruction overrides the earlier PR-size/splitting budgets for this completion pass; keep logical commits and report final size instead of opening more PRs.
+- Remaining scope: pinned task snapshot and execution environment; project/task/existing/new worktree selection with pinned base revision and setup recovery; explicit reconciliation/retry and cancellation; bounded Expression/Loop and Merge behavior; actual project-task and notification blocks; tracked child-workflow completion; compact-and-new context handoff; complete editor controls and the already requested local canvas redesign.
+- Integration: additive optional request/binding fields and existing project/provider/session/tool APIs, plus implemented handlers replacing explicit unsupported paths. Legacy checkpoints remain readable. No new execution framework or temporary toggle is introduced. No merges, production deployment or release publication are authorized by this request.
+- Verification: real disposable Git repository/worktree, restart before/after setup and approval, native session context restoration, output/loop contracts, child waiting/failure/recovery, explicit replay decisions, Dashboard typecheck/build/tests, browser editor proof and release builds for both executables. Full-suite failures from prior stages must be reported separately from feature-specific checks.
+
+- Implementation checklist is complete in the single existing branch: task snapshots/ownership; project/task/existing/new worktree modes and pinned Git revision; setup state/recovery; explicit retry/verified-result audit/cancel; compact handoff; Expression/Loop/Merge; receipt-checked notification; actual child completion and repaired-child reuse; native questions, launch/reconciliation controls and the earlier canvas redesign.
+- Final review added compatibility normalization for legacy block_kind and keeps child task ownership while a failed child is repaired and its original parent resumes. Positive tests cover existing task/explicit worktrees as well as project/new worktree execution.
+- Live acceptance used a separate Core API process and disposable Git repository, without mock API: launch from the real editor, create worktree, run setup/preparation, pause for approval, change live task title/source HEAD, stop/restart the server, answer the original approval and complete the task. Run/action IDs, working directory, source revision and task snapshot stayed fixed; setup/preparation markers remained one character each.
+- Full-suite attempt reached the explicit 180-second timeout with 65 issues in 16 other test files. A preceding stage's saved full-suite log already contained 62 issues across the same major areas (HTTP, paths, sessions, Visor, terminal, tool hooks and runtime). The differing NodeMesh/desktop/tool-hook/memory areas passed a separate 44-test repeat. No clean full-suite or universal baseline classification is claimed.
+
+- Final feature regression: 143 tests in 22 workflow/session/inbox/input/heartbeat suites passed. Dashboard: 29 workflow tests, typecheck and production build passed. Tests additionally cover native agents answering after restart in a new worktree, archived compact-session directories, manual result boundary preservation, winner/loser child recovery, winner-only output projection and accepted aggregates without branch replay. Ordered-model fixtures disable unrelated background compaction to remain deterministic; background memory behavior is covered separately.
+
+- The separate 44-test NodeMesh/desktop/tool-hook/memory repeat also passed on the final compiled implementation. Final PR 70 size is 2948 reviewable code/test lines across 55 changed files, excluding documentation and the acceptance screenshot, under the user's explicit one-PR override.

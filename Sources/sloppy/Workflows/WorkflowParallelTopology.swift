@@ -2,13 +2,19 @@ import Foundation
 import Protocols
 
 struct WorkflowParallelTopology: Sendable {
+    static func isJoin(_ node: WorkflowNode) -> Bool {
+        node.type == .join || (node.type == .condition && WorkflowGraphContracts.blockKind(node) == "merge")
+    }
+    let strategy: String
     let joinID: String
     let branches: [String: Set<String>]
 
     init(definition: WorkflowDefinition, fork: WorkflowNode) throws {
         func invalid(_ text: String) -> WorkflowGraphContracts.Violation { .init("Parallel \(fork.id): \(text)") }
         guard let join = fork.config["joinNodeId"]?.asString,
-              definition.nodes.contains(where: { $0.id == join && $0.type == .join }) else { throw invalid("joinNodeId must reference a Join node.") }
+              definition.nodes.contains(where: { $0.id == join && Self.isJoin($0) }) else { throw invalid("joinNodeId must reference a Join node.") }
+        strategy = definition.nodes.first { $0.id == join }?.config["strategy"]?.asString ?? "all"
+        guard ["all", "first_completed"].contains(strategy) else { throw invalid("Join strategy must be all or first_completed.") }
         let edges = definition.edges.filter { $0.sourceNodeId == fork.id }
         guard (2...16).contains(edges.count), edges.allSatisfy({ $0.condition == nil && $0.conditionKey == nil }),
               Set(edges.map(\.targetNodeId)).count == edges.count else { throw invalid("requires 2...16 distinct unconditional branches.") }
@@ -20,7 +26,7 @@ struct WorkflowParallelTopology: Sendable {
             var pending = [edge.targetNodeId]
             while let id = pending.popLast() {
                 if id == join { continue }
-                guard id != fork.id, let node = nodes[id], ![WorkflowNodeType.trigger, .end, .parallel, .join].contains(node.type) else {
+                guard id != fork.id, let node = nodes[id], ![WorkflowNodeType.trigger, .end, .parallel].contains(node.type), !Self.isJoin(node) else {
                     throw invalid("branches must stay inside their group; nested parallel groups are not supported.")
                 }
                 guard region.insert(id).inserted else { continue }

@@ -151,8 +151,8 @@ func workflowRunnerRejectsStepsWithoutExecutor(type: WorkflowNodeType) async thr
     #expect(await recorder.steps.allSatisfy { $0.status != .succeeded || $0.nodeId == "start" })
 }
 
-@Test(arguments: [WorkflowNodeType.notify, .projectTask, .condition])
-func workflowRunnerRejectsUnimplementedBlocks(type: WorkflowNodeType) async throws {
+@Test(arguments: [WorkflowNodeType.notify, .projectTask])
+func workflowRunnerRequiresExecutorForExternalBlocks(type: WorkflowNodeType) async throws {
     let recorder = WorkflowRecorder()
     let definition = workflowDefinition(nodes: [
         WorkflowNode(id: "start", type: .trigger, title: "Start", laneId: "system"),

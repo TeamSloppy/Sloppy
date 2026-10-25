@@ -10,6 +10,9 @@ struct WorkflowExecutionState: Codable, Sendable {
     var steps: [WorkflowRunStep] = []
     var actions: [WorkflowPendingAction] = []
     var parallel: WorkflowParallelState? = nil
+    var startRequest: WorkflowRunCreateRequest? = nil
+    var retryStepId: String? = nil
+    var reconciliations: [WorkflowReconciliation]? = nil
 
     var runnable: Self {
         guard let parallel, let parent = steps.first(where: { $0.id == parallel.stepID }) else { return self }
@@ -27,6 +30,7 @@ struct WorkflowParallelState: Codable, Sendable {
     var stepID: String
     var branches: [WorkflowParallelBranch]
     var visitCounts: [String: Int]
+    var winner: String? = nil
 }
 
 struct WorkflowParallelBranch: Codable, Sendable {
@@ -36,6 +40,7 @@ struct WorkflowParallelBranch: Codable, Sendable {
     var actions: [WorkflowPendingAction] = []
     var failure: String? = nil
     var failureCode: String? = nil
+    var retryStepId: String? = nil
 }
 
 struct WorkflowExecutionFileStore: Sendable {
@@ -77,7 +82,7 @@ actor WorkflowExecutionJournal {
     private let files: WorkflowExecutionFileStore
     private let store: any PersistenceStore
     private(set) var failed = false
-    private(set) var suspended = false
+    var suspended = false
     private var parallelInputRevision = 0
     private var parallelInputWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
@@ -91,6 +96,25 @@ actor WorkflowExecutionJournal {
         .init(saveRun: { try await self.save(run: $0) },
               saveStep: { try await self.save(step: $0) },
               saveAction: { try await self.save(action: $0) })
+    }
+
+    func bindEnvironment(_ environment: WorkflowEnvironmentBinding) async throws {
+        state.run.environment = environment
+        state.originalInput["environment"] = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(environment))
+        state.originalInput["cwd"] = .string(environment.workingDirectory)
+        try await flush()
+    }
+
+    func stopPreparation(_ environment: WorkflowEnvironmentBinding, message: String, blocked: Bool) async throws {
+        var binding = environment
+        binding.preparation = blocked ? .blocked : .failed
+        binding.error = message
+        state.run.environment = binding
+        state.run.status = blocked ? .blocked : .failed
+        state.run.finishedAt = blocked ? nil : Date()
+        state.steps.append(.init(id: "environment-\(UUID().uuidString)", runId: state.run.id, nodeId: "__environment",
+            status: blocked ? .waiting : .failed, output: ["errorCode": .string("workflow_environment_failed")], error: message, startedAt: Date()))
+        try await flush()
     }
 
     func snapshot() -> WorkflowExecutionState { state }
@@ -177,15 +201,18 @@ actor WorkflowExecutionJournal {
     }
 
     private func save(run: WorkflowRun) async throws {
+        var run = run
+        run.environment = run.environment ?? state.run.environment
         state.run = run
         try commit()
         await store.saveWorkflowRun(run)
     }
 
     private func save(step: WorkflowRunStep) async throws {
+        if let retry = state.retryStepId, step.id != retry, state.steps.first(where: { $0.id == retry })?.nodeId == step.nodeId { state.retryStepId = nil }
         if let index = state.steps.firstIndex(where: { $0.id == step.id }) { state.steps[index] = step }
         else { state.steps.append(step) }
-        if state.parallel?.stepID == step.id, step.status == .succeeded || step.status == .failed {
+        if state.parallel?.stepID == step.id, step.status == .succeeded {
             state.parallel = nil
             state.steps.removeAll { $0.id == step.id }
             state.steps.append(step)
