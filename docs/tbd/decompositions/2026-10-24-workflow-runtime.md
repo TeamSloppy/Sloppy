@@ -15,9 +15,9 @@
 | 3a | Validate transitions and template references before execution; reject ambiguous routing | 600 | Additive typed conditions; preserve valid legacy keys and drafts; validate before replacing saved graphs | 2c | in-review |
 | 3b | Validate output contracts and expose structured agent results and transition controls | 600 | Optional output schema and JSON mode; legacy text mode retained | 3a | in-review |
 | 3c | Choose new or shared agent sessions and persist each step's message boundary | 600 | Default remains new; shared sessions explicitly reference an earlier step in the same run | 3b | in-review |
-| 4a | Execute bounded automatic parallel branches, join outputs and checkpoint each branch | 600 | Explicit Parallel/Join nodes; uncertain interrupted operations block rather than replay | 3c | implemented |
-| 4b | Continue parallel groups after human/agent input and cancel siblings safely | 600 | Reuse the existing action/session APIs and per-branch checkpoints | 4a | implemented |
-| 4c | Expose Parallel/Join controls and document executable graph constraints | 600 | UI follows the completed backend; preserve legacy sequential graphs | 4b | implemented |
+| 4a | Execute bounded automatic parallel branches, join outputs and checkpoint each branch | 600 | Explicit Parallel/Join nodes; uncertain interrupted operations block rather than replay | 3c | in-review |
+| 4b | Continue parallel groups after human/agent input and cancel siblings safely | 600 | Reuse the existing action/session APIs and per-branch checkpoints | 4a | in-review |
+| 4c | Expose Parallel/Join controls and document executable graph constraints | 600 | UI follows the completed backend; preserve legacy sequential graphs | 4b | in-review |
 | 5 | Bind task input and execution workspace/worktree policy; recovery and status delivery | 600 per task/worktree sub-slice | Explicit execution policy using existing project machinery | 2 | planned |
 
 ## First slice
@@ -89,3 +89,5 @@ Slice 1 boundaries at delivery: agent steps used fresh sessions; input/approval 
 - Slice 4c: 66 reviewable lines. Exact staged Dashboard typecheck, production build and all 22 workflow tests passed; the working-tree canvas variant also passed its build/typecheck and 26 tests. Browser UI fixture verified Parallel/Join palette entries, Join selection, dropdown dismissal, save payload and reopening the saved binding. The earlier canvas redesign remains outside these runtime/control slices.
 
 - Final parallel-stack release validation: macOS release builds passed for both `sloppy` and `SloppyNode`; both release CLI help commands exited successfully. Production services were not restarted or deployed. Full-suite limitations from the preceding stage remain; this stage claims the selected 113-test regression run.
+
+- Published and attached draft PRs: [68, automatic branches and Join](https://github.com/TeamSloppy/Sloppy/pull/68), [69, parallel input continuation/cancellation](https://github.com/TeamSloppy/Sloppy/pull/69), and [70, Parallel/Join editor controls](https://github.com/TeamSloppy/Sloppy/pull/70). The stack targets the existing shared-session feature branch and is not merged or deployed.
