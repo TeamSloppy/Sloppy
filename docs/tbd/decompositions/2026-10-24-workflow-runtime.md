@@ -17,7 +17,7 @@
 | 3c | Choose new or shared agent sessions and persist each step's message boundary | 600 | Default remains new; shared sessions explicitly reference an earlier step in the same run | 3b | in-review |
 | 4a | Execute bounded automatic parallel branches, join outputs and checkpoint each branch | 600 | Explicit Parallel/Join nodes; uncertain interrupted operations block rather than replay | 3c | implemented |
 | 4b | Continue parallel groups after human/agent input and cancel siblings safely | 600 | Reuse the existing action/session APIs and per-branch checkpoints | 4a | implemented |
-| 4c | Expose Parallel/Join controls and document executable graph constraints | 600 | UI follows the completed backend; preserve legacy sequential graphs | 4b | planned |
+| 4c | Expose Parallel/Join controls and document executable graph constraints | 600 | UI follows the completed backend; preserve legacy sequential graphs | 4b | implemented |
 | 5 | Bind task input and execution workspace/worktree policy; recovery and status delivery | 600 per task/worktree sub-slice | Explicit execution policy using existing project machinery | 2 | planned |
 
 ## First slice
@@ -85,3 +85,7 @@ Slice 1 boundaries at delivery: agent steps used fresh sessions; input/approval 
 - Slice 4b: 72 workflow tests passed. Approval advances its branch before a gated sibling model finishes. SQLite-backed restart preserves mixed human/native input waits and original attempt/session identities. Cancelling a native question retires sibling actions; a failed shell branch cancels the pending native question and prevents Join. Parallel graphs default to durable background execution; explicit `background: false` retains blocking execution. Sequential defaults are unchanged.
 
 - Final 4b validation: 113 tests across workflow, message inbox, plan input and heartbeat suites passed. A gated-provider test verifies that failure sends interrupt to an already running sibling before its provider returns. Cancellation is checked after persisting a newly bound agent session and before posting its request. Reviewable slice size: 468 lines.
+
+- Slice 4c: 66 reviewable lines. Exact staged Dashboard typecheck, production build and all 22 workflow tests passed; the working-tree canvas variant also passed its build/typecheck and 26 tests. Browser UI fixture verified Parallel/Join palette entries, Join selection, dropdown dismissal, save payload and reopening the saved binding. The earlier canvas redesign remains outside these runtime/control slices.
+
+- Final parallel-stack release validation: macOS release builds passed for both `sloppy` and `SloppyNode`; both release CLI help commands exited successfully. Production services were not restarted or deployed. Full-suite limitations from the preceding stage remain; this stage claims the selected 113-test regression run.

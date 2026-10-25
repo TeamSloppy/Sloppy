@@ -52,8 +52,8 @@ An edge may use a legacy `conditionKey` or a typed condition, never both:
 
 The path is relative to that node's output. Comparison preserves JSON types, so `false`,
 `0`, and `"0"` differ. Missing typed fields and multiple matching edges fail the attempt.
-An edge without either condition is the fallback; there can be only one per node.
-Multiple edges do not launch parallel work. Drafts may remain unfinished, but a running
+An edge without either condition is the fallback; there can be only one per ordinary node.
+Multiple edges launch concurrent work only from an explicit Parallel block. Drafts may remain unfinished, but a running
 path must reach an explicit End node. Invalid updates leave the saved version unchanged.
 
 Templates use `{{input.ticket}}` and `{{nodes.review.output.result.verdict}}`. Unknown nodes,
@@ -92,4 +92,36 @@ Keep the output envelope open to additional execution metadata; close a `result`
 with `additionalProperties: false` when a strict payload is needed.
 
 The Dashboard's custom session-source dropdown lists preceding steps using the selected
-agent. Parallel execution, session compaction policy and worktree selection are later stages.
+agent. Inside a parallel group, a shared-session source must belong to the same branch.
+Session compaction policy and worktree selection remain later stages.
+
+## Parallel branches and Join
+
+Add a Parallel block (`type: "parallel"`) and a Join block (`type: "join"`). Select the Join
+in the Parallel inspector (`config.joinNodeId`). Connect the Parallel to 2–16 distinct
+branch starts with unconditional edges. Every branch must reach that Join. Each Join has
+exactly one owner. Branches cannot overlap, have incoming edges from outside their group,
+terminate before Join, or contain nested Parallel/Join groups. Legacy Merge blocks are
+not converted implicitly; replace them with an explicit Join when authoring a parallel group.
+
+Each branch receives the pre-fork input and upstream outputs. It can read its own earlier
+steps. Sibling outputs become available downstream only after every branch succeeds.
+The Parallel output exposes final branch results under `branches.<branchStartId>`;
+after Join, references such as `{{nodes.review.output.text}}` and
+`{{nodes.qa.output.stdout}}` address individual successful steps.
+
+Approval, Human Input and native agent questions can pause separate branches. Answering
+one continues that branch while the others keep running or waiting. Each attempt, action,
+native session binding and pinned graph is saved in the parent's atomic checkpoint.
+Server restart skips completed branches and restores the original pending questions;
+an external operation with no durably recorded result requires reconciliation before retry.
+
+A failed branch cancels the remaining work and closes outstanding workflow/native input
+waits. Join and downstream steps do not execute. Completed side effects are not rolled back.
+Explicit cancellation of a native question cancels the group. Parallel API runs default to
+background execution; `background: false` explicitly waits for full completion. Background
+receipts expose current branch node IDs, and the existing run API supplies step history.
+
+Parallel branches retain the existing workspace/cwd behavior. Shell nodes can set an explicit
+`config.cwd`. Use independent review/QA tasks where appropriate; workflow workspace
+selection and per-branch worktree isolation are not implemented yet.

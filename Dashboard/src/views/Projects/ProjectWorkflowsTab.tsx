@@ -23,6 +23,7 @@ import {
 
 import { WorkflowOutputControls, WorkflowTransitionControls } from "./WorkflowContractControls";
 import { WorkflowSessionControls } from "./WorkflowSessionControls";
+import { WorkflowParallelControls } from "./WorkflowParallelControls";
 
 type AnyRecord = Record<string, any>;
 
@@ -173,14 +174,24 @@ const BLOCK_PRESETS = [
     config: { blockKind: "loop", expression: "continue == true", maxIterations: "25" }
   },
   {
-    id: "merge",
-    title: "Merge",
-    type: "condition",
+    id: "parallel",
+    title: "Parallel",
+    type: "parallel",
+    icon: "call_split",
+    laneKind: "system",
+    laneTitle: "Flow",
+    description: "Run branches together and wait at one Join.",
+    config: { blockKind: "parallel", joinNodeId: "" }
+  },
+  {
+    id: "join",
+    title: "Join",
+    type: "join",
     icon: "call_merge",
     laneKind: "system",
     laneTitle: "Flow",
-    description: "Merge multiple incoming paths.",
-    config: { blockKind: "merge", strategy: "first_completed" }
+    description: "Continue after every parallel branch succeeds.",
+    config: { blockKind: "join" }
   },
   {
     id: "sub_workflow",
@@ -1412,14 +1423,15 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
                     </div>
                   </label>
                 ) : null}
-                <label>
+                {!["parallel", "join"].includes(selectedNode.type) ? <label>
                   {selectedNodeTextKey === "command" ? "Command" : selectedNodeTextKey === "expression" ? "Expression" : selectedNodeTextKey === "message" ? "Message" : "Prompt"}
                   <textarea
                     value={selectedNodeTextValue}
                     onChange={(event) => updateSelectedNodeConfig(selectedNodeTextKey, event.target.value)}
                     rows={4}
                   />
-                </label>
+                </label> : null}
+                {["parallel", "join"].includes(selectedNode.type) ? <WorkflowParallelControls key={`parallel-${selectedNode.id}`} node={selectedNode} workflow={draft!} onChange={updateSelectedNodeConfig} /> : null}
                 {selectedNode.type === "agent_step" ? <WorkflowSessionControls key={`session-${selectedNode.id}`} node={selectedNode} workflow={draft!} onChange={(config) => {
                   setNodeConfigText(JSON.stringify(config, null, 2));
                   updateSelectedNode({ config });
