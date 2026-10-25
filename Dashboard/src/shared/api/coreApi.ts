@@ -280,6 +280,8 @@ export interface CoreApi {
   updateProjectWorkflow: (projectId: string, workflowId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   deleteProjectWorkflow: (projectId: string, workflowId: string) => Promise<boolean>;
   startProjectWorkflowRun: (projectId: string, workflowId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
+  retryProjectWorkflowRun: (projectId: string, runId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
+  cancelProjectWorkflowRun: (projectId: string, runId: string, payload: AnyRecord) => Promise<AnyRecord | null>;
   fetchProjectWorkflowRuns: (projectId: string) => Promise<AnyRecord[] | null>;
   fetchProjectWorkflowRun: (projectId: string, runId: string) => Promise<AnyRecord | null>;
   fetchProjectWorkflowActions: (projectId: string) => Promise<AnyRecord[] | null>;
@@ -1835,6 +1837,14 @@ export function createCoreApi(): CoreApi {
       return response.data;
     },
 
+    retryProjectWorkflowRun: async (projectId, runId, payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({ path: `/v1/projects/${encodeURIComponent(projectId)}/workflow-runs/${encodeURIComponent(runId)}/retry`, method: "POST", body: payload });
+      return response.ok ? response.data : null;
+    },
+    cancelProjectWorkflowRun: async (projectId, runId, payload) => {
+      const response = await requestJson<AnyRecord, AnyRecord>({ path: `/v1/projects/${encodeURIComponent(projectId)}/workflow-runs/${encodeURIComponent(runId)}/cancel`, method: "POST", body: payload });
+      return response.ok ? response.data : null;
+    },
     fetchProjectWorkflowRuns: async (projectId) => {
       const response = await requestJson<AnyRecord[]>({
         path: `/v1/projects/${encodeURIComponent(projectId)}/workflow-runs`

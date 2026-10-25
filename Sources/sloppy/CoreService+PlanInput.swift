@@ -52,7 +52,8 @@ extension CoreService {
                 runStatus: AgentRunStatusEvent(
                     stage: .paused,
                     label: "Waiting for input",
-                    details: inputRequest.title ?? "Plan input requested."
+                    details: inputRequest.title ?? "Plan input requested.",
+                    executionOutcome: .init(state: .waitingInput)
                 )
             )
         ]
@@ -240,7 +241,9 @@ extension CoreService {
             )
             let cancelledSummary = try sessionStore.appendEvents(agentID: normalizedAgentID, sessionID: normalizedSessionID, events: [pausedEvent])
             publishLiveSessionEvents(agentID: normalizedAgentID, sessionID: normalizedSessionID, summary: cancelledSummary, events: [pausedEvent])
-            return AgentSessionMessageResponse(summary: cancelledSummary, appendedEvents: [responseEvent, summaryEvent, pausedEvent], routeDecision: nil)
+            let result = AgentSessionMessageResponse(summary: cancelledSummary, appendedEvents: [responseEvent, summaryEvent, pausedEvent], routeDecision: nil)
+            await reconcileWorkflowAgentSession(agentID: normalizedAgentID, sessionID: normalizedSessionID, response: result)
+            return result
         }
 
         return try await postAgentSessionMessage(

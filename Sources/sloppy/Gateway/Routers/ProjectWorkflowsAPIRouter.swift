@@ -98,6 +98,17 @@ struct ProjectWorkflowsAPIRouter: APIRouter {
             }
         }
 
+        router.post("/v1/projects/:projectId/workflow-runs/:runId/retry", metadata: RouteMetadata(summary: "Reconcile workflow attempt", description: "Records an explicit replay or verified result decision", tags: ["Project Workflows"])) { request in
+            guard let body = request.body, let payload = CoreRouter.decode(body, as: WorkflowRunRetryRequest.self) else { return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody]) }
+            do { return CoreRouter.encodable(status: HTTPStatus.ok, payload: try await service.retryWorkflowRun(projectID: request.pathParam("projectId") ?? "", runID: request.pathParam("runId") ?? "", request: payload)) }
+            catch { return workflowErrorResponse(error, fallback: ErrorCode.projectUpdateFailed) }
+        }
+        router.post("/v1/projects/:projectId/workflow-runs/:runId/cancel", metadata: RouteMetadata(summary: "Cancel workflow run", description: "Cancels owned work while preserving its checkpoint", tags: ["Project Workflows"])) { request in
+            guard let body = request.body, let payload = CoreRouter.decode(body, as: WorkflowRunCancelRequest.self) else { return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody]) }
+            do { return CoreRouter.encodable(status: HTTPStatus.ok, payload: try await service.cancelWorkflowRun(projectID: request.pathParam("projectId") ?? "", runID: request.pathParam("runId") ?? "", request: payload)) }
+            catch { return workflowErrorResponse(error, fallback: ErrorCode.projectUpdateFailed) }
+        }
+
         router.get("/v1/projects/:projectId/workflow-actions", metadata: RouteMetadata(summary: "List workflow actions", description: "Lists unresolved Dashboard workflow actions", tags: ["Project Workflows"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: await service.listWorkflowPendingActions(projectID: projectId))
@@ -121,6 +132,9 @@ struct ProjectWorkflowsAPIRouter: APIRouter {
 }
 
 private func workflowErrorResponse(_ error: Error, fallback: String) -> CoreRouterResponse {
+    if let violation = error as? WorkflowGraphContracts.Violation {
+        return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": violation.description])
+    }
     if let projectError = error as? CoreService.ProjectError {
         return CoreRouter.projectErrorResponse(projectError, fallback: fallback)
     }

@@ -47,7 +47,7 @@ struct WorkflowAgentExecutionTests {
         let probe = WorkflowModelProbe(failing: true)
         let (service, projectID, _, workflow) = try await fixture(probe: probe)
         let result = try await service.startWorkflowRun(projectID: projectID, workflowID: workflow.id,
-                                                       request: .init(startedBy: "human", input: [:]))
+                                                       request: .init(startedBy: "human", input: ["ticket": .string("WF-42")]))
         #expect(result.run.status == .failed)
         let step = try #require(result.steps.first { $0.nodeId == "agent" })
         #expect(step.status == .failed)
@@ -99,7 +99,7 @@ struct WorkflowAgentExecutionTests {
         _ = try await service.updateWorkflowDefinition(projectID: projectID, workflowID: workflow.id,
                                                        request: .init(name: workflow.name, lanes: workflow.lanes, nodes: nodes, edges: workflow.edges))
         let result = try await service.startWorkflowRun(projectID: projectID, workflowID: workflow.id,
-                                                       request: .init(startedBy: "human", input: [:]))
+                                                       request: .init(startedBy: "human", input: ["ticket": .string("WF-42")]))
         #expect(result.run.status == .failed)
         #expect(try await service.listAgentSessions(agentID: agentID).isEmpty)
         await service.shutdownChannelPlugins()
@@ -119,7 +119,7 @@ struct WorkflowAgentExecutionTests {
                 workflow.edges[0], WorkflowEdge(id: "e2", sourceNodeId: "agent", targetNodeId: "review"),
                 WorkflowEdge(id: "e3", sourceNodeId: "review", targetNodeId: "done")
             ]))
-        let result = try await service.startWorkflowRun(projectID: projectID, workflowID: workflow.id, request: .init(startedBy: "human", input: [:]))
+        let result = try await service.startWorkflowRun(projectID: projectID, workflowID: workflow.id, request: .init(startedBy: "human", input: ["ticket": .string("WF-42")]))
         #expect(result.run.status == .completed)
         #expect(await probe.prompts.contains { $0.contains("Review Workflow model answer") })
         #expect(try await service.listAgentSessions(agentID: agentID).count == 2)
@@ -130,12 +130,12 @@ struct WorkflowAgentExecutionTests {
     func concurrentStartsReturnTheirOwnRun() async throws {
         let probe = WorkflowModelProbe(gated: true)
         let (service, projectID, _, workflow) = try await fixture(probe: probe)
-        let first = Task { try await service.startWorkflowRun(projectID: projectID, workflowID: workflow.id, request: .init(startedBy: "first", input: [:])) }
+        let first = Task { try await service.startWorkflowRun(projectID: projectID, workflowID: workflow.id, request: .init(startedBy: "first", input: ["ticket": .string("WF-42")])) }
         defer { first.cancel(); Task { await probe.release(); await service.shutdownChannelPlugins() } }
         var starts = probe.started.makeAsyncIterator()
         _ = await starts.next()
         let firstRun = try #require(await service.listWorkflowRuns(projectID: projectID).first)
-        let second = Task { try await service.startWorkflowRun(projectID: projectID, workflowID: workflow.id, request: .init(startedBy: "second", input: [:])) }
+        let second = Task { try await service.startWorkflowRun(projectID: projectID, workflowID: workflow.id, request: .init(startedBy: "second", input: ["ticket": .string("WF-42")])) }
         defer { second.cancel() }
         _ = await starts.next()
         #expect(await service.listWorkflowRuns(projectID: projectID).count == 2)
@@ -156,7 +156,7 @@ struct WorkflowAgentExecutionTests {
         nodes[1].config = ["blockKind": .string(blockKind), "language": .string("swift"), "workflowId": .string(workflow.id)]
         _ = try await service.updateWorkflowDefinition(projectID: projectID, workflowID: workflow.id,
             request: .init(name: workflow.name, lanes: workflow.lanes, nodes: nodes, edges: workflow.edges))
-        let result = try await service.startWorkflowRun(projectID: projectID, workflowID: workflow.id, request: .init(startedBy: "human", input: [:]))
+        let result = try await service.startWorkflowRun(projectID: projectID, workflowID: workflow.id, request: .init(startedBy: "human", input: ["ticket": .string("WF-42")], background: false))
         #expect(result.run.status == .failed)
         #expect(!result.steps.contains { $0.nodeId == "done" })
         #expect(await service.listWorkflowRuns(projectID: projectID).count == 1)
@@ -185,21 +185,34 @@ struct WorkflowAgentExecutionTests {
     }
 }
 
-private actor WorkflowModelProbe {
+actor WorkflowModelProbe {
     nonisolated let started: AsyncStream<Void>
     private let events: AsyncStream<Void>.Continuation
     private let gated: Bool
     private let failing: Bool
+    private let answers: [String]
+    private var requestsInput: Bool
+    private let inputAfter: Int
     private var released = false
     private var waiters: [CheckedContinuation<Void, Never>] = []
     private(set) var prompts: [String] = []
 
-    init(gated: Bool = false, failing: Bool = false) {
+    init(gated: Bool = false, failing: Bool = false, requestsInput: Bool = false, answers: [String] = ["Workflow model answer"], inputAfter: Int = 0) {
         let stream = AsyncStream<Void>.makeStream()
         started = stream.stream
         events = stream.continuation
         self.gated = gated
         self.failing = failing
+        self.answers = answers
+        self.requestsInput = requestsInput
+        self.inputAfter = inputAfter
+    }
+
+    func takeInputRequest() -> Bool {
+        guard prompts.count >= inputAfter else { return false }
+        let result = requestsInput
+        requestsInput = false
+        return result
     }
 
     func response(prompt: String) async throws -> String {
@@ -207,7 +220,7 @@ private actor WorkflowModelProbe {
         events.yield(())
         if gated && !released { await withCheckedContinuation { waiters.append($0) } }
         if failing { throw WorkflowModelError.unavailable }
-        return "Workflow model answer"
+        return answers.isEmpty ? "" : answers[min(prompts.count - 1, answers.count - 1)]
     }
 
     func release() {
@@ -219,7 +232,7 @@ private actor WorkflowModelProbe {
 
 private enum WorkflowModelError: Error { case unavailable, unsupportedContent }
 
-private actor WorkflowModelProvider: ModelProvider {
+actor WorkflowModelProvider: ModelProvider {
     nonisolated let id = "workflow-test"
     nonisolated let supportedModels = ["mock:test-model"]
     let probe: WorkflowModelProbe
@@ -232,6 +245,20 @@ private struct WorkflowLanguageModel: LanguageModel {
     let probe: WorkflowModelProbe
     func respond<Content>(within session: LanguageModelSession, to prompt: Prompt, generating type: Content.Type, includeSchemaInPrompt: Bool, options: GenerationOptions) async throws -> LanguageModelSession.Response<Content> where Content: Generable {
         guard type == String.self else { throw WorkflowModelError.unsupportedContent }
+        if await probe.takeInputRequest() {
+            guard let delegate = session.toolExecutionDelegate else { throw WorkflowModelError.unavailable }
+            let call = Transcript.ToolCall(id: UUID().uuidString, toolName: "planning.request_input",
+                arguments: try GeneratedContent(json: #"{"questions":[{"id":"choice","question":"Continue?","options":[{"id":"yes","label":"Yes"},{"id":"no","label":"No"}]}]}"#))
+            await delegate.didGenerateToolCalls([call], in: session)
+            let decision = await delegate.toolCallDecision(for: call, in: session)
+            var entries: [Transcript.Entry] = [.toolCalls(.init([call]))]
+            if case .provideOutput(let segments) = decision {
+                let output = Transcript.ToolOutput(id: call.id, toolName: call.toolName, segments: segments)
+                await delegate.didExecuteToolCall(call, output: output, in: session)
+                entries.append(.toolOutput(output))
+            }
+            return .init(content: "Input requested" as! Content, rawContent: GeneratedContent("Input requested"), transcriptEntries: ArraySlice(entries))
+        }
         let text = try await probe.response(prompt: prompt.description)
         return .init(content: text as! Content, rawContent: GeneratedContent(text), transcriptEntries: [])
     }
