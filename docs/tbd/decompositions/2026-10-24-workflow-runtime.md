@@ -4,7 +4,7 @@
 - Scope and order authorized by the user's instruction to implement the preceding Kent comparison plan, starting with false success and real agents.
 - Trunk: main. Working branch for the first slice: codex/workflow-agent-execution.
 - Delivery: [PR #60](https://github.com/TeamSloppy/Sloppy/pull/60) merged to main; the following slices are tracked below.
-- Target: <=600 added + removed reviewable lines per slice; cap 1000. Documentation excluded. Earlier Dashboard and unrelated TUI changes stay outside these slices.
+- Target: <=600 added + removed reviewable lines per slice; cap 1000. Documentation excluded. Earlier Dashboard changes stayed outside slices 1–4 and are included in the user-requested one-branch completion pass. Unrelated TUI/Xcode preferences remain excluded.
 
 | # | Purpose | Size budget | Integration | Depends on | Status |
 |---|---|---|---|---|---|
@@ -15,8 +15,10 @@
 | 3a | Validate transitions and template references before execution; reject ambiguous routing | 600 | Additive typed conditions; preserve valid legacy keys and drafts; validate before replacing saved graphs | 2c | in-review |
 | 3b | Validate output contracts and expose structured agent results and transition controls | 600 | Optional output schema and JSON mode; legacy text mode retained | 3a | in-review |
 | 3c | Choose new or shared agent sessions and persist each step's message boundary | 600 | Default remains new; shared sessions explicitly reference an earlier step in the same run | 3b | in-review |
-| 4 | Execute multiple branches and wait at a join; aggregate outputs and cancellation | 600 per fan-out/join sub-slice | Validate executable topology; unsupported graphs fail until fully supported | 2, 3 | planned |
-| 5 | Bind task input and execution workspace/worktree policy; recovery and status delivery | 600 per task/worktree sub-slice | Explicit execution policy using existing project machinery | 2 | planned |
+| 4a | Execute bounded automatic parallel branches, join outputs and checkpoint each branch | 600 | Explicit Parallel/Join nodes; uncertain interrupted operations block rather than replay | 3c | in-review |
+| 4b | Continue parallel groups after human/agent input and cancel siblings safely | 600 | Reuse the existing action/session APIs and per-branch checkpoints | 4a | in-review |
+| 4c | Expose Parallel/Join controls and document executable graph constraints | 600 | UI follows the completed backend; preserve legacy sequential graphs | 4b | in-review |
+| 5 | Complete task/environment binding, recovery controls and the remaining workflow blocks/editor | One branch / existing PR 70, per explicit user override | Additive pinned bindings and existing project/session/provider APIs | 4c | implemented |
 
 ## First slice
 
@@ -72,3 +74,40 @@ Slice 1 boundaries at delivery: agent steps used fresh sessions; input/approval 
 - 2026-10-25: The user explicitly authorized creating all three stage-3 draft PRs in TeamSloppy/Sloppy. The three implementation branches are pushed.
 - Created draft PRs: [64, transitions](https://github.com/TeamSloppy/Sloppy/pull/64) based on the recovery branch, [65, outputs](https://github.com/TeamSloppy/Sloppy/pull/65) based on PR 64, and [66, sessions](https://github.com/TeamSloppy/Sloppy/pull/66) based on PR 65. All three are attached to the chat.
 - Publication status was checked live: PRs 61–63 are merged into their preceding feature branches; the recovery commit is not an ancestor of current main. The new PR chain preserves the planned small diffs rather than folding those dependencies into PR 64. Integration of the earlier feature-branch merges into main is a separate action.
+
+## Parallel stage
+
+- 2026-10-25: The user asked to continue the approved remaining workflow plan. Start with stage 4, retaining the existing per-fan-out/join slice budget. The first slice supports automatic branches; input waits follow in 4b before UI exposure in 4c.
+- Parallel groups require 2–16 disjoint branches and exactly one owned Join. Nested parallel groups and sharing one native session across branches are rejected. Each branch receives the frozen pre-fork context; successful branch outputs are merged only at the join. Failure cancels sibling work and prevents downstream execution.
+- Branch states live in the same atomic checkpoint as the parent. Existing run/step history remains the API query surface. Known completed operations are skipped after restart; uncertain running side effects require reconciliation.
+- Slice 4a: 69 workflow tests passed. Two shell processes use a mutual-start barrier to prove real overlap. Tests verify joined outputs, failed-process exit codes, no downstream execution after a branch failure, skipped completed branches on restart, and blocking uncertain interrupted operations. Nonzero/missing runtime.exec exit codes now fail workflow steps while retaining the raw result.
+
+- Slice 4b: 72 workflow tests passed. Approval advances its branch before a gated sibling model finishes. SQLite-backed restart preserves mixed human/native input waits and original attempt/session identities. Cancelling a native question retires sibling actions; a failed shell branch cancels the pending native question and prevents Join. Parallel graphs default to durable background execution; explicit `background: false` retains blocking execution. Sequential defaults are unchanged.
+
+- Final 4b validation: 113 tests across workflow, message inbox, plan input and heartbeat suites passed. A gated-provider test verifies that failure sends interrupt to an already running sibling before its provider returns. Cancellation is checked after persisting a newly bound agent session and before posting its request. Reviewable slice size: 468 lines.
+
+- Slice 4c: 66 reviewable lines. Exact staged Dashboard typecheck, production build and all 22 workflow tests passed; the working-tree canvas variant also passed its build/typecheck and 26 tests. Browser UI fixture verified Parallel/Join palette entries, Join selection, dropdown dismissal, save payload and reopening the saved binding. The earlier canvas redesign remains outside these runtime/control slices.
+
+- Final parallel-stack release validation: macOS release builds passed for both `sloppy` and `SloppyNode`; both release CLI help commands exited successfully. Production services were not restarted or deployed. Full-suite limitations from the preceding stage remain; this stage claims the selected 113-test regression run.
+
+- Published and attached draft PRs: [68, automatic branches and Join](https://github.com/TeamSloppy/Sloppy/pull/68), [69, parallel input continuation/cancellation](https://github.com/TeamSloppy/Sloppy/pull/69), and [70, Parallel/Join editor controls](https://github.com/TeamSloppy/Sloppy/pull/70). The stack targets the existing shared-session feature branch and is not merged or deployed.
+
+## Completion pass — one branch / one existing PR
+
+- 2026-10-25: The user explicitly requested finishing the entire remaining plan unattended in one branch because the earlier PR split was inconvenient. Continue on `codex/workflow-parallel-controls` and update existing draft PR 70. This instruction overrides the earlier PR-size/splitting budgets for this completion pass; keep logical commits and report final size instead of opening more PRs.
+- Remaining scope: pinned task snapshot and execution environment; project/task/existing/new worktree selection with pinned base revision and setup recovery; explicit reconciliation/retry and cancellation; bounded Expression/Loop and Merge behavior; actual project-task and notification blocks; tracked child-workflow completion; compact-and-new context handoff; complete editor controls and the already requested local canvas redesign.
+- Integration: additive optional request/binding fields and existing project/provider/session/tool APIs, plus implemented handlers replacing explicit unsupported paths. Legacy checkpoints remain readable. No new execution framework or temporary toggle is introduced. No merges, production deployment or release publication are authorized by this request.
+- Verification: real disposable Git repository/worktree, restart before/after setup and approval, native session context restoration, output/loop contracts, child waiting/failure/recovery, explicit replay decisions, Dashboard typecheck/build/tests, browser editor proof and release builds for both executables. Full-suite failures from prior stages must be reported separately from feature-specific checks.
+
+- Implementation checklist is complete in the single existing branch: task snapshots/ownership; project/task/existing/new worktree modes and pinned Git revision; setup state/recovery; explicit retry/verified-result audit/cancel; compact handoff; Expression/Loop/Merge; receipt-checked notification; actual child completion and repaired-child reuse; native questions, launch/reconciliation controls and the earlier canvas redesign.
+- Final review added compatibility normalization for legacy block_kind and keeps child task ownership while a failed child is repaired and its original parent resumes. Positive tests cover existing task/explicit worktrees as well as project/new worktree execution.
+- Live acceptance used a separate Core API process and disposable Git repository, without mock API: launch from the real editor, create worktree, run setup/preparation, pause for approval, change live task title/source HEAD, stop/restart the server, answer the original approval and complete the task. Run/action IDs, working directory, source revision and task snapshot stayed fixed; setup/preparation markers remained one character each.
+- Full-suite attempt reached the explicit 180-second timeout with 65 issues in 16 other test files. A preceding stage's saved full-suite log already contained 62 issues across the same major areas (HTTP, paths, sessions, Visor, terminal, tool hooks and runtime). The differing NodeMesh/desktop/tool-hook/memory areas passed a separate 44-test repeat. No clean full-suite or universal baseline classification is claimed.
+
+- Final feature regression: 143 tests in 22 workflow/session/inbox/input/heartbeat suites passed. Dashboard: 29 workflow tests, typecheck and production build passed. Tests additionally cover native agents answering after restart in a new worktree, archived compact-session directories, manual result boundary preservation, winner/loser child recovery, winner-only output projection and accepted aggregates without branch replay. Ordered-model fixtures disable unrelated background compaction to remain deterministic; background memory behavior is covered separately.
+
+- The separate 44-test NodeMesh/desktop/tool-hook/memory repeat also passed on the final compiled implementation. Final PR 70 size is 2959 reviewable code/test lines across 55 changed files, excluding documentation and the acceptance screenshot, under the user's explicit one-PR override.
+
+- Final crash-window checks also passed for a persisted winner with a running child-start and for parent cancellation before child cancellation was checkpointed. Child bindings survive cancellation errors; cancelled-parent/winner decisions are indexed before children can resume. All 143 selected tests remained green on these final sources.
+
+- Final source-frozen validation: `sloppy` macOS release build passed (368.19 s), `SloppyNode` release build passed (26.20 s), and both release CLI help commands exited successfully. The bundled workflow skill contains current compact/task-worktree guidance. The completed live test run remained unchanged after another restart on the final debug runtime. No additional PR or branch was created for this pass.

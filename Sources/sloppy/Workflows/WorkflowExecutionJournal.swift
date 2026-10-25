@@ -9,6 +9,38 @@ struct WorkflowExecutionState: Codable, Sendable {
     var run: WorkflowRun
     var steps: [WorkflowRunStep] = []
     var actions: [WorkflowPendingAction] = []
+    var parallel: WorkflowParallelState? = nil
+    var startRequest: WorkflowRunCreateRequest? = nil
+    var retryStepId: String? = nil
+    var reconciliations: [WorkflowReconciliation]? = nil
+
+    var runnable: Self {
+        guard let parallel, let parent = steps.first(where: { $0.id == parallel.stepID }) else { return self }
+        var copy = self
+        copy.run.currentNodeIds = [parallel.nodeID]
+        copy.run.status = .running
+        copy.steps.removeAll { $0.id == parent.id }
+        copy.steps.append(parent)
+        return copy
+    }
+}
+
+struct WorkflowParallelState: Codable, Sendable {
+    var nodeID: String
+    var stepID: String
+    var branches: [WorkflowParallelBranch]
+    var visitCounts: [String: Int]
+    var winner: String? = nil
+}
+
+struct WorkflowParallelBranch: Codable, Sendable {
+    var id: String
+    var run: WorkflowRun
+    var steps: [WorkflowRunStep] = []
+    var actions: [WorkflowPendingAction] = []
+    var failure: String? = nil
+    var failureCode: String? = nil
+    var retryStepId: String? = nil
 }
 
 struct WorkflowExecutionFileStore: Sendable {
@@ -46,11 +78,13 @@ struct WorkflowExecutionFileStore: Sendable {
 
 // The atomic file is authoritative. SQLite is updated only after the checkpoint succeeds.
 actor WorkflowExecutionJournal {
-    private var state: WorkflowExecutionState
+    var state: WorkflowExecutionState
     private let files: WorkflowExecutionFileStore
     private let store: any PersistenceStore
     private(set) var failed = false
-    private(set) var suspended = false
+    var suspended = false
+    private var parallelInputRevision = 0
+    private var parallelInputWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
     init(state: WorkflowExecutionState, files: WorkflowExecutionFileStore, store: any PersistenceStore) {
         self.state = state
@@ -64,13 +98,64 @@ actor WorkflowExecutionJournal {
               saveAction: { try await self.save(action: $0) })
     }
 
+    func bindEnvironment(_ environment: WorkflowEnvironmentBinding) async throws {
+        state.run.environment = environment
+        state.originalInput["environment"] = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(environment))
+        state.originalInput["cwd"] = .string(environment.workingDirectory)
+        try await flush()
+    }
+
+    func stopPreparation(_ environment: WorkflowEnvironmentBinding, message: String, blocked: Bool) async throws {
+        var binding = environment
+        binding.preparation = blocked ? .blocked : .failed
+        binding.error = message
+        state.run.environment = binding
+        state.run.status = blocked ? .blocked : .failed
+        state.run.finishedAt = blocked ? nil : Date()
+        state.steps.append(.init(id: "environment-\(UUID().uuidString)", runId: state.run.id, nodeId: "__environment",
+            status: blocked ? .waiting : .failed, output: ["errorCode": .string("workflow_environment_failed")], error: message, startedAt: Date()))
+        try await flush()
+    }
+
     func snapshot() -> WorkflowExecutionState { state }
+
+    func parallelInputVersion() -> Int { parallelInputRevision }
+
+    func signalParallelInput() {
+        parallelInputRevision += 1
+        let waiters = parallelInputWaiters.values
+        parallelInputWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
+
+    func waitForParallelInput(after revision: Int) async {
+        let id = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled || suspended || revision != parallelInputRevision { continuation.resume() }
+                else { parallelInputWaiters[id] = continuation }
+            }
+        } onCancel: { Task { await self.cancelParallelWaiter(id) } }
+    }
+
+    private func cancelParallelWaiter(_ id: UUID) { parallelInputWaiters.removeValue(forKey: id)?.resume() }
+
+    func persistParallelChange(step: WorkflowRunStep? = nil, action: WorkflowPendingAction? = nil) async throws {
+        try commit()
+        await store.saveWorkflowRun(state.run)
+        if let step, let current = state.steps.first(where: { $0.id == step.id }) { await store.saveWorkflowRunStep(current) }
+        if let action, let current = state.actions.first(where: { $0.id == action.id }) { await store.saveWorkflowPendingAction(current) }
+    }
 
     func flush() async throws {
         try commit()
         await store.saveWorkflowRun(state.run)
-        for step in state.steps { await store.saveWorkflowRunStep(step) }
-        for action in state.actions { await store.saveWorkflowPendingAction(action) }
+        for id in state.steps.map(\.id) {
+            if let current = state.steps.first(where: { $0.id == id }) { await store.saveWorkflowRunStep(current) }
+        }
+        for id in state.actions.map(\.id) {
+            if let current = state.actions.first(where: { $0.id == id }) { await store.saveWorkflowPendingAction(current) }
+        }
     }
 
     func resolve(actionID: String, output: [String: JSONValue]) async throws {
@@ -81,6 +166,20 @@ actor WorkflowExecutionJournal {
         state.steps[stepIndex].status = .succeeded
         state.steps[stepIndex].output = output
         state.steps[stepIndex].finishedAt = Date()
+        if var parallel = state.parallel {
+            for index in parallel.branches.indices {
+                if let actionIndex = parallel.branches[index].actions.firstIndex(where: { $0.id == actionID }) {
+                    parallel.branches[index].actions[actionIndex].resolvedAt = state.actions.first { $0.id == actionID }?.resolvedAt
+                    if let attempt = parallel.branches[index].steps.firstIndex(where: { $0.id == state.steps[stepIndex].id }) {
+                        var step = state.steps[stepIndex]
+                        step.runId = parallel.branches[index].run.id
+                        parallel.branches[index].steps[attempt] = step
+                    }
+                    parallel.branches[index].run.status = .running
+                }
+            }
+            state.parallel = parallel
+        }
         state.run.status = .running
         try await flush()
     }
@@ -102,14 +201,22 @@ actor WorkflowExecutionJournal {
     }
 
     private func save(run: WorkflowRun) async throws {
+        var run = run
+        run.environment = run.environment ?? state.run.environment
         state.run = run
         try commit()
         await store.saveWorkflowRun(run)
     }
 
     private func save(step: WorkflowRunStep) async throws {
+        if let retry = state.retryStepId, step.id != retry, state.steps.first(where: { $0.id == retry })?.nodeId == step.nodeId { state.retryStepId = nil }
         if let index = state.steps.firstIndex(where: { $0.id == step.id }) { state.steps[index] = step }
         else { state.steps.append(step) }
+        if state.parallel?.stepID == step.id, step.status == .succeeded {
+            state.parallel = nil
+            state.steps.removeAll { $0.id == step.id }
+            state.steps.append(step)
+        }
         try commit()
         await store.saveWorkflowRunStep(step)
     }
@@ -122,7 +229,7 @@ actor WorkflowExecutionJournal {
     }
 
     func suspend() throws {
-        defer { suspended = true }
+        defer { suspended = true; signalParallelInput() }
         state.resumeAfterShutdown = true
         try commit()
     }

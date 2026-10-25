@@ -7,6 +7,13 @@ enum WorkflowGraphContracts {
         init(_ description: String) { self.description = description }
     }
 
+    static func blockKind(_ node: WorkflowNode) -> String {
+        for key in ["blockKind", "block_kind"] {
+            if let text = node.config[key]?.asString?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty { return text }
+        }
+        return node.type.rawValue
+    }
+
     static func value(at path: String, in input: [String: JSONValue]) -> JSONValue? {
         let parts = path.split(separator: ".", omittingEmptySubsequences: false).map(String.init)
         guard !parts.contains(""), let first = parts.first, var value = input[first] else { return nil }
@@ -46,6 +53,13 @@ enum WorkflowGraphContracts {
         if Set(definition.edges.map(\.id)).count != definition.edges.count { issue("Duplicate transition identifiers.", node: "") }
         for node in definition.nodes {
             if let message = WorkflowSessionPolicy.validationIssue(node: node, definition: definition) { issue(message, node: node.id) }
+            if node.type == .condition, let expression = node.config["expression"]?.asString {
+                do { _ = try WorkflowExpression.parse(expression) } catch { issue(String(describing: error), node: node.id) }
+            }
+            if blockKind(node) == "loop", let configured = node.config["maxIterations"] {
+                let limit = configured.asNumber ?? configured.asString.flatMap(Double.init) ?? 0
+                if !(1...24).contains(limit) || limit.rounded() != limit { issue("maxIterations must be an integer from 1 to 24.", node: node.id) }
+            }
             do { try WorkflowOutputContract.validateDefinition(node.config["outputSchema"]) }
             catch { issue(String(describing: error), node: node.id) }
             if let format = node.config["outputFormat"], format != .null,
@@ -54,8 +68,8 @@ enum WorkflowGraphContracts {
             }
             let edges = definition.edges.filter { $0.sourceNodeId == node.id }
             if node.type == .end && !edges.isEmpty { issue("End nodes cannot have outgoing transitions.", node: node.id) }
-            if edges.filter({ $0.conditionKey == nil && $0.condition == nil }).count > 1 {
-                issue("A node can have only one default transition; parallel execution is not supported.", node: node.id)
+            if node.type != .parallel && edges.filter({ $0.conditionKey == nil && $0.condition == nil }).count > 1 {
+                issue("A node can have only one default transition; use an explicit Parallel node for fan-out.", node: node.id)
             }
             var legacyKeys: Set<String> = []
             for edge in edges {
@@ -71,6 +85,10 @@ enum WorkflowGraphContracts {
                 }
             }
             do {
+                if node.type == .parallel { _ = try WorkflowParallelTopology(definition: definition, fork: node) }
+                if WorkflowParallelTopology.isJoin(node) && definition.nodes.filter({ $0.type == .parallel && $0.config["joinNodeId"]?.asString == node.id }).count != 1 {
+                    throw Violation("Each Join must belong to exactly one Parallel node.")
+                }
                 for path in try references(in: .object(node.config.filter { $0.key != "outputSchema" })) where path.hasPrefix("nodes.") {
                     let parts = path.split(separator: ".").map(String.init)
                     if parts.count < 3 || !nodeIDs.contains(parts[1]) || parts[2] != "output" {
@@ -89,6 +107,9 @@ enum WorkflowGraphContracts {
     }
 
     static func next(after nodeID: String, output: [String: JSONValue], definition: WorkflowDefinition) throws -> String {
+        if let node = definition.nodes.first(where: { $0.id == nodeID }), node.type == .parallel {
+            return try WorkflowParallelTopology(definition: definition, fork: node).joinID
+        }
         let edges = definition.edges.filter { $0.sourceNodeId == nodeID }
         let matches = try edges.filter { edge in
             if let condition = edge.condition {
@@ -96,6 +117,7 @@ enum WorkflowGraphContracts {
                 return actual == condition.equals
             }
             guard let key = edge.conditionKey else { return false }
+            if output["result"] == .bool(true) && key == "true" || output["result"] == .bool(false) && key == "false" { return true }
             if output[key] == .bool(true) { return true }
             return ["conditionKey", "decision", "status", "result"].contains { output[$0]?.asString == key }
         }

@@ -15,6 +15,7 @@ extension CoreService {
 
     private func indexWorkflowExecutions() async {
         do {
+            var pending: [String] = []
             for id in try workflowExecutionFiles.identifiers() {
                 guard !workflowIsStopping, !Task.isCancelled else { return }
                 guard activeWorkflowRuns.insert(id).inserted else { continue }
@@ -24,17 +25,17 @@ extension CoreService {
                         let journal = WorkflowExecutionJournal(state: state, files: workflowExecutionFiles, store: store)
                         workflowJournals[id] = journal
                         try await journal.flush()
-                        if state.run.status == .waitingForAgent,
-                           let step = state.steps.last(where: { $0.nodeId == state.run.currentNodeIds.first }),
-                           let agentID = step.output["agentId"]?.asString, let sessionID = step.output["sessionId"]?.asString {
-                            workflowWaitingSessions[sessionChannelID(agentID: agentID, sessionID: sessionID), default: []].insert(id)
-                        }
+                        registerWorkflowTaskOwner(state)
+                        registerWorkflowWaits(state)
+                        registerWorkflowChildWaits(state)
                         restore = workflowNeedsRecovery(state)
                     }
                 } catch { logger.error("workflow.checkpoint_restore_failed", metadata: ["run_id": .string(id), "error": .string(String(describing: error))]) }
                 releaseWorkflowExecution(id)
-                if restore { scheduleWorkflowRecovery(id) }
+                if restore { pending.append(id) }
             }
+            // All parent/child bindings must be registered before any child can resume.
+            for id in pending { scheduleWorkflowRecovery(id) }
         } catch { logger.error("workflow.checkpoint_index_failed", metadata: ["error": .string(String(describing: error))]) }
     }
 
@@ -48,16 +49,23 @@ extension CoreService {
 
     private func recoverWorkflow(_ id: String) async {
         defer {
+            notifyWorkflowParents(id)
             workflowRecoveryTasks[id] = nil
-            if workflowReconciliationPending.remove(id) != nil { scheduleWorkflowRecovery(id) }
+            if !activeWorkflowRuns.contains(id), workflowReconciliationPending.remove(id) != nil { scheduleWorkflowRecovery(id) }
         }
         guard !workflowIsStopping, activeWorkflowRuns.insert(id).inserted else { return }
         defer { releaseWorkflowExecution(id) }
         do {
             guard let state = try workflowExecutionFiles.load(id), workflowNeedsRecovery(state) else { return }
+            if workflowChildLostRace(id) {
+                _ = try await cancelWorkflowRun(projectID: state.run.projectId, runID: id, request: .init(userId: "workflow"))
+                return
+            }
             let journal = WorkflowExecutionJournal(state: state, files: workflowExecutionFiles, store: store)
             workflowJournals[id] = journal
-            _ = await WorkflowRunner().restore(state: state, persistence: await journal.persistence,
+            guard try await prepareWorkflowEnvironment(journal) else { return }
+            let prepared = await journal.snapshot()
+            _ = await WorkflowRunner().restore(state: prepared.runnable, persistence: await journal.persistence,
                 updateTask: workflowTaskUpdater(), executeTool: { [weak self] node, context, input in
                     await self?.executeWorkflowToolNode(node: node, context: context, input: input)
                 })
@@ -69,8 +77,9 @@ extension CoreService {
     }
 
     private func workflowNeedsRecovery(_ state: WorkflowExecutionState) -> Bool {
+        if state.parallel != nil, ![WorkflowRunStatus.completed, .failed, .blocked, .cancelled].contains(state.run.status) { return true }
         switch state.run.status {
-        case .queued, .running, .waitingForAgent: return true
+        case .queued, .running, .waitingForAgent, .waitingForWorkflow: return true
         case .waitingForHuman:
             return !state.actions.contains { $0.nodeId == state.run.currentNodeIds.first && $0.resolvedAt == nil }
         default: return false
@@ -80,6 +89,8 @@ extension CoreService {
     func releaseWorkflowExecution(_ id: String) {
         activeWorkflowRuns.remove(id)
         workflowJournals[id] = nil
+        if let state = try? workflowExecutionFiles.load(id) { registerWorkflowTaskOwner(state) }
+        else { for key in Array(workflowTaskOwners.keys) where workflowTaskOwners[key] == id { workflowTaskOwners[key] = nil } }
         if workflowRecoveryTasks[id] == nil, workflowReconciliationPending.remove(id) != nil { scheduleWorkflowRecovery(id) }
     }
 

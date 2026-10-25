@@ -156,7 +156,7 @@ struct WorkflowAgentExecutionTests {
         nodes[1].config = ["blockKind": .string(blockKind), "language": .string("swift"), "workflowId": .string(workflow.id)]
         _ = try await service.updateWorkflowDefinition(projectID: projectID, workflowID: workflow.id,
             request: .init(name: workflow.name, lanes: workflow.lanes, nodes: nodes, edges: workflow.edges))
-        let result = try await service.startWorkflowRun(projectID: projectID, workflowID: workflow.id, request: .init(startedBy: "human", input: ["ticket": .string("WF-42")]))
+        let result = try await service.startWorkflowRun(projectID: projectID, workflowID: workflow.id, request: .init(startedBy: "human", input: ["ticket": .string("WF-42")], background: false))
         #expect(result.run.status == .failed)
         #expect(!result.steps.contains { $0.nodeId == "done" })
         #expect(await service.listWorkflowRuns(projectID: projectID).count == 1)

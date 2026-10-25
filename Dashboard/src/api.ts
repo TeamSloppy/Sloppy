@@ -221,3 +221,6 @@ export const openLongChat = coreApi.openLongChat;
 export const fetchLongChat = coreApi.fetchLongChat;
 export const updateLongChatTask = coreApi.updateLongChatTask;
 export const cancelLongChatTasks = coreApi.cancelLongChatTasks;
+
+export const retryProjectWorkflowRun = coreApi.retryProjectWorkflowRun;
+export const cancelProjectWorkflowRun = coreApi.cancelProjectWorkflowRun;

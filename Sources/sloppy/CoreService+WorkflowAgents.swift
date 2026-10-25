@@ -2,7 +2,7 @@ import Foundation
 import Protocols
 
 extension CoreService {
-    func executeWorkflowAgentNode(
+    func executeWorkflowAgentRequest(
         node: WorkflowNode, context: WorkflowRunner.Context, input: [String: JSONValue]
     ) async -> ToolInvocationResult {
         let config = node.config
@@ -55,6 +55,11 @@ extension CoreService {
                     return Self.workflowAgentResult(response: .init(summary: detail.summary, appendedEvents: detail.events, routeDecision: nil), output: output, outputFormat: outputFormat)
                 }
                 var results: [String: AgentToolResultEvent] = [:]
+                if activeSessionMessageRuns.contains(sessionID) || sessionMessageStorage?.entries.contains(where: { $0.sessionId == sessionID && $0.state == .queued }) == true {
+                    output["agentOutcome"] = .null
+                    output["agentStage"] = .string(AgentRunStage.thinking.rawValue)
+                    return failure("workflow_agent_in_progress", "The original session request is still running or queued.", data: output)
+                }
                 for event in events { if let result = event.toolResult, let id = result.callEventId { results[id] = result } }
                 if events.contains(where: { $0.toolCall != nil && (results[$0.id] == nil || results[$0.id]?.executionOutcome?.requiresReconciliation == true) }) {
                     return failure("workflow_reconciliation_required", "An interrupted tool call has no persisted result. Reconcile it before continuing.", data: output)
@@ -66,11 +71,18 @@ extension CoreService {
                 output["sessionAfterEventId"] = initial.events.last.map { .string($0.id) } ?? .null
             }
             output["sessionId"] = .string(session.id)
+            if let directory = context.input["environment"]?.asObject?["workingDirectory"]?.asString {
+                workflowSessionDirectories[session.id] = directory
+            }
             try await context.reportProgress?(output)
+            try Task.checkCancellation()
             let encodedInput = try JSONEncoder().encode(input)
             var content = continuation
                 ? "Continue the interrupted workflow step using the original request and persisted session history. Preserve completed work; inspect tool results before taking further action."
                 : resolveWorkflowTemplateString(prompt, input: input) + "\n\n[Workflow input]\n" + String(decoding: encodedInput, as: UTF8.self)
+            if let directory = context.input["environment"]?.asObject?["workingDirectory"]?.asString {
+                content += "\n\n[Workflow execution binding]\nUse the pinned directory \(directory) and the task snapshot in workflow input. Live project/task labels may change independently."
+            }
             if outputFormat == "json" {
                 content += "\n\n[Workflow result format]\nReturn a single JSON value, without Markdown fences or surrounding prose. It will be stored in output.result."
                 if let schema = config["outputSchema"]?.asObject?["properties"]?.asObject?["result"] {

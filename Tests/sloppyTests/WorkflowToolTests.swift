@@ -41,6 +41,19 @@ func workflowToolProposesWorkflowAndReturnsDashboardUrl() async throws {
 }
 
 @Test
+func workflowToolRejectsMalformedInputBeforeStarting() async throws {
+    let fixture = try await makeWorkflowToolFixture()
+    let tool = WorkflowTool()
+    let proposal = await tool.invoke(arguments: starterWorkflowArguments(projectID: fixture.projectID, taskID: fixture.taskID), context: fixture.context)
+    let id = try #require(proposal.data?.asObject?["workflowId"]?.asString)
+    for value in [JSONValue.string("{broken"), .array([]), .number(1)] {
+        let result = await tool.invoke(arguments: ["operation": .string("start"), "projectId": .string(fixture.projectID), "workflowId": .string(id), "input": value], context: fixture.context)
+        #expect(!result.ok && result.error?.code == "invalid_arguments")
+        #expect(await fixture.service.listWorkflowRuns(projectID: fixture.projectID).isEmpty)
+    }
+}
+
+@Test
 func workflowToolRejectsInvalidGraphWithValidationIssues() async throws {
     let fixture = try await makeWorkflowToolFixture()
     let tool = WorkflowTool()

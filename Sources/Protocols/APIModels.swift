@@ -7754,6 +7754,8 @@ public enum WorkflowNodeType: String, Codable, Sendable, CaseIterable {
     case humanInput = "human_input"
     case toolCheck = "tool_check"
     case condition
+    case parallel
+    case join
     case updateTask = "update_task"
     case notify
     case end
@@ -7771,6 +7773,7 @@ public enum WorkflowRunStatus: String, Codable, Sendable, CaseIterable {
     case running
     case waitingForHuman = "waiting_for_human"
     case waitingForAgent = "waiting_for_agent"
+    case waitingForWorkflow = "waiting_for_workflow"
     case blocked
     case failed
     case completed
@@ -7928,12 +7931,16 @@ public struct WorkflowDefinitionUpsertRequest: Codable, Sendable, Equatable {
 }
 
 public struct WorkflowRunCreateRequest: Codable, Sendable, Equatable {
+    public var idempotencyKey: String?
+    public var environment: WorkflowEnvironmentRequest?
     public var background: Bool?
     public var taskId: String?
     public var startedBy: String
     public var input: [String: JSONValue]
 
-    public init(taskId: String? = nil, startedBy: String, input: [String: JSONValue] = [:], background: Bool? = nil) {
+    public init(taskId: String? = nil, startedBy: String, input: [String: JSONValue] = [:], background: Bool? = nil, environment: WorkflowEnvironmentRequest? = nil, idempotencyKey: String? = nil) {
+        self.idempotencyKey = idempotencyKey
+        self.environment = environment
         self.background = background
         self.taskId = taskId
         self.startedBy = startedBy
@@ -7946,6 +7953,7 @@ public struct WorkflowRun: Codable, Sendable, Equatable {
     public var workflowId: String
     public var workflowVersion: Int
     public var projectId: String
+    public var environment: WorkflowEnvironmentBinding?
     public var taskId: String?
     public var status: WorkflowRunStatus
     public var currentNodeIds: [String]
@@ -7963,8 +7971,10 @@ public struct WorkflowRun: Codable, Sendable, Equatable {
         currentNodeIds: [String] = [],
         startedBy: String,
         startedAt: Date = Date(),
-        finishedAt: Date? = nil
+        finishedAt: Date? = nil,
+        environment: WorkflowEnvironmentBinding? = nil
     ) {
+        self.environment = environment
         self.id = id
         self.workflowId = workflowId
         self.workflowVersion = workflowVersion
@@ -8066,9 +8076,11 @@ public struct WorkflowActionResolveRequest: Codable, Sendable, Equatable {
 public struct WorkflowRunDetail: Codable, Sendable, Equatable {
     public var run: WorkflowRun
     public var steps: [WorkflowRunStep]
+    public var reconciliations: [WorkflowReconciliation]?
     public var pendingActions: [WorkflowPendingAction]
 
-    public init(run: WorkflowRun, steps: [WorkflowRunStep] = [], pendingActions: [WorkflowPendingAction] = []) {
+    public init(run: WorkflowRun, steps: [WorkflowRunStep] = [], pendingActions: [WorkflowPendingAction] = [], reconciliations: [WorkflowReconciliation]? = nil) {
+        self.reconciliations = reconciliations
         self.run = run
         self.steps = steps
         self.pendingActions = pendingActions

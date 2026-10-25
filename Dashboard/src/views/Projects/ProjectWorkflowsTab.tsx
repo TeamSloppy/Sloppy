@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useId, useMemo, useRef, useState } from "react";
 import {
   createProjectWorkflow,
   deleteProjectWorkflow,
@@ -13,16 +13,26 @@ import {
 } from "../../api";
 import {
   createBlankWorkflowRequest,
+  buildWorkflowConnection,
+  buildWorkflowLaneGroups,
   describeWorkflowStep,
   selectWorkflowAfterDelete,
   workflowBoardSurfaceStyle,
   workflowCanvasViewportStyle,
   workflowInputNodeReferences,
-  workflowNodePorts
+  workflowNodePorts,
+  WORKFLOW_NODE_WIDTH,
+  WORKFLOW_NODE_HEIGHT
 } from "./projectWorkflows";
+import "../../styles/workflows.css";
 
 import { WorkflowOutputControls, WorkflowTransitionControls } from "./WorkflowContractControls";
 import { WorkflowSessionControls } from "./WorkflowSessionControls";
+import { WorkflowParallelControls } from "./WorkflowParallelControls";
+import { WorkflowLaunchControls } from "./WorkflowLaunchControls";
+import { WorkflowRunControls } from "./WorkflowRunControls";
+import { WorkflowAgentQuestions } from "./WorkflowAgentQuestions";
+import { WorkflowBlockControls } from "./WorkflowBlockControls";
 
 type AnyRecord = Record<string, any>;
 
@@ -55,13 +65,15 @@ interface WorkflowPortDragState {
   pointerY: number;
 }
 
-const NODE_WIDTH = 220;
-const NODE_HEIGHT = 104;
+const NODE_WIDTH = WORKFLOW_NODE_WIDTH;
+const NODE_HEIGHT = WORKFLOW_NODE_HEIGHT;
 const SOCKETS = ["top", "right", "bottom", "left", "input", "output", "true", "false"];
 const HTTP_METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
-const CODE_LANGUAGES = ["javascript", "typescript", "python", "swift", "bash"];
+const CODE_LANGUAGES = ["javascript", "python"];
 
 const BLOCK_PRESETS = [
+  { id: "project_task", title: "Project Task", type: "project_task", icon: "task_alt", laneKind: "system", laneTitle: "Task", description: "Read the task snapshot selected for this run.", config: { blockKind: "project_task" } },
+  { id: "update_task", title: "Update Task", type: "update_task", icon: "edit_note", laneKind: "system", laneTitle: "Task", description: "Update the selected task status.", config: { blockKind: "update_task", status: "done" } },
   {
     id: "user_message",
     title: "User Message",
@@ -170,17 +182,27 @@ const BLOCK_PRESETS = [
     laneKind: "system",
     laneTitle: "Flow",
     description: "Route back while expression matches.",
-    config: { blockKind: "loop", expression: "continue == true", maxIterations: "25" }
+    config: { blockKind: "loop", expression: "continue == true", maxIterations: "10" }
   },
   {
-    id: "merge",
-    title: "Merge",
-    type: "condition",
+    id: "parallel",
+    title: "Parallel",
+    type: "parallel",
+    icon: "call_split",
+    laneKind: "system",
+    laneTitle: "Flow",
+    description: "Run branches together and wait at one Join.",
+    config: { blockKind: "parallel", joinNodeId: "" }
+  },
+  {
+    id: "join",
+    title: "Join",
+    type: "join",
     icon: "call_merge",
     laneKind: "system",
     laneTitle: "Flow",
-    description: "Merge multiple incoming paths.",
-    config: { blockKind: "merge", strategy: "first_completed" }
+    description: "Continue after every parallel branch succeeds.",
+    config: { blockKind: "join", strategy: "all" }
   },
   {
     id: "sub_workflow",
@@ -348,21 +370,6 @@ function socketPoint(node: AnyRecord, socket: string, direction = "output") {
   }
 }
 
-function socketTangent(socket: string) {
-  const side = socket === "input" ? "left" : socket === "output" || socket === "true" || socket === "false" ? "right" : socket;
-  switch (side) {
-    case "top":
-      return { x: 0, y: -1 };
-    case "right":
-      return { x: 1, y: 0 };
-    case "bottom":
-      return { x: 0, y: 1 };
-    case "left":
-    default:
-      return { x: -1, y: 0 };
-  }
-}
-
 function oppositeSocket(socket: string) {
   const side = socket === "input" ? "left" : socket === "output" || socket === "true" || socket === "false" ? "right" : socket;
   switch (side) {
@@ -384,16 +391,6 @@ function nodePrimaryTextKey(node: AnyRecord) {
   if (blockKind === "expression" || blockKind === "loop") return "expression";
   if (blockKind === "channel" || blockKind === "error") return "message";
   return "prompt";
-}
-
-function buildBezierPath(source: AnyRecord, target: AnyRecord, sourceSocket: string, targetSocket: string) {
-  const sourceTangent = socketTangent(sourceSocket);
-  const targetTangent = socketTangent(targetSocket);
-  const distance = Math.hypot(target.x - source.x, target.y - source.y);
-  const handle = clamp(distance * 0.35, 42, 180);
-  const c1 = { x: source.x + sourceTangent.x * handle, y: source.y + sourceTangent.y * handle };
-  const c2 = { x: target.x + targetTangent.x * handle, y: target.y + targetTangent.y * handle };
-  return `M ${source.x} ${source.y} C ${c1.x} ${c1.y}, ${c2.x} ${c2.y}, ${target.x} ${target.y}`;
 }
 
 function normalizeWorkflow(raw: AnyRecord | null) {
@@ -477,6 +474,7 @@ function isTypingTarget(target: EventTarget | null) {
 }
 
 export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = null, routeWorkflowRunId = null }: ProjectWorkflowsTabProps) {
+  const arrowMarkerId = `workflow-arrow-${useId().replace(/:/g, "")}`;
   const scrollerRef = useRef<HTMLDivElement | null>(null);
   const draftRef = useRef<AnyRecord | null>(null);
   const viewTransformRef = useRef({ x: 0, y: 0, scale: 1 });
@@ -490,7 +488,9 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const [selectedEdgeId, setSelectedEdgeId] = useState<string | null>(null);
   const [contractError, setContractError] = useState("");
-  useEffect(() => setContractError(""), [selectedNodeId, selectedEdgeId, project.id]);
+  const [nodeConfigError, setNodeConfigError] = useState("");
+  const [blockError, setBlockError] = useState("");
+  useEffect(() => { setContractError(""); setNodeConfigError(""); setBlockError(""); }, [selectedNodeId, selectedEdgeId, project.id]);
   const [draft, setDraft] = useState<AnyRecord | null>(null);
   const [selectedRunDetail, setSelectedRunDetail] = useState<AnyRecord | null>(null);
   const [viewTransform, setViewTransform] = useState({ x: 0, y: 0, scale: 1 });
@@ -505,6 +505,11 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
   const [agentSearch, setAgentSearch] = useState("");
   const [agentDropdownOpen, setAgentDropdownOpen] = useState(false);
   const [actionResponses, setActionResponses] = useState<Record<string, string>>({});
+  const [libraryPanel, setLibraryPanel] = useState<"definitions" | "blocks" | null>(null);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  const [inspectorTab, setInspectorTab] = useState<"details" | "activity" | "run">("details");
+  const [helpOpen, setHelpOpen] = useState(false);
+  const [isExpanded, setIsExpanded] = useState(false);
   const [viewportSize, setViewportSize] = useState(() => ({
     width: typeof window !== "undefined" ? window.innerWidth : 0,
     height: typeof window !== "undefined" ? window.innerHeight : 0
@@ -540,6 +545,11 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
     () => new Map<string, AnyRecord>((draft?.lanes || []).map((lane: AnyRecord) => [String(lane.id), lane])),
     [draft]
   );
+  const laneGroups = useMemo(() => buildWorkflowLaneGroups(draft), [draft]);
+  const loopRouteY = useMemo(
+    () => draft?.nodes?.length ? Math.min(...draft.nodes.map((node: AnyRecord) => node.positionY)) - 80 : 0,
+    [draft]
+  );
   const selectedNode: AnyRecord | null = selectedNodeId ? nodeMap.get(selectedNodeId) || null : null;
   const selectedEdge: AnyRecord | null = selectedEdgeId ? (draft?.edges || []).find((edge: AnyRecord) => edge.id === selectedEdgeId) || null : null;
   const canvasViewportStyle = useMemo(
@@ -554,6 +564,25 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
   function applyViewTransform(next: { x: number; y: number; scale: number }) {
     viewTransformRef.current = next;
     setViewTransform(next);
+  }
+
+  function zoomCanvas(factor: number) {
+    const el = scrollerRef.current;
+    if (!el) return;
+    const current = viewTransformRef.current;
+    const scale = clamp(current.scale * factor, 0.12, 4);
+    const ratio = scale / current.scale;
+    applyViewTransform({
+      x: el.clientWidth / 2 - (el.clientWidth / 2 - current.x) * ratio,
+      y: el.clientHeight / 2 - (el.clientHeight / 2 - current.y) * ratio,
+      scale
+    });
+  }
+
+  function inspectSelection() {
+    setInspectorTab("details");
+    setInspectorOpen(true);
+    setLibraryPanel(null);
   }
 
   function setDraftAndMark(next: AnyRecord, dirty = true) {
@@ -676,7 +705,7 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
         // Retain the last snapshot and retry while the server is restarting.
       }
       if (!isCancelled && (!status || !["completed", "failed", "cancelled", "blocked"].includes(status))) {
-        timer = window.setTimeout(refreshRun, status && ["waiting_for_agent", "waiting_for_human"].includes(status) ? 2000 : 1000);
+        timer = window.setTimeout(refreshRun, status && ["waiting_for_agent", "waiting_for_human", "waiting_for_workflow"].includes(status) ? 2000 : 1000);
       }
     }
     void refreshRun();
@@ -806,6 +835,16 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        setLibraryPanel(null);
+        setInspectorOpen(false);
+        setHelpOpen(false);
+        setIsExpanded(false);
+        setPortDrag(null);
+        setSelectedNodeId(null);
+        setSelectedEdgeId(null);
+        return;
+      }
       if ((event.key !== "Backspace" && event.key !== "Delete") || isTypingTarget(event.target) || isBusy) return;
       if (selectedEdgeId) {
         event.preventDefault();
@@ -869,6 +908,7 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
     setDraftAndMark(next);
     setSelectedNodeId(nodeId);
     setSelectedEdgeId(null);
+    inspectSelection();
   }
 
   function createEdge(sourceNodeId: string, sourceSocket: string, targetNodeId: string, targetSocket: string) {
@@ -966,7 +1006,7 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
   }
 
   async function saveWorkflow() {
-    if (contractError) { setStatusText(contractError); return; }
+    if (contractError || nodeConfigError || blockError) { setStatusText(contractError || nodeConfigError || blockError); return; }
     if (!draft?.id) return;
     setIsBusy(true);
     try {
@@ -984,8 +1024,8 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
     }
   }
 
-  async function startRun() {
-    if (contractError) { setStatusText(contractError); return; }
+  async function startRun(payload: AnyRecord) {
+    if (contractError || nodeConfigError || blockError) { setStatusText(contractError || nodeConfigError || blockError); return; }
     if (!draft?.id) return;
     if (isDirty) {
       await saveWorkflow();
@@ -993,18 +1033,22 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
     setIsBusy(true);
     try {
       const detail = await startProjectWorkflowRun(project.id, String(draft.id), {
-        taskId: selectedTask?.id || null,
+        ...payload,
         startedBy: "human:admin",
-        background: true,
-        input: { source: "dashboard", message: "Manual workflow run" }
+        background: true
       });
       await load({ keepSelection: true, silent: true });
       const run = (detail?.run || detail) as AnyRecord | null;
+      if (!run?.id) throw new Error("Workflow did not start. Check the graph, task and environment.");
       if (run?.id) {
         setSelectedRunId(String(run.id));
+        setInspectorTab("activity");
+        setInspectorOpen(true);
         setSelectedRunDetail(detail);
       }
       setStatusText("Workflow run started");
+    } catch (error) {
+      setStatusText(error instanceof Error ? error.message : "Workflow did not start.");
     } finally {
       setIsBusy(false);
     }
@@ -1120,38 +1164,46 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
   );
 
   return (
-    <section className="project-tab-layout project-workflows-shell">
+    <section className={`project-tab-layout project-workflows-shell ${isExpanded ? "is-expanded" : ""}`}>
       <header className="project-workflows-toolbar">
-        <div>
-          <h2>Workflows</h2>
-          <p>{selectedTask ? `Task: ${selectedTask.title}` : "Visual workflow editor and manual runs"}</p>
+        <div className="project-workflows-heading">
+          <button type="button" className="project-workflows-title" aria-label="Choose workflow" aria-expanded={libraryPanel === "definitions"} onClick={() => { setLibraryPanel(libraryPanel === "definitions" ? null : "definitions"); setInspectorOpen(false); }}>
+            <span className="material-symbols-rounded" aria-hidden="true">account_tree</span>
+            <strong>{draft?.name || "Workflows"}</strong>
+            <span className="material-symbols-rounded" aria-hidden="true">expand_more</span>
+          </button>
+          {draft ? <span className="project-workflows-version">v{draft.version}</span> : null}
         </div>
         <div className="project-workflows-actions">
-          <button type="button" className="agents-secondary-button" onClick={createBlankWorkflow} disabled={isBusy}>
-            <span className="material-symbols-rounded">add</span>
-            New
+          <button type="button" className="agents-secondary-button project-workflows-history" onClick={() => { setInspectorTab("activity"); setInspectorOpen(true); setLibraryPanel(null); }}>
+            <span className="material-symbols-rounded" aria-hidden="true">history</span>
+            Activity{actions.length > 0 ? <span className="project-workflows-action-count">{actions.length}</span> : null}
           </button>
-          <button type="button" className="agents-secondary-button" onClick={createStarterWorkflow} disabled={isBusy}>
-            <span className="material-symbols-rounded">account_tree</span>
-            Starter
-          </button>
-          <button type="button" className="agents-secondary-button" onClick={saveWorkflow} disabled={isBusy || !draft || !isDirty}>
-            <span className="material-symbols-rounded">save</span>
+          <button type="button" className="agents-secondary-button" onClick={saveWorkflow} disabled={isBusy || !draft || !isDirty || Boolean(contractError || nodeConfigError || blockError)}>
+            <span className="material-symbols-rounded" aria-hidden="true">save</span>
             Save
           </button>
-          <button type="button" className="agents-create-inline" onClick={startRun} disabled={isBusy || !draft}>
-            <span className="material-symbols-rounded">play_arrow</span>
+          <button type="button" className="agents-create-inline" onClick={() => { setInspectorTab("run"); setInspectorOpen(true); setLibraryPanel(null); }} disabled={isBusy || !draft || Boolean(contractError || nodeConfigError || blockError)}>
+            <span className="material-symbols-rounded" aria-hidden="true">play_arrow</span>
             Run
+          </button>
+          <button type="button" className="project-workflows-icon-button" aria-label={isExpanded ? "Collapse editor" : "Expand editor"} onClick={() => setIsExpanded(!isExpanded)}>
+            <span className="material-symbols-rounded" aria-hidden="true">{isExpanded ? "close_fullscreen" : "open_in_full"}</span>
           </button>
         </div>
       </header>
 
       <div className="project-workflows-grid">
-        <aside className="project-workflows-list" aria-label="Workflow definitions">
+        <aside className="project-workflows-list" aria-label={libraryPanel === "blocks" ? "Add workflow step" : "Workflow definitions"} hidden={!libraryPanel}>
           <header className="project-workflows-panel-header">
-            <strong>Definitions</strong>
-            <small>{workflows.length}</small>
+            <strong>{libraryPanel === "blocks" ? "Add a step" : "Workflows"}</strong>
+            <button type="button" className="project-workflows-icon-button" aria-label="Close library" onClick={() => setLibraryPanel(null)}><span className="material-symbols-rounded" aria-hidden="true">close</span></button>
           </header>
+          {libraryPanel === "definitions" ? <>
+            <div className="project-workflows-library-actions">
+              <button type="button" onClick={createBlankWorkflow} disabled={isBusy}><span className="material-symbols-rounded" aria-hidden="true">add</span>New workflow</button>
+              <button type="button" onClick={createStarterWorkflow} disabled={isBusy}>Use starter</button>
+            </div>
           {workflows.length === 0 ? (
             <p className="placeholder-text">No workflows yet.</p>
           ) : workflows.map((workflow) => (
@@ -1159,17 +1211,15 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
               key={workflow.id}
               type="button"
               className={`project-workflow-row ${draft?.id === workflow.id ? "active" : ""}`}
-              onClick={() => setSelectedWorkflowId(String(workflow.id))}
+              onClick={() => { setSelectedWorkflowId(String(workflow.id)); setLibraryPanel(null); }}
             >
               <span>{workflow.name}</span>
               <small>v{workflow.version}</small>
             </button>
           ))}
 
-          <header className="project-workflows-panel-header project-workflows-blocks-header">
-            <strong>Blocks</strong>
-            <small>{BLOCK_PRESETS.length}</small>
-          </header>
+          </> : null}
+          {libraryPanel === "blocks" ? <>
           <div className="project-workflows-block-palette">
             {BLOCK_PRESETS.map((preset) => (
               <button key={preset.id} type="button" onClick={() => addBlock(preset)} disabled={!draft}>
@@ -1181,16 +1231,21 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
               </button>
             ))}
           </div>
+          </> : null}
         </aside>
 
         <section className="project-workflows-board-pane" aria-label="Workflow board" style={canvasViewportStyle}>
           <div
             className={`project-workflows-board-scroller ${panState ? "is-panning" : ""}`}
             ref={scrollerRef}
+            style={{ backgroundPosition: `${viewTransform.x}px ${viewTransform.y}px`, backgroundSize: `${28 * viewTransform.scale}px ${28 * viewTransform.scale}px` }}
             onPointerDown={(event) => {
               if (event.target !== scrollerRef.current) return;
               setSelectedNodeId(null);
               setSelectedEdgeId(null);
+              setInspectorOpen(false);
+              setLibraryPanel(null);
+              setHelpOpen(false);
               if (event.button === 0) {
                 const vt = viewTransformRef.current;
                 setPanState({
@@ -1212,7 +1267,16 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
             >
               {draft ? (
                 <>
+                  {laneGroups.map((group: AnyRecord) => (
+                    <div key={group.id} className="project-workflow-lane-group" style={{ left: group.x, top: group.y, width: group.width, height: group.height }}>
+                      <span>{group.title}</span>
+                    </div>
+                  ))}
                   <svg className="project-workflows-links-layer">
+                    <defs>
+                      <marker id={arrowMarkerId} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 1 1 L 9 5 L 1 9 z" fill="#6b9aeb" /></marker>
+                      <marker id={`${arrowMarkerId}-approval`} viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M 1 1 L 9 5 L 1 9 z" fill="#d98e69" /></marker>
+                    </defs>
                     {draft.edges.map((edge: AnyRecord) => {
                       const sourceNode = nodeMap.get(edge.sourceNodeId);
                       const targetNode = nodeMap.get(edge.targetNodeId);
@@ -1221,10 +1285,13 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
                       const targetSocket = normalizeSocket(edge.targetSocket, "left");
                       const source = socketPoint(sourceNode, sourceSocket, "output");
                       const target = socketPoint(targetNode, targetSocket, "input");
-                      const path = buildBezierPath(source, target, sourceSocket, targetSocket);
-                      const midX = (source.x + target.x) / 2;
-                      const midY = (source.y + target.y) / 2;
+                      const connection = buildWorkflowConnection(source, target, sourceSocket, targetSocket, { loopY: loopRouteY });
+                      const { path } = connection;
+                      const conditionLabel = edge.condition ? `${edge.condition.path} = ${JSON.stringify(edge.condition.equals)}` : edge.conditionKey;
+                      const labelWidth = Math.min(220, Math.max(56, asString(conditionLabel).length * 7 + 24));
                       const isSelected = selectedEdgeId === edge.id;
+                      const isApproval = edge.conditionKey === "approved";
+                      const selectEdge = () => { setSelectedEdgeId(edge.id); setSelectedNodeId(null); inspectSelection(); };
                       return (
                         <g key={edge.id}>
                           <path
@@ -1232,16 +1299,15 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
                             className="project-workflow-link-hit"
                             onClick={(event) => {
                               event.stopPropagation();
-                              setSelectedEdgeId(edge.id);
-                              setSelectedNodeId(null);
+                              selectEdge();
                             }}
                           />
-                          <path d={path} className={`project-workflow-link ${isSelected ? "selected" : ""}`} />
-                          <path d={path} className="project-workflow-link-flow" />
-                          {edge.conditionKey ? (
-                            <text x={midX} y={midY} className="project-workflow-link-label">
-                              {edge.conditionKey}
-                            </text>
+                          <path d={path} className={`project-workflow-link ${isSelected ? "selected" : ""} ${isApproval ? "approval" : ""}`} markerEnd={`url(#${arrowMarkerId}${isApproval ? "-approval" : ""})`} />
+                          {activeNodeIds.has(edge.sourceNodeId) ? <path d={path} className="project-workflow-link-flow" /> : null}
+                          {conditionLabel ? (
+                            <foreignObject x={connection.labelX - labelWidth / 2} y={connection.labelY - 13} width={labelWidth} height={26} className="project-workflow-edge-label">
+                              <button type="button" title={conditionLabel} aria-label={`Edit transition ${conditionLabel}`} onClick={(event) => { event.stopPropagation(); selectEdge(); }}>{conditionLabel}</button>
+                            </foreignObject>
                           ) : null}
                         </g>
                       );
@@ -1249,7 +1315,7 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
 
                     {previewLine ? (
                       <path
-                        d={buildBezierPath(previewLine.source, previewLine.target, previewLine.sourceSocket, previewLine.targetSocket)}
+                        d={buildWorkflowConnection(previewLine.source, previewLine.target, previewLine.sourceSocket, previewLine.targetSocket).path}
                         className="project-workflow-link preview"
                       />
                     ) : null}
@@ -1266,12 +1332,22 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
                       <article
                         className={`project-workflow-node ${formatStatus(node.type).replace(/\s+/g, "-")} ${isSelected ? "selected" : ""} ${isAvailableInput ? "available-input" : ""} ${isActive ? "active" : ""} ${stepStatus ? `step-${stepStatus}` : ""}`}
                         key={node.id}
+                        tabIndex={0}
+                        aria-label={`Edit ${node.title}`}
+                        onKeyDown={(event) => {
+                          if (event.target !== event.currentTarget || (event.key !== "Enter" && event.key !== " ")) return;
+                          event.preventDefault();
+                          setSelectedNodeId(node.id);
+                          setSelectedEdgeId(null);
+                          inspectSelection();
+                        }}
                         style={{ left: node.positionX, top: node.positionY }}
                         onPointerDown={(event) => onNodePointerDown(event, node)}
                         onClick={(event) => {
                           event.stopPropagation();
                           setSelectedNodeId(node.id);
                           setSelectedEdgeId(null);
+                          inspectSelection();
                         }}
                       >
                         {workflowNodePorts(node).map((port: AnyRecord) => {
@@ -1306,8 +1382,8 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
                         <span className="material-symbols-rounded">{workflowNodeIcon(node.type, node.config)}</span>
                         <div>
                           <strong>{node.title}</strong>
-                          <small>{blockKind}</small>
-                          <em>{stepStatus || (lane?.title || node.laneId || "Unassigned")}</em>
+                          <small>{blockKind.replace(/_/g, " ")}</small>
+                          <em>{stepStatus || (agents.find((agent) => agent.id === node.config?.agentId)?.displayName || lane?.title || node.laneId || "Unassigned")}</em>
                         </div>
                       </article>
                     );
@@ -1322,27 +1398,29 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
             </div>
           </div>
 
-          <div className="project-workflows-fast-actions" onPointerDown={(event) => event.stopPropagation()}>
-            <button type="button" onClick={() => draft?.nodes?.length && fitToView(draft.nodes)} disabled={!draft?.nodes?.length}>
-              Fit
-            </button>
-            <button type="button" onClick={() => applyViewTransform({ x: 0, y: 0, scale: 1 })}>
-              100%
-            </button>
-            <p>Drag handles to connect</p>
-            <p>Wheel pans · Shift/Ctrl wheel zooms</p>
-          </div>
+          <nav className="project-workflows-fast-actions" aria-label="Canvas controls" onPointerDown={(event) => event.stopPropagation()}>
+            <button type="button" aria-label="Add step" title="Add step" aria-expanded={libraryPanel === "blocks"} onClick={() => { setLibraryPanel(libraryPanel === "blocks" ? null : "blocks"); setInspectorOpen(false); }} disabled={!draft}><span className="material-symbols-rounded" aria-hidden="true">add</span></button>
+            <button type="button" aria-label="Workflow settings" title="Workflow settings" aria-expanded={inspectorOpen && inspectorTab === "details" && !selectedNodeId && !selectedEdgeId} onClick={() => { setSelectedNodeId(null); setSelectedEdgeId(null); setInspectorTab("details"); setInspectorOpen(!inspectorOpen || inspectorTab !== "details" || Boolean(selectedNodeId || selectedEdgeId)); setLibraryPanel(null); }} disabled={!draft}><span className="material-symbols-rounded" aria-hidden="true">settings</span></button>
+            <span className="project-workflows-control-divider" />
+            <button type="button" aria-label="Fit workflow to view" title="Fit workflow to view" onClick={() => draft?.nodes?.length && fitToView(draft.nodes)} disabled={!draft?.nodes?.length}><span className="material-symbols-rounded" aria-hidden="true">center_focus_strong</span></button>
+            <button type="button" aria-label="Zoom in" title="Zoom in" onClick={() => zoomCanvas(1.2)}><span className="material-symbols-rounded" aria-hidden="true">zoom_in</span></button>
+            <button type="button" aria-label="Zoom out" title="Zoom out" onClick={() => zoomCanvas(1 / 1.2)}><span className="material-symbols-rounded" aria-hidden="true">zoom_out</span></button>
+            <button type="button" aria-label="Reset zoom to 100%" title="Reset zoom to 100%" onClick={() => zoomCanvas(1 / viewTransformRef.current.scale)} className="project-workflows-zoom-value">{Math.round(viewTransform.scale * 100)}%</button>
+          </nav>
+          <button type="button" className="project-workflows-help-button project-workflows-icon-button" aria-label="Canvas help" aria-expanded={helpOpen} onClick={() => setHelpOpen(!helpOpen)}><span className="material-symbols-rounded" aria-hidden="true">help</span></button>
+          {helpOpen ? <div className="project-workflows-help" role="note"><strong>Make room for your process.</strong><p>Drag the canvas to pan. Drag a node to move it.</p><p>Connect an output handle to an input handle.</p><p>Wheel to pan · Ctrl/Shift + wheel to zoom.</p><p>Enter to inspect · Delete to remove · Esc to close.</p></div> : null}
 
           <div className={`project-workflows-board-status ${isDirty ? "is-dirty" : ""}`.trim()}>
             {isBusy ? "Working..." : isDirty ? "Unsaved changes" : statusText}
           </div>
         </section>
 
-        <aside className="project-workflows-inspector">
-          <section>
-            <header className="project-workflows-panel-header">
-              <strong>Inspector</strong>
-            </header>
+        <aside className="project-workflows-inspector" aria-label="Workflow inspector" hidden={!inspectorOpen}>
+          <header className="project-workflows-panel-header">
+            <strong>{inspectorTab === "activity" ? "Run activity" : inspectorTab === "run" ? "Start workflow" : selectedNode ? "Step settings" : selectedEdge ? "Transition" : "Workflow settings"}</strong>
+            <button type="button" className="project-workflows-icon-button" aria-label="Close inspector" onClick={() => setInspectorOpen(false)}><span className="material-symbols-rounded" aria-hidden="true">close</span></button>
+          </header>
+          <section hidden={inspectorTab !== "details"}>
             {contractError ? <p role="alert">{contractError}</p> : null}
             {selectedNode ? (
               <article className="project-workflow-editor-card">
@@ -1412,18 +1490,24 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
                     </div>
                   </label>
                 ) : null}
-                <label>
+                {!["parallel", "join", "project_task", "update_task"].includes(selectedNode.type) && !["tool", "sub_workflow", "code", "web_request", "merge"].includes(selectedNodeBlockKind) ? <label>
                   {selectedNodeTextKey === "command" ? "Command" : selectedNodeTextKey === "expression" ? "Expression" : selectedNodeTextKey === "message" ? "Message" : "Prompt"}
                   <textarea
                     value={selectedNodeTextValue}
                     onChange={(event) => updateSelectedNodeConfig(selectedNodeTextKey, event.target.value)}
                     rows={4}
                   />
-                </label>
+                </label> : null}
+                {(["parallel", "join"].includes(selectedNode.type) || selectedNodeBlockKind === "merge") ? <WorkflowParallelControls key={`parallel-${selectedNode.id}`} node={selectedNode} workflow={draft!} onChange={updateSelectedNodeConfig} /> : null}
                 {selectedNode.type === "agent_step" ? <WorkflowSessionControls key={`session-${selectedNode.id}`} node={selectedNode} workflow={draft!} onChange={(config) => {
                   setNodeConfigText(JSON.stringify(config, null, 2));
                   updateSelectedNode({ config });
                 }} /> : null}
+                {selectedNode.type === "update_task" ? <label>Task status<input value={rawString(selectedNode.config?.status)} onChange={(event) => updateSelectedNodeConfig("status", event.target.value)} /></label> : null}
+                {selectedNodeBlockKind === "loop" ? <label>Maximum iterations (1–24)<input type="number" min={1} max={24} value={selectedNode.config?.maxIterations || 10} onChange={(event) => updateSelectedNodeConfig("maxIterations", Number(event.target.value))} /></label> : null}
+                {["expression", "loop"].includes(selectedNodeBlockKind) ? <small>Typed expressions support field paths, exists(path), comparisons, boolean operators and arithmetic. Loops can use iteration.</small> : null}
+                <WorkflowBlockControls key={`block-${selectedNode.id}`} node={selectedNode} project={project} workflows={workflows} currentWorkflowId={draft!.id} onChange={updateSelectedNodeConfig} onError={setBlockError} />
+                {blockError || nodeConfigError ? <p role="alert">{blockError || nodeConfigError}</p> : null}
                 <WorkflowOutputControls key={selectedNode.id} node={selectedNode} onChange={updateSelectedNodeConfig} onError={setContractError} />
                 <div className="project-workflow-data-hints">
                   <strong>Data</strong>
@@ -1517,14 +1601,13 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
                   Advanced JSON
                   <textarea
                     value={nodeConfigText}
-                    onChange={(event) => setNodeConfigText(event.target.value)}
-                    onBlur={() => {
+                    onChange={(event) => {
+                      const text = event.target.value; setNodeConfigText(text);
                       try {
-                        const parsed = JSON.parse(nodeConfigText);
-                        updateSelectedNode({ config: parsed && typeof parsed === "object" ? parsed : {} });
-                      } catch {
-                        setStatusText("Config JSON invalid");
-                      }
+                        const parsed = JSON.parse(text);
+                        if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error();
+                        setNodeConfigError(""); updateSelectedNode({ config: parsed });
+                      } catch { setNodeConfigError("Config JSON must be an object."); }
                     }}
                     rows={8}
                   />
@@ -1560,12 +1643,21 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
             )}
           </section>
 
-          <section>
-            <h3>Run</h3>
+          {inspectorTab === "run" && draft ? <WorkflowLaunchControls key={`${project.id}-${draft.id}`} project={project} workflow={draft} selectedTask={selectedTask} busy={isBusy} onLaunch={startRun} /> : null}
+          <section hidden={inspectorTab !== "activity"}>
+            <h3>Current run</h3>
             {selectedRun ? (
               <article className="project-workflow-action">
                 <strong>{formatStatus(selectedRun.status)}</strong>
                 <small>{formatDate(selectedRun.startedAt)}</small>
+                {selectedRun.taskId ? <small>Task: {runSteps.find((step: AnyRecord) => step.input?.task?.id === selectedRun.taskId)?.input.task.title || selectedRun.taskId}</small> : null}
+                {selectedRunDetail?.run?.environment ? <div className="project-workflow-binding"><small>{formatStatus(selectedRunDetail.run.environment.request.mode)} · {selectedRunDetail.run.environment.preparation}</small><code>{selectedRunDetail.run.environment.workingDirectory}</code>{selectedRunDetail.run.environment.branch ? <small>{selectedRunDetail.run.environment.branch}</small> : null}{selectedRunDetail.run.environment.baseRevision ? <small>Base revision: {selectedRunDetail.run.environment.baseRevision.slice(0, 12)}</small> : null}{selectedRunDetail.run.environment.error ? <p role="alert">{selectedRunDetail.run.environment.error}</p> : null}</div> : null}
+                {selectedRunDetail?.run ? <WorkflowRunControls key={selectedRunDetail.run.id} projectId={project.id} detail={selectedRunDetail} onChange={(detail) => {
+                  setSelectedRunDetail(detail);
+                  setRuns((previous) => previous.map((run) => run.id === detail.run.id ? detail.run : run));
+                }} /> : null}
+                <WorkflowAgentQuestions steps={runSteps} />
+                {selectedRunDetail?.reconciliations?.length ? <details><summary>Reconciliation history</summary>{selectedRunDetail.reconciliations.map((record: AnyRecord, index: number) => <p key={index}><strong>{record.request.userId} · {formatStatus(record.request.decision)}</strong><br />{record.request.evidence}</p>)}</details> : null}
                 <div className="project-workflow-step-list">
                   {runSteps.length === 0 ? <small>No step detail.</small> : runSteps.map((step: AnyRecord) => {
                     const description = describeWorkflowStep(step);
@@ -1574,6 +1666,7 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
                         <strong>{description.title}</strong>
                         {description.detail ? <small>{description.detail}</small> : null}
                         {description.output && description.output !== description.detail ? <code>{description.output}</code> : null}
+                        {step.output?.childRunId ? <button type="button" onClick={() => { setSelectedRunId(step.output.childRunId); if (step.output.childWorkflowId) setSelectedWorkflowId(step.output.childWorkflowId); }}>Inspect child run</button> : null}
                       </span>
                     );
                   })}
@@ -1584,8 +1677,8 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
             )}
           </section>
 
-          <section>
-            <h3>Pending Actions</h3>
+          <section hidden={inspectorTab !== "activity"}>
+            <h3>Pending actions</h3>
             {actions.length === 0 ? (
               <p className="placeholder-text">No pending actions.</p>
             ) : actions.map((action) => (
@@ -1610,8 +1703,8 @@ export function ProjectWorkflowsTab({ project, selectedTask, routeWorkflowId = n
             ))}
           </section>
 
-          <section>
-            <h3>Recent Runs</h3>
+          <section hidden={inspectorTab !== "activity"}>
+            <h3>Recent runs</h3>
             {runs.length === 0 ? (
               <p className="placeholder-text">No runs yet.</p>
             ) : runs.slice(0, 8).map((run) => (
