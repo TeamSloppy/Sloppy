@@ -57,7 +57,7 @@ extension CoreService {
             guard let state = try workflowExecutionFiles.load(id), workflowNeedsRecovery(state) else { return }
             let journal = WorkflowExecutionJournal(state: state, files: workflowExecutionFiles, store: store)
             workflowJournals[id] = journal
-            _ = await WorkflowRunner().restore(state: state, persistence: await journal.persistence,
+            _ = await WorkflowRunner().restore(state: state.runnable, persistence: await journal.persistence,
                 updateTask: workflowTaskUpdater(), executeTool: { [weak self] node, context, input in
                     await self?.executeWorkflowToolNode(node: node, context: context, input: input)
                 })

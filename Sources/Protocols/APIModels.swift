@@ -7754,6 +7754,8 @@ public enum WorkflowNodeType: String, Codable, Sendable, CaseIterable {
     case humanInput = "human_input"
     case toolCheck = "tool_check"
     case condition
+    case parallel
+    case join
     case updateTask = "update_task"
     case notify
     case end

@@ -15,7 +15,9 @@
 | 3a | Validate transitions and template references before execution; reject ambiguous routing | 600 | Additive typed conditions; preserve valid legacy keys and drafts; validate before replacing saved graphs | 2c | in-review |
 | 3b | Validate output contracts and expose structured agent results and transition controls | 600 | Optional output schema and JSON mode; legacy text mode retained | 3a | in-review |
 | 3c | Choose new or shared agent sessions and persist each step's message boundary | 600 | Default remains new; shared sessions explicitly reference an earlier step in the same run | 3b | in-review |
-| 4 | Execute multiple branches and wait at a join; aggregate outputs and cancellation | 600 per fan-out/join sub-slice | Validate executable topology; unsupported graphs fail until fully supported | 2, 3 | planned |
+| 4a | Execute bounded automatic parallel branches, join outputs and checkpoint each branch | 600 | Explicit Parallel/Join nodes; uncertain interrupted operations block rather than replay | 3c | implemented |
+| 4b | Continue parallel groups after human/agent input and cancel siblings safely | 600 | Reuse the existing action/session APIs and per-branch checkpoints | 4a | in-progress |
+| 4c | Expose Parallel/Join controls and document executable graph constraints | 600 | UI follows the completed backend; preserve legacy sequential graphs | 4b | planned |
 | 5 | Bind task input and execution workspace/worktree policy; recovery and status delivery | 600 per task/worktree sub-slice | Explicit execution policy using existing project machinery | 2 | planned |
 
 ## First slice
@@ -72,3 +74,10 @@ Slice 1 boundaries at delivery: agent steps used fresh sessions; input/approval 
 - 2026-10-25: The user explicitly authorized creating all three stage-3 draft PRs in TeamSloppy/Sloppy. The three implementation branches are pushed.
 - Created draft PRs: [64, transitions](https://github.com/TeamSloppy/Sloppy/pull/64) based on the recovery branch, [65, outputs](https://github.com/TeamSloppy/Sloppy/pull/65) based on PR 64, and [66, sessions](https://github.com/TeamSloppy/Sloppy/pull/66) based on PR 65. All three are attached to the chat.
 - Publication status was checked live: PRs 61–63 are merged into their preceding feature branches; the recovery commit is not an ancestor of current main. The new PR chain preserves the planned small diffs rather than folding those dependencies into PR 64. Integration of the earlier feature-branch merges into main is a separate action.
+
+## Parallel stage
+
+- 2026-10-25: The user asked to continue the approved remaining workflow plan. Start with stage 4, retaining the existing per-fan-out/join slice budget. The first slice supports automatic branches; input waits follow in 4b before UI exposure in 4c.
+- Parallel groups require 2–16 disjoint branches and exactly one owned Join. Nested parallel groups and sharing one native session across branches are rejected. Each branch receives the frozen pre-fork context; successful branch outputs are merged only at the join. Failure cancels sibling work and prevents downstream execution.
+- Branch states live in the same atomic checkpoint as the parent. Existing run/step history remains the API query surface. Known completed operations are skipped after restart; uncertain running side effects require reconciliation.
+- Slice 4a: 69 workflow tests passed. Two shell processes use a mutual-start barrier to prove real overlap. Tests verify joined outputs, failed-process exit codes, no downstream execution after a branch failure, skipped completed branches on restart, and blocking uncertain interrupted operations. Nonzero/missing runtime.exec exit codes now fail workflow steps while retaining the raw result.

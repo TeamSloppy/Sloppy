@@ -19,7 +19,7 @@ struct WorkflowTool: CoreTool {
         ])
         let nodeSchema = DynamicGenerationSchema(name: "WorkflowNodeInput", properties: [
             .init(name: "id", description: "Stable node identifier.", schema: DynamicGenerationSchema(type: String.self)),
-            .init(name: "type", description: "Node type: trigger, project_task, agent_step, human_approval, human_input, tool_check, condition, update_task, notify, or end.", schema: DynamicGenerationSchema(type: String.self)),
+            .init(name: "type", description: "Node type: trigger, project_task, agent_step, human_approval, human_input, tool_check, condition, parallel, join, update_task, notify, or end.", schema: DynamicGenerationSchema(type: String.self)),
             .init(name: "title", description: "Human-readable node title.", schema: DynamicGenerationSchema(type: String.self)),
             .init(name: "laneId", description: "Lane ID containing this node.", schema: DynamicGenerationSchema(type: String.self)),
             .init(name: "config", description: "Typed node configuration object.", schema: DynamicGenerationSchema(type: String.self), isOptional: true),

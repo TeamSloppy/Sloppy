@@ -9,6 +9,31 @@ struct WorkflowExecutionState: Codable, Sendable {
     var run: WorkflowRun
     var steps: [WorkflowRunStep] = []
     var actions: [WorkflowPendingAction] = []
+    var parallel: WorkflowParallelState? = nil
+
+    var runnable: Self {
+        guard let parallel, let parent = steps.first(where: { $0.id == parallel.stepID }) else { return self }
+        var copy = self
+        copy.run.currentNodeIds = [parallel.nodeID]
+        copy.run.status = .running
+        copy.steps.removeAll { $0.id == parent.id }
+        copy.steps.append(parent)
+        return copy
+    }
+}
+
+struct WorkflowParallelState: Codable, Sendable {
+    var nodeID: String
+    var stepID: String
+    var branches: [WorkflowParallelBranch]
+    var visitCounts: [String: Int]
+}
+
+struct WorkflowParallelBranch: Codable, Sendable {
+    var id: String
+    var run: WorkflowRun
+    var steps: [WorkflowRunStep] = []
+    var actions: [WorkflowPendingAction] = []
 }
 
 struct WorkflowExecutionFileStore: Sendable {
@@ -46,7 +71,7 @@ struct WorkflowExecutionFileStore: Sendable {
 
 // The atomic file is authoritative. SQLite is updated only after the checkpoint succeeds.
 actor WorkflowExecutionJournal {
-    private var state: WorkflowExecutionState
+    var state: WorkflowExecutionState
     private let files: WorkflowExecutionFileStore
     private let store: any PersistenceStore
     private(set) var failed = false
@@ -65,6 +90,13 @@ actor WorkflowExecutionJournal {
     }
 
     func snapshot() -> WorkflowExecutionState { state }
+
+    func persistParallelChange(step: WorkflowRunStep? = nil, action: WorkflowPendingAction? = nil) async throws {
+        try commit()
+        await store.saveWorkflowRun(state.run)
+        if let step { await store.saveWorkflowRunStep(step) }
+        if let action { await store.saveWorkflowPendingAction(action) }
+    }
 
     func flush() async throws {
         try commit()
@@ -110,6 +142,11 @@ actor WorkflowExecutionJournal {
     private func save(step: WorkflowRunStep) async throws {
         if let index = state.steps.firstIndex(where: { $0.id == step.id }) { state.steps[index] = step }
         else { state.steps.append(step) }
+        if state.parallel?.stepID == step.id, step.status == .succeeded || step.status == .failed {
+            state.parallel = nil
+            state.steps.removeAll { $0.id == step.id }
+            state.steps.append(step)
+        }
         try commit()
         await store.saveWorkflowRunStep(step)
     }

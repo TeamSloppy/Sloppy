@@ -54,7 +54,7 @@ enum WorkflowGraphContracts {
             }
             let edges = definition.edges.filter { $0.sourceNodeId == node.id }
             if node.type == .end && !edges.isEmpty { issue("End nodes cannot have outgoing transitions.", node: node.id) }
-            if edges.filter({ $0.conditionKey == nil && $0.condition == nil }).count > 1 {
+            if node.type != .parallel && edges.filter({ $0.conditionKey == nil && $0.condition == nil }).count > 1 {
                 issue("A node can have only one default transition; parallel execution is not supported.", node: node.id)
             }
             var legacyKeys: Set<String> = []
@@ -71,6 +71,10 @@ enum WorkflowGraphContracts {
                 }
             }
             do {
+                if node.type == .parallel { _ = try WorkflowParallelTopology(definition: definition, fork: node) }
+                if node.type == .join && definition.nodes.filter({ $0.type == .parallel && $0.config["joinNodeId"]?.asString == node.id }).count != 1 {
+                    throw Violation("Each Join must belong to exactly one Parallel node.")
+                }
                 for path in try references(in: .object(node.config.filter { $0.key != "outputSchema" })) where path.hasPrefix("nodes.") {
                     let parts = path.split(separator: ".").map(String.init)
                     if parts.count < 3 || !nodeIDs.contains(parts[1]) || parts[2] != "output" {
@@ -89,6 +93,9 @@ enum WorkflowGraphContracts {
     }
 
     static func next(after nodeID: String, output: [String: JSONValue], definition: WorkflowDefinition) throws -> String {
+        if let node = definition.nodes.first(where: { $0.id == nodeID }), node.type == .parallel {
+            return try WorkflowParallelTopology(definition: definition, fork: node).joinID
+        }
         let edges = definition.edges.filter { $0.sourceNodeId == nodeID }
         let matches = try edges.filter { edge in
             if let condition = edge.condition {

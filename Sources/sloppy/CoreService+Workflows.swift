@@ -247,6 +247,7 @@ extension CoreService {
         context: WorkflowRunner.Context,
         input: [String: JSONValue]
     ) async -> ToolInvocationResult? {
+        if node.type == .parallel { return await executeWorkflowParallel(node: node, context: context, input: input) }
         if node.type == .agentStep {
             return await executeWorkflowAgentNode(node: node, context: context, input: input)
         }
@@ -260,9 +261,10 @@ extension CoreService {
                 error: ToolErrorPayload(code: "workflow_block_invalid", message: workflowError, retryable: false)
             )
         }
+        let result: ToolInvocationResult
         if let agentID = workflowAgentID(startedBy: context.startedBy),
            let sessionID = workflowSessionID(node: node, context: context) {
-            return await invokeToolFromRuntime(
+            result = await invokeToolFromRuntime(
                 agentID: agentID,
                 sessionID: sessionID,
                 request: request,
@@ -270,8 +272,16 @@ extension CoreService {
                 requireApproval: false,
                 chatMode: nil
             )
+        } else {
+            result = await invokeStandaloneWorkflowTool(request: request, context: context)
         }
-        return await invokeStandaloneWorkflowTool(request: request, context: context)
+        if result.ok, result.tool == "runtime.exec" {
+            guard let exitCode = result.data?.asObject?["exitCode"]?.asNumber, exitCode == 0 else {
+                return .init(tool: result.tool, ok: false, data: result.data,
+                    error: .init(code: "workflow_process_failed", message: "Workflow process did not report a successful exit code.", retryable: false))
+            }
+        }
+        return result
     }
 
     private func workflowToolInvocationRequest(

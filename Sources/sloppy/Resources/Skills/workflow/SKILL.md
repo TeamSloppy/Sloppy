@@ -51,7 +51,13 @@ Use at most one fallback edge per node. Full-value tool templates retain JSON ty
 The Dashboard starts and resumes runs in the background and refreshes their status.
 API clients can opt in with `background: true`; existing calls remain synchronous.
 
-Currently executable blocks: manual trigger, agent/AI transform, Bash, JavaScript/Python,
+Parallel nodes require `config.joinNodeId` and 2–16 distinct unconditional outgoing branches.
+Join nodes wait for all branches and expose their final outputs under `branches.<startNodeId>`.
+Branches must be disjoint until the Join; nested groups are unsupported. Each branch has
+a durable cursor and attempt history. Completed work is skipped after restart; uncertain
+external effects block for reconciliation. Input waits inside branches are not supported yet.
+
+Currently executable blocks: manual trigger, agent/AI transform, Parallel/Join, Bash, JavaScript/Python,
 registered tools, HTTP, human approval/input decisions, typed field conditions, task status
 updates, and explicit End nodes. Expression evaluation, Loop/Merge blocks, Notify and Project
 Task execution and sub-workflow completion tracking are not implemented and fail explicitly. Every successful path must reach
