@@ -23,9 +23,6 @@ struct WorkflowParallelTopology: Sendable {
                 guard id != fork.id, let node = nodes[id], ![WorkflowNodeType.trigger, .end, .parallel, .join].contains(node.type) else {
                     throw invalid("branches must stay inside their group; nested parallel groups are not supported.")
                 }
-                if node.type == .humanApproval || node.type == .humanInput || node.config["mode"] == .string("plan") || node.config["mode"] == .string("debug") {
-                    throw invalid("input waits inside parallel branches are not supported yet.")
-                }
                 guard region.insert(id).inserted else { continue }
                 let outgoing = definition.edges.filter { $0.sourceNodeId == id }
                 guard !outgoing.isEmpty else { throw invalid("branch \(id) has no route to Join.") }

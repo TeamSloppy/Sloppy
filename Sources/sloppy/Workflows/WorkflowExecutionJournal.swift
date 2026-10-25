@@ -34,6 +34,8 @@ struct WorkflowParallelBranch: Codable, Sendable {
     var run: WorkflowRun
     var steps: [WorkflowRunStep] = []
     var actions: [WorkflowPendingAction] = []
+    var failure: String? = nil
+    var failureCode: String? = nil
 }
 
 struct WorkflowExecutionFileStore: Sendable {
@@ -76,6 +78,8 @@ actor WorkflowExecutionJournal {
     private let store: any PersistenceStore
     private(set) var failed = false
     private(set) var suspended = false
+    private var parallelInputRevision = 0
+    private var parallelInputWaiters: [UUID: CheckedContinuation<Void, Never>] = [:]
 
     init(state: WorkflowExecutionState, files: WorkflowExecutionFileStore, store: any PersistenceStore) {
         self.state = state
@@ -91,18 +95,43 @@ actor WorkflowExecutionJournal {
 
     func snapshot() -> WorkflowExecutionState { state }
 
+    func parallelInputVersion() -> Int { parallelInputRevision }
+
+    func signalParallelInput() {
+        parallelInputRevision += 1
+        let waiters = parallelInputWaiters.values
+        parallelInputWaiters.removeAll()
+        for waiter in waiters { waiter.resume() }
+    }
+
+    func waitForParallelInput(after revision: Int) async {
+        let id = UUID()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { continuation in
+                if Task.isCancelled || suspended || revision != parallelInputRevision { continuation.resume() }
+                else { parallelInputWaiters[id] = continuation }
+            }
+        } onCancel: { Task { await self.cancelParallelWaiter(id) } }
+    }
+
+    private func cancelParallelWaiter(_ id: UUID) { parallelInputWaiters.removeValue(forKey: id)?.resume() }
+
     func persistParallelChange(step: WorkflowRunStep? = nil, action: WorkflowPendingAction? = nil) async throws {
         try commit()
         await store.saveWorkflowRun(state.run)
-        if let step { await store.saveWorkflowRunStep(step) }
-        if let action { await store.saveWorkflowPendingAction(action) }
+        if let step, let current = state.steps.first(where: { $0.id == step.id }) { await store.saveWorkflowRunStep(current) }
+        if let action, let current = state.actions.first(where: { $0.id == action.id }) { await store.saveWorkflowPendingAction(current) }
     }
 
     func flush() async throws {
         try commit()
         await store.saveWorkflowRun(state.run)
-        for step in state.steps { await store.saveWorkflowRunStep(step) }
-        for action in state.actions { await store.saveWorkflowPendingAction(action) }
+        for id in state.steps.map(\.id) {
+            if let current = state.steps.first(where: { $0.id == id }) { await store.saveWorkflowRunStep(current) }
+        }
+        for id in state.actions.map(\.id) {
+            if let current = state.actions.first(where: { $0.id == id }) { await store.saveWorkflowPendingAction(current) }
+        }
     }
 
     func resolve(actionID: String, output: [String: JSONValue]) async throws {
@@ -113,6 +142,20 @@ actor WorkflowExecutionJournal {
         state.steps[stepIndex].status = .succeeded
         state.steps[stepIndex].output = output
         state.steps[stepIndex].finishedAt = Date()
+        if var parallel = state.parallel {
+            for index in parallel.branches.indices {
+                if let actionIndex = parallel.branches[index].actions.firstIndex(where: { $0.id == actionID }) {
+                    parallel.branches[index].actions[actionIndex].resolvedAt = state.actions.first { $0.id == actionID }?.resolvedAt
+                    if let attempt = parallel.branches[index].steps.firstIndex(where: { $0.id == state.steps[stepIndex].id }) {
+                        var step = state.steps[stepIndex]
+                        step.runId = parallel.branches[index].run.id
+                        parallel.branches[index].steps[attempt] = step
+                    }
+                    parallel.branches[index].run.status = .running
+                }
+            }
+            state.parallel = parallel
+        }
         state.run.status = .running
         try await flush()
     }
@@ -159,7 +202,7 @@ actor WorkflowExecutionJournal {
     }
 
     func suspend() throws {
-        defer { suspended = true }
+        defer { suspended = true; signalParallelInput() }
         state.resumeAfterShutdown = true
         try commit()
     }

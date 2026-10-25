@@ -12,12 +12,13 @@ extension CoreService {
                     continue
                 }
                 if activeWorkflowRuns.contains(runID) {
-                    workflowReconciliationPending.insert(runID)
+                    if state.parallel != nil, let journal = workflowJournals[runID] { await journal.signalParallelInput() }
+                    else { workflowReconciliationPending.insert(runID) }
                     continue
                 }
-                guard state.run.status == .waitingForAgent,
-                      let step = state.steps.last(where: { $0.nodeId == state.run.currentNodeIds.first }),
-                      step.output["agentId"]?.asString == agentID, step.output["sessionId"]?.asString == sessionID else { continue }
+                guard workflowWaitingAgentSteps(state).contains(where: {
+                    $0.output["agentId"]?.asString == agentID && $0.output["sessionId"]?.asString == sessionID
+                }) else { continue }
                 activeWorkflowRuns.insert(state.run.id)
                 let journal = WorkflowExecutionJournal(state: state, files: workflowExecutionFiles, store: store)
                 workflowJournals[state.run.id] = journal
@@ -31,6 +32,7 @@ extension CoreService {
 
     func finishWaitingWorkflowAgent(journal: WorkflowExecutionJournal, response: AgentSessionMessageResponse? = nil) async throws -> WorkflowRunDetail {
         let state = await journal.snapshot()
+        if state.parallel != nil { return try await finishParallelInputs(journal: journal) }
         guard state.run.status == .waitingForAgent,
               let step = state.steps.last(where: { $0.nodeId == state.run.currentNodeIds.first }),
               let agentID = step.output["agentId"]?.asString, let sessionID = step.output["sessionId"]?.asString

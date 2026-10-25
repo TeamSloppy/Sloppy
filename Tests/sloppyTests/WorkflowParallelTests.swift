@@ -8,7 +8,7 @@ struct WorkflowParallelTests {
     @Test
     func branchesReallyOverlapAndJoinReceivesBothOutputs() async throws {
         let (service, _, definition, root) = try await fixture(gated: true)
-        let result = try await service.startWorkflowRun(projectID: definition.projectId, workflowID: definition.id, request: .init(startedBy: "owner"))
+        let result = try await service.startWorkflowRun(projectID: definition.projectId, workflowID: definition.id, request: .init(startedBy: "owner", background: false))
         #expect(result.run.status == .completed)
         #expect(result.steps.first { $0.nodeId == "after" }?.output["stdout"] == .string("A:B"))
         #expect(result.steps.filter { $0.nodeId == "fork" }.count == 1)
@@ -20,7 +20,7 @@ struct WorkflowParallelTests {
     @Test(arguments: [WorkflowStepStatus.running, .succeeded])
     func restartSkipsCompletedBranchesAndBlocksUncertainOperations(status: WorkflowStepStatus) async throws {
         let (service, config, definition, root) = try await fixture()
-        let finished = try await service.startWorkflowRun(projectID: definition.projectId, workflowID: definition.id, request: .init(startedBy: "owner"))
+        let finished = try await service.startWorkflowRun(projectID: definition.projectId, workflowID: definition.id, request: .init(startedBy: "owner", background: false))
         #expect(finished.run.status == .completed)
         var state = try #require(try await service.workflowExecutionFiles.load(finished.run.id))
         state.run.status = .running
@@ -65,7 +65,7 @@ struct WorkflowParallelTests {
         nodes[3].config["command"] = .string("exit 7")
         _ = try await service.updateWorkflowDefinition(projectID: definition.projectId, workflowID: definition.id,
             request: .init(name: definition.name, lanes: definition.lanes, nodes: nodes, edges: definition.edges))
-        let result = try await service.startWorkflowRun(projectID: definition.projectId, workflowID: definition.id, request: .init(startedBy: "owner"))
+        let result = try await service.startWorkflowRun(projectID: definition.projectId, workflowID: definition.id, request: .init(startedBy: "owner", background: false))
         #expect(result.run.status == .failed)
         #expect(!result.steps.contains { $0.nodeId == "join" || $0.nodeId == "after" })
         #expect(result.steps.first { $0.nodeId == "fork" }?.output["branches"]?.asObject?["b"]?.asObject?["status"] == .string("failed"))

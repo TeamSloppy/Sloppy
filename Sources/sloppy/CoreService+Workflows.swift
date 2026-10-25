@@ -116,7 +116,7 @@ extension CoreService {
         var ownsExecution = true
         defer { if ownsExecution { releaseWorkflowExecution(run.id) } }
         try await journal.flush()
-        if request.background == true {
+        if request.background == true || (request.background == nil && definition.nodes.contains(where: { $0.type == .parallel })) {
             releaseWorkflowExecution(run.id)
             ownsExecution = false
             scheduleWorkflowRecovery(run.id)
@@ -167,16 +167,26 @@ extension CoreService {
         guard savedAction.decisions.contains(request.decision) else { throw WorkflowError.invalidPayload }
         if state.definition.nodes.first(where: { $0.id == action.nodeId })?.type == .humanInput,
            request.comment?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty != false { throw WorkflowError.invalidPayload }
-        guard activeWorkflowRuns.insert(run.id).inserted else { throw WorkflowError.invalidPayload }
-        workflowJournals[run.id] = journal
-        var ownsExecution = true
+        let alreadyActive = activeWorkflowRuns.contains(run.id)
+        guard !alreadyActive || state.parallel != nil else { throw WorkflowError.invalidPayload }
+        if !alreadyActive { activeWorkflowRuns.insert(run.id); workflowJournals[run.id] = journal }
+        var ownsExecution = !alreadyActive
         defer { if ownsExecution { releaseWorkflowExecution(run.id) } }
         let output: [String: JSONValue] = [
             "decision": .string(request.decision.rawValue),
             "comment": request.comment.map(JSONValue.string) ?? .null,
             "resolvedBy": .string(request.resolvedBy)
         ]
-        try await journal.resolve(actionID: actionID, output: output)
+        do { try await journal.resolve(actionID: actionID, output: output) }
+        catch WorkflowError.actionNotFound {
+            if await journal.snapshot().actions.first(where: { $0.id == actionID })?.resolvedAt != nil { return await workflowRunDetail(run: journal.snapshot().run) }
+            throw WorkflowError.actionNotFound
+        }
+        if state.parallel != nil {
+            await journal.signalParallelInput()
+            if !alreadyActive { workflowReconciliationPending.insert(run.id) }
+            return await workflowRunDetail(run: journal.snapshot().run)
+        }
         if request.background == true {
             let resolved = await journal.snapshot()
             releaseWorkflowExecution(run.id)
@@ -192,6 +202,7 @@ extension CoreService {
     }
 
     func workflowJournal(run: WorkflowRun) async throws -> WorkflowExecutionJournal {
+        if let active = workflowJournals[run.id] { return active }
         if let state = try workflowExecutionFiles.load(run.id) {
             return WorkflowExecutionJournal(state: state, files: workflowExecutionFiles, store: store)
         }
@@ -210,6 +221,9 @@ extension CoreService {
 
     func continueWorkflow(journal: WorkflowExecutionJournal, nodeID: String, output: [String: JSONValue]) async throws -> WorkflowRunDetail {
         let state = await journal.snapshot()
+        if state.parallel != nil {
+            return try await finishParallelInputs(journal: journal)
+        }
         _ = await WorkflowRunner().resume(
             definition: state.definition, run: state.run, resolvedNodeID: nodeID, output: output,
             persistence: await journal.persistence, updateTask: workflowTaskUpdater(),

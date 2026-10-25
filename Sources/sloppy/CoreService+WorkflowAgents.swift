@@ -55,6 +55,11 @@ extension CoreService {
                     return Self.workflowAgentResult(response: .init(summary: detail.summary, appendedEvents: detail.events, routeDecision: nil), output: output, outputFormat: outputFormat)
                 }
                 var results: [String: AgentToolResultEvent] = [:]
+                if activeSessionMessageRuns.contains(sessionID) || sessionMessageStorage?.entries.contains(where: { $0.sessionId == sessionID && $0.state == .queued }) == true {
+                    output["agentOutcome"] = .null
+                    output["agentStage"] = .string(AgentRunStage.thinking.rawValue)
+                    return failure("workflow_agent_in_progress", "The original session request is still running or queued.", data: output)
+                }
                 for event in events { if let result = event.toolResult, let id = result.callEventId { results[id] = result } }
                 if events.contains(where: { $0.toolCall != nil && (results[$0.id] == nil || results[$0.id]?.executionOutcome?.requiresReconciliation == true) }) {
                     return failure("workflow_reconciliation_required", "An interrupted tool call has no persisted result. Reconcile it before continuing.", data: output)
@@ -67,6 +72,7 @@ extension CoreService {
             }
             output["sessionId"] = .string(session.id)
             try await context.reportProgress?(output)
+            try Task.checkCancellation()
             let encodedInput = try JSONEncoder().encode(input)
             var content = continuation
                 ? "Continue the interrupted workflow step using the original request and persisted session history. Preserve completed work; inspect tool results before taking further action."

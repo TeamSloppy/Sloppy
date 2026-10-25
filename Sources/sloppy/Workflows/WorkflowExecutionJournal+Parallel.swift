@@ -18,6 +18,10 @@ extension WorkflowExecutionJournal {
         state.parallel?.branches[index].run = run
         let cursors = state.parallel?.branches.filter { $0.run.status != .completed }.flatMap { $0.run.currentNodeIds } ?? []
         state.run.currentNodeIds = cursors.isEmpty ? [state.parallel?.nodeID ?? ""] : cursors
+        let statuses = state.parallel?.branches.map { $0.run.status } ?? []
+        if statuses.allSatisfy({ [.waitingForHuman, .waitingForAgent, .completed].contains($0) }) {
+            state.run.status = statuses.contains(.waitingForHuman) ? .waitingForHuman : statuses.contains(.waitingForAgent) ? .waitingForAgent : .running
+        } else { state.run.status = .running }
         try await persistParallelChange()
     }
 
@@ -39,5 +43,37 @@ extension WorkflowExecutionJournal {
         visible.workflowRunId = state.run.id
         state.actions.append(visible)
         try await persistParallelChange(action: visible)
+    }
+
+    func recordBranchFailure(_ id: String, message: String, code: String) async throws {
+        guard let index = state.parallel?.branches.firstIndex(where: { $0.id == id }) else { throw CoreService.WorkflowError.storageFailure }
+        state.parallel?.branches[index].failure = message
+        state.parallel?.branches[index].failureCode = code
+        if code == "workflow_cancelled" { state.parallel?.branches[index].run.status = .cancelled }
+        try await persistParallelChange()
+    }
+
+    func cancelParallelWaits() async throws {
+        guard var parallel = state.parallel else { return }
+        let date = Date()
+        for index in parallel.branches.indices where parallel.branches[index].run.status != .completed {
+            for actionIndex in parallel.branches[index].actions.indices where parallel.branches[index].actions[actionIndex].resolvedAt == nil {
+                parallel.branches[index].actions[actionIndex].resolvedAt = date
+                let action = parallel.branches[index].actions[actionIndex]
+                if let position = state.actions.firstIndex(where: { $0.id == action.id }) { state.actions[position].resolvedAt = date }
+            }
+            for stepIndex in parallel.branches[index].steps.indices where parallel.branches[index].steps[stepIndex].status == .waiting {
+                parallel.branches[index].steps[stepIndex].status = .skipped
+                parallel.branches[index].steps[stepIndex].error = "Cancelled because another parallel branch stopped."
+                parallel.branches[index].steps[stepIndex].finishedAt = date
+                var step = parallel.branches[index].steps[stepIndex]
+                step.runId = state.run.id
+                if let position = state.steps.firstIndex(where: { $0.id == step.id }) { state.steps[position] = step }
+            }
+        }
+        state.parallel = parallel
+        state.run.currentNodeIds = [parallel.nodeID]
+        state.run.status = .running
+        try await flush()
     }
 }

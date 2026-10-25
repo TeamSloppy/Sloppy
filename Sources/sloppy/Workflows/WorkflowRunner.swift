@@ -260,7 +260,7 @@ struct WorkflowRunner {
                 message: String(describing: error), persistence: persistence, stepID: stepID, startedAt: startedAt) }
             switch node.type {
             case .humanApproval, .humanInput:
-                let action = makePendingAction(node: node, run: run, context: context)
+                let action = makePendingAction(node: node, run: run, context: context, input: scopedInput)
                 let step = WorkflowRunStep(
                     id: stepID,
                     runId: run.id,
@@ -364,6 +364,13 @@ struct WorkflowRunner {
                         input: scopedInput, output: failedOutput, error: message,
                         startedAt: startedAt, finishedAt: Date()
                     ))
+                    if toolResult.error?.code == "workflow_parallel_cancelled" {
+                        run.status = .cancelled
+                        run.currentNodeIds = []
+                        run.finishedAt = Date()
+                        try await persistence.saveRun(run)
+                        return .failed(run, message)
+                    }
                     if toolResult.error?.code == "workflow_reconciliation_required" {
                         run.status = .blocked
                         try await persistence.saveRun(run)
@@ -436,7 +443,7 @@ struct WorkflowRunner {
         )
     }
 
-    private func makePendingAction(node: WorkflowNode, run: WorkflowRun, context: Context) -> WorkflowPendingAction {
+    private func makePendingAction(node: WorkflowNode, run: WorkflowRun, context: Context, input: [String: JSONValue]) -> WorkflowPendingAction {
         WorkflowPendingAction(
             id: "action_\(UUID().uuidString.lowercased())",
             projectId: context.projectId,
@@ -444,7 +451,7 @@ struct WorkflowRunner {
             nodeId: node.id,
             taskId: context.taskId,
             assignee: stringValue(node.config["assignee"]) ?? context.startedBy,
-            prompt: stringValue(node.config["prompt"]) ?? node.title,
+            prompt: resolveWorkflowTemplateString(stringValue(node.config["prompt"]) ?? node.title, input: input),
             decisions: node.type == .humanInput ? [.approved] : [.approved, .rejected, .changesRequested],
             createdAt: Date()
         )

@@ -35,22 +35,39 @@ extension CoreService {
                 }
                 var failed = false
                 for await result in group {
-                    if result { failed = true; group.cancelAll() }
+                    if result {
+                        group.cancelAll()
+                        if !failed, await !journal.suspended {
+                            let current = await journal.snapshot()
+                            let agents = current.parallel?.branches.filter { $0.run.status != .completed }.compactMap { branch in
+                                branch.steps.last { $0.output["sessionId"]?.asString != nil }
+                            } ?? []
+                            await cancelParallelAgentWaits(agents)
+                        }
+                        failed = true
+                    }
                 }
                 return failed
             }
             state = await journal.snapshot()
             guard let branches = state.parallel?.branches else { return failure("Parallel checkpoint is unavailable.") }
             if failed || branches.contains(where: { $0.run.status != .completed }) {
+                if await !journal.suspended {
+                    try await journal.cancelParallelWaits()
+                    registerWorkflowWaits(await journal.snapshot())
+                }
                 let blocked = branches.contains { $0.run.status == .blocked }
+                let stopped = branches.filter { $0.run.status != .completed }
+                let cancelled = Task.isCancelled || stopped.allSatisfy { ["workflow_cancelled", "workflow_agent_cancelled"].contains($0.failureCode ?? "") }
                 let failures = Dictionary(uniqueKeysWithValues: branches.map {
                     ($0.id, JSONValue.object(["status": .string($0.run.status.rawValue),
-                        "error": $0.steps.last?.error.map(JSONValue.string) ?? .null,
+                        "error": ($0.failure ?? $0.steps.last?.error).map(JSONValue.string) ?? .null,
                         "output": .object($0.steps.last?.output ?? [:])]))
                 })
                 return failure(blocked ? "A parallel operation needs reconciliation before it can be retried." : "A parallel branch failed or could not complete.",
-                    code: blocked ? "workflow_reconciliation_required" : "workflow_parallel_failed", data: ["branches": .object(failures)])
+                    code: blocked ? "workflow_reconciliation_required" : cancelled ? "workflow_parallel_cancelled" : "workflow_parallel_failed", data: ["branches": .object(failures)])
             }
+            registerWorkflowWaits(state)
             let results = Dictionary(uniqueKeysWithValues: branches.map { branch in
                 (branch.id, JSONValue.object(branch.steps.last(where: { $0.status == .succeeded })?.output ?? [:]))
             })
@@ -63,22 +80,47 @@ extension CoreService {
 
     private func executeWorkflowBranch(_ branch: WorkflowParallelBranch, state: WorkflowExecutionState, topology: WorkflowParallelTopology,
                                        journal: WorkflowExecutionJournal, input: [String: JSONValue]) async -> Bool {
-        if branch.run.status == .completed { return false }
-        if [.failed, .blocked, .cancelled].contains(branch.run.status) { return true }
-        let child = WorkflowExecutionState(resumeAfterShutdown: state.resumeAfterShutdown, definition: state.definition,
-            originalInput: state.originalInput, run: branch.run, steps: branch.steps, actions: branch.actions)
-        var context = WorkflowRunner.Context(projectId: state.run.projectId, taskId: state.run.taskId, startedBy: state.run.startedBy,
-            input: state.originalInput, runId: branch.run.id)
-        context.startNodeId = branch.id
-        context.stopNodeId = topology.joinID
-        context.initialNodeOutputs = input["nodes"]?.asObject ?? [:]
-        context.initialOutput = input.filter { $0.key != "nodes" && $0.key != "input" }
-        context.initialVisitCounts = state.parallel?.visitCounts ?? [:]
-        let result = await WorkflowRunner().restore(state: child, persistence: await journal.branchPersistence(branch.id),
-            updateTask: workflowTaskUpdater(), executeTool: { [weak self] node, context, input in
-                await self?.executeWorkflowToolNode(node: node, context: context, input: input)
-            }, branchContext: context)
-        if case .completed = result { return false }
-        return true
+        while true {
+            let revision = await journal.parallelInputVersion()
+            let latest = await journal.snapshot()
+            guard let branch = latest.parallel?.branches.first(where: { $0.id == branch.id }) else { return true }
+            let suspended = await journal.suspended
+            if Task.isCancelled || suspended {
+                if await !journal.suspended { try? await journal.recordBranchFailure(branch.id, message: "Parallel execution cancelled.", code: "workflow_cancelled") }
+                return true
+            }
+            if branch.run.status == .completed { return false }
+            if [.failed, .blocked, .cancelled].contains(branch.run.status) { return true }
+            if branch.run.status == .waitingForHuman && branch.actions.contains(where: { $0.resolvedAt == nil }) {
+                await journal.waitForParallelInput(after: revision)
+                continue
+            }
+            let child = WorkflowExecutionState(resumeAfterShutdown: state.resumeAfterShutdown, definition: state.definition,
+                originalInput: state.originalInput, run: branch.run, steps: branch.steps, actions: branch.actions)
+            var context = WorkflowRunner.Context(projectId: state.run.projectId, taskId: state.run.taskId, startedBy: state.run.startedBy,
+                input: state.originalInput, runId: branch.run.id)
+            context.startNodeId = branch.id
+            context.stopNodeId = topology.joinID
+            context.initialNodeOutputs = input["nodes"]?.asObject ?? [:]
+            context.initialOutput = input.filter { $0.key != "nodes" && $0.key != "input" }
+            context.initialVisitCounts = state.parallel?.visitCounts ?? [:]
+            let result = await WorkflowRunner().restore(state: child, persistence: await journal.branchPersistence(branch.id),
+                updateTask: workflowTaskUpdater(), executeTool: { [weak self] node, context, input in
+                    await self?.executeWorkflowToolNode(node: node, context: context, input: input)
+                }, branchContext: context)
+            switch result {
+            case .completed: return false
+            case .failed(_, let message):
+                let failed = await journal.snapshot().parallel?.branches.first { $0.id == branch.id }
+                let code = Task.isCancelled ? "workflow_cancelled" : failed?.steps.last?.output["errorCode"]?.asString ?? "workflow_branch_failed"
+                if await !journal.suspended { try? await journal.recordBranchFailure(branch.id, message: message, code: code) }
+                return true
+            case .waitingForHuman, .waitingForAgent:
+                let waiting = await journal.snapshot()
+                registerWorkflowWaits(waiting)
+                if workflowWaitingAgentSteps(waiting).contains(where: { $0.runId == branch.run.id && workflowAgentInputReady($0) }) { continue }
+                await journal.waitForParallelInput(after: revision)
+            }
+        }
     }
 }

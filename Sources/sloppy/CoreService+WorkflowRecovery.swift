@@ -24,11 +24,7 @@ extension CoreService {
                         let journal = WorkflowExecutionJournal(state: state, files: workflowExecutionFiles, store: store)
                         workflowJournals[id] = journal
                         try await journal.flush()
-                        if state.run.status == .waitingForAgent,
-                           let step = state.steps.last(where: { $0.nodeId == state.run.currentNodeIds.first }),
-                           let agentID = step.output["agentId"]?.asString, let sessionID = step.output["sessionId"]?.asString {
-                            workflowWaitingSessions[sessionChannelID(agentID: agentID, sessionID: sessionID), default: []].insert(id)
-                        }
+                        registerWorkflowWaits(state)
                         restore = workflowNeedsRecovery(state)
                     }
                 } catch { logger.error("workflow.checkpoint_restore_failed", metadata: ["run_id": .string(id), "error": .string(String(describing: error))]) }
@@ -49,7 +45,7 @@ extension CoreService {
     private func recoverWorkflow(_ id: String) async {
         defer {
             workflowRecoveryTasks[id] = nil
-            if workflowReconciliationPending.remove(id) != nil { scheduleWorkflowRecovery(id) }
+            if !activeWorkflowRuns.contains(id), workflowReconciliationPending.remove(id) != nil { scheduleWorkflowRecovery(id) }
         }
         guard !workflowIsStopping, activeWorkflowRuns.insert(id).inserted else { return }
         defer { releaseWorkflowExecution(id) }
@@ -69,6 +65,7 @@ extension CoreService {
     }
 
     private func workflowNeedsRecovery(_ state: WorkflowExecutionState) -> Bool {
+        if state.parallel != nil, ![WorkflowRunStatus.completed, .failed, .blocked, .cancelled].contains(state.run.status) { return true }
         switch state.run.status {
         case .queued, .running, .waitingForAgent: return true
         case .waitingForHuman:
