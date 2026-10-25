@@ -48,7 +48,8 @@ exactly `x`, with one approval attempt and one preparation attempt.
 ## Verification scope
 
 143 selected Swift tests in 22 suites passed, together with 29 Dashboard workflow tests,
-Dashboard typecheck and production build. Release builds and CLI smoke results are recorded in the [delivery map](../tbd/decompositions/2026-10-24-workflow-runtime.md).
+Dashboard typecheck and production build. Both final macOS release products (`sloppy`,
+`SloppyNode`) and their CLI help smoke checks passed. Full results are recorded in the [delivery map](../tbd/decompositions/2026-10-24-workflow-runtime.md).
 The selected regression covers workflows plus session inbox, plan input and heartbeat.
 
 The full parallel Swift suite was attempted with a 180-second limit and stopped after
@@ -58,6 +59,6 @@ tool hooks and memory scheduling passed. This does not establish every full-suit
 failure as pre-existing, and a clean full-suite result is not claimed.
 
 The implementation retains explicit bounds: flat parallel groups of 2–16 branches,
-one execution directory per run, eight nested child workflows, bounded expressions,
+one execution directory per run, eight workflow levels, bounded expressions,
 and a durable 25-attempt per-node budget. Worktrees are retained; effects are not rolled
 back automatically. Merge and production deployment are separate actions.
