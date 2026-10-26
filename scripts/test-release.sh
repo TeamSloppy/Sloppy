@@ -1,5 +1,8 @@
 #!/usr/bin/env bash
 set -euo pipefail
+for command in curl python3; do
+  command -v "$command" > /dev/null || { echo "CI smoke dependency missing: $command" >&2; exit 1; }
+done
 root="$(cd "${1:?usage: test-release.sh PACKAGE_ROOT EXPECTED_VERSION}" && pwd)"
 version="${2:?expected release version required}"
 executable="$root/bin/sloppy"
