@@ -997,7 +997,7 @@ jobs:
               '  license "AGPL-3.0-only"',
               "",
               "  def install",
-              '    bin.install "bin/sloppy" => "sloppy"',
+              '    bin.install Dir["bin/*"]',
               '    (share/"sloppy").install Dir["share/sloppy/*"]',
               "  end",
               "",
