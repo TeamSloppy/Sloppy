@@ -62,7 +62,7 @@ The release must include `Sloppy-windows-x86_64.zip` and its checksum in `SHA256
 Older releases, including v2.5.0, only contain SloppyNode for Windows. Version v2.5.1 introduces the full package. If the full archive
 is absent, the installer stops and leaves your installation unchanged. It does not
 fall back to installing build tools. The release workflow now builds and packages the
-full Windows distribution; publish it before enabling the public Windows install path.
+full Windows distribution; v2.5.1 and later provide the full Windows install path.
 
 :::
 
@@ -83,7 +83,7 @@ See [Windows setup](/guides/build-from-terminal#windows-powershell) for details.
 
 ## Native apps
 
-- [Download for macOS](https://github.com/TeamSloppy/Sloppy/releases/download/v2.5.0/SloppyClient-macos-universal-2.5.0.pkg) — macOS 26+, Apple silicon and Intel. Open the installer, then launch Sloppy.
+- [Download for macOS](https://github.com/TeamSloppy/Sloppy/releases/download/v2.5.1/Sloppy-macos-universal-2.5.0.dmg) — macOS 26+, Apple silicon and Intel. Open the signed and notarized disk image, drag Sloppy into Applications, then launch it.
 - [iOS App Store](https://apps.apple.com/app/id6811777701) — the assigned product page; available after App Store publication.
 
 ## Other installation methods

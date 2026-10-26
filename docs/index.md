@@ -103,7 +103,7 @@ sloppy       # terminal UI
 sloppy run   # server + Dashboard
 ```
 
-Prefer an app? [Download for macOS](https://github.com/TeamSloppy/Sloppy/releases/download/v2.5.0/SloppyClient-macos-universal-2.5.0.pkg)
+Prefer an app? [Download for macOS](https://github.com/TeamSloppy/Sloppy/releases/download/v2.5.1/Sloppy-macos-universal-2.5.0.dmg)
 or open the [iOS App Store page](https://apps.apple.com/app/id6811777701) after publication.
 
 See [Install](/install) for supported platforms and options, [Build From Terminal](/guides/build-from-terminal)
