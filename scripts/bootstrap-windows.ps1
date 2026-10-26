@@ -22,7 +22,9 @@ $dashboardDir = Join-Path $InstallRoot "dashboard"
 
 if ($FromSource) {
     if ($DryRun) { Write-Host "Would build Sloppy from source and install missing development tools."; return }
-    $sourceInstaller = Invoke-RestMethod "https://raw.githubusercontent.com/TeamSloppy/Sloppy/main/scripts/bootstrap-windows-source.ps1"
+    $sourceURL = "https://github.com/TeamSloppy/Sloppy/releases/latest/download/bootstrap-windows-source.ps1"
+    if ($ReleaseTag) { $sourceURL = "https://github.com/TeamSloppy/Sloppy/releases/download/" + [Uri]::EscapeDataString($ReleaseTag) + "/bootstrap-windows-source.ps1" }
+    $sourceInstaller = Invoke-RestMethod $sourceURL
     & ([scriptblock]::Create($sourceInstaller)) -InstallRoot $InstallRoot -NoPath:$NoPath
     return
 }

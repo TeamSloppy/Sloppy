@@ -159,7 +159,7 @@ including v2.5.0, only contain SloppyNode for Windows. The installer stops witho
 installing development tools if that full package is absent. Source installation is
 an explicit developer option (`-FromSource`); see the [Windows guide](docs/guides/build-from-terminal.md#windows-powershell).
 
-**Prefer an app?** [Download for macOS](https://github.com/TeamSloppy/Sloppy/releases/download/v2.5.0/SloppyClient-macos-universal-2.5.0.pkg)
+**Prefer an app?** [Download for macOS](https://github.com/TeamSloppy/Sloppy/releases/download/v2.5.1/Sloppy-macos-universal-2.5.0.dmg)
 (macOS 26+, Apple silicon and Intel) · [iOS App Store](https://apps.apple.com/app/id6811777701).
 The iOS link uses the assigned App Store ID; availability depends on App Store publication.
 

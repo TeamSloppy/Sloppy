@@ -80,3 +80,6 @@ try {
     Remove-Variable -Name SloppyBootstrapTestState -Scope Global
     if (Test-Path -LiteralPath $testRoot) { Remove-Item -LiteralPath $testRoot -Recurse -Force }
 }
+
+# Expected negative Git cases leave LASTEXITCODE set; report the test result to GitHub Actions.
+$global:LASTEXITCODE = 0
