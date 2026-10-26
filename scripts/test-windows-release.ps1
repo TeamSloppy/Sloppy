@@ -1,7 +1,7 @@
 #Requires -Version 5.1
 # Exercise the actual packaged PE binaries, with no development tools on PATH.
 [CmdletBinding()]
-param([Parameter(Mandatory = $true)][string]$ArchivePath)
+param([Parameter(Mandatory = $true)][string]$ArchivePath, [string]$ExpectedVersion)
 
 $ErrorActionPreference = "Stop"
 $archive = (Resolve-Path -LiteralPath $ArchivePath).Path
@@ -35,8 +35,9 @@ try {
     }
     & "$PSScriptRoot/bootstrap-windows.ps1" -InstallRoot $installRoot -NoPath -ReleaseTag fixture
     $executable = Join-Path $installRoot "bin/sloppy.exe"
-    & $executable --version
+    $versionOutput = & $executable --version
     if ($LASTEXITCODE -ne 0) { throw "Packaged Sloppy could not run without the toolchain PATH." }
+    if ($ExpectedVersion -and $versionOutput -ne "sloppy $ExpectedVersion") { throw "Unexpected packaged version: $versionOutput" }
 
     $probe = [Net.Sockets.TcpListener]::new([Net.IPAddress]::Loopback, 0)
     $probe.Start()

@@ -11,13 +11,46 @@ on:
         required: true
         type: string
         default: v2.3.0
+      source_ref:
+        description: Commit SHA or ref to build; defaults to the release tag
+        required: false
+        type: string
+      artifact_run_id:
+        description: Existing artifact run for verify-linux or verify-windows
+        required: false
+        type: string
+      linux_run_id:
+        description: Linux artifact run for assemble mode
+        required: false
+        type: string
+      macos_run_id:
+        description: macOS artifact run for assemble mode
+        required: false
+        type: string
+      windows_run_id:
+        description: Windows artifact run for assemble mode
+        required: false
+        type: string
+      product_source_ref:
+        description: Immutable product source SHA for assemble mode
+        required: false
+        type: string
+      verification_runs:
+        description: JSON array of successful package verification run IDs
+        required: false
+        type: string
       build_platform:
-        description: Build all platforms or retry Linux or Apple apps
+        description: Build everything, CLI/runtime only, or retry Linux or Apple apps
         type: choice
         default: all
         options:
           - all
+          - cli
           - linux
+          - macos
+          - verify-linux
+          - verify-windows
+          - assemble
           - apps
       publish_release:
         description: Publish publicly after successful builds and the v2 approval gate
@@ -31,6 +64,7 @@ concurrency:
 env:
   SWIFT_VERSION: "6.2.1"
   RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+  SOURCE_REF: ${{ inputs.source_ref || inputs.release_tag || github.ref_name }}
 
 jobs:
   validate:
@@ -46,6 +80,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PUBLISH_RELEASE: ${{ github.event_name != 'workflow_dispatch' || inputs.publish_release }}
+          BUILD_PLATFORM: ${{ inputs.build_platform }}
         run: |
           set -euo pipefail
           if [[ ! "$RELEASE_TAG" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.+][0-9A-Za-z.-]+)?$ ]]; then
@@ -53,7 +88,9 @@ jobs:
             exit 1
           fi
           PREPARE_RELEASE=true
-          if [ "$PUBLISH_RELEASE" != "true" ]; then
+          # Draft visibility requires the publishing job's existing write scope.
+          # The read-only validator only validates the request for assembly.
+          if [ "$PUBLISH_RELEASE" != "true" ] && [ "$BUILD_PLATFORM" != assemble ]; then
             if IS_DRAFT=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft' 2>/dev/null); then
               if [ "$IS_DRAFT" != "true" ]; then
                 echo "Existing public release: build artifacts without changing its publication state."
@@ -67,7 +104,7 @@ jobs:
           echo "prepare_release=$PREPARE_RELEASE" >> "$GITHUB_OUTPUT"
 
   signing-check:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform != 'linux' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform != 'linux' && inputs.build_platform != 'cli' && inputs.build_platform != 'macos' && inputs.build_platform != 'verify-linux' && inputs.build_platform != 'verify-windows' && inputs.build_platform != 'assemble' }}
     name: Verify Sparkle Signing Secret
     needs: validate
     runs-on: ubuntu-latest
@@ -95,7 +132,7 @@ jobs:
           PYTHON
 
   build-linux:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform != 'apps' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform != 'apps' && inputs.build_platform != 'macos' && inputs.build_platform != 'verify-linux' && inputs.build_platform != 'verify-windows' && inputs.build_platform != 'assemble' }}
     needs: validate
     name: Build (Linux)
     runs-on: ubuntu-24.04
@@ -117,7 +154,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ env.SOURCE_REF }}
 
       - name: Swift Version
         run: swift --version
@@ -146,7 +183,7 @@ jobs:
       - name: Install System Dependencies
         run: |
           apt-get update
-          apt-get install -y libsqlite3-dev
+          apt-get install -y libsqlite3-dev patchelf python3 curl
 
       - name: Extract Version from Tag
         id: meta
@@ -210,6 +247,9 @@ jobs:
           STAGE="$(mktemp -d)"
           mkdir -p "$STAGE/bin" "$STAGE/share/sloppy/dashboard" "$STAGE/share/sloppy/licenses"
           cp "$BIN_PATH/sloppy" "$STAGE/bin/"
+          for RESOURCE in "$BIN_PATH/"*.resources "$BIN_PATH/"*.bundle; do
+            [ ! -d "$RESOURCE" ] || cp -R "$RESOURCE" "$STAGE/bin/"
+          done
           cp -R Dashboard/dist "$STAGE/share/sloppy/dashboard/"
           cp Dashboard/config.json "$STAGE/share/sloppy/dashboard/"
           cp Sources/sloppy/Resources/sloppy-version.json "$STAGE/share/sloppy/sloppy-version.json"
@@ -220,22 +260,28 @@ jobs:
           cp LICENSES/README.md "$STAGE/share/sloppy/licenses/LICENSE-MAP.md"
           cp SOURCE_OFFER.md THIRD_PARTY_NOTICES.md "$STAGE/share/sloppy/licenses/"
           bash scripts/collect-third-party-licenses.sh "$STAGE/share/sloppy/licenses/third-party"
+          bash scripts/bundle-linux-runtime.sh "$STAGE"
           OUT="Sloppy-linux-x86_64.tar.gz"
           tar -C "$STAGE" -czvf "$RUNNER_TEMP/$OUT" bin share
           echo "tarball_path=$RUNNER_TEMP/$OUT" >> "$GITHUB_OUTPUT"
+          bash scripts/test-release.sh "$STAGE" "${{ steps.meta.outputs.version }}"
 
       - name: Upload Artifact
+        if: ${{ always() && steps.pack.outputs.tarball_path != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: linux-tarball
           path: ${{ steps.pack.outputs.tarball_path }}
 
   build-macos:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform == 'all' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || (inputs.build_platform == 'all' || inputs.build_platform == 'cli' || inputs.build_platform == 'macos') }}
     needs: validate
     name: Build (macOS)
-    # Swift 6.2.1 cannot import Xcode 26 WebKit interfaces on macos-latest.
+    # Use Xcode's matching compiler/SDK; standalone Swift 6.2.1 produces
+    # concurrency witness references unavailable in the macOS 15 runtime.
     runs-on: macos-15
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
 
     permissions:
       contents: read
@@ -244,12 +290,24 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ env.SOURCE_REF }}
 
-      - name: Setup Swift
-        uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: ${{ env.SWIFT_VERSION }}
+      - name: Verify Xcode Swift runtime compatibility
+        run: |
+          swift --version
+          PROBE_DIR=$(mktemp -d)
+          cat > "$PROBE_DIR/ExecutorProbe.swift" <<'SWIFT'
+          import Dispatch
+          final class Probe: SerialExecutor, @unchecked Sendable {
+              func enqueue(_ job: UnownedJob) {}
+          }
+          @inline(never) func erase(_ executor: Probe) -> any SerialExecutor { executor }
+          let executor = erase(Probe())
+          print(executor.asUnownedSerialExecutor())
+          SWIFT
+          swiftc -O "$PROBE_DIR/ExecutorProbe.swift" -o "$PROBE_DIR/probe"
+          "$PROBE_DIR/probe"
+          rm -rf "$PROBE_DIR"
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -331,6 +389,9 @@ jobs:
           STAGE="$(mktemp -d)"
           mkdir -p "$STAGE/bin" "$STAGE/share/sloppy/dashboard" "$STAGE/share/sloppy/licenses"
           cp "$BIN_PATH/sloppy" "$STAGE/bin/"
+          for RESOURCE in "$BIN_PATH/"*.resources "$BIN_PATH/"*.bundle; do
+            [ ! -d "$RESOURCE" ] || cp -R "$RESOURCE" "$STAGE/bin/"
+          done
           cp -R Dashboard/dist "$STAGE/share/sloppy/dashboard/"
           cp Dashboard/config.json "$STAGE/share/sloppy/dashboard/"
           cp Sources/sloppy/Resources/sloppy-version.json "$STAGE/share/sloppy/sloppy-version.json"
@@ -341,6 +402,7 @@ jobs:
           cp LICENSES/README.md "$STAGE/share/sloppy/licenses/LICENSE-MAP.md"
           cp SOURCE_OFFER.md THIRD_PARTY_NOTICES.md "$STAGE/share/sloppy/licenses/"
           bash scripts/collect-third-party-licenses.sh "$STAGE/share/sloppy/licenses/third-party"
+          bash scripts/test-release.sh "$STAGE" "${{ steps.meta.outputs.version }}"
           OUT="Sloppy-macos-${ASSET_ARCH}.tar.gz"
           tar -C "$STAGE" -czvf "${{ runner.temp }}/$OUT" bin share
           NODE_STAGE="$(mktemp -d)"
@@ -363,7 +425,7 @@ jobs:
             ${{ steps.pack.outputs.node_tarball_path }}
 
   build-macos-client:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform != 'linux' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform != 'linux' && inputs.build_platform != 'cli' && inputs.build_platform != 'macos' && inputs.build_platform != 'verify-linux' && inputs.build_platform != 'verify-windows' && inputs.build_platform != 'assemble' }}
     needs: [validate, signing-check]
     name: Build Sloppy Client (macOS)
     runs-on: macos-26
@@ -373,7 +435,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ env.SOURCE_REF }}
       - name: Checkout current release tooling
         uses: actions/checkout@v4
         with:
@@ -428,7 +490,7 @@ jobs:
             ${{ steps.sparkle.outputs.appcast_path }}
 
   build-macos-companion:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform != 'linux' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform != 'linux' && inputs.build_platform != 'cli' && inputs.build_platform != 'macos' && inputs.build_platform != 'verify-linux' && inputs.build_platform != 'verify-windows' && inputs.build_platform != 'assemble' }}
     needs: [validate, signing-check]
     name: Build Desktop Companion (macOS)
     runs-on: macos-26
@@ -438,7 +500,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ env.SOURCE_REF }}
       - name: Checkout current release tooling
         uses: actions/checkout@v4
         with:
@@ -490,7 +552,7 @@ jobs:
           if-no-files-found: error
 
   build-windows-node:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform == 'all' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || (inputs.build_platform == 'all' || inputs.build_platform == 'cli') }}
     needs: validate
     name: Build Sloppy and SloppyNode (Windows)
     runs-on: windows-latest
@@ -505,7 +567,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ env.SOURCE_REF }}
 
       - name: Setup Swift
         uses: SwiftyLab/setup-swift@v1
@@ -515,6 +577,18 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "24"
+
+      - name: Inject Windows release version
+        id: windows-meta
+        shell: pwsh
+        run: |
+          $version = $env:RELEASE_TAG -replace '^v', ''
+          $resource = 'Sources/sloppy/Resources/sloppy-version.json'
+          (Get-Content -LiteralPath $resource -Raw).Replace('__SLOPPY_APP_VERSION__', $version) | Set-Content -LiteralPath $resource -Encoding utf8
+          $dashboard = Get-Content Dashboard/package.json -Raw | ConvertFrom-Json
+          $dashboard.version = $version
+          $dashboard | ConvertTo-Json -Depth 100 | Set-Content Dashboard/package.json -Encoding utf8
+          "version=$version" >> $env:GITHUB_OUTPUT
 
       - name: Build Windows CLI, Dashboard and node
         shell: pwsh
@@ -555,7 +629,7 @@ jobs:
 
       - name: Verify packaged runtime without development tools on PATH
         shell: powershell
-        run: ./scripts/test-windows-release.ps1 -ArchivePath "${{ steps.pack.outputs.core_zip_path }}"
+        run: ./scripts/test-windows-release.ps1 -ArchivePath "${{ steps.pack.outputs.core_zip_path }}" -ExpectedVersion "${{ steps.windows-meta.outputs.version }}"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -566,12 +640,56 @@ jobs:
             ${{ steps.pack.outputs.zip_path }}
             ${{ steps.pack.outputs.core_zip_path }}
 
+  smoke-linux-package:
+    if: ${{ !cancelled() && (needs.build-linux.result == 'success' || inputs.build_platform == 'verify-linux') }}
+    needs: build-linux
+    permissions:
+      actions: read
+      contents: read
+    runs-on: ubuntu-24.04
+    container: ubuntu:24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-tarball
+          path: package
+          run-id: ${{ inputs.artifact_run_id || github.run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify package on Ubuntu without a Swift toolchain
+        run: |
+          apt-get update
+          apt-get install -y ca-certificates curl python3
+          test ! -d /usr/local/swift
+          mkdir unpacked
+          tar -xzf package/Sloppy-linux-x86_64.tar.gz -C unpacked
+          bash scripts/test-release.sh "$PWD/unpacked" "${RELEASE_TAG#v}"
+
+  smoke-windows-package:
+    if: ${{ inputs.build_platform == 'verify-windows' }}
+    runs-on: windows-latest
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: windows-node
+          path: package
+          run-id: ${{ inputs.artifact_run_id }}
+          github-token: ${{ github.token }}
+      - name: Verify on a fresh runner without build outputs
+        shell: powershell
+        run: ./scripts/test-windows-release.ps1 -ArchivePath package/Sloppy-windows-x86_64.zip -ExpectedVersion ('${{ env.RELEASE_TAG }}'.TrimStart('v'))
+
   publish:
     name: Publish Release
-    if: ${{ (github.event_name != 'workflow_dispatch' || inputs.build_platform == 'all') && needs.validate.outputs.prepare_release == 'true' }}
+    if: ${{ !cancelled() && !failure() && (github.event_name != 'workflow_dispatch' || inputs.build_platform == 'all' || inputs.build_platform == 'cli' || inputs.build_platform == 'assemble') && needs.validate.outputs.prepare_release == 'true' }}
     needs:
       - validate
       - build-linux
+      - smoke-linux-package
       - build-macos
       - build-macos-client
       - build-macos-companion
@@ -580,6 +698,7 @@ jobs:
 
     permissions:
       contents: write
+      actions: read
 
     outputs:
       version: ${{ steps.meta.outputs.version }}
@@ -595,8 +714,16 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ env.SOURCE_REF }}
           fetch-depth: 0
+
+      - name: Preserve public releases during draft assembly
+        if: ${{ inputs.build_platform == 'assemble' && !inputs.publish_release }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          IS_DRAFT=$(gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --json isDraft --jq '.isDraft')
+          test "$IS_DRAFT" = true || { echo 'Draft assembly requires an existing draft; public releases are left unchanged.' >&2; exit 1; }
 
       - name: Verify Sloppy v2 legal release gate
         if: ${{ !startsWith(env.RELEASE_TAG, 'v1.') && (github.event_name != 'workflow_dispatch' || inputs.publish_release) }}
@@ -625,20 +752,26 @@ jobs:
         with:
           name: linux-tarball
           path: release-assets
+          run-id: ${{ inputs.linux_run_id || github.run_id }}
+          github-token: ${{ github.token }}
 
       - name: Download macOS Artifact
         uses: actions/download-artifact@v4
         with:
           name: macos-tarball
           path: release-assets
+          run-id: ${{ inputs.macos_run_id || github.run_id }}
+          github-token: ${{ github.token }}
 
       - name: Download macOS Client Artifact
+        if: ${{ inputs.build_platform != 'cli' && inputs.build_platform != 'assemble' }}
         uses: actions/download-artifact@v4
         with:
           name: macos-client
           path: release-assets
 
       - name: Download macOS Companion Artifact
+        if: ${{ inputs.build_platform != 'cli' && inputs.build_platform != 'assemble' }}
         uses: actions/download-artifact@v4
         with:
           name: macos-companion
@@ -649,6 +782,67 @@ jobs:
         with:
           name: windows-node
           path: release-assets
+          run-id: ${{ inputs.windows_run_id || github.run_id }}
+          github-token: ${{ github.token }}
+
+      - name: Preserve published desktop packages for a CLI-only release
+        if: ${{ inputs.build_platform == 'cli' || inputs.build_platform == 'assemble' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download --repo "$GITHUB_REPOSITORY" --dir release-assets \
+            --pattern 'SloppyClient-macos-*.pkg' --pattern 'SloppyClient-macos-*.zip' \
+            --pattern 'SloppyDesktopCompanion-macos-*.zip' --pattern appcast.xml --pattern companion-appcast.xml
+
+      - name: Include verified notarized desktop image
+        if: ${{ inputs.build_platform == 'assemble' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" --dir release-assets --pattern 'Sloppy-macos-universal-*.dmg'
+
+      - name: Verify product source and package validation provenance
+        if: ${{ inputs.build_platform == 'assemble' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PRODUCT_SOURCE: ${{ inputs.product_source_ref }}
+          LINUX_RUN: ${{ inputs.linux_run_id }}
+          MACOS_RUN: ${{ inputs.macos_run_id }}
+          WINDOWS_RUN: ${{ inputs.windows_run_id }}
+          VERIFY_RUNS: ${{ inputs.verification_runs }}
+        run: |
+          python3 - <<'PYTHON'
+          import json, os, re, subprocess
+          from pathlib import Path
+          source = os.environ['PRODUCT_SOURCE']
+          if not re.fullmatch(r'[0-9a-f]{40}', source):
+              raise SystemExit('An immutable product source SHA is required.')
+          runs = json.loads(os.environ['VERIFY_RUNS'])
+          if len(runs) < 2 or not all(str(r).isdigit() for r in runs):
+              raise SystemExit('Package verification runs are required.')
+          for run in [*runs, os.environ['MACOS_RUN']]:
+              data = json.loads(subprocess.check_output(['gh', 'api', f"repos/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{run}"]))
+              if data['conclusion'] != 'success':
+                  raise SystemExit(f'Package verification run {run} is not successful.')
+          subprocess.run(['git', 'fetch', '--no-tags', 'origin', source], check=True)
+          product_paths = ['Sources', 'Packages', 'Vendor', 'ClientNative', 'Package.swift', 'Package.resolved', 'scripts/install.sh', 'scripts/bootstrap-windows.ps1', 'scripts/bootstrap-windows-source.ps1', 'scripts/package-windows.ps1', 'scripts/bundle-linux-runtime.sh']
+          subprocess.run(['git', 'diff', '--exit-code', source, 'HEAD', '--', *product_paths], check=True)
+          proof = {
+              'version': os.environ['RELEASE_TAG'].removeprefix('v'),
+              'productSourceCommit': source,
+              'releaseToolingCommit': subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip(),
+              'productSourcesIdentical': True,
+              'artifactRuns': {'linux': os.environ['LINUX_RUN'], 'macos': os.environ['MACOS_RUN'], 'windows': os.environ['WINDOWS_RUN']},
+              'successfulPackageVerificationRuns': runs,
+              'desktopClientVersion': '2.5.0',
+          }
+          Path('release-assets/release-provenance.json').write_text(json.dumps(proof, indent=2) + '\n')
+          PYTHON
+
+      - name: Include release installers
+        run: |
+          cp scripts/install.sh release-assets/install.sh
+          cp scripts/bootstrap-windows.ps1 release-assets/install.ps1
+          cp scripts/bootstrap-windows-source.ps1 release-assets/bootstrap-windows-source.ps1
 
       - name: Write sloppy-version.json and SHA256SUMS
         id: assets
@@ -675,7 +869,9 @@ jobs:
           LINUX_SHA=$(sha256sum "$LINUX" | awk '{print $1}')
           MACOS_SHA=$(sha256sum "$MACOS" | awk '{print $1}')
           NODE_MACOS_SHA=$(sha256sum "$NODE_MACOS" | awk '{print $1}')
-          sha256sum sloppy-version.json "$LINUX" "$MACOS" "$NODE_MACOS" "$MACOS_INSTALLER" "$MACOS_CLIENT_UPDATE" "$MACOS_COMPANION_UPDATE" appcast.xml companion-appcast.xml "$NODE_WINDOWS_EXE" "$NODE_WINDOWS" "$WINDOWS" > SHA256SUMS.txt
+          for ASSET in *; do
+            if [ -f "$ASSET" ] && [ "$ASSET" != SHA256SUMS.txt ]; then sha256sum "$ASSET"; fi
+          done > SHA256SUMS.txt
           {
             echo "linux_sha256=$LINUX_SHA"
             echo "macos_sha256=$MACOS_SHA"
@@ -688,6 +884,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ env.SOURCE_REF }}
           name: Sloppy ${{ steps.meta.outputs.version }}
           generate_release_notes: true
           draft: ${{ github.event_name == 'workflow_dispatch' && !inputs.publish_release }}
@@ -695,6 +892,11 @@ jobs:
           files: |
             release-assets/SHA256SUMS.txt
             release-assets/sloppy-version.json
+            release-assets/install.sh
+            release-assets/install.ps1
+            release-assets/bootstrap-windows-source.ps1
+            release-assets/release-provenance.json
+            release-assets/Sloppy-macos-universal-*.dmg
             release-assets/Sloppy-linux-x86_64.tar.gz
             release-assets/Sloppy-macos-*.tar.gz
             release-assets/SloppyNode-macos-*.tar.gz
@@ -710,7 +912,7 @@ jobs:
   bump-homebrew:
     name: Bump Homebrew Tap Files
     needs: publish
-    if: ${{ success() && (github.event_name != 'workflow_dispatch' || inputs.publish_release) }}
+    if: ${{ success() && github.ref == 'refs/heads/main' && (github.event_name != 'workflow_dispatch' || inputs.publish_release) }}
     runs-on: ubuntu-latest
 
     permissions:

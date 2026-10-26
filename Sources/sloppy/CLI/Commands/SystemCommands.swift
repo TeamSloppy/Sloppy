@@ -164,7 +164,7 @@ struct UpdateCommand: AsyncParsableCommand {
     }
 
     private func downloadReleaseInstaller(to destinationURL: URL) throws {
-        guard let url = URL(string: "https://raw.githubusercontent.com/TeamSloppy/Sloppy/main/scripts/install.sh") else {
+        guard let url = URL(string: "https://github.com/TeamSloppy/Sloppy/releases/latest/download/install.sh") else {
             throw ExitCode.failure
         }
         let process = Process()
