@@ -23,6 +23,7 @@ on:
           - all
           - cli
           - linux
+          - macos
           - apps
       publish_release:
         description: Publish publicly after successful builds and the v2 approval gate
@@ -73,7 +74,7 @@ jobs:
           echo "prepare_release=$PREPARE_RELEASE" >> "$GITHUB_OUTPUT"
 
   signing-check:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform != 'linux' && inputs.build_platform != 'cli' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform != 'linux' && inputs.build_platform != 'cli' && inputs.build_platform != 'macos' }}
     name: Verify Sparkle Signing Secret
     needs: validate
     runs-on: ubuntu-latest
@@ -101,7 +102,7 @@ jobs:
           PYTHON
 
   build-linux:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform != 'apps' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform != 'apps' && inputs.build_platform != 'macos' }}
     needs: validate
     name: Build (Linux)
     runs-on: ubuntu-24.04
@@ -243,10 +244,11 @@ jobs:
           path: ${{ steps.pack.outputs.tarball_path }}
 
   build-macos:
-    if: ${{ github.event_name != 'workflow_dispatch' || (inputs.build_platform == 'all' || inputs.build_platform == 'cli') }}
+    if: ${{ github.event_name != 'workflow_dispatch' || (inputs.build_platform == 'all' || inputs.build_platform == 'cli' || inputs.build_platform == 'macos') }}
     needs: validate
     name: Build (macOS)
-    # Swift 6.2.1 cannot import Xcode 26 WebKit interfaces on macos-latest.
+    # Use Xcode's matching compiler/SDK; standalone Swift 6.2.1 produces
+    # concurrency witness references unavailable in the macOS 15 runtime.
     runs-on: macos-15
 
     permissions:
@@ -258,10 +260,22 @@ jobs:
         with:
           ref: ${{ env.SOURCE_REF }}
 
-      - name: Setup Swift
-        uses: swift-actions/setup-swift@v2
-        with:
-          swift-version: ${{ env.SWIFT_VERSION }}
+      - name: Verify Xcode Swift runtime compatibility
+        run: |
+          swift --version
+          PROBE_DIR=$(mktemp -d)
+          cat > "$PROBE_DIR/ExecutorProbe.swift" <<'SWIFT'
+          import Dispatch
+          final class Probe: SerialExecutor, @unchecked Sendable {
+              func enqueue(_ job: UnownedJob) {}
+          }
+          @inline(never) func erase(_ executor: Probe) -> any SerialExecutor { executor }
+          let executor = erase(Probe())
+          print(executor.asUnownedSerialExecutor())
+          SWIFT
+          swiftc -O "$PROBE_DIR/ExecutorProbe.swift" -o "$PROBE_DIR/probe"
+          "$PROBE_DIR/probe"
+          rm -rf "$PROBE_DIR"
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -379,7 +393,7 @@ jobs:
             ${{ steps.pack.outputs.node_tarball_path }}
 
   build-macos-client:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform != 'linux' && inputs.build_platform != 'cli' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform != 'linux' && inputs.build_platform != 'cli' && inputs.build_platform != 'macos' }}
     needs: [validate, signing-check]
     name: Build Sloppy Client (macOS)
     runs-on: macos-26
@@ -444,7 +458,7 @@ jobs:
             ${{ steps.sparkle.outputs.appcast_path }}
 
   build-macos-companion:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform != 'linux' && inputs.build_platform != 'cli' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform != 'linux' && inputs.build_platform != 'cli' && inputs.build_platform != 'macos' }}
     needs: [validate, signing-check]
     name: Build Desktop Companion (macOS)
     runs-on: macos-26
