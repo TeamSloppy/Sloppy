@@ -9,7 +9,7 @@ extension ChatScreenViewModel {
     public func prepareLaunch() {
         guard let agent = selectedAgent, selectedSessionId != nil,
               !isSending, !isAwaitingAgentResponse, activeInputRequest == nil,
-              !isLoadingApprovalMode, !isSavingApprovalMode, approvalModeErrorMessage == nil else { return }
+              approvalModeAllowsSending else { return }
         sendMessageImmediately(
             content: "Prepare Play for the result of this chat. Inspect the exact checkout/worktree and runnable projects you worked on. Save verified build and launch recipes using session.launch.configure, with one configuration per target (web, macOS app, or iOS Simulator). Recommend the target relevant to this work. Use current uncommitted files. Do not merge, deploy, or install into /Applications. If this is only a library with no runnable target, explain that clearly.",
             attachments: [], quotes: [], agent: agent, clearsComposer: false, references: []
@@ -20,7 +20,7 @@ extension ChatScreenViewModel {
     public func sendMessage(content: String) -> Bool {
         guard let agent = selectedAgent,
               activeInputRequest == nil,
-              !isLoadingApprovalMode, !isSavingApprovalMode, approvalModeErrorMessage == nil else {
+              approvalModeAllowsSending else {
             return false
         }
 #if os(macOS)
@@ -88,7 +88,7 @@ extension ChatScreenViewModel {
         }
         let clientMessageId = UUID().uuidString
         let sendModel = ChatModelSelection.requestOverride(for: selectedModelId)
-        let sendApprovalMode = selectedApprovalMode
+        let sendApprovalMode = hasDraftApprovalModeOverride ? selectedApprovalMode : nil
         let sendReasoningEffort = selectedModelSupportsReasoningEffort ? selectedReasoningEffort.payloadValue : nil
         let optimistic = ChatMessage(
             id: "optimistic-user-\(clientMessageId)",
@@ -114,8 +114,10 @@ extension ChatScreenViewModel {
                         taskId: taskId,
                         separateChat: separateChat
                     )
-                    try await apiClient.setChatApprovalPolicy(agentId: agent.id, sessionId: summary.id, mode: sendApprovalMode)
-                    approvalModesBySession[deliveryKey(agentId: agent.id, sessionId: summary.id)] = sendApprovalMode
+                    if let sendApprovalMode {
+                        try await apiClient.setChatApprovalPolicy(agentId: agent.id, sessionId: summary.id, mode: sendApprovalMode)
+                        approvalModesBySession[deliveryKey(agentId: agent.id, sessionId: summary.id)] = sendApprovalMode
+                    }
                     upsertSessionSummary(summary)
                     guard selectedAgent?.id == agent.id, selectedSessionId == nil,
                           activeComposerDraftKey == originDraftKey else {
@@ -418,7 +420,7 @@ extension ChatScreenViewModel {
 
     func sendNextQueuedMessageIfIdle() async {
         guard !isSending,
-              !isLoadingApprovalMode, !isSavingApprovalMode, approvalModeErrorMessage == nil,
+              approvalModeAllowsSending,
               !isAwaitingAgentResponse,
               !isStopping,
               !isDrainingQueuedMessages,

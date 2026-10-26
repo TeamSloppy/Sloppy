@@ -1,0 +1,11 @@
+.chat-approval-default-settings {
+  padding: 20px;
+  background: #20261e;
+  color: #f5f2e9;
+  border: 1px solid #52604a;
+  border-radius: 6px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.chat-approval-default-settings h3 { margin: 0 0 16px; font-size: 16px; }
+.chat-approval-default-settings p { color: #b5bfad; font-size: 13px; line-height: 1.5; margin: 16px 0 0; }

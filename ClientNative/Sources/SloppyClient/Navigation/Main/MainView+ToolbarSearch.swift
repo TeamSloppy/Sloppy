@@ -50,7 +50,7 @@ extension MainView {
             Image(systemName: "magnifyingglass")
                 .foregroundStyle(.secondary)
 
-            TextField("Search chats and projects", text: $toolbarSearchText)
+            TextField("Search all messages and projects", text: $toolbarSearchText)
                 .textFieldStyle(.plain)
                 .focused($isToolbarSearchFocused)
                 .onKeyPress(.downArrow) {
@@ -80,6 +80,13 @@ extension MainView {
         }
         .padding(.horizontal, 12)
         .frame(minWidth: 280, idealWidth: 420, maxWidth: 560, minHeight: 30)
+        .task(id: "\(toolbarSearchQuery)|\(String(describing: viewModel.textSearchEndpoints))") {
+            await toolbarTextSearch.search(toolbarSearchQuery, endpoints: viewModel.textSearchEndpoints, primaryClient: viewModel.apiClient)
+        }
+        .sheet(isPresented: $isTextSearchPresented) {
+            SessionTextSearchView(endpoints: viewModel.textSearchEndpoints, apiClient: viewModel.apiClient, onOpenSession: viewModel.openTextSearchSession,
+                                  query: textSearchSheetQuery, selected: selectedTextSearchHit)
+        }
         .onChange(of: toolbarSearchText) { _, text in
             isToolbarSearchResultsPresented = !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             toolbarSearchSelectionID = toolbarSearchResults.first?.id
@@ -126,6 +133,7 @@ extension MainView {
     var toolbarSearchResults: [ToolbarSearchResult] {
         visibleToolbarChatSessions.map(ToolbarSearchResult.chat)
         + visibleToolbarProjects.map(ToolbarSearchResult.project)
+        + toolbarTextSearch.items.prefix(8).map(ToolbarSearchResult.text)
     }
 
     var toolbarSearchResultIDs: [ToolbarSearchResult.ID] {
@@ -136,7 +144,7 @@ extension MainView {
         let resultCount = visibleToolbarChatSessions.count + visibleToolbarProjects.count
         let sectionCount = (matchingToolbarChatSessions.isEmpty ? 0 : 1)
         + (matchingToolbarProjects.isEmpty ? 0 : 1)
-        return min(420, max(64, CGFloat(resultCount) * 38 + CGFloat(sectionCount) * 30 + 16))
+        return min(520, max(100, CGFloat(resultCount) * 38 + CGFloat(sectionCount) * 30 + CGFloat(min(toolbarTextSearch.items.count, 8)) * 90 + 70))
     }
 
     @ViewBuilder
@@ -230,10 +238,36 @@ extension MainView {
             }
         }
 
+        if toolbarSearchQuery.count < 3 { Text("Short queries match word prefixes.").font(.caption).padding(8) }
+        if toolbarTextSearch.isLoading { ProgressView("Searching messages…").padding(8) }
+        if toolbarTextSearch.isIndexing { Text("Indexing history…").font(.caption).padding(8) }
+        if let error = toolbarTextSearch.error { Text("Search unavailable: \(error)").font(.caption).foregroundStyle(.red).padding(8) }
+        if toolbarTextSearch.failedSources > 0 { Text("Some journals could not be indexed.").font(.caption).padding(8) }
+        if !toolbarTextSearch.items.isEmpty {
+            Text("Messages").font(.caption.weight(.semibold)).foregroundStyle(.secondary).padding(.horizontal, 10)
+            ForEach(Array(toolbarTextSearch.items.prefix(8))) { item in
+                let result = ToolbarSearchResult.text(item)
+                Button { openToolbarSearchResult(result) } label: {
+                    SessionTextSearchHitRow(hit: item.hit).padding(.horizontal, 10)
+                }
+                .buttonStyle(.plain)
+                .background(toolbarSearchSelectionID == result.id ? Color.primary.opacity(0.08) : .clear)
+                .onHover { if $0 { toolbarSearchSelectionID = result.id } }
+                .id(result.id)
+            }
+        }
+        Button("Search all conversation text…") {
+            textSearchSheetQuery = toolbarSearchQuery
+            selectedTextSearchHit = nil
+            isTextSearchPresented = true
+            dismissToolbarSearch()
+        }.padding(10)
+
         if !toolbarSearchQuery.isEmpty,
+           toolbarTextSearch.items.isEmpty, !toolbarTextSearch.isLoading, toolbarTextSearch.error == nil,
            matchingToolbarChatSessions.isEmpty,
            matchingToolbarProjects.isEmpty {
-            Text("No chats or projects found")
+            Text("No matches found")
                 .foregroundStyle(.secondary)
                 .frame(maxWidth: .infinity, minHeight: 48)
         }
@@ -268,6 +302,10 @@ extension MainView {
 
     func openToolbarSearchResult(_ result: ToolbarSearchResult) {
         switch result {
+        case .text(let item):
+            textSearchSheetQuery = toolbarSearchQuery
+            selectedTextSearchHit = item
+            isTextSearchPresented = true
         case .chat(let session):
             viewModel.openSessionChatTab(session)
         case .project(let project):

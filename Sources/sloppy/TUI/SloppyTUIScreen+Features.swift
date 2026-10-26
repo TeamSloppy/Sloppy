@@ -22,19 +22,20 @@ enum SloppyTUIContextUsageSummaryBuilder {
         let ledgerCategories = ledger?.entries.map {
             SloppyTUIContextCategorySummary(label: $0.category.rawValue, tokens: $0.estimatedTokens)
         } ?? []
-        let effectivePromptTokens = ledger?.contextWindowUsedTokens ?? usage.totalPromptTokens
-        let effectiveTotalTokens = ledger.map { _ in effectivePromptTokens } ?? usage.totalTokens
+        let effectivePromptTokens = ledger?.contextWindowUsedTokens ?? 0
+        let effectiveTotalTokens = effectivePromptTokens
         return SloppyTUIContextUsageSummary(
             modelTitle: modelTitle,
             modelID: modelID,
             contextWindowLabel: contextWindowLabel,
             promptTokens: effectivePromptTokens,
-            completionTokens: usage.totalCompletionTokens,
+            completionTokens: 0,
             totalTokens: effectiveTotalTokens,
-            contextWindowTokens: contextWindowTokens,
+            contextWindowTokens: ledger?.contextWindowTokens ?? 0,
             pendingContextAttached: pendingContextAttached,
             pendingUploadCount: pendingUploadCount,
             semanticDecisionUsage: usage.semanticDecisionUsage,
+            spentTokens: usage.totalTokens,
             ledgerCategories: ledgerCategories,
             lastTurnInputTokens: ledger?.lastTurnInputTokens ?? 0,
             lastTurnCachedInputTokens: ledger?.lastTurnCachedInputTokens ?? 0,
@@ -736,6 +737,10 @@ extension SloppyTUIScreen {
             await applyWorkspaceAccessDecision(item.value)
         case .toolApproval:
             await applyToolApprovalDecision(item.value)
+        case .approvalMode:
+            if let mode = SessionApprovalMode(rawValue: item.value) {
+                await selectApprovalMode(mode)
+            }
         case .provider:
             if item.value == SloppyTUIProviderDefinition.addNewProviderValue {
                 showProviderCatalogPicker()

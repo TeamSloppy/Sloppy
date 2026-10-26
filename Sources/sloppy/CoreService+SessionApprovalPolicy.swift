@@ -12,6 +12,27 @@ extension CoreService {
                                        from: Data(contentsOf: sessionApprovalPoliciesURL))
     }
 
+    public func getDefaultChatApprovalPolicy() -> SessionApprovalPolicy {
+        .init(mode: currentConfig.defaultChatApprovalMode ?? .askForApproval)
+    }
+
+    public func setDefaultChatApprovalPolicy(_ policy: SessionApprovalPolicy) async throws -> SessionApprovalPolicy {
+        var config = currentConfig
+        config.defaultChatApprovalMode = policy.mode
+        let saved = try await updateConfig(config)
+        return .init(mode: saved.defaultChatApprovalMode ?? .askForApproval)
+    }
+
+    /// Snapshot the server default only for new root chats. Older chats keep their
+    /// existing behavior, and delegated sessions continue to inherit their parent.
+    func initializeSessionApprovalPolicy(_ session: AgentSessionSummary) throws {
+        guard session.parentSessionId == nil, let mode = currentConfig.defaultChatApprovalMode else { return }
+        var policies = try readSessionApprovalPolicies()
+        guard policies[session.agentId]?[session.id] == nil else { return }
+        policies[session.agentId, default: [:]][session.id] = mode
+        try JSONEncoder().encode(policies).write(to: sessionApprovalPoliciesURL, options: .atomic)
+    }
+
     func sessionApprovalMode(agentID: String, sessionID: String?) -> SessionApprovalMode? {
         guard var sessionID else { return nil }
         do {

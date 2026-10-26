@@ -17,6 +17,7 @@ export function SidebarView({
   isCompact,
   onToggleCompact,
   onSelect,
+  onSearch = () => {},
   isMobileOpen = false,
   onRequestClose = () => { },
   footer = null,
@@ -51,6 +52,10 @@ export function SidebarView({
       </div>
 
       <nav className="sidebar-nav">
+        <button type="button" className="sidebar-item sidebar-item-primary" onClick={onSearch} title="Search all messages (⌘⇧F)" aria-label="Search all messages" data-testid="global-text-search">
+          <span className="material-symbols-rounded sidebar-icon" aria-hidden="true">search</span>
+          <span className="sidebar-label">Search</span>
+        </button>
         {items.map((item) => (
           <button
             key={item.id}

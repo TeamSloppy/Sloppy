@@ -48,6 +48,8 @@ public final class ChatScreenViewModel {
     public internal(set) var isLoadingApprovalMode = false
     public internal(set) var approvalModeErrorMessage: String?
     var approvalModesBySession: [String: ChatApprovalMode] = [:]
+    var failedApprovalModeSaveKeys: Set<String> = []
+    var hasDraftApprovalModeOverride = false
     var approvalModeRevision = UUID()
     @ObservationIgnored var approvalModeSaveTask: Task<ChatApprovalPolicy, Error>?
     public internal(set) var activeInputRequest: ChatPlanInputRequest?
@@ -230,18 +232,9 @@ public final class ChatScreenViewModel {
     }
 
     public var contextUsage: ChatContextUsage? {
-        let contextModelId = isAutomaticModelSelection
-            ? activeRunStatus?.selectedModel ?? availableModels.first?.id
-            : selectedModelId
-        guard let model = availableModels.first(where: { $0.id == contextModelId }),
-              let limitTokens = model.contextWindowTokens else {
-            return nil
-        }
-        return ChatContextUsage(
-            usedTokens: contextTokenUsage?.total ?? 0,
-            limitTokens: limitTokens,
-            semanticDecisionUsage: semanticDecisionUsage
-        )
+        // Run-status usage aggregates multiple requests, not model-window occupancy.
+        // This client has no typed current-context ledger yet: report unknown.
+        nil
     }
 
     public var canSubmitMessage: Bool {

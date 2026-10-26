@@ -1,3 +1,4 @@
+import { ChatApprovalDefaultsEditor } from "./components/ChatApprovalDefaultsEditor";
 import { MigrationWizard } from "../migrations/MigrationWizard";
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import {
@@ -1520,6 +1521,11 @@ export function ConfigView({
             Keep session files bounded by automatically deleting old agent and channel sessions.
           </p>
         </section>
+
+        <ChatApprovalDefaultsEditor
+          mode={draftConfig.defaultChatApprovalMode ?? "ask_for_approval"}
+          onChange={(mode) => mutateDraft((draft) => { draft.defaultChatApprovalMode = mode; })}
+        />
 
         <section className="entry-editor-card">
           <h3>Retention</h3>

@@ -5,7 +5,90 @@ title: Install
 
 # Install
 
-Three ways to get Sloppy running: with Homebrew, from the source installer, or with Docker Compose.
+Start with one command, or download the native app.
+
+## Quick install
+
+### macOS and Linux
+
+Paste into Terminal:
+
+```bash
+curl -fsSL https://sloppy.team/install.sh | bash
+```
+
+This downloads the latest prebuilt CLI and web Dashboard, verifies SHA-256, and installs
+into `~/.local`. No Swift, Node.js, Git, or Homebrew is needed. Prebuilt CLI packages are
+available for **macOS Apple silicon** and **Linux x86_64**; other architectures require
+[a source build](#build-from-source). On Linux, use a glibc distribution compatible with
+the Ubuntu release build; Alpine/musl requires a source build.
+
+The installer adds the command directory to your zsh or bash profile when it is missing
+from PATH. Open a new terminal, then run:
+
+```bash
+sloppy       # terminal UI
+sloppy run   # server + web Dashboard at http://localhost:25102
+```
+
+Rerun the same install command to update. For a specific version, or to leave your shell profile unchanged:
+
+```bash
+curl -fsSL https://sloppy.team/install.sh | bash -s -- --release-tag v2.5.0
+curl -fsSL https://sloppy.team/install.sh | bash -s -- --no-path
+```
+
+### Windows
+
+Paste into PowerShell:
+
+```powershell
+irm https://sloppy.team/install.ps1 | iex
+```
+
+This installs the prebuilt **Windows x64** CLI, web Dashboard, and runtime DLLs under
+`%LOCALAPPDATA%\Sloppy`. It verifies SHA-256 before replacing files. You do not need
+Swift, Git, Node.js, Visual Studio Build Tools, or the Windows SDK. Runtime libraries
+ship beside the executable; no machine-wide runtime installation or administrator
+permission is required.
+
+Open a new terminal and run `sloppy` or `sloppy run`. Rerun the same command to update.
+Close a running Sloppy process before replacing its files. Workspace data and
+configuration outside the managed `bin`, `dashboard`, and `share` directories are preserved.
+
+::: info Windows release availability
+
+The release must include `Sloppy-windows-x86_64.zip` and its checksum in `SHA256SUMS.txt`.
+Older releases, including v2.5.0, only contain SloppyNode for Windows. If the full archive
+is absent, the installer stops and leaves your installation unchanged. It does not
+fall back to installing build tools. The release workflow now builds and packages the
+full Windows distribution; publish it before enabling the public Windows install path.
+
+:::
+
+To inspect the plan, choose a directory, or explicitly build from source:
+
+```powershell
+Invoke-WebRequest https://sloppy.team/install.ps1 -OutFile install.ps1
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -DryRun
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -InstallRoot D:\Sloppy
+powershell -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 -FromSource
+```
+
+`-FromSource` is for developers. It installs missing build prerequisites and keeps a
+source checkout under `%LOCALAPPDATA%\Sloppy\source`. Windows may request administrator
+permission or a restart for that explicit source build.
+
+See [Windows setup](/guides/build-from-terminal#windows-powershell) for details.
+
+## Native apps
+
+- [Download for macOS](https://github.com/TeamSloppy/Sloppy/releases/download/v2.5.0/SloppyClient-macos-universal-2.5.0.pkg) — macOS 26+, Apple silicon and Intel. Open the installer, then launch Sloppy.
+- [iOS App Store](https://apps.apple.com/app/id6811777701) — the assigned product page; available after App Store publication.
+
+## Other installation methods
+
+Homebrew, source builds, and Docker remain available below.
 
 ## Homebrew
 
@@ -51,9 +134,9 @@ brew uninstall --cask teamsloppy/sloppy/sloppy   # macOS
 brew uninstall teamsloppy/sloppy/sloppy         # Linux
 ```
 
-## Terminal
+## Build from source
 
-### Windows
+### Windows from a checkout
 
 From a checkout or an extracted source ZIP, run:
 
@@ -91,13 +174,13 @@ From a local checkout:
 ```bash
 git clone https://github.com/TeamSloppy/Sloppy.git
 cd Sloppy
-bash scripts/install.sh
+bash scripts/install.sh --bundle
 ```
 
-Or bootstrap from GitHub without cloning first:
+Or build from GitHub without cloning first:
 
 ```bash
-curl -fsSL https://sloppy.team/install.sh | bash
+curl -fsSL https://sloppy.team/install.sh | bash -s -- --bundle
 ```
 
 The installer will:
@@ -120,7 +203,7 @@ If you want the script to clone or update Sloppy for you instead of running from
 
 ```bash
 bash scripts/install.sh --dir ~/.local/share/sloppy/source
-curl -fsSL https://sloppy.team/install.sh | bash -s -- --dir ~/.local/share/sloppy/source
+curl -fsSL https://sloppy.team/install.sh | bash -s -- --bundle --dir ~/.local/share/sloppy/source
 ```
 
 For source installs, `sloppy update` checks the upstream branch and `sloppy update --install`
@@ -168,7 +251,7 @@ sloppy run
 sloppy status
 ```
 
-If `sloppy` is not in `PATH`, add `~/.local/bin` to your shell profile.
+For source installs, add `~/.local/bin` to your shell profile if needed.
 
 ## Run as a background service
 

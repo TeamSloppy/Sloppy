@@ -178,6 +178,21 @@ struct SystemAPIRouter: APIRouter {
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
         }
 
+        router.get("/v1/config/chat-approval-default", metadata: RouteMetadata(summary: "Get default chat approval mode", description: "Returns the approval mode used for new root chats", tags: ["System"])) { _ in
+            CoreRouter.encodable(status: HTTPStatus.ok, payload: await service.getDefaultChatApprovalPolicy())
+        }
+
+        router.put("/v1/config/chat-approval-default", metadata: RouteMetadata(summary: "Set default chat approval mode", description: "Updates the server default without changing existing chats or other settings", tags: ["System"])) { request in
+            guard let body = request.body, let policy = CoreRouter.decode(body, as: SessionApprovalPolicy.self) else {
+                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            }
+            do {
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: try await service.setDefaultChatApprovalPolicy(policy))
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.configWriteFailed])
+            }
+        }
+
         router.get("/v1/voice/config", metadata: RouteMetadata(summary: "Get voice mode config", description: "Returns the sanitized effective voice mode configuration", tags: ["System"])) { _ in
             let response = await service.voiceModeConfig()
             return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)

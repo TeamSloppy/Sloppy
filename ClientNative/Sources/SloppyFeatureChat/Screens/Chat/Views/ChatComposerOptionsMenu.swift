@@ -13,23 +13,41 @@ import UIKit
 
 struct ComposerContextUsageView: View {
     let usage: ChatContextUsage?
+    var turnUsage: ChatTokenUsage? = nil
 
     @State private var isDetailsPresented = false
     @Environment(\.theme) private var theme
 
     var body: some View {
-        ProgressView(value: usage?.fraction ?? 0, total: 1)
+        Group {
+            if let usage {
+                ProgressView(value: usage.fraction, total: 1)
+            } else {
+                Image(systemName: "questionmark.circle")
+                    .help("Current context unknown; turn usage is not context occupancy")
+            }
+        }
             .progressViewStyle(.circular)
             .controlSize(.small)
             .tint(progressColor)
             .frame(width: 20, height: 20)
             .contentShape(Circle())
             .onHover { isHovering in
-                isDetailsPresented = isHovering && usage != nil
+                isDetailsPresented = isHovering
             }
             .popover(isPresented: $isDetailsPresented, arrowEdge: .bottom) {
                 if let usage {
                     contextDetails(usage)
+                } else {
+                    VStack(alignment: .leading, spacing: theme.spacing.s) {
+                        Text("Current context unknown")
+                        Text("Turn usage is not context occupancy.")
+                        if let turnUsage {
+                            Text("Turn (aggregate): \(turnUsage.prompt) input, \(turnUsage.completion) output tokens")
+                        }
+                    }
+                    .font(.system(size: theme.typography.caption))
+                    .padding(theme.spacing.m)
                 }
             }
             .accessibilityLabel("Context usage")
@@ -49,7 +67,7 @@ struct ComposerContextUsageView: View {
     }
 
     private var accessibilityValue: String {
-        guard let usage else { return "Unavailable" }
+        guard let usage else { return "Current context unknown" }
         var value = "\(usage.percentage) percent, \(usage.usedTokens) of \(usage.limitTokens) tokens"
         if let jev = usage.semanticDecisionUsage {
             value += ", routing \(jev.requestCount) decisions, \(formattedJEVCost(jev))"

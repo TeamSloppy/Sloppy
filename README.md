@@ -129,43 +129,47 @@ What makes Sloppy distinct in its current form:
 
 ## 🚀 Quick Start
 
-```bash
-git clone https://github.com/TeamSloppy/Sloppy.git
-cd Sloppy
-bash scripts/install.sh
-sloppy       # terminal UI
-sloppy run   # server + Dashboard
-```
-
-On Windows, run the PowerShell installer from a checkout (or an extracted source ZIP).
-It installs missing build tools, builds Sloppy and Dashboard, and adds `sloppy` to your user PATH:
-
-```powershell
-powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install.ps1
-# Open a new terminal after installation:
-sloppy run  # server + Dashboard
-sloppy      # terminal UI (in another terminal)
-```
-
-Use `.\scripts\dev.ps1 start`, `stop`, `restart`, `status`, or `logs` to manage a background server.
-See the [Windows build guide](docs/guides/build-from-terminal.md#windows-powershell) for options, smoke tests, and platform limitations.
-
-By default the installer builds the server stack and bundled dashboard assets. `sloppy` opens the interactive terminal UI for the current project; `sloppy run` starts the HTTP server and Dashboard. To skip the dashboard build, run:
-
-```bash
-bash scripts/install.sh --server-only
-```
-
-Default local endpoints after `sloppy run`:
-
-- API: `http://localhost:25101`
-- Dashboard: `http://localhost:25102`
-
-Remote bootstrap variants:
+**macOS (Apple silicon) and Linux (x86_64)** — install the ready-to-run CLI and web Dashboard:
 
 ```bash
 curl -fsSL https://sloppy.team/install.sh | bash
-curl -fsSL https://sloppy.team/install.sh | bash -s -- --server-only
+```
+
+No Swift, Node.js, Git, or Homebrew is needed. The installer verifies SHA-256 before
+installing and adds `~/.local/bin` to your shell profile when needed. Open a new terminal:
+
+```bash
+sloppy       # terminal UI
+sloppy run   # server + Dashboard at http://localhost:25102
+```
+
+**Windows** — paste this into PowerShell:
+
+```powershell
+irm https://sloppy.team/install.ps1 | iex
+```
+
+The Windows installer downloads a prebuilt archive, verifies SHA-256, and installs
+Sloppy, the web Dashboard, Swift runtime DLLs, and the app-local Visual C++ runtime.
+No Swift, Git, Node.js, Visual Studio Build Tools, Windows SDK, or administrator access
+is required. Open a new terminal and run `sloppy` or `sloppy run`.
+
+Windows requires a release containing `Sloppy-windows-x86_64.zip`; older releases,
+including v2.5.0, only contain SloppyNode for Windows. The installer stops without
+installing development tools if that full package is absent. Source installation is
+an explicit developer option (`-FromSource`); see the [Windows guide](docs/guides/build-from-terminal.md#windows-powershell).
+
+**Prefer an app?** [Download for macOS](https://github.com/TeamSloppy/Sloppy/releases/download/v2.5.0/SloppyClient-macos-universal-2.5.0.pkg)
+(macOS 26+, Apple silicon and Intel) · [iOS App Store](https://apps.apple.com/app/id6811777701).
+The iOS link uses the assigned App Store ID; availability depends on App Store publication.
+
+To build from a checkout instead, explicitly choose the source installer:
+
+```bash
+git clone https://github.com/TeamSloppy/Sloppy.git
+cd Sloppy
+bash scripts/install.sh --bundle       # CLI + Dashboard
+bash scripts/install.sh --server-only  # CLI only
 ```
 
 For a standalone local computer-control executor, install `sloppy-node` separately:

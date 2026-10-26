@@ -1,5 +1,8 @@
 import { WorkerTaskCard } from "./WorkerTaskCard";
 import { LongChatPanel } from "./LongChatPanel";
+import { ChatApprovalModePicker } from "./ChatApprovalModePicker";
+import { useChatApprovalPolicy } from "../model/useChatApprovalPolicy";
+import type { SessionApprovalMode } from "../../../shared/api/coreApi";
 import React, { startTransition, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import {
   createAgentSession,
@@ -10,6 +13,7 @@ import {
   fetchAgentTasks,
   fetchProjects,
   fetchAgentSession,
+  setAgentSessionApprovalPolicy,
   fetchAgentSessions,
   fetchAllAgentSessions,
   fetchTaskByReference,
@@ -3079,6 +3083,7 @@ function AgentChatComposer({
   onReasoningEffortChange,
   chatMode = DEFAULT_CHAT_MODE,
   onChatModeChange,
+  approvalPolicy,
   availableTasks = [],
   slashCommands = [],
   onTaskTagClick,
@@ -3112,7 +3117,7 @@ function AgentChatComposer({
           ? "Dictate message"
           : voiceInput.unavailableReason || "Voice input is not available";
   const canSend =
-    !inputLocked &&
+    !inputLocked && !approvalPolicy.busy &&
     (String(inputText || "").trim().length > 0 || pendingFiles.length > 0 || sourceControlDiffComposeTags.length > 0);
   const isInputDisabled = isBusy || inputLocked;
   const [caretIndex, setCaretIndex] = useState(0);
@@ -4018,6 +4023,11 @@ function AgentChatComposer({
                 <span>{activeChatMode.label}</span>
               </button>
 
+              <ChatApprovalModePicker
+                mode={approvalPolicy.mode} busy={approvalPolicy.busy} disabled={isStopPending}
+                error={approvalPolicy.error} unavailable={!approvalPolicy.known} onSelect={(mode) => void approvalPolicy.select(mode)} onRetry={approvalPolicy.retry}
+              />
+
               {supportsReasoningEffort ? (
                 <button
                   type="button"
@@ -4278,6 +4288,9 @@ export function AgentChatTab({
 }) {
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
+  const approvalPolicy = useChatApprovalPolicy(agentId, activeSessionId, projectId);
+  const preparingMessage = useRef(false);
+  const [isPreparingMessage, setIsPreparingMessage] = useState(false);
   const [activeSession, setActiveSession] = useState(null);
   const [selectedModel, setSelectedModel] = useState("");
   const [availableModels, setAvailableModels] = useState([]);
@@ -5395,7 +5408,7 @@ export function AgentChatTab({
     } catch (error) { setStatusText(String(error)); }
   }
 
-  async function createSession(parentSessionId = null, checkpointSessionId = null, separateChat = true) {
+  async function createSession(parentSessionId = null, checkpointSessionId = null, separateChat = true, initialApprovalMode?: SessionApprovalMode) {
     const payload: { parentSessionId?: string; checkpointSessionId?: string; projectId?: string; separateChat: boolean } = { separateChat };
     if (parentSessionId) {
       payload.parentSessionId = parentSessionId;
@@ -5413,6 +5426,16 @@ export function AgentChatTab({
       return null;
     }
 
+    if (initialApprovalMode) {
+      try {
+        await setAgentSessionApprovalPolicy(agentId, String(response.id), initialApprovalMode);
+      } catch (error) {
+        const message = `Could not save approval mode: ${String(error)}. Message was not sent.`;
+        setStatusText(message);
+        approvalPolicy.reportError(message);
+        return null;
+      }
+    }
     setSessions((previous) => sortSessionsByUpdate([response, ...previous.filter((item) => item.id !== response.id)]));
     setActiveSessionId(response.id);
     await openSession(response.id);
@@ -6088,7 +6111,7 @@ export function AgentChatTab({
 
   async function handleSend(event) {
     event?.preventDefault?.();
-    if (isSending) { return; }
+    if (isSending || approvalPolicy.busy || preparingMessage.current) { return; }
 
     const trimmed = String(inputText || "").trim();
     const tagMarkdown = sourceControlDiffComposeTags.map((t) => t.markdown).join("\n\n");
@@ -6121,11 +6144,16 @@ export function AgentChatTab({
 
     let sessionId = activeSessionId;
     if (!sessionId) {
-      const created = await createSession(null, null, false);
-      if (!created) {
-        return;
+      preparingMessage.current = true;
+      setIsPreparingMessage(true);
+      try {
+        const created = await createSession(null, null, false, approvalPolicy.overridden ? approvalPolicy.mode : undefined);
+        if (!created) return;
+        sessionId = created.id;
+      } finally {
+        preparingMessage.current = false;
+        setIsPreparingMessage(false);
       }
-      sessionId = created.id;
     }
 
     const localMessageSegments = [];
@@ -7533,6 +7561,7 @@ export function AgentChatTab({
                   onReasoningEffortChange={setReasoningEffort}
                   chatMode={chatMode}
                   onChatModeChange={setChatMode}
+                  approvalPolicy={{ ...approvalPolicy, busy: approvalPolicy.busy || isPreparingMessage }}
                   availableTasks={knownTaskRecords}
                   slashCommands={slashCommands}
                   onTaskTagClick={openTaskReference}

@@ -624,9 +624,7 @@ enum SloppyTUITheme {
 
     static func tokenUsageStatus(_ summary: SloppyTUITokenUsageSummary) -> String {
         var text = formatTokenCountShort(summary.totalTokens)
-        if let percent = summary.usagePercent {
-            text += " (\(percent)%)"
-        }
+
         if summary.cachedInputTokens > 0 {
             text += " · cached \(formatTokenCountShort(summary.cachedInputTokens))"
         }
@@ -636,7 +634,7 @@ enum SloppyTUITheme {
         if let costUSD = summary.costUSD {
             text += " · \(formatUSD(costUSD))"
         }
-        return muted("tokens: ") + foreground(text)
+        return muted("spent tokens: ") + foreground(text)
     }
 
     static func turnTokenUsageBadge(_ usage: TokenUsage) -> String {
@@ -668,21 +666,15 @@ enum SloppyTUITheme {
         let barWidth = max(3, min(12, width / 8))
         let bar = contextProgressBar(summary, width: barWidth)
         var details: [String] = []
-        if let percent = summary.usagePercent, summary.contextWindowTokens > 0 {
+        if let percent = summary.usagePercent, let used = summary.contextUsedTokens, summary.contextWindowTokens > 0 {
             details.append("\(percent)%")
-            details.append("\(formatTokenCountShort(summary.totalTokens))/\(formatTokenCountShort(summary.contextWindowTokens)) tokens")
-            if summary.cachedInputTokens > 0 {
-                details.append("cached \(formatTokenCountShort(summary.cachedInputTokens))")
-            }
-            if summary.cachedInputTokens > 0, summary.promptTokens > 0 {
-                details.append("uncached \(formatTokenCountShort(summary.uncachedInputTokens))")
-            }
+            details.append("\(formatTokenCountShort(used))/\(formatTokenCountShort(summary.contextWindowTokens)) tokens")
             if let freeTokens = summary.freeTokens {
                 details.append("free \(formatTokenCountShort(freeTokens))")
             }
         } else {
-            details.append("\(formatTokenCountShort(summary.totalTokens)) tokens")
             details.append("context unknown")
+            details.append("spent \(formatTokenCountShort(summary.totalTokens)) tokens")
         }
         if let costUSD = summary.costUSD {
             details.append(formatUSD(costUSD))
@@ -751,7 +743,7 @@ enum SloppyTUITheme {
             ? summary.modelID
             : summary.modelTitle
         let grid = contextUsageGrid(summary)
-        let totalText = "\(formatTokenCountShort(summary.totalTokens))/\(contextLabel.lowercased()) tokens"
+        let totalText = summary.usagePercent == nil ? "current context unknown" : "\(formatTokenCountShort(summary.totalTokens))/\(contextLabel.lowercased()) tokens"
         let promptPercent = summary.promptPercent.map(formatPercent) ?? "n/a"
         let completionPercent = summary.completionPercent.map(formatPercent) ?? "n/a"
         let freeText: String
@@ -771,8 +763,9 @@ enum SloppyTUITheme {
         } else {
             semanticDecisionLine = muted("Routing decisions:") + " " + foreground("disabled or unused")
         }
+        let spendingLine = "Session spent: \(formatTokenCountShort(summary.spentTokens)) tokens"
         let categoryLines = summary.ledgerCategories.isEmpty
-            ? "\(muted("No context ledger yet; using token usage fallback."))"
+            ? "\(muted("No context ledger yet; current context unknown."))"
             : summary.ledgerCategories.map { item in
                 "\(muted("-")) \(foreground(item.label)): \(foreground(formatTokenCountShort(item.tokens) + " tokens"))"
             }.joined(separator: "\n")
@@ -810,7 +803,9 @@ enum SloppyTUITheme {
         \(muted("Context window"))
         \(categoryLines)
 
-        \(muted("Last turn"))
+        \(spendingLine)
+
+        \(muted("Last turn (aggregate, not current context)"))
         \(lastTurnLines)
 
         \(muted("Pending next-message context:")) \(foreground(pendingContext))
@@ -826,15 +821,15 @@ enum SloppyTUITheme {
         guard width > 0 else {
             return ""
         }
-        guard summary.contextWindowTokens > 0 else {
+        guard summary.contextWindowTokens > 0, let used = summary.contextUsedTokens else {
             return muted("[\(String(repeating: "-", count: width))]")
         }
 
         var filled = min(
             width,
-            max(0, Int((Double(summary.totalTokens) / Double(summary.contextWindowTokens) * Double(width)).rounded()))
+            max(0, Int((Double(used) / Double(summary.contextWindowTokens) * Double(width)).rounded()))
         )
-        if summary.totalTokens > 0, filled == 0 {
+        if used > 0, filled == 0 {
             filled = 1
         }
         let empty = max(0, width - filled)
@@ -861,8 +856,7 @@ enum SloppyTUITheme {
         stageElapsed: TimeInterval?
     ) -> String {
         var parts: [String] = [foreground(model)]
-        if summary.contextWindowTokens > 0 {
-            let contextTokens = lastTurnUsage.map { $0.prompt + $0.completion } ?? summary.totalTokens
+        if summary.contextWindowTokens > 0, let contextTokens = summary.contextUsedTokens {
             let contextPercent = min(100, Int(((Double(contextTokens) / Double(summary.contextWindowTokens)) * 100).rounded()))
             parts.append(foreground("ctx \(formatTokenCountCompact(contextTokens))/\(formatTokenCountCompact(summary.contextWindowTokens))"))
             parts.append(contextIndicatorBar(tokens: contextTokens, contextWindowTokens: summary.contextWindowTokens, percent: contextPercent, width: 10) + muted(" ") + contextIndicatorPercent(contextPercent))
@@ -870,11 +864,11 @@ enum SloppyTUITheme {
                 parts.append(muted("spent \(formatTokenCountCompact(summary.totalTokens))"))
             }
         } else {
-            if let lastTurnUsage {
-                parts.append(foreground("last \(formatTokenCountCompact(lastTurnUsage.prompt))↑/\(formatTokenCountCompact(lastTurnUsage.completion))↓"))
-            }
             parts.append(foreground("spent \(formatTokenCountCompact(summary.totalTokens))"))
             parts.append(muted("context unknown"))
+        }
+        if let lastTurnUsage {
+            parts.append(foreground("turn \(formatTokenCountCompact(lastTurnUsage.prompt))↑/\(formatTokenCountCompact(lastTurnUsage.completion))↓"))
         }
         if let runElapsed {
             parts.append(foreground(formatCompactDuration(runElapsed)))

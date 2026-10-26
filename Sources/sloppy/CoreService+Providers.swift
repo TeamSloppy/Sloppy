@@ -342,7 +342,18 @@ extension CoreService {
 
     /// Returns the server-side source of truth for model pickers.
     public func listAvailableProviderModels() -> [ProviderModelOption] {
-        availableAgentModels()
+        availableAgentModels().map { option in
+            Self.providerModelOption(option, limits: modelProvider?.contextLimits(for: option.id))
+        }
+    }
+
+    static func providerModelOption(_ option: ProviderModelOption, limits: ModelContextLimits?) -> ProviderModelOption {
+        guard let limits else { return option }
+        var result = option
+        result.contextWindowTokens = limits.contextWindowTokens
+        result.maxInputTokens = limits.maxInputTokens
+        result.maxOutputTokens = limits.maxOutputTokens
+        return result
     }
 
     func availableAgentModels() -> [ProviderModelOption] {
@@ -352,7 +363,9 @@ extension CoreService {
             hasOAuthCredentials: hasOAuth,
             currentDirectory: workspaceCurrentDirectory
         )
-        guard hasOAuth, !oauthModelCache.isEmpty else { return base }
+        guard hasOAuth, !oauthModelCache.isEmpty else {
+            return base.map { Self.providerModelOption($0, limits: modelProvider?.contextLimits(for: $0.id)) }
+        }
 
         var seen = Set<String>()
         var options: [ProviderModelOption] = base.map { option in
@@ -365,7 +378,9 @@ extension CoreService {
                 title: cached.title.isEmpty ? option.title : cached.title,
                 contextWindow: cached.contextWindow ?? option.contextWindow,
                 capabilities: cached.capabilities.isEmpty ? option.capabilities : cached.capabilities,
-                contextWindowTokens: cached.contextWindowTokens ?? option.contextWindowTokens
+                contextWindowTokens: cached.contextWindowTokens ?? option.contextWindowTokens,
+                maxInputTokens: cached.maxInputTokens ?? option.maxInputTokens,
+                maxOutputTokens: cached.maxOutputTokens ?? option.maxOutputTokens
             )
         }
 
@@ -378,12 +393,14 @@ extension CoreService {
                     title: cached.title,
                     contextWindow: cached.contextWindow,
                     capabilities: cached.capabilities,
-                    contextWindowTokens: cached.contextWindowTokens
+                    contextWindowTokens: cached.contextWindowTokens,
+                    maxInputTokens: cached.maxInputTokens,
+                    maxOutputTokens: cached.maxOutputTokens
                 )
             )
         }
 
-        return options
+        return options.map { Self.providerModelOption($0, limits: modelProvider?.contextLimits(for: $0.id)) }
     }
 
     func stripProviderPrefix(_ id: String) -> String {
@@ -421,7 +438,7 @@ extension CoreService {
         for model in oauthModelCache.values {
             guard let window = model.contextWindowTokens, window > 0 else { continue }
             let id = model.id.hasPrefix("openai-oauth:") ? model.id : "openai-oauth:\(model.id)"
-            limits[id] = ModelContextLimits(contextWindowTokens: window)
+            limits[id] = ModelContextLimits(contextWindowTokens: window, maxInputTokens: model.maxInputTokens, maxOutputTokens: model.maxOutputTokens)
         }
         await runtime.setCatalogContextLimits(limits)
     }
@@ -467,7 +484,14 @@ extension CoreService {
             }
 
             if seen.insert(value).inserted {
-                options.append(Self.providerModelOption(for: value))
+                let option = Self.providerModelOption(for: value)
+                let entry = config.effectiveModels(currentDirectory: currentDirectory).first {
+                    CoreModelProviderFactory.resolvedIdentifier(for: $0) == value
+                }
+                let limits = entry?.contextWindowTokens.flatMap { window in
+                    window > 0 ? ModelContextLimits(contextWindowTokens: window, maxInputTokens: entry?.maxInputTokens, maxOutputTokens: entry?.maxOutputTokens) : nil
+                }
+                options.append(Self.providerModelOption(option, limits: limits))
             }
         }
 

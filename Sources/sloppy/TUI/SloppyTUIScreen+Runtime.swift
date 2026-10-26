@@ -10,93 +10,159 @@ import TauTUI
 @MainActor
 extension SloppyTUIScreen {
     func streamSession() {
+        streamTask?.cancel()
+        let streamID = UUID()
+        sessionStreamID = streamID
+        sessionStreamReadyKey = nil
+        sessionStreamReconnecting = false
         guard hasPersistedSession else {
-            streamTask?.cancel()
             streamTask = nil
-            sessionStreamReadyKey = nil
             resumeSessionStreamReadyWaiters()
             return
         }
-        streamTask?.cancel()
-        sessionStreamReadyKey = nil
         let streamKey = currentSessionStreamKey()
+        let agentID = agent.id
+        let sessionID = session.id
+        let backend = service
         streamTask = Task { [weak self] in
-            guard let self else { return }
-            do {
-                let stream = try await self.service.streamAgentSessionEvents(agentID: self.agent.id, sessionID: self.session.id)
-                for await update in stream {
-                    guard !Task.isCancelled else { break }
-                    await MainActor.run {
-                        if update.kind == .sessionReady {
-                            self.markSessionStreamReady(streamKey: streamKey)
-                        } else if update.kind == .sessionDelta, let message = update.message {
-                            self.markFirstStreamEventIfNeeded()
-                            self.markFirstModelChunkIfNeeded()
-                            self.appendLiveAssistantDraftDelta(message)
-                        } else if update.kind == .sessionEvent, let event = update.event {
-                            self.markFirstStreamEventIfNeeded()
-                            if event.toolCall != nil {
-                                self.markFirstToolCallIfNeeded()
-                                self.lastAgentToolActivityAt = Date()
-                            }
-                            if event.toolResult != nil {
-                                self.lastAgentToolActivityAt = Date()
-                            }
-                            var shouldRefreshTokenUsageAfterRun = false
-                            if let status = event.runStatus {
-                                self.liveTurnTokenUsageTracker.handle(status)
-                                if let tokenUsage = status.tokenUsage {
-                                    self.lastTurnTokenUsage = tokenUsage
-                                }
-                                if status.stage == .done || status.stage == .interrupted {
-                                    self.liveRunStage = nil
-                                    self.liveRunStatusLine = nil
-                                    self.markSendTiming("final_status")
-                                    shouldRefreshTokenUsageAfterRun = true
-                                } else {
-                                    self.liveRunStage = status.stage
-                                    self.liveRunStatusLine = self.runStatusLine(status)
-                                }
-                                self.refreshStaticChrome()
-                                self.notifyForRunStatus(status)
-                            }
-                            if let inputRequest = event.inputRequest {
-                                self.settleLiveAssistantDraft()
-                                self.notifyForInputRequest(inputRequest)
-                            }
-                            if self.isFinalAssistantMessage(event) {
-                                self.clearLiveAssistantDraft()
-                                self.stopThinkingAnimation()
-                            }
-                            Task {
-                                if shouldRefreshTokenUsageAfterRun {
-                                    await self.refreshTokenUsage(includeCost: true)
-                                }
-                                await self.reloadSession()
-                            }
-                        } else if update.kind == .sessionClosed {
-                            self.clearLiveAssistantDraft()
-                            self.stopThinkingAnimation()
-                            self.appendLocalCard(update.message ?? "Session closed.")
-                        }
-                    }
-                }
-            } catch {
-                await MainActor.run {
-                    self.markSessionStreamReady(streamKey: streamKey)
-                    self.appendLocalCard("Session stream failed: \(String(describing: error))")
+            var retryDelay: UInt64 = 250_000_000
+            var needsHistoryResync = false
+            defer {
+                if let self, self.sessionStreamID == streamID {
+                    self.streamTask = nil
+                    self.sessionStreamReadyKey = nil
+                    self.sessionStreamReconnecting = false
+                    self.resumeSessionStreamReadyWaiters()
+                    self.refreshStaticChrome()
                 }
             }
+            while !Task.isCancelled {
+                do {
+                    let stream = try await backend.streamAgentSessionEvents(agentID: agentID, sessionID: sessionID)
+                    for await update in stream {
+                        guard let self, !Task.isCancelled,
+                              self.isCurrentSessionStream(id: streamID, key: streamKey) else { return }
+                        if update.kind == .sessionReady {
+                            self.sessionStreamReconnecting = false
+                            self.markSessionStreamReady(streamKey: streamKey)
+                            self.refreshStaticChrome()
+                            if needsHistoryResync {
+                                // Subscribe first, then recover persisted events without blocking live updates.
+                                Task { [weak self] in
+                                    guard let self, self.isCurrentSessionStream(id: streamID, key: streamKey) else { return }
+                                    await self.reloadSession()
+                                }
+                                needsHistoryResync = false
+                            }
+                        } else {
+                            retryDelay = 250_000_000
+                            if !self.handleSessionStreamUpdate(update, streamKey: streamKey) { return }
+                        }
+                    }
+                } catch {
+                    guard let self, !Task.isCancelled,
+                          self.isCurrentSessionStream(id: streamID, key: streamKey) else { return }
+                    self.logger.warning("Session stream failed", metadata: [
+                        "agent_id": .string(agentID), "session_id": .string(sessionID),
+                        "error": .string(String(describing: error))
+                    ])
+                }
+                guard let self, !Task.isCancelled,
+                      self.isCurrentSessionStream(id: streamID, key: streamKey) else { return }
+                self.sessionStreamReadyKey = nil
+                self.sessionStreamReconnecting = true
+                self.refreshStaticChrome()
+                self.logger.warning("Session stream disconnected; reconnecting", metadata: [
+                    "agent_id": .string(agentID), "session_id": .string(sessionID)
+                ])
+                needsHistoryResync = true
+                do {
+                    try await Task.sleep(nanoseconds: retryDelay)
+                } catch {
+                    return
+                }
+                retryDelay = min(retryDelay * 2, 2_000_000_000)
+            }
         }
+    }
+
+    func stopSessionStream() {
+        sessionStreamID = UUID()
+        streamTask?.cancel()
+        streamTask = nil
+        sessionStreamReadyKey = nil
+        sessionStreamReconnecting = false
+        resumeSessionStreamReadyWaiters()
+    }
+
+    func isCurrentSessionStream(id: UUID, key: String) -> Bool {
+        hasPersistedSession && sessionStreamID == id && currentSessionStreamKey() == key
+    }
+
+    func handleSessionStreamUpdate(_ update: AgentSessionStreamUpdate, streamKey: String) -> Bool {
+        if update.kind == .sessionDelta, let message = update.message {
+            markFirstStreamEventIfNeeded()
+            markFirstModelChunkIfNeeded()
+            appendLiveAssistantDraftDelta(message)
+        } else if update.kind == .sessionEvent, let event = update.event {
+            markFirstStreamEventIfNeeded()
+            if event.toolCall != nil {
+                markFirstToolCallIfNeeded()
+                lastAgentToolActivityAt = Date()
+            }
+            if event.toolResult != nil {
+                lastAgentToolActivityAt = Date()
+            }
+            var shouldRefreshTokenUsageAfterRun = false
+            if let status = event.runStatus {
+                liveTurnTokenUsageTracker.handle(status)
+                if let tokenUsage = status.tokenUsage {
+                    lastTurnTokenUsage = tokenUsage
+                }
+                if status.stage == .done || status.stage == .interrupted {
+                    liveRunStage = nil
+                    liveRunStatusLine = nil
+                    markSendTiming("final_status")
+                    shouldRefreshTokenUsageAfterRun = true
+                } else {
+                    liveRunStage = status.stage
+                    liveRunStatusLine = runStatusLine(status)
+                }
+                refreshStaticChrome()
+                notifyForRunStatus(status)
+            }
+            if let inputRequest = event.inputRequest {
+                settleLiveAssistantDraft()
+                notifyForInputRequest(inputRequest)
+            }
+            if isFinalAssistantMessage(event) {
+                clearLiveAssistantDraft()
+                stopThinkingAnimation()
+            }
+            Task { [weak self] in
+                guard let self, self.currentSessionStreamKey() == streamKey else { return }
+                if shouldRefreshTokenUsageAfterRun {
+                    await self.refreshTokenUsage(includeCost: true)
+                }
+                guard self.currentSessionStreamKey() == streamKey else { return }
+                await self.reloadSession()
+            }
+        } else if update.kind == .sessionClosed {
+            clearLiveAssistantDraft()
+            stopThinkingAnimation()
+            appendLocalCard(update.message ?? "Session closed.")
+            return false
+        }
+        return true
     }
 
     func waitForCurrentSessionStreamReady() async {
         guard hasPersistedSession else { return }
         let streamKey = currentSessionStreamKey()
-        if sessionStreamReadyKey == streamKey {
+        if sessionStreamReadyKey == streamKey, let streamTask, !streamTask.isCancelled {
             return
         }
-        if streamTask == nil {
+        if streamTask == nil || streamTask?.isCancelled == true {
             streamSession()
         }
         await withPlatformCheckedContinuation { continuation in
@@ -389,6 +455,7 @@ extension SloppyTUIScreen {
         let reloadAgentID = agent.id
         let reloadSessionID = session.id
         guard hasPersistedSession else {
+            await refreshApprovalMode()
             sessionCards = []
             subSessionCards = []
             pendingToolApproval = nil
@@ -485,6 +552,7 @@ extension SloppyTUIScreen {
         subSessionCards = children
         invalidateSessionTimelineCache()
         updatePendingPlanInputRequest(pendingInputRequest)
+        await refreshApprovalMode()
         await refreshPendingToolApproval()
         await refreshTokenUsage(includeCost: false)
         if sessionListMode != .hidden {
@@ -597,6 +665,7 @@ extension SloppyTUIScreen {
                 tokenUsageCostUSD = agentUsage.totalCostUSD
             }
         }
+        let ledger = await service.contextLedgerSnapshot(channelId: currentSessionChannelID())
         tokenUsageSummary = SloppyTUITokenUsageSummary(
             promptTokens: usage.totalPromptTokens,
             completionTokens: usage.totalCompletionTokens,
@@ -604,8 +673,9 @@ extension SloppyTUIScreen {
             cachedInputTokens: usage.totalCachedInputTokens,
             cacheCreationInputTokens: usage.totalCacheCreationInputTokens,
             reasoningTokens: usage.totalReasoningTokens,
-            contextWindowTokens: selectedModelContextWindowTokens,
-            costUSD: tokenUsageCostUSD
+            contextWindowTokens: ledger?.contextWindowTokens ?? selectedModelContextWindowTokens,
+            costUSD: tokenUsageCostUSD,
+            contextUsedTokens: ledger?.contextWindowUsedTokens
         )
         refreshStaticChrome()
     }

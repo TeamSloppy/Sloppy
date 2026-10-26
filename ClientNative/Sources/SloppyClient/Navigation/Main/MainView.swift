@@ -47,11 +47,14 @@ struct MainView: View {
     enum ToolbarSearchResult: Identifiable {
         case chat(ChatSessionSummary)
         case project(APIProjectRecord)
+        case text(LocatedTextSearchHit)
 
         var id: String {
             switch self {
             case .chat(let session):
                 "chat:\(session.storageID)"
+            case .text(let item):
+                "text:\(item.id)"
             case .project(let project):
                 "project:\(project.storageID)"
             }
@@ -131,6 +134,10 @@ struct MainView: View {
         nonmutating set { viewModel.workspaceDockState.isPresented = newValue }
     }
     @State var toolbarSearchText = ""
+    @State var toolbarTextSearch = SessionTextSearchState()
+    @State var isTextSearchPresented = false
+    @State var textSearchSheetQuery = ""
+    @State var selectedTextSearchHit: LocatedTextSearchHit?
     @State var isToolbarSearchResultsPresented = false
     @State var showsApprovalRequiredChatsOnly = false
     @State var canvasWorkspaceViewModel: CanvasWorkspaceViewModel

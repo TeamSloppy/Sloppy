@@ -1,0 +1,61 @@
+.chat-approval-mode {
+  position: relative;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  max-width: 100%;
+}
+
+.chat-approval-mode-trigger {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  padding: 6px 8px;
+  border: 1px solid #52604a;
+  border-radius: 6px;
+  background: #20261e;
+  color: #f5f2e9;
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+}
+
+.chat-approval-mode-trigger:disabled { opacity: .6; cursor: default; }
+.chat-approval-mode-trigger .material-symbols-rounded { font-size: 16px; }
+.chat-approval-mode button:focus-visible { outline: 2px solid #c8e2ae; outline-offset: 2px; }
+
+.chat-approval-mode .chat-approval-mode-dropdown {
+  position: fixed;
+  top: auto;
+  right: auto;
+  box-sizing: border-box;
+  width: min(320px, calc(100vw - 32px));
+  background: #f5f2e9;
+  color: #242521;
+  border: 1px solid #d5d7ca;
+  border-radius: 6px;
+  box-shadow: none;
+  padding: 4px;
+  z-index: 40;
+}
+
+.chat-approval-mode .chat-approval-mode-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  width: 100%;
+  padding: 10px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: #242521;
+  text-align: left;
+  white-space: normal;
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+}
+
+.chat-approval-mode-option span { color: #6d7066; line-height: 1.4; }
+.chat-approval-mode .chat-approval-mode-option[aria-checked="true"],
+.chat-approval-mode .chat-approval-mode-option:hover { background: #c8e2ae; }
+.chat-approval-mode-error { max-width: 320px; overflow-wrap: anywhere; font-size: 12px; color: #f5f2e9; }

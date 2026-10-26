@@ -50,7 +50,7 @@ export const SETTINGS_ITEMS = [
     id: "sessions",
     title: "Sessions",
     icon: "history",
-    searchTerms: ["retention", "history", "days", "cleanup", "session retention"]
+    searchTerms: ["retention", "history", "days", "cleanup", "session retention", "approval", "approve", "default", "new chats"]
   },
   {
     id: "approvals",
@@ -454,6 +454,7 @@ export const EMPTY_CONFIG = {
   workspace: { name: ".sloppy", basePath: "~" },
   auth: { token: "dev-token" },
   onboarding: { completed: false },
+  defaultChatApprovalMode: null as "ask_for_approval" | "approve_for_me" | null,
   sessionRetention: { enabled: true, days: 30 },
   models: [emptyModel()],
   semanticDecisions: {
@@ -1041,6 +1042,7 @@ export function normalizeConfig(config) {
   normalized.workspace.basePath = config?.workspace?.basePath || normalized.workspace.basePath;
   normalized.auth.token = config?.auth?.token || normalized.auth.token;
   normalized.onboarding.completed = Boolean(config?.onboarding?.completed);
+  normalized.defaultChatApprovalMode = config?.defaultChatApprovalMode === "approve_for_me" ? "approve_for_me" : config?.defaultChatApprovalMode === "ask_for_approval" ? "ask_for_approval" : null;
   normalized.sessionRetention.enabled = config?.sessionRetention?.enabled !== false;
   normalized.sessionRetention.days = Math.min(
     90,

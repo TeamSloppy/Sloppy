@@ -2228,14 +2228,18 @@ extension CoreService {
                 )
             }
         )
-        // Process.waitUntilExit must never monopolize CoreService: every Dashboard
-        // request shares this actor, including config and memory reads.
-        let gitMetadata = await Task.detached(priority: .utility) {
-            Dictionary(uniqueKeysWithValues: projectRoots.compactMap { id, root -> (String, ProjectGitWorktreeMetadata)? in
-                guard let metadata = Self.gitWorktreeMetadata(at: root) else { return nil }
-                return (id, metadata)
-            })
-        }.value
+        let gitMetadata = await withTaskGroup(of: (String, ProjectGitWorktreeMetadata?).self) { group in
+            for (id, root) in projectRoots {
+                group.addTask {
+                    (id, await Self.gitWorktreeMetadata(at: root))
+                }
+            }
+            var metadata: [String: ProjectGitWorktreeMetadata] = [:]
+            for await (id, item) in group {
+                if let item { metadata[id] = item }
+            }
+            return metadata
+        }
         var result: [String: ProjectComputedWorktreeMetadata] = [:]
 
         for child in projects {
@@ -2308,18 +2312,16 @@ extension CoreService {
         }
     }
 
-    private nonisolated static func gitWorktreeMetadata(at repoPath: String) -> ProjectGitWorktreeMetadata? {
+    private nonisolated static func gitWorktreeMetadata(at repoPath: String) async -> ProjectGitWorktreeMetadata? {
         var isDirectory: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: repoPath, isDirectory: &isDirectory),
+        guard !Task.isCancelled,
+              FileManager.default.fileExists(atPath: repoPath, isDirectory: &isDirectory),
               isDirectory.boolValue
         else {
             return nil
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        process.arguments = [
-            "git",
+        let arguments = [
             "-C",
             repoPath,
             "rev-parse",
@@ -2329,26 +2331,25 @@ extension CoreService {
             "HEAD"
         ]
 
-        let output = Pipe()
-        let error = Pipe()
-        process.standardOutput = output
-        process.standardError = error
-
-        do {
-            try PlatformProcess.run(process)
-        } catch {
+        // Metadata is optional: a stalled repository must not block the project
+        // list or consume a cooperative executor thread indefinitely.
+        guard let response = try? await runForegroundProcess(
+            command: "git",
+            arguments: arguments,
+            cwd: nil,
+            timeoutMs: 2_000,
+            maxOutputBytes: 64 * 1024
+        ), case .object(let result) = response,
+           result["exitCode"]?.asInt == 0,
+           result["timedOut"] == .bool(false),
+           !Task.isCancelled else {
             return nil
         }
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            return nil
-        }
 
-        let data = output.fileHandleForReading.readDataToEndOfFile()
-        let lines = String(data: data, encoding: .utf8)?
+        let lines = (result["stdout"]?.asString ?? "")
             .split(separator: "\n", omittingEmptySubsequences: false)
             .map { String($0).trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty } ?? []
+            .filter { !$0.isEmpty }
         guard lines.count >= 2 else {
             return nil
         }

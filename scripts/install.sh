@@ -17,6 +17,7 @@ DRY_RUN="${SLOPPY_DRY_RUN:-0}"
 VERBOSE="${SLOPPY_VERBOSE:-0}"
 NO_LINK="${SLOPPY_NO_LINK:-0}"
 NO_GIT_UPDATE="${SLOPPY_NO_GIT_UPDATE:-0}"
+NO_PATH="${SLOPPY_NO_PATH:-0}"
 
 if [[ -n "${SLOPPY_INSTALL_DIR+x}" ]]; then
   INSTALL_DIR_SET=1
@@ -45,11 +46,11 @@ usage() {
   cat <<EOF
 Usage: $SCRIPT_NAME [options]
 
-Install Sloppy from source and optionally build the Dashboard bundle, or install
-prebuilt binaries from a GitHub Release.
+Install the latest prebuilt Sloppy CLI and Dashboard. No build tools required.
+Use --bundle or --server-only to build from source instead.
 
 Options:
-  --release           Install sloppy from GitHub Release assets (no Swift build).
+  --release           Install from GitHub Release assets (default; no Swift build).
   --release-tag <t>   Use this tag (for example v1.2.3). Default: latest release.
   --bundle            Build the server stack and Dashboard bundle.
   --server-only       Build only the server stack.
@@ -58,6 +59,7 @@ Options:
   --dashboard-dir <path>
                      Install the built Dashboard bundle into <path>. Default: $DASHBOARD_DIR
   --no-link           Do not create symlinks for sloppy.
+  --no-path           Do not add the command directory to your shell profile.
   --no-git-update     Do not pull an existing checkout before building.
   --no-prompt         Disable interactive prompts and use defaults.
   --dry-run           Print the actions without executing them.
@@ -76,6 +78,7 @@ Environment variables:
   SLOPPY_DRY_RUN=1
   SLOPPY_VERBOSE=1
   SLOPPY_NO_LINK=1
+  SLOPPY_NO_PATH=1
   SLOPPY_NO_GIT_UPDATE=1
   SLOPPY_REPO_URL=https://github.com/TeamSloppy/Sloppy.git
 EOF
@@ -181,6 +184,10 @@ parse_args() {
         NO_LINK="1"
         shift
         ;;
+      --no-path)
+        NO_PATH="1"
+        shift
+        ;;
       --no-git-update)
         NO_GIT_UPDATE="1"
         shift
@@ -239,31 +246,7 @@ ensure_mode() {
     esac
   fi
 
-  if [[ "$NO_PROMPT" == "1" || ! -t 0 ]]; then
-    MODE="bundle"
-    return 0
-  fi
-
-  log "Choose install mode:"
-  log "  1) bundle      Build sloppy and Dashboard"
-  log "  2) server-only Build sloppy only"
-  log "  3) release     Download prebuilt binaries from GitHub Releases"
-  printf 'Selection [1]: '
-  read -r selection
-  case "$selection" in
-    ""|1)
-      MODE="bundle"
-      ;;
-    2)
-      MODE="server"
-      ;;
-    3)
-      MODE="release"
-      ;;
-    *)
-      die "Invalid selection '$selection'."
-      ;;
-  esac
+  MODE="release"
 }
 
 ensure_prerequisites() {
@@ -276,11 +259,6 @@ ensure_prerequisites() {
       :
     else
       die "Need shasum or sha256sum to verify release checksums."
-    fi
-    if [[ -z "${RELEASE_TAG:-}" ]]; then
-      if ! command_exists python3 && ! command_exists jq; then
-        die "Install python3 or jq to resolve the latest release, or set SLOPPY_RELEASE_TAG (or use --release-tag)."
-      fi
     fi
     return 0
   fi
@@ -311,26 +289,39 @@ sha256_file() {
 
 fetch_latest_release_tag() {
   local repo="$1"
-  local json url api_header
-  url="https://api.github.com/repos/${repo}/releases/latest"
-  api_header=(-H "Accept: application/vnd.github+json" -H "User-Agent: sloppy-install.sh")
-  if command_exists python3; then
-    python3 -c 'import json,sys,urllib.request
-repo=sys.argv[1]
-req=urllib.request.Request(
-  "https://api.github.com/repos/"+repo+"/releases/latest",
-  headers={"Accept":"application/vnd.github+json","User-Agent":"sloppy-install.sh"},
-)
-print(json.load(urllib.request.urlopen(req))["tag_name"])
-' "$repo"
-    return 0
+  local url prefix
+  prefix="https://github.com/${repo}/releases/tag/"
+  url="$(curl -fsSLI -o /dev/null -w '%{url_effective}' "https://github.com/${repo}/releases/latest")" \
+    || die "Could not find the latest release. Check your connection and try again."
+  [[ "$url" == "$prefix"* && -n "${url#"$prefix"}" ]] || die "GitHub did not return a release tag."
+  printf '%s\n' "${url#"$prefix"}"
+}
+
+configure_path() {
+  [[ "$NO_LINK" == "0" && "$NO_PATH" == "0" ]] || return 0
+  [[ ":$PATH:" != *":$BIN_DIR:"* ]] || return 0
+
+  local profile entry quoted_bin
+  printf -v quoted_bin '%q' "$BIN_DIR"
+  entry="export PATH=${quoted_bin}:\"\$PATH\""
+  case "${SHELL:-}" in
+    */zsh) profile="${ZDOTDIR:-$HOME}/.zshrc" ;;
+    */bash)
+      if [[ "$(uname -s)" == "Darwin" ]]; then profile="$HOME/.bash_profile"
+      else profile="$HOME/.bashrc"; fi
+      ;;
+    *)
+      log "Add $BIN_DIR to your shell PATH to run sloppy by name."
+      return 0
+      ;;
+  esac
+  if [[ ! -f "$profile" ]] || ! grep -Fqx "$entry" "$profile"; then
+    if ! printf '\n# Sloppy CLI\n%s\n' "$entry" >> "$profile"; then
+      warn "Could not update $profile. Add $BIN_DIR to your PATH manually."
+      return 0
+    fi
   fi
-  json="$(curl -fsSL "${api_header[@]}" "$url")" || die "Failed to fetch latest release metadata for $repo."
-  if command_exists jq; then
-    printf '%s\n' "$(printf '%s\n' "$json" | jq -r .tag_name)"
-    return 0
-  fi
-  printf '%s\n' "$json" | tr ',' '\n' | grep '"tag_name"' | head -1 | sed -n 's/.*"tag_name"[^"]*"\([^"]*\)".*/\1/p'
+  log "PATH is configured in $profile. Open a new terminal to run sloppy."
 }
 
 release_tarball_name() {
@@ -369,6 +360,7 @@ expected_sha256_from_sums() {
 
 install_from_github_release() {
   local tag tarball sums_url tb_url sums_path tb_path tmp expected actual
+  tarball="$(release_tarball_name)"
   tag="${RELEASE_TAG:-}"
   if [[ -z "$tag" ]]; then
     log "Resolving latest release tag for $RELEASE_REPO"
@@ -376,7 +368,6 @@ install_from_github_release() {
   fi
   [[ -n "$tag" ]] || die "Could not resolve a release tag."
 
-  tarball="$(release_tarball_name)"
   sums_url="https://github.com/${RELEASE_REPO}/releases/download/${tag}/SHA256SUMS.txt"
   tb_url="https://github.com/${RELEASE_REPO}/releases/download/${tag}/${tarball}"
 
@@ -403,8 +394,19 @@ install_from_github_release() {
   actual="$(sha256_file "$tb_path")"
   [[ "$expected" == "$actual" ]] || die "SHA256 mismatch for $tarball (expected $expected, got $actual)."
 
+  mkdir -p "$tmp/unpacked"
+  tar -C "$tmp/unpacked" -xzf "$tb_path"
+  [[ -x "$tmp/unpacked/bin/sloppy" && -f "$tmp/unpacked/share/sloppy/dashboard/dist/index.html" ]] \
+    || die "The release archive is missing the CLI or Dashboard."
+  "$tmp/unpacked/bin/sloppy" --version || die "This release cannot run on your system. See https://docs.sloppy.team/install for supported platforms."
+
   run_cmd mkdir -p "$LOCAL_ROOT"
-  run_cmd tar -C "$LOCAL_ROOT" -xzf "$tb_path"
+  # A previous source install may have linked this path into its checkout.
+  # Replace the link itself rather than copying through it into the old build.
+  if [[ -L "$LOCAL_ROOT/bin/sloppy" ]]; then
+    run_cmd rm "$LOCAL_ROOT/bin/sloppy"
+  fi
+  run_cmd cp -R "$tmp/unpacked/." "$LOCAL_ROOT/"
 
   local default_dash="$LOCAL_ROOT/share/sloppy/dashboard"
   if [[ "$DASHBOARD_DIR" != "$default_dash" ]]; then
@@ -428,6 +430,7 @@ install_from_github_release() {
 
   trap - EXIT
   rm -rf "$tmp"
+  configure_path
 
   log
   log "Install complete (release)."
@@ -441,8 +444,12 @@ install_from_github_release() {
   fi
   log
   log "Next steps:"
-  log "  sloppy --version"
-  log "  sloppy run"
+  local start_command="sloppy"
+  if [[ "$NO_LINK" == "1" || ":$PATH:" != *":$BIN_DIR:"* ]]; then
+    printf -v start_command '%q' "$LOCAL_ROOT/bin/sloppy"
+  fi
+  log "  $start_command               # Start the terminal UI"
+  log "  $start_command run           # Start the server and web dashboard"
 }
 
 checkout_is_clean() {

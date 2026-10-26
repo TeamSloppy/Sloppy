@@ -492,7 +492,7 @@ jobs:
   build-windows-node:
     if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform == 'all' }}
     needs: validate
-    name: Build SloppyNode (Windows)
+    name: Build Sloppy and SloppyNode (Windows)
     runs-on: windows-latest
     env:
       ADAENGINE_HEADLESS: "1"
@@ -510,13 +510,15 @@ jobs:
       - name: Setup Swift
         uses: SwiftyLab/setup-swift@v1
         with:
-          swift-version: ${{ env.SWIFT_VERSION }}
+          swift-version: "6.3.1"
 
-      - name: Resolve Swift Packages
-        run: swift package resolve
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
 
-      - name: Build SloppyNode
-        run: swift build -c release --product SloppyNode
+      - name: Build Windows CLI, Dashboard and node
+        shell: pwsh
+        run: ./scripts/build-windows.ps1
 
       - name: Package SloppyNode
         id: pack
@@ -549,6 +551,11 @@ jobs:
           Compress-Archive -Force -Path (Join-Path $stage "bin"), (Join-Path $stage "share") -DestinationPath $out
           "exe_path=$exe" >> $env:GITHUB_OUTPUT
           "zip_path=$out" >> $env:GITHUB_OUTPUT
+          ./scripts/package-windows.ps1 -OutputDirectory $env:RUNNER_TEMP
+
+      - name: Verify packaged runtime without development tools on PATH
+        shell: powershell
+        run: ./scripts/test-windows-release.ps1 -ArchivePath "${{ steps.pack.outputs.core_zip_path }}"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -557,6 +564,7 @@ jobs:
           path: |
             ${{ steps.pack.outputs.exe_path }}
             ${{ steps.pack.outputs.zip_path }}
+            ${{ steps.pack.outputs.core_zip_path }}
 
   publish:
     name: Publish Release
@@ -636,7 +644,7 @@ jobs:
           name: macos-companion
           path: release-assets
 
-      - name: Download Windows SloppyNode Artifact
+      - name: Download Windows CLI and SloppyNode Artifact
         uses: actions/download-artifact@v4
         with:
           name: windows-node
@@ -660,13 +668,14 @@ jobs:
           NODE_MACOS=$(ls SloppyNode-macos-*.tar.gz | head -1)
           NODE_WINDOWS_EXE=$(ls SloppyNode-windows-x86_64.exe)
           NODE_WINDOWS=$(ls SloppyNode-windows-x86_64.zip)
+          WINDOWS=$(ls Sloppy-windows-x86_64.zip)
           MACOS_INSTALLER=$(ls SloppyClient-macos-*.pkg | head -1)
           MACOS_CLIENT_UPDATE=$(ls SloppyClient-macos-*.zip | head -1)
           MACOS_COMPANION_UPDATE=$(ls SloppyDesktopCompanion-macos-*.zip | head -1)
           LINUX_SHA=$(sha256sum "$LINUX" | awk '{print $1}')
           MACOS_SHA=$(sha256sum "$MACOS" | awk '{print $1}')
           NODE_MACOS_SHA=$(sha256sum "$NODE_MACOS" | awk '{print $1}')
-          sha256sum sloppy-version.json "$LINUX" "$MACOS" "$NODE_MACOS" "$MACOS_INSTALLER" "$MACOS_CLIENT_UPDATE" "$MACOS_COMPANION_UPDATE" appcast.xml companion-appcast.xml "$NODE_WINDOWS_EXE" "$NODE_WINDOWS" > SHA256SUMS.txt
+          sha256sum sloppy-version.json "$LINUX" "$MACOS" "$NODE_MACOS" "$MACOS_INSTALLER" "$MACOS_CLIENT_UPDATE" "$MACOS_COMPANION_UPDATE" appcast.xml companion-appcast.xml "$NODE_WINDOWS_EXE" "$NODE_WINDOWS" "$WINDOWS" > SHA256SUMS.txt
           {
             echo "linux_sha256=$LINUX_SHA"
             echo "macos_sha256=$MACOS_SHA"
@@ -696,6 +705,7 @@ jobs:
             release-assets/companion-appcast.xml
             release-assets/SloppyNode-windows-x86_64.exe
             release-assets/SloppyNode-windows-x86_64.zip
+            release-assets/Sloppy-windows-x86_64.zip
 
   bump-homebrew:
     name: Bump Homebrew Tap Files

@@ -4,6 +4,19 @@ import SloppyRemoteProtocol
 
 extension CoreService {
     func startConsoleRelayIfBound() async {
+        await ensureConsoleRelayStarted { await self.prepareConsoleRelayIfBound() }
+    }
+    func ensureConsoleRelayStarted(prepare: @escaping @Sendable () async -> Void) async {
+        // Reserve startup before the first cross-actor await. Otherwise multiple
+        // callers register sockets for the same device and evict one another.
+        if let startup = consoleRelayStartupTask { await startup.value; return }
+        guard consoleRelayTask == nil else { return }
+        let startup = Task { await prepare() }
+        consoleRelayStartupTask = startup
+        await startup.value
+        consoleRelayStartupTask = nil
+    }
+    private func prepareConsoleRelayIfBound() async {
         guard consoleRelayTask == nil, let store = consoleTrustStore,
               let binding = await store.binding(), binding.status == .active,
               let identity = try? await consoleTLSIdentity() else { return }
@@ -11,6 +24,7 @@ extension CoreService {
         let environment = await store.environment()
         let console = ConsoleCloudDeviceClient(baseURL: environment.consoleURL, deviceID: local.deviceID, privateKey: local.signingPrivateKey)
         let remote = ConsoleRemoteConnection(deviceID: local.deviceID, signingPrivateKey: local.signingPrivateKey, identity: identity, relayURL: environment.relayURL, pins: [:])
+        guard !Task.isCancelled else { return }
         consoleRemoteConnection = remote
         await consoleModelBridge.configure(.init(remote: remote, cloud: console, store: store, identity: identity, local: local, binding: binding))
         await remote.setEventHandler { [weak self] event in
@@ -29,6 +43,7 @@ extension CoreService {
             guard let self else { return nil }
             return try await self.handleConsoleRemotePacket(senderID: senderID, certificate: certificate, packet: packet)
         }
+        guard !Task.isCancelled else { await remote.disconnect(); return }
         consoleRelayTask = Task { [weak self] in
             // Trust sync and connect run every 30s while healthy, but a dropped
             // socket is retried immediately and failures back off to 30s.
@@ -64,6 +79,11 @@ extension CoreService {
         }
     }
     func stopConsoleRelay() async {
+        // Join setup before clearing the bridge, so a suspended startup cannot
+        // publish a new connection after shutdown.
+        let startup = consoleRelayStartupTask
+        startup?.cancel()
+        await startup?.value
         await consoleModelBridge.stop()
         for id in Array(consoleModelStreams.keys) { closeConsoleModelStream(id) }
         let task = consoleRelayTask

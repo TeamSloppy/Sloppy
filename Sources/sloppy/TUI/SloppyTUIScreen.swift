@@ -175,6 +175,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     static let baseSlashCommands = [
         SloppyTUISlashCommand("help", "Show TUI commands"),
         SloppyTUISlashCommand("status", "Show session status"),
+        SloppyTUISlashCommand("approvals", "Choose Ask for approval or Approve for me"),
         SloppyTUISlashCommand("workspace", "Show workspace roots and directory access"),
         SloppyTUISlashCommand("projects", "Switch project workspace"),
         SloppyTUISlashCommand("pet", "Toggle Sloppie pet and show terminal face status"),
@@ -221,6 +222,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     static let handledSlashCommandNames: Set<String> = [
         "help",
         "status",
+        "approvals",
         "workspace",
         "projects",
         "project",
@@ -311,6 +313,12 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     var pendingContext: String?
     var pendingUploads: [AgentAttachmentUpload] = []
     var pendingDraftCheckpointSessionID: String?
+    var approvalModes: [[String]: SessionApprovalMode] = [:]
+    var pendingApprovalModes: [[String]: SessionApprovalMode] = [:]
+    var draftApprovalModeOverrides: Set<[String]> = []
+    var draftApprovalModeLoads: [[String]: Task<CoreConfig, Never>] = [:]
+    var approvalModeSavingKeys: Set<[String]> = []
+    var approvalModeRevisions: [[String]: UUID] = [:]
     var chatMode: AgentChatMode = .auto
     var shellModeEnabled = false
     var selectedModel = "default"
@@ -325,7 +333,9 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     var skillSlashCommandNames: Set<String> = []
     var commandPaletteSelection = 0
     var streamTask: Task<Void, Never>?
+    var sessionStreamID = UUID()
     var sessionStreamReadyKey: String?
+    var sessionStreamReconnecting = false
     var sessionStreamReadyWaiters: [CheckedContinuation<Void, Never>] = []
     var changeTask: Task<Void, Never>?
     var autoDiffTask: Task<Void, Never>?
@@ -544,8 +554,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     func stopBackgroundTasks() {
-        streamTask?.cancel()
-        resumeSessionStreamReadyWaiters()
+        stopSessionStream()
         changeTask?.cancel()
         autoDiffTask?.cancel()
         autoDiffTask = nil

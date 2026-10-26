@@ -84,6 +84,18 @@ struct DesktopWorkspaceInspector: View {
                             .foregroundStyle(theme.colors.textMuted)
                     }
                 }
+                if let chat, chat.contextUsage == nil {
+                    block("Context") {
+                        Text("Current context unknown")
+                            .font(.caption)
+                            .foregroundStyle(theme.colors.textMuted)
+                        if let turn = chat.contextTokenUsage {
+                            Text("Turn (aggregate): \(turn.prompt) input, \(turn.completion) output tokens")
+                                .font(.caption)
+                                .foregroundStyle(theme.colors.textMuted)
+                        }
+                    }
+                }
                 if let chat, !chat.parallelAgents.agents.isEmpty {
                     ChatWorkerActivityPanel(workers: chat.parallelAgents.agents) { id in
                         if let onOpenWorker,

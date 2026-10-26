@@ -196,6 +196,122 @@ func gitWorktreeErrorOnNonRepo() async throws {
     }
 }
 
+@Test(.timeLimit(.minutes(2)))
+func gitWorktreeLargeDiffCompletesAndTruncatesConcurrentRequests() async throws {
+    let repoURL = try makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: repoURL) }
+    let content = String(repeating: "A changed line with enough text to fill the Git stdout pipe.\n", count: 20_000)
+    try content.write(to: repoURL.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+
+    let service = GitWorktreeService()
+    let complete = try await service.workingTreePatch(repoPath: repoURL.path, maxBytes: 2 * 1024 * 1024)
+    #expect(!complete.truncated)
+    #expect(complete.text.utf8.count > 1024 * 1024)
+    #expect(complete.text.contains("+A changed line"))
+
+    try await withThrowingTaskGroup(of: Void.self) { group in
+        for _ in 0..<16 {
+            group.addTask {
+                let patch = try await service.workingTreePatch(repoPath: repoURL.path, maxBytes: 1024)
+                #expect(patch.truncated)
+                #expect(patch.text.contains("README.md"))
+            }
+        }
+        try await group.waitForAll()
+    }
+}
+
+#if !os(Windows)
+@Test(.timeLimit(.minutes(2)))
+func gitWorktreeDiffDrainsStandardOutputAndErrorConcurrently() async throws {
+    let repoURL = try makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: repoURL) }
+    try installExternalDiff(in: repoURL, body: """
+    i=0
+    while [ "$i" -lt 256 ]; do
+        printf '%01024d\\n' 0
+        printf '%01024d\\n' 0 >&2
+        i=$((i + 1))
+    done
+    printf '\\nstdout-complete\\n'
+    printf '\\nstderr-complete\\n' >&2
+    """)
+
+    let patch = try await GitWorktreeService().workingTreePatch(
+        repoPath: repoURL.path,
+        maxBytes: 2 * 1024 * 1024
+    )
+    #expect(!patch.truncated)
+    #expect(patch.text.utf8.count > 512 * 1024)
+    #expect(patch.text.contains("stdout-complete"))
+    #expect(patch.text.contains("stderr-complete"))
+}
+
+@Test(.timeLimit(.minutes(2)))
+func gitWorktreeDiffTimesOut() async throws {
+    let repoURL = try makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: repoURL) }
+    try installExternalDiff(in: repoURL, body: """
+    parent=$PPID
+    while kill -0 "$parent" 2>/dev/null; do
+        /bin/sleep 0.05
+    done
+    """)
+
+    do {
+        _ = try await GitWorktreeService(commandTimeoutMs: 200).workingTreePatch(
+            repoPath: repoURL.path,
+            maxBytes: 1024
+        )
+        Issue.record("Expected the Git command to time out")
+    } catch GitWorktreeError.commandTimedOut {
+        // The runner must return even while the diff helper still holds its pipes open.
+    }
+}
+
+@Test(.timeLimit(.minutes(2)))
+func gitWorktreeDiffPropagatesCancellation() async throws {
+    let repoURL = try makeGitRepo()
+    defer { try? FileManager.default.removeItem(at: repoURL) }
+    let startedURL = repoURL.appendingPathComponent("diff-started")
+    try installExternalDiff(in: repoURL, body: """
+    printf started > "\(startedURL.path)"
+    parent=$PPID
+    while kill -0 "$parent" 2>/dev/null; do
+        /bin/sleep 0.05
+    done
+    """)
+
+    let request = Task {
+        try await GitWorktreeService().workingTreePatch(
+            repoPath: repoURL.path,
+            maxBytes: 1024
+        )
+    }
+    defer { request.cancel() }
+    let deadline = Date().addingTimeInterval(60)
+    while !FileManager.default.fileExists(atPath: startedURL.path) && Date() < deadline {
+        try await Task.sleep(for: .milliseconds(20))
+    }
+    #expect(FileManager.default.fileExists(atPath: startedURL.path))
+    request.cancel()
+    do {
+        _ = try await request.value
+        Issue.record("Expected cancellation of the Git command")
+    } catch is CancellationError {
+        // Cancellation is preserved instead of becoming a Git timeout or launch error.
+    }
+}
+
+private func installExternalDiff(in directory: URL, body: String) throws {
+    let scriptURL = directory.appendingPathComponent("external-diff.sh")
+    try ("#!/bin/sh\n" + body + "\n").write(to: scriptURL, atomically: true, encoding: .utf8)
+    try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
+    try runGit(["config", "diff.external", scriptURL.path], in: directory)
+    try "Changed\n".write(to: directory.appendingPathComponent("README.md"), atomically: true, encoding: .utf8)
+}
+#endif
+
 private func runGit(_ args: [String], in directory: URL) throws {
     let process = Process()
     process.executableURL = URL(fileURLWithPath: "/usr/bin/git")

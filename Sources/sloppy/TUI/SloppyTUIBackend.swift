@@ -32,6 +32,8 @@ protocol SloppyTUIBackend: Sendable {
     func listAgentSessions(agentID: String, projectID: String?, limit: Int?, offset: Int?) async throws -> [AgentSessionSummary]
     func createAgentSession(agentID: String, request: AgentSessionCreateRequest) async throws -> AgentSessionSummary
     func prepareAgentSessionContext(agentID: String, sessionID: String) async throws -> AgentSessionSummary
+    func getSessionApprovalPolicy(agentID: String, sessionID: String) async throws -> SessionApprovalPolicy
+    func setSessionApprovalPolicy(agentID: String, sessionID: String, policy: SessionApprovalPolicy) async throws -> SessionApprovalPolicy
     func getAgentSession(agentID: String, sessionID: String) async throws -> AgentSessionDetail
     func deleteAgentSession(agentID: String, sessionID: String) async throws
     func postAgentSessionMessage(agentID: String, sessionID: String, request: AgentSessionPostMessageRequest) async throws -> AgentSessionMessageResponse
@@ -152,6 +154,12 @@ struct LocalSloppyTUIBackend: SloppyTUIBackend {
     }
     func getAgentSession(agentID: String, sessionID: String) async throws -> AgentSessionDetail {
         try await service.getAgentSession(agentID: agentID, sessionID: sessionID)
+    }
+    func getSessionApprovalPolicy(agentID: String, sessionID: String) async throws -> SessionApprovalPolicy {
+        try await service.getSessionApprovalPolicy(agentID: agentID, sessionID: sessionID)
+    }
+    func setSessionApprovalPolicy(agentID: String, sessionID: String, policy: SessionApprovalPolicy) async throws -> SessionApprovalPolicy {
+        try await service.setSessionApprovalPolicy(agentID: agentID, sessionID: sessionID, policy: policy)
     }
     func deleteAgentSession(agentID: String, sessionID: String) async throws {
         try await service.deleteAgentSession(agentID: agentID, sessionID: sessionID)
@@ -358,6 +366,12 @@ struct RemoteSloppyTUIBackend: SloppyTUIBackend {
     }
     func getAgentSession(agentID: String, sessionID: String) async throws -> AgentSessionDetail {
         try await get("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))", as: AgentSessionDetail.self)
+    }
+    func getSessionApprovalPolicy(agentID: String, sessionID: String) async throws -> SessionApprovalPolicy {
+        try await get("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/approval-policy", as: SessionApprovalPolicy.self)
+    }
+    func setSessionApprovalPolicy(agentID: String, sessionID: String, policy: SessionApprovalPolicy) async throws -> SessionApprovalPolicy {
+        try await put("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/approval-policy", body: policy, as: SessionApprovalPolicy.self)
     }
     func deleteAgentSession(agentID: String, sessionID: String) async throws {
         _ = try await client.delete("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))")
@@ -581,6 +595,12 @@ struct MeshSloppyTUIBackend: SloppyTUIBackend {
     }
     func getAgentSession(agentID: String, sessionID: String) async throws -> AgentSessionDetail {
         try await get("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))", as: AgentSessionDetail.self)
+    }
+    func getSessionApprovalPolicy(agentID: String, sessionID: String) async throws -> SessionApprovalPolicy {
+        try await get("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/approval-policy", as: SessionApprovalPolicy.self)
+    }
+    func setSessionApprovalPolicy(agentID: String, sessionID: String, policy: SessionApprovalPolicy) async throws -> SessionApprovalPolicy {
+        try await put("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/approval-policy", body: policy, as: SessionApprovalPolicy.self)
     }
     func deleteAgentSession(agentID: String, sessionID: String) async throws {
         _ = try await request(method: "DELETE", path: "/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))")

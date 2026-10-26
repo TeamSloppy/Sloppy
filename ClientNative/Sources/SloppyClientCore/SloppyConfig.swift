@@ -795,6 +795,7 @@ public struct SloppyConfig: Codable, Sendable {
     public var workspace: Workspace
     public var auth: Auth
     public var onboarding: Onboarding
+    public var defaultChatApprovalMode: ChatApprovalMode?
     public var models: [ModelConfig]
     public var semanticDecisions: SemanticDecisions
     public var memory: Memory
@@ -843,6 +844,7 @@ public struct SloppyConfig: Codable, Sendable {
         workspace: Workspace = Workspace(),
         auth: Auth = Auth(),
         onboarding: Onboarding = Onboarding(),
+        defaultChatApprovalMode: ChatApprovalMode? = nil,
         models: [ModelConfig] = [],
         semanticDecisions: SemanticDecisions = SemanticDecisions(),
         memory: Memory = Memory(),
@@ -869,6 +871,7 @@ public struct SloppyConfig: Codable, Sendable {
         self.workspace = workspace
         self.auth = auth
         self.onboarding = onboarding
+        self.defaultChatApprovalMode = defaultChatApprovalMode
         self.models = models
         self.semanticDecisions = semanticDecisions
         self.memory = memory
@@ -893,7 +896,7 @@ public struct SloppyConfig: Codable, Sendable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case listen, workspace, auth, onboarding, models, semanticDecisions, memory, nodes, plugins, channels, searchTools, browser, proxy, mcp, visor, gitSync, acp, ui, tui, toolHooks, experimentalFlags, toolBudgetExhausted, modelRouting, compactor, sqlitePath
+        case listen, workspace, auth, onboarding, defaultChatApprovalMode, models, semanticDecisions, memory, nodes, plugins, channels, searchTools, browser, proxy, mcp, visor, gitSync, acp, ui, tui, toolHooks, experimentalFlags, toolBudgetExhausted, modelRouting, compactor, sqlitePath
     }
 
     private enum LegacyCodingKeys: String, CodingKey {
@@ -906,6 +909,7 @@ public struct SloppyConfig: Codable, Sendable {
         workspace = try container.decodeIfPresent(Workspace.self, forKey: .workspace) ?? Workspace()
         auth = try container.decode(Auth.self, forKey: .auth)
         onboarding = try container.decodeIfPresent(Onboarding.self, forKey: .onboarding) ?? Onboarding()
+        defaultChatApprovalMode = try container.decodeIfPresent(ChatApprovalMode.self, forKey: .defaultChatApprovalMode)
         models = try container.decodeIfPresent([ModelConfig].self, forKey: .models) ?? []
         semanticDecisions = try container.decodeIfPresent(SemanticDecisions.self, forKey: .semanticDecisions) ?? SemanticDecisions()
         memory = try container.decode(Memory.self, forKey: .memory)

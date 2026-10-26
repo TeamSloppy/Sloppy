@@ -8,6 +8,7 @@ enum GitWorktreeError: Error, LocalizedError {
     case worktreeCreationFailed(String)
     case mergeConflict(String)
     case commandFailed(Int32, String)
+    case commandTimedOut
     case invalidPath
 
     var errorDescription: String? {
@@ -24,6 +25,8 @@ enum GitWorktreeError: Error, LocalizedError {
             return "Merge conflict: \(msg)"
         case .commandFailed(let code, let output):
             return "Git command failed (exit \(code)): \(output)"
+        case .commandTimedOut:
+            return "Git command timed out"
         case .invalidPath:
             return "Invalid repository path"
         }
@@ -39,6 +42,11 @@ struct GitWorktreeResult: Sendable {
 // actor boundaries. We still use FileManager.default, but only as a temporary
 // local dependency inside each call instead of storing a shared reference.
 struct GitWorktreeService: Sendable {
+    private let commandTimeoutMs: Int
+
+    init(commandTimeoutMs: Int = 120_000) {
+        self.commandTimeoutMs = commandTimeoutMs
+    }
 
     /// Creates a git worktree for a task at `<worktreeRootPath>/<taskId>/`.
     /// and checks out a new branch `sloppy/task-<shortId>`.
@@ -483,33 +491,36 @@ struct GitWorktreeService: Sendable {
 
     @discardableResult
     private func runGit(args: [String], cwd: String) async throws -> (Int32, String) {
-        return try await withPlatformCheckedThrowingContinuation { continuation in
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
-            process.arguments = args
-            process.currentDirectoryURL = URL(fileURLWithPath: cwd)
-
-            let pipe = Pipe()
-            let errorPipe = Pipe()
-            process.standardOutput = pipe
-            process.standardError = errorPipe
-            process.environment = childProcessEnvironment()
-
-            do {
-                try PlatformProcess.run(process)
-            } catch {
-                continuation.resume(throwing: GitWorktreeError.gitNotAvailable)
-                return
-            }
-
-            process.waitUntilExit()
-
-            let outData = pipe.fileHandleForReading.readDataToEndOfFile()
-            let errData = errorPipe.fileHandleForReading.readDataToEndOfFile()
-            let outStr = String(data: outData, encoding: .utf8) ?? ""
-            let errStr = String(data: errData, encoding: .utf8) ?? ""
-            let combined = [outStr, errStr].filter { !$0.isEmpty }.joined(separator: "\n")
-            continuation.resume(returning: (process.terminationStatus, combined))
+        try Task.checkCancellation()
+        #if os(Windows)
+        let command = "git"
+        #else
+        let command = "/usr/bin/git"
+        #endif
+        let result: JSONValue
+        do {
+            // The shared runner drains both pipes while Git runs and suspends
+            // between exit checks instead of blocking the cooperative executor.
+            result = try await runForegroundProcess(
+                command: command,
+                arguments: args,
+                cwd: URL(fileURLWithPath: cwd),
+                timeoutMs: commandTimeoutMs,
+                maxOutputBytes: Int.max
+            )
+        } catch {
+            throw GitWorktreeError.gitNotAvailable
         }
+        try Task.checkCancellation()
+        guard case .object(let payload) = result, let exitCode = payload["exitCode"]?.asInt else {
+            throw GitWorktreeError.commandFailed(-1, "Missing Git process result")
+        }
+        if payload["timedOut"] == .bool(true) {
+            throw GitWorktreeError.commandTimedOut
+        }
+        let stdout = payload["stdout"]?.asString ?? ""
+        let stderr = payload["stderr"]?.asString ?? ""
+        let combined = [stdout, stderr].filter { !$0.isEmpty }.joined(separator: "\n")
+        return (Int32(exitCode), combined)
     }
 }

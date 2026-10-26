@@ -279,9 +279,13 @@ struct AppKitChatTranscriptCollection: NSViewRepresentable {
         private func invalidateRows(_ itemIDs: some Sequence<String>) {
             guard let layout = collectionView?.collectionViewLayout else { return }
             let indexPaths = Set(itemIDs.compactMap { dataSource?.indexPath(for: $0) })
-            guard !indexPaths.isEmpty else { return }
+            guard let firstChangedIndex = indexPaths.map(\.item).min() else { return }
             let context = NSCollectionViewLayoutInvalidationContext()
-            context.invalidateItems(at: indexPaths)
+            // Changed heights move every following row. AppKit must apply their
+            // new frames too; their cached measurements remain valid.
+            context.invalidateItems(at: Set((firstChangedIndex..<parent.items.count).map {
+                IndexPath(item: $0, section: 0)
+            }))
             layout.invalidateLayout(with: context)
         }
 

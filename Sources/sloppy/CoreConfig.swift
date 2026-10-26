@@ -2328,6 +2328,7 @@ public struct CoreConfig: Codable, Sendable {
     public var semanticDecisions: SemanticDecisions
     public var opencode: OpenCode
     public var disableModelInference: Bool
+    public var defaultChatApprovalMode: SessionApprovalMode?
     public var sessionRetention: SessionRetention
     public var agentRuntimeContext: AgentRuntimeContextConfig
     public var memory: Memory
@@ -2392,6 +2393,7 @@ public struct CoreConfig: Codable, Sendable {
         models: [ModelConfig],
         semanticDecisions: SemanticDecisions = SemanticDecisions(),
         opencode: OpenCode = OpenCode(),
+        defaultChatApprovalMode: SessionApprovalMode? = nil,
         sessionRetention: SessionRetention = SessionRetention(),
         agentRuntimeContext: AgentRuntimeContextConfig = AgentRuntimeContextConfig(),
         memory: Memory,
@@ -2434,6 +2436,7 @@ public struct CoreConfig: Codable, Sendable {
         self.models = models
         self.semanticDecisions = semanticDecisions
         self.opencode = opencode
+        self.defaultChatApprovalMode = defaultChatApprovalMode
         self.sessionRetention = sessionRetention
         self.agentRuntimeContext = agentRuntimeContext
         self.memory = memory
@@ -2573,6 +2576,7 @@ public struct CoreConfig: Codable, Sendable {
         case models
         case semanticDecisions
         case opencode
+        case defaultChatApprovalMode
         case sessionRetention
         case agentRuntimeContext
         case memory
@@ -2618,6 +2622,7 @@ public struct CoreConfig: Codable, Sendable {
         tui = try container.decodeIfPresent(TUI.self, forKey: .tui) ?? .init()
         coffeeMode = try container.decodeIfPresent(CoffeeMode.self, forKey: .coffeeMode) ?? .init()
         memory = try container.decode(Memory.self, forKey: .memory)
+        defaultChatApprovalMode = try container.decodeIfPresent(SessionApprovalMode.self, forKey: .defaultChatApprovalMode)
         sessionRetention = try container.decodeIfPresent(SessionRetention.self, forKey: .sessionRetention) ?? .init()
         agentRuntimeContext = try container.decodeIfPresent(AgentRuntimeContextConfig.self, forKey: .agentRuntimeContext) ?? .init()
         nodes = try container.decodeIfPresent([Node].self, forKey: .nodes) ?? []
@@ -2682,6 +2687,7 @@ public struct CoreConfig: Codable, Sendable {
             try container.encode(semanticDecisions, forKey: .semanticDecisions)
         }
         try container.encode(opencode, forKey: .opencode)
+        try container.encodeIfPresent(defaultChatApprovalMode, forKey: .defaultChatApprovalMode)
         try container.encode(sessionRetention, forKey: .sessionRetention)
         try container.encode(agentRuntimeContext, forKey: .agentRuntimeContext)
         try container.encode(memory, forKey: .memory)

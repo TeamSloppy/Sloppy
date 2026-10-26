@@ -19,6 +19,7 @@ struct PlatformMainSidebar: View {
     @Environment(\.theme) private var theme
     @State private var searchText = ""
     @State private var isAgentsPresented = false
+    @State private var isTextSearchPresented = false
     @State private var presentedProject: IOSProjectPresentation?
     @State private var inboxNavigationPath = NavigationPath()
     @AppStorage("client_chat_sidebar_layout_mode") private var layoutMode = SidebarLayoutMode.list
@@ -32,6 +33,9 @@ struct PlatformMainSidebar: View {
         .refreshable { await viewModel.refreshContent() }
         .fullScreenCover(item: $presentedProject) { presentation in
             IOSProjectModal(project: presentation.project, viewModel: viewModel)
+        }
+        .sheet(isPresented: $isTextSearchPresented) {
+            SessionTextSearchView(endpoints: viewModel.textSearchEndpoints, apiClient: viewModel.apiClient, onOpenSession: viewModel.openTextSearchSession, query: normalizedSearchQuery)
         }
         .sheet(isPresented: $isAgentsPresented) {
             AgentsScreen(apiClient: viewModel.apiClient)
@@ -65,6 +69,9 @@ struct PlatformMainSidebar: View {
                             }
 
                             ToolbarItemGroup(placement: .topBarTrailing) {
+                                Button { isTextSearchPresented = true } label: { Image(systemName: "text.magnifyingglass") }
+                                    .accessibilityLabel("Search all conversation text")
+                                    .accessibilityIdentifier("inbox.search-all-text")
                                 sidebarViewOptionsMenu
                                 newChatToolbarButton
                             }
@@ -148,6 +155,7 @@ struct PlatformMainSidebar: View {
                 query: normalizedSearchQuery,
                 viewModel: viewModel,
                 onOpenResult: { searchText = "" },
+                onSearchText: { isTextSearchPresented = true },
                 onOpenProject: {
                     searchText = ""
                     presentedProject = IOSProjectPresentation(project: $0)
@@ -526,6 +534,7 @@ private struct IOSInboxSearchResults: View {
     let query: String
     let viewModel: MainViewModel
     let onOpenResult: @MainActor () -> Void
+    let onSearchText: @MainActor () -> Void
     let onOpenProject: @MainActor (APIProjectRecord) -> Void
 
     @Environment(\.theme) private var theme
@@ -544,6 +553,9 @@ private struct IOSInboxSearchResults: View {
 
     var body: some View {
         List {
+            Section {
+                Button(action: onSearchText) { Label("Search all messages and tool output", systemImage: "text.magnifyingglass") }
+            }
             if !chatResults.isEmpty {
                 Section("Chats") {
                     ForEach(chatResults, id: \.storageID) { session in

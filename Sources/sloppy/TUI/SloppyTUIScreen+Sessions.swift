@@ -108,6 +108,7 @@ extension SloppyTUIScreen {
         }
 
         welcomeDismissed = false
+        Task { [weak self] in await self?.refreshApprovalMode() }
         session = SloppyTUIApp.makeDraftSession(agent: agent, projectID: project.id)
         hasPersistedSession = false
         sessionCards = []

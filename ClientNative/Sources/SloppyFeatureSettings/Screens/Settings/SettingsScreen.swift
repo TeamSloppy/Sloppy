@@ -108,7 +108,7 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
         case .gitSync: "Repository, schedule, and conflict behavior."
         case .rawConfig: "Inspect your server configuration as JSON."
         case .modelRouting: "Aliases for fast, heavy, and specialized models."
-        case .sessions: "Manage conversation history and retention."
+        case .sessions: "Choose defaults for new conversations."
         case .approvals: "People with access through your connected channels."
         case .mcp: "Servers, tools, resources, and prompts available to agents."
         case .browser: "Browser connections, profiles, and automation."
@@ -164,7 +164,7 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
         case .modelRouting:
             ["routing", "routes", "aliases", "default model"]
         case .sessions:
-            ["sessions", "retention", "history", "cleanup"]
+            ["sessions", "retention", "history", "cleanup", "approval", "approve", "default", "new chats"]
         case .approvals:
             ["approvals", "permissions", "pending", "requests"]
         case .mcp:
@@ -525,7 +525,14 @@ public struct SettingsScreen: View {
         case .updates:
             BackendUpdatesSection(endpoint: settings.activeInstanceEndpoint)
                 .id(settings.activeInstanceEndpoint.cacheNamespace)
-        case .sessions, .voiceMode:
+        case .sessions:
+            ChatApprovalDefaultsSection(apiClient: api) { mode in
+                if var config {
+                    config.defaultChatApprovalMode = mode
+                    self.config = config
+                }
+            }.id(api.baseURL.absoluteString)
+        case .voiceMode:
             UnsupportedSettingsSectionView(section: section)
         }
     }

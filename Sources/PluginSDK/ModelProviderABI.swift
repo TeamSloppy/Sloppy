@@ -13,6 +13,7 @@ public final class AnyModelProviderBox: ModelProvider, @unchecked Sendable {
     private let _generationOptions: @Sendable (String, Int, ReasoningEffort?) -> GenerationOptions
     private let _reasoningCapture: @Sendable (String) -> ReasoningContentCapture?
     private let _tokenUsageCapture: @Sendable (String) -> TokenUsageCapture?
+    private let _contextLimits: @Sendable (String) -> ModelContextLimits?
     private let _supports: @Sendable (String) -> Bool
 
     public init(
@@ -26,6 +27,7 @@ public final class AnyModelProviderBox: ModelProvider, @unchecked Sendable {
         },
         reasoningCapture: @escaping @Sendable (String) -> ReasoningContentCapture? = { _ in nil },
         tokenUsageCapture: @escaping @Sendable (String) -> TokenUsageCapture? = { _ in nil },
+        contextLimits: @escaping @Sendable (String) -> ModelContextLimits? = { _ in nil },
         supports: @escaping @Sendable (String) -> Bool
     ) {
         self.id = id
@@ -36,6 +38,7 @@ public final class AnyModelProviderBox: ModelProvider, @unchecked Sendable {
         self._generationOptions = generationOptions
         self._reasoningCapture = reasoningCapture
         self._tokenUsageCapture = tokenUsageCapture
+        self._contextLimits = contextLimits
         self._supports = supports
     }
 
@@ -70,6 +73,10 @@ public final class AnyModelProviderBox: ModelProvider, @unchecked Sendable {
 
     public func tokenUsageCapture(for modelName: String) -> TokenUsageCapture? {
         _tokenUsageCapture(modelName)
+    }
+
+    public func contextLimits(for modelName: String) -> ModelContextLimits? {
+        _contextLimits(modelName)
     }
 
     public func supports(modelName: String) -> Bool {

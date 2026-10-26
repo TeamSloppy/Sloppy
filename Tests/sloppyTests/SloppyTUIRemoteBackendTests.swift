@@ -56,6 +56,14 @@ func remoteSloppyTUIBackendReadsProjectsSessionsAndSSE() async throws {
         request: AgentSessionCreateRequest(title: "Remote Session", projectId: project.id)
     )
     #expect(session.projectId == project.id)
+    let policy = try await backend.setSessionApprovalPolicy(
+        agentID: "remote-agent", sessionID: session.id, policy: .init(mode: .approveForMe)
+    )
+    #expect(policy.mode == .approveForMe)
+    #expect(try await backend.getSessionApprovalPolicy(agentID: "remote-agent", sessionID: session.id) == policy)
+    _ = try await backend.setSessionApprovalPolicy(
+        agentID: "remote-agent", sessionID: session.id, policy: .init(mode: .askForApproval)
+    )
 
     let sessions = try await backend.listAgentSessions(agentID: "remote-agent", projectID: project.id)
     #expect(sessions.contains(where: { $0.id == session.id }))
@@ -122,6 +130,12 @@ func meshSloppyTUIBackendReadsProjectsAndAgentsThroughCoreProxy() async throws {
 
     let agents = try await backend.listAgents(includeSystem: false)
     #expect(agents.contains(where: { $0.id == "mesh-agent" }))
+    let session = try await backend.createAgentSession(agentID: "mesh-agent", request: .init(projectId: project.id))
+    let policy = try await backend.setSessionApprovalPolicy(
+        agentID: "mesh-agent", sessionID: session.id, policy: .init(mode: .approveForMe)
+    )
+    #expect(policy.mode == .approveForMe)
+    #expect(try await backend.getSessionApprovalPolicy(agentID: "mesh-agent", sessionID: session.id) == policy)
 }
 
 private func firstStreamValue<T: Sendable>(_ stream: AsyncStream<T>) async throws -> T {

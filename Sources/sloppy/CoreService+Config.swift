@@ -86,6 +86,10 @@ extension CoreService {
         await proactiveHeartbeatService.updateStore(refreshedStore)
         let nextWorkspaceRoot = config.resolvedWorkspaceRootURL(currentDirectory: workspaceCurrentDirectory)
         if workspaceRootURL != nextWorkspaceRoot {
+            await textSearch.stop()
+            textSearch = TextSearchService(root: nextWorkspaceRoot)
+            do { try await textSearch.start() }
+            catch { logger.error("Search index could not restart", metadata: ["error": .string(String(describing: error))]) }
             sessionMessageIsStopping = true
             for task in sessionMessageRunners.values { task.cancel() }
             sessionMessageRunners.removeAll()

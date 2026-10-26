@@ -9,6 +9,7 @@ enum SloppyTUIPickerKind: Equatable {
     case subSession
     case workspaceAccess
     case toolApproval
+    case approvalMode
     case provider
     case providerCatalog
     case remoteInstance
@@ -610,18 +611,21 @@ struct SloppyTUITokenUsageSummary: Equatable {
     var contextWindowTokens: Int
     var costUSD: Double?
 
+    /// Current ledger occupancy, never accumulated billing usage.
+    var contextUsedTokens: Int? = nil
+
     var usagePercent: Int? {
-        guard contextWindowTokens > 0 else {
+        guard contextWindowTokens > 0, let contextUsedTokens else {
             return nil
         }
-        return min(100, Int(((Double(totalTokens) / Double(contextWindowTokens)) * 100).rounded()))
+        return min(100, Int(((Double(contextUsedTokens) / Double(contextWindowTokens)) * 100).rounded()))
     }
 
     var freeTokens: Int? {
-        guard contextWindowTokens > 0 else {
+        guard contextWindowTokens > 0, let contextUsedTokens else {
             return nil
         }
-        return max(0, contextWindowTokens - totalTokens)
+        return max(0, contextWindowTokens - contextUsedTokens)
     }
 
     var uncachedInputTokens: Int {
@@ -665,6 +669,7 @@ struct SloppyTUIContextUsageSummary: Equatable {
     var pendingContextAttached: Bool
     var pendingUploadCount: Int
     var semanticDecisionUsage: SemanticDecisionUsage? = nil
+    var spentTokens: Int = 0
     var ledgerCategories: [SloppyTUIContextCategorySummary] = []
     var lastTurnInputTokens: Int = 0
     var lastTurnCachedInputTokens: Int = 0

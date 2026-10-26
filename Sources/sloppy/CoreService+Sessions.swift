@@ -71,6 +71,12 @@ extension CoreService {
 
         do {
             let session = try await sessionOrchestrator.createSession(agentID: normalizedAgentID, request: request)
+            do {
+                try initializeSessionApprovalPolicy(session)
+            } catch {
+                try? sessionStore.deleteSession(agentID: normalizedAgentID, sessionID: session.id)
+                throw error
+            }
             if !forkedEvents.isEmpty {
                 let copies = forkedEvents.map { event -> AgentSessionEvent in
                     var copy = event

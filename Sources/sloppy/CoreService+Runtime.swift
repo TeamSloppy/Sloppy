@@ -16,6 +16,8 @@ extension CoreService {
         }
         await recoveryManager.recoverIfNeeded()
         await startEventPersistence()
+        do { try await textSearch.start() }
+        catch { logger.error("Search index could not start", metadata: ["error": .string(String(describing: error))]) }
         await restoreWorkflowExecutionsIfNeeded()
         await recoverLongChatsIfNeeded()
         await recoverSessionMessagesIfNeeded()

@@ -490,7 +490,8 @@ func contextUsageProgressShowsFillPercentAndRemainingSpace() {
             completionTokens: 20_000,
             totalTokens: 100_000,
             contextWindowTokens: 400_000,
-            costUSD: 1.25
+            costUSD: 1.25,
+            contextUsedTokens: 100_000
         )
     )
     let plain = stripANSI(line)
@@ -516,7 +517,8 @@ func composerMetaLineShowsCompactContextIndicator() {
             completionTokens: 8_000,
             totalTokens: 38_000,
             contextWindowTokens: 272_000,
-            costUSD: nil
+            costUSD: nil,
+            contextUsedTokens: 38_000
         ),
         runElapsed: 57,
         stageElapsed: 27
@@ -546,7 +548,8 @@ func composerMetaLineSeparatesLastContextFromAggregateSpend() {
             completionTokens: 38,
             totalTokens: 41_000,
             contextWindowTokens: 272_000,
-            costUSD: 3.22
+            costUSD: 3.22,
+            contextUsedTokens: 11_396
         ),
         lastTurnTokenUsage: .init(prompt: 11_358, completion: 38)
     )
@@ -688,7 +691,7 @@ func contextUsageMarkdownShowsReadableTokenBreakdown() {
     #expect(plainMarkdown.contains("claude-opus-4-7 · 1M context"))
     #expect(plainMarkdown.contains("used 1% · free 992.0K tokens"))
     #expect(plainMarkdown.contains("Context window"))
-    #expect(plainMarkdown.contains("No context ledger yet; using token usage fallback."))
+    #expect(plainMarkdown.contains("No context ledger yet; current context unknown."))
     #expect(plainMarkdown.contains("Last turn"))
     #expect(plainMarkdown.contains("- Cached input: 0 tokens"))
     #expect(plainMarkdown.contains("- Uncached input: 0 tokens"))
@@ -806,8 +809,8 @@ func contextUsageSummaryPrefersLedgerOverAggregateTokenUsageAndFallsBackWithoutI
         pendingUploadCount: 0
     )
 
-    #expect(fallbackSummary.promptTokens == 9_500)
-    #expect(fallbackSummary.totalTokens == 9_720)
+    #expect(fallbackSummary.promptTokens == 0)
+    #expect(fallbackSummary.totalTokens == 0)
     #expect(fallbackSummary.ledgerCategories.isEmpty)
     #expect(fallbackSummary.lastTurnInputTokens == 0)
     #expect(fallbackSummary.lastTurnCachedInputTokens == 0)
@@ -1289,4 +1292,22 @@ private func ansiEscapeEnd(in line: String, from start: String.Index) -> String.
     }
 
     return line.index(after: next)
+}
+
+@Test func accumulatedUsageIsNotCurrentContext() {
+    let summary = SloppyTUITokenUsageSummary(promptTokens: 220_000, completionTokens: 335,
+        totalTokens: 220_335, contextWindowTokens: 272_000, costUSD: nil)
+    #expect(summary.usagePercent == nil)
+    #expect(summary.freeTokens == nil)
+    let line = stripANSI(SloppyTUITheme.composerMetaLine(width: 240, mode: .auto,
+        model: "sonnet", agent: "Anton", provider: "sloppy", tokenUsage: summary,
+        lastTurnTokenUsage: .init(prompt: 220_000, completion: 335)))
+    #expect(line.contains("context unknown"))
+    #expect(line.contains("spent 220K"))
+    #expect(line.contains("turn 220K"))
+    #expect(!line.contains("ctx 220K"))
+    var known = summary
+    known.contextUsedTokens = 43_556
+    #expect(known.usagePercent == 16)
+    #expect(known.freeTokens == 228_444)
 }

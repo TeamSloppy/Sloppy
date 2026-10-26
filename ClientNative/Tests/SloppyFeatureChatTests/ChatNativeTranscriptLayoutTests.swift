@@ -685,7 +685,7 @@ struct ChatNativeTranscriptLayoutTests {
         #expect(fixture.layout.layoutAttributesForItem(at: last)?.size.height == 140)
     }
 
-    @Test("height notifications coalesce and invalidate only affected rows")
+    @Test("height notifications coalesce and reposition following rows without remeasurement")
     func heightUpdatesInvalidateOnlyAffectedRows() async throws {
         let fixture = TranscriptFixture(heights: [80, 80, 80])
         defer { fixture.close() }
@@ -704,7 +704,7 @@ struct ChatNativeTranscriptLayoutTests {
         await fixture.settle()
 
         #expect(fixture.layout.rowInvalidations.first ==
-            [IndexPath(item: 0, section: 0), IndexPath(item: 1, section: 0)])
+            [IndexPath(item: 0, section: 0), IndexPath(item: 1, section: 0), IndexPath(item: 2, section: 0)])
         #expect(third.synchronousMeasurementPasses == unchangedMeasurements)
     }
 

@@ -188,6 +188,12 @@ extension SloppyTUIScreen {
             return
         }
 
+        guard !approvalModeSavingKeys.contains(approvalModeKey) else {
+            editor.setText(value)
+            appendLocalCard("Wait for the approval mode to finish saving before sending.")
+            return
+        }
+
         if let accessRequest = await workspaceAccessRequest(
             value: value,
             context: context,
@@ -482,8 +488,11 @@ extension SloppyTUIScreen {
 
     func ensurePersistedSessionForMessage(titleSource _: String? = nil) async throws -> Bool {
         guard !hasPersistedSession else {
+            try await applyPendingApprovalMode()
             return false
         }
+        let draftKey = approvalModeKey
+        let draftApprovalMode = draftApprovalModeOverrides.contains(draftKey) ? approvalModes[draftKey] : nil
         let draftDirectoryKey = currentSessionDirectoryKey()
         let draftDirectories = persistedDirectoriesForCurrentSession()
         let checkpointSessionID = pendingDraftCheckpointSessionID
@@ -496,6 +505,10 @@ extension SloppyTUIScreen {
         )
         pendingDraftCheckpointSessionID = nil
         hasPersistedSession = true
+        draftApprovalModeOverrides.remove(draftKey)
+        if let draftApprovalMode {
+            pendingApprovalModes[approvalModeKey] = draftApprovalMode
+        }
         if !draftDirectories.isEmpty {
             await applyDraftDirectories(draftDirectories, previousKey: draftDirectoryKey)
         }
@@ -503,6 +516,7 @@ extension SloppyTUIScreen {
         trackSession(session, opened: true)
         streamSession()
         refreshStaticChrome()
+        try await applyPendingApprovalMode()
         return true
     }
 

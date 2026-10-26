@@ -49,6 +49,7 @@ extension CoreService {
         let session = try sessionStore.createSession(
             agentID: agentID, request: .init(title: "Conversation", kind: .longChat, projectId: projectID))
         do {
+            try initializeSessionApprovalPolicy(session)
             try storage.transaction {
                 $0.conversations.append(.init(agentId: agentID, userId: userID, sessionId: session.id,
                                                assignments: [], projectId: projectID))

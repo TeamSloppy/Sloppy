@@ -6,6 +6,36 @@ import Testing
 @Suite("Chat delivery reliability", .serialized)
 @MainActor
 struct ChatDeliveryReliabilityTests {
+    @Test("new drafts load the server default without changing existing chats")
+    func newDraftUsesServerApprovalDefault() async throws {
+        let fixture = try await DeliveryFixture.make()
+        defer { fixture.finish() }
+        fixture.server.defaultApprovalMode = "approve_for_me"
+        fixture.model.startNewMessage(agentID: "agent")
+        try await fixture.wait { !fixture.model.isLoadingApprovalMode }
+        #expect(fixture.model.selectedSessionId == nil)
+        #expect(fixture.model.selectedApprovalMode == .approveForMe)
+        #expect(!fixture.model.hasDraftApprovalModeOverride)
+        #expect(fixture.server.approvalMode(sessionId: "one") == "ask_for_approval")
+    }
+
+    @Test("a draft can override the server default before its first turn")
+    func draftOverridesServerApprovalDefault() async throws {
+        let fixture = try await DeliveryFixture.make()
+        defer { fixture.finish() }
+        fixture.server.defaultApprovalMode = "approve_for_me"
+        fixture.model.startNewMessage(agentID: "agent")
+        try await fixture.wait { !fixture.model.isLoadingApprovalMode }
+        fixture.model.selectApprovalMode(.askForApproval)
+        #expect(fixture.model.hasDraftApprovalModeOverride)
+        #expect(fixture.model.sendMessage(content: "Read the project"))
+        try await fixture.wait { fixture.server.creationCount == 1 }
+        fixture.server.releaseCreation()
+        try await fixture.wait { !fixture.server.posts.isEmpty }
+        #expect(fixture.server.approvalMode(sessionId: "created") == "ask_for_approval")
+        #expect(fixture.server.defaultApprovalMode == "approve_for_me")
+    }
+
     @Test("returning to a chat waits for its in-flight approval mode save")
     func approvalSaveDuringNavigation() async throws {
         let fixture = try await DeliveryFixture.make()
@@ -294,7 +324,8 @@ struct ChatDeliveryReliabilityTests {
         let fixture = try await DeliveryFixture.make()
         defer { fixture.finish() }
         fixture.model.pickPersonal()
-        fixture.model.sendMessage(content: "first new chat message")
+        try await fixture.wait { !fixture.model.isLoadingApprovalMode }
+        #expect(fixture.model.sendMessage(content: "first new chat message"))
         try await fixture.wait { fixture.server.creationCount == 1 }
         fixture.model.sendMessage(content: "second new chat message")
         fixture.model.pickSession(.init(id: "two", agentId: "agent", title: "Two"))
@@ -485,6 +516,11 @@ private final class DeliveryHTTPState: @unchecked Sendable {
     private var storedApprovals: [PendingToolApprovalRecord] = []
     private var storedApprovalModes: [String: String] = [:]
     private var storedApprovalPolicyStatus = 200
+    private var storedDefaultApprovalMode = "ask_for_approval"
+    var defaultApprovalMode: String {
+        get { lock.withLock { storedDefaultApprovalMode } }
+        set { lock.withLock { storedDefaultApprovalMode = newValue } }
+    }
     private var holdApprovalSaves = false
     private var pendingApprovalSaves: [(DeliveryURLProtocol, String, String)] = []
     var holdsApprovalPolicySaves: Bool {
@@ -533,7 +569,11 @@ private final class DeliveryHTTPState: @unchecked Sendable {
     var posts: [Post] { lock.withLock { storedPosts } }
     var creationCount: Int { lock.withLock { creations.count } }
     func releaseCreation() {
-        for request in lock.withLock({ creations }) {
+        let pending = lock.withLock {
+            storedApprovalModes["created"] = storedDefaultApprovalMode
+            return creations
+        }
+        for request in pending {
             request.respond(#"{"id":"created","agentId":"agent","title":"Created","messageCount":0,"kind":"chat","updatedAt":"2026-10-01T00:00:00Z"}"#)
         }
     }
@@ -559,6 +599,10 @@ private final class DeliveryHTTPState: @unchecked Sendable {
 
     func receive(_ request: DeliveryURLProtocol) {
         let path = request.request.url!.path
+        if path == "/v1/config/chat-approval-default" {
+            request.respond("{\"mode\":\"\(defaultApprovalMode)\"}")
+            return
+        }
         if path.hasSuffix("/approval-policy") {
             let sessionId = String(path.components(separatedBy: "/sessions/").last!.split(separator: "/").first!)
             guard approvalPolicyStatus == 200 else {

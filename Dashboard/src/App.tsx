@@ -1,3 +1,4 @@
+import { TextSearchDialog } from "./features/search/TextSearchDialog";
 import { MigrationLaunchNotice } from "./features/migrations/MigrationWizard";
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { createDependencies } from "./app/di/createDependencies";
@@ -146,6 +147,17 @@ function DashboardShell({
   const { route, setSection, setConfigSection, setProjectRoute, setWorkspaceRoute, setAgentRoute, setSessionRoute, setChatsRoute, setMemoryRoute } =
     useDashboardRoute();
   const runtime = useRuntimeOverview(dependencies.coreApi, route.section);
+  const [isTextSearchOpen, setTextSearchOpen] = useState(false);
+  useEffect(() => {
+    const open = (event: KeyboardEvent) => {
+      if ((event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        setTextSearchOpen(true);
+      }
+    };
+    window.addEventListener("keydown", open);
+    return () => window.removeEventListener("keydown", open);
+  }, []);
   const [sidebarCompact, setSidebarCompact] = useState(() => loadDashboardTheme() === "brutalist");
   const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
   const [sidebarProjects, setSidebarProjects] = useState<AnyRecord[]>([]);
@@ -531,6 +543,7 @@ function DashboardShell({
         items={sidebarItems}
         activeItemId={sidebarActiveItemId}
         isCompact={sidebarCompact}
+        onSearch={() => { setTextSearchOpen(true); setMobileSidebarOpen(false); }}
         onToggleCompact={() => setSidebarCompact((value) => !value)}
         onSelect={onSelectSidebar}
         isMobileOpen={mobileSidebarOpen}
@@ -668,6 +681,11 @@ function DashboardShell({
           />
         ) : null}
       </div>
+      {isTextSearchOpen ? <TextSearchDialog coreApi={dependencies.coreApi} onClose={() => setTextSearchOpen(false)}
+        onOpenSession={(hit) => {
+          if (hit.source === "channel") setSessionRoute(hit.sessionId);
+          else if (hit.agentId) onAgentRouteChange(hit.agentId, "chat", hit.sessionId);
+        }} /> : null}
       <TutorialCoachmark hasProjects={sidebarProjects.length > 0} />
       <NotificationToastContainer />
     </div>

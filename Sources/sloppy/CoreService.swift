@@ -218,6 +218,7 @@ public actor CoreService {
     let agentCatalogStore: AgentCatalogFileStore
     var visorToolApprovalReviewOverride: (@Sendable (SubagentToolApprovalContext) async -> SemanticToolApprovalDecision?)?
     let sessionStore: AgentSessionFileStore
+    var textSearch: TextSearchService
     let actorBoardStore: ActorBoardFileStore
     var activeWorkflowRuns: Set<String> = []
     var workflowJournals: [String: WorkflowExecutionJournal] = [:]
@@ -342,6 +343,7 @@ public actor CoreService {
     var meshLaunchPreviewOwners: [String: String] = [:]
     var meshLaunchPreviewInputs: [String: AsyncStream<String>.Continuation] = [:]
     var consoleStreams: [UUID: ConsoleStreamRegistration] = [:]
+    var consoleRelayStartupTask: Task<Void, Never>?
     var consoleRelayTask: Task<Void, Never>?
     var consoleRemoteConnection: ConsoleRemoteConnection?
     var consoleDashboardController: ConsoleDashboardController?
@@ -540,6 +542,7 @@ public actor CoreService {
         }
         self.agentCatalogStore = AgentCatalogFileStore(agentsRootURL: self.agentsRootURL)
         self.sessionStore = AgentSessionFileStore(agentsRootURL: self.agentsRootURL)
+        self.textSearch = TextSearchService(root: self.workspaceRootURL)
         self.systemLogStore = SystemLogFileStore(workspaceRootURL: self.workspaceRootURL)
         self.issueReportLogUploader = issueReportLogUploader
         self.channelDelivery = ChannelDeliveryService(store: self.store)

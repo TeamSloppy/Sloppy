@@ -378,13 +378,14 @@ extension SloppyTUIScreen {
         let lastTurn = lastTurnTokenUsage.map { "  last: \(SloppyTUITheme.turnTokenUsageBadge($0))" } ?? ""
         let elapsed = elapsedStatusContext()
         let defaultStatus = SloppyTUITheme.sessionStatusLine(
-            context: context + queue + pet + transcript + parent + lastTurn + elapsed.idleSuffix,
+            context: "  \(approvalModeStatus)" + context + queue + pet + transcript + parent + lastTurn + elapsed.idleSuffix,
             attachments: attachments,
             sessionID: hasPersistedSession ? session.id : "not created"
         )
-        let busyStatus = (statusLine ?? shellRunStatusLine ?? liveRunStatusLine).map { $0 + elapsed.busySuffix }
+        let connectionStatus = sessionStreamReconnecting ? "Reconnecting session..." : nil
+        let busyStatus = (statusLine ?? shellRunStatusLine ?? connectionStatus ?? liveRunStatusLine).map { $0 + elapsed.busySuffix }
         status.text = SloppyTUITheme.status(
-            busyStatus ?? defaultStatus,
+            busyStatus.map { "\($0)  \(approvalModeStatus)" } ?? defaultStatus,
             isBusy: busyStatus != nil
         )
         refreshTerminalTitle()

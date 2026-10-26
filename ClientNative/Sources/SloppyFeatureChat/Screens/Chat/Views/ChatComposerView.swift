@@ -263,7 +263,7 @@ public struct ChatComposerView: View {
                 )
 
                 HStack(spacing: theme.spacing.s) {
-                    ComposerContextUsageView(usage: viewModel.contextUsage)
+                    ComposerContextUsageView(usage: viewModel.contextUsage, turnUsage: viewModel.contextTokenUsage)
 
                     ComposerOptionsMenuView(
                         selectedModelId: viewModel.selectedModelId,
@@ -310,7 +310,7 @@ public struct ChatComposerView: View {
                 ChatApprovalModePicker(viewModel: viewModel)
                 Spacer(minLength: theme.spacing.s)
                 desktopModelPicker.layoutPriority(1)
-                ComposerContextUsageView(usage: viewModel.contextUsage)
+                ComposerContextUsageView(usage: viewModel.contextUsage, turnUsage: viewModel.contextTokenUsage)
             }
             .frame(minHeight: 30)
             .padding(.horizontal, 12)

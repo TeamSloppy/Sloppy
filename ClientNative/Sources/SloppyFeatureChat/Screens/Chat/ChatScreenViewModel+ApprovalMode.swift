@@ -2,17 +2,24 @@ import Foundation
 import SloppyClientCore
 
 extension ChatScreenViewModel {
+    var approvalModeAllowsSending: Bool {
+        guard !isSavingApprovalMode else { return false }
+        guard let agentId = selectedAgent?.id, let sessionId = selectedSessionId else { return true }
+        // Reading a mode updates its presentation; Core enforces the saved policy.
+        // An explicit failed change must be resolved before another turn.
+        return !failedApprovalModeSaveKeys.contains(deliveryKey(agentId: agentId, sessionId: sessionId))
+    }
+
     func restoreApprovalMode(agentId: String, sessionId: String?) {
         let revision = UUID()
         approvalModeRevision = revision
         isSavingApprovalMode = false
         approvalModeErrorMessage = nil
         selectedApprovalMode = .askForApproval
-        guard let sessionId else {
-            isLoadingApprovalMode = false
-            return
+        hasDraftApprovalModeOverride = false
+        if let sessionId {
+            selectedApprovalMode = approvalModesBySession[deliveryKey(agentId: agentId, sessionId: sessionId)] ?? .askForApproval
         }
-        selectedApprovalMode = approvalModesBySession[deliveryKey(agentId: agentId, sessionId: sessionId)] ?? .askForApproval
         isLoadingApprovalMode = true
         let pendingSave = approvalModeSaveTask
         Task { @MainActor in
@@ -25,10 +32,26 @@ extension ChatScreenViewModel {
             do {
                 // Returning to a chat must observe the result of an in-flight save.
                 if let pendingSave { _ = try? await pendingSave.value }
-                let policy = try await apiClient.fetchChatApprovalPolicy(agentId: agentId, sessionId: sessionId)
-                guard approvalModeRevision == revision, isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
+                let policy: ChatApprovalPolicy
+                if let sessionId {
+                    policy = try await apiClient.fetchChatApprovalPolicy(agentId: agentId, sessionId: sessionId)
+                } else {
+                    do {
+                        policy = try await apiClient.fetchDefaultChatApprovalPolicy()
+                    } catch {
+                        guard (error as? APIError)?.statusCode == 404 else { throw error }
+                        // Older Core versions have no configurable default.
+                        policy = .init(mode: .askForApproval)
+                    }
+                }
+                guard approvalModeRevision == revision, selectedAgent?.id == agentId,
+                      selectedSessionId == sessionId else { return }
                 selectedApprovalMode = policy.mode
-                approvalModesBySession[deliveryKey(agentId: agentId, sessionId: sessionId)] = policy.mode
+                if let sessionId {
+                    let key = deliveryKey(agentId: agentId, sessionId: sessionId)
+                    approvalModesBySession[key] = policy.mode
+                    failedApprovalModeSaveKeys.remove(key)
+                }
             } catch {
                 guard approvalModeRevision == revision else { return }
                 approvalModeErrorMessage = approvalPolicyError(error)
@@ -46,6 +69,7 @@ extension ChatScreenViewModel {
               let agentId = selectedAgent?.id else { return }
         approvalModeErrorMessage = nil
         guard let sessionId = selectedSessionId else {
+            hasDraftApprovalModeOverride = true
             selectedApprovalMode = mode
             return
         }
@@ -65,10 +89,13 @@ extension ChatScreenViewModel {
             }
             do {
                 let policy = try await saveTask.value
-                approvalModesBySession[deliveryKey(agentId: agentId, sessionId: sessionId)] = policy.mode
+                let key = deliveryKey(agentId: agentId, sessionId: sessionId)
+                approvalModesBySession[key] = policy.mode
+                failedApprovalModeSaveKeys.remove(key)
                 guard approvalModeRevision == revision, isCurrentSession(agentId: agentId, sessionId: sessionId) else { return }
                 selectedApprovalMode = policy.mode
             } catch {
+                failedApprovalModeSaveKeys.insert(deliveryKey(agentId: agentId, sessionId: sessionId))
                 guard approvalModeRevision == revision else { return }
                 approvalModeErrorMessage = approvalPolicyError(error)
             }

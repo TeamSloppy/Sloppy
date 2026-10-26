@@ -360,6 +360,7 @@ extension CoreService {
     }
 
     public func stop() async {
+        await textSearch.stop()
         stopPlanInputAutoApprovals()
         longChatIsStopping = true
         for task in longChatTurnTasks.values { task.cancel() }

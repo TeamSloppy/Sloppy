@@ -1,3 +1,4 @@
+import type { TextSearchMode, TextSearchResponse, TextSearchDocument } from "./textSearchTypes";
 import type { UsageBreakdown, UsageQuery } from "../../features/usage/usageModel";
 import { sessionReferencesInText } from "../sessionReferences";
 import { buildApiURL, buildWebSocketURL, formatHttpError, requestBlob, requestJson } from "./httpClient";
@@ -14,6 +15,16 @@ import {
 } from "./dashboardAuth";
 
 type AnyRecord = Record<string, unknown>;
+
+export type SessionApprovalMode = "ask_for_approval" | "approve_for_me";
+export interface SessionApprovalPolicy { mode: SessionApprovalMode; }
+
+function validatedSessionApprovalPolicy(policy: SessionApprovalPolicy): SessionApprovalPolicy {
+  if (policy.mode !== "ask_for_approval" && policy.mode !== "approve_for_me") {
+    throw new Error("Sloppy Core returned an unsupported chat approval mode.");
+  }
+  return policy;
+}
 
 export interface DevicePairingRecord {
   id: string;
@@ -139,6 +150,8 @@ export interface DashboardTerminalConnection {
 }
 
 export interface CoreApi {
+  searchText: (query: string, options?: { mode?: TextSearchMode; offset?: number; signal?: AbortSignal }) => Promise<TextSearchResponse>;
+  fetchSearchDocument: (id: string, signal?: AbortSignal) => Promise<TextSearchDocument>;
   fetchAllAgentSessions: (options?: { query?: string; includeWorkers?: boolean; limit?: number }) => Promise<AnyRecord[] | null>;
   fetchMemories: (query?: AgentMemoryQuery & { scope?: "all" | "global" }) => Promise<MemoryBrowserResponse | null>;
   fetchHealth: () => Promise<AnyRecord | null>;
@@ -346,6 +359,10 @@ export interface CoreApi {
     payload?: AnyRecord
   ) => Promise<AnyRecord | null>;
   fetchAgentSession: (agentId: string, sessionId: string) => Promise<AnyRecord | null>;
+  fetchDefaultChatApprovalPolicy: () => Promise<SessionApprovalPolicy>;
+  setDefaultChatApprovalPolicy: (mode: SessionApprovalMode) => Promise<SessionApprovalPolicy>;
+  fetchAgentSessionApprovalPolicy: (agentId: string, sessionId: string) => Promise<SessionApprovalPolicy>;
+  setAgentSessionApprovalPolicy: (agentId: string, sessionId: string, mode: SessionApprovalMode) => Promise<SessionApprovalPolicy>;
   postAgentSessionMessage: (
     agentId: string,
     sessionId: string,
@@ -458,6 +475,17 @@ export interface CoreApi {
 
 export function createCoreApi(): CoreApi {
   return {
+    searchText: async (query, options = {}) => {
+      const parameters = new URLSearchParams({ q: query, mode: options.mode ?? "text", limit: "50", offset: String(options.offset ?? 0) });
+      const response = await requestJson<TextSearchResponse>({ path: `/v1/search?${parameters}`, signal: options.signal });
+      if (!response.ok || !response.data) throw new Error(formatHttpError(response.status, response.data));
+      return response.data;
+    },
+    fetchSearchDocument: async (id, signal) => {
+      const response = await requestJson<TextSearchDocument>({ path: `/v1/search/document?${new URLSearchParams({ id })}`, signal });
+      if (!response.ok || !response.data) throw new Error(formatHttpError(response.status, response.data));
+      return response.data;
+    },
     fetchAllAgentSessions: async (options = {}) => {
       const query = new URLSearchParams();
       if (options.query) query.set("query", options.query);
@@ -2478,6 +2506,43 @@ export function createCoreApi(): CoreApi {
         return null;
       }
       return response.data;
+    },
+
+    fetchDefaultChatApprovalPolicy: async () => {
+      const response = await requestJson<SessionApprovalPolicy>({ path: "/v1/config/chat-approval-default" });
+      if (response.status === 404) return { mode: "ask_for_approval" };
+      if (!response.ok || !response.data) throw new Error(formatHttpError(response.status, response.data));
+      return validatedSessionApprovalPolicy(response.data);
+    },
+
+    setDefaultChatApprovalPolicy: async (mode) => {
+      const response = await requestJson<SessionApprovalPolicy, SessionApprovalPolicy>({
+        path: "/v1/config/chat-approval-default", method: "PUT", body: { mode }
+      });
+      if (!response.ok || !response.data) throw new Error(formatHttpError(response.status, response.data));
+      return validatedSessionApprovalPolicy(response.data);
+    },
+
+    fetchAgentSessionApprovalPolicy: async (agentId, sessionId) => {
+      const response = await requestJson<SessionApprovalPolicy>({
+        path: `/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/approval-policy`
+      });
+      if (!response.ok || !response.data) {
+        throw new Error(response.status === 404 ? "Update Sloppy Core to use chat approval modes." : formatHttpError(response.status, response.data));
+      }
+      return validatedSessionApprovalPolicy(response.data);
+    },
+
+    setAgentSessionApprovalPolicy: async (agentId, sessionId, mode) => {
+      const response = await requestJson<SessionApprovalPolicy, SessionApprovalPolicy>({
+        path: `/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/approval-policy`,
+        method: "PUT",
+        body: { mode }
+      });
+      if (!response.ok || !response.data) {
+        throw new Error(response.status === 404 ? "Update Sloppy Core to use chat approval modes." : formatHttpError(response.status, response.data));
+      }
+      return validatedSessionApprovalPolicy(response.data);
     },
 
     postAgentSessionMessage: async (agentId, sessionId, payload, options = {}) => {

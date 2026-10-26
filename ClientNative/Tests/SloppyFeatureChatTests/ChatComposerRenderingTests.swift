@@ -124,7 +124,7 @@ struct ChatComposerRenderingTests {
     func desktopModelControlsStayBottomRightWithoutButtonBackground() throws {
         let source = try chatComposerSource
 
-        #expect(source.contains("ComposerContextUsageView(usage: viewModel.contextUsage)"))
+        #expect(source.contains("ComposerContextUsageView(usage: viewModel.contextUsage, turnUsage: viewModel.contextTokenUsage)"))
         #expect(source.contains(".padding(.trailing, theme.spacing.s)"))
         #expect(source.contains(".padding(.bottom, theme.spacing.s)"))
         #expect(!source.contains("theme.colors.surfaceRaised.opacity(0.72"))
@@ -135,8 +135,10 @@ struct ChatComposerRenderingTests {
         let source = try chatComposerSource
 
         #expect(source.contains("struct ComposerContextUsageView"))
-        #expect(source.contains("ProgressView(value: usage?.fraction ?? 0, total: 1)"))
+        #expect(source.contains("ProgressView(value: usage.fraction, total: 1)"))
         #expect(source.contains(".progressViewStyle(.circular)"))
+        #expect(source.contains("questionmark.circle"))
+        #expect(source.contains("Current context unknown"))
         #expect(source.contains(".onHover { isHovering in"))
         #expect(source.contains(".popover(isPresented: $isDetailsPresented"))
         #expect(source.contains("Text(\"Used\")"))

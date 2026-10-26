@@ -1,5 +1,10 @@
 import Foundation
 import Testing
+#if canImport(Darwin)
+import Darwin
+#elseif canImport(Glibc)
+import Glibc
+#endif
 @testable import Protocols
 @testable import sloppy
 
@@ -127,3 +132,45 @@ func projectSummariesLeaveRegularProjectsTopLevel() async throws {
     #expect(project.parentProjectId == nil)
     #expect(project.worktreeBranch == nil)
 }
+
+#if !os(Windows)
+@Test(.timeLimit(.minutes(2)))
+func projectListsBoundStalledGitMetadataWithoutBlockingOtherRequests() async throws {
+    let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let repo = try makeWorktreeMetadataTempDirectory(prefix: "project-worktree-stalled")
+    defer { try? FileManager.default.removeItem(at: repo) }
+    try runGit(["init"], in: repo)
+    _ = try await createProject(service: service, id: "stalled-git", name: "Stalled Git", repoPath: repo.path)
+
+    // Git blocks reading an included config until a writer closes the FIFO.
+    let fifo = repo.appendingPathComponent("blocked-config")
+    try #require(mkfifo(fifo.path, 0o600) == 0)
+    let descriptor = open(fifo.path, O_RDWR | O_NONBLOCK)
+    try #require(descriptor >= 0)
+    let writer = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+    defer { try? writer.close() }
+    try "[include]\n    path = \(fifo.path)\n".write(
+        to: repo.appendingPathComponent(".git/config"), atomically: true, encoding: .utf8
+    )
+
+    // Keep a regression bounded even if process timeouts are accidentally removed.
+    let watchdog = DispatchWorkItem {
+        try? FileManager.default.removeItem(at: fifo)
+        try? writer.close()
+    }
+    DispatchQueue.global().asyncAfter(deadline: .now() + 30, execute: watchdog)
+    defer { watchdog.cancel() }
+
+    await withTaskGroup(of: [ProjectRecord].self) { group in
+        for _ in 0..<16 {
+            group.addTask { await service.listProjects() }
+        }
+        let project = try? await service.getProject(id: "stalled-git")
+        #expect(project?.id == "stalled-git")
+        for await projects in group {
+            #expect(projects.contains { $0.id == "stalled-git" })
+        }
+    }
+    #expect(FileManager.default.fileExists(atPath: fifo.path))
+}
+#endif

@@ -10,6 +10,7 @@ extension CoreRouter {
             UsageAPIRouter(service: service),
             ChannelsAPIRouter(service: service),
             SessionsAPIRouter(service: service),
+            TextSearchAPIRouter(service: service),
             LongChatAPIRouter(service: service),
             ProjectsAPIRouter(service: service),
             InitiativesAPIRouter(service: service),

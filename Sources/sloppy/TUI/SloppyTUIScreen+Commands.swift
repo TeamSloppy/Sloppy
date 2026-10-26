@@ -28,6 +28,8 @@ extension SloppyTUIScreen {
             await showProjectPicker()
         case "status":
             await showStatus()
+        case "approvals":
+            await showApprovalModePicker()
         case "pet":
             showPetStatus(toggle: true)
         case "agents", "agent":
