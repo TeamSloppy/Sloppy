@@ -152,7 +152,7 @@ jobs:
       - name: Install System Dependencies
         run: |
           apt-get update
-          apt-get install -y libsqlite3-dev patchelf
+          apt-get install -y libsqlite3-dev patchelf python3
 
       - name: Extract Version from Tag
         id: meta
@@ -230,12 +230,13 @@ jobs:
           cp SOURCE_OFFER.md THIRD_PARTY_NOTICES.md "$STAGE/share/sloppy/licenses/"
           bash scripts/collect-third-party-licenses.sh "$STAGE/share/sloppy/licenses/third-party"
           bash scripts/bundle-linux-runtime.sh "$STAGE"
-          bash scripts/test-release.sh "$STAGE" "${{ steps.meta.outputs.version }}"
           OUT="Sloppy-linux-x86_64.tar.gz"
           tar -C "$STAGE" -czvf "$RUNNER_TEMP/$OUT" bin share
           echo "tarball_path=$RUNNER_TEMP/$OUT" >> "$GITHUB_OUTPUT"
+          bash scripts/test-release.sh "$STAGE" "${{ steps.meta.outputs.version }}"
 
       - name: Upload Artifact
+        if: ${{ always() && steps.pack.outputs.tarball_path != '' }}
         uses: actions/upload-artifact@v4
         with:
           name: linux-tarball
