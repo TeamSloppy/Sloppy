@@ -40,6 +40,11 @@ sudo apt-get install -y libsqlite3-dev
 
 ### Windows (PowerShell)
 
+To install without a checkout, paste `irm https://sloppy.team/install.ps1 | iex` into PowerShell.
+The default installer downloads prebuilt binaries and runtime DLLs without development tools.
+Use `-FromSource` explicitly for a source build. The instructions below are for an existing checkout.
+
+
 From the checkout root (or an extracted source ZIP), install everything with one command:
 
 ```powershell
@@ -119,13 +124,13 @@ swift package resolve
 If you want a one-command setup from a checkout, use:
 
 ```bash
-bash scripts/install.sh
+bash scripts/install.sh --bundle
 ```
 
-Remote bootstrap:
+Remote source build (the public installer otherwise downloads a prebuilt release):
 
 ```bash
-curl -fsSL https://sloppy.team/install.sh | bash
+curl -fsSL https://sloppy.team/install.sh | bash -s -- --bundle
 ```
 
 Installer modes:

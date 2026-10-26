@@ -11,12 +11,17 @@ on:
         required: true
         type: string
         default: v2.3.0
+      source_ref:
+        description: Commit SHA or ref to build; defaults to the release tag
+        required: false
+        type: string
       build_platform:
-        description: Build all platforms or retry Linux or Apple apps
+        description: Build everything, CLI/runtime only, or retry Linux or Apple apps
         type: choice
         default: all
         options:
           - all
+          - cli
           - linux
           - apps
       publish_release:
@@ -31,6 +36,7 @@ concurrency:
 env:
   SWIFT_VERSION: "6.2.1"
   RELEASE_TAG: ${{ inputs.release_tag || github.ref_name }}
+  SOURCE_REF: ${{ inputs.source_ref || inputs.release_tag || github.ref_name }}
 
 jobs:
   validate:
@@ -67,7 +73,7 @@ jobs:
           echo "prepare_release=$PREPARE_RELEASE" >> "$GITHUB_OUTPUT"
 
   signing-check:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform != 'linux' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform != 'linux' && inputs.build_platform != 'cli' }}
     name: Verify Sparkle Signing Secret
     needs: validate
     runs-on: ubuntu-latest
@@ -117,7 +123,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ env.SOURCE_REF }}
 
       - name: Swift Version
         run: swift --version
@@ -146,7 +152,7 @@ jobs:
       - name: Install System Dependencies
         run: |
           apt-get update
-          apt-get install -y libsqlite3-dev
+          apt-get install -y libsqlite3-dev patchelf
 
       - name: Extract Version from Tag
         id: meta
@@ -210,6 +216,9 @@ jobs:
           STAGE="$(mktemp -d)"
           mkdir -p "$STAGE/bin" "$STAGE/share/sloppy/dashboard" "$STAGE/share/sloppy/licenses"
           cp "$BIN_PATH/sloppy" "$STAGE/bin/"
+          for RESOURCE in "$BIN_PATH/"*.resources "$BIN_PATH/"*.bundle; do
+            [ ! -d "$RESOURCE" ] || cp -R "$RESOURCE" "$STAGE/bin/"
+          done
           cp -R Dashboard/dist "$STAGE/share/sloppy/dashboard/"
           cp Dashboard/config.json "$STAGE/share/sloppy/dashboard/"
           cp Sources/sloppy/Resources/sloppy-version.json "$STAGE/share/sloppy/sloppy-version.json"
@@ -220,6 +229,8 @@ jobs:
           cp LICENSES/README.md "$STAGE/share/sloppy/licenses/LICENSE-MAP.md"
           cp SOURCE_OFFER.md THIRD_PARTY_NOTICES.md "$STAGE/share/sloppy/licenses/"
           bash scripts/collect-third-party-licenses.sh "$STAGE/share/sloppy/licenses/third-party"
+          bash scripts/bundle-linux-runtime.sh "$STAGE"
+          bash scripts/test-release.sh "$STAGE" "${{ steps.meta.outputs.version }}"
           OUT="Sloppy-linux-x86_64.tar.gz"
           tar -C "$STAGE" -czvf "$RUNNER_TEMP/$OUT" bin share
           echo "tarball_path=$RUNNER_TEMP/$OUT" >> "$GITHUB_OUTPUT"
@@ -231,7 +242,7 @@ jobs:
           path: ${{ steps.pack.outputs.tarball_path }}
 
   build-macos:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform == 'all' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || (inputs.build_platform == 'all' || inputs.build_platform == 'cli') }}
     needs: validate
     name: Build (macOS)
     # Swift 6.2.1 cannot import Xcode 26 WebKit interfaces on macos-latest.
@@ -244,7 +255,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ env.SOURCE_REF }}
 
       - name: Setup Swift
         uses: swift-actions/setup-swift@v2
@@ -331,6 +342,9 @@ jobs:
           STAGE="$(mktemp -d)"
           mkdir -p "$STAGE/bin" "$STAGE/share/sloppy/dashboard" "$STAGE/share/sloppy/licenses"
           cp "$BIN_PATH/sloppy" "$STAGE/bin/"
+          for RESOURCE in "$BIN_PATH/"*.resources "$BIN_PATH/"*.bundle; do
+            [ ! -d "$RESOURCE" ] || cp -R "$RESOURCE" "$STAGE/bin/"
+          done
           cp -R Dashboard/dist "$STAGE/share/sloppy/dashboard/"
           cp Dashboard/config.json "$STAGE/share/sloppy/dashboard/"
           cp Sources/sloppy/Resources/sloppy-version.json "$STAGE/share/sloppy/sloppy-version.json"
@@ -341,6 +355,7 @@ jobs:
           cp LICENSES/README.md "$STAGE/share/sloppy/licenses/LICENSE-MAP.md"
           cp SOURCE_OFFER.md THIRD_PARTY_NOTICES.md "$STAGE/share/sloppy/licenses/"
           bash scripts/collect-third-party-licenses.sh "$STAGE/share/sloppy/licenses/third-party"
+          bash scripts/test-release.sh "$STAGE" "${{ steps.meta.outputs.version }}"
           OUT="Sloppy-macos-${ASSET_ARCH}.tar.gz"
           tar -C "$STAGE" -czvf "${{ runner.temp }}/$OUT" bin share
           NODE_STAGE="$(mktemp -d)"
@@ -363,7 +378,7 @@ jobs:
             ${{ steps.pack.outputs.node_tarball_path }}
 
   build-macos-client:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform != 'linux' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform != 'linux' && inputs.build_platform != 'cli' }}
     needs: [validate, signing-check]
     name: Build Sloppy Client (macOS)
     runs-on: macos-26
@@ -373,7 +388,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ env.SOURCE_REF }}
       - name: Checkout current release tooling
         uses: actions/checkout@v4
         with:
@@ -428,7 +443,7 @@ jobs:
             ${{ steps.sparkle.outputs.appcast_path }}
 
   build-macos-companion:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform != 'linux' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform != 'linux' && inputs.build_platform != 'cli' }}
     needs: [validate, signing-check]
     name: Build Desktop Companion (macOS)
     runs-on: macos-26
@@ -438,7 +453,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ env.SOURCE_REF }}
       - name: Checkout current release tooling
         uses: actions/checkout@v4
         with:
@@ -490,9 +505,9 @@ jobs:
           if-no-files-found: error
 
   build-windows-node:
-    if: ${{ github.event_name != 'workflow_dispatch' || inputs.build_platform == 'all' }}
+    if: ${{ github.event_name != 'workflow_dispatch' || (inputs.build_platform == 'all' || inputs.build_platform == 'cli') }}
     needs: validate
-    name: Build SloppyNode (Windows)
+    name: Build Sloppy and SloppyNode (Windows)
     runs-on: windows-latest
     env:
       ADAENGINE_HEADLESS: "1"
@@ -505,18 +520,32 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ env.SOURCE_REF }}
 
       - name: Setup Swift
         uses: SwiftyLab/setup-swift@v1
         with:
-          swift-version: ${{ env.SWIFT_VERSION }}
+          swift-version: "6.3.1"
 
-      - name: Resolve Swift Packages
-        run: swift package resolve
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
 
-      - name: Build SloppyNode
-        run: swift build -c release --product SloppyNode
+      - name: Inject Windows release version
+        id: windows-meta
+        shell: pwsh
+        run: |
+          $version = $env:RELEASE_TAG -replace '^v', ''
+          $resource = 'Sources/sloppy/Resources/sloppy-version.json'
+          (Get-Content -LiteralPath $resource -Raw).Replace('__SLOPPY_APP_VERSION__', $version) | Set-Content -LiteralPath $resource -Encoding utf8
+          $dashboard = Get-Content Dashboard/package.json -Raw | ConvertFrom-Json
+          $dashboard.version = $version
+          $dashboard | ConvertTo-Json -Depth 100 | Set-Content Dashboard/package.json -Encoding utf8
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Build Windows CLI, Dashboard and node
+        shell: pwsh
+        run: ./scripts/build-windows.ps1
 
       - name: Package SloppyNode
         id: pack
@@ -549,6 +578,11 @@ jobs:
           Compress-Archive -Force -Path (Join-Path $stage "bin"), (Join-Path $stage "share") -DestinationPath $out
           "exe_path=$exe" >> $env:GITHUB_OUTPUT
           "zip_path=$out" >> $env:GITHUB_OUTPUT
+          ./scripts/package-windows.ps1 -OutputDirectory $env:RUNNER_TEMP
+
+      - name: Verify packaged runtime without development tools on PATH
+        shell: powershell
+        run: ./scripts/test-windows-release.ps1 -ArchivePath "${{ steps.pack.outputs.core_zip_path }}" -ExpectedVersion "${{ steps.windows-meta.outputs.version }}"
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
@@ -557,13 +591,34 @@ jobs:
           path: |
             ${{ steps.pack.outputs.exe_path }}
             ${{ steps.pack.outputs.zip_path }}
+            ${{ steps.pack.outputs.core_zip_path }}
+
+  smoke-linux-package:
+    needs: build-linux
+    runs-on: ubuntu-24.04
+    container: ubuntu:24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          name: linux-tarball
+          path: package
+      - name: Verify package on Ubuntu without a Swift toolchain
+        run: |
+          apt-get update
+          apt-get install -y ca-certificates curl python3
+          test ! -d /usr/local/swift
+          mkdir unpacked
+          tar -xzf package/Sloppy-linux-x86_64.tar.gz -C unpacked
+          bash scripts/test-release.sh "$PWD/unpacked" "${RELEASE_TAG#v}"
 
   publish:
     name: Publish Release
-    if: ${{ (github.event_name != 'workflow_dispatch' || inputs.build_platform == 'all') && needs.validate.outputs.prepare_release == 'true' }}
+    if: ${{ !cancelled() && !failure() && (github.event_name != 'workflow_dispatch' || inputs.build_platform == 'all' || inputs.build_platform == 'cli') && needs.validate.outputs.prepare_release == 'true' }}
     needs:
       - validate
       - build-linux
+      - smoke-linux-package
       - build-macos
       - build-macos-client
       - build-macos-companion
@@ -587,7 +642,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ env.RELEASE_TAG }}
+          ref: ${{ env.SOURCE_REF }}
           fetch-depth: 0
 
       - name: Verify Sloppy v2 legal release gate
@@ -625,22 +680,39 @@ jobs:
           path: release-assets
 
       - name: Download macOS Client Artifact
+        if: ${{ inputs.build_platform != 'cli' }}
         uses: actions/download-artifact@v4
         with:
           name: macos-client
           path: release-assets
 
       - name: Download macOS Companion Artifact
+        if: ${{ inputs.build_platform != 'cli' }}
         uses: actions/download-artifact@v4
         with:
           name: macos-companion
           path: release-assets
 
-      - name: Download Windows SloppyNode Artifact
+      - name: Download Windows CLI and SloppyNode Artifact
         uses: actions/download-artifact@v4
         with:
           name: windows-node
           path: release-assets
+
+      - name: Preserve published desktop packages for a CLI-only release
+        if: ${{ inputs.build_platform == 'cli' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release download --repo "$GITHUB_REPOSITORY" --dir release-assets \
+            --pattern 'SloppyClient-macos-*.pkg' --pattern 'SloppyClient-macos-*.zip' \
+            --pattern 'SloppyDesktopCompanion-macos-*.zip' --pattern appcast.xml --pattern companion-appcast.xml
+
+      - name: Include release installers
+        run: |
+          cp scripts/install.sh release-assets/install.sh
+          cp scripts/bootstrap-windows.ps1 release-assets/install.ps1
+          cp scripts/bootstrap-windows-source.ps1 release-assets/bootstrap-windows-source.ps1
 
       - name: Write sloppy-version.json and SHA256SUMS
         id: assets
@@ -660,13 +732,14 @@ jobs:
           NODE_MACOS=$(ls SloppyNode-macos-*.tar.gz | head -1)
           NODE_WINDOWS_EXE=$(ls SloppyNode-windows-x86_64.exe)
           NODE_WINDOWS=$(ls SloppyNode-windows-x86_64.zip)
+          WINDOWS=$(ls Sloppy-windows-x86_64.zip)
           MACOS_INSTALLER=$(ls SloppyClient-macos-*.pkg | head -1)
           MACOS_CLIENT_UPDATE=$(ls SloppyClient-macos-*.zip | head -1)
           MACOS_COMPANION_UPDATE=$(ls SloppyDesktopCompanion-macos-*.zip | head -1)
           LINUX_SHA=$(sha256sum "$LINUX" | awk '{print $1}')
           MACOS_SHA=$(sha256sum "$MACOS" | awk '{print $1}')
           NODE_MACOS_SHA=$(sha256sum "$NODE_MACOS" | awk '{print $1}')
-          sha256sum sloppy-version.json "$LINUX" "$MACOS" "$NODE_MACOS" "$MACOS_INSTALLER" "$MACOS_CLIENT_UPDATE" "$MACOS_COMPANION_UPDATE" appcast.xml companion-appcast.xml "$NODE_WINDOWS_EXE" "$NODE_WINDOWS" > SHA256SUMS.txt
+          sha256sum sloppy-version.json "$LINUX" "$MACOS" "$NODE_MACOS" "$MACOS_INSTALLER" "$MACOS_CLIENT_UPDATE" "$MACOS_COMPANION_UPDATE" appcast.xml companion-appcast.xml "$NODE_WINDOWS_EXE" "$NODE_WINDOWS" "$WINDOWS" install.sh install.ps1 bootstrap-windows-source.ps1 > SHA256SUMS.txt
           {
             echo "linux_sha256=$LINUX_SHA"
             echo "macos_sha256=$MACOS_SHA"
@@ -679,6 +752,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ steps.meta.outputs.tag }}
+          target_commitish: ${{ env.SOURCE_REF }}
           name: Sloppy ${{ steps.meta.outputs.version }}
           generate_release_notes: true
           draft: ${{ github.event_name == 'workflow_dispatch' && !inputs.publish_release }}
@@ -686,6 +760,9 @@ jobs:
           files: |
             release-assets/SHA256SUMS.txt
             release-assets/sloppy-version.json
+            release-assets/install.sh
+            release-assets/install.ps1
+            release-assets/bootstrap-windows-source.ps1
             release-assets/Sloppy-linux-x86_64.tar.gz
             release-assets/Sloppy-macos-*.tar.gz
             release-assets/SloppyNode-macos-*.tar.gz
@@ -696,6 +773,7 @@ jobs:
             release-assets/companion-appcast.xml
             release-assets/SloppyNode-windows-x86_64.exe
             release-assets/SloppyNode-windows-x86_64.zip
+            release-assets/Sloppy-windows-x86_64.zip
 
   bump-homebrew:
     name: Bump Homebrew Tap Files

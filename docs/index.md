@@ -84,43 +84,30 @@ Model providers (OpenAI, Anthropic, Gemini, Ollama), tools, memory backends, and
 
 ## Quick start
 
-### Prerequisites
-
-| Dependency | Notes |
-| --- | --- |
-| Swift 6 toolchain | macOS 14+ or Linux |
-| `sqlite3` | Runtime dependency |
-| Node.js + npm | For Dashboard |
-
-On Ubuntu/Debian, install SQLite headers first:
-
-```bash
-sudo apt-get update && sudo apt-get install -y libsqlite3-dev
-```
-
-### Install and run
-
-```bash
-git clone https://github.com/TeamSloppy/Sloppy.git
-cd Sloppy
-bash scripts/install.sh
-```
-
-This builds the server stack and the Dashboard bundle, then installs `sloppy` into `~/.local/bin`. Verify the installation:
-
-```bash
-sloppy --version
-```
-
-Then open the terminal UI with `sloppy`, or start the server and Dashboard with `sloppy run`. From another terminal, check the server with `sloppy status`.
-
-If you prefer a curl installer flow:
+On macOS (Apple silicon) or Linux (x86_64), install the ready-to-run CLI and Dashboard:
 
 ```bash
 curl -fsSL https://sloppy.team/install.sh | bash
 ```
 
-For the full setup guide see [Install](/install). For Docker see [Build With Docker](/guides/build-with-docker).
+No Swift, Node.js, or Git is required. On Windows, paste into PowerShell:
+
+```powershell
+irm https://sloppy.team/install.ps1 | iex
+```
+
+Windows installs a prebuilt package with runtime DLLs; no development tools are needed. A release containing the full Windows archive must be published first. Open a new terminal, then run:
+
+```bash
+sloppy       # terminal UI
+sloppy run   # server + Dashboard
+```
+
+Prefer an app? [Download for macOS](https://github.com/TeamSloppy/Sloppy/releases/download/v2.5.0/SloppyClient-macos-universal-2.5.0.pkg)
+or open the [iOS App Store page](https://apps.apple.com/app/id6811777701) after publication.
+
+See [Install](/install) for supported platforms and options, [Build From Terminal](/guides/build-from-terminal)
+for source builds, or [Build With Docker](/guides/build-with-docker).
 
 ## Dashboard
 

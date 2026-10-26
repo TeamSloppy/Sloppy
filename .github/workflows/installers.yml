@@ -1,0 +1,31 @@
+name: Installer acceptance
+
+on:
+  push:
+    paths: ["scripts/install.sh", "scripts/test-install.py", "scripts/*windows*.ps1", ".github/workflows/installers.yml"]
+  pull_request:
+    paths: ["scripts/install.sh", "scripts/test-install.py", "scripts/*windows*.ps1", ".github/workflows/installers.yml"]
+
+jobs:
+  release-install:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate shell syntax
+        run: bash -n scripts/install.sh
+      - name: Check offline installation and failure recovery
+        run: python3 scripts/test-install.py
+
+  windows-bootstrap:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Check PowerShell bootstrap without installing system components
+        shell: powershell
+        run: ./scripts/test-windows-bootstrap.ps1
+      - name: Check explicit source bootstrap
+        shell: powershell
+        run: ./scripts/test-windows-source-bootstrap.ps1
