@@ -14,6 +14,7 @@
     "test:auth": "node --test ./scripts/configAuthTest.mjs ./scripts/authInvalidationTest.mjs",
     "test:session-mentions": "node --test ./scripts/sessionMentionsTest.mjs",
     "test:voice": "node --test ./scripts/voiceTest.mjs",
+    "test:a2ui": "node ./scripts/uiSurfaceTest.mjs",
     "test:chat-approvals": "node ./scripts/chatApprovalModeTest.mjs",
     "test:semantic-decisions": "node --test ./scripts/semanticDecisionsTest.mjs",
     "preview": "node ./node_modules/vite/bin/vite.js preview",

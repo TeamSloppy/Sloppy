@@ -1,0 +1,56 @@
+[
+  {
+    "version": "v0.9.1",
+    "createSurface": {
+      "surfaceId": "brief",
+      "catalogId": "urn:sloppy:a2ui:catalog:v1"
+    }
+  },
+  {
+    "version": "v0.9.1",
+    "updateComponents": {
+      "surfaceId": "brief",
+      "components": [
+        {
+          "id": "root",
+          "component": "Column",
+          "children": [
+            "goal",
+            "platform",
+            "submit"
+          ]
+        },
+        {
+          "id": "goal",
+          "component": "TextField",
+          "label": "Goal",
+          "binding": "/goal",
+          "required": true
+        },
+        {
+          "id": "platform",
+          "component": "ChoicePicker",
+          "label": "Platform",
+          "binding": "/platform",
+          "required": true,
+          "options": [
+            {
+              "label": "iOS",
+              "value": "ios"
+            },
+            {
+              "label": "Web",
+              "value": "web"
+            }
+          ]
+        },
+        {
+          "id": "submit",
+          "component": "Button",
+          "label": "Continue",
+          "action": "submit_brief"
+        }
+      ]
+    }
+  }
+]

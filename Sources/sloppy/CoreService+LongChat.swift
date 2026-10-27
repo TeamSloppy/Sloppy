@@ -116,7 +116,7 @@ extension CoreService {
             message: .init(
                 id: turn.id, role: turn.isNotification ? .system : .user, segments: segments,
                 userId: turn.request.userId, peerOrigin: turn.peerOrigin,
-                sessionReferences: SessionReferenceContext.references(for: turn.request)))
+                sessionReferences: SessionReferenceContext.references(for: turn.request), supportsA2UI: turn.request.supportsA2UI))
         let summary = try sessionStore.appendEvents(agentID: turn.agentId, sessionID: turn.sessionId, events: [event])
         publishLiveSessionEvents(agentID: turn.agentId, sessionID: turn.sessionId, summary: summary, events: [event])
         return event

@@ -75,6 +75,11 @@ extension CoreService {
             )
         }
 
+        if ["ui.catalog", "ui.render"].contains(request.tool.trimmingCharacters(in: .whitespacesAndNewlines)),
+           sessionDetail.events.reversed().compactMap(\.message).first(where: { $0.role == .user })?.supportsA2UI != true {
+            return .init(tool: request.tool, ok: false, error: .init(code: "ui_client_unsupported", message: "This client has not advertised A2UI. Use ordinary text or planning.request_input.", retryable: false))
+        }
+
         let isLongChatWorker = longChatParent(of: normalizedSessionID)
         let hasLongChatParent = sessionDetail.summary.parentSessionId.map {
             (try? getAgentSession(agentID: normalizedAgentID, sessionID: $0).summary.kind) == .longChat

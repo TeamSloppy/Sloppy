@@ -10,6 +10,7 @@ import FoundationNetworking
 protocol SloppyTUIBackend: Sendable {
     var isRemote: Bool { get }
     var displayName: String { get }
+    var uiDraftNamespace: String { get }
 
     func waitForStartup() async
     func shutdown() async
@@ -44,6 +45,8 @@ protocol SloppyTUIBackend: Sendable {
     func clearAgentSessionGoal(agentID: String, sessionID: String) async throws -> AgentSessionGoalRecord?
     func addAgentSessionDirectory(agentID: String, sessionID: String, request: AgentSessionDirectoryRequest) async throws -> AgentSessionDirectoryResponse
     func controlAgentSession(agentID: String, sessionID: String, request: AgentSessionControlRequest) async throws -> AgentSessionMessageResponse
+    func listAgentUISurfaces(agentID: String, sessionID: String) async throws -> [AgentUISurfaceSnapshot]
+    func submitAgentUIAction(agentID: String, sessionID: String, surfaceID: String, submission: AgentUISubmission) async throws -> AgentUIActionReceipt
     func answerAgentPlanInput(agentID: String, sessionID: String, requestID: String, payload: PlanInputAnswerRequest) async throws -> AgentSessionMessageResponse
     func listPendingToolApprovals() async throws -> [ToolApprovalRecord]
     func approveToolApproval(id: String, request: ToolApprovalDecisionRequest) async throws -> ToolApprovalRecord
@@ -80,6 +83,7 @@ enum SloppyTUIBackendError: Error, LocalizedError {
 }
 
 extension SloppyTUIBackend {
+    var uiDraftNamespace: String { displayName }
     func listAgentSessions(agentID: String) async throws -> [AgentSessionSummary] {
         try await listAgentSessions(agentID: agentID, projectID: nil, limit: nil, offset: nil)
     }
@@ -106,6 +110,7 @@ struct LocalSloppyTUIBackend: SloppyTUIBackend {
 
     var isRemote: Bool { false }
     var displayName: String { "Local" }
+    var uiDraftNamespace: String { service.configPath }
 
     func waitForStartup() async { await service.waitForStartup() }
     func shutdown() async { await service.shutdownChannelPlugins() }
@@ -164,8 +169,12 @@ struct LocalSloppyTUIBackend: SloppyTUIBackend {
     func deleteAgentSession(agentID: String, sessionID: String) async throws {
         try await service.deleteAgentSession(agentID: agentID, sessionID: sessionID)
     }
+    func listAgentUISurfaces(agentID: String, sessionID: String) async throws -> [AgentUISurfaceSnapshot] { try await service.listAgentUISurfaces(agentID: agentID, sessionID: sessionID) }
+    func submitAgentUIAction(agentID: String, sessionID: String, surfaceID: String, submission: AgentUISubmission) async throws -> AgentUIActionReceipt { try await service.submitAgentUIAction(agentID: agentID, sessionID: sessionID, surfaceID: surfaceID, submission: submission) }
     func postAgentSessionMessage(agentID: String, sessionID: String, request: AgentSessionPostMessageRequest) async throws -> AgentSessionMessageResponse {
-        try await service.postAgentSessionMessage(agentID: agentID, sessionID: sessionID, request: request)
+        var request = request
+        request.supportsA2UI = true
+        return try await service.postAgentSessionMessage(agentID: agentID, sessionID: sessionID, request: request)
     }
     func startAgentSessionGoal(agentID: String, sessionID: String, request: AgentSessionGoalStartRequest) async throws -> AgentSessionGoalRecord {
         try await service.startAgentSessionGoal(agentID: agentID, sessionID: sessionID, request: request)
@@ -273,11 +282,14 @@ struct LocalSloppyTUIBackend: SloppyTUIBackend {
 enum RemoteSloppyTUIBackendError: Error, LocalizedError {
     case missingProject
     case unsupported(String)
+    case httpError(Int)
 
     var errorDescription: String? {
         switch self {
         case .missingProject:
             return "Select a remote project before using this action."
+        case .httpError(let status):
+            return "Server returned \(status)."
         case .unsupported(let action):
             return "\(action) is not available for remote Sloppy instances yet."
         }
@@ -292,6 +304,7 @@ struct RemoteSloppyTUIBackend: SloppyTUIBackend {
 
     var isRemote: Bool { true }
     var displayName: String { node.displayTitle }
+    var uiDraftNamespace: String { client.baseURL }
 
     init(node: CoreConfig.Node, projectID: String? = nil, environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.node = node
@@ -376,8 +389,12 @@ struct RemoteSloppyTUIBackend: SloppyTUIBackend {
     func deleteAgentSession(agentID: String, sessionID: String) async throws {
         _ = try await client.delete("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))")
     }
+    func listAgentUISurfaces(agentID: String, sessionID: String) async throws -> [AgentUISurfaceSnapshot] { try await get("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/ui-surfaces", as: [AgentUISurfaceSnapshot].self) }
+    func submitAgentUIAction(agentID: String, sessionID: String, surfaceID: String, submission: AgentUISubmission) async throws -> AgentUIActionReceipt { try await post("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/ui-surfaces/\(Self.escape(surfaceID))/actions", body: submission, as: AgentUIActionReceipt.self) }
     func postAgentSessionMessage(agentID: String, sessionID: String, request: AgentSessionPostMessageRequest) async throws -> AgentSessionMessageResponse {
-        try await post("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/messages", body: request, as: AgentSessionMessageResponse.self)
+        var request = request
+        request.supportsA2UI = true
+        return try await post("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/messages", body: request, as: AgentSessionMessageResponse.self)
     }
     func startAgentSessionGoal(agentID: String, sessionID: String, request: AgentSessionGoalStartRequest) async throws -> AgentSessionGoalRecord {
         throw RemoteSloppyTUIBackendError.unsupported("/goal")
@@ -536,6 +553,7 @@ struct MeshSloppyTUIBackend: SloppyTUIBackend {
 
     var isRemote: Bool { true }
     var displayName: String { node.name.isEmpty ? node.id : node.name }
+    var uiDraftNamespace: String { service.configPath + ":mesh:" + node.id }
 
     init(service: CoreService, node: MeshNodeRecord, projectID: String? = nil) {
         self.service = service
@@ -605,8 +623,12 @@ struct MeshSloppyTUIBackend: SloppyTUIBackend {
     func deleteAgentSession(agentID: String, sessionID: String) async throws {
         _ = try await request(method: "DELETE", path: "/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))")
     }
+    func listAgentUISurfaces(agentID: String, sessionID: String) async throws -> [AgentUISurfaceSnapshot] { try await get("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/ui-surfaces", as: [AgentUISurfaceSnapshot].self) }
+    func submitAgentUIAction(agentID: String, sessionID: String, surfaceID: String, submission: AgentUISubmission) async throws -> AgentUIActionReceipt { try await post("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/ui-surfaces/\(Self.escape(surfaceID))/actions", body: submission, as: AgentUIActionReceipt.self) }
     func postAgentSessionMessage(agentID: String, sessionID: String, request: AgentSessionPostMessageRequest) async throws -> AgentSessionMessageResponse {
-        try await post("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/messages", body: request, as: AgentSessionMessageResponse.self)
+        var request = request
+        request.supportsA2UI = true
+        return try await post("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/messages", body: request, as: AgentSessionMessageResponse.self)
     }
     func startAgentSessionGoal(agentID: String, sessionID: String, request: AgentSessionGoalStartRequest) async throws -> AgentSessionGoalRecord {
         try await post("/v1/agents/\(Self.escape(agentID))/sessions/\(Self.escape(sessionID))/goal", body: request, as: AgentSessionGoalRecord.self)
@@ -744,7 +766,7 @@ struct MeshSloppyTUIBackend: SloppyTUIBackend {
             headers: body == nil ? [:] : ["content-type": "application/json"]
         )
         guard response.status < 400 else {
-            throw RemoteSloppyTUIBackendError.unsupported("mesh remote HTTP \(response.status)")
+            throw RemoteSloppyTUIBackendError.httpError(response.status)
         }
         return response.body
     }
@@ -870,4 +892,9 @@ private final class SloppyTUILineStreamDelegate: NSObject, URLSessionDataDelegat
         }
         session.finishTasksAndInvalidate()
     }
+}
+
+extension SloppyTUIBackend {
+    func listAgentUISurfaces(agentID: String, sessionID: String) async throws -> [AgentUISurfaceSnapshot] { [] }
+    func submitAgentUIAction(agentID: String, sessionID: String, surfaceID: String, submission: AgentUISubmission) async throws -> AgentUIActionReceipt { throw CoreService.AgentUIError.invalidAction }
 }

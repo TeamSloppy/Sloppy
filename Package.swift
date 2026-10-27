@@ -250,7 +250,8 @@ let package = Package(
         .testTarget(
             name: "SloppyA2UIContractTests",
             dependencies: [.product(name: "SloppyA2UI", package: "SloppyA2UI")],
-            path: "Packages/SloppyA2UI/Tests/SloppyA2UITests"
+            path: "Packages/SloppyA2UI/Tests/SloppyA2UITests",
+            resources: [.copy("Fixtures")]
         ),
         .testTarget(
             name: "ProtocolsTests",

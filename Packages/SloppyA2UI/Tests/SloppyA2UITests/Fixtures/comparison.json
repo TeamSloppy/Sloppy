@@ -1,0 +1,54 @@
+[
+  {
+    "version": "v0.9.1",
+    "createSurface": {
+      "surfaceId": "comparison",
+      "catalogId": "urn:sloppy:a2ui:catalog:v1"
+    }
+  },
+  {
+    "version": "v0.9.1",
+    "updateComponents": {
+      "surfaceId": "comparison",
+      "components": [
+        {
+          "id": "root",
+          "component": "Column",
+          "children": [
+            "summary",
+            "choice",
+            "submit"
+          ]
+        },
+        {
+          "id": "summary",
+          "component": "Text",
+          "text": "Fast: lower cost. Thorough: broader coverage."
+        },
+        {
+          "id": "choice",
+          "component": "ChoicePicker",
+          "label": "Approach",
+          "binding": "/choice",
+          "required": true,
+          "options": [
+            {
+              "label": "Fast",
+              "value": "fast"
+            },
+            {
+              "label": "Thorough",
+              "value": "thorough"
+            }
+          ]
+        },
+        {
+          "id": "submit",
+          "component": "Button",
+          "label": "Continue",
+          "action": "submit_comparison"
+        }
+      ]
+    }
+  }
+]

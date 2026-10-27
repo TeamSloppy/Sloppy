@@ -15,3 +15,16 @@ public struct AgentUIRenderRequest: Codable, Sendable {
         self.fallbackText = fallbackText
     }
 }
+
+public typealias AgentUISubmission = A2UISubmission
+public typealias AgentUIComponent = A2UIComponent
+
+public struct AgentUIActionReceipt: Codable, Sendable {
+    public var actionId: String
+    public var surfaceId: String
+    public var revision: Int
+    public var status: String
+    public init(actionId: String, surfaceId: String, revision: Int, status: String) {
+        self.actionId = actionId; self.surfaceId = surfaceId; self.revision = revision; self.status = status
+    }
+}

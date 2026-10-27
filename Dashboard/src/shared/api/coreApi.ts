@@ -2546,7 +2546,7 @@ export function createCoreApi(): CoreApi {
     },
 
     postAgentSessionMessage: async (agentId, sessionId, payload, options = {}) => {
-      const messagePayload = { ...payload, sessionReferences: sessionReferencesInText(String(payload.content || "")) };
+      const messagePayload = { ...payload, supportsA2UI: true, sessionReferences: sessionReferencesInText(String(payload.content || "")) };
       const response = await requestJson<AnyRecord, AnyRecord>({
         path: `/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/messages`,
         method: "POST",
@@ -3460,5 +3460,16 @@ export const fetchMemoryImportSourceLocations = (agentId: string, memoryId: stri
 export async function migrationRequest<T>(path: string, body?: unknown, apiBase?: string, token?: string): Promise<T> {
   const response = await requestJson<T>({ path: `/v1/migrations${path}`, method: body === undefined ? "GET" : "POST", body, apiBase, headers: apiBase ? { authorization: token ? `Bearer ${token}` : "" } : undefined });
   if (!response.ok || !response.data) { throw new Error(formatHttpError(response.status, response.data)); }
+  return response.data;
+}
+
+export async function fetchAgentUISurfaces(agentId: string, sessionId: string, apiBase?: string): Promise<any[]> {
+  const response = await requestJson<any[]>({ apiBase, path: `/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/ui-surfaces` });
+  if (!response.ok) throw new Error(formatHttpError(response.status, response.data));
+  return Array.isArray(response.data) ? response.data : [];
+}
+export async function submitAgentUIAction(agentId: string, sessionId: string, surfaceId: string, body: unknown, apiBase?: string): Promise<any> {
+  const response = await requestJson<any, unknown>({ apiBase, path: `/v1/agents/${encodeURIComponent(agentId)}/sessions/${encodeURIComponent(sessionId)}/ui-surfaces/${encodeURIComponent(surfaceId)}/actions`, method: "POST", body });
+  if (!response.ok) throw Object.assign(new Error(formatHttpError(response.status, response.data)), { status: response.status });
   return response.data;
 }

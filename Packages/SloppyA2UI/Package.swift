@@ -7,6 +7,6 @@ let package = Package(
     products: [.library(name: "SloppyA2UI", targets: ["SloppyA2UI"])],
     targets: [
         .target(name: "SloppyA2UI"),
-        .testTarget(name: "SloppyA2UITests", dependencies: ["SloppyA2UI"]),
+        .testTarget(name: "SloppyA2UITests", dependencies: ["SloppyA2UI"], resources: [.copy("Fixtures")]),
     ]
 )

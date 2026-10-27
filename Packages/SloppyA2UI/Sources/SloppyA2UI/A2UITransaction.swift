@@ -7,7 +7,10 @@ public struct A2UITransaction: Sendable {
         public let reason: String
     }
     private enum Operation: Sendable {
-        case create(String), components([A2UIComponent]), model(String, A2UIValue?), delete
+        case create(String)
+        case components([A2UIComponent])
+        case model(String, A2UIValue?)
+        case delete
     }
     public let surfaceId: String
     private let operations: [Operation]
@@ -53,7 +56,7 @@ public struct A2UITransaction: Sendable {
                     operations.append(.create(catalog))
                 case "updateComponents":
                     guard let list = body["components"] as? [[String: Any]], (1...128).contains(list.count),
-                        list.allSatisfy({ Set($0.keys).isSubset(of: ["id", "component", "text", "children"]) })
+                        list.allSatisfy({ Set($0.keys).isSubset(of: A2UIComponent.propertyNames) })
                     else {
                         throw Failure(path: path + ".updateComponents.components", reason: "Unsupported components")
                     }
@@ -79,6 +82,7 @@ public struct A2UITransaction: Sendable {
             (previous?.revision ?? 0) < Int.max
         else { throw Failure(path: "surfaceId", reason: "Invalid previous state") }
         var surface = previous ?? .init(surfaceId: surfaceId, revision: 1, fallbackText: fallbackText, components: [])
+        surface.submittedActionId = nil
         var exists = previous != nil && previous?.isDeleted != true
         for operation in operations {
             switch operation {
@@ -86,7 +90,10 @@ public struct A2UITransaction: Sendable {
                 guard !exists, catalog == A2UISurfaceSnapshot.supportedCatalogID else {
                     throw Failure(path: "createSurface", reason: "Surface exists or catalog is unsupported")
                 }
-                surface.components = []; surface.dataModel = .object([:]); surface.isDeleted = nil; exists = true
+                surface.components = []
+                surface.dataModel = .object([:])
+                surface.isDeleted = nil
+                exists = true
             case .components(let changes):
                 guard exists else { throw Failure(path: "updateComponents", reason: "Create the surface first") }
                 for item in changes {
@@ -108,7 +115,10 @@ public struct A2UITransaction: Sendable {
                 surface.dataModel = try (surface.dataModel ?? .object([:])).replacing(decoded[...], with: value)
             case .delete:
                 guard exists else { throw Failure(path: "deleteSurface", reason: "Surface does not exist") }
-                surface.components = []; surface.dataModel = nil; surface.isDeleted = true; exists = false
+                surface.components = []
+                surface.dataModel = nil
+                surface.isDeleted = true
+                exists = false
             }
         }
         surface.revision = (previous?.revision ?? 0) + 1

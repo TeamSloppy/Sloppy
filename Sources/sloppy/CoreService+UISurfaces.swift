@@ -2,15 +2,28 @@ import Foundation
 import Protocols
 
 extension CoreService: UIToolService {
-    enum AgentUIError: Error { case revisionConflict(Int) }
+    enum AgentUIError: Error {
+        case revisionConflict(Int)
+        case actionConflict, invalidAction, forbidden
+    }
 
     /// Read-only projection of the latest supported surface revisions in this session's journal.
     public func listAgentUISurfaces(agentID: String, sessionID: String) throws -> [AgentUISurfaceSnapshot] {
         try agentUISurfaceStates(agentID: agentID, sessionID: sessionID).filter { $0.isDeleted != true }
     }
 
-    private func agentUISurfaceStates(agentID: String, sessionID: String) throws -> [AgentUISurfaceSnapshot] {
-        let detail = try getAgentSession(agentID: agentID, sessionID: sessionID)
+    func agentUISurfaceStates(agentID: String, sessionID: String) throws -> [AgentUISurfaceSnapshot] {
+        var detail = try getAgentSession(agentID: agentID, sessionID: sessionID)
+        let persisted = Set(detail.events.map(\.id))
+        var repaired = false
+        for entry in try sessionMessageInbox().entries
+        where entry.agentId == agentID && entry.sessionId == sessionID && entry.uiSnapshot != nil
+            && !persisted.contains("ui-accepted-" + entry.id)
+        {
+            try persistAcceptedUISnapshot(entry)
+            repaired = true
+        }
+        if repaired { detail = try getAgentSession(agentID: agentID, sessionID: sessionID) }
         var surfaces: [String: AgentUISurfaceSnapshot] = [:]
         for event in detail.events where event.type == .message {
             guard event.agentId == detail.summary.agentId, event.sessionId == detail.summary.id,
@@ -43,33 +56,18 @@ extension CoreService: UIToolService {
 
     func agentUICatalog(agentID: String, sessionID: String, surfaceID: String?) throws -> JSONValue {
         let surfaces = try agentUISurfaceStates(agentID: agentID, sessionID: sessionID)
-        func schema(_ name: String, field: String, type: JSONValue) -> JSONValue {
-            .object([
-                "type": .string("object"), "additionalProperties": .bool(false),
-                "required": .array(["id", "component", field].map(JSONValue.string)),
-                "properties": .object([
-                    "id": .object(["type": .string("string"), "maxLength": .number(128)]),
-                    "component": .object(["const": .string(name)]), field: type,
-                ]),
-            ])
-        }
         return .object([
             "catalogId": .string(AgentUISurfaceSnapshot.supportedCatalogID), "version": .string("v0.9.1"),
-            "componentSchemas": .object([
-                "Text": schema("Text", field: "text", type: .object(["type": .string("string"), "maxLength": .number(16_384)])),
-                "Column": schema(
-                    "Column", field: "children",
-                    type: .object(["type": .string("array"), "maxItems": .number(128), "items": .object(["type": .string("string")])])),
-            ]),
+            "componentSchemas": try JSONDecoder().decode(JSONValue.self, from: AgentUIComponent.catalogSchemaData()),
             "operations": .array(["createSurface", "updateComponents", "updateDataModel", "deleteSurface"].map(JSONValue.string)),
             "constraints": .string(
-                "One surface per atomic batch; required root, fully reachable tree, at most 128 components and depth 16. Literal text only; no functions, bindings, theme or sendDataModel. Detach nodes by deleting and recreating the surface. messages is a JSON-array string, at most 64 KiB. Data model supports JSON Pointers with replacement/removal of existing array indices."
+                "One surface per atomic batch; required root, fully reachable tree, at most 128 components and depth 16. Forms use absolute JSON Pointer binding paths. Button action is a symbolic event name delivered to this agent, never a tool invocation. No functions, theme or sendDataModel. Detach nodes by deleting and recreating the surface. messages is a JSON-array string, at most 64 KiB. Data model supports JSON Pointers with replacement/removal of existing array indices."
             ),
             "surfaces": .array(
                 surfaces.prefix(32).map {
                     .object([
                         "surfaceId": .string($0.surfaceId), "revision": .number(Double($0.revision)),
-                        "isDeleted": .bool($0.isDeleted == true),
+                        "isDeleted": .bool($0.isDeleted == true), "submitted": .bool($0.submittedActionId != nil),
                     ])
                 }),
             "hasMore": .bool(surfaces.count > 32),

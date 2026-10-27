@@ -50,6 +50,7 @@ struct SloppyTUIShortcutDescriptor: Equatable {
 enum SloppyTUIShortcutCatalog {
     static let all: [SloppyTUIShortcutDescriptor] = [
         SloppyTUIShortcutDescriptor("/", "commands"),
+        SloppyTUIShortcutDescriptor("Ctrl+Y", "interactive form (preserves draft)"),
         SloppyTUIShortcutDescriptor("!", "shell mode"),
         SloppyTUIShortcutDescriptor("@", "skills / project paths"),
         SloppyTUIShortcutDescriptor("#", "project tasks"),
