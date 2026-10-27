@@ -325,6 +325,7 @@ public struct AgentSessionMessage: Codable, Sendable, Equatable {
     public var userId: String?
     public var peerOrigin: AgentSessionPeerOrigin?
     public var sessionReferences: [AgentSessionReference]?
+    public var uiSurface: AgentUISurfaceSnapshot?
 
     public init(
         id: String = UUID().uuidString,
@@ -333,7 +334,8 @@ public struct AgentSessionMessage: Codable, Sendable, Equatable {
         createdAt: Date = Date(),
         userId: String? = nil,
         peerOrigin: AgentSessionPeerOrigin? = nil,
-        sessionReferences: [AgentSessionReference]? = nil
+        sessionReferences: [AgentSessionReference]? = nil,
+        uiSurface: AgentUISurfaceSnapshot? = nil
     ) {
         self.id = id
         self.role = role
@@ -342,6 +344,24 @@ public struct AgentSessionMessage: Codable, Sendable, Equatable {
         self.userId = userId
         self.peerOrigin = peerOrigin
         self.sessionReferences = sessionReferences
+        self.uiSurface = uiSurface
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, role, segments, createdAt, userId, peerOrigin, sessionReferences, uiSurface
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(String.self, forKey: .id)
+        role = try values.decode(AgentMessageRole.self, forKey: .role)
+        segments = try values.decode([AgentMessageSegment].self, forKey: .segments)
+        createdAt = try values.decode(Date.self, forKey: .createdAt)
+        userId = try values.decodeIfPresent(String.self, forKey: .userId)
+        peerOrigin = try values.decodeIfPresent(AgentSessionPeerOrigin.self, forKey: .peerOrigin)
+        sessionReferences = try values.decodeIfPresent([AgentSessionReference].self, forKey: .sessionReferences)
+        // An unsupported or damaged optional interface must never hide the ordinary message.
+        uiSurface = try? values.decode(AgentUISurfaceSnapshot.self, forKey: .uiSurface)
     }
 }
 

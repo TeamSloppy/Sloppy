@@ -393,6 +393,22 @@ struct AgentsAPIRouter: APIRouter {
             }
         }
 
+        router.get("/v1/agents/:agentId/sessions/:sessionId/ui-surfaces", metadata: RouteMetadata(summary: "List session UI surfaces", description: "Returns the latest supported, validated UI snapshots from this session's journal", tags: ["Agents"])) { request in
+            do {
+                let surfaces = try await service.listAgentUISurfaces(
+                    agentID: request.pathParam("agentId") ?? "",
+                    sessionID: request.pathParam("sessionId") ?? ""
+                )
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: surfaces)
+            } catch CoreService.AgentStorageError.notFound {
+                return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.agentNotFound])
+            } catch let error as CoreService.AgentSessionError {
+                return CoreRouter.agentSessionErrorResponse(error, fallback: ErrorCode.sessionLoadFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.sessionLoadFailed])
+            }
+        }
+
         router.get("/v1/agents/:agentId/sessions/:sessionId/attachments/:attachmentId", metadata: RouteMetadata(summary: "Read session attachment", description: "Returns a bounded attachment belonging to this session", tags: ["Agents"])) { request in
             do {
                 let attachment = try await service.getAgentSessionAttachment(
