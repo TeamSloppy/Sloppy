@@ -1254,6 +1254,7 @@ extension CoreService {
         toolExecution.memoryImportService = self
         toolExecution.siteService = self
         toolExecution.sessionService = self
+        toolExecution.uiService = self
         toolExecution.applyAgentMarkdown = { [weak self] agentID, userID, field, markdown in
             guard let self else {
                 throw AgentConfigError.storageFailure

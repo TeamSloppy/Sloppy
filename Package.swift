@@ -248,6 +248,11 @@ let package = Package(
             path: "Sources/ChannelPluginDiscord"
         ),
         .testTarget(
+            name: "SloppyA2UIContractTests",
+            dependencies: [.product(name: "SloppyA2UI", package: "SloppyA2UI")],
+            path: "Packages/SloppyA2UI/Tests/SloppyA2UITests"
+        ),
+        .testTarget(
             name: "ProtocolsTests",
             dependencies: ["Protocols"],
             path: "Tests/ProtocolsTests"

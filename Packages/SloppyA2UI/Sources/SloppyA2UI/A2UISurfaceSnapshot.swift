@@ -31,6 +31,8 @@ public struct A2UISurfaceSnapshot: Codable, Sendable, Equatable {
     public var revision: Int
     public var fallbackText: String
     public var components: [A2UIComponent]
+    public var dataModel: A2UIValue?
+    public var isDeleted: Bool?
 
     public init(
         surfaceId: String, revision: Int, fallbackText: String, components: [A2UIComponent],
@@ -43,6 +45,23 @@ public struct A2UISurfaceSnapshot: Codable, Sendable, Equatable {
         self.revision = revision
         self.fallbackText = fallbackText
         self.components = components
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case protocolVersion, catalogId, surfaceId, revision, fallbackText, components, dataModel, isDeleted
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        protocolVersion = try values.decode(String.self, forKey: .protocolVersion)
+        catalogId = try values.decode(String.self, forKey: .catalogId)
+        surfaceId = try values.decode(String.self, forKey: .surfaceId)
+        revision = try values.decode(Int.self, forKey: .revision)
+        fallbackText = try values.decode(String.self, forKey: .fallbackText)
+        components = try values.decode([A2UIComponent].self, forKey: .components)
+        // Explicit JSON null is model data; omission is a legacy snapshot or deleted model.
+        dataModel = values.contains(.dataModel) ? try values.decode(A2UIValue.self, forKey: .dataModel) : nil
+        isDeleted = try values.decodeIfPresent(Bool.self, forKey: .isDeleted)
     }
 
     public enum ValidationError: Error, Sendable, Equatable {
@@ -63,8 +82,14 @@ public struct A2UISurfaceSnapshot: Codable, Sendable, Equatable {
               !fallbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             throw ValidationError.invalidMetadata
         }
-        guard (1...128).contains(components.count), fallbackText.utf8.count <= 16_384,
+        try dataModel?.validate()
+        guard components.count <= 128, fallbackText.utf8.count <= 16_384,
               try JSONEncoder().encode(self).count <= 65_536 else { throw ValidationError.sizeLimit }
+        if isDeleted == true {
+            guard components.isEmpty, dataModel == nil else { throw ValidationError.invalidTree }
+            return
+        }
+        guard !components.isEmpty else { throw ValidationError.invalidTree }
 
         var byID: [String: A2UIComponent] = [:]
         for item in components {
