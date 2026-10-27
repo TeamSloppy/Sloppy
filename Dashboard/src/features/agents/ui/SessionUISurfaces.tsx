@@ -5,6 +5,7 @@ import {
   submitAgentUIAction,
 } from "../../../shared/api/coreApi";
 import {
+  createActionId,
   normalizedValues,
   reconcileDraft,
   validSurface,
@@ -160,7 +161,7 @@ function SurfaceForm({
   async function submit(componentId: string) {
     if (busy || submitted || Object.keys(errors).length) return;
     const pending = draft.pending || {
-      actionId: crypto.randomUUID(),
+      actionId: createActionId(),
       revision: surface.revision,
       componentId,
       values: normalizedValues(surface, draft.values),

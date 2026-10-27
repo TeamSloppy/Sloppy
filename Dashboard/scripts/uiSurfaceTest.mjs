@@ -66,6 +66,14 @@ for (const name of ["brief", "comparison", "parameters"]) {
     false,
   );
 }
+const fallbackId = ui.createActionId({
+  getRandomValues: (array) => {
+    array.fill(17);
+    return array;
+  },
+});
+assert.equal(fallbackId, "11111111-1111-4111-9111-111111111111");
+assert.equal(ui.createActionId({ randomUUID: () => "native-id" }), "native-id");
 console.log(
   "A2UI: three shared examples, validation, numeric normalization, draft reconciliation and unsafe graph checks passed",
 );

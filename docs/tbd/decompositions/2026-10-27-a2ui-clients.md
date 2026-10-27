@@ -87,7 +87,9 @@ PR 1 — первый независимо проверяемый server/API-с�
 ### Проверки
 
 - Независимый пакет SloppyA2UI: все 10 test functions прошли, включая parameterized cases трёх примеров, восстановление draft, валидацию и повторную отправку.
-- Dashboard: `npm run test:a2ui`, `npm run typecheck`, `npm run build` прошли. Browser smoke на изолированном Core: required-поля, кастомный выбор, сохранение формы и composer draft после reload, одна отправка и продолжение той же сессии.
+- Финальный корневой профильный прогон: 25 tests прошли, включая проверку владельца дочерней worker-сессии, восстановление checkpoint, явную capability и сохранение UUID после неопределённой сетевой ошибки.
+- Итоговые macOS release-сборки `sloppy` и `SloppyNode` прошли; CLI smoke `sloppy --version` / `SloppyNode --help` прошёл. После перезапуска последнего debug Core все три принятых ответа сохранились, каждый с единственным user-message.
+- Dashboard: `npm run test:a2ui`, `npm run typecheck`, `npm run build` прошли. Также проверена генерация UUID v4 при недоступном crypto.randomUUID (обычный HTTP). Browser smoke на изолированном Core: required-поля, кастомный выбор, сохранение формы и composer draft после reload, одна отправка и продолжение той же сессии.
 - TUI: в PTY заполнены число/checkbox и отправлен один ответ; API подтвердил значения и единственное user-message.
 - ClientNative: iOS Simulator и macOS Debug-сборки прошли и запущены отдельно от production. На Simulator проверены открытие сессии, выбор Fast, отправка, закрытие формы и единственное user-message в исходной сессии (проверено через API). Native SwiftPM tests блокируются ошибкой компиляции в неизменённом `DesktopSettingsTests.swift:121` (`SendingClosureRisksDataRace`); они не объявляются пройденными.
 - Полный Core `swift test --parallel --skip-build` остановлен после 180 секунд: 69 issues в 19 файлах, включая path/tool, relay/HTTP и runtime. Все запущенные A2UI-проверки прошли. Это прогон до последних узких проверок владельца worker и scalar-binding; сравнение с чистым main не выполнялось, поэтому весь репозиторий не объявляется зелёным, а ошибки — доказанно существовавшими раньше.
