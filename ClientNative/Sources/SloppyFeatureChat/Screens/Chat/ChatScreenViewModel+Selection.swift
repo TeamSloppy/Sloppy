@@ -151,6 +151,21 @@ extension ChatScreenViewModel {
         saveActiveComposerDraft()
     }
 
+    func updateImageEdits(_ attachment: ChatComposerAttachment) {
+        guard let index = composerAttachments.firstIndex(where: { $0.id == attachment.id }) else { return }
+        guard attachment.sizeBytes <= Self.maximumAttachmentSize else {
+            sendErrorMessage = "The marked-up image is larger than 25 MB"
+            return
+        }
+        composerAttachments[index].markup = attachment.markup
+        if attachment.markup != nil {
+            composerAttachments[index].annotations = attachment.annotations
+            saveActiveComposerDraft()
+        } else {
+            updateImageAnnotations(id: attachment.id, annotations: attachment.annotations)
+        }
+    }
+
     public func removeComposerQuote(id: ChatComposerQuote.ID) {
 #if os(macOS)
         quoteAnnotationPresenter.anchors.removeValue(forKey: id)

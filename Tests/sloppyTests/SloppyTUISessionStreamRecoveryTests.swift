@@ -7,6 +7,56 @@ import Testing
 @Suite("TUI session stream recovery")
 @MainActor
 struct SloppyTUISessionStreamRecoveryTests {
+    @Test("plan card shows a resolved address without requiring a slash command")
+    func planCardLink() async throws {
+        let fixture = try await SessionStreamFixture.make()
+        defer { fixture.stop() }
+        let artifact = PlanArtifactRecord(
+            projectId: "stream-test", projectName: "Stream test", agentId: fixture.agentID, sessionId: fixture.sessionID,
+            messageEventId: "message", planName: "example", storageKind: "workspace", markdownPath: "/missing/plan.md",
+            webUrl: "/v1/projects/stream-test/plans/example/web"
+        )
+        let text = fixture.screen.renderTimelineLines([.planArtifact(artifact)], width: 160)
+            .map(SloppyTUISelectionRenderer.stripANSI).joined(separator: "\n")
+        #expect(text.contains("http://"))
+        #expect(text.contains("/v1/projects/stream-test/plans/example/web"))
+        #expect(!text.contains("Run `/plan-web`"))
+    }
+
+    @Test("changes are rendered on the right during the first active turn")
+    func liveChangesPane() async throws {
+        let fixture = try await SessionStreamFixture.make()
+        defer { fixture.stop() }
+        let screen = fixture.screen
+        let root = fixture.root.appendingPathComponent("code", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        let file = root.appendingPathComponent("App.swift")
+        try "let value = 0\n".write(to: file, atomically: true, encoding: .utf8)
+        screen.activeDiffBaseline = screen.sessionUndoManagers.makeBaseline(sessionID: screen.session.id, rootURL: root)
+        screen.isPosting = true
+        screen.sessionCards = [.message(role: .user, text: "Change the value")]
+        screen.invalidateSessionTimelineCache()
+        try "let value = 1\n".write(to: file, atomically: true, encoding: .utf8)
+        #expect(screen.updateSessionDiffPreview(rootURL: root))
+        #expect(!screen.sessionUndoManagers.canUndo(sessionID: screen.session.id))
+        let lines = screen.renderChatBody(width: 120, height: 30).map(SloppyTUISelectionRenderer.stripANSI)
+        let changedLine = try #require(lines.first { $0.contains("+let value = 1") })
+        #expect(try #require(changedLine.range(of: "+let value = 1")).lowerBound > (try #require(changedLine.firstIndex(of: "│"))))
+        #expect(lines.filter { $0.contains("+let value = 1") }.count == 1)
+        #expect(screen.scrollRegions.contains { $0.target == .workspaceDiff })
+        try "let value = 2\n".write(to: file, atomically: true, encoding: .utf8)
+        #expect(screen.updateSessionDiffPreview(rootURL: root))
+        #expect(screen.workspaceDiffPreview?.diff.contains("+let value = 2") == true)
+        #expect(screen.workspaceDiffPreview?.diff.contains("+let value = 1") == false)
+        #expect(screen.isPosting)
+        let narrow = screen.renderChatBody(width: 80, height: 30).map(SloppyTUISelectionRenderer.stripANSI).joined(separator: "\n")
+        #expect(narrow.contains("+let value = 2"))
+        #expect(!narrow.contains("Changes · scroll"))
+        screen.workspaceDiffPreview = nil
+        screen.activeDiffBaseline = nil
+        #expect(!screen.updateSessionDiffPreview(rootURL: root))
+    }
+
     @Test("updates resume after disconnection before the agent turn completes")
     func reconnectsDuringActiveTurn() async throws {
         let fixture = try await SessionStreamFixture.make()

@@ -7,7 +7,7 @@ let package = Package(
     products: [.library(name: "SloppyConsoleProtocol", targets: ["SloppyConsoleProtocol"])],
     dependencies: [.package(url: "https://github.com/apple/swift-crypto.git", from: "4.0.0")],
     targets: [
-        .target(name: "SloppyConsoleProtocol", dependencies: [.product(name: "Crypto", package: "swift-crypto")], sources: ["ConsoleModels.swift", "ConsoleTrust.swift", "ConsoleSSO.swift", "ConsoleInstanceTrustStore.swift"]),
+        .target(name: "SloppyConsoleProtocol", dependencies: [.product(name: "Crypto", package: "swift-crypto")], sources: ["ConsoleModels.swift", "ConsoleTrust.swift", "ConsoleSSO.swift", "ConsoleInstanceTrustStore.swift", "ConsoleClientSetup.swift"]),
         .testTarget(name: "SloppyConsoleProtocolTests", dependencies: ["SloppyConsoleProtocol"]),
     ]
 )

@@ -42,8 +42,8 @@ final class WorkspaceSourceFileViewModel {
         navigationRevision += 1
     }
 
-    func loadIfNeeded() async {
-        guard content == nil else { return }
+    func loadIfNeeded(force: Bool = false) async {
+        guard content == nil || force else { return }
         let revision = navigationRevision
         errorMessage = nil
         do {

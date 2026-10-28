@@ -291,6 +291,7 @@ extension SloppyTUIScreen {
         cancelLocalCardDismissTasks()
         localCards.removeAll()
         workspaceDiffPreview = nil
+        workspaceDiffScrollOffset = 0
     }
 
     func dismissLocalCardsForUserMessage() {

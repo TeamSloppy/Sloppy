@@ -20,6 +20,6 @@ struct SitesScreenLayoutTests {
                 ".frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)"
             )
         )
-        #expect(source.contains("content\n                .frame(maxWidth: .infinity, maxHeight: .infinity)"))
+        #expect(source.contains("refreshableContent\n                .frame(maxWidth: .infinity, maxHeight: .infinity)"))
     }
 }

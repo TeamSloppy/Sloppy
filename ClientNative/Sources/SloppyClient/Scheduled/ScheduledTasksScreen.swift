@@ -579,9 +579,15 @@ private struct ScheduledTaskLoadingRow: View {
                     .frame(width: 145, height: 9)
             }
         }
+        #if os(macOS)
+        .padding(.vertical, 10)
+        #else
         .padding(14)
+        #endif
         .frame(maxWidth: .infinity, alignment: .leading)
+        #if !os(macOS)
         .background(c.surface, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
+        #endif
     }
 }
 
@@ -635,11 +641,13 @@ private struct ScheduledTaskRow: View {
                     .lineLimit(1)
             }
         }
+        #if os(macOS)
+        .padding(.vertical, 10)
+        #else
         .padding(14)
+        #endif
         .frame(maxWidth: .infinity, alignment: .leading)
-#if os(macOS)
-        .desktopPanel(isSelected: isSelected)
-#else
+#if !os(macOS)
         .background(
             isSelected ? Color.accentColor.opacity(0.13) : c.surface,
             in: RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -693,7 +701,12 @@ private struct ScheduledTaskDetail: View {
                                 .tracking(0.8)
 
                             Text(task.command)
+                                #if os(macOS)
+                                .font(.system(size: ty.body))
+                                .lineSpacing(4)
+                                #else
                                 .font(.system(size: ty.title, weight: .semibold))
+                                #endif
                                 .foregroundColor(c.textPrimary)
                                 .textSelection(.enabled)
 

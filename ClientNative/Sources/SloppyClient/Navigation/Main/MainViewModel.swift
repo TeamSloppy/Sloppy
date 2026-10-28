@@ -986,22 +986,24 @@ final class MainViewModel {
     }
 
     @discardableResult
-    func moveProject(_ projectID: String, relativeTo targetProjectID: String) -> Bool {
+    func moveProject(_ projectID: String, relativeTo targetProjectID: String,
+                     placement: SidebarProjectDropPlacement? = nil) -> Bool {
         guard projectID != targetProjectID,
               let sourceIndex = projects.firstIndex(where: { scopedProjectID($0) == projectID }),
               let targetIndex = projects.firstIndex(where: { scopedProjectID($0) == targetProjectID }) else {
             return false
         }
 
-        let project = projects.remove(at: sourceIndex)
-        guard let remainingTargetIndex = projects.firstIndex(where: { scopedProjectID($0) == targetProjectID }) else {
-            projects.insert(project, at: sourceIndex)
+        var reorderedProjects = projects
+        let project = reorderedProjects.remove(at: sourceIndex)
+        guard let remainingTargetIndex = reorderedProjects.firstIndex(where: { scopedProjectID($0) == targetProjectID }) else {
             return false
         }
-        let destinationIndex = sourceIndex < targetIndex
-            ? remainingTargetIndex + 1
-            : remainingTargetIndex
-        projects.insert(project, at: destinationIndex)
+        let insertion = placement ?? (sourceIndex < targetIndex ? .after : .before)
+        let destinationIndex = remainingTargetIndex + (insertion == .after ? 1 : 0)
+        reorderedProjects.insert(project, at: destinationIndex)
+        guard reorderedProjects.map(\.storageID) != projects.map(\.storageID) else { return false }
+        projects = reorderedProjects
         persistProjectOrder()
         Task { await projectCacheStore.cacheProjects(projects) }
         return true

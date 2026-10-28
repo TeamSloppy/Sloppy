@@ -11,6 +11,10 @@ public struct EmptyStateView: View {
     }
 
     public var body: some View {
+#if os(iOS)
+        ContentUnavailableView(text, systemImage: "tray")
+            .frame(maxWidth: .infinity)
+#else
         let c = theme.colors
         let sp = theme.spacing
         let bo = theme.borders
@@ -28,6 +32,7 @@ public struct EmptyStateView: View {
         .padding(.horizontal, sp.l)
 #if !os(macOS)
         .border(c.border, lineWidth: bo.thin)
+#endif
 #endif
     }
 

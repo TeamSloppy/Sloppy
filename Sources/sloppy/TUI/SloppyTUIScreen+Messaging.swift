@@ -246,6 +246,11 @@ extension SloppyTUIScreen {
             await Task.yield()
             let turnMessageID = UUID().uuidString
             let undoBaseline = await makeUndoBaseline(turnKey: turnMessageID)
+            activeDiffBaseline = undoBaseline
+            defer {
+                recordUndoPointIfNeeded(undoBaseline)
+                activeDiffBaseline = nil
+            }
             if !runtime.config.onboarding.completed {
                 updateSendProgress(.init(
                     stage: .updatingOnboarding,
@@ -285,7 +290,6 @@ extension SloppyTUIScreen {
                 pendingContext = nil
                 pendingUploads.removeAll()
             }
-            recordUndoPointIfNeeded(undoBaseline)
             liveRunStatusLine = "Refreshing session..."
             markSendTiming("post_message_returned")
             refreshStaticChrome()

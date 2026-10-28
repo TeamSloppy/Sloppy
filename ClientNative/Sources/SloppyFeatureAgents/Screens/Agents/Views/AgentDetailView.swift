@@ -79,6 +79,8 @@ public struct AgentDetailView: View {
         .navigationTitle(agent.displayName)
         .navigationTitlePosition(.leading)
         .task(id: agent.id) { await loadOverview() }
+        .mobileRefreshable(id: agent.id) { await loadOverview() }
+#if !os(iOS)
         .navigationBarTrailingItems {
             Button {
                 Task { await loadOverview() }
@@ -93,6 +95,7 @@ public struct AgentDetailView: View {
             .accessibilityLabel("Refresh agent")
             .accessibilityIdentifier("agent-detail.refresh")
         }
+#endif
     }
 
     private var statusColor: Color {

@@ -371,7 +371,8 @@ extension CoreService {
     /// Line stats and unified diff for the project workspace from its configured source-control provider.
     public func projectWorkingTreeSourceControl(
         projectID: String,
-        taskID: String? = nil
+        taskID: String? = nil,
+        directoryPath: String? = nil
     ) async throws -> ProjectWorkingTreeSourceControlResponse {
         guard let normalizedID = normalizedProjectID(projectID) else {
             throw ProjectError.invalidProjectID
@@ -386,7 +387,15 @@ extension CoreService {
             throw ProjectError.invalidTaskID
         }
         let rootPath: String
-        if let task,
+        if let directoryPath {
+            guard taskID == nil else { throw ProjectError.invalidPayload }
+            let requestedURL = URL(fileURLWithPath: directoryPath, isDirectory: true)
+                .resolvingSymlinksInPath().standardizedFileURL
+            guard let directory = effectiveProjectDirectoryURLs(project).first(where: {
+                $0.resolvingSymlinksInPath().standardizedFileURL == requestedURL
+            }) else { throw ProjectError.invalidPayload }
+            rootPath = directory.path
+        } else if let task,
            task.worktreeBranch != nil,
            let repoPath = project.repoPath {
             rootPath = sourceControlProvider(for: project, task: task).worktreePath(

@@ -515,11 +515,13 @@ public actor SloppyAPIClient {
 
     public func fetchProjectWorkingTreeSourceControl(
         projectId: String,
-        taskId: String? = nil
+        taskId: String? = nil,
+        directoryPath: String? = nil
     ) async throws -> ProjectWorkingTreeSourceControlResponse {
         try await projects.fetchProjectWorkingTreeSourceControl(
             projectId: projectId,
-            taskId: taskId
+            taskId: taskId,
+            directoryPath: directoryPath
         )
     }
 

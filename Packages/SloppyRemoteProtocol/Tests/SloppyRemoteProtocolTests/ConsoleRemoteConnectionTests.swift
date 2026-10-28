@@ -124,6 +124,31 @@ struct ConsoleRemoteConnectionTests {
         await fixture.close()
     }
 
+    @Test func failedConnectionAllowsTheNextRequestToReconnect() async throws {
+        let fixture = try Fixture()
+        await fixture.relay.failNextConnection(deviceID: fixture.clientID)
+        await fixture.host.setHandler { _, _, packet in ConsoleRemotePacket(kind: "reply", payload: packet.payload) }
+        await fixture.client.setHandler { _, _, packet in
+            await fixture.replies.append(packet.payload)
+            return nil
+        }
+        do {
+            try await fixture.host.connect()
+            await #expect(throws: RemoteTLSError.self) {
+                try await fixture.client.send(ConsoleRemotePacket(kind: "request", payload: Data("failed".utf8)), to: fixture.hostID)
+            }
+            #expect(await fixture.client.isConnected == false)
+            try await fixture.client.send(ConsoleRemotePacket(kind: "request", payload: Data("recovered".utf8)), to: fixture.hostID)
+            try await fixture.replies.waitForCount(1)
+            #expect(await fixture.replies.values == [Data("recovered".utf8)])
+            #expect(await fixture.relay.connectionAttempts[fixture.clientID] == 2)
+        } catch {
+            await fixture.close()
+            throw error
+        }
+        await fixture.close()
+    }
+
     @Test func revokedPinCannotSendOnAnEstablishedChannel() async throws {
         let fixture = try Fixture()
         await fixture.host.setHandler { _, _, packet in
@@ -189,8 +214,13 @@ private actor PacketMailbox {
 
 private actor MemoryRelay {
     private var connections: [UUID: (UUID, AsyncThrowingStream<Data, any Error>.Continuation)] = [:]
+    private var failingConnections: Set<UUID> = []
+    var connectionAttempts: [UUID: Int] = [:]
     var frames: [RemoteTLSFrame] = []
-    func register(deviceID: UUID, socketID: UUID, continuation: AsyncThrowingStream<Data, any Error>.Continuation) {
+    func failNextConnection(deviceID: UUID) { failingConnections.insert(deviceID) }
+    func register(deviceID: UUID, socketID: UUID, continuation: AsyncThrowingStream<Data, any Error>.Continuation) throws {
+        connectionAttempts[deviceID, default: 0] += 1
+        if failingConnections.remove(deviceID) != nil { throw RemoteTLSError.closed }
         connections[deviceID] = (socketID, continuation)
     }
     func close(deviceID: UUID, socketID: UUID) {
@@ -221,7 +251,7 @@ private actor MemoryTransport: ConsoleRemoteTransport {
         messages = pair.stream; continuation = pair.continuation
     }
     func connect(url: URL, token: String) async throws {
-        await relay.register(deviceID: deviceID, socketID: socketID, continuation: continuation)
+        try await relay.register(deviceID: deviceID, socketID: socketID, continuation: continuation)
     }
     func send(_ data: Data) async throws { try await relay.route(data) }
     func close() async {

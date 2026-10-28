@@ -67,7 +67,7 @@ A DNS name is optional when every native client can reach the relay by a stable 
 }
 ```
 
-`clientPublicURL` is the Core endpoint placed in mobile setup codes. When it is absent, Sloppy falls back to `nodeMeshPublicURL`. `clientAlternateURLs` provides ordered fallback routes, and `clientTLSFingerprint` pins a directly exposed certificate so an iPhone, iPad, or Mac can authenticate a certificate issued by a private CA or for a raw IP.
+`clientPublicURL` is the Core endpoint placed in mobile setup codes. When it is absent, Sloppy falls back to `nodeMeshPublicURL`, then to a private LAN address for the configured listening interface and Core port. Pairing never uses the browser page address: a Dashboard opened through `localhost` still produces a device-facing LAN URL. Loopback-only listeners, missing LAN interfaces, and explicit loopback/wildcard client URLs produce a configuration error instead of an unusable QR. Set `clientPublicURL` explicitly for a reverse proxy, container host, or a different network. The Dashboard displays the exact client address beside the QR. `clientAlternateURLs` provides ordered fallback routes, and `clientTLSFingerprint` pins a directly exposed certificate so an iPhone, iPad, or Mac can authenticate a certificate issued by a private CA or for a raw IP.
 
 For a Caddy-managed private certificate:
 

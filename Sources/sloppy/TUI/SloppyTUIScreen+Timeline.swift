@@ -78,8 +78,8 @@ extension SloppyTUIScreen {
         queuedMessages.messages.map { .queuedMessage($0) }
     }
 
-    func renderTimelineBlocks(width: Int, height: Int) -> [String] {
-        let segments = timelineSegments(width: width)
+    func renderTimelineBlocks(width: Int, height: Int, hidesDiff: Bool = false) -> [String] {
+        let segments = timelineSegments(width: width, hidesDiff: hidesDiff)
         if segments.isEmpty {
             return timeline.render(width: width)
         }
@@ -87,13 +87,13 @@ extension SloppyTUIScreen {
         return visibleTimelineLines(segments, height: height)
     }
 
-    func timelineSegments(width: Int) -> [[String]] {
+    func timelineSegments(width: Int, hidesDiff: Bool = false) -> [[String]] {
         let sessionTimeline = cachedSessionTimelineLines(width: width)
         let dynamicBlocks = SloppyTUIChatTimelineComposition.blocks(
             sessionBlocks: [],
             liveAssistantBlocks: liveAssistantBlocks(),
             queuedMessageBlocks: queuedMessageBlocks(),
-            workspaceDiffPreview: workspaceDiffPreview,
+            workspaceDiffPreview: hidesDiff ? nil : workspaceDiffPreview,
             localCards: localCards
         )
         let dynamicLines = renderTimelineLines(dynamicBlocks, width: width)
@@ -212,11 +212,12 @@ extension SloppyTUIScreen {
             case .buildProgress(let progress):
                 lines.append(contentsOf: SloppyTUITheme.buildProgressLines(progress, width: width))
             case .planArtifact(let artifact):
+                let target = SloppyTUIPlanWebTargetResolver.target(for: artifact, runtime: runtime, service: service)
                 lines.append(contentsOf: renderMarkdown("""
                 ## Plan web page
                 `\(artifact.planName)`
 
-                Run `/plan-web` to open it.
+                \(target.url.absoluteString)
                 """, width: width))
             case .inputRequest(let request):
                 lines.append(contentsOf: renderMarkdown(SloppyTUIPlanInputPicker.requestText(request), width: width))

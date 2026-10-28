@@ -12,6 +12,9 @@ final class SessionMessageInboxFileStore {
         var origin: AgentSessionPeerOrigin?
         var state: State = .queued
         var error: String?
+        // Optional so existing queues decode unchanged and older Core versions can still read them.
+        var recordedOnly: Bool?
+        var receiptState: String { recordedOnly == true ? "recorded" : state.rawValue }
     }
 
     private let url: URL
@@ -62,6 +65,15 @@ final class SessionMessageInboxFileStore {
             guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
             entries[index].state = state
             entries[index].error = error
+        }
+    }
+
+    func recordWithoutRun(id: String) throws {
+        try transaction { entries in
+            guard let index = entries.firstIndex(where: { $0.id == id }) else { return }
+            entries[index].state = .delivered
+            entries[index].recordedOnly = true
+            entries[index].error = nil
         }
     }
 }

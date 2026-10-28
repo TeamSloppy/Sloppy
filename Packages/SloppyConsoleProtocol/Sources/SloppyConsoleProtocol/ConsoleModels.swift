@@ -3,6 +3,7 @@ import Foundation
 public enum ConsoleEnvironment: String, Codable, Sendable, CaseIterable {
     case production, test
     public var consoleURL: URL { URL(string: self == .test ? "https://console-test.sloppy.team" : "https://console.sloppy.team")! }
+    public var identityURL: URL { URL(string: self == .test ? "https://auth-test.sloppy.team" : "https://auth.sloppy.team")! }
     public var relayURL: URL { URL(string: self == .test ? "https://relay-test.sloppy.team" : "https://relay.sloppy.team")! }
 }
 

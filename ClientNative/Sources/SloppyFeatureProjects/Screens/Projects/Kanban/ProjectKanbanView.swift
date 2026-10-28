@@ -31,26 +31,30 @@ public struct ProjectKanbanView: View {
 
     public var body: some View {
         #if os(macOS)
-        HSplitView {
-            boardContent
-                .frame(minWidth: 340)
+        Group {
             if let previewTask, let previewModel {
-                TaskDetailView(
-                    viewModel: previewModel,
-                    projectId: projectId,
-                    taskId: previewTask.id,
-                    onClose: closePreview,
-                    onOpenChat: onOpenTaskChat,
-                    onExpand: { onOpenTask(previewTask) },
-                    onOpenRelatedTask: { task in
-                        openTask(ProjectKanbanCard(id: task.id, title: task.title, status: task.status, priority: task.priority, actorID: task.actorId))
-                    },
-                    onTaskChanged: { await viewModel.load(projectId: projectId) }
-                )
-                .id(previewTask.id)
-                .frame(minWidth: 360, idealWidth: 480, maxWidth: 720, maxHeight: .infinity)
-                .background(theme.colors.background)
-                .accessibilityIdentifier("kanban-task-side-panel")
+                HSplitView {
+                    boardContent
+                        .frame(minWidth: 340)
+                    TaskDetailView(
+                        viewModel: previewModel,
+                        projectId: projectId,
+                        taskId: previewTask.id,
+                        onClose: closePreview,
+                        onOpenChat: onOpenTaskChat,
+                        onExpand: { onOpenTask(previewTask) },
+                        onOpenRelatedTask: { task in
+                            openTask(ProjectKanbanCard(id: task.id, title: task.title, status: task.status, priority: task.priority, actorID: task.actorId))
+                        },
+                        onTaskChanged: { await viewModel.load(projectId: projectId) }
+                    )
+                    .id(previewTask.id)
+                    .frame(minWidth: 360, idealWidth: 480, maxWidth: 720, maxHeight: .infinity)
+                    .background(theme.colors.background)
+                    .accessibilityIdentifier("kanban-task-side-panel")
+                }
+            } else {
+                boardContent
             }
         }
         .onChange(of: projectId) { _, _ in closePreview() }
@@ -109,9 +113,15 @@ public struct ProjectKanbanView: View {
                     let contentInset = theme.spacing.l
                     let availableWidth = max(0, geometry.size.width - (contentInset * 2))
                     let availableHeight = max(0, geometry.size.height - (contentInset * 2))
+                    #if os(macOS)
+                    let gaps = theme.spacing.m * CGFloat(max(0, filteredColumns.count - 1))
+                    let fittedWidth = (availableWidth - gaps) / CGFloat(max(1, filteredColumns.count))
+                    let columnWidth = min(availableWidth, min(320, max(220, fittedWidth)))
+                    #else
                     let columnWidth = min(320, availableWidth)
+                    #endif
 
-                    ScrollView(.horizontal, showsIndicators: false) {
+                    ScrollView(.horizontal) {
                         HStack(alignment: .top, spacing: theme.spacing.m) {
                             ForEach(filteredColumns) { column in
                                 ScrollView(.vertical) {
@@ -127,6 +137,13 @@ public struct ProjectKanbanView: View {
                         )
                         .padding(contentInset)
                     }
+                    #if os(macOS)
+                    .scrollIndicators(.visible, axes: .horizontal)
+                    .scrollIndicatorsFlash(onAppear: true)
+                    #else
+                    .scrollIndicators(.hidden, axes: .horizontal)
+                    #endif
+                    .accessibilityIdentifier("kanban-board-scroll")
                 }
             }
         }
@@ -182,7 +199,10 @@ public struct ProjectKanbanView: View {
 
     private var boardToolbar: some View {
 #if os(macOS)
-        boardToolbarControls
+        ViewThatFits(in: .horizontal) {
+            boardToolbarControls
+            boardToolbarControls(compact: true)
+        }
 #else
         ScrollView(.horizontal, showsIndicators: false) {
             boardToolbarControls.fixedSize(horizontal: true, vertical: false)
@@ -191,6 +211,10 @@ public struct ProjectKanbanView: View {
     }
 
     private var boardToolbarControls: some View {
+        boardToolbarControls(compact: false)
+    }
+
+    private func boardToolbarControls(compact: Bool) -> some View {
         HStack(spacing: theme.spacing.s) {
             HStack(spacing: theme.spacing.s) {
                 Image(systemName: "magnifyingglass")
@@ -199,6 +223,7 @@ public struct ProjectKanbanView: View {
                 TextField("Filter tasks", text: $viewModel.filters.searchText)
                     .textFieldStyle(.plain)
                     .foregroundColor(theme.colors.textPrimary)
+                    .accessibilityIdentifier("kanban-task-search")
 
                 if !viewModel.filters.searchText.isEmpty {
                     Button {
@@ -212,17 +237,34 @@ public struct ProjectKanbanView: View {
                 }
             }
             .padding(.horizontal, 12)
-            .frame(minWidth: 180, idealWidth: 250, maxWidth: 320, minHeight: 38)
+            .frame(minWidth: compact ? 80 : 180, idealWidth: 250, maxWidth: 320, minHeight: 38)
             .background(
                 theme.colors.surfaceRaised,
                 in: RoundedRectangle(cornerRadius: 11, style: .continuous)
             )
 
-            statusMenu
-            priorityMenu
-            assigneeMenu
+            if compact {
+                Menu {
+                    statusMenu
+                    priorityMenu
+                    assigneeMenu
+                    if viewModel.filters.isActive {
+                        Button("Reset filters", systemImage: "line.3.horizontal.decrease.circle") {
+                            viewModel.filters = ProjectKanbanFilters()
+                        }
+                    }
+                } label: {
+                    Image(systemName: viewModel.filters.isActive
+                        ? "line.3.horizontal.decrease.circle.fill" : "line.3.horizontal.decrease.circle")
+                }
+                .accessibilityLabel("Task filters")
+            } else {
+                statusMenu
+                priorityMenu
+                assigneeMenu
+            }
 
-            if viewModel.filters.isActive {
+            if viewModel.filters.isActive && !compact {
                 Button {
                     viewModel.filters = ProjectKanbanFilters()
                 } label: {
@@ -238,12 +280,18 @@ public struct ProjectKanbanView: View {
             Button {
                 isCreateTaskPresented = true
             } label: {
-                Label("New Task", systemImage: "plus")
+                if compact {
+                    Image(systemName: "plus")
+                } else {
+                    Label("New Task", systemImage: "plus")
+                }
             }
             .appPrimaryButton(glass: true)
             .buttonBorderShape(.capsule)
             .tint(Color.accentColor)
+            .accessibilityLabel("New Task")
             .accessibilityHint("Creates a task in \(projectName)")
+            .accessibilityIdentifier("kanban-create-task")
         }
         .controlSize(.regular)
         .padding(.horizontal, theme.spacing.l)
@@ -440,6 +488,7 @@ public struct ProjectKanbanView: View {
                 Text(column.title)
                     .font(.system(size: theme.typography.body))
                     .foregroundColor(theme.colors.textPrimary)
+                    .accessibilityIdentifier("kanban-column-\(column.id.rawValue)")
                 Spacer(minLength: 0)
                 Text("\(column.items.count)")
                     .font(.system(size: theme.typography.caption))

@@ -559,7 +559,8 @@ func toolApprovalStateBuildsCurrentSessionPicker() throws {
     let approval = try #require(SloppyTUIToolApprovalState.pendingApproval(
         in: [other, current],
         agentID: "agent-1",
-        sessionID: "session-1"
+        sessionID: "session-1",
+        now: now
     ))
     let picker = SloppyTUIToolApprovalState.picker(
         for: approval,

@@ -251,8 +251,10 @@ extension SloppyTUIScreen {
             try? await Task.sleep(nanoseconds: 350_000_000)
             guard !Task.isCancelled, let self else { return }
             do {
+                let streamKey = self.currentSessionStreamKey()
                 let sourceControl = try await self.service.projectWorkingTreeSourceControl(projectID: self.project.id)
                 let rootURL = try? await self.service.resolveProjectWorkspaceRoot(projectID: self.project.id)
+                guard !Task.isCancelled, self.currentSessionStreamKey() == streamKey else { return }
                 await MainActor.run {
                     self.updateAutoDiffPreview(sourceControl, rootURL: rootURL)
                 }
@@ -291,6 +293,7 @@ extension SloppyTUIScreen {
               let sessionDiff = try? sessionUndoManagers.sessionDiff(
                   sessionID: session.id,
                   rootURL: rootURL,
+                  pendingBaseline: activeDiffBaseline,
                   maxCharacters: 96 * 1024
               ),
               sessionDiff.hasChanges else {
@@ -313,6 +316,7 @@ extension SloppyTUIScreen {
             return
         }
         workspaceDiffPreview = nil
+        workspaceDiffScrollOffset = 0
         renderTimeline()
     }
 

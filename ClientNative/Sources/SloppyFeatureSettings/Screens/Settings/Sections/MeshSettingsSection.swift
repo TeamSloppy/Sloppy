@@ -5,6 +5,12 @@ import SloppyClientUI
 
 struct MeshSettingsSection: View {
     let settings: ClientSettings
+    private let apiClient: SloppyAPIClient?
+
+    init(settings: ClientSettings, apiClient: SloppyAPIClient? = nil) {
+        self.settings = settings
+        self.apiClient = apiClient
+    }
 
     @State private var inviteToken: String = ""
     @State private var statusMessage: String?
@@ -16,10 +22,134 @@ struct MeshSettingsSection: View {
     @Environment(\.theme) private var theme
 
     private var api: SloppyAPIClient {
-        SloppyAPIClient(baseURL: settings.baseURL)
+        apiClient ?? SloppyAPIClient(baseURL: settings.baseURL)
+    }
+
+    private var canConnect: Bool {
+        !inviteToken.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !isConnecting
     }
 
     var body: some View {
+        content
+            .onAppear { refreshNodes() }
+    }
+
+    @ViewBuilder
+    private var content: some View {
+#if os(iOS)
+        mobileForm
+#else
+        desktopContent
+#endif
+    }
+
+#if os(iOS)
+    private var mobileForm: some View {
+        Form {
+            Section {
+                LabeledContent("Invite token") {
+                    TextField("slp_mesh_…", text: $inviteToken)
+                        .textFieldStyle(.plain)
+                        .multilineTextAlignment(.trailing)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .keyboardType(.asciiCapable)
+                        .submitLabel(.go)
+                        .onSubmit(acceptInvite)
+                        .disabled(isConnecting)
+                        .accessibilityLabel("Invite token")
+                        .accessibilityIdentifier("settings.mesh.invite-token")
+                }
+
+                Button(action: acceptInvite) {
+                    HStack {
+                        Label(isConnecting ? "Connecting…" : "Connect", systemImage: "link")
+                        Spacer()
+                        if isConnecting { ProgressView() }
+                    }
+                    .foregroundStyle(canConnect ? Color.accentColor : .secondary)
+                }
+                .disabled(!canConnect)
+                .accessibilityIdentifier("settings.mesh.connect")
+            } header: {
+                Text("Join a mesh")
+            } footer: {
+                Text("Connect another machine using an invite beginning with slp_mesh_.")
+            }
+
+            Section {
+                if isLoading && nodes.isEmpty {
+                    HStack(spacing: 12) {
+                        ProgressView()
+                        Text("Discovering nodes…")
+                            .foregroundStyle(.secondary)
+                    }
+                } else if nodes.isEmpty {
+                    Label("No connected nodes", systemImage: "network")
+                        .foregroundStyle(.secondary)
+                } else {
+                    ForEach(nodes) { node in
+                        mobileNodeRow(node)
+                    }
+                }
+            } header: {
+                Text("Connected nodes")
+            } footer: {
+                Text(nodes.isEmpty ? discoveryHint : "Choose the default node for this client.")
+            }
+
+            if let statusMessage {
+                Section {
+                    Label(statusMessage, systemImage: hasError ? "exclamationmark.circle" : "checkmark.circle")
+                        .foregroundStyle(hasError ? Color.red : .secondary)
+                        .textSelection(.enabled)
+                }
+            }
+        }
+        .formStyle(.grouped)
+        .buttonStyle(.automatic)
+        .mobileScreenBackground()
+        .mobileRefreshable { await loadNodes() }
+        .accessibilityIdentifier("settings.mesh.form")
+    }
+
+    private func mobileNodeRow(_ node: MeshNodeRecord) -> some View {
+        let selected = node.id == settings.meshTargetNodeId
+        return Button {
+            settings.meshTargetNodeId = node.id
+        } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "desktopcomputer")
+                    .foregroundStyle(.secondary)
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(node.displayName)
+                        .foregroundStyle(.primary)
+                    Text(node.status.rawValue.capitalized)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                    if let connectionDisplayName = node.connectionDisplayName {
+                        Text(connectionDisplayName)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .lineLimit(2)
+                    }
+                }
+                Spacer(minLength: 8)
+                if selected {
+                    Image(systemName: "checkmark")
+                        .foregroundStyle(.tint)
+                        .accessibilityLabel("Default")
+                }
+            }
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(selected ? .isSelected : [])
+        .accessibilityHint("Set as the default mesh node")
+        .accessibilityIdentifier("settings.mesh.node.\(node.id)")
+    }
+#endif
+
+    private var desktopContent: some View {
         VStack(alignment: .leading, spacing: 24) {
             SettingsSectionCard("Join a mesh") {
                 SettingsFieldRow("Invite token", hint: "Paste an invite beginning with slp_mesh_", text: $inviteToken)
@@ -45,12 +175,14 @@ struct MeshSettingsSection: View {
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                     Spacer(minLength: 12)
+#if !os(iOS)
                     Button(action: refreshNodes) {
                         Label("Refresh", systemImage: "arrow.clockwise")
                     }
                     .buttonStyle(.bordered)
                     .disabled(isLoading || isConnecting)
                     .accessibilityIdentifier("settings.mesh.refresh")
+#endif
                 }
                 .padding(16)
 
@@ -66,7 +198,7 @@ struct MeshSettingsSection: View {
                             .foregroundStyle(.secondary)
                         Text("No connected nodes")
                             .font(.system(size: 14, weight: .medium))
-                        Text("Use an invite token above, or refresh to discover nodes.")
+                        Text(discoveryHint)
                             .font(.system(size: 12))
                             .foregroundStyle(.secondary)
                             .multilineTextAlignment(.center)
@@ -90,7 +222,6 @@ struct MeshSettingsSection: View {
                     .textSelection(.enabled)
             }
         }
-        .onAppear { refreshNodes() }
     }
 
     private func nodeRow(_ node: MeshNodeRecord) -> some View {
@@ -164,26 +295,34 @@ struct MeshSettingsSection: View {
     }
 
     private func refreshNodes() {
+        Task { await loadNodes() }
+    }
+
+    private var discoveryHint: String {
+#if os(iOS)
+        "Use an invite token above, or pull down to discover nodes."
+#else
+        "Use an invite token above, or refresh to discover nodes."
+#endif
+    }
+
+    private func loadNodes() async {
         guard !isLoading else { return }
         isLoading = true
         hasError = false
         if !isConnecting { statusMessage = nil }
 
-        Task { @MainActor in
-            defer {
-                isLoading = false
-            }
+        defer { isLoading = false }
 
-            do {
-                nodes = try await api.fetchMeshNodes()
-                if settings.meshTargetNodeId == nil,
-                   let first = nodes.first {
-                    settings.meshTargetNodeId = first.id
-                }
-            } catch {
-                hasError = true
-                statusMessage = error.localizedDescription
+        do {
+            nodes = try await api.fetchMeshNodes()
+            if settings.meshTargetNodeId == nil,
+               let first = nodes.first {
+                settings.meshTargetNodeId = first.id
             }
+        } catch {
+            hasError = true
+            statusMessage = error.localizedDescription
         }
     }
 }

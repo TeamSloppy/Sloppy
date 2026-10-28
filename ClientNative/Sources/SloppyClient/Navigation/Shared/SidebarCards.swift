@@ -153,6 +153,9 @@ struct SidebarProjectCard: View {
     @Environment(\.theme) private var theme
     @State private var isDropTarget = false
     @State private var isHovered = false
+    #if os(macOS)
+    @State private var reorderState = SidebarProjectDropState()
+    #endif
 
     private var projectColor: Color? { viewModel.settings.sidebarColor(for: group.project) }
 
@@ -227,15 +230,24 @@ struct SidebarProjectCard: View {
             viewModel.openProjectKanbanTab(project: group.project)
         })
         .buttonStyle(.plain)
+        #if os(macOS)
+        .onDrag { SidebarProjectDrag.provider(projectID: group.id, name: group.project.name) }
+        .modifier(SidebarProjectDropTarget(state: reorderState) { projectID, placement in
+            viewModel.moveProject(projectID, relativeTo: group.id, placement: placement)
+        })
+        #else
         .draggable(group.id)
+        #endif
         .onHover { isHovered = $0 }
         .animation(.easeInOut(duration: 0.12), value: isHovered)
+        #if !os(macOS)
         .dropDestination(for: String.self) { projectIDs, _ in
             guard let projectID = projectIDs.first else { return false }
             return viewModel.moveProject(projectID, relativeTo: group.id)
         } isTargeted: {
             isDropTarget = $0
         }
+        #endif
         .projectContextMenu(viewModel: viewModel, project: group.project)
     }
 }

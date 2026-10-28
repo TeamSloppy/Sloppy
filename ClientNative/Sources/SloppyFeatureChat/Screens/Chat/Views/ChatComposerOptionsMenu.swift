@@ -374,6 +374,7 @@ struct ComposerOptionsMenuView: View {
                 .padding(.vertical, theme.spacing.s)
             }
             .frame(minHeight: 160, maxHeight: 380)
+            .mobileRefreshable { await onRefreshModels() }
 
             Divider()
             modelPickerActions
@@ -418,6 +419,7 @@ struct ComposerOptionsMenuView: View {
 
     private var modelPickerActions: some View {
         HStack(spacing: theme.spacing.s) {
+#if !os(iOS)
             Button {
                 Task {
                     isRefreshing = true
@@ -432,6 +434,7 @@ struct ComposerOptionsMenuView: View {
             }
             .buttonStyle(.plain)
             .disabled(isRefreshing)
+#endif
 
             Spacer(minLength: 0)
 

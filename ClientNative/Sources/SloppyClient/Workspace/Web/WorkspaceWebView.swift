@@ -141,6 +141,7 @@ final class Coordinator: NSObject, WKNavigationDelegate, WorkspaceWebViewControl
     }
 }
 #elseif os(iOS) || os(visionOS)
+import UIKit
 import WebKit
 
 @MainActor
@@ -171,6 +172,15 @@ struct WorkspaceWebView: UIViewRepresentable {
         }
         let webView = WKWebView(frame: .zero, configuration: configuration)
         context.coordinator.webView = webView
+        webView.navigationDelegate = context.coordinator
+#if os(iOS)
+        if viewModel != nil {
+            let refreshControl = UIRefreshControl()
+            refreshControl.addTarget(context.coordinator, action: #selector(Coordinator.refreshPage), for: .valueChanged)
+            webView.scrollView.refreshControl = refreshControl
+            webView.scrollView.alwaysBounceVertical = true
+        }
+#endif
         viewModel?.controller = context.coordinator
         if let artifactHTML {
             context.coordinator.load(html: artifactHTML, in: webView)
@@ -185,7 +195,7 @@ struct WorkspaceWebView: UIViewRepresentable {
     }
 
     @MainActor
-    final class Coordinator: NSObject, WorkspaceWebViewControlling {
+    final class Coordinator: NSObject, WorkspaceWebViewControlling, WKNavigationDelegate {
         let viewModel: WorkspaceWebViewModel?
         weak var webView: WKWebView?
         var loadedHTML: String?
@@ -205,6 +215,44 @@ struct WorkspaceWebView: UIViewRepresentable {
         func reload() { webView?.reload() }
         func goBack() { webView?.goBack() }
         func goForward() { webView?.goForward() }
+
+#if os(iOS)
+        @objc func refreshPage() {
+            guard let webView, webView.reload() != nil else {
+                webView?.scrollView.refreshControl?.endRefreshing()
+                return
+            }
+        }
+#endif
+
+        func webView(_ webView: WKWebView, didStartProvisionalNavigation navigation: WKNavigation!) {
+            viewModel?.isLoading = true
+        }
+
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            finishNavigation(webView)
+        }
+
+        func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+            viewModel?.lastError = error.localizedDescription
+            finishNavigation(webView)
+        }
+
+        func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+            viewModel?.lastError = error.localizedDescription
+            finishNavigation(webView)
+        }
+
+        private func finishNavigation(_ webView: WKWebView) {
+            viewModel?.isLoading = false
+            viewModel?.currentURL = webView.url
+            viewModel?.canGoBack = webView.canGoBack
+            viewModel?.canGoForward = webView.canGoForward
+            viewModel?.pageTitle = webView.title
+#if os(iOS)
+            webView.scrollView.refreshControl?.endRefreshing()
+#endif
+        }
     }
 }
 #else

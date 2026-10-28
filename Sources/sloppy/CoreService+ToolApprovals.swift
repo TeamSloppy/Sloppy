@@ -63,6 +63,9 @@ extension CoreService: ToolApprovalBridge {
         }
         _ = await channelDelivery.updateToolApproval(record)
         if let sessionID = record.sessionId { resumeSessionMessageInboxes(agentID: record.agentId, sessionID: sessionID) }
+        if let parentID = record.displaySessionId, parentID != record.sessionId {
+            resumeSessionMessageInboxes(agentID: record.agentId, sessionID: parentID)
+        }
         return record
     }
 
@@ -84,6 +87,9 @@ extension CoreService: ToolApprovalBridge {
         }
         _ = await channelDelivery.updateToolApproval(record)
         if let sessionID = record.sessionId { resumeSessionMessageInboxes(agentID: record.agentId, sessionID: sessionID) }
+        if let parentID = record.displaySessionId, parentID != record.sessionId {
+            resumeSessionMessageInboxes(agentID: record.agentId, sessionID: parentID)
+        }
         return record
     }
 
@@ -103,7 +109,8 @@ extension CoreService: ToolApprovalBridge {
         toolCallID: String? = nil,
         requireApproval: Bool,
         approvalSettings: AgentToolApprovalSettings? = nil,
-        forcePerInvocation: Bool = false
+        forcePerInvocation: Bool = false,
+        timeoutSeconds: TimeInterval = ToolApprovalService.defaultTimeoutSeconds
     ) async -> ToolApprovalWaitResult? {
         guard requireApproval, requiresHumanApproval(toolID: request.tool, arguments: request.arguments) else {
             return nil
@@ -128,42 +135,10 @@ extension CoreService: ToolApprovalBridge {
             toolCallId: toolCallID,
             request: request,
             approvalKind: .riskyTool,
+            timeoutSeconds: timeoutSeconds,
             publishRequest: displaySessionID == nil && chatMode == nil
         )
-        let semanticResolved: Bool
-        if let chatMode {
-            semanticResolved = await resolveSessionToolApproval(record, mode: chatMode)
-        } else {
-            semanticResolved = await resolveSubagentToolApprovalIfPossible(record)
-        }
-        if !semanticResolved, displaySessionID != nil || chatMode != nil {
-            await toolApprovalService.publishPendingRequest(id: record.id)
-        }
-        if !semanticResolved, chatMode != nil || approvalSettings?.policy != .approveForMe {
-            await appendToolApprovalPausedStatusIfNeeded(
-                agentID: agentID,
-                sessionID: sessionID,
-                displaySessionID: displaySessionID,
-                record: record
-            )
-            if let waitingSessionID = displaySessionID ?? sessionID {
-                await markTaskWaitingInputForAgentSession(
-                    agentID: agentID,
-                    sessionID: waitingSessionID,
-                    reason: "Tool approval required for \(request.tool).",
-                    source: "agent"
-                )
-            }
-        }
-        if !semanticResolved {
-            _ = await channelDelivery.presentToolApproval(record)
-            await resolveToolApproval(record, approvalSettings: chatMode == nil ? approvalSettings : nil)
-        }
-        let result = await toolApprovalService.waitForDecision(id: record.id)
-        if case .timedOut(let timedOut) = result {
-            _ = await channelDelivery.updateToolApproval(timedOut)
-        }
-        return result
+        return await waitForToolApproval(record, chatMode: chatMode, approvalSettings: approvalSettings)
     }
 
     func toolApprovalDeniedResult(tool: String, approval: ToolApprovalWaitResult) -> ToolInvocationResult? {
@@ -309,40 +284,49 @@ extension CoreService: ToolApprovalBridge {
             publishRequest: displaySessionID == nil && chatMode == nil
         )
         let approvalSettings = try? await toolsAuthorization.policy(agentID: agentID).approval
-        let semanticResolved: Bool
-        if let chatMode {
-            semanticResolved = await resolveSessionToolApproval(record, mode: chatMode)
-        } else {
-            semanticResolved = await resolveSubagentToolApprovalIfPossible(record)
-        }
-        if !semanticResolved, displaySessionID != nil || chatMode != nil {
-            await toolApprovalService.publishPendingRequest(id: record.id)
-        }
-        if !semanticResolved, chatMode != nil || approvalSettings?.policy != .approveForMe {
-            await appendToolApprovalPausedStatusIfNeeded(
-                agentID: agentID,
-                sessionID: sessionID,
-                displaySessionID: displaySessionID,
-                record: record
-            )
-            if let waitingSessionID = displaySessionID ?? sessionID {
-                await markTaskWaitingInputForAgentSession(
-                    agentID: agentID,
-                    sessionID: waitingSessionID,
-                    reason: "Access approval required for \(request.tool).",
-                    source: "agent"
-                )
-            }
-        }
-        if !semanticResolved {
-            _ = await channelDelivery.presentToolApproval(record)
+        return await waitForToolApproval(record, chatMode: chatMode, approvalSettings: approvalSettings)
+    }
+
+    private func waitForToolApproval(
+        _ record: ToolApprovalRecord,
+        chatMode: SessionApprovalMode?,
+        approvalSettings: AgentToolApprovalSettings?
+    ) async -> ToolApprovalWaitResult {
+        // Reviewers and presenters can suspend indefinitely. The recorded deadline owns the call.
+        let review = Task {
+            let resolved: Bool
+            if let chatMode { resolved = await resolveSessionToolApproval(record, mode: chatMode) }
+            else { resolved = await resolveSubagentToolApprovalIfPossible(record) }
+            guard !Task.isCancelled, !resolved else { return }
+            await revealToolApproval(record)
             await resolveToolApproval(record, approvalSettings: chatMode == nil ? approvalSettings : nil)
         }
+        let fallback = Task {
+            do { try await Task.sleep(for: .seconds(15)) } catch { return }
+            await revealToolApproval(record)
+        }
+        defer { review.cancel(); fallback.cancel() }
         let result = await toolApprovalService.waitForDecision(id: record.id)
-        if case .timedOut(let timedOut) = result {
-            _ = await channelDelivery.updateToolApproval(timedOut)
+        if case .timedOut(let expired) = result {
+            _ = await channelDelivery.updateToolApproval(expired)
+            if let sessionID = expired.sessionId { resumeSessionMessageInboxes(agentID: expired.agentId, sessionID: sessionID) }
+            if let parentID = expired.displaySessionId, parentID != expired.sessionId {
+                resumeSessionMessageInboxes(agentID: expired.agentId, sessionID: parentID)
+            }
         }
         return result
+    }
+
+    private func revealToolApproval(_ record: ToolApprovalRecord) async {
+        guard await toolApprovalService.claimPresentation(id: record.id) else { return }
+        await toolApprovalService.publishPendingRequest(id: record.id)
+        await appendToolApprovalPausedStatusIfNeeded(agentID: record.agentId, sessionID: record.sessionId,
+            displaySessionID: record.displaySessionId, record: record)
+        if let sessionID = record.displaySessionId ?? record.sessionId {
+            await markTaskWaitingInputForAgentSession(agentID: record.agentId, sessionID: sessionID,
+                reason: "Tool approval required for \(record.tool).", source: "agent")
+        }
+        _ = await channelDelivery.presentToolApproval(record)
     }
 
     private func resolveToolApprovalThroughPresenter(_ record: ToolApprovalRecord) async {
@@ -620,9 +604,10 @@ extension CoreService: ToolApprovalBridge {
         guard let sessionID else {
             return
         }
-        let details = record.reason?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+        let reason = record.reason?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
             ? record.reason!
             : "Tool: \(record.tool)"
+        let details = "\(reason)\nApprove or deny this call in the chat approval card. Request: \(record.id)."
         let event = AgentSessionEvent(
             agentId: agentID,
             sessionId: sessionID,

@@ -18,7 +18,8 @@
     "test:semantic-decisions": "node --test ./scripts/semanticDecisionsTest.mjs",
     "preview": "node ./node_modules/vite/bin/vite.js preview",
     "seed:happy-path": "node ./scripts/seedHappyPath.mjs",
-    "e2e:happy-path": "node ./scripts/happyPath.mjs"
+    "e2e:happy-path": "node ./scripts/happyPath.mjs",
+    "test:client-pairing": "node --test ./scripts/clientPairingLinkTest.mjs"
   },
   "dependencies": {
     "@git-diff-view/file": "^0.1.2",

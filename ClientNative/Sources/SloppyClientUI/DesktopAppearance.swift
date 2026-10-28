@@ -6,6 +6,12 @@ public extension View {
     func appTextField() -> some View {
 #if os(macOS)
         modifier(DesktopTextFieldSurface())
+#elseif os(iOS)
+        textFieldStyle(.plain)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 10)
+            .frame(minHeight: 44)
+            .background(Color(uiColor: .tertiarySystemFill), in: RoundedRectangle(cornerRadius: 12))
 #else
         textFieldStyle(.roundedBorder)
 #endif
@@ -57,6 +63,7 @@ public extension View {
             buttonStyle(.glassProminent)
         } else {
             buttonStyle(.borderedProminent)
+                .controlSize(.large)
         }
 #endif
     }
@@ -65,6 +72,9 @@ public extension View {
     func appSecondaryButton() -> some View {
 #if os(macOS)
         buttonStyle(.bordered)
+#elseif os(iOS)
+        buttonStyle(.bordered)
+            .controlSize(.large)
 #else
         buttonStyle(.glass)
 #endif

@@ -30,6 +30,6 @@ struct ProjectFilesAPIClientSourceTests {
         #expect(services.contains("/files/search"))
         #expect(services.contains("\"/v1/projects/\\(BackendHTTPClient.encodePathSegment(projectId))/files/content?path="))
         #expect(apiClient.contains("taskId: String? = nil"))
-        #expect(services.contains("?taskId=\\(BackendHTTPClient.encodeQueryValue($0))"))
+        #expect(services.contains("taskId=\\(BackendHTTPClient.encodeQueryValue(taskId))"))
     }
 }

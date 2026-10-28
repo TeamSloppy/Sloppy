@@ -313,3 +313,22 @@ func tuiUndoTurnsRevertsFromEarliestMatchingTurnOnly() throws {
         try manager.undoTurns(withKeys: ["turn-9"], rootURL: root)
     }
 }
+
+@Test
+func liveSessionDiffDoesNotRecordUndoOrLeakAcrossSessions() throws {
+    let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+    try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    let file = root.appendingPathComponent("File.swift")
+    try "old\n".write(to: file, atomically: true, encoding: .utf8)
+    var managers = SloppyTUISessionUndoManagers()
+    let baseline = managers.makeBaseline(sessionID: "one", rootURL: root)
+    try "new\n".write(to: file, atomically: true, encoding: .utf8)
+    let first = try managers.sessionDiff(sessionID: "one", rootURL: root, pendingBaseline: baseline)
+    #expect(first.diff.contains("+new"))
+    #expect(!managers.canUndo(sessionID: "one"))
+    #expect(try managers.sessionDiff(sessionID: "two", rootURL: root, pendingBaseline: baseline).hasChanges == false)
+    _ = managers.recordChanges(baseline)
+    #expect(try managers.sessionDiff(sessionID: "one", rootURL: root) == first)
+    #expect(managers.canUndo(sessionID: "one"))
+}

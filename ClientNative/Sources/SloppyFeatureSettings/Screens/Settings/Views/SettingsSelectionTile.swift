@@ -19,12 +19,20 @@ struct SettingsSelectionTile: View {
                     .frame(width: 24)
                 VStack(alignment: .leading, spacing: 4) {
                     Text(title)
+#if os(iOS)
+                        .font(.body)
+#else
                         .font(.system(size: 13, weight: .medium))
+#endif
                         .foregroundStyle(.primary)
                         .lineLimit(1)
                     if !subtitle.isEmpty {
                         Text(subtitle)
+#if os(iOS)
+                            .font(.footnote)
+#else
                             .font(.system(size: 12))
+#endif
                             .foregroundStyle(.secondary)
                             .lineLimit(1)
                     }
@@ -36,12 +44,16 @@ struct SettingsSelectionTile: View {
             }
             .padding(12)
             .frame(maxWidth: .infinity, minHeight: 60, alignment: .leading)
+#if os(iOS)
+            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 16))
+#else
             .background(isSelected ? theme.colors.accent.opacity(0.08) : .clear,
                         in: RoundedRectangle(cornerRadius: 8))
             .overlay {
                 RoundedRectangle(cornerRadius: 8)
                     .strokeBorder(isSelected ? theme.colors.accent.opacity(0.5) : .primary.opacity(0.08), lineWidth: 1)
             }
+#endif
             .contentShape(RoundedRectangle(cornerRadius: 8))
         }
         .buttonStyle(SettingsChoiceButtonStyle())
@@ -57,6 +69,24 @@ struct SettingsCollectionHeader: View {
     let onAdd: () -> Void
 
     var body: some View {
+#if os(iOS)
+        HStack(spacing: 8) {
+            Text(title)
+            Text(count.formatted())
+                .monospacedDigit()
+            Spacer()
+        }
+        .font(.subheadline)
+        .foregroundStyle(.secondary)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button(action: onAdd) {
+                    Label(actionTitle, systemImage: "plus")
+                }
+                .accessibilityLabel(actionTitle)
+            }
+        }
+#else
         HStack(spacing: 8) {
             Text(title).font(.system(size: 13, weight: .semibold))
             Text(count.formatted())
@@ -68,5 +98,6 @@ struct SettingsCollectionHeader: View {
             }
             .buttonStyle(.bordered)
         }
+#endif
     }
 }

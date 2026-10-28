@@ -8,7 +8,7 @@ struct SessionsSendTool: CoreTool {
     let title = "Send message"
     let status = "fully_functional"
     let name = "messages.send"
-    let description = "Queue a message to another session, including another agent. Supply a sessionId from sessions.list; self-messaging is rejected. Returns a delivery receipt immediately; the recipient handles it after its current turn. Sender identity is server-assigned."
+    let description = "Queue a message to another session, including another agent. Supply a sessionId from sessions.list; self-messaging is rejected. Returns a receipt: queued messages run after the recipient's current turn; recorded late worker reports are saved as evidence without reopening completed work. Sender identity is server-assigned."
 
     var toolAliases: [String] { ["sessions.send"] }
 

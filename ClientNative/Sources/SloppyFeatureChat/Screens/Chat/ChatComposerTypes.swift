@@ -18,6 +18,7 @@ public struct ChatComposerAttachment: Identifiable, Sendable, Equatable {
     public let mimeType: String
     public let data: Data
     public var annotations: [ChatImageAnnotation]
+    public var markup: ChatImageMarkup? = nil
 
     public init(
         id: UUID = UUID(),
@@ -34,25 +35,29 @@ public struct ChatComposerAttachment: Identifiable, Sendable, Equatable {
     }
 
     public var sizeBytes: Int {
-        data.count
+        uploadData.count
     }
+
+    var uploadData: Data { markup?.pngData ?? data }
+    var uploadMIMEType: String { markup == nil ? mimeType : "image/png" }
+    var uploadName: String { markup == nil ? name : (name as NSString).deletingPathExtension + ".png" }
 
     var upload: ChatAttachmentUpload {
         ChatAttachmentUpload(
-            name: name,
-            mimeType: mimeType,
+            name: uploadName,
+            mimeType: uploadMIMEType,
             sizeBytes: sizeBytes,
-            contentBase64: data.base64EncodedString()
+            contentBase64: uploadData.base64EncodedString()
         )
     }
 
     var messageAttachment: ChatAttachment {
         ChatAttachment(
             id: id.uuidString.lowercased(),
-            name: name,
-            mimeType: mimeType,
+            name: uploadName,
+            mimeType: uploadMIMEType,
             sizeBytes: sizeBytes,
-            previewData: mimeType.hasPrefix("image/") ? data : nil
+            previewData: uploadMIMEType.hasPrefix("image/") ? uploadData : nil
         )
     }
 }
@@ -79,6 +84,33 @@ public struct ChatComposerQuote: Identifiable, Sendable, Equatable {
     static func messageContent(
         _ content: String, quotes: [Self], attachments: [ChatComposerAttachment] = []
     ) -> String {
+        let textAnnotations = quotes.map {
+            ChatSentAnnotations.Annotation(
+                selectedText: $0.text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n"),
+                comment: $0.comment.trimmingCharacters(in: .whitespacesAndNewlines)
+            )
+        }
+        let imageAnnotations = attachments.enumerated().flatMap { index, attachment in
+            attachment.annotations.map { annotation in
+                ChatSentAnnotations.Annotation(
+                    selectedText: "Image attachment \(index + 1): \(attachment.uploadName)\n"
+                        + "Coordinates are percentages of the original image; origin is top-left.\n"
+                        + annotation.region.coordinateDescription,
+                    comment: annotation.comment,
+                    source: annotation.browserSource.map {
+                        "Page URL: \($0.url.absoluteString)\nPage title: \($0.title)"
+                            + ($0.selector.map { "\nCSS selector: \($0)" } ?? "")
+                    }
+                )
+            }
+        }
+        return ChatSentAnnotations(annotations: textAnnotations + imageAnnotations).attaching(to: content)
+            ?? legacyMessageContent(content, quotes: quotes, attachments: attachments)
+    }
+
+    private static func legacyMessageContent(
+        _ content: String, quotes: [Self], attachments: [ChatComposerAttachment]
+    ) -> String {
         let quotedText = quotes.map { quote in
             let text = quote.text
                 .replacingOccurrences(of: "\r\n", with: "\n")
@@ -97,7 +129,7 @@ public struct ChatComposerQuote: Identifiable, Sendable, Equatable {
                 return note + "\nPage URL: \(source.url.absoluteString)\nPage title: \(source.title)"
                     + (source.selector.map { "\nCSS selector: \($0)" } ?? "")
             }.joined(separator: "\n")
-            return "Image annotations — attachment \(index + 1): \(attachment.name)\n"
+            return "Image annotations — attachment \(index + 1): \(attachment.uploadName)\n"
                 + "Coordinates are percentages of the original image; origin is top-left.\n\(notes)"
         }.joined(separator: "\n\n")
         return [quotedText, imageAnnotations, content].filter { !$0.isEmpty }.joined(separator: "\n\n")

@@ -13,6 +13,7 @@ actor ToolApprovalService {
         var record: ToolApprovalRecord
         var continuations: [CheckedContinuation<ToolApprovalWaitResult, Never>]
         var requestPublished: Bool
+        var presentationStarted = false
     }
 
     static let defaultTimeoutSeconds: TimeInterval = 600
@@ -20,6 +21,7 @@ actor ToolApprovalService {
     private let eventBus: EventBus
     private let notificationService: NotificationService
     private var pending: [String: PendingApproval] = [:]
+    private var expirationTasks: [String: Task<Void, Never>] = [:]
     private var resolvedBeforeWait: [String: ToolApprovalRecord] = [:]
     private let isoFormatter = ISO8601DateFormatter()
 
@@ -32,7 +34,7 @@ actor ToolApprovalService {
         pending.values
             .filter { includeUnpublished || $0.requestPublished }
             .map(\.record)
-            .filter { $0.status == .pending }
+            .filter { $0.status == .pending && $0.expiresAt > Date() }
             .sorted { $0.createdAt < $1.createdAt }
     }
 
@@ -69,17 +71,33 @@ actor ToolApprovalService {
             expiresAt: now.addingTimeInterval(timeoutSeconds)
         )
         pending[record.id] = PendingApproval(record: record, continuations: [], requestPublished: false)
+        expirationTasks[record.id] = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(max(0, record.expiresAt.timeIntervalSinceNow))) }
+            catch { return }
+            _ = await self?.timeout(id: record.id)
+        }
         if publishRequest { await publishPendingRequest(id: record.id) }
         return record
     }
 
     func publishPendingRequest(id: String) async {
         guard var entry = pending[id], entry.record.status == .pending, !entry.requestPublished else { return }
+        guard entry.record.expiresAt > Date() else {
+            _ = await timeout(id: id)
+            return
+        }
         entry.requestPublished = true
         pending[id] = entry
         let record = entry.record
         await emit(record: record, messageType: .toolApprovalRequested)
         await notificationService.pushToolApproval(record)
+    }
+
+    func claimPresentation(id: String) -> Bool {
+        guard var entry = pending[id], entry.record.expiresAt > Date(), !entry.presentationStarted else { return false }
+        entry.presentationStarted = true
+        pending[id] = entry
+        return true
     }
 
     func waitForDecision(id: String, timeoutSeconds: TimeInterval = ToolApprovalService.defaultTimeoutSeconds) async -> ToolApprovalWaitResult {
@@ -90,11 +108,13 @@ actor ToolApprovalService {
             return waitResult(for: resolved)
         }
 
-        let timeoutNanoseconds = UInt64(max(0.1, timeoutSeconds) * 1_000_000_000)
-        Task {
-            try? await Task.sleep(nanoseconds: timeoutNanoseconds)
-            _ = await self.timeout(id: id)
+        let remaining = pending[id]?.record.expiresAt.timeIntervalSinceNow ?? 0
+        let waitTimeout = Task { [weak self] in
+            do { try await Task.sleep(for: .seconds(max(0, min(timeoutSeconds, remaining)))) }
+            catch { return }
+            _ = await self?.timeout(id: id)
         }
+        defer { waitTimeout.cancel() }
 
         return await withPlatformCheckedContinuation { continuation in
             guard var entry = pending[id] else {
@@ -138,6 +158,13 @@ actor ToolApprovalService {
         guard var entry = pending[id], entry.record.status == .pending else {
             return pending[id]?.record
         }
+
+        // A late reviewer or UI response must never authorize an expired call.
+        if status != .timedOut, entry.record.expiresAt <= Date() {
+            _ = await timeout(id: id)
+            return nil
+        }
+        expirationTasks.removeValue(forKey: id)?.cancel()
 
         entry.record.status = status
         entry.record.decidedBy = decidedBy

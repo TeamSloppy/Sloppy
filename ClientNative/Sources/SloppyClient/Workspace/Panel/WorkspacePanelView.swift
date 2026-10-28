@@ -49,19 +49,23 @@ struct WorkspacePanelView: View {
 
                     if viewModel.mode == .files {
                         filesToolbarQuickActions
+#if !os(iOS)
                         Button(action: { Task { await viewModel.refresh() } }) {
                             Icons.symbol(.refresh, size: ty.body)
                                 .foregroundColor(c.textSecondary)
                         }
                         .buttonStyle(.plain)
                         .help("Refresh files")
+#endif
                     } else if viewModel.mode == .environment {
+#if !os(iOS)
                         Button(action: { Task { await viewModel.refreshEnvironment() } }) {
                             Icons.symbol(.refresh, size: ty.body)
                                 .foregroundColor(c.textSecondary)
                         }
                         .buttonStyle(.plain)
                         .help("Refresh environment")
+#endif
                     }
                 }
                 .padding(sp.m)
@@ -177,6 +181,7 @@ struct WorkspacePanelView: View {
             }
             .padding(.vertical, theme.spacing.s)
         }
+        .mobileRefreshable { await viewModel.refresh() }
     }
 
     private var previewPane: some View {

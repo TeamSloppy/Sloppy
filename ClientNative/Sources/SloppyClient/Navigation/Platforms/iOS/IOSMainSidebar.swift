@@ -4,7 +4,6 @@ import SloppyClientUI
 import SloppyFeatureAgents
 import SloppyFeatureChat
 import SloppyFeatureProjects
-import SloppyFeatureSettings
 import SwiftUI
 
 @MainActor
@@ -19,7 +18,7 @@ struct PlatformMainSidebar: View {
     @Environment(\.theme) private var theme
     @State private var searchText = ""
     @State private var isAgentsPresented = false
-    @State private var isTextSearchPresented = false
+    @State private var textSearchPresentation: IOSInboxSearchPresentation?
     @State private var presentedProject: IOSProjectPresentation?
     @State private var inboxNavigationPath = NavigationPath()
     @AppStorage("client_chat_sidebar_layout_mode") private var layoutMode = SidebarLayoutMode.list
@@ -34,8 +33,9 @@ struct PlatformMainSidebar: View {
         .fullScreenCover(item: $presentedProject) { presentation in
             IOSProjectModal(project: presentation.project, viewModel: viewModel)
         }
-        .sheet(isPresented: $isTextSearchPresented) {
-            SessionTextSearchView(endpoints: viewModel.textSearchEndpoints, apiClient: viewModel.apiClient, onOpenSession: viewModel.openTextSearchSession, query: normalizedSearchQuery)
+        .sheet(item: $textSearchPresentation) { presentation in
+            SessionTextSearchView(endpoints: viewModel.textSearchEndpoints, apiClient: viewModel.apiClient,
+                onOpenSession: openSearchSession, query: presentation.query, selected: presentation.selected)
         }
         .sheet(isPresented: $isAgentsPresented) {
             AgentsScreen(apiClient: viewModel.apiClient)
@@ -61,7 +61,7 @@ struct PlatformMainSidebar: View {
                         .searchable(
                             text: $searchText,
                             placement: .toolbar,
-                            prompt: "Search chats and projects"
+                            prompt: "Search all messages and projects"
                         )
                         .toolbar {
                             ToolbarItem(placement: .topBarLeading) {
@@ -69,7 +69,7 @@ struct PlatformMainSidebar: View {
                             }
 
                             ToolbarItemGroup(placement: .topBarTrailing) {
-                                Button { isTextSearchPresented = true } label: { Image(systemName: "text.magnifyingglass") }
+                                Button { presentTextSearch() } label: { Image(systemName: "text.magnifyingglass") }
                                     .accessibilityLabel("Search all conversation text")
                                     .accessibilityIdentifier("inbox.search-all-text")
                                 sidebarViewOptionsMenu
@@ -99,26 +99,15 @@ struct PlatformMainSidebar: View {
                 }
             }
 
-            Tab("Usage", systemImage: "chart.bar", value: MainAppSection.usage) {
-                NavigationStack {
-                    ChatUsageScreen(
-                        apiClient: viewModel.apiClient,
-                        instanceTitle: viewModel.apiClient.baseURL.host ?? "Connected instance",
-                        onOpenSession: viewModel.openSessionChatTab
-                    )
-                }
-                .modifier(IOSComposerContainer(composer: mobileComposer, viewModel: composerViewModel))
-                .environment(\.isChatComposerInset, true)
-            }
-
             Tab("Workspace", systemImage: "square.grid.2x2", value: MainAppSection.workspace) {
                 if idiom == .phone {
                     NavigationStack {
                         CanvasWorkspaceSurface(viewModel: canvasWorkspaceViewModel)
                     }
+                    .mobileScreenBackground()
                     .modifier(IOSComposerContainer(composer: mobileComposer, viewModel: composerViewModel))
                 } else {
-                    Color.clear
+                    Color.clear.mobileScreenBackground()
                 }
             }
         }
@@ -153,9 +142,16 @@ struct PlatformMainSidebar: View {
         } else {
             IOSInboxSearchResults(
                 query: normalizedSearchQuery,
-                viewModel: viewModel,
-                onOpenResult: { searchText = "" },
-                onSearchText: { isTextSearchPresented = true },
+                sessions: viewModel.sidebarSessionCatalog,
+                projects: viewModel.projects,
+                endpoints: viewModel.textSearchEndpoints,
+                apiClient: viewModel.apiClient,
+                onOpenSession: { session in
+                    viewModel.openSessionChatTab(session)
+                    showInboxChat()
+                },
+                onOpenMessage: { presentTextSearch(selected: $0) },
+                onSearchText: { presentTextSearch() },
                 onOpenProject: {
                     searchText = ""
                     presentedProject = IOSProjectPresentation(project: $0)
@@ -166,6 +162,22 @@ struct PlatformMainSidebar: View {
 
     private var normalizedSearchQuery: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func presentTextSearch(selected: LocatedTextSearchHit? = nil) {
+        textSearchPresentation = .init(query: normalizedSearchQuery, selected: selected)
+    }
+
+    private func openSearchSession(_ item: LocatedTextSearchHit) {
+        guard item.hit.agentId != nil else { return }
+        viewModel.openTextSearchSession(item)
+        showInboxChat()
+    }
+
+    private func showInboxChat() {
+        searchText = ""
+        inboxNavigationPath = NavigationPath()
+        inboxNavigationPath.append(MainSidebarSelection.chats)
     }
 
     private var settingsButton: some View {
@@ -528,70 +540,6 @@ private struct IOSInboxProjectRow: View {
         .contentShape(Rectangle())
     }
 }
-
-@MainActor
-private struct IOSInboxSearchResults: View {
-    let query: String
-    let viewModel: MainViewModel
-    let onOpenResult: @MainActor () -> Void
-    let onSearchText: @MainActor () -> Void
-    let onOpenProject: @MainActor (APIProjectRecord) -> Void
-
-    @Environment(\.theme) private var theme
-
-    private var chatResults: [ChatSessionSummary] {
-        viewModel.sidebarSessionCatalog.filter {
-            $0.title.localizedStandardContains(query)
-        }
-    }
-
-    private var projectResults: [APIProjectRecord] {
-        viewModel.projects.filter {
-            $0.name.localizedStandardContains(query)
-        }
-    }
-
-    var body: some View {
-        List {
-            Section {
-                Button(action: onSearchText) { Label("Search all messages and tool output", systemImage: "text.magnifyingglass") }
-            }
-            if !chatResults.isEmpty {
-                Section("Chats") {
-                    ForEach(chatResults, id: \.storageID) { session in
-                        NavigationLink(value: MainSidebarSelection.chats) {
-                            Label(session.displayTitle, systemImage: "bubble.left")
-                                .foregroundStyle(theme.colors.textPrimary)
-                        }
-                        .simultaneousGesture(
-                            TapGesture().onEnded {
-                                viewModel.openSessionChatTab(session)
-                                onOpenResult()
-                            }
-                        )
-                    }
-                }
-            }
-
-            if !projectResults.isEmpty {
-                Section("Projects") {
-                    ForEach(projectResults, id: \.storageID) { project in
-                        Button { onOpenProject(project) } label: {
-                            Label(project.name, systemImage: project.semanticIconName)
-                                .foregroundStyle(theme.colors.textPrimary)
-                        }
-                    }
-                }
-            }
-
-            if chatResults.isEmpty, projectResults.isEmpty {
-                ContentUnavailableView.search(text: query)
-            }
-        }
-        .listStyle(.insetGrouped)
-    }
-}
-
 
 private struct IOSProjectPresentation: Identifiable {
     let project: APIProjectRecord

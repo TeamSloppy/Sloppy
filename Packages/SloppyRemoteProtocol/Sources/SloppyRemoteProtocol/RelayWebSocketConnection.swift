@@ -20,7 +20,8 @@ public actor RelayWebSocketConnection {
     }
     public func connect(url: URL, token: String) async throws {
         guard channel == nil, url.scheme == "https", let host = url.host, url.user == nil, url.password == nil else { throw RemoteTLSError.invalidPeer }
-        let ready = Self.group.next().makePromise(of: Void.self)
+        let eventLoop = Self.group.next()
+        let ready = eventLoop.makePromise(of: Void.self)
         let continuation = continuation
         let frames = RelayFrameHandler(continuation: continuation, ready: ready)
         let requester = UpgradeRequestHandler(host: host, token: token, onFailure: { frames.failReadiness($0) })
@@ -29,19 +30,30 @@ public actor RelayWebSocketConnection {
             // Only relay_ready confirms that it can route the first TLS frame.
             channel.pipeline.addHandler(frames)
         }
-        let ssl = try NIOSSLContext(configuration: .makeClientConfiguration())
-        let connection = try await ClientBootstrap(group: Self.group).connectTimeout(.seconds(10))
-            .channelInitializer { channel in
-                do {
-                    let handler = try NIOSSLClientHandler(context: ssl, serverHostname: host)
-                    return channel.pipeline.addHandler(handler).flatMap {
-                        channel.pipeline.addHTTPClientHandlers(withClientUpgrade: (upgraders: [upgrader], completionHandler: { context in context.pipeline.removeHandler(requester, promise: nil) }))
-                    }.flatMap { channel.pipeline.addHandler(requester) }
-                } catch { return channel.eventLoop.makeFailedFuture(error) }
-            }.connect(host: host, port: url.port ?? 443).get()
-        let timeout = connection.eventLoop.scheduleTask(in: .seconds(15)) { frames.failReadiness(RemoteTLSError.handshakeIncomplete); connection.close(promise: nil) }
-        do { try await ready.futureResult.get(); timeout.cancel(); channel = connection }
-        catch { timeout.cancel(); try? await connection.close().get(); throw error }
+        var connection: (any Channel)?
+        do {
+            let ssl = try NIOSSLContext(configuration: .makeClientConfiguration())
+            let connected = try await ClientBootstrap(group: eventLoop).connectTimeout(.seconds(10))
+                .channelInitializer { channel in
+                    do {
+                        let handler = try NIOSSLClientHandler(context: ssl, serverHostname: host)
+                        return channel.pipeline.addHandler(handler).flatMap {
+                            channel.pipeline.addHTTPClientHandlers(withClientUpgrade: (upgraders: [upgrader], completionHandler: { context in context.pipeline.removeHandler(requester, promise: nil) }))
+                        }.flatMap { channel.pipeline.addHandler(requester) }
+                    } catch { return channel.eventLoop.makeFailedFuture(error) }
+                }.connect(host: host, port: url.port ?? 443).get()
+            connection = connected
+            let timeout = eventLoop.scheduleTask(in: .seconds(15)) { frames.failReadiness(RemoteTLSError.handshakeIncomplete); connected.close(promise: nil) }
+            defer { timeout.cancel() }
+            try await ready.futureResult.get()
+            channel = connected
+        } catch {
+            // DNS and bootstrap failures can happen before handlers are installed.
+            // Complete readiness on its event loop, serialized with handler callbacks.
+            try? await eventLoop.submit { frames.failReadiness(error) }.get()
+            try? await connection?.close().get()
+            throw error
+        }
     }
     public func send(_ data: Data) async throws {
         guard let channel, channel.isActive, channel.isWritable, data.count <= 4 * 1024 * 1024 + 65536 else { throw RemoteTLSError.closed }

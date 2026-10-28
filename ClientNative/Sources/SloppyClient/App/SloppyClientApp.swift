@@ -225,7 +225,16 @@ struct SloppyClientApp: App {
     @ViewBuilder
     private var mainContent: some View {
 #if DEBUG && os(iOS)
-        if ProcessInfo.processInfo.arguments.contains("--review-ui-fixture") || ProcessInfo.processInfo.arguments.contains("--composer-ui-fixture") {
+        if ProcessInfo.processInfo.arguments.contains("--authentication-ui-fixture") {
+            AuthenticationScreen(
+                baseURL: URL(string: "https://mobile-review-ui.invalid")!,
+                challenge: AuthChallenge(mode: "login_password",
+                    bootstrapRequired: ProcessInfo.processInfo.arguments.contains("--bootstrap-ui-fixture")),
+                initialMessage: nil, onAuthenticated: { _ in }, onScannedCode: { _ in }, onChooseServer: {}
+            )
+            .theme(.sloppyDark)
+            .preferredColorScheme(.dark)
+        } else if ProcessInfo.processInfo.arguments.contains("--review-ui-fixture") || ProcessInfo.processInfo.arguments.contains("--composer-ui-fixture") {
             CodeReviewMobileFixture()
         } else {
             rootContent

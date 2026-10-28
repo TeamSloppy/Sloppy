@@ -228,6 +228,7 @@ extension SloppyTUIScreen {
 
         switch sessionUndoManagers.recordChanges(baseline) {
         case .recorded:
+            guard baseline.sessionID == session.id else { return }
             updateSessionDiffPreview(rootURL: baseline.baseline.rootURL)
         case .noChanges:
             break

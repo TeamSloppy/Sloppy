@@ -4,6 +4,8 @@ import SwiftUI
 enum SidebarProjectColor: String, CaseIterable {
     case red, orange, yellow, green, blue, purple, pink
 
+    static let allCases: [Self] = [.red, .orange, .yellow, .green, .blue, .pink]
+
     var color: Color {
         switch self {
         case .red: .red
@@ -11,7 +13,7 @@ enum SidebarProjectColor: String, CaseIterable {
         case .yellow: .yellow
         case .green: .green
         case .blue: .blue
-        case .purple: .purple
+        case .purple: .blue // Preserve stored values from the previous palette.
         case .pink: .pink
         }
     }

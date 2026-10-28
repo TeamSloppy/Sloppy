@@ -127,6 +127,7 @@ public struct TaskDetailView: View {
                         .frame(maxWidth: 920, alignment: .leading)
                         .frame(maxWidth: .infinity, alignment: .center)
                     }
+                    .mobileRefreshContainer()
                 } else {
                     contentState(title: "Task Detail", message: "No task data available.")
                 }

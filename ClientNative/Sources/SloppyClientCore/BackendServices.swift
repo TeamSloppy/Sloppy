@@ -405,13 +405,18 @@ public actor ProjectService {
 
     public func fetchProjectWorkingTreeSourceControl(
         projectId: String,
-        taskId: String? = nil
+        taskId: String? = nil,
+        directoryPath: String? = nil
     ) async throws -> ProjectWorkingTreeSourceControlResponse {
-        let taskQuery = taskId.map {
-            "?taskId=\(BackendHTTPClient.encodeQueryValue($0))"
-        } ?? ""
+        var queryItems: [String] = []
+        if let taskId { queryItems.append("taskId=\(BackendHTTPClient.encodeQueryValue(taskId))") }
+        if let directoryPath { queryItems.append("directoryPath=\(BackendHTTPClient.encodeQueryValue(directoryPath))") }
+        let query = queryItems.isEmpty ? "" : "?" + queryItems.joined(separator: "&")
+        // Older Core versions must fail explicitly instead of ignoring directoryPath
+        // and returning the primary checkout for every directory.
+        let resource = directoryPath == nil ? "working-tree" : "working-tree/directory"
         return try await http.get(
-            "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/source-control/working-tree\(taskQuery)"
+            "/v1/projects/\(BackendHTTPClient.encodePathSegment(projectId))/source-control/\(resource)\(query)"
         )
     }
 }

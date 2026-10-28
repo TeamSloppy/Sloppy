@@ -142,7 +142,7 @@ public final class ClientSettings {
         serverHost = defaults.string(forKey: Keys.serverHost) ?? "localhost"
         serverPort = defaults.integer(forKey: Keys.serverPort).nonZero ?? 25101
         serverScheme = defaults.string(forKey: Keys.serverScheme) == "https" ? "https" : "http"
-        accentColorHex = defaults.string(forKey: Keys.accentColorHex) ?? "#FF2D6F"
+        accentColorHex = defaults.string(forKey: Keys.accentColorHex) ?? "#007AFF"
         colorScheme = defaults
             .string(forKey: Keys.colorScheme)
             .flatMap(ClientColorScheme.init(rawValue:)) ?? .dark

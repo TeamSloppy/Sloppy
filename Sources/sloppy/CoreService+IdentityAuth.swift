@@ -37,10 +37,10 @@ extension CoreService {
         _ request: AuthDevicePairingCreateRequest,
         actor: AuthenticatedUserContext
     ) async throws -> AuthDevicePairingRecord {
+        // Resolve a usable address before issuing a secret; clients must not guess
+        // from the Dashboard page, which is commonly opened through localhost.
+        let primaryURL = try resolvedClientPairingURL()
         var pairing = try await identityAuthService.createDevicePairing(request, actor: actor)
-        guard let primaryURL = try resolvedClientPairingURL() else {
-            return pairing
-        }
 
         let alternateURLs = try currentConfig.clientAlternateURLs
             .map(normalizedClientPairingURL)
@@ -70,19 +70,27 @@ extension CoreService {
         return pairing
     }
 
-    private func resolvedClientPairingURL() throws -> String? {
+    private func resolvedClientPairingURL() throws -> String {
         let configured = [currentConfig.clientPublicURL, currentConfig.nodeMeshPublicURL]
             .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
             .first { !$0.isEmpty }
-        guard let configured else { return nil }
-        return try normalizedClientPairingURL(configured)
+        if let configured { return try normalizedClientPairingURL(configured) }
+        guard let address = NetworkAddressResolver.clientPairingURL(
+            bindHost: currentConfig.listen.host,
+            apiPort: currentConfig.listen.port,
+            candidates: NetworkAddressResolver.enumerateIPv4Candidates()
+        ) else { throw CoreIdentityAuthError.invalidDevicePairingConfiguration }
+        return address
     }
 
     private func normalizedClientPairingURL(_ rawValue: String) throws -> String {
         let trimmed = rawValue.trimmingCharacters(in: .whitespacesAndNewlines)
         guard var components = URLComponents(string: trimmed),
               let scheme = components.scheme?.lowercased(),
-              components.host != nil else {
+              let host = components.host,
+              !NetworkAddressResolver.isDeviceLocalHost(host),
+              components.user == nil, components.password == nil,
+              components.port.map({ (1...65_535).contains($0) }) ?? true else {
             throw CoreIdentityAuthError.invalidDevicePairingConfiguration
         }
         switch scheme {
@@ -140,8 +148,8 @@ extension CoreService {
         guard actor.user.role == .admin else {
             throw CoreIdentityAuthError.forbidden
         }
-        guard let rawURL = try resolvedClientPairingURL(),
-              let url = URL(string: rawURL),
+        let rawURL = try resolvedClientPairingURL()
+        guard let url = URL(string: rawURL),
               url.scheme?.lowercased() == "https" else {
             throw CoreIdentityAuthError.invalidDevicePairingConfiguration
         }

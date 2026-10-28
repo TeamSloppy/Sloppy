@@ -79,6 +79,7 @@ struct ProvidersSection: View {
         .task(id: modelCatalogRequest) {
             await loadProviderModels(debounce: true)
         }
+        .mobileRefreshSection { await loadProviderModels(debounce: false) }
     }
 
     private var providerList: some View {
@@ -148,7 +149,7 @@ struct ProvidersSection: View {
                     status: modelCatalogStatus,
                     isLoading: isLoadingModels,
                     onRefresh: {
-                        Task { await loadProviderModels(debounce: false) }
+                        await loadProviderModels(debounce: false)
                     }
                 )
             }
@@ -307,7 +308,7 @@ private struct SettingsModelPickerRow: View {
     let providerTitle: String
     let status: String?
     let isLoading: Bool
-    let onRefresh: () -> Void
+    let onRefresh: () async -> Void
 
     @State private var isPresented = false
     @State private var searchText = ""
@@ -317,7 +318,11 @@ private struct SettingsModelPickerRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: theme.spacing.xs) {
             Text("Model")
+#if os(iOS)
+                .font(.subheadline)
+#else
                 .font(.system(size: theme.typography.caption, weight: .medium))
+#endif
                 .foregroundColor(theme.colors.textSecondary)
 
             Button {
@@ -326,13 +331,21 @@ private struct SettingsModelPickerRow: View {
                 HStack(spacing: theme.spacing.s) {
                     VStack(alignment: .leading, spacing: 2) {
                         Text(selectedModelTitle)
+#if os(iOS)
+                            .font(.body)
+#else
                             .font(.system(size: theme.typography.body, weight: .medium))
+#endif
                             .foregroundColor(theme.colors.textPrimary)
                             .lineLimit(1)
 
                         if let selectedModelSubtitle {
                             Text(selectedModelSubtitle)
+#if os(iOS)
+                                .font(.caption)
+#else
                                 .font(.system(size: theme.typography.micro))
+#endif
                                 .foregroundColor(theme.colors.textMuted)
                                 .lineLimit(1)
                         }
@@ -343,17 +356,28 @@ private struct SettingsModelPickerRow: View {
                     if isLoading {
                         ProgressView()
                             .controlSize(.small)
-                    } else {
+                    }
+#if !os(iOS)
+                    if !isLoading {
                         Image(systemName: "magnifyingglass")
                             .foregroundColor(theme.colors.textSecondary)
                     }
-
+#endif
+#if os(iOS)
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+#else
                     Image(systemName: "chevron.up.chevron.down")
                         .font(.system(size: theme.typography.micro, weight: .semibold))
                         .foregroundColor(theme.colors.textMuted)
+#endif
                 }
+#if !os(iOS)
                 .padding(.horizontal, theme.spacing.s)
+#endif
                 .frame(maxWidth: .infinity, minHeight: 44, alignment: .leading)
+#if !os(iOS)
                 .background(
                     theme.colors.surfaceRaised.opacity(0.72 as CGFloat),
                     in: RoundedRectangle(cornerRadius: 7, style: .continuous)
@@ -362,19 +386,30 @@ private struct SettingsModelPickerRow: View {
                     RoundedRectangle(cornerRadius: 7, style: .continuous)
                         .stroke(theme.colors.border, lineWidth: theme.borders.thin)
                 }
+#endif
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+#if os(iOS)
+            .sheet(isPresented: $isPresented) {
+                mobilePickerContent
+            }
+#else
             .popover(isPresented: $isPresented, arrowEdge: .bottom) {
                 pickerContent
                     .presentationCompactAdaptation(.popover)
             }
+#endif
             .accessibilityLabel("Model \(selectedModelTitle)")
             .accessibilityHint("Opens searchable model catalog")
             .accessibilityIdentifier("settings.providers.model-picker")
 
             Text("Search the provider catalog or enter an exact custom model ID.")
+#if os(iOS)
+                .font(.footnote)
+#else
                 .font(.system(size: theme.typography.micro))
+#endif
                 .foregroundColor(theme.colors.textMuted)
         }
         .padding(.horizontal, theme.spacing.m)
@@ -384,6 +419,44 @@ private struct SettingsModelPickerRow: View {
     private var selectedModel: ChatModelOption? {
         models.first { $0.id == modelID }
     }
+
+#if os(iOS)
+    private var mobilePickerContent: some View {
+        NavigationStack {
+            List {
+                Section {
+                    if isLoading && filteredModels.isEmpty {
+                        ProgressView("Loading models…")
+                    } else if filteredModels.isEmpty && customModelID == nil {
+                        Text("No matching models")
+                            .foregroundStyle(.secondary)
+                    }
+                    ForEach(filteredModels) { model in
+                        modelRow(model)
+                    }
+                    if let customModelID {
+                        customModelRow(customModelID)
+                    }
+                } footer: {
+                    if let status { Text(status) }
+                }
+            }
+            .listStyle(.insetGrouped)
+            .mobileScreenBackground()
+            .mobileRefreshable { await onRefresh() }
+            .searchable(text: $searchText, prompt: "Search models or enter an ID")
+            .navigationTitle(providerTitle.isEmpty ? "Models" : providerTitle)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { isPresented = false }
+                }
+            }
+        }
+        .presentationDetents([.medium, .large])
+        .onAppear { searchText = "" }
+    }
+#endif
 
     private var selectedModelTitle: String {
         if modelID.isEmpty {
@@ -458,6 +531,7 @@ private struct SettingsModelPickerRow: View {
                 .padding(.vertical, theme.spacing.s)
             }
             .frame(maxHeight: 340)
+            .mobileRefreshable { await onRefresh() }
 
             Divider()
 
@@ -471,14 +545,16 @@ private struct SettingsModelPickerRow: View {
 
                 Spacer(minLength: theme.spacing.s)
 
+#if !os(iOS)
                 Button {
-                    onRefresh()
+                    Task { await onRefresh() }
                 } label: {
                     Label("Refresh", systemImage: "arrow.clockwise")
                 }
                 .buttonStyle(.plain)
                 .foregroundColor(theme.colors.textSecondary)
                 .disabled(isLoading)
+#endif
             }
             .padding(theme.spacing.m)
         }

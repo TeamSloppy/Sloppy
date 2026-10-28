@@ -25,8 +25,8 @@ extension CoreService {
         let console = ConsoleCloudDeviceClient(baseURL: environment.consoleURL, deviceID: local.deviceID, privateKey: local.signingPrivateKey)
         let remote = ConsoleRemoteConnection(deviceID: local.deviceID, signingPrivateKey: local.signingPrivateKey, identity: identity, relayURL: environment.relayURL, pins: [:])
         guard !Task.isCancelled else { return }
-        consoleRemoteConnection = remote
-        await consoleModelBridge.configure(.init(remote: remote, cloud: console, store: store, identity: identity, local: local, binding: binding))
+        let bridgeContext = ConsoleModelBridge.Context(remote: remote, cloud: console, store: store, identity: identity, local: local, binding: binding)
+        let workspace = workspaceRootURL
         await remote.setEventHandler { [weak self] event in
             guard let logger = self?.logger else { return }
             switch event {
@@ -44,7 +44,30 @@ extension CoreService {
             return try await self.handleConsoleRemotePacket(senderID: senderID, certificate: certificate, packet: packet)
         }
         guard !Task.isCancelled else { await remote.disconnect(); return }
+        let initialLease: ConsoleRelayProcessLease?
+        do { initialLease = try ConsoleRelayProcessLease.acquire(workspaceRoot: workspace) }
+        catch { initialLease = nil; logger.error("console.relay.ownership_unavailable") }
+        if initialLease != nil { await activateConsoleRelay(bridgeContext) }
+        guard !Task.isCancelled else { await remote.disconnect(); return }
         consoleRelayTask = Task { [weak self] in
+            var lease = initialLease
+            var reportedBusy = false
+            while !Task.isCancelled && lease == nil {
+                do {
+                    lease = try ConsoleRelayProcessLease.acquire(workspaceRoot: workspace)
+                    if lease == nil && !reportedBusy {
+                        self?.logger.warning("console.relay.waiting_for_workspace_owner")
+                        reportedBusy = true
+                    }
+                } catch {
+                    if !reportedBusy { self?.logger.error("console.relay.ownership_unavailable"); reportedBusy = true }
+                }
+                if lease == nil { try? await Task.sleep(for: .seconds(2)) }
+            }
+            guard let lease else { await self?.consoleRelayStopped(); return }
+            defer { lease.release() }
+            guard !Task.isCancelled else { await self?.consoleRelayStopped(); return }
+            if initialLease == nil { await self?.activateConsoleRelay(bridgeContext) }
             // Trust sync and connect run every 30s while healthy, but a dropped
             // socket is retried immediately and failures back off to 30s.
             var nextAttempt = Date.distantPast
@@ -77,6 +100,11 @@ extension CoreService {
             await remote.disconnect()
             await self?.consoleRelayStopped()
         }
+    }
+    private func activateConsoleRelay(_ context: ConsoleModelBridge.Context) async {
+        guard !Task.isCancelled else { return }
+        consoleRemoteConnection = context.remote
+        await consoleModelBridge.configure(context)
     }
     func stopConsoleRelay() async {
         // Join setup before clearing the bridge, so a suspended startup cannot
@@ -144,12 +172,16 @@ struct ConsoleStreamRegistration: Sendable {
 extension CoreService {
     func handleConsoleStream(senderID: UUID, packet: ConsoleRemotePacket, context: ConsoleAuthorizationContext) async throws -> ConsoleRemotePacket? {
         let frame = try ConsoleWire.decode(RemoteStreamFrame.self, from: packet.payload)
-        try context.require(packet.kind == "terminal.stream" ? .terminal : .read)
+        if packet.kind != "session.stream" { try context.require(packet.kind == "terminal.stream" ? .terminal : .read) }
         switch frame.action {
         case .open:
             guard consoleStreams[frame.streamID] == nil, consoleStreams.count < 20,
                   let path = frame.path, path.hasPrefix("/v1/"), !path.hasPrefix("/v1/node/mesh/"),
                   let remote = consoleRemoteConnection else { throw ConsoleTrustError.forbidden }
+            if packet.kind == "session.stream" {
+                let request = HTTPRequest(method: .get, path: path, segments: path.split(separator: "/").map(String.init))
+                if !(await allowsConsoleOwnerChat(context, request: request)) { try context.require(.read) }
+            }
             let pair = AsyncStream<String>.makeStream(bufferingPolicy: .bufferingNewest(32))
             let connection = WebSocketConnectionContext(sendText: { text in
                 do {

@@ -44,7 +44,7 @@ public struct AttentionScreen: View {
                         .padding(theme.spacing.l)
                         .frame(maxWidth: .infinity)
                     }
-                    .refreshable { await inbox.refresh() }
+                    .mobileRefreshable { await inbox.refresh() }
                 }
             }
         }
@@ -110,6 +110,7 @@ public struct AttentionScreen: View {
             .accessibilityLabel("Finding history")
             .accessibilityIdentifier("attention.filter")
 
+#if !os(iOS)
             Button { Task { await inbox.refresh() } } label: {
                 Image(systemName: "arrow.clockwise")
                     .frame(width: 20, height: 20)
@@ -120,6 +121,7 @@ public struct AttentionScreen: View {
             .help("Refresh attention")
             .accessibilityLabel("Refresh attention")
             .accessibilityIdentifier("attention.refresh")
+#endif
         }
     }
 
