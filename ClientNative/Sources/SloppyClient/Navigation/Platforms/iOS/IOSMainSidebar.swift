@@ -327,20 +327,16 @@ private struct IOSInboxHome: View {
 
     @Environment(\.theme) private var theme
 
-    private var allTasks: [APIProjectTask] {
-        viewModel.projects.flatMap { $0.tasks ?? [] }
-    }
-
     private var workingCount: Int {
-        allTasks.count { $0.status == "in_progress" }
+        viewModel.projects.reduce(0) { $0 + (ProjectTaskInboxStatus.working.count(in: $1) ?? 0) }
     }
 
     private var attentionCount: Int {
-        allTasks.count { $0.status == "blocked" }
+        viewModel.projects.reduce(0) { $0 + (ProjectTaskInboxStatus.attention.count(in: $1) ?? 0) }
     }
 
     private var reviewCount: Int {
-        allTasks.count { $0.status == "needs_review" }
+        viewModel.projects.reduce(0) { $0 + (ProjectTaskInboxStatus.review.count(in: $1) ?? 0) }
     }
 
     var body: some View {
@@ -578,35 +574,36 @@ private struct IOSProjectModal: View {
     }
 }
 
-private enum IOSInboxTaskStatus: String, Identifiable {
-    case working = "in_progress"
-    case attention = "blocked"
-    case review = "needs_review"
-    var id: Self { self }
-    var title: String {
-        switch self {
-        case .working: "Working"
-        case .attention: "Needs Attention"
-        case .review: "In Review"
-        }
-    }
-}
+private typealias IOSInboxTaskStatus = ProjectTaskInboxStatus
 
 @MainActor
 private struct IOSInboxTaskList: View {
     let status: IOSInboxTaskStatus
     let viewModel: MainViewModel
+    @State private var inbox: ProjectTaskInbox
     @Environment(\.theme) private var theme
 
-    private var projects: [APIProjectRecord] {
-        viewModel.projects.filter { ($0.tasks ?? []).contains { $0.status == status.rawValue } }
+    init(status: IOSInboxTaskStatus, viewModel: MainViewModel) {
+        self.status = status
+        self.viewModel = viewModel
+        _inbox = State(initialValue: ProjectTaskInbox(status: status, fetchProject: { project in
+            try await viewModel.fetchInboxProject(project)
+        }))
     }
 
     var body: some View {
         List {
-            ForEach(projects, id: \.storageID) { project in
+            if !inbox.errors.isEmpty {
+                Section("Could not load some projects") {
+                    ForEach(inbox.errors, id: \.self) { error in
+                        Text(error).foregroundStyle(theme.colors.textSecondary)
+                            .accessibilityIdentifier("inbox.tasks.error")
+                    }
+                }
+            }
+            ForEach(inbox.projects, id: \.storageID) { project in
                 Section {
-                    ForEach((project.tasks ?? []).filter { $0.status == status.rawValue }, id: \.id) { task in
+                    ForEach((project.tasks ?? []).filter(status.matches), id: \.id) { task in
                         NavigationLink {
                             IOSInboxTaskDetail(project: project, taskID: task.id, viewModel: viewModel)
                         } label: {
@@ -633,9 +630,17 @@ private struct IOSInboxTaskList: View {
         .listStyle(.plain)
         .tint(theme.colors.textPrimary)
         .overlay {
-            if projects.isEmpty {
+            if inbox.projects.isEmpty && (!inbox.hasLoaded || inbox.isLoading) {
+                ProgressView("Loading tasks…")
+                    .accessibilityIdentifier("inbox.tasks.loading")
+            } else if inbox.projects.isEmpty && inbox.errors.isEmpty {
                 ContentUnavailableView("No tasks", systemImage: "checklist", description: Text("There are no tasks in this status."))
             }
+        }
+        .task { await inbox.refresh(projects: viewModel.projects) }
+        .refreshable {
+            await viewModel.loadProjects(force: true)
+            await inbox.refresh(projects: viewModel.projects)
         }
         .mobileScreenBackground()
         .navigationTitle(status.title)

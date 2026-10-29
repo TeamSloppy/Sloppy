@@ -18,7 +18,9 @@ enum ProjectDetailTab: String, CaseIterable, Hashable {
 }
 
 struct ProjectDetailView: View {
-    let project: APIProjectRecord
+    @State var project: APIProjectRecord
+    var apiClient = SloppyAPIClient()
+    @State private var loadError: String?
 
     @Environment(\.theme) private var theme
     @State private var selectedTab: ProjectDetailTab = .info
@@ -39,6 +41,18 @@ struct ProjectDetailView: View {
         .mobileScreenBackground()
         .navigationTitle(project.name.uppercased())
         .navigationTitlePosition(.leading)
+        .task(id: project.id) {
+            do { project = try await apiClient.fetchProject(id: project.id) }
+            catch is CancellationError { return }
+            catch { loadError = error.localizedDescription }
+        }
+        .alert("Could not load project", isPresented: Binding(
+            get: { loadError != nil }, set: { if !$0 { loadError = nil } }
+        )) {
+            Button("OK") { loadError = nil }
+        } message: {
+            Text(loadError ?? "")
+        }
     }
 
     @ViewBuilder

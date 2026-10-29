@@ -152,6 +152,84 @@ struct SloppyTUISessionStreamRecoveryTests {
         #expect(screen.sessionStreamReadyKey == nil)
         #expect(screen.localCards.contains { $0.block.plainText.contains("Session removed") })
     }
+
+    @Test("history recovery settles a completed turn and ignores its buffered updates")
+    func recoversMissedCompletion() async throws {
+        let fixture = try await SessionStreamFixture.make()
+        defer { fixture.stop() }
+        let screen = fixture.screen
+        screen.streamSession()
+        try await waitForSessionStream { screen.sessionStreamReadyKey != nil }
+        await fixture.publishStatus(.responding, label: "Responding")
+        try await waitForSessionStream { screen.liveRunStage == .responding }
+        screen.setLiveAssistantDraftImmediately("Partial answer")
+        screen.startThinkingAnimation()
+
+        let store = await fixture.service.sessionStore
+        let responding = AgentSessionEvent(
+            agentId: fixture.agentID, sessionId: fixture.sessionID, type: .runStatus,
+            runStatus: .init(stage: .responding, label: "Responding")
+        )
+        let done = AgentSessionEvent(
+            agentId: fixture.agentID, sessionId: fixture.sessionID, type: .runStatus,
+            runStatus: .init(stage: .done, label: "Done")
+        )
+        for continuation in await fixture.listeners().values { continuation.finish() }
+        _ = try store.appendEvents(agentID: fixture.agentID, sessionID: fixture.sessionID, events: [
+            responding,
+            AgentSessionEvent(
+                agentId: fixture.agentID, sessionId: fixture.sessionID, type: .message,
+                message: .init(role: .assistant, segments: [.init(kind: .text, text: "Complete answer")])
+            ),
+            done,
+        ])
+        try await waitForSessionStream {
+            screen.sessionStreamReadyKey != nil
+                && screen.sessionCards.contains { $0.plainText.contains("Complete answer") }
+        }
+
+        #expect(screen.liveRunStage == nil)
+        #expect(screen.liveRunStatusLine == nil)
+        #expect(screen.liveAssistantDraft == nil)
+        #expect(screen.thinkingAnimationTask == nil)
+        #expect(screen.terminalTitleStatus() == "idle")
+        let rendered = screen.render(width: 120).map(SloppyTUISelectionRenderer.stripANSI).joined(separator: "\n")
+        #expect(rendered.contains("Complete answer"))
+        #expect(!rendered.contains("Partial answer"))
+
+        let key = screen.currentSessionStreamKey()
+        _ = screen.handleSessionStreamUpdate(.init(kind: .sessionEvent, cursor: 1, event: responding), streamKey: key)
+        _ = screen.handleSessionStreamUpdate(.init(kind: .sessionDelta, cursor: 2, message: "stale tail"), streamKey: key)
+        #expect(screen.liveRunStage == nil)
+        #expect(screen.liveAssistantDraft == nil)
+
+        let nextRun = AgentSessionEvent(
+            agentId: fixture.agentID, sessionId: fixture.sessionID, type: .runStatus,
+            runStatus: .init(stage: .thinking, label: "Thinking")
+        )
+        _ = screen.handleSessionStreamUpdate(.init(kind: .sessionEvent, cursor: 3, event: nextRun), streamKey: key)
+        _ = screen.handleSessionStreamUpdate(.init(kind: .sessionDelta, cursor: 4, message: "Next answer"), streamKey: key)
+        #expect(screen.liveRunStage == .thinking)
+        #expect(screen.liveAssistantTarget == "Next answer")
+    }
+
+    @Test("reloading old completion does not settle a newly submitted turn")
+    func oldCompletionDoesNotSettleNewTurn() async throws {
+        let fixture = try await SessionStreamFixture.make()
+        defer { fixture.stop() }
+        let store = await fixture.service.sessionStore
+        _ = try store.appendEvents(agentID: fixture.agentID, sessionID: fixture.sessionID, events: [
+            AgentSessionEvent(
+                agentId: fixture.agentID, sessionId: fixture.sessionID, type: .runStatus,
+                runStatus: .init(stage: .done, label: "Done", createdAt: Date(timeIntervalSince1970: 1))
+            ),
+        ])
+        fixture.screen.isPosting = true
+        fixture.screen.taskStartedAt = Date()
+        fixture.screen.setLiveAssistantDraftImmediately("New turn")
+        await fixture.screen.reloadSession()
+        #expect(fixture.screen.liveAssistantDraft == "New turn")
+    }
 }
 
 @MainActor

@@ -25,7 +25,7 @@ public struct ProjectsScreen: View {
             .onAppear { loadProjects() }
             .navigationDestination(for: String.self) { projectId in
                 if let project = projects.first(where: { $0.id == projectId }) {
-                    ProjectDetailView(project: project)
+                    ProjectDetailView(project: project, apiClient: apiClient)
                 }
             }
         }
@@ -41,7 +41,7 @@ public struct ProjectsScreen: View {
                 didLoadProjects = true
                 isLoading = false
             }
-            let fetched = (try? await apiClient.fetchProjects()) ?? []
+            let fetched = (try? await apiClient.fetchProjectSummaries()) ?? []
             projects = fetched
         }
     }

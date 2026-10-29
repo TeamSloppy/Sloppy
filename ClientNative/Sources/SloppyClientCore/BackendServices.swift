@@ -318,7 +318,19 @@ public actor ProjectService {
     }
 
     public func fetchProjects() async throws -> [APIProjectRecord] {
-        try await http.get("/v1/projects")
+        let summaries = try await fetchProjectSummaries()
+        return try await withThrowingTaskGroup(of: (Int, APIProjectRecord).self) { group in
+            for (index, project) in summaries.enumerated() {
+                group.addTask { (index, try await self.fetchProject(id: project.id)) }
+            }
+            var projects = summaries
+            for try await (index, project) in group { projects[index] = project }
+            return projects
+        }
+    }
+
+    public func fetchProjectSummaries() async throws -> [APIProjectRecord] {
+        try await http.get("/v1/projects?summary=true")
     }
 
     public func fetchProject(id: String) async throws -> APIProjectRecord {

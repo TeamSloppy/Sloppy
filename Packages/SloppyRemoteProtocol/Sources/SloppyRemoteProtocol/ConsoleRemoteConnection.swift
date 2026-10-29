@@ -14,6 +14,7 @@ public enum ConsoleRemoteEvent: Sendable {
     case sessionRenewal
     case relayError(code: String, peerID: UUID)
     case peerReady(UUID)
+    case packetFailed(kind: String, peerID: UUID, reason: String)
 }
 
 public struct ConsoleRemotePacket: Codable, Sendable {
@@ -39,7 +40,8 @@ public actor ConsoleRemoteConnection {
     private struct Peer {
         var sessionID: UUID
         var certificate: Data
-        var tls: RemoteTLSChannel
+        var tls: Task<RemoteTLSChannel, any Error>
+        var initiatedLocally = false
         var sent: UInt64 = 0
         var received: UInt64 = 0
         var ready = false
@@ -50,6 +52,8 @@ public actor ConsoleRemoteConnection {
     private let relayURL: URL
     private var pins: [UUID: Data]
     private var peers: [UUID: Peer] = [:]
+    private var retiredPeerSessions: [UUID: [UUID]] = [:]
+    private enum PeerSessionError: Error { case superseded }
     private var connectTask: Task<Void, any Error>?
     private var connectID: UUID?
     private var socket: (any ConsoleRemoteTransport)?
@@ -60,8 +64,8 @@ public actor ConsoleRemoteConnection {
     }
     private var pendingSends: [UUID: PendingSend] = [:]
     /// Relay error frames name only the rejected envelope, so remember which
-    /// peer each recent envelope was addressed to.
-    private var envelopePeers: [UUID: UUID] = [:]
+    /// peer and TLS session each recent envelope was addressed to.
+    private var envelopePeers: [UUID: (peerID: UUID, sessionID: UUID)] = [:]
     private var envelopeOrder: [UUID] = []
     private var peerFailures: [UUID: RemoteTLSError] = [:]
     private let transportFactory: @Sendable () -> any ConsoleRemoteTransport
@@ -88,10 +92,11 @@ public actor ConsoleRemoteConnection {
     public func setDisconnectHandler(_ handler: @escaping @Sendable () async -> Void) { disconnectHandler = handler }
     public func updatePins(_ pins: [UUID: Data]) async {
         self.pins = pins
+        retiredPeerSessions = retiredPeerSessions.filter { pins[$0.key] != nil }
         for (id, peer) in peers where pins[id] != peer.certificate {
             peers[id] = nil
             pendingSends.removeValue(forKey: id)?.task.cancel()
-            await peer.tls.close()
+            await closePeer(peer)
         }
     }
     public func connect() async throws {
@@ -155,10 +160,10 @@ public actor ConsoleRemoteConnection {
         for send in pendingSends.values { send.task.cancel() }; pendingSends.removeAll()
         receiveTask?.cancel(); receiveTask = nil; expiryTask?.cancel(); expiryTask = nil
         let previous = socket; socket = nil
-        let previousPeers = peers; peers.removeAll(); peerFailures.removeAll(); envelopePeers.removeAll(); envelopeOrder.removeAll()
+        let previousPeers = peers; peers.removeAll(); retiredPeerSessions.removeAll(); peerFailures.removeAll(); envelopePeers.removeAll(); envelopeOrder.removeAll()
         if previous != nil { eventHandler?(.disconnected(reason: closeReason)); closeReason = "local_disconnect"; await disconnectHandler?() }
         await previous?.close()
-        for peer in previousPeers.values { await peer.tls.close() }
+        for peer in previousPeers.values { await closePeer(peer) }
     }
     public func send(_ packet: ConsoleRemotePacket, to peerID: UUID) async throws {
         // Actor reentrancy otherwise lets concurrent requests initialize different
@@ -176,6 +181,7 @@ public actor ConsoleRemoteConnection {
             if pendingSends[peerID]?.id == id { pendingSends[peerID] = nil }
         } catch {
             if pendingSends[peerID]?.id == id { pendingSends[peerID] = nil }
+            if error is PeerSessionError { throw RemoteTLSError.closed }
             throw error
         }
     }
@@ -183,11 +189,25 @@ public actor ConsoleRemoteConnection {
         try await connect()
         if peers[peerID] == nil {
             guard let certificate = pins[peerID], peers.count < 20 else { throw RemoteTLSError.invalidPeer }
-            let tls = try await RemoteTLSChannel(identity: identity, peerCertificate: certificate, isClient: true)
-            try Task.checkCancellation()
-            guard pins[peerID] == certificate else { await tls.close(); throw RemoteTLSError.invalidPeer }
-            peers[peerID] = Peer(sessionID: UUID(), certificate: certificate, tls: tls)
-            try await emit(tls.start(), to: peerID)
+            // Reserve the peer before TLS initialization suspends this actor.
+            peerFailures[peerID] = nil
+            let peer = makePeer(sessionID: UUID(), certificate: certificate, isClient: true)
+            peers[peerID] = peer
+            do {
+                let tls = try await peer.tls.value
+                try Task.checkCancellation()
+                guard pins[peerID] == certificate else { throw RemoteTLSError.invalidPeer }
+                if peers[peerID]?.sessionID == peer.sessionID {
+                    try await emit(tls.start(), to: peerID, sessionID: peer.sessionID)
+                }
+            } catch {
+                // A simultaneous remote hello may have won the negotiation.
+                if peers[peerID]?.sessionID == peer.sessionID {
+                    peers[peerID] = nil
+                    await closePeer(peer)
+                    throw error
+                }
+            }
         }
         let deadline = Date().addingTimeInterval(15)
         while peers[peerID]?.ready != true {
@@ -197,7 +217,8 @@ public actor ConsoleRemoteConnection {
             try await Task.sleep(for: .milliseconds(20))
         }
         guard let peer = peers[peerID] else { throw RemoteTLSError.closed }
-        try await emit(peer.tls.send(ConsoleWire.encode(packet)), to: peerID)
+        let tls = try await peer.tls.value
+        try await emit(tls.send(ConsoleWire.encode(packet)), to: peerID, sessionID: peer.sessionID)
     }
     private func receive(_ data: Data) async throws {
         // The Relay envelope uses Foundation's default date representation;
@@ -212,36 +233,89 @@ public actor ConsoleRemoteConnection {
               let certificate = pins[envelope.from] else { throw RemoteTLSError.invalidPeer }
         let frame = try ConsoleWire.decode(RemoteTLSFrame.self, from: envelope.ciphertext)
         guard frame.version == 2, frame.from == envelope.from, frame.to == deviceID else { throw RemoteTLSError.invalidFrame }
+        // Delayed records from a retired TLS channel cannot restart it or
+        // contaminate the current peer session.
+        if retiredPeerSessions[frame.from]?.contains(frame.sessionID) == true { return }
         if let previous = peers[frame.from], previous.sessionID != frame.sessionID {
-            // A reconnect starts at sequence zero with fresh TLS keys. Keep the
-            // verified certificate pin; do not reuse the previous TLS channel.
             guard frame.sequence == 0 else { throw RemoteTLSError.invalidFrame }
-            peers[frame.from] = nil
-            await previous.tls.close()
+            if !previous.ready, previous.initiatedLocally, deviceID.uuidString < frame.from.uuidString {
+                // Both endpoints sent a hello. The lower device ID keeps its
+                // client role; the other endpoint accepts that same session.
+                retirePeerSession(frame.sessionID, peerID: frame.from)
+                return
+            }
+            retirePeerSession(previous.sessionID, peerID: frame.from)
+            peerFailures[frame.from] = nil
+            peers[frame.from] = makePeer(sessionID: frame.sessionID, certificate: certificate, isClient: false)
+            await closePeer(previous)
         }
         if peers[frame.from] == nil {
             guard frame.sequence == 0, peers.count < 20 else { throw RemoteTLSError.invalidFrame }
-            peers[frame.from] = Peer(sessionID: frame.sessionID, certificate: certificate, tls: try await RemoteTLSChannel(identity: identity, peerCertificate: certificate, isClient: false))
+            peers[frame.from] = makePeer(sessionID: frame.sessionID, certificate: certificate, isClient: false)
         }
         guard var peer = peers[frame.from], peer.sessionID == frame.sessionID, peer.received == frame.sequence, peer.certificate == certificate else { throw RemoteTLSError.invalidFrame }
         peer.received += 1; peers[frame.from] = peer
-        let result = try await peer.tls.receive(frame.records)
-        try await emit(result, to: frame.from)
+        let tls = try await peer.tls.value
+        let result = try await tls.receive(frame.records)
+        guard peers[frame.from]?.sessionID == frame.sessionID else { return }
+        do { try await emit(result, to: frame.from, sessionID: frame.sessionID) }
+        catch PeerSessionError.superseded { return }
         if result.handshakeComplete { peers[frame.from]?.ready = true; eventHandler?(.peerReady(frame.from)) }
         for message in result.messages {
-            let packet = try ConsoleWire.decode(ConsoleRemotePacket.self, from: message)
-            if let reply = try await handler?(frame.from, certificate, packet) { try await send(reply, to: frame.from) }
+            let packet: ConsoleRemotePacket
+            do { packet = try ConsoleWire.decode(ConsoleRemotePacket.self, from: message) }
+            catch {
+                eventHandler?(.packetFailed(kind: "unknown", peerID: frame.from, reason: "invalid_packet"))
+                continue
+            }
+            let reply: ConsoleRemotePacket?
+            do { reply = try await handler?(frame.from, certificate, packet) }
+            catch {
+                try await failPacket(packet, from: frame.from, status: 500, code: "remote_request_failed")
+                continue
+            }
+            if let reply {
+                do { try await send(reply, to: frame.from) }
+                catch RemoteTLSError.oversizedMessage {
+                    // This limit is checked before TLS writes any bytes. The peer
+                    // session is still valid; fail only the matching HTTP request.
+                    try await failPacket(packet, from: frame.from, status: 413, code: "remote_response_too_large")
+                }
+            }
         }
     }
+    private func failPacket(_ packet: ConsoleRemotePacket, from peerID: UUID, status: Int, code: String) async throws {
+        eventHandler?(.packetFailed(kind: packet.kind, peerID: peerID, reason: code))
+        guard packet.kind == "core.http",
+              let request = try? ConsoleWire.decode(RemoteCoreRequest.self, from: packet.payload) else { return }
+        let body = try ConsoleWire.encode(["error": code])
+        let response = RemoteCoreResponse(requestID: request.requestID, status: status, body: body)
+        try await send(ConsoleRemotePacket(kind: "core.http.response", payload: ConsoleWire.encode(response)), to: peerID)
+    }
     private func handleRelayError(_ control: RemoteRelayControlFrame) async {
-        guard let peerID = envelopePeers[control.envelopeID] else { return }
+        guard let sent = envelopePeers.removeValue(forKey: control.envelopeID),
+              peers[sent.peerID]?.sessionID == sent.sessionID else { return }
+        let peerID = sent.peerID
         eventHandler?(.relayError(code: control.code, peerID: peerID))
         peerFailures[peerID] = control.code == "host_offline" ? .hostOffline : .relayRejected
         // The peer never saw this TLS flight, so its session cannot continue.
-        if let peer = peers.removeValue(forKey: peerID) { await peer.tls.close() }
+        if let peer = peers.removeValue(forKey: peerID) { await closePeer(peer) }
         pendingSends.removeValue(forKey: peerID)?.task.cancel()
     }
-    private func emit(_ result: RemoteTLSResult, to peerID: UUID) async throws {
+    private func makePeer(sessionID: UUID, certificate: Data, isClient: Bool) -> Peer {
+        let identity = identity
+        let tls = Task { try await RemoteTLSChannel(identity: identity, peerCertificate: certificate, isClient: isClient) }
+        return Peer(sessionID: sessionID, certificate: certificate, tls: tls, initiatedLocally: isClient)
+    }
+    private func closePeer(_ peer: Peer) async {
+        if let tls = try? await peer.tls.value { await tls.close() }
+    }
+    private func retirePeerSession(_ sessionID: UUID, peerID: UUID) {
+        var sessions = retiredPeerSessions[peerID] ?? []
+        sessions.append(sessionID)
+        retiredPeerSessions[peerID] = Array(sessions.suffix(8))
+    }
+    private func emit(_ result: RemoteTLSResult, to peerID: UUID, sessionID: UUID) async throws {
         guard let socket else { throw RemoteTLSError.closed }
         // TLS splits large responses into small records. Batch them so a chat
         // transcript does not overflow the bounded WebSocket receive buffer.
@@ -249,19 +323,24 @@ public actor ConsoleRemoteConnection {
         var batches: [Data] = []
         var batch = Data()
         for record in result.records {
-            if !batch.isEmpty, batch.count + record.count > 1024 * 1024 {
-                batches.append(batch)
-                batch = Data()
+            var remaining = record[...]
+            while !remaining.isEmpty {
+                let count = min(1024 * 1024 - batch.count, remaining.count)
+                batch.append(contentsOf: remaining.prefix(count))
+                remaining = remaining.dropFirst(count)
+                if batch.count == 1024 * 1024 {
+                    batches.append(batch)
+                    batch = Data()
+                }
             }
-            batch.append(record)
         }
         if !batch.isEmpty { batches.append(batch) }
         for record in batches {
-            guard var peer = peers[peerID] else { throw RemoteTLSError.closed }
+            guard var peer = peers[peerID], peer.sessionID == sessionID else { throw PeerSessionError.superseded }
             let frame = RemoteTLSFrame(sessionID: peer.sessionID, sequence: peer.sent, from: deviceID, to: peerID, records: record)
             peer.sent += 1; peers[peerID] = peer
             let envelope = RemoteSealedEnvelope(from: deviceID, to: peerID, kind: RemoteTLSFrame.kind, ciphertext: try ConsoleWire.encode(frame))
-            envelopePeers[envelope.id] = peerID; envelopeOrder.append(envelope.id)
+            envelopePeers[envelope.id] = (peerID: peerID, sessionID: sessionID); envelopeOrder.append(envelope.id)
             if envelopeOrder.count > 256 { envelopePeers[envelopeOrder.removeFirst()] = nil }
             try await socket.send(JSONEncoder().encode(envelope))
         }

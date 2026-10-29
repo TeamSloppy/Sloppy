@@ -336,6 +336,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     var sessionStreamID = UUID()
     var sessionStreamReadyKey: String?
     var sessionStreamReconnecting = false
+    var sessionStreamTurnCompleted = false
+    var sessionStreamStatusRevision = 0
     var sessionStreamReadyWaiters: [CheckedContinuation<Void, Never>] = []
     var changeTask: Task<Void, Never>?
     var autoDiffTask: Task<Void, Never>?

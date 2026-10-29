@@ -1159,7 +1159,7 @@ final class MainViewModel {
         switch inboxSelection {
         case .all:
             guard settings.discoveredInstances.count > 1 else {
-                let projects = try await apiClient.fetchProjects()
+                let projects = try await apiClient.fetchProjectSummaries()
                 guard let instanceID = settings.discoveredInstances.first(where: { $0.endpoint == endpoint })?.id else {
                     return projects
                 }
@@ -1176,7 +1176,7 @@ final class MainViewModel {
                         let client = SloppyAPIClient(endpoint: instance.endpoint)
                         let cache = ClientCacheStore(namespace: instance.endpoint.cacheNamespace)
                         let projects: [APIProjectRecord]
-                        if let fetched = try? await client.fetchProjects() {
+                        if let fetched = try? await client.fetchProjectSummaries() {
                             projects = fetched
                             await cache.cacheProjects(fetched)
                         } else {
@@ -1203,10 +1203,10 @@ final class MainViewModel {
             }
         case .instance(let instanceID):
             guard let instance = settings.discoveredInstances.first(where: { $0.id == instanceID }) else {
-                return try await apiClient.fetchProjects()
+                return try await apiClient.fetchProjectSummaries()
             }
             let client = instance.endpoint == endpoint ? apiClient : SloppyAPIClient(endpoint: instance.endpoint)
-            return try await client.fetchProjects().map { project in
+            return try await client.fetchProjectSummaries().map { project in
                 var tagged = project
                 tagged.sourceInstanceID = instance.id
                 return tagged
@@ -1220,10 +1220,16 @@ final class MainViewModel {
 
     private func apiClient(for project: APIProjectRecord) -> SloppyAPIClient {
         guard let instanceID = project.sourceInstanceID,
-              let sourceEndpoint = endpoint(for: instanceID) else {
+              let sourceEndpoint = endpoint(for: instanceID), sourceEndpoint != endpoint else {
             return apiClient
         }
         return SloppyAPIClient(endpoint: sourceEndpoint)
+    }
+
+    func fetchInboxProject(_ project: APIProjectRecord) async throws -> APIProjectRecord {
+        var detailed = try await apiClient(for: project).fetchProject(id: project.id)
+        detailed.sourceInstanceID = project.sourceInstanceID
+        return detailed
     }
 
     private func apiClient(for session: ChatSessionSummary) -> SloppyAPIClient {

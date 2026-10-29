@@ -329,6 +329,12 @@ public actor SloppyAPIClient {
         try await projects.fetchProjects()
     }
 
+    public func fetchProjectSummaries() async throws -> [APIProjectRecord] {
+        let records = try await projects.fetchProjectSummaries()
+        logger.info("projects.summaries.loaded", metadata: ["count": .stringConvertible(records.count)])
+        return records
+    }
+
     public func fetchProject(id: String) async throws -> APIProjectRecord {
         try await projects.fetchProject(id: id)
     }
@@ -607,7 +613,7 @@ public actor SloppyAPIClient {
     }
 
     public func fetchOverviewData() async throws -> OverviewData {
-        async let projectsReq = fetchProjects()
+        async let projectsReq = fetchProjectSummaries()
         async let agentsReq = fetchAgents()
 
         let projects = (try? await projectsReq) ?? []
@@ -616,9 +622,10 @@ public actor SloppyAPIClient {
         let summaries = projects.map { $0.toSummary() }
         let agentOverviews = agents.map { $0.toOverview() }
 
-        let allTasks = projects.flatMap { $0.tasks ?? [] }
-        let active = allTasks.filter { ["in_progress", "ready", "needs_review"].contains($0.status) }.count
-        let completed = allTasks.filter { $0.status == "done" }.count
+        let active = summaries.reduce(0) { $0 + $1.activeTaskCount }
+        let completed = projects.reduce(0) { total, project in
+            total + (project.taskCounts?.done ?? project.tasks?.filter { $0.status == "done" }.count ?? 0)
+        }
 
         return OverviewData(
             projects: summaries,
@@ -687,9 +694,14 @@ public actor SloppyAPIClient {
     public func fetchAgentSession(
         agentId: String, sessionId: String, eventLimit: Int? = nil, before: String? = nil
     ) async throws -> ChatSessionDetail {
-        try await sessions.fetchAgentSession(
+        let detail = try await sessions.fetchAgentSession(
             agentId: agentId, sessionId: sessionId, eventLimit: eventLimit, before: before
         )
+        logger.info("chat.history.loaded", metadata: [
+            "agent": .string(agentId), "session": .string(sessionId),
+            "messages": .stringConvertible(detail.messages.count),
+        ])
+        return detail
     }
 
     public func fetchAgentSessionData(agentId: String, sessionId: String) async throws -> Data {

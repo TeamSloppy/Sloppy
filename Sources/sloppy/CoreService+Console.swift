@@ -36,6 +36,8 @@ extension CoreService {
             case .sessionRenewal: logger.info("console.relay.session_renewal")
             case .relayError(let code, let peer): logger.warning("console.relay.error", metadata: ["code": .string(code), "peer": .string(peer.uuidString)])
             case .peerReady(let peer): logger.info("console.relay.peer_ready", metadata: ["peer": .string(peer.uuidString)])
+            case .packetFailed(let kind, let peer, let reason):
+                logger.warning("console.relay.packet_failed", metadata: ["kind": .string(kind), "peer": .string(peer.uuidString), "reason": .string(reason)])
             }
         }
         await remote.setDisconnectHandler { [weak self] in await self?.consoleModelsDisconnected() }

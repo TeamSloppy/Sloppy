@@ -6,17 +6,20 @@ struct ProjectChangeWatcherConfiguration: Sendable {
     var debounceNanoseconds: UInt64
     var maximumFiles: Int
     var excludedDirectoryNames: Set<String>
+    var excludedRelativeDirectoryPaths: Set<String>
 
     init(
         pollIntervalNanoseconds: UInt64 = 1_000_000_000,
         debounceNanoseconds: UInt64 = 350_000_000,
         maximumFiles: Int = 80_000,
-        excludedDirectoryNames: Set<String> = ProjectChangeWatcherService.defaultExcludedDirectoryNames
+        excludedDirectoryNames: Set<String> = ProjectChangeWatcherService.defaultExcludedDirectoryNames,
+        excludedRelativeDirectoryPaths: Set<String> = [".claude/worktrees", ".codex/worktrees"]
     ) {
         self.pollIntervalNanoseconds = pollIntervalNanoseconds
         self.debounceNanoseconds = debounceNanoseconds
         self.maximumFiles = maximumFiles
         self.excludedDirectoryNames = excludedDirectoryNames
+        self.excludedRelativeDirectoryPaths = excludedRelativeDirectoryPaths
     }
 }
 
@@ -30,6 +33,7 @@ struct ProjectChangeWatcherService: @unchecked Sendable {
         ".git",
         ".sloppy",
         ".sloppy-worktrees",
+        ".codegraph",
         ".build",
         "node_modules",
         "dist",
@@ -139,7 +143,7 @@ struct ProjectChangeWatcherService: @unchecked Sendable {
 
         let urls = (try? fileManager.contentsOfDirectory(
             at: directoryURL,
-            includingPropertiesForKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey],
+            includingPropertiesForKeys: [.isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey],
             options: []
         )) ?? []
 
@@ -150,9 +154,10 @@ struct ProjectChangeWatcherService: @unchecked Sendable {
 
             let name = url.lastPathComponent
             let relativePath = relativeDirectory.isEmpty ? name : "\(relativeDirectory)/\(name)"
-            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .fileSizeKey, .contentModificationDateKey])
-            if values?.isDirectory == true {
-                guard !configuration.excludedDirectoryNames.contains(name) else {
+            let values = try? url.resourceValues(forKeys: [.isDirectoryKey, .isSymbolicLinkKey, .fileSizeKey, .contentModificationDateKey])
+            if values?.isDirectory == true, values?.isSymbolicLink != true {
+                guard !configuration.excludedDirectoryNames.contains(name),
+                      !configuration.excludedRelativeDirectoryPaths.contains(relativePath) else {
                     continue
                 }
                 walk(directoryURL: url, relativeDirectory: relativePath, result: &result, visited: &visited)

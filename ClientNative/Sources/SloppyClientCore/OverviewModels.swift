@@ -61,6 +61,15 @@ public enum APIProjectKind: String, Codable, Sendable, Equatable, CaseIterable {
     case workspace
 }
 
+public struct APIProjectTaskCounts: Codable, Sendable, Equatable {
+    public var total: Int
+    public var ready: Int
+    public var inProgress: Int
+    public var needsReview: Int
+    public var done: Int
+    public var blocked: Int?
+}
+
 public struct APIProjectRecord: Codable, Sendable, Identifiable {
     public var id: String
     public var name: String
@@ -72,6 +81,7 @@ public struct APIProjectRecord: Codable, Sendable, Identifiable {
     public var worktreeRootPath: String?
     public var channels: [APIProjectChannel]?
     public var tasks: [APIProjectTask]?
+    public var taskCounts: APIProjectTaskCounts?
     public var actors: [String]?
     public var teams: [String]?
     public var isFavorite: Bool
@@ -134,6 +144,7 @@ public struct APIProjectRecord: Codable, Sendable, Identifiable {
         worktreeRootPath: String? = nil,
         channels: [APIProjectChannel]? = nil,
         tasks: [APIProjectTask]? = nil,
+        taskCounts: APIProjectTaskCounts? = nil,
         actors: [String]? = nil,
         teams: [String]? = nil,
         isFavorite: Bool = false,
@@ -150,6 +161,7 @@ public struct APIProjectRecord: Codable, Sendable, Identifiable {
         self.worktreeRootPath = worktreeRootPath
         self.channels = channels
         self.tasks = tasks
+        self.taskCounts = taskCounts
         self.actors = actors
         self.teams = teams
         self.isFavorite = isFavorite
@@ -159,7 +171,7 @@ public struct APIProjectRecord: Codable, Sendable, Identifiable {
 
     private enum CodingKeys: String, CodingKey {
         case id, name, description, icon, kind, directoryPaths, repoPath, worktreeRootPath
-        case channels, tasks, actors, teams, isFavorite, isArchived, sourceInstanceID
+        case channels, tasks, taskCounts, actors, teams, isFavorite, isArchived, sourceInstanceID
     }
 
     public init(from decoder: Decoder) throws {
@@ -174,6 +186,7 @@ public struct APIProjectRecord: Codable, Sendable, Identifiable {
         worktreeRootPath = try container.decodeIfPresent(String.self, forKey: .worktreeRootPath)
         channels = try container.decodeIfPresent([APIProjectChannel].self, forKey: .channels)
         tasks = try container.decodeIfPresent([APIProjectTask].self, forKey: .tasks)
+        taskCounts = try container.decodeIfPresent(APIProjectTaskCounts.self, forKey: .taskCounts)
         actors = try container.decodeIfPresent([String].self, forKey: .actors)
         teams = try container.decodeIfPresent([String].self, forKey: .teams)
         isFavorite = try container.decodeIfPresent(Bool.self, forKey: .isFavorite) ?? false
@@ -528,9 +541,9 @@ public struct APIAgentTaskRecord: Codable, Sendable, Identifiable {
 private let activeStatuses: Set<String> = ["in_progress", "ready", "needs_review"]
 
 public extension APIProjectRecord {
-    /// Only tasks in the canonical In Progress column; nil means tasks are not loaded.
+    /// Only tasks in the canonical In Progress column; nil means counts are unavailable.
     var inProgressTaskCount: Int? {
-        tasks.map { $0.count { $0.normalizedKanbanColumnID == .inProgress } }
+        tasks.map { $0.count { $0.normalizedKanbanColumnID == .inProgress } } ?? taskCounts?.inProgress
     }
 
     func toSummary() -> ProjectSummary {
@@ -541,8 +554,10 @@ public extension APIProjectRecord {
             name: name,
             description: description,
             channelCount: channels?.count ?? 0,
-            taskCount: allTasks.count,
-            activeTaskCount: active.count
+            taskCount: tasks == nil ? (taskCounts?.total ?? 0) : allTasks.count,
+            activeTaskCount: tasks == nil
+                ? taskCounts.map { $0.ready + $0.inProgress + $0.needsReview } ?? 0
+                : active.count
         )
     }
 }

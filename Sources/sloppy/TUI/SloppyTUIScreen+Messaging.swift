@@ -208,6 +208,7 @@ extension SloppyTUIScreen {
 
         dismissLocalCardsForUserMessage()
         isPosting = true
+        sessionStreamTurnCompleted = false
         queuedMessageInterruptRequested = false
         taskStartedAt = Date()
         resetSendTiming()
@@ -273,7 +274,7 @@ extension SloppyTUIScreen {
             await Task.yield()
             await waitForCurrentSessionStreamReady()
             markSendTiming("stream_ready")
-            _ = try await service.postAgentSessionMessage(
+            let response = try await service.postAgentSessionMessage(
                 agentID: agent.id,
                 sessionID: session.id,
                 request: AgentSessionPostMessageRequest(
@@ -289,6 +290,11 @@ extension SloppyTUIScreen {
             if clearsPendingInputsOnSuccess {
                 pendingContext = nil
                 pendingUploads.removeAll()
+            }
+            sessionStreamStatusRevision += 1
+            lastRenderedSessionEventIDs.formUnion(response.appendedEvents.map(\.id))
+            if let status = latestRunStatus(in: response.appendedEvents) {
+                applySessionRunStatus(status)
             }
             liveRunStatusLine = "Refreshing session..."
             markSendTiming("post_message_returned")

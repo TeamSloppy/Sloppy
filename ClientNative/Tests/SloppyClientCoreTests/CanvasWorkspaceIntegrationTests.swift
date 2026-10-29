@@ -179,7 +179,7 @@ struct CanvasWorkspaceIntegrationTests {
         #expect(viewModel.contains("requestedProjectID != nil || $0.projectId == nil"))
         #expect(viewModel.contains("static let personalWorkspaceName = \"Personal\""))
         #expect(viewModel.contains("projectName: normalizedProjectID == nil ? nil"))
-        #expect(viewModel.contains("fetchProjects()"))
+        #expect(viewModel.contains("fetchProjectSummaries()"))
         #expect(!viewModel.contains("fetchProjectFiles(projectId: projectID, path: \"\")"))
         #expect(viewModel.contains("func selectProject(_ project: APIProjectRecord?) async"))
         #expect(viewModel.contains("fetchCanvasWorkspaceDocument(workspaceId:"))

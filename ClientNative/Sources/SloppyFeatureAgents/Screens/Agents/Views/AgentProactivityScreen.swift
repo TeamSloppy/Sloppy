@@ -351,7 +351,7 @@ public struct AgentProactivityScreen: View {
     private func load() async {
         do {
             async let configuration = apiClient.fetchProactiveSettings(agentId: agentID)
-            async let projects = apiClient.fetchProjects()
+            async let projects = apiClient.fetchProjectSummaries()
             async let providers = apiClient.fetchCodeReviewProviders()
             async let inbox = apiClient.fetchProactiveInbox(agentId: agentID)
             let values = try await (configuration, projects, providers, inbox)

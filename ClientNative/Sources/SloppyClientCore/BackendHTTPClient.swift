@@ -239,6 +239,10 @@ public actor BackendHTTPClient {
             } else {
                 response = try await ManagedRemoteConnection.shared.sendCoreRequest(to: targetDeviceID, method: method, path: normalizedTargetPath(path), body: bodyData)
             }
+            logger.info("http.managed.completed", metadata: [
+                "method": .string(method), "path": .string(path),
+                "status": .stringConvertible(response.status), "bytes": .stringConvertible(response.body.count),
+            ])
             guard (200..<300).contains(response.status) else {
                 throw APIError.httpError(
                     statusCode: response.status,
