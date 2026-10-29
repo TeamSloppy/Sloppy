@@ -9,6 +9,9 @@ options:
   createIntermediateGroups: true
 
 packages:
+  SwiftTerm:
+    url: https://github.com/migueldeicaza/SwiftTerm.git
+    revision: caa1bdd3f1396c5b0ed66121f299d1c8b42bc94c
   SloppyClient:
     path: .
   SloppyComputerControl:
@@ -26,6 +29,10 @@ targets:
       - Sources/SloppyClient
       - Assets.xcassets
     dependencies:
+      - package: SwiftTerm
+        product: SwiftTerm
+      - package: SloppyClient
+        product: SloppyTerminalHost
       - package: AdaMCP
         product: AdaMCPPlugin
       - package: SloppyClient
@@ -83,6 +90,10 @@ targets:
       - Sources/SloppyClient
       - Assets.xcassets
     dependencies:
+      - package: SwiftTerm
+        product: SwiftTerm
+      - package: SloppyClient
+        product: SloppyTerminalHost
       - package: AdaMCP
         product: AdaMCPPlugin
       - package: SloppyClient
@@ -140,6 +151,10 @@ targets:
       - Sources/SloppyClient
       - Assets.xcassets
     dependencies:
+      - package: SwiftTerm
+        product: SwiftTerm
+      - package: SloppyClient
+        product: SloppyTerminalHost
       - package: AdaMCP
         product: AdaMCPPlugin
       - package: SloppyClient
@@ -202,6 +217,10 @@ targets:
       - Sources/SloppyClient
       - Assets.xcassets
     dependencies:
+      - package: SwiftTerm
+        product: SwiftTerm
+      - package: SloppyClient
+        product: SloppyTerminalHost
       - package: AdaMCP
         product: AdaMCPPlugin
       - package: SloppyClient

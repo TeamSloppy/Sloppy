@@ -6,6 +6,7 @@ import Logging
 
 public actor SloppyAPIClient {
     public nonisolated let baseURL: URL
+    public nonisolated let workspace: WorkspaceService
 
     private let http: BackendHTTPClient
     private let projects: ProjectService
@@ -25,6 +26,7 @@ public actor SloppyAPIClient {
         self.baseURL = baseURL
         let http = BackendHTTPClient(baseURL: baseURL, authToken: authToken, session: session, logger: logger)
         self.http = http
+        self.workspace = WorkspaceService(http: http)
         self.projects = ProjectService(http: http)
         self.providers = ProviderService(http: http)
         self.agents = AgentService(http: http)
@@ -58,6 +60,14 @@ public actor SloppyAPIClient {
 
     public func fetchProject(id: String) async throws -> APIProjectRecord {
         try await projects.fetchProject(id: id)
+    }
+
+    public func fetchChatSlashCommands(agentId: String) async throws -> AgentChatSlashCommandsResponse {
+        try await http.get("/v1/agents/\(BackendHTTPClient.encodePathSegment(agentId))/chat-slash-commands")
+    }
+
+    public func fetchSessionMentions(query: String) async throws -> [ChatSessionSummary] {
+        try await http.get("/v1/agent-sessions?includeWorkers=true&limit=50&query=\(BackendHTTPClient.encodeQueryValue(query))")
     }
 
     public func fetchAgents() async throws -> [APIAgentRecord] {
@@ -150,8 +160,8 @@ public actor SloppyAPIClient {
         try await sessions.fetchAgentSessionData(agentId: agentId, sessionId: sessionId)
     }
 
-    public func createAgentSession(agentId: String, title: String? = nil, projectId: String? = nil) async throws -> ChatSessionSummary {
-        try await sessions.createAgentSession(agentId: agentId, title: title, projectId: projectId)
+    public func createAgentSession(agentId: String, title: String? = nil, projectId: String? = nil, workspaceId: String? = nil) async throws -> ChatSessionSummary {
+        try await sessions.createAgentSession(agentId: agentId, title: title, projectId: projectId, workspaceId: workspaceId)
     }
 
     public func postSessionMessage(

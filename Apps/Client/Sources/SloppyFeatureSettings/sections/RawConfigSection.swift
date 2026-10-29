@@ -28,6 +28,7 @@ struct RawConfigSection: View {
             SettingsSectionCard("JSON") {
                 ScrollView {
                     Text(rawJSON)
+                        .textSelection(.enabled)
                         .font(.system(size: ty.micro))
                         .foregroundColor(c.textSecondary)
                         .padding(sp.m)

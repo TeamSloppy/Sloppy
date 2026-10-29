@@ -65,6 +65,12 @@ public struct APIProjectRecord: Codable, Sendable, Identifiable {
     public var actors: [String]?
     public var teams: [String]?
     public var taskSyncSettings: APIProjectTaskSyncSettings?
+    public var directoryPaths: [String]?
+    public var repoPath: String?
+    public var worktreeRootPath: String?
+    public var icon: String?
+
+    public var projectRootPath: String? { directoryPaths?.first ?? worktreeRootPath ?? repoPath }
 
     public init(
         id: String,

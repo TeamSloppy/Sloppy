@@ -13,7 +13,7 @@ enum AppState: Equatable {
 @Observable
 @MainActor
 final class RootShellViewModel {
-    var settings = ClientSettings()
+    var settings: ClientSettings
     var appState: AppState = .splash
     var connectionMonitor: ConnectionMonitor
     var activeBanner: NotificationBannerItem?
@@ -27,7 +27,25 @@ final class RootShellViewModel {
     #endif
 
     init() {
-        connectionMonitor = ConnectionMonitor(baseURL: URL(string: "http://localhost:25101")!)
+        #if DEBUG
+        if let address = ProcessInfo.processInfo.environment["SLOPPY_CLIENT_PREVIEW_URL"],
+           let url = URL(string: address), let host = url.host,
+           ["127.0.0.1", "localhost"].contains(host),
+           let defaults = UserDefaults(suiteName: "SloppyClient.Preview.\(UUID().uuidString)") {
+            let previewSettings = ClientSettings(defaults: defaults)
+            previewSettings.serverHost = host
+            previewSettings.serverPort = url.port ?? 25102
+            previewSettings.colorScheme = .dark
+            settings = previewSettings
+            connectionMonitor = ConnectionMonitor(baseURL: url)
+            appState = .chat(url)
+            connectionMonitor.start(baseURL: url)
+            return
+        }
+        #endif
+        let savedSettings = ClientSettings()
+        settings = savedSettings
+        connectionMonitor = ConnectionMonitor(baseURL: savedSettings.baseURL)
     }
 
     func startDeepLinkListener() {

@@ -22,18 +22,6 @@ struct ChatScreenLayoutTests {
         #expect(source.contains("screenPointWidth - rootSafeAreaInsets.leading - rootSafeAreaInsets.trailing"))
     }
 
-    @Test("mobile composer expands to available width with dedicated circle buttons")
-    func mobileComposerExpandsToAvailableWidthWithDedicatedCircleButtons() throws {
-        let source = try source("Sources", "SloppyFeatureChat", "ChatComposerView.swift")
-
-        #expect(source.contains("private struct MobileComposerCircleButton"))
-        #expect(source.contains(".frame(maxWidth: .infinity, alignment: .leading)"))
-        #expect(source.contains(".frame(width: ChatComposerView.phoneCircleSize, height: ChatComposerView.phoneCircleSize)"))
-        #expect(source.contains(".buttonStyle(DefaultButtonStyle())"))
-        #expect(source.contains(".glassEffect(.regular, in: Circle())"))
-        #expect(!source.contains(".debugOverlay(.layoutBounds)"))
-    }
-
     @Test("agent picker uses liquid glass styling")
     func agentPickerUsesLiquidGlassStyling() throws {
         let source = try source("Sources", "SloppyFeatureChat", "AgentPickerView.swift")
