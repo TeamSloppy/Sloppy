@@ -101,10 +101,13 @@ extension SloppyTUIScreen {
 
     func handleSessionStreamUpdate(_ update: AgentSessionStreamUpdate, streamKey: String) -> Bool {
         if update.kind == .sessionDelta, let message = update.message {
+            guard !sessionStreamTurnCompleted else { return true }
             markFirstStreamEventIfNeeded()
             markFirstModelChunkIfNeeded()
             appendLiveAssistantDraftDelta(message)
         } else if update.kind == .sessionEvent, let event = update.event {
+            // History may already contain events still queued on a lagging stream.
+            guard !lastRenderedSessionEventIDs.contains(event.id) else { return true }
             if let surface = event.message?.uiSurface, surface.isDeleted != true, surface.submittedActionId == nil,
                surface.components.contains(where: { $0.component == .button }) {
                 showSystemNotice("Interactive form available: Ctrl+Y or /ui", autoDismissAfter: 12)
@@ -119,18 +122,11 @@ extension SloppyTUIScreen {
             }
             var shouldRefreshTokenUsageAfterRun = false
             if let status = event.runStatus {
-                liveTurnTokenUsageTracker.handle(status)
-                if let tokenUsage = status.tokenUsage {
-                    lastTurnTokenUsage = tokenUsage
-                }
+                sessionStreamStatusRevision += 1
+                applySessionRunStatus(status)
                 if status.stage == .done || status.stage == .interrupted {
-                    liveRunStage = nil
-                    liveRunStatusLine = nil
                     markSendTiming("final_status")
                     shouldRefreshTokenUsageAfterRun = true
-                } else {
-                    liveRunStage = status.stage
-                    liveRunStatusLine = runStatusLine(status)
                 }
                 refreshStaticChrome()
                 notifyForRunStatus(status)
@@ -158,6 +154,30 @@ extension SloppyTUIScreen {
             return false
         }
         return true
+    }
+
+    func applySessionRunStatus(_ status: AgentRunStatusEvent) {
+        liveTurnTokenUsageTracker.handle(status)
+        if let tokenUsage = status.tokenUsage {
+            lastTurnTokenUsage = tokenUsage
+        }
+        sessionStreamTurnCompleted = status.stage == .done || status.stage == .interrupted
+        if sessionStreamTurnCompleted {
+            liveRunStage = nil
+            liveRunStatusLine = nil
+            clearLiveAssistantDraft()
+            stopThinkingAnimation()
+        } else {
+            liveRunStage = status.stage
+            liveRunStatusLine = runStatusLine(status)
+        }
+    }
+
+    func reconcileSessionRunStatus(in events: [AgentSessionEvent]) {
+        guard let status = latestRunStatus(in: events) else { return }
+        // A reload during submission can still contain the previous turn's completion.
+        if isPosting, let taskStartedAt, status.createdAt < taskStartedAt { return }
+        applySessionRunStatus(status)
     }
 
     func waitForCurrentSessionStreamReady() async {
@@ -255,8 +275,10 @@ extension SloppyTUIScreen {
             try? await Task.sleep(nanoseconds: 350_000_000)
             guard !Task.isCancelled, let self else { return }
             do {
+                let streamKey = self.currentSessionStreamKey()
                 let sourceControl = try await self.service.projectWorkingTreeSourceControl(projectID: self.project.id)
                 let rootURL = try? await self.service.resolveProjectWorkspaceRoot(projectID: self.project.id)
+                guard !Task.isCancelled, self.currentSessionStreamKey() == streamKey else { return }
                 await MainActor.run {
                     self.updateAutoDiffPreview(sourceControl, rootURL: rootURL)
                 }
@@ -295,6 +317,7 @@ extension SloppyTUIScreen {
               let sessionDiff = try? sessionUndoManagers.sessionDiff(
                   sessionID: session.id,
                   rootURL: rootURL,
+                  pendingBaseline: activeDiffBaseline,
                   maxCharacters: 96 * 1024
               ),
               sessionDiff.hasChanges else {
@@ -317,6 +340,7 @@ extension SloppyTUIScreen {
             return
         }
         workspaceDiffPreview = nil
+        workspaceDiffScrollOffset = 0
         renderTimeline()
     }
 
@@ -458,6 +482,7 @@ extension SloppyTUIScreen {
         let reloadGeneration = sessionReloadGeneration
         let reloadAgentID = agent.id
         let reloadSessionID = session.id
+        let statusRevision = sessionStreamStatusRevision
         guard hasPersistedSession else {
             await refreshApprovalMode()
             sessionCards = []
@@ -554,6 +579,9 @@ extension SloppyTUIScreen {
         }
         sessionCards = blocks
         subSessionCards = children
+        if statusRevision == sessionStreamStatusRevision {
+            reconcileSessionRunStatus(in: events)
+        }
         invalidateSessionTimelineCache()
         updatePendingPlanInputRequest(pendingInputRequest)
         await refreshApprovalMode()

@@ -28,6 +28,12 @@ struct WorkspacePanelSelectionContext: Equatable {
 @Observable
 @MainActor
 final class WorkspacePanelViewModel {
+    struct DirectoryChanges: Identifiable, Sendable {
+        var path: String
+        var sourceControl: ProjectWorkingTreeSourceControlResponse?
+        var id: String { path }
+    }
+
     struct Node: Identifiable, Equatable {
         enum Kind: Equatable {
             case file
@@ -58,11 +64,24 @@ final class WorkspacePanelViewModel {
     private(set) var actionStatus: String?
     private(set) var project: APIProjectRecord?
     private(set) var sourceControl: ProjectWorkingTreeSourceControlResponse?
+    private(set) var directoryChanges: [DirectoryChanges] = []
+    var areChangesExpanded = true
     private(set) var codeReview: CodeReviewItem?
     private(set) var codeReviewLoadError: String?
     private(set) var isLoadingEnvironment = false
     private(set) var environmentLoadError: String?
     private var availableCodeReviews: [CodeReviewItem] = []
+    private var environmentRefreshID = UUID()
+
+    var changesLinesAdded: Int {
+        directoryChanges.isEmpty ? sourceControl?.linesAdded ?? 0
+            : directoryChanges.reduce(0) { $0 + ($1.sourceControl?.linesAdded ?? 0) }
+    }
+
+    var changesLinesDeleted: Int {
+        directoryChanges.isEmpty ? sourceControl?.linesDeleted ?? 0
+            : directoryChanges.reduce(0) { $0 + ($1.sourceControl?.linesDeleted ?? 0) }
+    }
 
     init(apiClient: SloppyAPIClient) {
         self.apiClient = apiClient
@@ -72,6 +91,9 @@ final class WorkspacePanelViewModel {
     func activate(context: WorkspacePanelContext) {
         guard self.context != context else { return }
         self.context = context
+        project = nil
+        sourceControl = nil
+        directoryChanges = []
         Task {
             await refreshEnvironment()
             if mode == .files {
@@ -83,6 +105,8 @@ final class WorkspacePanelViewModel {
     func refreshEnvironment() async {
         guard let context else { return }
         let expectedContext = context
+        let refreshID = UUID()
+        environmentRefreshID = refreshID
 
         isLoadingEnvironment = true
         environmentLoadError = nil
@@ -103,8 +127,30 @@ final class WorkspacePanelViewModel {
             codeReviewsResult
         )
 
-        guard self.context == expectedContext else { return }
+        let paths = nextProject?.directoryPaths ?? []
+        let nextDirectoryChanges: [DirectoryChanges]
+        if paths.count > 1 {
+            nextDirectoryChanges = await withTaskGroup(of: (Int, DirectoryChanges).self) { group in
+                for (index, path) in paths.enumerated() {
+                    group.addTask { [apiClient] in
+                        let response = index == 0 ? nextSourceControl : try? await apiClient.fetchProjectWorkingTreeSourceControl(
+                            projectId: expectedContext.projectId,
+                            directoryPath: path
+                        )
+                        return (index, DirectoryChanges(path: path, sourceControl: response))
+                    }
+                }
+                var results: [(Int, DirectoryChanges)] = []
+                for await result in group { results.append(result) }
+                return results.sorted { $0.0 < $1.0 }.map(\.1)
+            }
+        } else {
+            nextDirectoryChanges = []
+        }
+
+        guard self.context == expectedContext, environmentRefreshID == refreshID else { return }
         sourceControl = nextSourceControl
+        directoryChanges = nextDirectoryChanges
         project = nextProject
         availableCodeReviews = nextCodeReviews?.items ?? []
         codeReview = Self.matchingCodeReview(
@@ -124,6 +170,11 @@ final class WorkspacePanelViewModel {
     }
 
     func synchronizeSourceControl(_ sourceControl: ProjectWorkingTreeSourceControlResponse) {
+        if (project?.directoryPaths.count ?? 0) > 1 {
+            // A chat update describes only its own checkout. Reload every workspace root.
+            Task { await refreshEnvironment() }
+            return
+        }
         self.sourceControl = sourceControl
         codeReview = Self.matchingCodeReview(
             in: availableCodeReviews,

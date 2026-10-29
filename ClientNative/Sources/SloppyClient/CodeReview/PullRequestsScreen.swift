@@ -49,7 +49,9 @@ struct PullRequestsScreen: View {
             .navigationBarTitleDisplayMode(.inline)
 #endif
             .task(id: requestKey) { await load() }
+#if !os(iOS)
             .refreshable { await load() }
+#endif
             .onChange(of: filters) { _, filters in
                 filterStore.save(filters, endpoint: apiClient.endpoint)
             }
@@ -94,9 +96,39 @@ struct PullRequestsScreen: View {
         VStack(spacing: 0) {
             filterControls
             Divider()
-            content
+            refreshableContent
         }
         .accessibilityIdentifier("code-review-inbox")
+        .mobileRefreshable(id: requestKey) { await load() }
+#if os(iOS)
+        .searchable(
+            text: $searchText,
+            placement: .navigationBarDrawer(displayMode: .always),
+            prompt: "Search pull requests"
+        )
+        .toolbar {
+            ToolbarItemGroup(placement: .topBarTrailing) {
+                inboxActions
+            }
+        }
+#endif
+    }
+
+    @ViewBuilder
+    private var refreshableContent: some View {
+#if os(iOS)
+        if filteredItems.isEmpty {
+            ScrollView {
+                content
+                    .frame(maxWidth: .infinity, minHeight: 360)
+                    .padding(.vertical, 24)
+            }
+        } else {
+            content
+        }
+#else
+        content
+#endif
     }
 
     @ViewBuilder
@@ -160,6 +192,7 @@ struct PullRequestsScreen: View {
                 }
             }
 
+#if !os(iOS)
             HStack(spacing: 8) {
                 HStack(spacing: 7) {
                     Image(systemName: "magnifyingglass")
@@ -178,48 +211,56 @@ struct PullRequestsScreen: View {
                 .frame(height: 30)
                 .background(Color.secondary.opacity(0.11), in: RoundedRectangle(cornerRadius: 7))
 
-                Menu {
-                    Picker("State", selection: $filters.state) {
-                        ForEach(CodeReviewState.allCases) { state in
-                            Text(state.title).tag(state)
-                        }
-                    }
-                    if response.providers.count > 1 {
-                        Divider()
-                        Picker("Provider", selection: $filters.providerID) {
-                            Text("All providers").tag(String?.none)
-                            ForEach(response.providers) { provider in
-                                Text(provider.displayName).tag(Optional(provider.id))
-                            }
-                        }
-                    }
-                } label: {
-                    Image(systemName: "line.3.horizontal.decrease.circle")
-                }
-                .buttonStyle(.borderless)
-                .accessibilityLabel("Filter pull requests")
-
-                if response.providers.contains(where: { $0.id == "arcadia-code-review" }) {
-                    Button {
-                        isShowingArcadiaCredential = true
-                    } label: {
-                        Image(systemName: "key")
-                    }
-                    .buttonStyle(.borderless)
-                    .accessibilityLabel("Configure Arcadia token")
-                }
-
-                Button {
-                    Task { await load() }
-                } label: {
-                    Image(systemName: "arrow.clockwise")
-                }
-                .buttonStyle(.borderless)
-                .disabled(isLoading)
-                .accessibilityLabel("Refresh pull requests")
+                inboxActions
             }
+#endif
         }
         .padding(12)
+    }
+
+    @ViewBuilder
+    private var inboxActions: some View {
+        Menu {
+            Picker("State", selection: $filters.state) {
+                ForEach(CodeReviewState.allCases) { state in
+                    Text(state.title).tag(state)
+                }
+            }
+            if response.providers.count > 1 {
+                Divider()
+                Picker("Provider", selection: $filters.providerID) {
+                    Text("All providers").tag(String?.none)
+                    ForEach(response.providers) { provider in
+                        Text(provider.displayName).tag(Optional(provider.id))
+                    }
+                }
+            }
+        } label: {
+            Image(systemName: "line.3.horizontal.decrease.circle")
+        }
+        .buttonStyle(.borderless)
+        .accessibilityLabel("Filter pull requests")
+
+        if response.providers.contains(where: { $0.id == "arcadia-code-review" }) {
+            Button {
+                isShowingArcadiaCredential = true
+            } label: {
+                Image(systemName: "key")
+            }
+            .buttonStyle(.borderless)
+            .accessibilityLabel("Configure Arcadia token")
+        }
+
+#if !os(iOS)
+        Button {
+            Task { await load() }
+        } label: {
+            Image(systemName: "arrow.clockwise")
+        }
+        .buttonStyle(.borderless)
+        .disabled(isLoading)
+        .accessibilityLabel("Refresh pull requests")
+#endif
     }
 
     @ViewBuilder
@@ -422,13 +463,13 @@ private struct ArcadiaCredentialSheet: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text("Arcadia access")
                     .font(.title3.weight(.semibold))
-                Text("Your token is stored only in the local macOS Keychain. It is not saved in the plugin configuration.")
+                Text("Your token is stored only in this device’s Keychain. It is not saved in the plugin configuration.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
             }
 
             SecureField("Arc OAuth token", text: $token)
-                .textFieldStyle(.roundedBorder)
+                .appTextField()
                 .focused($isTokenFocused)
 
             if status?.isConfigured == true {
@@ -574,7 +615,7 @@ private struct PullRequestRow: View {
         switch item.state {
         case .open, .all: .green
         case .closed: .red
-        case .merged: .purple
+        case .merged: .blue
         }
     }
 

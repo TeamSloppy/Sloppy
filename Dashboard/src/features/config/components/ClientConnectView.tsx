@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { QRCodeSVG } from "qrcode.react";
+import { clientPairingLink } from "./clientPairingLink";
+import { RelayClientConnectView } from "./RelayClientConnectView";
 import {
   detectClientTLSFingerprint,
   prepareClientConnection,
@@ -20,12 +22,7 @@ interface ClientConnectViewProps {
   onFingerprintDetected: (fingerprint: string) => Promise<boolean>;
 }
 
-function deriveServerHost(): string {
-  return window.location.hostname;
-}
-
 export function ClientConnectView({
-  listenPort,
   clientPublicURL,
   clientAlternateURLs,
   clientTLSFingerprint,
@@ -33,6 +30,7 @@ export function ClientConnectView({
   onSave,
   onFingerprintDetected
 }: ClientConnectViewProps) {
+  const [showLan, setShowLan] = useState(false);
   const [pairing, setPairing] = useState<DevicePairingRecord | null>(null);
   const [pairingError, setPairingError] = useState("");
   const [isTokenMode, setIsTokenMode] = useState(false);
@@ -41,11 +39,6 @@ export function ClientConnectView({
   const [isSaving, setIsSaving] = useState(false);
   const [isDetectingFingerprint, setIsDetectingFingerprint] = useState(false);
   const [fingerprintStatus, setFingerprintStatus] = useState("");
-
-  const defaultHost = deriveServerHost();
-  const host = defaultHost;
-  const port = listenPort || 25101;
-  const transportScheme = window.location.protocol === "https:" ? "https" : "http";
 
   const issuePairing = useCallback(async (signal?: AbortSignal) => {
     setIsLoading(true);
@@ -70,10 +63,11 @@ export function ClientConnectView({
   }, []);
 
   useEffect(() => {
+    if (!showLan) return;
     const controller = new AbortController();
     void issuePairing(controller.signal);
     return () => controller.abort();
-  }, [issuePairing]);
+  }, [issuePairing, showLan]);
 
   useEffect(() => {
     if (!pairing) return;
@@ -86,18 +80,16 @@ export function ClientConnectView({
     return () => window.clearTimeout(expiryTimer);
   }, [pairing]);
 
-  const deepLink = useMemo(() => {
-    if (!pairing) return "";
-    if (pairing.setupCode) return pairing.setupCode;
-    const query = new URLSearchParams({
-      host,
-      port: String(port),
-      scheme: transportScheme,
-      label: `Sloppy @ ${host}`,
-      pairingToken: pairing.token
-    });
-    return `sloppy://connect?${query.toString()}`;
-  }, [host, pairing, port, transportScheme]);
+  const connectionLink = useMemo(() => {
+    if (!pairing) return { link: "", serverURL: "", error: "" };
+    try {
+      return { ...clientPairingLink(pairing), error: "" };
+    } catch (error) {
+      return { link: "", serverURL: "", error: error instanceof Error ? error.message : "Invalid client address." };
+    }
+  }, [pairing]);
+  const deepLink = connectionLink.link;
+  const connectionError = pairingError || connectionLink.error;
 
   async function saveAndGenerate() {
     setIsSaving(true);
@@ -132,9 +124,11 @@ export function ClientConnectView({
     setTimeout(() => setCopied(false), 2000);
   }
 
+  if (!showLan) return <RelayClientConnectView onLan={() => setShowLan(true)} />;
   return (
     <section className="entry-editor-card">
       <h3>Connect Sloppy Client</h3>
+      <button type="button" className="btn btn-secondary btn-sm" onClick={() => setShowLan(false)}>Use Console Relay</button>
       <p className="placeholder-text">
         Scan this short-lived QR code with Sloppy Client. The app will connect as the
         Dashboard user shown below; no password is placed in the QR code.
@@ -146,7 +140,7 @@ export function ClientConnectView({
             width: 234,
             height: 234,
             boxSizing: "border-box",
-            background: pairing ? "#fff" : "var(--surface-raised, var(--surface))",
+            background: deepLink ? "#fff" : "var(--surface-raised, var(--surface))",
             padding: 16,
             border: "1px solid var(--line)",
             display: "flex",
@@ -173,10 +167,14 @@ export function ClientConnectView({
         </div>
 
         <div style={{ flex: 1, minWidth: 260, display: "flex", flexDirection: "column", gap: 16 }}>
-          {pairingError ? (
+          {connectionError ? (
             <div className="entry-form-hint" role="alert" style={{ color: "var(--danger, #ef5350)" }}>
-              {pairingError}
+              {connectionError}
             </div>
+          ) : null}
+
+          {connectionLink.serverURL ? (
+            <p className="entry-form-hint" role="status">Client address: <code>{connectionLink.serverURL}</code></p>
           ) : null}
 
           <div className="entry-form-grid">
@@ -194,7 +192,7 @@ export function ClientConnectView({
                 autoComplete="off"
               />
               <span className="entry-form-hint">
-                External addresses require HTTPS. If empty, Sloppy uses nodeMeshPublicURL and then the current Dashboard address as a legacy fallback.
+                External addresses require HTTPS. If empty, Core uses nodeMeshPublicURL or a local network address from its listening interface. Loopback addresses are never included in pairing QR codes.
               </span>
             </label>
 
@@ -268,7 +266,7 @@ export function ClientConnectView({
                 color: "var(--text-muted)"
               }}>
                 <code style={{ flex: 1 }}>One-time secret hidden · expires {new Date(pairing.expiresAt).toLocaleTimeString()}</code>
-                <button type="button" className="btn btn-secondary btn-sm" onClick={handleCopy} style={{ whiteSpace: "nowrap" }}>
+                <button type="button" className="btn btn-secondary btn-sm" onClick={handleCopy} disabled={!deepLink} style={{ whiteSpace: "nowrap" }}>
                   {copied ? "Copied!" : "Copy link"}
                 </button>
               </div>
@@ -284,7 +282,7 @@ export function ClientConnectView({
             lineHeight: 1.5
           }}>
             <strong>One scan, two minutes.</strong> The code is bound to the currently authenticated user and becomes invalid after its first successful use. Generate a new code if it expires.
-            {transportScheme === "http" ? " HTTP is intended only for trusted local development networks." : ""}
+            {connectionLink.serverURL.startsWith("http:") ? " HTTP is intended only for trusted local development networks." : ""}
           </div>
         </div>
       </div>

@@ -1,4 +1,5 @@
 import SwiftUI
+import SloppyClientUI
 
 @MainActor
 public struct ChatRenameSheet: View {
@@ -18,6 +19,35 @@ public struct ChatRenameSheet: View {
 
     public var body: some View {
         NavigationStack {
+#if os(iOS)
+            Form {
+                Section("Chat name") {
+                    TextField("Chat name", text: $title)
+                        .focused($isTitleFocused)
+                        .accessibilityIdentifier("chat.rename.title")
+                        .onSubmit { save() }
+                }
+                if let errorMessage {
+                    Section {
+                        Text(errorMessage).foregroundStyle(.red)
+                    }
+                }
+            }
+            .mobileScreenBackground()
+            .navigationTitle("Rename Chat")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) {
+                    Button("Cancel", role: .cancel) { dismiss() }
+                        .disabled(isSaving)
+                }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(isSaving ? "Saving…" : "Save") { save() }
+                        .disabled(isSaving || trimmedTitle.isEmpty || trimmedTitle.count > 200)
+                        .accessibilityIdentifier("chat.rename.save")
+                }
+            }
+#else
             VStack(alignment: .leading, spacing: 16) {
                 TextField("Chat name", text: $title)
                     .textFieldStyle(.roundedBorder)
@@ -44,9 +74,14 @@ public struct ChatRenameSheet: View {
             #else
             .navigationBarTitleDisplayMode(.inline)
             #endif
+#endif
         }
         .interactiveDismissDisabled(isSaving)
+#if os(iOS)
+        .presentationDetents([.medium])
+#else
         .presentationDetents([.height(220)])
+#endif
         .onAppear { isTitleFocused = true }
     }
 

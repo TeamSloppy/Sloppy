@@ -59,6 +59,9 @@ public final class ChatTranscriptState {
 public final class ChatScreenViewModel {
     public private(set) var agents: [APIAgentRecord] = []
     public private(set) var selectedAgent: APIAgentRecord?
+    public private(set) var projects: [APIProjectRecord] = []
+    public var selectedProjectId: String? { activeProjectId }
+    public var selectedProjectName: String? { projects.first { $0.id == activeProjectId }?.name }
     public private(set) var sessions: [ChatSessionSummary] = []
     public var selectedSessionId: String?
     public var pinnedSessionIds: Set<String> { settings.pinnedSessionIds }
@@ -66,10 +69,12 @@ public final class ChatScreenViewModel {
     public private(set) var sessionActionStatus: String?
     public private(set) var isLoadingSessions = false
     public private(set) var isSending = false
+    public private(set) var sendError: String?
     public var showAgentPicker = false
     public var showSessionPicker = false
     public let transcript = ChatTranscriptState()
     public let composerDraft = ChatComposerDraft()
+    var composerAPI: SloppyAPIClient { apiClient }
 
     public var messages: [ChatMessage] {
         transcript.messages
@@ -79,6 +84,8 @@ public final class ChatScreenViewModel {
     @ObservationIgnored private let settings: ClientSettings
     public let connectionMonitor: ConnectionMonitor
     @ObservationIgnored private let onOpenSettings: @MainActor () -> Void
+    @ObservationIgnored private let restoresLastSession: Bool
+    @ObservationIgnored private var pendingSession: ChatSessionSummary?
 
     @ObservationIgnored private var socketManager: SessionSocketManager?
     @ObservationIgnored private var streamTask: Task<Void, Never>?
@@ -88,21 +95,25 @@ public final class ChatScreenViewModel {
     @ObservationIgnored private var pendingStreamingAssistantText: String?
     @ObservationIgnored private var pendingNavigationRequest: ChatNavigationRequest?
     @ObservationIgnored private var lastAppliedNavigationRequestId: Int?
-    @ObservationIgnored private var activeProjectId: String?
+    private var activeProjectId: String?
     @ObservationIgnored private var didLoadInitialData = false
     @ObservationIgnored private var isLoadingInitialData = false
+    @ObservationIgnored private var initialLoadTask: Task<Void, Never>?
+    @ObservationIgnored private var isStopped = false
     @ObservationIgnored private var sessionLoadGeneration = 0
 
     public init(
         apiClient: SloppyAPIClient,
         settings: ClientSettings,
         connectionMonitor: ConnectionMonitor,
-        onOpenSettings: @escaping @MainActor () -> Void
+        onOpenSettings: @escaping @MainActor () -> Void,
+        restoresLastSession: Bool = true
     ) {
         self.apiClient = apiClient
         self.settings = settings
         self.connectionMonitor = connectionMonitor
         self.onOpenSettings = onOpenSettings
+        self.restoresLastSession = restoresLastSession
     }
 
     public func openSettings() {
@@ -115,25 +126,29 @@ public final class ChatScreenViewModel {
     }
 
     public func loadInitialData() {
-        guard !didLoadInitialData, !isLoadingInitialData else { return }
+        guard !isStopped, !didLoadInitialData, !isLoadingInitialData else { return }
 
         isLoadingInitialData = true
-        Task { @MainActor in
+        initialLoadTask = Task { @MainActor in
             defer {
                 didLoadInitialData = true
                 isLoadingInitialData = false
             }
 
             let fetched = (try? await apiClient.fetchAgents()) ?? []
+            guard !Task.isCancelled else { return }
             agents = fetched
+            projects = (try? await apiClient.fetchProjects()) ?? []
+            guard !Task.isCancelled else { return }
 
             let lastId = settings.lastAgentId
             let agent = fetched.first(where: { $0.id == lastId }) ?? fetched.first
             if let agent {
                 selectedAgent = agent
                 await loadSessions(for: agent)
+                guard !Task.isCancelled else { return }
 
-                if let lastSessionId = settings.lastSessionId,
+                if restoresLastSession, let lastSessionId = settings.lastSessionId,
                    sessions.contains(where: { $0.id == lastSessionId }) {
                     selectSession(lastSessionId)
                 } else {
@@ -141,14 +156,51 @@ public final class ChatScreenViewModel {
                     transcript.clear()
                     activeContextTitle = nil
                     activeProjectId = nil
-                    settings.lastSessionId = nil
+                    if restoresLastSession { settings.lastSessionId = nil }
                 }
             }
 
             if let pendingNavigationRequest {
                 applyNavigationRequest(pendingNavigationRequest)
             }
+            if let pendingSession {
+                self.pendingSession = nil
+                openSession(pendingSession)
+            }
         }
+    }
+
+    public func openSessionWhenReady(_ session: ChatSessionSummary) {
+        if didLoadInitialData {
+            openSession(session)
+        } else {
+            pendingSession = session
+            loadInitialData()
+        }
+    }
+
+    public func stop() {
+        isStopped = true
+        initialLoadTask?.cancel()
+        initialLoadTask = nil
+        sessionLoadGeneration += 1
+        sessionStatusTask?.cancel()
+        disconnectCurrentSession()
+    }
+
+    public func removeDeletedSession(_ session: ChatSessionSummary) {
+        sessions.removeAll { $0.id == session.id && $0.agentId == session.agentId }
+    }
+
+    public func selectPersonalContext() {
+        applyNavigationRequest(ChatNavigationRequest(id: (lastAppliedNavigationRequestId ?? 0) + 1, context: .blank))
+    }
+
+    public func selectProjectContext(_ project: APIProjectRecord) {
+        applyNavigationRequest(ChatNavigationRequest(
+            id: (lastAppliedNavigationRequestId ?? 0) + 1,
+            context: .project(projectId: project.id, projectName: project.name, agentId: project.actors?.first)
+        ))
     }
 
     public func loadSessions(for agent: APIAgentRecord, projectId: String? = nil) async {
@@ -249,6 +301,10 @@ public final class ChatScreenViewModel {
         switch request.context {
         case .blank:
             routeToBlankChat()
+        case .agent:
+            if let agent = agentForNavigation(request) {
+                activateDraft(agent: agent, contextTitle: nil)
+            }
         case .project(let projectId, let projectName, _):
             routeToContext(request, projectId: projectId, title: "Project: \(projectName)")
         case .task(let projectId, let projectName, let taskId, let taskTitle, _):
@@ -408,7 +464,7 @@ public final class ChatScreenViewModel {
 
         Task { @MainActor in
             await loadSessions(for: agent, projectId: preferredTaskId == nil ? projectId : nil)
-            guard selectedAgent?.id == agent.id,
+            guard !isStopped, selectedAgent?.id == agent.id,
                   activeProjectId == projectId,
                   selectedSessionId == nil else {
                 return
@@ -433,7 +489,7 @@ public final class ChatScreenViewModel {
                     return
                 }
 
-                guard selectedAgent?.id == agent.id,
+                guard !isStopped, selectedAgent?.id == agent.id,
                       activeProjectId == projectId,
                       selectedSessionId == nil else {
                     return
@@ -460,6 +516,7 @@ public final class ChatScreenViewModel {
     }
 
     private func connectToSession(agentId: String, sessionId: String) {
+        guard !isStopped else { return }
         let manager = SessionSocketManager(baseURL: apiClient.baseURL, agentId: agentId, sessionId: sessionId)
         socketManager = manager
 
@@ -700,38 +757,44 @@ public final class ChatScreenViewModel {
 
     public func sendMessage(content: String) {
         guard let agent = selectedAgent, !isSending else { return }
-
-        if selectedSessionId == nil {
-            Task { @MainActor in
-                guard let summary = try? await apiClient.createAgentSession(
-                    agentId: agent.id,
-                    title: nil,
-                    projectId: activeProjectId
-                ) else { return }
-                sessions.insert(summary, at: 0)
-                selectedSessionId = summary.id
-                settings.lastSessionId = summary.id
-                connectToSession(agentId: agent.id, sessionId: summary.id)
-                await postMessage(content: content, agentId: agent.id, sessionId: summary.id)
-            }
-            return
-        }
-
-        guard let sessionId = selectedSessionId else { return }
+        isSending = true
+        sendError = nil
+        let initialSessionID = selectedSessionId
+        let projectID = activeProjectId
         Task { @MainActor in
-            await postMessage(content: content, agentId: agent.id, sessionId: sessionId)
+            defer { isSending = false }
+            do {
+                let sessionID: String
+                if let initialSessionID { sessionID = initialSessionID }
+                else {
+                    let summary = try await apiClient.createAgentSession(agentId: agent.id, title: nil, projectId: projectID)
+                    guard selectedAgent?.id == agent.id, activeProjectId == projectID, selectedSessionId == nil else { return }
+                    sessions.insert(summary, at: 0)
+                    selectedSessionId = summary.id
+                    settings.lastSessionId = summary.id
+                    sessionID = summary.id
+                    connectToSession(agentId: agent.id, sessionId: summary.id)
+                }
+                try await postMessage(content: content, agentId: agent.id, sessionId: sessionID)
+            } catch {
+                sendError = error.localizedDescription
+                if composerDraft.text.isEmpty { composerDraft.text = content }
+            }
         }
     }
 
-    private func postMessage(content: String, agentId: String, sessionId: String) async {
-        isSending = true
+    private func postMessage(content: String, agentId: String, sessionId: String) async throws {
         let optimistic = ChatMessage(
             id: "optimistic-user-\(UUID().uuidString)",
             role: .user,
             segments: [ChatMessageSegment(kind: .text, text: content)]
         )
         transcript.append(optimistic)
-        _ = try? await apiClient.postSessionMessage(agentId: agentId, sessionId: sessionId, content: content)
-        isSending = false
+        do {
+            _ = try await apiClient.postSessionMessage(agentId: agentId, sessionId: sessionId, content: content)
+        } catch {
+            transcript.removeAll { $0.id == optimistic.id }
+            throw error
+        }
     }
 }

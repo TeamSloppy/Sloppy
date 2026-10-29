@@ -589,8 +589,14 @@ struct SloppyTUISessionUndoManagers {
         managers[sessionID]?.canRedo ?? false
     }
 
-    func sessionDiff(sessionID: String, rootURL: URL, maxCharacters: Int = 96 * 1024) throws -> SloppyTUIUndoManager.DiffResult {
-        guard let manager = managers[sessionID] else {
+    func sessionDiff(sessionID: String, rootURL: URL, pendingBaseline: Baseline? = nil, maxCharacters: Int = 96 * 1024) throws -> SloppyTUIUndoManager.DiffResult {
+        var previewManagers = self
+        if let pendingBaseline, pendingBaseline.sessionID == sessionID,
+           pendingBaseline.baseline.rootURL.standardizedFileURL == rootURL.standardizedFileURL {
+            // Preview on a copy: live refreshes must not create undo transactions.
+            _ = previewManagers.recordChanges(pendingBaseline)
+        }
+        guard let manager = previewManagers.managers[sessionID] else {
             return SloppyTUIUndoManager.DiffResult(
                 diff: "",
                 linesAdded: 0,

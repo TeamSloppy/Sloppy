@@ -72,6 +72,7 @@ struct AgentListView: View {
         .navigationTitle("Agents")
         .navigationTitlePosition(.leading)
         .searchable(text: $searchText, prompt: "Search agents")
+#if !os(iOS)
         .navigationBarTrailingItems {
             Button {
                 Task { await onRefresh() }
@@ -87,7 +88,8 @@ struct AgentListView: View {
             .font(.system(size: ty.caption, weight: .medium))
             .accessibilityIdentifier("agents.refresh")
         }
-        .refreshable { await onRefresh() }
+#endif
+        .mobileRefreshable { await onRefresh() }
     }
 
     private var gridColumns: [GridItem] {

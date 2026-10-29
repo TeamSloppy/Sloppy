@@ -20,7 +20,7 @@ struct ChannelsSection: View {
         self._telegramBotToken = State(initialValue: config.channels.telegram?.botToken ?? "")
         self._discordEnabled = State(initialValue: config.channels.discord != nil)
         self._discordBotToken = State(initialValue: config.channels.discord?.botToken ?? "")
-        self._discordGuildId = State(initialValue: config.channels.discord?.guildId ?? "")
+        self._discordGuildId = State(initialValue: config.channels.discord?.allowedGuildIds.joined(separator: ", ") ?? "")
     }
 
     private var hasChanges: Bool {
@@ -28,7 +28,7 @@ struct ChannelsSection: View {
         telegramBotToken != (config.channels.telegram?.botToken ?? "") ||
         discordEnabled != (config.channels.discord != nil) ||
         discordBotToken != (config.channels.discord?.botToken ?? "") ||
-        discordGuildId != (config.channels.discord?.guildId ?? "")
+        discordGuildId != (config.channels.discord?.allowedGuildIds.joined(separator: ", ") ?? "")
     }
 
     var body: some View {
@@ -56,7 +56,7 @@ struct ChannelsSection: View {
                     SettingsDivider()
                     SettingsFieldRow("Bot Token", hint: "Discord bot token", text: $discordBotToken, isSecure: true)
                     SettingsDivider()
-                    SettingsFieldRow("Guild ID", hint: "Discord server/guild ID", text: $discordGuildId)
+                    SettingsFieldRow("Allowed Guild IDs", hint: "Separate Discord server IDs with commas", text: $discordGuildId)
                 }
             }
 
@@ -74,13 +74,22 @@ struct ChannelsSection: View {
         telegramBotToken = config.channels.telegram?.botToken ?? ""
         discordEnabled = config.channels.discord != nil
         discordBotToken = config.channels.discord?.botToken ?? ""
-        discordGuildId = config.channels.discord?.guildId ?? ""
+        discordGuildId = config.channels.discord?.allowedGuildIds.joined(separator: ", ") ?? ""
     }
 
     private func save() {
         var updated = config
-        updated.channels.telegram = telegramEnabled ? SloppyConfig.ChannelConfig.Telegram(botToken: telegramBotToken) : nil
-        updated.channels.discord = discordEnabled ? SloppyConfig.ChannelConfig.Discord(botToken: discordBotToken, guildId: discordGuildId) : nil
+        if telegramEnabled {
+            var telegram = config.channels.telegram ?? .init()
+            telegram.botToken = telegramBotToken
+            updated.channels.telegram = telegram
+        } else { updated.channels.telegram = nil }
+        if discordEnabled {
+            var discord = config.channels.discord ?? .init()
+            discord.botToken = discordBotToken
+            discord.allowedGuildIds = discordGuildId.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+            updated.channels.discord = discord
+        } else { updated.channels.discord = nil }
         onSave(updated)
     }
 }

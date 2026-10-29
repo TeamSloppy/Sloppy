@@ -353,7 +353,10 @@ private func authErrorResponse(_ error: Error) -> CoreRouterResponse {
     case CoreIdentityAuthError.invalidApplicationTokenName:
         return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "invalid_application_token_name"])
     case CoreIdentityAuthError.invalidDevicePairingConfiguration:
-        return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "invalid_device_pairing_configuration"])
+        return CoreRouter.json(status: HTTPStatus.badRequest, payload: [
+            "error": "invalid_device_pairing_configuration",
+            "message": "No address for another device is available. Set Public Client URL to a LAN or HTTPS address; localhost and loopback addresses cannot be used in pairing QR codes."
+        ])
     case CoreIdentityAuthError.invalidCurrentPassword:
         return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": "invalid_current_password"])
     case CoreIdentityAuthError.invalidNewPassword:

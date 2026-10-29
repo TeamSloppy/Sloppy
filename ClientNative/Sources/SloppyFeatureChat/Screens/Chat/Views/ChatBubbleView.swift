@@ -77,6 +77,7 @@ public struct ChatBubbleView: View {
     public let userBubbleTint: Color?
     public let onOpenProviderSettings: (@MainActor () -> Void)?
     public let onForkFromMessage: (@MainActor (ChatMessage) -> Void)?
+    private let userPresentation: ChatUserMessagePresentation
 
     public init(
         message: ChatMessage,
@@ -90,6 +91,7 @@ public struct ChatBubbleView: View {
         self.userBubbleTint = userBubbleTint
         self.onOpenProviderSettings = onOpenProviderSettings
         self.onForkFromMessage = onForkFromMessage
+        self.userPresentation = ChatUserMessagePresentation(message: message)
     }
 
     @Environment(\.userInterfaceIdiom) private var idiom
@@ -124,30 +126,39 @@ public struct ChatBubbleView: View {
     }
 
     private var desktopUserMessage: some View {
-        let c = theme.colors
         let sp = theme.spacing
 
         return HStack(spacing: 0) {
             Spacer(minLength: sp.xxl)
 
-            ChatUserMessageContent {
-                if let origin = message.peerOrigin {
-                    Label("Agent \(origin.agentId)", systemImage: "bubble.left.and.bubble.right")
-                        .font(.caption).foregroundStyle(theme.colors.textSecondary)
-                }
-                renderedSegmentStack(forceCollapsible: false)
-            }
-                .id(message.id)
-                .padding(.horizontal, sp.m)
-                .padding(.vertical, sp.s)
-                .background {
-                    RoundedRectangle(cornerRadius: Self.userBubbleRadius)
-                        .fill(userMessageFill)
-                        .overlay {
-                            RoundedRectangle(cornerRadius: Self.userBubbleRadius)
-                                .stroke(userMessageBorder, lineWidth: theme.borders.thin)
+            VStack(alignment: .trailing, spacing: sp.s) {
+                if !userPresentation.segments.isEmpty || message.peerOrigin != nil {
+                    ChatUserMessageContent {
+                        if let origin = message.peerOrigin {
+                            Label("Agent \(origin.agentId)", systemImage: "bubble.left.and.bubble.right")
+                                .font(.caption).foregroundStyle(theme.colors.textSecondary)
                         }
+                        renderedSegmentStack(forceCollapsible: false, segments: userPresentation.segments)
+                    }
+                    .id(message.id)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, sp.m)
+                    .padding(.vertical, sp.s)
+                    .background {
+                        RoundedRectangle(cornerRadius: Self.userBubbleRadius)
+                            .fill(userMessageFill)
+                            .overlay {
+                                RoundedRectangle(cornerRadius: Self.userBubbleRadius)
+                                    .stroke(userMessageBorder, lineWidth: theme.borders.thin)
+                            }
+                    }
+                    .accessibilityElement(children: .contain)
+                    .accessibilityIdentifier("chat.user-message.body")
                 }
+                if !userPresentation.annotations.isEmpty {
+                    ChatSentAnnotationsBubble(annotations: userPresentation.annotations)
+                }
+            }
         }
     }
 
@@ -231,9 +242,9 @@ public struct ChatBubbleView: View {
     }
 
     @ViewBuilder
-    private func renderedSegmentStack(forceCollapsible: Bool) -> some View {
+    private func renderedSegmentStack(forceCollapsible: Bool, segments: [ChatMessageSegment]? = nil) -> some View {
         VStack(alignment: .leading, spacing: theme.spacing.m) {
-            ForEach(Array(message.segments.enumerated()), id: \.offset) { index, segment in
+            ForEach(Array((segments ?? message.segments).enumerated()), id: \.offset) { index, segment in
                 if let progress = segment.buildProgress {
                     ChatBuildProgressView(progress: progress)
                 } else if message.role == .user, let attachment = segment.attachment,

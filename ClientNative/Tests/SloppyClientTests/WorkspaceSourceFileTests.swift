@@ -96,6 +96,21 @@ struct WorkspaceSourceFileTests {
         #expect(unavailable.errorMessage != nil)
         #expect(fixture.requests.count == 1)
     }
+
+    @Test func pullToRefreshReloadsCachedFileAndPreservesItsLocation() async {
+        let fixture = SourceFileFixture()
+        let model = WorkspaceSourceFileViewModel(reference: .init(path: "/remote/File.swift", line: 2),
+            apiClient: fixture.api, scope: .project("project"))
+        await model.loadIfNeeded()
+        await model.loadIfNeeded()
+        #expect(fixture.requests.count == 1)
+        await model.loadIfNeeded(force: true)
+        #expect(fixture.requests.count == 2)
+        #expect(model.reference.path == "/remote/File.swift")
+        #expect(model.targetLine == 2)
+        #expect(model.lines == ["first", "second", "third", ""])
+        #expect(model.errorMessage == nil)
+    }
 }
 
 @MainActor

@@ -1,6 +1,7 @@
 import Foundation
 import NIOCore
 import NIOEmbedded
+import NIOPosix
 import NIOWebSocket
 import Synchronization
 import Testing
@@ -8,6 +9,22 @@ import Testing
 
 @Suite("Relay WebSocket readiness")
 struct RelayWebSocketConnectionTests {
+    @Test func dnsFailureThrowsAndAllowsAnotherConnectionAttempt() async throws {
+        // A DNS label longer than 63 bytes is invalid, regardless of connectivity.
+        let url = try #require(URL(string: "https://" + String(repeating: "a", count: 256) + ".invalid"))
+        let connection = RelayWebSocketConnection()
+        for _ in 0..<3 {
+            do {
+                try await connection.connect(url: url, token: "test")
+                Issue.record("An invalid DNS name must fail to connect")
+            } catch let error as NIOConnectionError {
+                #expect(error.dnsAError is SocketAddressError.UnknownHost)
+                #expect(error.dnsAAAAError is SocketAddressError.UnknownHost)
+            }
+        }
+        await connection.close()
+    }
+
     @Test func upgradeWaitsForDeviceRegistrationBeforeBecomingReady() throws {
         let channel = EmbeddedChannel()
         let ready = channel.eventLoop.makePromise(of: Void.self)

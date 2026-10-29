@@ -171,7 +171,7 @@ extension ChatScreenViewModel {
     }
 
     private func revalidateInitialProjects() async {
-        if let fetchedProjects = try? await apiClient.fetchProjects() {
+        if let fetchedProjects = try? await apiClient.fetchProjectSummaries() {
             projects = fetchedProjects
             await cacheStore.cacheProjects(fetchedProjects)
             restoreLastProjectContextIfAvailable()

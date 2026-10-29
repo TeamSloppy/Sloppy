@@ -4,7 +4,6 @@ import SloppyClientUI
 import SloppyFeatureAgents
 import SloppyFeatureChat
 import SloppyFeatureProjects
-import SloppyFeatureSettings
 import SwiftUI
 
 @MainActor
@@ -19,7 +18,7 @@ struct PlatformMainSidebar: View {
     @Environment(\.theme) private var theme
     @State private var searchText = ""
     @State private var isAgentsPresented = false
-    @State private var isTextSearchPresented = false
+    @State private var textSearchPresentation: IOSInboxSearchPresentation?
     @State private var presentedProject: IOSProjectPresentation?
     @State private var inboxNavigationPath = NavigationPath()
     @AppStorage("client_chat_sidebar_layout_mode") private var layoutMode = SidebarLayoutMode.list
@@ -34,8 +33,9 @@ struct PlatformMainSidebar: View {
         .fullScreenCover(item: $presentedProject) { presentation in
             IOSProjectModal(project: presentation.project, viewModel: viewModel)
         }
-        .sheet(isPresented: $isTextSearchPresented) {
-            SessionTextSearchView(endpoints: viewModel.textSearchEndpoints, apiClient: viewModel.apiClient, onOpenSession: viewModel.openTextSearchSession, query: normalizedSearchQuery)
+        .sheet(item: $textSearchPresentation) { presentation in
+            SessionTextSearchView(endpoints: viewModel.textSearchEndpoints, apiClient: viewModel.apiClient,
+                onOpenSession: openSearchSession, query: presentation.query, selected: presentation.selected)
         }
         .sheet(isPresented: $isAgentsPresented) {
             AgentsScreen(apiClient: viewModel.apiClient)
@@ -61,7 +61,7 @@ struct PlatformMainSidebar: View {
                         .searchable(
                             text: $searchText,
                             placement: .toolbar,
-                            prompt: "Search chats and projects"
+                            prompt: "Search all messages and projects"
                         )
                         .toolbar {
                             ToolbarItem(placement: .topBarLeading) {
@@ -69,7 +69,7 @@ struct PlatformMainSidebar: View {
                             }
 
                             ToolbarItemGroup(placement: .topBarTrailing) {
-                                Button { isTextSearchPresented = true } label: { Image(systemName: "text.magnifyingglass") }
+                                Button { presentTextSearch() } label: { Image(systemName: "text.magnifyingglass") }
                                     .accessibilityLabel("Search all conversation text")
                                     .accessibilityIdentifier("inbox.search-all-text")
                                 sidebarViewOptionsMenu
@@ -99,26 +99,15 @@ struct PlatformMainSidebar: View {
                 }
             }
 
-            Tab("Usage", systemImage: "chart.bar", value: MainAppSection.usage) {
-                NavigationStack {
-                    ChatUsageScreen(
-                        apiClient: viewModel.apiClient,
-                        instanceTitle: viewModel.apiClient.baseURL.host ?? "Connected instance",
-                        onOpenSession: viewModel.openSessionChatTab
-                    )
-                }
-                .modifier(IOSComposerContainer(composer: mobileComposer, viewModel: composerViewModel))
-                .environment(\.isChatComposerInset, true)
-            }
-
             Tab("Workspace", systemImage: "square.grid.2x2", value: MainAppSection.workspace) {
                 if idiom == .phone {
                     NavigationStack {
                         CanvasWorkspaceSurface(viewModel: canvasWorkspaceViewModel)
                     }
+                    .mobileScreenBackground()
                     .modifier(IOSComposerContainer(composer: mobileComposer, viewModel: composerViewModel))
                 } else {
-                    Color.clear
+                    Color.clear.mobileScreenBackground()
                 }
             }
         }
@@ -153,9 +142,16 @@ struct PlatformMainSidebar: View {
         } else {
             IOSInboxSearchResults(
                 query: normalizedSearchQuery,
-                viewModel: viewModel,
-                onOpenResult: { searchText = "" },
-                onSearchText: { isTextSearchPresented = true },
+                sessions: viewModel.sidebarSessionCatalog,
+                projects: viewModel.projects,
+                endpoints: viewModel.textSearchEndpoints,
+                apiClient: viewModel.apiClient,
+                onOpenSession: { session in
+                    viewModel.openSessionChatTab(session)
+                    showInboxChat()
+                },
+                onOpenMessage: { presentTextSearch(selected: $0) },
+                onSearchText: { presentTextSearch() },
                 onOpenProject: {
                     searchText = ""
                     presentedProject = IOSProjectPresentation(project: $0)
@@ -166,6 +162,22 @@ struct PlatformMainSidebar: View {
 
     private var normalizedSearchQuery: String {
         searchText.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private func presentTextSearch(selected: LocatedTextSearchHit? = nil) {
+        textSearchPresentation = .init(query: normalizedSearchQuery, selected: selected)
+    }
+
+    private func openSearchSession(_ item: LocatedTextSearchHit) {
+        guard item.hit.agentId != nil else { return }
+        viewModel.openTextSearchSession(item)
+        showInboxChat()
+    }
+
+    private func showInboxChat() {
+        searchText = ""
+        inboxNavigationPath = NavigationPath()
+        inboxNavigationPath.append(MainSidebarSelection.chats)
     }
 
     private var settingsButton: some View {
@@ -315,20 +327,16 @@ private struct IOSInboxHome: View {
 
     @Environment(\.theme) private var theme
 
-    private var allTasks: [APIProjectTask] {
-        viewModel.projects.flatMap { $0.tasks ?? [] }
-    }
-
     private var workingCount: Int {
-        allTasks.count { $0.status == "in_progress" }
+        viewModel.projects.reduce(0) { $0 + (ProjectTaskInboxStatus.working.count(in: $1) ?? 0) }
     }
 
     private var attentionCount: Int {
-        allTasks.count { $0.status == "blocked" }
+        viewModel.projects.reduce(0) { $0 + (ProjectTaskInboxStatus.attention.count(in: $1) ?? 0) }
     }
 
     private var reviewCount: Int {
-        allTasks.count { $0.status == "needs_review" }
+        viewModel.projects.reduce(0) { $0 + (ProjectTaskInboxStatus.review.count(in: $1) ?? 0) }
     }
 
     var body: some View {
@@ -529,70 +537,6 @@ private struct IOSInboxProjectRow: View {
     }
 }
 
-@MainActor
-private struct IOSInboxSearchResults: View {
-    let query: String
-    let viewModel: MainViewModel
-    let onOpenResult: @MainActor () -> Void
-    let onSearchText: @MainActor () -> Void
-    let onOpenProject: @MainActor (APIProjectRecord) -> Void
-
-    @Environment(\.theme) private var theme
-
-    private var chatResults: [ChatSessionSummary] {
-        viewModel.sidebarSessionCatalog.filter {
-            $0.title.localizedStandardContains(query)
-        }
-    }
-
-    private var projectResults: [APIProjectRecord] {
-        viewModel.projects.filter {
-            $0.name.localizedStandardContains(query)
-        }
-    }
-
-    var body: some View {
-        List {
-            Section {
-                Button(action: onSearchText) { Label("Search all messages and tool output", systemImage: "text.magnifyingglass") }
-            }
-            if !chatResults.isEmpty {
-                Section("Chats") {
-                    ForEach(chatResults, id: \.storageID) { session in
-                        NavigationLink(value: MainSidebarSelection.chats) {
-                            Label(session.displayTitle, systemImage: "bubble.left")
-                                .foregroundStyle(theme.colors.textPrimary)
-                        }
-                        .simultaneousGesture(
-                            TapGesture().onEnded {
-                                viewModel.openSessionChatTab(session)
-                                onOpenResult()
-                            }
-                        )
-                    }
-                }
-            }
-
-            if !projectResults.isEmpty {
-                Section("Projects") {
-                    ForEach(projectResults, id: \.storageID) { project in
-                        Button { onOpenProject(project) } label: {
-                            Label(project.name, systemImage: project.semanticIconName)
-                                .foregroundStyle(theme.colors.textPrimary)
-                        }
-                    }
-                }
-            }
-
-            if chatResults.isEmpty, projectResults.isEmpty {
-                ContentUnavailableView.search(text: query)
-            }
-        }
-        .listStyle(.insetGrouped)
-    }
-}
-
-
 private struct IOSProjectPresentation: Identifiable {
     let project: APIProjectRecord
     var id: String { project.storageID }
@@ -630,35 +574,36 @@ private struct IOSProjectModal: View {
     }
 }
 
-private enum IOSInboxTaskStatus: String, Identifiable {
-    case working = "in_progress"
-    case attention = "blocked"
-    case review = "needs_review"
-    var id: Self { self }
-    var title: String {
-        switch self {
-        case .working: "Working"
-        case .attention: "Needs Attention"
-        case .review: "In Review"
-        }
-    }
-}
+private typealias IOSInboxTaskStatus = ProjectTaskInboxStatus
 
 @MainActor
 private struct IOSInboxTaskList: View {
     let status: IOSInboxTaskStatus
     let viewModel: MainViewModel
+    @State private var inbox: ProjectTaskInbox
     @Environment(\.theme) private var theme
 
-    private var projects: [APIProjectRecord] {
-        viewModel.projects.filter { ($0.tasks ?? []).contains { $0.status == status.rawValue } }
+    init(status: IOSInboxTaskStatus, viewModel: MainViewModel) {
+        self.status = status
+        self.viewModel = viewModel
+        _inbox = State(initialValue: ProjectTaskInbox(status: status, fetchProject: { project in
+            try await viewModel.fetchInboxProject(project)
+        }))
     }
 
     var body: some View {
         List {
-            ForEach(projects, id: \.storageID) { project in
+            if !inbox.errors.isEmpty {
+                Section("Could not load some projects") {
+                    ForEach(inbox.errors, id: \.self) { error in
+                        Text(error).foregroundStyle(theme.colors.textSecondary)
+                            .accessibilityIdentifier("inbox.tasks.error")
+                    }
+                }
+            }
+            ForEach(inbox.projects, id: \.storageID) { project in
                 Section {
-                    ForEach((project.tasks ?? []).filter { $0.status == status.rawValue }, id: \.id) { task in
+                    ForEach((project.tasks ?? []).filter(status.matches), id: \.id) { task in
                         NavigationLink {
                             IOSInboxTaskDetail(project: project, taskID: task.id, viewModel: viewModel)
                         } label: {
@@ -685,9 +630,17 @@ private struct IOSInboxTaskList: View {
         .listStyle(.plain)
         .tint(theme.colors.textPrimary)
         .overlay {
-            if projects.isEmpty {
+            if inbox.projects.isEmpty && (!inbox.hasLoaded || inbox.isLoading) {
+                ProgressView("Loading tasks…")
+                    .accessibilityIdentifier("inbox.tasks.loading")
+            } else if inbox.projects.isEmpty && inbox.errors.isEmpty {
                 ContentUnavailableView("No tasks", systemImage: "checklist", description: Text("There are no tasks in this status."))
             }
+        }
+        .task { await inbox.refresh(projects: viewModel.projects) }
+        .refreshable {
+            await viewModel.loadProjects(force: true)
+            await inbox.refresh(projects: viewModel.projects)
         }
         .mobileScreenBackground()
         .navigationTitle(status.title)

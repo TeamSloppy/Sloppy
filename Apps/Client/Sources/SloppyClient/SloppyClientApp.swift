@@ -16,17 +16,18 @@ struct SloppyClientApp: App {
     private var baseScene: some AppScene {
         WindowGroup {
             RootShellView()
+                .environment(\.openURL, OpenURLAction { url in _ = Application.shared?.openURL(url) })
             //                .debugOverlay()
             //                .hotReloading()
         }
         .window(
             with: UIWindow.Configuration(
-                title: "",
-                minimumSize: Size(width: 1280, height: 800),
+                title: "Sloppy",
+                minimumSize: Size(width: 960, height: 640),
                 mode: .windowed,
                 titleBar: UIWindow.TitleBar(
                     background: .transparent,
-                    reservesSafeArea: false,
+                    reservesSafeArea: true,
                     dragRegionHeight: 52,
                     trafficLightOffset: Point(x: 6, y: 6)
                 ),

@@ -123,14 +123,14 @@ public struct SitesScreen: View {
                     .padding(.horizontal, 28)
                     .padding(.bottom, 10)
             }
-            content
+            refreshableContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .searchable(text: $searchText, prompt: "Search sites")
         .mobileScreenBackground()
         .task { await viewModel.load() }
-        .refreshable { await viewModel.load() }
+        .mobileRefreshable { await viewModel.load() }
         .sheet(item: $editDraft) { draft in
             SiteEditSheet(draft: draft) { request in
                 editDraft = nil
@@ -165,17 +165,32 @@ public struct SitesScreen: View {
                     .foregroundStyle(.secondary)
             }
             Spacer()
+#if !os(iOS)
             Button(action: { Task { await viewModel.load() } }) {
                 Image(systemName: "arrow.clockwise")
             }
             .buttonStyle(.borderless)
             .help("Refresh sites")
+#endif
             Button("Create", systemImage: "plus", action: onCreate)
                 .appPrimaryButton()
         }
         .padding(.horizontal, 28)
         .padding(.top, 24)
         .padding(.bottom, 18)
+    }
+
+    @ViewBuilder
+    private var refreshableContent: some View {
+#if os(iOS)
+        if filteredSites.isEmpty {
+            ScrollView { content.frame(maxWidth: .infinity, minHeight: 360) }
+        } else {
+            content
+        }
+#else
+        content
+#endif
     }
 
     @ViewBuilder

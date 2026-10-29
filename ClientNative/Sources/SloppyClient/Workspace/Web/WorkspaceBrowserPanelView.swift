@@ -169,15 +169,28 @@ struct WorkspaceBrowserPanelView: View {
         VStack(spacing: 0) {
             HStack(spacing: 8) {
                 Button(action: viewModel.goBack) { Image(systemName: "chevron.left") }
+                    .frame(minWidth: 44, minHeight: 44)
                     .disabled(!viewModel.canGoBack)
                     .accessibilityLabel("Back")
                 Button(action: viewModel.goForward) { Image(systemName: "chevron.right") }
+                    .frame(minWidth: 44, minHeight: 44)
                     .disabled(!viewModel.canGoForward)
                     .accessibilityLabel("Forward")
+#if !os(iOS)
                 Button(action: viewModel.reload) { Image(systemName: "arrow.clockwise") }
                     .accessibilityLabel("Reload")
+#endif
                 TextField("Open URL", text: $viewModel.addressText)
+#if os(iOS)
+                    .font(.body)
+                    .appTextField()
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .keyboardType(.URL)
+                    .submitLabel(.go)
+#else
                     .textFieldStyle(.roundedBorder)
+#endif
                     .onSubmit(viewModel.openAddress)
                     .accessibilityIdentifier("workspace-browser-address")
             }

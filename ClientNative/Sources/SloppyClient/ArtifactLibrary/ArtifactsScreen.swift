@@ -131,12 +131,13 @@ struct ArtifactsScreen: View {
             .padding(.bottom, theme.spacing.m)
             #endif
             Divider()
-            content
+            refreshableContent
         }
         #if !os(macOS)
         .searchable(text: $searchText, prompt: "Search artifacts")
         #endif
         .mobileScreenBackground()
+        .mobileRefreshable(id: catalogVersion) { await viewModel.load(sessions: sessions) }
         .task(id: catalogVersion) {
             await viewModel.load(sessions: sessions)
         }
@@ -156,6 +157,7 @@ struct ArtifactsScreen: View {
 
             Spacer()
 
+#if !os(iOS)
             Button {
                 Task { await viewModel.load(sessions: sessions) }
             } label: {
@@ -165,9 +167,23 @@ struct ArtifactsScreen: View {
             .disabled(viewModel.isLoading)
             .help("Refresh")
             .accessibilityLabel("Refresh artifacts")
+#endif
         }
         .padding(.horizontal, theme.spacing.l)
         .padding(.vertical, theme.spacing.m)
+    }
+
+    @ViewBuilder
+    private var refreshableContent: some View {
+#if os(iOS)
+        if filteredArtifacts.isEmpty {
+            ScrollView { content.frame(maxWidth: .infinity, minHeight: 360) }
+        } else {
+            content
+        }
+#else
+        content
+#endif
     }
 
     @ViewBuilder
@@ -204,9 +220,6 @@ struct ArtifactsScreen: View {
             }
             .listStyle(.inset)
             .scrollContentBackground(.hidden)
-            .refreshable {
-                await viewModel.load(sessions: sessions)
-            }
         }
     }
 }

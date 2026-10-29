@@ -61,11 +61,23 @@ struct AuthenticationScreen: View {
     }
 
     var body: some View {
+#if os(iOS)
+        ScrollView {
+            authenticationContent
+        }
+        .scrollDismissesKeyboard(.interactively)
+        .mobileScreenBackground()
+#else
+        authenticationContent
+#endif
+    }
+
+    private var authenticationContent: some View {
         let c = theme.colors
         let sp = theme.spacing
         let ty = theme.typography
 
-        VStack(spacing: 0) {
+        return VStack(spacing: 0) {
             Spacer()
 
             VStack(alignment: .leading, spacing: sp.xl) {
@@ -92,8 +104,8 @@ struct AuthenticationScreen: View {
                         .foregroundColor(c.statusWarning)
                         .padding(sp.m)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .appSurface(
-                            .regular.tint(c.statusWarning.opacity(0.15)),
+                        .background(
+                            c.statusWarning.opacity(0.12),
                             in: RoundedRectangle(cornerRadius: 16, style: .continuous)
                         )
                     identityCredentialsContent
@@ -120,33 +132,55 @@ struct AuthenticationScreen: View {
                                     .controlSize(.small)
                             }
                             Text(submitButtonTitle)
+#if os(iOS)
+                                .font(.body.weight(.semibold))
+#else
                                 .font(.system(size: ty.body, weight: .semibold))
+#endif
                             Spacer(minLength: 0)
                         }
-                        .foregroundColor(c.background)
                         .frame(maxWidth: .infinity)
+#if !os(iOS)
+                        .foregroundColor(c.background)
                         .padding(.vertical, sp.m)
                         .contentShape(Capsule())
+#endif
                     }
+#if os(iOS)
+                    .appPrimaryButton()
+#else
                     .buttonStyle(.plain)
                     .appSurface(.regular.interactive().tint(c.accentCyan), in: .capsule)
+#endif
                     .disabled(!canSubmit)
                     .keyboardShortcut(.defaultAction)
                 }
 
                 Button("Choose another server", action: onChooseServer)
                     .buttonStyle(.plain)
+#if os(iOS)
+                    .font(.callout)
+                    .frame(minHeight: 44)
+#else
                     .font(.system(size: ty.caption))
+#endif
                     .foregroundColor(c.accentCyan)
                     .frame(maxWidth: .infinity)
             }
+#if os(iOS)
+            .padding(.horizontal, 24)
+            .padding(.vertical, 32)
+#else
             .padding(sp.xxl)
+#endif
             .frame(maxWidth: 420)
             .padding(.horizontal, sp.m)
+#if !os(iOS)
             .appSurface(
                 .regular,
                 in: RoundedRectangle(cornerRadius: 28, style: .continuous)
             )
+#endif
 
             Spacer()
         }
@@ -176,6 +210,15 @@ struct AuthenticationScreen: View {
     }
 
     private var authenticationMethodPicker: some View {
+#if os(iOS)
+        Picker("Sign-in method", selection: $authenticationMethod) {
+            ForEach(AuthenticationMethod.allCases) { method in
+                Text(method.title).tag(method)
+            }
+        }
+        .pickerStyle(.segmented)
+        .accessibilityIdentifier("authentication.method")
+#else
         let c = theme.colors
         let sp = theme.spacing
         let ty = theme.typography
@@ -219,6 +262,7 @@ struct AuthenticationScreen: View {
         .accessibilityElement(children: .contain)
         .accessibilityLabel("Authentication method")
         .accessibilityIdentifier("authentication.method")
+#endif
     }
 
     @ViewBuilder
@@ -289,7 +333,12 @@ struct AuthenticationScreen: View {
                     errorMessage = nil
                 }
                 .buttonStyle(.plain)
+#if os(iOS)
+                .font(.callout)
+                .frame(minHeight: 44)
+#else
                 .font(.system(size: theme.typography.caption))
+#endif
                 .foregroundColor(theme.colors.accentCyan)
                 .frame(maxWidth: .infinity)
             }
@@ -298,25 +347,35 @@ struct AuthenticationScreen: View {
 
     private var submitButtonTitle: String {
         if isSubmitting {
-            return isCreatingAccount || challenge.bootstrapRequired ? "CREATING ACCOUNT…" : "SIGNING IN…"
+            return isCreatingAccount || challenge.bootstrapRequired ? "Creating account…" : "Signing in…"
         }
-        return isCreatingAccount || challenge.bootstrapRequired ? "CREATE ACCOUNT" : "SIGN IN"
+        return isCreatingAccount || challenge.bootstrapRequired ? "Create Account" : "Sign In"
     }
 
     private func authenticationField(_ title: String, text: Binding<String>) -> some View {
         TextField(title, text: text)
+#if os(iOS)
+            .font(.body)
+            .appTextField()
+#else
             .textFieldStyle(.plain)
             .padding(.horizontal, theme.spacing.m)
             .padding(.vertical, theme.spacing.m)
             .appSurface(.regular, in: .capsule)
+#endif
     }
 
     private func secureAuthenticationField(_ title: String, text: Binding<String>) -> some View {
         SecureField(title, text: text)
+#if os(iOS)
+            .font(.body)
+            .appTextField()
+#else
             .textFieldStyle(.plain)
             .padding(.horizontal, theme.spacing.m)
             .padding(.vertical, theme.spacing.m)
             .appSurface(.regular, in: .capsule)
+#endif
     }
 
     private func submit() {

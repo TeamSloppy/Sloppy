@@ -68,3 +68,24 @@ func cwdProjectResolverReusesRepoPathAndHashesIdConflict() async throws {
     #expect(second.id.hasPrefix(first.id + "-"))
     #expect(second.repoPath == otherRoot.standardizedFileURL.path)
 }
+
+@Test
+func projectChangeWatcherSkipsAgentWorktreesAndDoesNotTraverseSymlinks() throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("sloppy-watch-boundaries-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: root) }
+    for path in [".claude/worktrees/task/.build-r2", ".codex/worktrees/task", ".codegraph", ".claude/rules", "Sources"] {
+        try FileManager.default.createDirectory(at: root.appendingPathComponent(path), withIntermediateDirectories: true)
+        try "content".write(to: root.appendingPathComponent(path + "/file.txt"), atomically: true, encoding: .utf8)
+    }
+    try FileManager.default.createSymbolicLink(at: root.appendingPathComponent("linked-source"), withDestinationURL: root.appendingPathComponent("Sources"))
+
+    let snapshot = ProjectChangeWatcherService().snapshot(rootURL: root)
+    #expect(snapshot["Sources/file.txt"] != nil)
+    #expect(snapshot[".claude/rules/file.txt"] != nil)
+    #expect(snapshot["linked-source"] != nil)
+    #expect(!snapshot.keys.contains { $0.hasPrefix("linked-source/") })
+    #expect(!snapshot.keys.contains { $0.hasPrefix(".claude/worktrees/") })
+    #expect(!snapshot.keys.contains { $0.hasPrefix(".codex/worktrees/") })
+    #expect(!snapshot.keys.contains { $0.hasPrefix(".codegraph/") })
+}

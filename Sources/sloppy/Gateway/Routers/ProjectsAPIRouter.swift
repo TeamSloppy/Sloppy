@@ -150,7 +150,26 @@ struct ProjectsAPIRouter: APIRouter {
             do {
                 let response = try await service.projectWorkingTreeSourceControl(
                     projectID: projectId,
-                    taskID: taskId
+                    taskID: taskId,
+                    directoryPath: request.queryParam("directoryPath")
+                )
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
+            } catch let error as CoreService.ProjectError {
+                return CoreRouter.projectErrorResponse(error, fallback: ErrorCode.projectNotFound)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.projectReadFailed])
+            }
+        }
+
+        router.get("/v1/projects/:projectId/source-control/working-tree/directory", metadata: RouteMetadata(summary: "Workspace directory source-control diff", description: "Returns working-tree changes for a configured workspace directory selected by directoryPath", tags: ["Projects"])) { request in
+            guard let directoryPath = request.queryParam("directoryPath") else {
+                return CoreRouter.projectErrorResponse(.invalidPayload, fallback: ErrorCode.projectReadFailed)
+            }
+            do {
+                let response = try await service.projectWorkingTreeSourceControl(
+                    projectID: request.pathParam("projectId") ?? "",
+                    taskID: request.queryParam("taskId"),
+                    directoryPath: directoryPath
                 )
                 return CoreRouter.encodable(status: HTTPStatus.ok, payload: response)
             } catch let error as CoreService.ProjectError {

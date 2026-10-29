@@ -93,9 +93,7 @@ public struct ChatComposerView: View {
             #endif
         }
         .sheet(item: $imageToAnnotate, onDismiss: viewModel.requestComposerFocus) { attachment in
-            ChatImageAnnotationEditor(attachment: attachment) { annotations in
-                viewModel.updateImageAnnotations(id: attachment.id, annotations: annotations)
-            }
+            ChatImageAnnotationEditor(attachment: attachment, onSave: viewModel.updateImageEdits)
         }
     }
     
@@ -174,8 +172,10 @@ public struct ChatComposerView: View {
             }
             .frame(minHeight: currentPanelHeight, alignment: .bottom)
 #if !os(macOS)
-            ChatApprovalModePicker(viewModel: viewModel)
-                .padding(.horizontal, sp.m)
+            if idiom != .phone {
+                ChatApprovalModePicker(viewModel: viewModel)
+                    .padding(.horizontal, sp.m)
+            }
 #endif
         }
         .environment(viewModel)
@@ -441,6 +441,8 @@ public struct ChatComposerView: View {
                         onSelectModel: viewModel.pickModel,
                         onSelectEffort: viewModel.pickReasoningEffort
                     )
+
+                    ChatApprovalModePicker(viewModel: viewModel)
 
                     Spacer(minLength: 0)
 

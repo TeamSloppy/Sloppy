@@ -49,10 +49,11 @@ public struct ChatBubbleView: View {
             Spacer(minLength: sp.xxl)
 
             Text(messageText)
+                .textSelection(.enabled)
                 .font(.system(size: ty.body))
                 .foregroundColor(c.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
-                .frame(width: Self.userBubbleWidth, alignment: .leading)
+                .frame(maxWidth: Self.userBubbleWidth, alignment: .leading)
                 .padding(.horizontal, sp.m)
                 .padding(.vertical, sp.s)
                 .background {
@@ -68,6 +69,7 @@ public struct ChatBubbleView: View {
         let ty = theme.typography
 
         return Text(messageText)
+            .textSelection(.enabled)
             .font(.system(size: ty.body))
             .foregroundColor(c.textPrimary)
             .fixedSize(horizontal: false, vertical: true)
@@ -95,27 +97,14 @@ public struct ChatBubbleView: View {
         let ty = theme.typography
 
         return VStack(alignment: .leading, spacing: sp.m) {
-            HStack(spacing: sp.s) {
-                Text("SLOPPY")
-                    .font(.system(size: ty.caption))
-                    .foregroundColor(c.accentCyan)
-                    .padding(.horizontal, sp.s)
-                    .padding(.vertical, sp.xs)
-                    .background(c.accentCyan.opacity(0.08 as Float))
-                    .glassEffect(.regular.tint(c.accentCyan.opacity(0.06 as Float)), in: .rect(cornerRadius: 999))
-                Icons.symbol(.arrowForward, size: ty.micro)
-                    .foregroundColor(c.textMuted)
-            }
-
-            Color.clear
-                .frame(height: theme.borders.thin)
-                .background(c.border.opacity(0.48 as Float))
-
             assistantText
                 .font(.system(size: ty.body))
                 .foregroundColor(c.textPrimary)
                 .fixedSize(horizontal: false, vertical: true)
                 .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
+            Button { UIClipboard.setString(messageText) } label: {
+                Text("Copy").font(.system(size: ty.caption)).foregroundColor(c.textMuted).frame(height: 28)
+            }.accessibilityIdentifier("chat.message.\(message.id).copy")
         }
         .frame(minWidth: 0, maxWidth: .infinity, alignment: .leading)
     }
@@ -142,13 +131,13 @@ public struct ChatBubbleView: View {
         return HStack(spacing: 0) {
             Spacer(minLength: sp.xl)
             Text(messageText)
+                .textSelection(.enabled)
                 .font(.system(size: ty.caption))
                 .foregroundColor(c.textMuted)
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(.horizontal, sp.m)
                 .padding(.vertical, sp.s)
                 .background(c.surface.opacity(0.68 as Float))
-                .glassEffect(.regular, in: .rect(cornerRadius: 12))
             Spacer(minLength: sp.xl)
         }
     }
@@ -157,8 +146,10 @@ public struct ChatBubbleView: View {
     private var assistantText: some View {
         if isStreamingAssistant {
             Text(messageText)
+                .textSelection(.enabled)
         } else {
             Text(markdown: messageText)
+                .textSelection(.enabled)
         }
     }
 

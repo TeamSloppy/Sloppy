@@ -100,6 +100,10 @@ extension ChatScreenViewModel {
             return
         }
 
+        // History is available over HTTP even while the live connection is
+        // retrying. Revalidate again after subscribing to cover that interval.
+        requestSessionHydration(agentId: agentId, sessionId: sessionId)
+
         let manager: SessionSocketManager?
         let stream: AsyncStream<ChatStreamUpdate>
         if let sessionStreamProvider {

@@ -3,6 +3,7 @@ import Protocols
 import SloppyRuntime
 
 protocol SessionToolService: Sendable {
+    func sessionHasActiveRun(agentID: String, sessionID: String) async -> Bool?
     func linkCurrentSessionToCodeReview(providerID: String, reviewID: String, agentID: String, sessionID: String) async throws -> AgentSessionSummary
     func sendPeerSessionMessage(
         senderAgentID: String, senderSessionID: String, targetAgentID: String, targetSessionID: String,
@@ -10,11 +11,15 @@ protocol SessionToolService: Sendable {
     ) async throws -> JSONValue
 }
 
+extension SessionToolService {
+    func sessionHasActiveRun(agentID: String, sessionID: String) async -> Bool? { nil }
+}
+
 enum SessionToolQuery {
     enum QueryError: Error { case invalidArguments, invalidCursor }
 
     static func agentID(_ arguments: [String: JSONValue], context: ToolContext) throws -> String {
-        let agentID = arguments["agentId"]?.asString ?? context.agentID
+        let agentID = nonempty(arguments["agentId"]?.asString) ?? context.agentID
         _ = try context.agentCatalogStore.getAgent(id: agentID)
         if agentID != context.agentID {
             guard let sessionID = arguments["sessionId"]?.asString, !sessionID.isEmpty,
@@ -27,7 +32,7 @@ enum SessionToolQuery {
         agentID: String?, projectID: String?, query: String?, limit: Int?, offset: Int, includeWorkers: Bool,
         catalog: AgentCatalogFileStore, store: AgentSessionFileStore
     ) throws -> [AgentSessionSummary] {
-        let agents = try agentID.map { [try catalog.getAgent(id: $0)] } ?? catalog.listAgents()
+        let agents = try nonempty(agentID).map { [try catalog.getAgent(id: $0)] } ?? catalog.listAgents()
         var sessions = try agents.flatMap { try store.listSessions(agentID: $0.id) }
         if !includeWorkers {
             let coordinatorIDs = Set(sessions.filter { $0.kind == .longChat }.map(\.id))
@@ -42,10 +47,15 @@ enum SessionToolQuery {
         return Array(page.prefix(limit.map { max(0, min(500, $0)) } ?? page.count))
     }
 
+    static func nonempty(_ value: String?) -> String? {
+        guard let trimmed = value?.trimmingCharacters(in: .whitespacesAndNewlines), !trimmed.isEmpty else { return nil }
+        return trimmed
+    }
+
     static func history(_ detail: AgentSessionDetail, arguments: [String: JSONValue]) throws -> JSONValue {
         let limit = min(500, max(1, arguments["limit"]?.asInt ?? 100))
         let end: Int
-        if let cursor = arguments["beforeEventId"]?.asString {
+        if let cursor = nonempty(arguments["beforeEventId"]?.asString) {
             guard let index = detail.events.firstIndex(where: { $0.id == cursor }) else { throw QueryError.invalidCursor }
             end = index
         } else { end = detail.events.count }

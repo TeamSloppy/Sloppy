@@ -7,16 +7,11 @@ struct WorkspaceEnvironmentPanelView: View {
     let viewModel: WorkspacePanelViewModel
     let onOpenTerminal: (@MainActor () -> Void)?
 
-    @State private var areChangesExpanded = true
     @Environment(\.theme) private var theme
     @Environment(\.openURL) private var openURL
 
     private var sourceControl: ProjectWorkingTreeSourceControlResponse? {
         viewModel.sourceControl
-    }
-
-    private var fileChanges: [ProjectSourceControlFileChange] {
-        sourceControl?.fileChanges ?? []
     }
 
     var body: some View {
@@ -32,6 +27,7 @@ struct WorkspaceEnvironmentPanelView: View {
             }
             .padding(theme.spacing.m)
         }
+        .mobileRefreshable { await viewModel.refreshEnvironment() }
         .accessibilityIdentifier("workspace.environment-panel")
     }
 
@@ -41,12 +37,14 @@ struct WorkspaceEnvironmentPanelView: View {
                 HStack {
                     Text("Environment").font(.callout.weight(.medium))
                     Spacer()
+#if !os(iOS)
                     Button { Task { await viewModel.refreshEnvironment() } } label: {
                         Image(systemName: "arrow.clockwise").font(.caption)
                     }
                     .buttonStyle(.plain)
                     .help("Refresh environment")
                     .accessibilityLabel("Refresh environment")
+#endif
                 }
                 .foregroundStyle(theme.colors.textSecondary)
                 environmentRow(title: environmentTitle, detail: endpointLabel, systemImage: "desktopcomputer")
@@ -79,6 +77,7 @@ struct WorkspaceEnvironmentPanelView: View {
                 codeReviewRows
             }
         }
+        .accessibilityElement(children: .contain)
         .accessibilityIdentifier("workspace.inspector.changes")
     }
 
@@ -163,7 +162,7 @@ struct WorkspaceEnvironmentPanelView: View {
         VStack(alignment: .leading, spacing: theme.spacing.s) {
             Button {
                 withAnimation(.easeInOut(duration: 0.15)) {
-                    areChangesExpanded.toggle()
+                    viewModel.areChangesExpanded.toggle()
                 }
             } label: {
                 HStack(spacing: theme.spacing.s) {
@@ -177,59 +176,84 @@ struct WorkspaceEnvironmentPanelView: View {
 
                     Spacer(minLength: theme.spacing.s)
 
-                    if let sourceControl {
+                    if sourceControl != nil || !viewModel.directoryChanges.isEmpty {
                         changeCounts(
-                            added: sourceControl.linesAdded,
-                            deleted: sourceControl.linesDeleted
+                            added: viewModel.changesLinesAdded,
+                            deleted: viewModel.changesLinesDeleted
                         )
                     } else if viewModel.isLoadingEnvironment {
                         ProgressView()
                             .controlSize(.small)
                     }
 
-                    Image(systemName: areChangesExpanded ? "chevron.up" : "chevron.down")
+                    Image(systemName: viewModel.areChangesExpanded ? "chevron.up" : "chevron.down")
                         .font(.system(size: theme.typography.micro, weight: .semibold))
                         .foregroundColor(theme.colors.textMuted)
                 }
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
+            .accessibilityIdentifier("workspace.changes.toggle")
+            .accessibilityValue(viewModel.areChangesExpanded ? "Expanded" : "Collapsed")
 
-            if areChangesExpanded {
-                if let error = viewModel.environmentLoadError {
-                    Text(error)
-                        .font(.system(size: theme.typography.caption))
-                        .foregroundColor(theme.colors.statusBlocked)
-                        .padding(.leading, 28)
-                } else if sourceControl == nil {
-                    Text("Source-control information unavailable.")
-                        .font(.system(size: theme.typography.caption))
-                        .foregroundColor(theme.colors.textMuted)
-                        .padding(.leading, 28)
-                } else if fileChanges.isEmpty {
-                    Text(sourceControl?.hasChanges == true ? "Changed files are unavailable." : "Working tree is clean.")
-                        .font(.system(size: theme.typography.caption))
-                        .foregroundColor(theme.colors.textMuted)
-                        .padding(.leading, 28)
-                } else {
-                    VStack(alignment: .leading, spacing: theme.spacing.s) {
-                        ForEach(fileChanges) { change in
-                            HStack(spacing: theme.spacing.s) {
-                                Text(change.path)
-                                    .font(.system(size: theme.typography.micro, design: .monospaced))
-                                    .foregroundColor(theme.colors.textSecondary)
-                                    .lineLimit(1)
-                                    .truncationMode(.middle)
-
-                                Spacer(minLength: theme.spacing.xs)
-
-                                changeCounts(added: change.linesAdded, deleted: change.linesDeleted)
-                            }
+            if viewModel.areChangesExpanded {
+                if !viewModel.directoryChanges.isEmpty {
+                    ForEach(viewModel.directoryChanges) { directory in
+                        VStack(alignment: .leading, spacing: theme.spacing.s) {
+                            Text(directory.path)
+                                .font(.caption.weight(.medium))
+                                .foregroundStyle(theme.colors.textSecondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .help(directory.path)
+                            changedFiles(directory.sourceControl)
                         }
+                        .accessibilityElement(children: .contain)
+                        .accessibilityIdentifier("workspace.changes.directory.\(directory.path)")
                     }
-                    .padding(.leading, 28)
+                } else {
+                    changedFiles(sourceControl)
                 }
             }
+        }
+    }
+
+    @ViewBuilder
+    private func changedFiles(_ sourceControl: ProjectWorkingTreeSourceControlResponse?) -> some View {
+        if let message = sourceControl?.message ?? (sourceControl == nil ? viewModel.environmentLoadError : nil) {
+            Text(message)
+                .font(.system(size: theme.typography.caption))
+                .foregroundStyle(theme.colors.statusBlocked)
+                .padding(.leading, 28)
+        } else if let sourceControl {
+            let fileChanges = sourceControl.fileChanges
+            if fileChanges.isEmpty {
+                Text(sourceControl.hasChanges ? "Changed files are unavailable." : "Working tree is clean.")
+                    .font(.system(size: theme.typography.caption))
+                    .foregroundStyle(theme.colors.textMuted)
+                    .padding(.leading, 28)
+            } else {
+                VStack(alignment: .leading, spacing: theme.spacing.s) {
+                    ForEach(fileChanges) { change in
+                        HStack(spacing: theme.spacing.s) {
+                            Text(change.path)
+                                .font(.system(size: theme.typography.micro, design: .monospaced))
+                                .foregroundStyle(theme.colors.textSecondary)
+                                .lineLimit(1)
+                                .truncationMode(.middle)
+                                .help(change.path)
+                            Spacer(minLength: theme.spacing.xs)
+                            changeCounts(added: change.linesAdded, deleted: change.linesDeleted)
+                        }
+                    }
+                }
+                .padding(.leading, 28)
+            }
+        } else {
+            Text("Source-control information unavailable.")
+                .font(.system(size: theme.typography.caption))
+                .foregroundStyle(theme.colors.textMuted)
+                .padding(.leading, 28)
         }
     }
 
@@ -243,6 +267,7 @@ struct WorkspaceEnvironmentPanelView: View {
 
                     Spacer(minLength: 0)
 
+#if !os(iOS)
                     Button {
                         Task { await viewModel.refreshEnvironment() }
                     } label: {
@@ -251,6 +276,7 @@ struct WorkspaceEnvironmentPanelView: View {
                     .buttonStyle(.plain)
                     .foregroundColor(theme.colors.textSecondary)
                     .help("Refresh environment")
+#endif
                 }
 
                 environmentRow(
@@ -271,6 +297,7 @@ struct WorkspaceEnvironmentPanelView: View {
             .overlay {
                 RoundedRectangle(cornerRadius: 14)
                     .stroke(theme.colors.border, lineWidth: theme.borders.thin)
+                    .allowsHitTesting(false)
             }
     }
 

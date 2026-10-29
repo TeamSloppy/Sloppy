@@ -4,7 +4,7 @@ import FoundationNetworking
 #endif
 import Logging
 
-public enum APIError: Error, Sendable {
+public enum APIError: Error, LocalizedError, Sendable {
     case invalidResponse
     case httpError(statusCode: Int, body: String?)
     case decodingFailed(String)
@@ -12,6 +12,14 @@ public enum APIError: Error, Sendable {
     public var statusCode: Int? {
         if case let .httpError(statusCode, _) = self { return statusCode }
         return nil
+    }
+
+    public var errorDescription: String? {
+        switch self {
+        case .invalidResponse: "The server returned an invalid response."
+        case .httpError(let status, _): "The server returned HTTP \(status)."
+        case .decodingFailed(let message): "Could not read the server response: \(message)"
+        }
     }
 }
 
@@ -76,6 +84,11 @@ public actor BackendHTTPClient {
 
     public func delete(_ path: String) async throws {
         _ = try await data(method: "DELETE", path: path)
+    }
+
+    public func patch<Body: Encodable, T: Decodable>(_ path: String, body: Body) async throws -> T {
+        let data = try await data(method: "PATCH", path: path, body: body)
+        return try decode(T.self, from: data)
     }
 
     public func setAuthToken(_ token: String) {

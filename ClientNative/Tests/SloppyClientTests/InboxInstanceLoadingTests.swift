@@ -7,7 +7,24 @@ import Testing
 @Suite("Inbox instance loading", .serialized)
 @MainActor
 struct InboxInstanceLoadingTests {
-    @Test(arguments: ["/v1/projects", "/v1/agents/agent/sessions"])
+    @Test func taskDetailsLoadSeparatelyFromTheCompactProjectList() async throws {
+        let fixture = InboxLoadingFixture(delayedPath: "")
+        let model = makeModel(api: fixture.api, cache: ClientCacheStore(path: ":memory:"))
+        let selection = model.settings.instanceSelection
+        defer {
+            fixture.release()
+            model.chatViewModel.closeSession()
+            model.settings.instanceSelection = selection
+        }
+        await model.loadProjects()
+        let summary = try #require(model.projects.first)
+        #expect(summary.tasks == nil)
+        let detailed = try await model.fetchInboxProject(summary)
+        #expect(detailed.id == summary.id)
+        #expect(detailed.tasks?.first?.status == "blocked")
+    }
+
+    @Test(arguments: ["/v1/projects", "/v1/agent-sessions"])
     func skeletonWaitsForProjectsAndSessionCatalog(delayedPath: String) async throws {
         let fixture = InboxLoadingFixture(delayedPath: delayedPath)
         let cache = ClientCacheStore(path: ":memory:")
@@ -154,10 +171,15 @@ private final class InboxLoadingURLProtocol: URLProtocol, @unchecked Sendable {
         let data: Data
         switch url.path {
         case "/v1/projects":
+            #expect(URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems == [URLQueryItem(name: "summary", value: "true")])
             data = try! encoder.encode([APIProjectRecord(id: "fresh", name: "Fresh project")])
+        case "/v1/projects/fresh":
+            data = try! encoder.encode(APIProjectRecord(id: "fresh", name: "Fresh project", tasks: [
+                .init(id: "blocked-task", title: "Needs attention", status: "blocked")
+            ]))
         case "/v1/agents":
             data = try! encoder.encode([APIAgentRecord(id: "agent", displayName: "Fresh agent")])
-        case "/v1/agents/agent/sessions":
+        case "/v1/agent-sessions":
             data = try! encoder.encode([ChatSessionSummary(id: "fresh-chat", agentId: "agent", title: "Fresh chat")])
         default:
             data = Data("[]".utf8)

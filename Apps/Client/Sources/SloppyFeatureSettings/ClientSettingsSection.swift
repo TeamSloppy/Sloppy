@@ -10,12 +10,10 @@ struct ClientSettingsSection: View {
     @Environment(\.theme) private var theme
 
     private let accentPresets: [(label: String, hex: String)] = [
-        ("Pink", "#FF2D6F"),
-        ("Cyan", "#00F0FF"),
-        ("Acid", "#CDFF00"),
-        ("Green", "#4ADE80"),
-        ("Orange", "#FFAA00"),
-        ("White", "#F0F0F0")
+        ("Mint", "#C8E2AE"),
+        ("Coral", "#D94E34"),
+        ("Blue", "#5DADE0"),
+        ("Paper", "#F5F2E9")
     ]
 
     var body: some View {

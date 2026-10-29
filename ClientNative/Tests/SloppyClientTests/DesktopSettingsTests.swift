@@ -118,36 +118,34 @@ private final class DesktopSettingsURLProtocol: URLProtocol, @unchecked Sendable
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
     override func startLoading() {
-        Task {
-            var name = "Test Profile"
-            if request.httpMethod == "PATCH" {
-                var data = request.httpBody ?? Data()
-                if let stream = request.httpBodyStream {
-                    stream.open()
-                    defer { stream.close() }
-                    var buffer = [UInt8](repeating: 0, count: 1024)
-                    while stream.hasBytesAvailable {
-                        let count = stream.read(&buffer, maxLength: buffer.count)
-                        guard count > 0 else { break }
-                        data.append(contentsOf: buffer.prefix(count))
-                    }
+        var name = "Test Profile"
+        if request.httpMethod == "PATCH" {
+            var data = request.httpBody ?? Data()
+            if let stream = request.httpBodyStream {
+                stream.open()
+                defer { stream.close() }
+                var buffer = [UInt8](repeating: 0, count: 1024)
+                while stream.hasBytesAvailable {
+                    let count = stream.read(&buffer, maxLength: buffer.count)
+                    guard count > 0 else { break }
+                    data.append(contentsOf: buffer.prefix(count))
                 }
-                name = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["name"] as? String ?? "Missing name"
-                await DesktopSettingsRequests.shared.record(name)
             }
-            let json: Data
-            if request.url?.path == "/v1/auth/me" {
-                json = (try? JSONSerialization.data(withJSONObject: ["id": "fixture", "login": "testuser", "name": name,
-                    "role": "admin", "status": "active"])) ?? Data()
-            } else {
-                json = Data("[]".utf8)
-            }
-            if let url = request.url, let response = HTTPURLResponse(url: url, statusCode: 200,
-                httpVersion: nil, headerFields: ["Content-Type": "application/json"]) {
-                client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
-                client?.urlProtocol(self, didLoad: json)
-                client?.urlProtocolDidFinishLoading(self)
-            }
+            name = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["name"] as? String ?? "Missing name"
+            Task { [name] in await DesktopSettingsRequests.shared.record(name) }
+        }
+        let json: Data
+        if request.url?.path == "/v1/auth/me" {
+            json = (try? JSONSerialization.data(withJSONObject: ["id": "fixture", "login": "testuser", "name": name,
+                "role": "admin", "status": "active"])) ?? Data()
+        } else {
+            json = Data("[]".utf8)
+        }
+        if let url = request.url, let response = HTTPURLResponse(url: url, statusCode: 200,
+            httpVersion: nil, headerFields: ["Content-Type": "application/json"]) {
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: json)
+            client?.urlProtocolDidFinishLoading(self)
         }
     }
     override func stopLoading() {}

@@ -84,6 +84,10 @@ extension SloppyTUIScreen {
     func scrollList(_ target: SloppyTUIScrollTarget?, by delta: Int) -> Bool {
         guard let target else { return false }
         switch target {
+        case .workspaceDiff:
+            workspaceDiffScrollOffset = max(0, workspaceDiffScrollOffset + delta)
+            requestRender()
+            return true
         case .activePicker:
             guard var picker = activePicker, !picker.items.isEmpty else { return true }
             picker.selectedIndex = clampedListSelection(picker.selectedIndex + delta, count: picker.items.count)
@@ -674,6 +678,27 @@ extension SloppyTUIScreen {
     }
 
     func renderChatBody(width: Int, height: Int) -> [String] {
+        guard let paneWidth = SloppyTUIChangesPane.width(for: width, hasChanges: workspaceDiffPreview != nil),
+              let preview = workspaceDiffPreview else {
+            return renderChatTimelineBody(width: width, height: height)
+        }
+        let chatWidth = width - paneWidth - 1
+        let chatLines = renderChatTimelineBody(width: chatWidth, height: height, hidesDiff: true)
+        let diffLines = renderTimelineLines([preview.timelineBlock], width: paneWidth)
+        let contentHeight = max(1, height - 1)
+        workspaceDiffScrollOffset = min(workspaceDiffScrollOffset, max(0, diffLines.count - contentHeight))
+        let paneLines = [SloppyTUITheme.fittedLine("Changes · scroll to review", width: paneWidth)]
+            + Array(diffLines.dropFirst(workspaceDiffScrollOffset).prefix(contentHeight))
+        let startColumn = sessionListMode == .side
+            ? min(max(36, (terminal?.columns ?? width) / 3), min(72, max(1, (terminal?.columns ?? width) - 24))) + 1
+            : 0
+        registerScrollRegion(startRow: 0, endRow: height, startColumn: startColumn + chatWidth + 1,
+                             endColumn: startColumn + width, target: .workspaceDiff)
+        return Self.zippedPaneLines(left: chatLines, right: paneLines, leftWidth: chatWidth,
+                                    rightWidth: paneWidth, separator: "│", height: height)
+    }
+
+    func renderChatTimelineBody(width: Int, height: Int, hidesDiff: Bool = false) -> [String] {
         if shouldRenderWelcome {
             let raw = SloppyTUITheme.welcomeScreen(
                 width: width,
@@ -697,7 +722,7 @@ extension SloppyTUIScreen {
         let headerLines = header.render(width: width)
         let statusLines = status.render(width: width)
         let timelineHeight = max(1, height - headerLines.count - statusLines.count)
-        let visibleTimeline = renderTimelineBlocks(width: width, height: timelineHeight)
+        let visibleTimeline = renderTimelineBlocks(width: width, height: timelineHeight, hidesDiff: hidesDiff)
         let bottomPadding = max(0, height - headerLines.count - visibleTimeline.count - statusLines.count)
         let lines = headerLines
             + visibleTimeline

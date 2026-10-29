@@ -340,6 +340,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     var sessionStreamID = UUID()
     var sessionStreamReadyKey: String?
     var sessionStreamReconnecting = false
+    var sessionStreamTurnCompleted = false
+    var sessionStreamStatusRevision = 0
     var sessionStreamReadyWaiters: [CheckedContinuation<Void, Never>] = []
     var changeTask: Task<Void, Never>?
     var autoDiffTask: Task<Void, Never>?
@@ -401,6 +403,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     var cumulativeAgentActiveTime: TimeInterval = 0
     var transientNoticeLine: String?
     var transientNoticeTask: Task<Void, Never>?
+    var activeDiffBaseline: SloppyTUISessionUndoManagers.Baseline?
+    var workspaceDiffScrollOffset = 0
     var workspaceDiffPreview: SloppyTUIWorkspaceDiffPreview?
     var lastAgentToolActivityAt: Date?
     var transcriptExpanded = false

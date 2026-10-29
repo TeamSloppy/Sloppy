@@ -91,23 +91,26 @@ private struct ChatChrome: View {
     @Environment(\.theme) private var theme
 
     var body: some View {
-        Group {
-            if idiom == .phone {
-                chromeLayout(contentWidth: phoneContentWidth)
-            } else {
-                GeometryReader { proxy in
-                    chromeLayout(contentWidth: contentWidth(for: proxy.size.width))
+        ZStack {
+            Group {
+                if idiom == .phone {
+                    chromeLayout(contentWidth: phoneContentWidth)
+                } else {
+                    GeometryReader { proxy in
+                        chromeLayout(contentWidth: contentWidth(for: proxy.size.width))
+                    }
                 }
             }
+
+            ChatConnectionBar(connectionMonitor: connectionMonitor)
+
+            ChatOverlayLayer(
+                viewModel: viewModel,
+                pickerWidth: pickerWidth,
+                overlayTopInset: overlayTopInset
+            )
         }
-
-        ChatConnectionBar(connectionMonitor: connectionMonitor)
-
-        ChatOverlayLayer(
-            viewModel: viewModel,
-            pickerWidth: pickerWidth,
-            overlayTopInset: overlayTopInset
-        )
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private func chromeLayout(contentWidth: Float) -> some View {
@@ -116,6 +119,7 @@ private struct ChatChrome: View {
 
         return ZStack(anchor: .bottom) {
             if viewModel.transcript.isEmpty {
+                WorkspaceAtmosphere()
                 ChatEmptyChatRegion(
                     viewModel: viewModel,
                     contentWidth: contentWidth,
@@ -174,7 +178,7 @@ private struct ChatChrome: View {
     }
 
     private var composerScrollInset: Float {
-        ChatComposerView.panelHeight(for: idiom) + composerScrollGap
+        ChatComposerView.panelHeight(for: idiom) + composerScrollGap + 34
     }
 
     private var composerBottomInset: Float {
@@ -255,6 +259,8 @@ private struct ChatNavigationLeadingItems: View {
     let viewModel: ChatScreenViewModel
     let onOpenSidebar: (@MainActor () -> Void)?
 
+    @Environment(\.theme) private var theme
+
     @Environment(\.userInterfaceIdiom) private var idiom
 
     var body: some View {
@@ -273,7 +279,7 @@ private struct ChatNavigationLeadingItems: View {
             if let onOpenSidebar {
                 Button(action: onOpenSidebar) {
                     Icons.symbol(.menu, size: 15)
-                        .foregroundColor(.white.opacity(0.72 as Float))
+                        .foregroundColor(theme.colors.textSecondary)
                         .frame(width: 30, height: 30)
                 }
             }
@@ -288,10 +294,10 @@ private struct ChatNavigationLeadingItems: View {
             HStack(spacing: 8) {
                 Text(viewModel.selectedAgent?.displayName ?? "Select Agent")
                     .font(.system(size: 15))
-                    .foregroundColor(.white)
+                    .foregroundColor(theme.colors.textPrimary)
                     .lineLimit(1)
                 Icons.symbol(.expandMore, size: 12)
-                    .foregroundColor(.white.opacity(0.55 as Float))
+                    .foregroundColor(theme.colors.textMuted)
             }
         }
     }
@@ -545,7 +551,14 @@ private struct ChatEmptyChatRegion: View {
     var body: some View {
         VStack(spacing: theme.spacing.xl) {
             Spacer(minLength: idiom == .phone ? theme.spacing.xxl : theme.spacing.l)
-            ChatGreetingView(agentName: viewModel.selectedAgent?.displayName ?? "Agent")
+            ChatGreetingView(
+                projects: viewModel.projects,
+                contextTitle: viewModel.selectedProjectName ?? "Personal",
+                onSelectPersonal: viewModel.selectPersonalContext,
+                onSelectProject: viewModel.selectProjectContext,
+                onSelectPrompt: { viewModel.composerDraft.text = $0 },
+                availableWidth: heroWidth
+            )
                 .frame(width: heroWidth)
             Spacer(minLength: bottomClearance)
         }
@@ -566,8 +579,27 @@ private struct ChatComposerOverlay: View {
     var body: some View {
         HStack {
             Spacer(minLength: 0)
-            composerBar
-                .frame(width: contentWidth)
+            VStack(spacing: 8) {
+                composerBar
+                if let error = viewModel.sendError {
+                    Text(error).font(.system(size: 12)).foregroundColor(theme.colors.statusBlocked).lineLimit(2)
+                }
+                HStack(spacing: 16) {
+                    Button(action: viewModel.openSettings) {
+                        HStack(spacing: 5) {
+                            Icons.symbol(.computer, size: 14)
+                            Text(viewModel.connectionMonitor.checkedURL?.host ?? "Local").font(.system(size: 12))
+                        }.foregroundColor(theme.colors.textMuted)
+                    }
+                    Spacer()
+                    Button { viewModel.showAgentPicker = true } label: {
+                        HStack(spacing: 5) {
+                            Text(viewModel.selectedAgent?.displayName ?? "Select Agent").font(.system(size: 12))
+                            Icons.symbol(.expandMore, size: 12)
+                        }.foregroundColor(theme.colors.textSecondary)
+                    }.accessibilityIdentifier("chat.agent.picker")
+                }.padding(.horizontal, 12).frame(height: 22)
+            }.frame(width: contentWidth)
             Spacer(minLength: 0)
         }
         .padding(.horizontal, idiom == .phone ? theme.spacing.xs : 0)
@@ -577,7 +609,8 @@ private struct ChatComposerOverlay: View {
     @ViewBuilder
     private var composerBar: some View {
         if let agent = viewModel.selectedAgent {
-            ChatComposerView(draft: viewModel.composerDraft, agentName: agent.displayName) { content in
+            ChatComposerView(draft: viewModel.composerDraft, agentName: agent.displayName, isSending: viewModel.isSending,
+                             api: viewModel.composerAPI, agentID: agent.id, projectID: viewModel.selectedProjectId) { content in
                 viewModel.sendMessage(content: content)
             }
         } else {
@@ -627,7 +660,6 @@ private struct ChatTranscriptPane: View {
                         ) { msg in
                             ChatBubbleView(message: msg)
                                 .frame(minWidth: 0, maxWidth: .infinity)
-                                .allowsHitTesting(false)
                         }
                         .padding(.top, transcript.hasEarlierMessages ? 0 : messagesTopInset)
                         .padding(.bottom, composerScrollInset)

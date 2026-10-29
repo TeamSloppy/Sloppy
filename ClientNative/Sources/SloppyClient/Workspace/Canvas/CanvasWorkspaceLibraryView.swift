@@ -41,7 +41,7 @@ struct CanvasWorkspaceLibraryView: View {
                     .padding(.top, 12)
             }
 
-            libraryContent
+            refreshableLibraryContent
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -54,7 +54,7 @@ struct CanvasWorkspaceLibraryView: View {
             placement: .navigationBarDrawer(displayMode: .always),
             prompt: "Search canvases"
         )
-        .refreshable { await viewModel.refreshLibrary() }
+        .mobileRefreshable { await viewModel.refreshLibrary() }
 #endif
         .toolbar {
             if toolbarEnabled {
@@ -254,6 +254,19 @@ struct CanvasWorkspaceLibraryView: View {
                 Image(systemName: "checkmark")
             }
         }
+    }
+
+    @ViewBuilder
+    private var refreshableLibraryContent: some View {
+#if os(iOS)
+        if filteredWorkspaces.isEmpty {
+            ScrollView { libraryContent.frame(maxWidth: .infinity, minHeight: 360) }
+        } else {
+            libraryContent
+        }
+#else
+        libraryContent
+#endif
     }
 
     @ViewBuilder

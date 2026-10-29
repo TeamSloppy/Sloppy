@@ -84,6 +84,7 @@ struct SloppyTUIHitRegion: Equatable {
 }
 
 enum SloppyTUIScrollTarget: Equatable {
+    case workspaceDiff
     case activePicker
     case commandPalette
     case projectFile

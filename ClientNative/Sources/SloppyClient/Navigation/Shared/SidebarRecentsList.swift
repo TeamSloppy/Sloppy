@@ -298,6 +298,9 @@ struct SidebarProjectGroupView: View {
 
     @State private var isHovered = false
     @State private var isDropTarget = false
+    #if os(macOS)
+    @State private var reorderState = SidebarProjectDropState()
+    #endif
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -333,6 +336,10 @@ struct SidebarProjectGroupView: View {
                 .buttonStyle(.plain)
                 .frame(maxWidth: .infinity)
                 .contentShape(Rectangle())
+                #if os(macOS)
+                .onDrag { SidebarProjectDrag.provider(projectID: group.id, name: group.project.name) }
+                .accessibilityHint("Drag to reorder project")
+                #endif
 
                 Button {
                     viewModel.showNewProjectChat(project: group.project)
@@ -345,7 +352,14 @@ struct SidebarProjectGroupView: View {
                 .accessibilityLabel("New chat in \(group.project.name)")
                 .accessibilityIdentifier("sidebar.project.\(group.id).new-chat")
                 .help("New chat")
+                #if os(macOS)
+                .opacity(Double(isHovered ? 1 : 0))
+                .allowsHitTesting(isHovered)
+                .disabled(!isHovered)
+                .accessibilityHidden(!isHovered)
+                #endif
 
+                #if !os(macOS)
                 Image(systemName: "line.3.horizontal")
                     .font(.system(size: theme.typography.caption, weight: .semibold))
                     .foregroundColor(theme.colors.textMuted)
@@ -356,6 +370,7 @@ struct SidebarProjectGroupView: View {
                     .allowsHitTesting(isHovered)
                     .accessibilityLabel("Reorder \(group.project.name)")
                     .help("Drag to reorder")
+                #endif
 
                 Button {
                     viewModel.toggleProjectCollapse(projectId: group.id)
@@ -378,13 +393,14 @@ struct SidebarProjectGroupView: View {
                 RoundedRectangle(cornerRadius: 12)
                     .fill(isHovered || isSelected || isDropTarget ? theme.colors.surfaceRaised : .clear)
             }
+            #if !os(macOS)
             .dropDestination(for: String.self) { projectIDs, _ in
                 guard let projectID = projectIDs.first else { return false }
                 return viewModel.moveProject(projectID, relativeTo: group.id)
             } isTargeted: {
                 isDropTarget = $0
             }
-            .onHover { isHovered = $0 }
+            #endif
             .animation(.easeInOut(duration: 0.15), value: isHovered)
             .projectContextMenu(viewModel: viewModel, project: group.project)
 
@@ -411,6 +427,12 @@ struct SidebarProjectGroupView: View {
                 }
             }
         }
+        #if os(macOS)
+        .modifier(SidebarProjectDropTarget(state: reorderState) { projectID, placement in
+            viewModel.moveProject(projectID, relativeTo: group.id, placement: placement)
+        })
+        #endif
+        .onHover { isHovered = $0 }
         .animation(.linear(duration: 0.2), value: isCollapsed)
     }
 }

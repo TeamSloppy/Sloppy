@@ -121,12 +121,12 @@ struct ChatComposerAttachmentPreview: View {
         }
 
         #if os(macOS)
-        guard let image = NSImage(data: attachment.data) else {
+        guard let image = NSImage(data: attachment.uploadData) else {
             return nil
         }
         return Image(nsImage: image)
         #elseif canImport(UIKit)
-        guard let image = UIImage(data: attachment.data) else {
+        guard let image = UIImage(data: attachment.uploadData) else {
             return nil
         }
         return Image(uiImage: image)

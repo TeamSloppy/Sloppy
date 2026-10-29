@@ -10,11 +10,11 @@ struct ClientSettingsSection: View {
     @Environment(\.theme) private var theme
 
     private let accentPresets: [(label: String, hex: String)] = [
-        ("Pink", "#FF2D6F"),
-        ("Cyan", "#00F0FF"),
-        ("Acid", "#CDFF00"),
-        ("Green", "#4ADE80"),
-        ("Orange", "#FFAA00"),
+        ("Blue", "#007AFF"),
+        ("Teal", "#30B0C7"),
+        ("Red", "#FF3B30"),
+        ("Green", "#34C759"),
+        ("Orange", "#FF9500"),
         ("White", "#F0F0F0")
     ]
 
@@ -56,7 +56,7 @@ struct ClientSettingsSection: View {
                 .padding(16)
 
                 SettingsDivider()
-                SettingsFieldRow("Custom color", hint: "Hex color, e.g. #FF2D6F", text: Binding(
+                SettingsFieldRow("Custom color", hint: "Hex color, e.g. #007AFF", text: Binding(
                     get: { settings.accentColorHex },
                     set: { settings.accentColorHex = $0 }
                 ))

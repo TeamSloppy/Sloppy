@@ -19,6 +19,14 @@ private struct ProjectContextMenuModifier: ViewModifier {
     func body(content: Content) -> some View {
         content
             .contextMenu {
+                #if os(macOS)
+                Button {
+                    viewModel.showNewProjectChat(project: project)
+                } label: {
+                    Label("New chat", systemImage: "plus.bubble")
+                }
+                Divider()
+                #endif
                 Button {
                     viewModel.toggleProjectPinned(project)
                 } label: {

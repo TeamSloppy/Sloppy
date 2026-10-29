@@ -38,6 +38,14 @@ public struct ConsoleConnectionSetupView: View {
         CloudServerSelection.activeInstances(snapshot?.instances ?? [])
     }
 
+    private var refreshHint: String {
+#if os(iOS)
+        "Your account is signed in. Pull down to load your servers."
+#else
+        "Your account is signed in. Refresh to load your servers."
+#endif
+    }
+
     public var body: some View {
         VStack(spacing: 0) {
             ScrollView {
@@ -83,7 +91,7 @@ public struct ConsoleConnectionSetupView: View {
                             serverList
                         }
                     } else if signedIn {
-                        Text("Your account is signed in. Refresh to load your servers.")
+                        Text(refreshHint)
                             .foregroundStyle(theme.colors.textSecondary)
                         primaryButton("Try again", symbol: "arrow.clockwise") {
                             Task { await reload() }
@@ -122,6 +130,10 @@ public struct ConsoleConnectionSetupView: View {
                 .padding(.top, 20)
                 .frame(maxWidth: 480)
                 .frame(maxWidth: .infinity)
+            }
+            .mobileRefreshable {
+                guard signedIn, !busy else { return }
+                await reload(autoConnect: false)
             }
             footer
         }
@@ -181,9 +193,11 @@ public struct ConsoleConnectionSetupView: View {
             }
             .buttonStyle(.plain)
             .accessibilityIdentifier("connection.cloud.openConsole")
+#if !os(iOS)
             Button("Refresh servers", systemImage: "arrow.clockwise") { Task { await reload() } }
                 .frame(maxWidth: .infinity, minHeight: 44)
                 .accessibilityIdentifier("connection.cloud.refresh")
+#endif
         }
         .accessibilityIdentifier("connection.cloud.emptyWorkspace")
     }
@@ -194,8 +208,10 @@ public struct ConsoleConnectionSetupView: View {
                 Text("YOUR SERVERS").font(.caption.weight(.semibold)).tracking(1.5)
                     .foregroundStyle(theme.colors.textSecondary)
                 Spacer()
+#if !os(iOS)
                 Button("Refresh", systemImage: "arrow.clockwise") { Task { await reload() } }
                     .font(.subheadline).frame(minHeight: 44)
+#endif
             }
             ForEach(servers) { instance in
                 Button {

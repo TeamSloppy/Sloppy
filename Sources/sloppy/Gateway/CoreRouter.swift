@@ -431,8 +431,10 @@ public actor CoreRouter {
         request.consoleContext = consoleContext
         if let context = consoleContext {
             guard !path.hasPrefix("/v1/node/mesh/") else { return false }
-            do { try context.require(path == "/v1/dashboard/terminal/ws" ? .terminal : .read) } catch { return false }
-            let authorization = AuthorizationRequest(subject: AuthorizationSubject(userID: context.accountID.uuidString, role: .admin, groups: context.organizationID.map { [$0.uuidString] } ?? [], identityProviderID: "sloppy_console"), action: "websocket:" + path, resource: AuthorizationResource(kind: "websocket", id: path))
+            if !(await service.allowsConsoleOwnerChat(context, request: request)) {
+                do { try context.require(path == "/v1/dashboard/terminal/ws" ? .terminal : .read) } catch { return false }
+            }
+            let authorization = AuthorizationRequest(subject: AuthorizationSubject(userID: context.accountID.uuidString, role: context.permissions.contains(.administer) ? .admin : .user, groups: context.organizationID.map { [$0.uuidString] } ?? [], identityProviderID: "sloppy_console"), action: "websocket:" + path, resource: AuthorizationResource(kind: "websocket", id: path))
             guard await service.evaluateEnterpriseAuthorization(authorization).allowed else { return false }
         } else if !(await route.definition.validator(request)) { return false }
         await route.definition.callback(request, connection)
@@ -519,7 +521,9 @@ public actor CoreRouter {
                     if httpMethod == .get || httpMethod == .head { permission = .read }
                     else if route.path == "/v1/projects/:projectId/emergency-stop" { permission = .runAgents }
                     else { permission = .write }
-                    try consoleContext.require(permission, projectID: request.pathParam("projectId"))
+                    if !(await service.allowsConsoleOwnerChat(consoleContext, request: request)) {
+                        try consoleContext.require(permission, projectID: request.pathParam("projectId"))
+                    }
                     guard let actor = await Self.identityActor(for: request, service: service), !Self.requiresAdminIdentity(request) || actor.user.role == .admin else { return Self.json(status: 403, payload: ["error": "console_access_denied"]) }
                     let authorization = AuthorizationRequest(subject: AuthorizationSubject(userID: actor.user.id, role: actor.user.role, groups: actor.groups, identityProviderID: actor.identityProviderID), action: "\(request.method.rawValue.lowercased()):\(route.path)", resource: AuthorizationResource(kind: "http_route", id: route.path, projectID: request.pathParam("projectId")))
                     let decision = await service.evaluateEnterpriseAuthorization(authorization)

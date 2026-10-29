@@ -51,6 +51,17 @@ enum SettingsScreenSection: String, CaseIterable, Hashable, Identifiable {
 
     var id: String { rawValue }
 
+    var requiresConfig: Bool {
+        switch self {
+        case .providers, .semanticDecisions, .searchTools, .channels, .plugins, .nodeHost,
+             .visor, .acp, .proxy, .gitSync, .rawConfig, .modelRouting, .mcp, .browser,
+             .tui, .ui, .compactor, .connectClient:
+            true
+        default:
+            false
+        }
+    }
+
     var title: String {
         switch self {
         case .account: "Account"
@@ -259,12 +270,12 @@ public struct SettingsScreen: View {
                 selectedSection = initialSection
                 return
             }
-            if displayedSection != .account, displayedSection != .usage {
+            if displayedSection.requiresConfig {
                 loadConfig()
             }
         }
         .onChange(of: selectedSection) { _, section in
-            if section != nil, section != .account, section != .usage, config == nil {
+            if section?.requiresConfig == true, config == nil {
                 loadConfig()
             }
         }
@@ -356,11 +367,51 @@ public struct SettingsScreen: View {
     }
 
     private var settingsDetailPane: some View {
+        settingsDetailBody
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+#if os(iOS)
+        .buttonStyle(.borderless)
+        .controlSize(.large)
+        .tint(theme.colors.accent)
+#else
+        .buttonStyle(.bordered)
+        .controlSize(.regular)
+#endif
+        .mobileScreenBackground()
+        .navigationTitle(displayedSection.title)
+        #if os(iOS)
+        .navigationBarTitleDisplayMode(.inline)
+        #endif
+    }
+
+    @ViewBuilder
+    private var settingsDetailBody: some View {
+#if os(iOS)
+        if displayedSection == .usage || displayedSection == .mesh {
+            detailContent(for: displayedSection)
+        } else if displayedSection.requiresConfig && config == nil {
+            loadingOrErrorView
+        } else {
+            settingsDetailScrollView
+        }
+#else
+        settingsDetailScrollView
+#endif
+    }
+
+    private var settingsDetailScrollView: some View {
         let sp = theme.spacing
 
         return ScrollView {
             VStack(alignment: .leading, spacing: sp.xl) {
+#if os(iOS)
+                Text(displayedSection.subtitle)
+                    .font(.subheadline)
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 4)
+#else
                 headerSection
+#endif
                 detailContent(for: displayedSection)
             }
 #if os(macOS)
@@ -371,14 +422,7 @@ public struct SettingsScreen: View {
             .padding(idiom == .phone ? sp.m : sp.xl)
             .frame(maxWidth: .infinity, alignment: .topLeading)
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-        .buttonStyle(.bordered)
-        .controlSize(.regular)
-        .mobileScreenBackground()
-        .navigationTitle(displayedSection.title)
-        #if os(iOS)
-        .navigationBarTitleDisplayMode(.inline)
-        #endif
+        .mobileRefreshContainer(isEnabled: [.providers, .approvals].contains(displayedSection))
     }
 
     private var headerSection: some View {
@@ -445,7 +489,7 @@ public struct SettingsScreen: View {
         case .remote:
             RemoteSettingsSection(settings: settings)
         case .mesh:
-            MeshSettingsSection(settings: settings)
+            MeshSettingsSection(settings: settings, apiClient: api)
         case .providers:
             configBackedSection { config in
                 ProvidersSection(config: config, apiClient: api, onSave: saveConfig)
@@ -577,6 +621,25 @@ public struct SettingsScreen: View {
     }
 
     private var loadingOrErrorView: some View {
+#if os(iOS)
+        Group {
+            if isLoadingConfig {
+                ProgressView("Loading settings…")
+            } else {
+                ContentUnavailableView {
+                    Label("Settings unavailable", systemImage: "wifi.exclamationmark")
+                } description: {
+                    Text("Check your connection to the server and try again.")
+                } actions: {
+                    Button("Try Again", action: loadConfig)
+                        .font(.body)
+                        .appPrimaryButton()
+                        .accessibilityIdentifier("settings.retry")
+                }
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+#else
         let c = theme.colors
         let sp = theme.spacing
         let ty = theme.typography
@@ -595,6 +658,7 @@ public struct SettingsScreen: View {
                 }
             }
         }
+#endif
     }
 
     private func loadConfig() {

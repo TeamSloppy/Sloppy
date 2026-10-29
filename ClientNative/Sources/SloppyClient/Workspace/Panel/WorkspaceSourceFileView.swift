@@ -22,12 +22,14 @@ struct WorkspaceSourceFileView: View {
                 if let line = viewModel.reference.line {
                     Text("Line \(line)").fixedSize()
                 }
+#if !os(iOS)
                 Button(action: viewModel.reload) {
                     Image(systemName: "arrow.clockwise")
                 }
                 .buttonStyle(.plain)
                 .help("Reload file")
                 .accessibilityLabel("Reload file")
+#endif
             }
             .font(.system(size: 12))
             .foregroundStyle(muted)
@@ -35,22 +37,27 @@ struct WorkspaceSourceFileView: View {
             Divider()
 
             if let error = viewModel.errorMessage {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text(error)
-                    Button("Retry") { Task { await viewModel.loadIfNeeded() } }
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Text(error)
+                        Button("Retry") { Task { await viewModel.loadIfNeeded(force: true) } }
+                    }
+                    .font(.system(size: 13))
+                    .padding(16)
+                    .frame(maxWidth: .infinity, minHeight: 360, alignment: .topLeading)
                 }
-                .font(.system(size: 13))
-                .padding(16)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             } else if viewModel.content != nil {
                 sourceContent
             } else {
-                ProgressView("Loading file…")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                ScrollView {
+                    ProgressView("Loading file…")
+                        .frame(maxWidth: .infinity, minHeight: 360)
+                }
             }
         }
         .foregroundStyle(foreground)
         .background(background)
+        .mobileRefreshable(id: viewModel.reference.path) { await viewModel.loadIfNeeded(force: true) }
         .task(id: viewModel.navigationRevision) { await viewModel.loadIfNeeded() }
         .accessibilityIdentifier("workspace.source-file")
     }

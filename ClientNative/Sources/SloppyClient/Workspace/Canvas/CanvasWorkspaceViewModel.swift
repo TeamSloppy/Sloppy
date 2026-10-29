@@ -125,7 +125,7 @@ final class CanvasWorkspaceViewModel {
         var errors: [String] = []
 
         do {
-            let fetchedProjects = try await apiClient.fetchProjects()
+            let fetchedProjects = try await apiClient.fetchProjectSummaries()
             let sortedProjects = try await ClientBackgroundWork.run {
                 fetchedProjects.sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
             }

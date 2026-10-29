@@ -46,6 +46,7 @@ public struct AgentProactivityScreen: View {
                 .padding(20)
                 .frame(maxWidth: .infinity, alignment: .top)
             }
+            .mobileRefreshable(id: agentID) { await refreshInbox() }
             .task(id: "\(agentID):\(apiClient.baseURL.absoluteString)") {
                 await load()
                 guard loaded else { return }
@@ -244,8 +245,10 @@ public struct AgentProactivityScreen: View {
             HStack {
                 Label("Attention", systemImage: "bell.badge").font(.headline)
                 Spacer()
+#if !os(iOS)
                 Button { Task { await refreshInbox() } } label: { Image(systemName: "arrow.clockwise") }
                     .buttonStyle(.bordered).accessibilityLabel("Refresh findings")
+#endif
             }
             if let checked = inbox.lastCheckedAt {
                 Text("Last checked \(checked.formatted(date: .abbreviated, time: .shortened))")
@@ -348,7 +351,7 @@ public struct AgentProactivityScreen: View {
     private func load() async {
         do {
             async let configuration = apiClient.fetchProactiveSettings(agentId: agentID)
-            async let projects = apiClient.fetchProjects()
+            async let projects = apiClient.fetchProjectSummaries()
             async let providers = apiClient.fetchCodeReviewProviders()
             async let inbox = apiClient.fetchProactiveInbox(agentId: agentID)
             let values = try await (configuration, projects, providers, inbox)

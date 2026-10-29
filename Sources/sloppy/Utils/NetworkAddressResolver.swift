@@ -1,5 +1,7 @@
 import Foundation
+#if os(Windows)
 import NIOCore
+#endif
 
 struct NetworkIPv4Candidate: Equatable, Sendable {
     let interfaceName: String
@@ -92,6 +94,28 @@ enum NetworkAddressResolver {
                 return lhs.address < rhs.address
             }
         return sorted.first?.address
+    }
+
+    /// A pairing code is opened on a different device: never advertise loopback.
+    static func clientPairingURL(
+        bindHost: String,
+        apiPort: Int,
+        candidates: [NetworkIPv4Candidate]
+    ) -> String? {
+        let lanIPv4 = resolvePrimaryLANIPv4(from: candidates.filter { isPrivateIPv4($0.address) })
+        let endpoints = makeDisplayEndpoints(bindHost: bindHost, apiPort: apiPort, lanIPv4: lanIPv4)
+        guard let value = endpoints.lanAPIURL,
+              let url = URL(string: value),
+              let host = url.host,
+              !isLocalOnlyHost(host), !isWildcardHost(host),
+              isPrivateIPv4(host) || host.lowercased().hasSuffix(".local"),
+              (1...65_535).contains(apiPort) else { return nil }
+        return value
+    }
+
+    static func isDeviceLocalHost(_ rawHost: String) -> Bool {
+        let host = rawHost.lowercased().trimmingCharacters(in: CharacterSet(charactersIn: "[]."))
+        return isLocalOnlyHost(host) || isWildcardHost(host) || host.hasSuffix(".localhost")
     }
 
     static func makeDisplayEndpoints(

@@ -1,5 +1,6 @@
 import Foundation
 import SloppyClientCore
+import SloppyClientUI
 import SwiftUI
 
 struct SessionTextSearchView: View {
@@ -28,15 +29,19 @@ struct SessionTextSearchView: View {
         NavigationStack {
             VStack(spacing: 0) {
                 HStack {
+#if !os(iOS)
                     TextField("Search messages, code, and tool output", text: $query)
                         .textFieldStyle(.roundedBorder)
                         .accessibilityIdentifier("global-search.query")
+#endif
                     Picker("Search mode", selection: $mode) {
                         Text("Text contains").tag(TextSearchMode.text)
                         Text("Words").tag(TextSearchMode.words)
                     }
                     .pickerStyle(.segmented)
+#if !os(iOS)
                     .frame(maxWidth: 220)
+#endif
                 }
                 .padding()
                 if query.count > 0 && query.count < 3 {
@@ -93,11 +98,16 @@ struct SessionTextSearchView: View {
                         } catch { if !Task.isCancelled { documentError = error.localizedDescription } }
                     }
                 }
+                .mobileScreenBackground()
 #if os(macOS)
                 .frame(minWidth: 560, minHeight: 400)
 #endif
             }
         }
+#if os(iOS)
+        .searchable(text: $query, placement: .navigationBarDrawer(displayMode: .always), prompt: "Search all messages")
+#endif
+        .mobileScreenBackground()
 #if os(macOS)
         .frame(minWidth: 680, minHeight: 500)
 #endif

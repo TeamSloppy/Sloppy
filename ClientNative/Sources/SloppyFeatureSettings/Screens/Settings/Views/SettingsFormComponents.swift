@@ -16,7 +16,11 @@ struct SettingsSectionCard<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
             Text(title)
+#if os(iOS)
+                .font(.subheadline)
+#else
                 .font(.system(size: 13, weight: .semibold))
+#endif
                 .foregroundStyle(.secondary)
 #if !os(macOS)
                 .padding(.horizontal, 4)
@@ -66,6 +70,29 @@ struct SettingsFieldRow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
         }
         .padding(.vertical, 8)
+#elseif os(iOS)
+        VStack(alignment: .leading, spacing: 8) {
+            Text(label)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+            Group {
+                if isSecure {
+                    SecureField(label, text: binding, prompt: Text("••••••••"))
+                } else {
+                    TextField(label, text: binding)
+                }
+            }
+            .textFieldStyle(.plain)
+            .font(.body)
+            .frame(minHeight: 44)
+            .accessibilityLabel(label)
+            if let hint {
+                Text(hint)
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .padding(16)
 #else
         let c = theme.colors
         let sp = theme.spacing
@@ -138,7 +165,11 @@ struct SettingsToggleRow: View {
 
         return HStack(spacing: sp.m) {
             Text(label)
+#if os(iOS)
+                .font(.body)
+#else
                 .font(.system(size: ty.body))
+#endif
                 .foregroundColor(c.textPrimary)
             Spacer(minLength: 0)
             Toggle(isOn: toggleBinding) {
@@ -226,6 +257,8 @@ private struct SettingsCardBackground: ViewModifier {
             .overlay(alignment: .bottom) {
                 Rectangle().fill(theme.colors.border).frame(height: 1).allowsHitTesting(false)
             }
+#elseif os(iOS)
+            .background(Color(uiColor: .secondarySystemGroupedBackground), in: RoundedRectangle(cornerRadius: 24))
 #else
             .background(Color(white: colorScheme == .dark ? 0.12 : 1),
                         in: RoundedRectangle(cornerRadius: 12))
@@ -251,10 +284,18 @@ struct SettingsMultilineFieldRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
             Text(label)
+#if os(iOS)
+                .font(.subheadline)
+#else
                 .font(.system(size: 12, weight: .medium))
+#endif
                 .foregroundStyle(.secondary)
             TextEditor(text: $text)
+#if os(iOS)
+                .font(.system(.body, design: .monospaced))
+#else
                 .font(.system(size: 13, design: .monospaced))
+#endif
                 .scrollContentBackground(.hidden)
                 .frame(minHeight: 80, maxHeight: 160)
                 .padding(8)

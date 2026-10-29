@@ -7,6 +7,34 @@ import Testing
 @Suite("TUI approval mode")
 @MainActor
 struct SloppyTUIApprovalModeTests {
+    @Test func liveApprovalCardResolvesAndContinuesTheWaitingCall() async throws {
+        let fixture = try await ApprovalFixture.make()
+        defer { fixture.stop() }
+        let screen = fixture.screen
+        screen.streamSession()
+        await screen.waitForCurrentSessionStreamReady()
+        let invocation = Task {
+            await fixture.service.requestToolApprovalIfNeeded(agentID: screen.agent.id, sessionID: screen.session.id,
+                channelID: nil, topicID: nil, request: .init(tool: "agents.delegate_task"), requireApproval: true)
+        }
+        for _ in 0..<100 {
+            if screen.pendingToolApproval != nil { break }
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        let approval = try #require(screen.pendingToolApproval)
+        #expect(screen.activePicker?.kind == .toolApproval)
+        let detail = try await fixture.service.getAgentSession(agentID: screen.agent.id, sessionID: screen.session.id)
+        #expect(detail.events.last?.runStatus?.details?.contains(approval.id) == true)
+        await screen.applyToolApprovalDecision("approve_once")
+        guard case .approved(let resolved) = await invocation.value else {
+            Issue.record("The UI decision must resume the original invocation")
+            return
+        }
+        #expect(resolved.id == approval.id)
+        #expect(screen.pendingToolApproval == nil)
+        await fixture.service.stop()
+    }
+
     @Test func pickerReadsCoreAndSavesBothModes() async throws {
         let fixture = try await ApprovalFixture.make()
         defer { fixture.stop() }

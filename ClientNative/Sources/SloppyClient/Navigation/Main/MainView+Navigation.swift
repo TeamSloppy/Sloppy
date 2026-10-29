@@ -78,7 +78,8 @@ extension MainView {
         case .task(let projectId, let taskId):
             Task { @MainActor in
                 await viewModel.loadProjects(force: true)
-                if let project = viewModel.projects.first(where: { $0.id == projectId }),
+                if let summary = viewModel.projects.first(where: { $0.id == projectId }),
+                   let project = try? await viewModel.fetchInboxProject(summary),
                    let task = project.tasks?.first(where: { $0.id == taskId }) {
                     viewModel.openTaskDetailTab(
                         project: project,

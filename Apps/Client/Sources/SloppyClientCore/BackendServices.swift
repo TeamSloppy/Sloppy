@@ -275,16 +275,17 @@ public actor SessionService {
         try await http.getData("/v1/agents/\(BackendHTTPClient.encodePathSegment(agentId))/sessions/\(BackendHTTPClient.encodePathSegment(sessionId))")
     }
 
-    public func createAgentSession(agentId: String, title: String? = nil, projectId: String? = nil) async throws -> ChatSessionSummary {
+    public func createAgentSession(agentId: String, title: String? = nil, projectId: String? = nil, workspaceId: String? = nil) async throws -> ChatSessionSummary {
         struct Payload: Encodable {
             var title: String?
             var kind: String = "chat"
             var projectId: String?
+            var workspaceId: String?
         }
         let normalizedProjectId = projectId?.trimmingCharacters(in: .whitespacesAndNewlines)
         return try await http.post(
             "/v1/agents/\(BackendHTTPClient.encodePathSegment(agentId))/sessions",
-            body: Payload(title: title, projectId: normalizedProjectId?.isEmpty == false ? normalizedProjectId : nil)
+            body: Payload(title: title, projectId: normalizedProjectId?.isEmpty == false ? normalizedProjectId : nil, workspaceId: workspaceId)
         )
     }
 
@@ -317,16 +318,29 @@ public actor SessionService {
 
 public actor ConfigService {
     private let http: BackendHTTPClient
+    private var rawConfig: ConfigJSONValue?
+    private var previousConfig: ConfigJSONValue?
 
     public init(http: BackendHTTPClient) {
         self.http = http
     }
 
     public func fetchConfig() async throws -> SloppyConfig {
-        try await http.get("/v1/config")
+        let raw: ConfigJSONValue = try await http.get("/v1/config")
+        let config = try raw.decoded(SloppyConfig.self)
+        rawConfig = raw
+        previousConfig = try .encoded(config)
+        return config
     }
 
     public func updateConfig(_ config: SloppyConfig) async throws -> SloppyConfig {
-        try await http.put("/v1/config", body: config)
+        if rawConfig == nil { _ = try await fetchConfig() }
+        let updated = try ConfigJSONValue.encoded(config)
+        let payload = rawConfig?.applyingChanges(from: previousConfig ?? updated, to: updated) ?? updated
+        let saved: ConfigJSONValue = try await http.put("/v1/config", body: payload)
+        let config = try saved.decoded(SloppyConfig.self)
+        rawConfig = saved
+        previousConfig = try .encoded(config)
+        return config
     }
 }

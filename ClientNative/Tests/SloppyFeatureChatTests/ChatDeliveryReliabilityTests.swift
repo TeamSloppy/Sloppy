@@ -6,6 +6,24 @@ import Testing
 @Suite("Chat delivery reliability", .serialized)
 @MainActor
 struct ChatDeliveryReliabilityTests {
+    @Test("history loads while the live connection is still pending")
+    func historyDoesNotWaitForTheLiveStream() async throws {
+        let gate = DeliveryStreamGate()
+        let fixture = try await DeliveryFixture.make(streamGate: gate)
+        defer {
+            fixture.finish()
+            Task { await gate.release() }
+        }
+        fixture.server.historyMessages = [.init(id: "saved-message", role: .assistant,
+            segments: [.init(kind: .text, text: "Already saved in this chat")])]
+        fixture.model.pickSession(.init(id: "two", agentId: "agent", title: "Two"))
+        try await fixture.wait { fixture.model.transcript.messages.contains { $0.id == "saved-message" } }
+        #expect(await gate.isWaiting)
+        #expect(!fixture.model.isLoadingTranscript)
+        #expect(fixture.model.transcriptLoadError == nil)
+        await gate.release()
+    }
+
     @Test("new drafts load the server default without changing existing chats")
     func newDraftUsesServerApprovalDefault() async throws {
         let fixture = try await DeliveryFixture.make()
@@ -437,7 +455,7 @@ private struct DeliveryFixture {
     let settings: ClientSettings
     let previousSettings: (String?, String?, String?)
 
-    static func make(kind: String = "chat") async throws -> Self {
+    static func make(kind: String = "chat", streamGate: DeliveryStreamGate? = nil) async throws -> Self {
         let server = DeliveryHTTPState(kind: kind)
         let host = "delivery-\(UUID().uuidString.lowercased()).invalid"
         DeliveryURLProtocol.register(server, host: host)
@@ -457,7 +475,10 @@ private struct DeliveryFixture {
             apiClient: api, cacheStore: cache, settings: settings,
             connectionMonitor: ConnectionMonitor(baseURL: api.baseURL), restoresLastSession: false,
             responseNotificationScheduler: notifications,
-            sessionStreamProvider: { _, session in session == "one" ? pair.stream : AsyncStream { _ in } },
+            sessionStreamProvider: { _, session in
+                if session == "two" { await streamGate?.wait() }
+                return session == "one" ? pair.stream : AsyncStream { _ in }
+            },
             onOpenSettings: { _ in }
         )
         model.loadInitialData()
@@ -491,6 +512,21 @@ private struct DeliveryFixture {
         settings.lastAgentId = previousSettings.0
         settings.lastProjectId = previousSettings.1
         settings.lastSessionId = previousSettings.2
+    }
+}
+
+private actor DeliveryStreamGate {
+    private var continuation: CheckedContinuation<Void, Never>?
+    private var released = false
+    var isWaiting: Bool { continuation != nil }
+    func wait() async {
+        if released { return }
+        await withCheckedContinuation { continuation = $0 }
+    }
+    func release() {
+        released = true
+        continuation?.resume()
+        continuation = nil
     }
 }
 

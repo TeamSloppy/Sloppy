@@ -6,6 +6,19 @@ import SloppyRemoteProtocol
 struct ConsoleAPIRouter: APIRouter {
     let service: CoreService
     func configure(on router: CoreRouterRegistrar) {
+        router.get("/v1/console/client-setup", metadata: RouteMetadata(summary: "Console Relay client setup", description: "Returns public bootstrap addresses and trust pins for a locally approved Console instance; never returns OAuth tokens or private keys", tags: ["Console"])) { request in
+            guard await localOwner(request) else { return denied() }
+            do {
+                let response = try await service.consoleClientSetup()
+                var result = CoreRouterResponse(status: 200, body: try ConsoleWire.encode(response), contentType: "application/json")
+                result.headers["cache-control"] = "no-store"
+                return result
+            } catch let error as ConsoleClientSetupFailure {
+                return CoreRouter.json(status: 409, payload: ["error": error.rawValue])
+            } catch {
+                return CoreRouter.json(status: 409, payload: ["error": "console_setup_unavailable"])
+            }
+        }
         router.get("/v1/console/model-instances", metadata: RouteMetadata(summary: "Console model instances", description: "Lists the bound Core's Console instances and existing device model access; never grants access or returns credentials", tags: ["Console"])) { request in
             guard await localOwner(request) else { return denied() }
             do { return CoreRouter.encodable(status: 200, payload: try await service.consoleModelInstances()) }

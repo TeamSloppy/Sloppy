@@ -50,7 +50,11 @@ public struct ChatUsageScreen: View {
     public var body: some View {
         Group {
             if isEmbeddedInSettings {
+#if os(iOS)
+                settingsScrollView
+#else
                 usageContent
+#endif
             } else {
                 ScrollView {
                     usageContent
@@ -58,18 +62,45 @@ public struct ChatUsageScreen: View {
                         .frame(maxWidth: 1100, alignment: .leading)
                         .frame(maxWidth: .infinity)
                 }
+                .mobileRefreshable(id: requestID) { await load(isRefreshing: true) }
             }
         }
-        .refreshable { await load() }
         .mobileScreenBackground()
         .desktopScreenStyle()
         .navigationTitle("Usage")
         .accessibilityElement(children: .contain)
         .accessibilityIdentifier("chat-usage.screen")
-        .task(id: "\(period.rawValue)|\(startDate)|\(endDate)|\(refreshID)|\(apiClient.endpoint.cacheNamespace)") {
+        .task(id: requestID) {
             await load()
         }
     }
+
+    private var requestID: String {
+        "\(period.rawValue)|\(startDate)|\(endDate)|\(refreshID)|\(apiClient.endpoint.cacheNamespace)"
+    }
+
+#if os(iOS)
+    private var settingsScrollView: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: theme.spacing.xl) {
+                VStack(alignment: .leading, spacing: theme.spacing.s) {
+                    Text("Usage")
+                        .font(.system(size: theme.typography.title, weight: .semibold))
+                        .foregroundColor(theme.colors.textPrimary)
+                    Text("Model tokens and usage by chat, tool, MCP server, and skill.")
+                        .font(.system(size: theme.typography.body))
+                        .foregroundColor(theme.colors.textSecondary)
+                }
+                usageContent
+            }
+            .frame(maxWidth: 760, alignment: .leading)
+            .padding(idiom == .phone ? theme.spacing.m : theme.spacing.xl)
+            .frame(maxWidth: .infinity, alignment: .topLeading)
+        }
+        .scrollBounceBehavior(.always, axes: .vertical)
+        .mobileRefreshable(id: requestID) { await load(isRefreshing: true) }
+    }
+#endif
 
     private var usageContent: some View {
         VStack(alignment: .leading, spacing: 24) {
@@ -135,16 +166,11 @@ public struct ChatUsageScreen: View {
                 if isEmbeddedInSettings { Text("Instance: \(instanceTitle)") }
             }
             .font(.caption).foregroundStyle(theme.colors.textMuted)
-            if idiom == .phone, isEmbeddedInSettings {
-                VStack(alignment: .leading, spacing: 12) {
-                    periodPicker
-                    refreshButton
-                }
-            } else {
-                HStack(spacing: 16) {
-                    periodPicker
-                    if isEmbeddedInSettings { refreshButton }
-                }
+            HStack(spacing: 16) {
+                periodPicker
+#if !os(iOS)
+                if isEmbeddedInSettings { refreshButton }
+#endif
             }
             if period == .custom {
                 ViewThatFits(in: .horizontal) {
@@ -165,6 +191,7 @@ public struct ChatUsageScreen: View {
         .accessibilityIdentifier("usage.period")
     }
 
+#if !os(iOS)
     private var refreshButton: some View {
         Button { refreshID += 1 } label: {
             Label("Refresh", systemImage: "arrow.clockwise")
@@ -173,6 +200,7 @@ public struct ChatUsageScreen: View {
         .disabled(isLoading)
         .accessibilityIdentifier("usage.refresh")
     }
+#endif
 
     @ViewBuilder private var datePickers: some View {
         DatePicker("From", selection: $startDate, in: ...endDate, displayedComponents: .date)
@@ -277,12 +305,14 @@ public struct ChatUsageScreen: View {
         totalTokens > 0 ? Double(summary.totalTokens) / Double(totalTokens) : 0
     }
 
-    private func load() async {
-        isLoading = true
-        errorMessage = nil
-        catalogWarning = nil
-        summaries = []
-        sessionsByChannel = [:]
+    private func load(isRefreshing: Bool = false) async {
+        if !isRefreshing {
+            isLoading = true
+            errorMessage = nil
+            catalogWarning = nil
+            summaries = []
+            sessionsByChannel = [:]
+        }
         let now = Date()
         let calendar = Calendar.current
         let from: Date
@@ -320,6 +350,7 @@ public struct ChatUsageScreen: View {
             summaries = ChatUsageSummary.grouped(records)
             sessionsByChannel = catalog
             catalogWarning = warning
+            errorMessage = nil
             isLoading = false
         } catch is CancellationError {
             return

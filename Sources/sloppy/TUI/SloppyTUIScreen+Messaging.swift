@@ -208,6 +208,7 @@ extension SloppyTUIScreen {
 
         dismissLocalCardsForUserMessage()
         isPosting = true
+        sessionStreamTurnCompleted = false
         queuedMessageInterruptRequested = false
         taskStartedAt = Date()
         resetSendTiming()
@@ -246,6 +247,11 @@ extension SloppyTUIScreen {
             await Task.yield()
             let turnMessageID = UUID().uuidString
             let undoBaseline = await makeUndoBaseline(turnKey: turnMessageID)
+            activeDiffBaseline = undoBaseline
+            defer {
+                recordUndoPointIfNeeded(undoBaseline)
+                activeDiffBaseline = nil
+            }
             if !runtime.config.onboarding.completed {
                 updateSendProgress(.init(
                     stage: .updatingOnboarding,
@@ -268,7 +274,7 @@ extension SloppyTUIScreen {
             await Task.yield()
             await waitForCurrentSessionStreamReady()
             markSendTiming("stream_ready")
-            _ = try await service.postAgentSessionMessage(
+            let response = try await service.postAgentSessionMessage(
                 agentID: agent.id,
                 sessionID: session.id,
                 request: AgentSessionPostMessageRequest(
@@ -285,7 +291,11 @@ extension SloppyTUIScreen {
                 pendingContext = nil
                 pendingUploads.removeAll()
             }
-            recordUndoPointIfNeeded(undoBaseline)
+            sessionStreamStatusRevision += 1
+            lastRenderedSessionEventIDs.formUnion(response.appendedEvents.map(\.id))
+            if let status = latestRunStatus(in: response.appendedEvents) {
+                applySessionRunStatus(status)
+            }
             liveRunStatusLine = "Refreshing session..."
             markSendTiming("post_message_returned")
             refreshStaticChrome()

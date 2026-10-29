@@ -1,6 +1,7 @@
 public struct ChatNavigationRequest: Equatable, Sendable {
     public enum Context: Equatable, Sendable {
         case blank
+        case agent(String)
         case project(projectId: String, projectName: String, agentId: String?)
         case task(projectId: String, projectName: String, taskId: String, taskTitle: String, agentId: String?)
     }
@@ -17,6 +18,8 @@ public struct ChatNavigationRequest: Equatable, Sendable {
         switch context {
         case .blank:
             return nil
+        case .agent(let id):
+            return id
         case .project(_, _, let agentId):
             return agentId
         case .task(_, _, _, _, let agentId):
@@ -27,6 +30,8 @@ public struct ChatNavigationRequest: Equatable, Sendable {
     public var title: String? {
         switch context {
         case .blank:
+            return nil
+        case .agent:
             return nil
         case .project(_, let projectName, _):
             return projectName

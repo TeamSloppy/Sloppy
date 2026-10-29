@@ -141,18 +141,54 @@ struct ChatSentImagePreview: View {
             }
         }
         .sheet(isPresented: $expanded) {
-            VStack(spacing: 12) {
-                HStack {
-                    Text(attachment.name).lineLimit(1)
-                    Spacer()
-                    Button("Done") { expanded = false }
-                }
-                if let thumbnail {
-                    Image(decorative: thumbnail.image, scale: 1).resizable().scaledToFit()
-                }
+            ChatSentImageViewer(attachment: attachment, context: context)
+        }
+    }
+}
+
+/// The expanded viewer loads original bytes; the bounded transcript thumbnail is never used for export or zoom.
+private struct ChatSentImageViewer: View {
+    let attachment: ChatAttachment
+    let context: ChatAttachmentPreviewContext
+    @Environment(\.dismiss) private var dismiss
+    @State private var original: Data?
+    @State private var error: String?
+    @State private var retry = 0
+
+    private var taskID: String {
+        (try? String(data: JSONEncoder().encode(context.scope + [attachment.id, String(retry)]), encoding: .utf8)) ?? attachment.id
+    }
+
+    var body: some View {
+        Group {
+            if let original {
+                ChatImageAnnotationEditor(attachment: ChatComposerAttachment(
+                    name: attachment.name, mimeType: attachment.mimeType, data: original))
+            } else {
+                VStack(spacing: 20) {
+                    if let error {
+                        ContentUnavailableView("Image unavailable", systemImage: "photo.badge.exclamationmark",
+                                               description: Text(error))
+                        Button("Retry") { retry += 1 }
+                    } else { ProgressView("Loading original image…") }
+                    Button("Close") { dismiss() }.keyboardShortcut(.cancelAction)
+                }.padding(30)
+                #if os(macOS)
+                .frame(minWidth: 680, minHeight: 520)
+                #endif
             }
-            .padding()
-            .frame(minWidth: 320, idealWidth: 640, minHeight: 240, idealHeight: 480)
+        }
+        .task(id: taskID) {
+            original = nil
+            error = nil
+            do {
+                let data = try await context.load(attachment)
+                try Task.checkCancellation()
+                guard data.count <= 25 * 1_024 * 1_024 else { throw URLError(.dataLengthExceedsMaximum) }
+                original = data
+            } catch {
+                if !Task.isCancelled { self.error = error.localizedDescription }
+            }
         }
     }
 }

@@ -518,10 +518,12 @@ struct ApprovalsSection: View {
                     Text("Channel Access Users")
                         .font(.headline)
                     Spacer()
+#if !os(iOS)
                     Button(isLoading ? "Loading…" : "Refresh") {
                         load()
                     }
                     .disabled(isLoading)
+#endif
                 }
                 TextField("Search by name or ID…", text: $query)
                     .appTextField()
@@ -552,6 +554,7 @@ struct ApprovalsSection: View {
         .task {
             load()
         }
+        .mobileRefreshSection { await loadUsers() }
     }
 
     private var filteredUsers: [AccessUser] {
@@ -565,12 +568,14 @@ struct ApprovalsSection: View {
     }
 
     private func load() {
+        Task { await loadUsers() }
+    }
+
+    private func loadUsers() async {
         guard !isLoading else { return }
         isLoading = true
-        Task { @MainActor in
-            defer { isLoading = false }
-            users = (try? await apiClient.fetchAccessUsers()) ?? []
-        }
+        defer { isLoading = false }
+        users = (try? await apiClient.fetchAccessUsers()) ?? []
     }
 
     private func remove(_ user: AccessUser) {

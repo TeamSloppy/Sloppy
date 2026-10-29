@@ -33,8 +33,8 @@ public struct AppColors: Sendable, Hashable {
         surfaceRaised:  .fromHex(0x2C2C2C),
         surfaceGlass:   .fromHex(0x121212),
         surfaceGlow:    .fromHex(0x242424),
-        accent:         .fromHex(0x8B5CFF),
-        accentCyan:     .fromHex(0x25D7FF),
+        accent:         .blue,
+        accentCyan:     .blue,
         accentAcid:     .fromHex(0xFFB86B),
         textPrimary:    .fromHex(0xE8E8E8),
         textSecondary:  .fromHex(0xB5B5B5),
@@ -42,7 +42,7 @@ public struct AppColors: Sendable, Hashable {
         border:         .fromHex(0x2E2E2E),
         borderBold:     .fromHex(0x414141),
         statusActive:   .fromHex(0x25D7FF),
-        statusReady:    .fromHex(0xB48CFF),
+        statusReady:    .blue,
         statusDone:     .fromHex(0x5CF0A8),
         statusBlocked:  .fromHex(0xFF5A7A),
         statusWarning:  .fromHex(0xFFB86B),
@@ -55,8 +55,8 @@ public struct AppColors: Sendable, Hashable {
         surfaceRaised:  .fromHex(0xF5F7FA),
         surfaceGlass:   .fromHex(0xFFFFFF),
         surfaceGlow:    .fromHex(0xCFEAFF),
-        accent:         .fromHex(0x3B82F6),
-        accentCyan:     .fromHex(0x63C7FF),
+        accent:         .blue,
+        accentCyan:     .blue,
         accentAcid:     .fromHex(0xD4AF37),
         textPrimary:    .fromHex(0x141518),
         textSecondary:  .fromHex(0x2F343B),
@@ -64,7 +64,7 @@ public struct AppColors: Sendable, Hashable {
         border:         .fromHex(0xDCE4EC),
         borderBold:     .fromHex(0xAAB8C5),
         statusActive:   .fromHex(0x2684FF),
-        statusReady:    .fromHex(0x7C5CFF),
+        statusReady:    .blue,
         statusDone:     .fromHex(0x16A164),
         statusBlocked:  .fromHex(0xD92D54),
         statusWarning:  .fromHex(0xB7791F),
@@ -186,7 +186,12 @@ public extension EnvironmentValues {
 
 public extension View {
     func theme(_ theme: AppTheme) -> some View {
+#if os(iOS)
         environment(\.theme, theme)
+            .tint(theme.colors.accent)
+#else
+        environment(\.theme, theme)
+#endif
     }
 }
 

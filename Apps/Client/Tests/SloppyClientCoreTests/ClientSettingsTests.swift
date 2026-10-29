@@ -7,17 +7,14 @@ import Testing
 struct ClientSettingsTests {
 
     @Test("persists color scheme selection")
-    func persistsColorSchemeSelection() {
-        UserDefaults.standard.removeObject(forKey: "client_color_scheme")
-
-        let initial = ClientSettings()
-        #expect(initial.colorScheme == .light)
-
-        initial.colorScheme = .dark
-
-        let restored = ClientSettings()
-        #expect(restored.colorScheme == .dark)
-
-        UserDefaults.standard.removeObject(forKey: "client_color_scheme")
+    func persistsColorSchemeSelection() throws {
+        let name = "SloppyClient.Tests.\(UUID().uuidString)"
+        let defaults = try #require(UserDefaults(suiteName: name))
+        defer { defaults.removePersistentDomain(forName: name) }
+        let initial = ClientSettings(defaults: defaults)
+        #expect(initial.colorScheme == .dark)
+        initial.colorScheme = .light
+        let restored = ClientSettings(defaults: defaults)
+        #expect(restored.colorScheme == .light)
     }
 }

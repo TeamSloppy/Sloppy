@@ -90,13 +90,11 @@ struct ConnectionSetupView: View {
                         connectManual()
                     } label: {
                         Text(isConnecting ? "Connecting…" : "Connect")
-                            .font(.system(size: ty.body, weight: .semibold))
-                            .foregroundColor(.black)
+                            .font(.body.weight(.semibold))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, theme.spacing.m)
                     }
-                    .buttonStyle(.plain)
-                    .background(c.accentCyan, in: RoundedRectangle(cornerRadius: 18))
+                    .appPrimaryButton()
                     .accessibilityIdentifier("connection.setup.connect")
                     .padding(.horizontal, theme.spacing.l)
                     .disabled(isConnecting || ServerAddress.parse(host: hostDraft, port: portDraft) == nil)
@@ -119,7 +117,7 @@ struct ConnectionSetupView: View {
             VStack(alignment: .leading, spacing: sp.l) {
                 // Manual input section
                 VStack(alignment: .leading, spacing: sp.m) {
-                    Text("SERVER ADDRESS")
+                    Text("Server address")
                         .font(.system(size: ty.caption))
                         .foregroundColor(c.textMuted)
 
@@ -160,21 +158,25 @@ struct ConnectionSetupView: View {
                 // Scan section
                 VStack(alignment: .leading, spacing: sp.m) {
                     HStack {
-                        Text("LOCAL NETWORK")
+                        Text("Local network")
                             .font(.system(size: ty.caption))
                             .foregroundColor(c.textMuted)
                         Spacer()
                         Button {
                             startScan()
                         } label: {
-                            Text(isScanning ? "SCANNING..." : "SCAN")
-                                .font(.system(size: ty.caption))
+                            Text(isScanning ? "Scanning…" : "Scan")
+                                .font(.body)
                                 .foregroundColor(colorScheme == .light ? c.accent : c.accentCyan)
                                 .padding(.vertical, theme.spacing.s)
                                 .padding(.horizontal, theme.spacing.s)
                         }
                         .buttonStyle(.plain)
+#if os(iOS)
+                        .frame(minHeight: 44)
+#else
                         .appSurface(.regular.interactive(), in: .capsule)
+#endif
                         .disabled(isScanning)
                     }
 
@@ -197,7 +199,7 @@ struct ConnectionSetupView: View {
                                 }
                                 Spacer()
                                 HStack(spacing: sp.xs) {
-                                    Text("CONNECT")
+                                    Text("Connect")
                                         .font(.system(size: ty.caption))
                                     Icons.symbol(.arrowForward, size: ty.caption)
                                 }
@@ -207,13 +209,17 @@ struct ConnectionSetupView: View {
                             .contentShape(RoundedRectangle(cornerRadius: 16, style: .continuous))
                         }
                         .buttonStyle(.plain)
+#if os(iOS)
+                        .background(c.surfaceRaised, in: RoundedRectangle(cornerRadius: 16))
+#else
                         .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+#endif
                     }
                 }
 
                 // QR code hint
                 VStack(alignment: .leading, spacing: sp.s) {
-                    Text("QR CODE")
+                    Text("QR code")
                         .font(.system(size: ty.caption))
                         .foregroundColor(c.textMuted)
                     Text("Open Settings → Connect Client in your server’s Dashboard, then scan the connection code.")
@@ -235,15 +241,14 @@ struct ConnectionSetupView: View {
     private func manualField(_ label: String, hint: String, text: Binding<String>) -> some View {
         let c = theme.colors
         let sp = theme.spacing
-        let ty = theme.typography
 
         return HStack(spacing: sp.m) {
-            Text(label.uppercased())
-                .font(.system(size: ty.caption))
+            Text(label)
+                .font(.body)
                 .foregroundColor(c.textMuted)
-                .frame(width: 40)
+                .frame(minWidth: 44, alignment: .leading)
             TextField(hint, text: text)
-                .font(.system(size: ty.body))
+                .font(.body)
                 .foregroundColor(c.textPrimary)
                 .textFieldStyle(.plain)
                 .accessibilityLabel(label)
@@ -255,10 +260,7 @@ struct ConnectionSetupView: View {
         }
         .padding(.horizontal, sp.m)
         .padding(.vertical, sp.m)
-        .background(c.surfaceRaised.opacity(0.5), in: RoundedRectangle(cornerRadius: 18))
-        .overlay {
-            RoundedRectangle(cornerRadius: 18).stroke(c.border, lineWidth: 1)
-        }
+        .background(c.surfaceRaised.opacity(0.5), in: RoundedRectangle(cornerRadius: 12))
     }
 
     private func startScan() {

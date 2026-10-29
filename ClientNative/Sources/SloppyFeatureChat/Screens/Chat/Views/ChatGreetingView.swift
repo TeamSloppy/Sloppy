@@ -181,7 +181,7 @@ public struct ChatGreetingView: View {
             title: "Build a new feature, app, or tool",
             prompt: "Help me build a new feature in this project.",
             symbol: "hammer",
-            color: .purple
+            color: .blue
         ),
         StarterPrompt(
             title: "Review code and suggest changes",

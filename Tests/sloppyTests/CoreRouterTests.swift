@@ -2151,6 +2151,30 @@ func identityAuthRefreshRotatesRefreshToken() async throws {
 }
 
 @Test
+func identityDevicePairingAdvertisesCoreLANBindingWithoutExplicitPublicURL() async throws {
+    var config = CoreConfig.test
+    config.listen = .init(host: "192.168.1.10", port: 28123)
+    config.clientPublicURL = nil
+    config.nodeMeshPublicURL = nil
+    let service = CoreService(config: config, identityPasswordHashIterations: 1)
+    await service.setIdentityAuthEnabled(true)
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let bootstrap = await router.handle(method: "POST", path: "/v1/auth/bootstrap",
+        body: try encoder.encode(AuthBootstrapAdminRequest(login: "admin", password: "fixture-pass", name: "Fixture")))
+    let session = try decoder.decode(AuthSessionResponse.self, from: bootstrap.body)
+    let create = await router.handle(method: "POST", path: "/v1/auth/device-pairing",
+        body: try encoder.encode(AuthDevicePairingCreateRequest(clientName: "Fixture")),
+        headers: ["Authorization": "Bearer \(session.accessToken)"])
+    #expect(create.status == 201)
+    let pairing = try decoder.decode(AuthDevicePairingRecord.self, from: create.body)
+    #expect(pairing.serverURL == "http://192.168.1.10:28123")
+    #expect(pairing.setupCode?.hasPrefix("sloppy://pair?code=") == true)
+}
+
+@Test
 func identityDevicePairingIsUserBoundShortLivedAndSingleUse() async throws {
     var config = CoreConfig.test
     config.clientPublicURL = "https://81.26.176.106"

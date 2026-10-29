@@ -7,13 +7,16 @@ import Textual
 @Suite("Chat annotations")
 struct ChatAnnotationTests {
     @Test("comments stay paired with their quoted selections")
-    func quoteComments() {
+    func quoteComments() throws {
         let quotes = [
             ChatComposerQuote(text: "First\r\nselection", comment: "Change this"),
             ChatComposerQuote(text: "Second selection", comment: "Keep this"),
         ]
-        #expect(ChatComposerQuote.messageContent("Please apply", quotes: quotes)
-                == "> First\n> selection\nComment: Change this\n\n> Second selection\nComment: Keep this\n\nPlease apply")
+        let content = ChatComposerQuote.messageContent("Please apply", quotes: quotes)
+        let extracted = try #require(ChatSentAnnotations.extract(from: content))
+        #expect(extracted.annotations.map(\.selectedText) == ["First\nselection", "Second selection"])
+        #expect(extracted.annotations.map(\.comment) == ["Change this", "Keep this"])
+        #expect(extracted.content == "Please apply")
     }
 
     @Test("points use image coordinates and reject letterbox margins")
@@ -53,10 +56,12 @@ struct ChatAnnotationTests {
         #expect(message.attachments == [first, second])
         #expect(message.attachments.map(\.upload.contentBase64) == [bytes.base64EncodedString(), bytes.base64EncodedString()])
         let content = ChatComposerQuote.messageContent(message.content, quotes: message.quotes, attachments: message.attachments)
-        #expect(content.contains("attachment 1: screenshot.png"))
-        #expect(content.contains("attachment 2: screenshot.png"))
-        #expect(content.contains("1. (x: 27.0%, y: 24.3%) Fix this button"))
-        #expect(content.contains("width: 30.0%, height: 40.0%) Widen this area"))
+        let extracted = try #require(ChatSentAnnotations.extract(from: content))
+        #expect(extracted.annotations[0].selectedText.contains("attachment 1: screenshot.png"))
+        #expect(extracted.annotations[1].selectedText.contains("attachment 2: screenshot.png"))
+        #expect(extracted.annotations[0].selectedText.contains("x: 27.0%, y: 24.3%"))
+        #expect(extracted.annotations[1].selectedText.contains("width: 30.0%, height: 40.0%"))
+        #expect(extracted.annotations.map(\.comment) == ["Fix this button", "Widen this area"])
         #expect(content.hasSuffix("\n\nReview"))
     }
 

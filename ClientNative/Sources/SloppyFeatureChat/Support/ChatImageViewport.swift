@@ -4,7 +4,7 @@ import Foundation
 struct ChatImageViewport: Equatable {
     private(set) var zoom: CGFloat = 1
     private(set) var pan: CGSize = .zero
-    static let zoomRange: ClosedRange<CGFloat> = 1...8
+    static let zoomRange: ClosedRange<CGFloat> = 0.1...32
 
     func frame(imageSize: CGSize, canvasSize: CGSize) -> CGRect {
         let fit = ChatImageRegion.imageFrame(imageSize: imageSize, canvasSize: canvasSize)

@@ -141,6 +141,12 @@ On its reference canvas the presentation uses `56px` top padding, `90px` horizon
 
 Apply palette, typography, and spacing while respecting the information and interaction model.
 
+### iOS application direction
+
+The owner approved a consistent native iOS treatment on 2026-10-27. Use the existing neutral Inbox canvas, system blue for actions and selection, native navigation bars, grouped settings, semantic text styles and system controls. Purple is no longer an interface accent or review-state color. Keep semantic success, warning and destructive colors. User content and agent artwork have their own colors.
+
+Use one navigation title per screen. Keep explanatory copy secondary, place error and empty states directly on the canvas, and use a clearly labelled standard-size retry action. Avoid nested outlined fields, tiny capsule actions, decorative borders and glass on form content. Reserve Liquid Glass for navigation and floating controls. Text fields have persistent accessible labels, appropriate keyboards and comfortable touch targets; multiline editors retain their technical typeface when editing code or configuration. Validate the normal, loading, empty and failed states on Simulator.
+
 ### Desktop application direction
 
 The owner approved a Claude-inspired **neutral charcoal desktop chat** on 2026-10-18. This is a desktop-specific palette: canvas `#191919`, sidebar `#151515`, composer `#252525`, selection `#2b2b2b`, borders `#343434`, primary text `#e8e6e3`, and muted text `#979591`. Keep surfaces flat and free of green tint. The `sloppy.` wordmark is entirely off-white on this desktop surface. Agent colors and small semantic status/diff colors may remain.

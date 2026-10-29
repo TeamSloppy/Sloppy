@@ -36,8 +36,10 @@ struct TaskActivityView: View {
             HStack {
                 Text(tab.title).font(.headline)
                 Spacer()
+#if !os(iOS)
                 Button { refreshID &+= 1 } label: { Image(systemName: "arrow.clockwise") }
                     .buttonStyle(.plain).disabled(model.isLoading).accessibilityLabel("Refresh task activity")
+#endif
             }
             if let error = model.actionError {
                 Text(error).font(.callout).foregroundStyle(theme.colors.statusBlocked)
@@ -51,6 +53,9 @@ struct TaskActivityView: View {
                 if let error = model.errorMessage { Text(error).font(.caption).foregroundStyle(theme.colors.statusBlocked) }
                 tabContent
             }
+        }
+        .mobileRefreshSection {
+            await model.load(tab, projectId: projectId, taskId: task.id, force: true)
         }
         .task(id: "\(projectId):\(task.id):\(tab.rawValue):\(refreshID)") {
             await model.load(tab, projectId: projectId, taskId: task.id, force: refreshID > 0)

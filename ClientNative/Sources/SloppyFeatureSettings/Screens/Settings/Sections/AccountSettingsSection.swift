@@ -233,9 +233,10 @@ struct AccountSettingsSection: View {
 #else
         VStack(alignment: .leading, spacing: theme.spacing.xs) {
             Text(title)
-                .font(.system(size: theme.typography.caption, weight: .medium))
-                .foregroundColor(theme.colors.textSecondary)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
             TextField(title, text: text, prompt: Text(""))
+                .font(.body)
                 .appTextField()
                 .labelsHidden()
                 .controlSize(.large)
@@ -249,9 +250,10 @@ struct AccountSettingsSection: View {
 #else
         VStack(alignment: .leading, spacing: theme.spacing.xs) {
             Text(title)
-                .font(.system(size: theme.typography.caption, weight: .medium))
-                .foregroundColor(theme.colors.textSecondary)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
             SecureField(title, text: text, prompt: Text("••••••••"))
+                .font(.body)
                 .appTextField()
                 .labelsHidden()
                 .controlSize(.large)

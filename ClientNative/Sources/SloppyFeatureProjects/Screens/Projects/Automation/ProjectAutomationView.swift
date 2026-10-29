@@ -76,6 +76,7 @@ public struct ProjectAutomationView: View {
             .appPrimaryButton()
             .accessibilityIdentifier("project-automation-create")
 
+#if !os(iOS)
             Button {
                 Task { await viewModel.load(projectId: projectId) }
             } label: {
@@ -84,6 +85,7 @@ public struct ProjectAutomationView: View {
             .buttonStyle(.bordered)
             .disabled(viewModel.isLoading)
             .accessibilityIdentifier("project-automation-refresh")
+#endif
         }
         .padding(.horizontal, theme.spacing.l)
         .padding(.vertical, 10)
@@ -118,7 +120,7 @@ public struct ProjectAutomationView: View {
             }
             .padding(.bottom, 16)
         }
-        .refreshable { await viewModel.load(projectId: projectId) }
+        .mobileRefreshable(id: projectId) { await viewModel.load(projectId: projectId) }
         #else
         if viewModel.isLoading && viewModel.automations.isEmpty {
             LoadingSkeleton("Loading automations…")

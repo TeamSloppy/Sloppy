@@ -182,11 +182,13 @@ enum SloppyTUIToolApprovalState {
     static func pendingApproval(
         in approvals: [ToolApprovalRecord],
         agentID: String,
-        sessionID: String
+        sessionID: String,
+        now: Date = Date()
     ) -> ToolApprovalRecord? {
         approvals
             .filter { approval in
                 approval.status == .pending
+                    && approval.expiresAt > now
                     && approval.agentId == agentID
                     && (approval.sessionId == sessionID || approval.displaySessionId == sessionID)
             }
@@ -1008,5 +1010,13 @@ extension AgentChatMode {
         case .debug: return "Debug"
         case .auto: return "Auto"
         }
+    }
+}
+
+// Preserve a readable chat column; narrow terminals retain the inline preview.
+enum SloppyTUIChangesPane {
+    static func width(for width: Int, hasChanges: Bool) -> Int? {
+        guard hasChanges, width >= 110 else { return nil }
+        return min(80, max(44, width * 2 / 5))
     }
 }

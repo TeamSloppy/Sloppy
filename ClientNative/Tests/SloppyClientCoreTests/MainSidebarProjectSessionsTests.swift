@@ -114,32 +114,6 @@ struct MainSidebarProjectSessionsTests {
         #expect(!source.contains("viewModel.selectChatSession(session)"))
     }
 
-    @Test("project row reveals a project-scoped new chat action on hover")
-    func projectRowRevealsProjectScopedNewChatActionOnHover() throws {
-        let sidebarSource = try source
-        let mainViewModelSource = try sourceFile("Sources/SloppyClient/Navigation/Main/MainViewModel.swift")
-
-        #expect(sidebarSource.contains("viewModel.showNewProjectChat(project: group.project)"))
-        #expect(sidebarSource.contains("Icons.symbol(.chatAddOn"))
-        #expect(sidebarSource.contains(".opacity(Double(isHovered ? 1 : 0))"))
-        #expect(sidebarSource.contains(".help(\"Open conversation\")"))
-
-        let methodStart = try #require(mainViewModelSource.range(of: "func showNewProjectChat(project: APIProjectRecord)"))
-        let nextMethod = try #require(
-            mainViewModelSource.range(
-                of: "func selectTask(",
-                range: methodStart.upperBound..<mainViewModelSource.endIndex
-            )
-        )
-        let methodSource = mainViewModelSource[methodStart.lowerBound..<nextMethod.lowerBound]
-
-        #expect(methodSource.contains("context: .project("))
-        #expect(methodSource.contains("to: chatState.viewModel"))
-        #expect(methodSource.contains("loadInitialData: true"))
-        #expect(methodSource.contains("showInSelectedTab("))
-        #expect(!methodSource.contains("tabs.append(tab)"))
-    }
-
     @Test("project navigation reuses the current tab while explicit tab creation appends")
     func projectNavigationReusesCurrentTabWhileExplicitCreationAppends() throws {
         let mainViewModelSource = try sourceFile("Sources/SloppyClient/Navigation/Main/MainViewModel.swift")

@@ -12,6 +12,46 @@ import Testing
 @Suite("Chat annotation interaction", .serialized, .appKitUI, .appKitIsolation)
 @MainActor
 struct ChatAnnotationInteractionTests {
+    @Test("sent annotation chips open their preserved selections and comments", arguments: [ColorScheme.light, .dark])
+    func sentAnnotationBubble(scheme: ColorScheme) async throws {
+        AppKitTestAccessibility.enable()
+        let content = ChatComposerQuote.messageContent("Please update these sections.", quotes: [
+            .init(text: "The host migration is not finished yet.", comment: "Check the linked pull request before changing this."),
+            .init(text: "Keep the versioned mode enabled by default.", comment: "Add this to acceptance criteria."),
+        ])
+        let message = ChatMessage(role: .user, segments: [.init(kind: .text, text: content)])
+        let host = NSHostingView(rootView: ChatBubbleView(message: message)
+            .padding(30).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .background(scheme == .dark ? AppTheme.sloppyDark.colors.background : AppTheme.sloppyLight.colors.background)
+            .environment(\.theme, scheme == .dark ? .sloppyDark : .sloppyLight)
+            .environment(\.userInterfaceIdiom, .desktop).preferredColorScheme(scheme))
+        let window = makeWindow(host: host, size: CGSize(width: 720, height: 460))
+        defer { window.orderOut(nil) }
+        try await Task.sleep(for: .milliseconds(150))
+        let chip = try #require(AppKitTestAccessibility.element(in: host, identifier: "chat.user-message.annotations"))
+        let frame = try #require(AppKitTestAccessibility.frame(of: chip))
+        #expect(frame.height < 40)
+        #expect(frame.width < 200)
+        let body = try #require(AppKitTestAccessibility.element(in: host, identifier: "chat.user-message.body"))
+        let bodyFrame = try #require(AppKitTestAccessibility.frame(of: body))
+        #expect(bodyFrame.height < 80)
+        try capture(host, name: "sent-annotations-\(scheme)-closed")
+        #expect(AppKitTestAccessibility.press(chip))
+        try await Task.sleep(for: .milliseconds(350))
+        let popover = try #require(NSApp.windows.compactMap(\.contentView).first {
+            AppKitTestAccessibility.element(in: $0, identifier: "chat.user-message.annotation.0.selection") != nil
+        })
+        #expect(AppKitTestAccessibility.element(in: popover, identifier: "chat.user-message.annotation.0.comment") != nil)
+        #expect(AppKitTestAccessibility.element(in: popover, identifier: "chat.user-message.annotation.1.selection") != nil)
+        #expect(AppKitTestAccessibility.element(in: popover, identifier: "chat.user-message.annotation.1.comment") != nil)
+        try capture(popover, name: "sent-annotations-\(scheme)-open")
+        #expect(AppKitTestAccessibility.press(chip))
+        try await Task.sleep(for: .milliseconds(300))
+        #expect(!NSApp.windows.filter(\.isVisible).compactMap(\.contentView).contains {
+            AppKitTestAccessibility.element(in: $0, identifier: "chat.user-message.annotation.0.selection") != nil
+        })
+    }
+
     @Test("text annotations stay at their source and can be reopened, edited, and emptied")
     func anchoredTextAnnotationEditing() async throws {
         AppKitTestAccessibility.enable()
@@ -219,6 +259,62 @@ struct ChatAnnotationInteractionTests {
         #expect(saved.map(\.comment) == ["Pay attention to this section", "Widen this area"])
         #expect(saved.last?.region.width ?? 0 > 0)
         #expect(saved.last?.region.height ?? 0 > 0)
+    }
+
+    @Test("viewer drawing survives zoom, undo, redo and saving to the composer")
+    func viewerDrawing() async throws {
+        AppKitTestAccessibility.enable()
+        let context = try #require(CGContext(data: nil, width: 800, height: 450, bitsPerComponent: 8,
+            bytesPerRow: 0, space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        context.setFillColor(CGColor(red: 0.88, green: 0.87, blue: 0.83, alpha: 1))
+        context.fill(CGRect(x: 0, y: 0, width: 800, height: 450))
+        let image = try #require(context.makeImage())
+        let original = try ChatImageExport.png(image: image, strokes: [])
+        let attachment = ChatComposerAttachment(name: "design.png", mimeType: "image/png", data: original)
+        var saved: ChatComposerAttachment?
+        let host = NSHostingView(rootView: ChatImageAnnotationEditor(attachment: attachment, onSave: { saved = $0 })
+            .environment(\.theme, .sloppyDark))
+        let window = makeWindow(host: host, size: CGSize(width: 1100, height: 760))
+        defer { window.orderOut(nil) }
+        try await Task.sleep(for: .milliseconds(200))
+        try capture(host, name: "viewer-fit")
+        let pen = try #require(AppKitTestAccessibility.element(in: host, identifier: "chat.image.tool.pen"))
+        #expect(AppKitTestAccessibility.press(pen))
+        try await Task.sleep(for: .milliseconds(100))
+        let canvas = try #require(descendants(host).compactMap { $0 as? ChatImageAnnotationPointerInput.AnnotationPointerView }.first)
+        let start = canvas.convert(CGPoint(x: 260, y: 260), to: nil)
+        let end = canvas.convert(CGPoint(x: 620, y: 330), to: nil)
+        for (type, location) in [(NSEvent.EventType.leftMouseDown, start), (.leftMouseDragged, end), (.leftMouseUp, end)] {
+            let event = try #require(NSEvent.mouseEvent(with: type, location: location, modifierFlags: [],
+                timestamp: ProcessInfo.processInfo.systemUptime, windowNumber: window.windowNumber,
+                context: nil, eventNumber: 4, clickCount: 1, pressure: 1))
+            switch type {
+            case .leftMouseDown: canvas.mouseDown(with: event)
+            case .leftMouseDragged: canvas.mouseDragged(with: event)
+            default: canvas.mouseUp(with: event)
+            }
+        }
+        try await Task.sleep(for: .milliseconds(100))
+        let undo = try #require(AppKitTestAccessibility.element(in: host, identifier: "chat.image.markup.undo"))
+        #expect(AppKitTestAccessibility.press(undo))
+        try await Task.sleep(for: .milliseconds(100))
+        let redo = try #require(AppKitTestAccessibility.element(in: host, identifier: "chat.image.markup.redo"))
+        #expect(AppKitTestAccessibility.press(redo))
+        let zoom = try #require(AppKitTestAccessibility.element(in: host, identifier: "chat.image.annotations.zoom-in"))
+        #expect(AppKitTestAccessibility.press(zoom))
+        try await Task.sleep(for: .milliseconds(100))
+        try capture(host, name: "viewer-drawing-zoom")
+        let fit = try #require(AppKitTestAccessibility.element(in: host, identifier: "chat.image.annotations.fit"))
+        #expect(AppKitTestAccessibility.press(fit))
+        try await Task.sleep(for: .milliseconds(100))
+        try capture(host, name: "viewer-drawing-fit")
+        let save = try #require(AppKitTestAccessibility.element(in: host, identifier: "chat.image.annotations.save"))
+        #expect(AppKitTestAccessibility.press(save))
+        let result = try #require(saved)
+        #expect(result.data == original)
+        #expect(result.markup?.strokes.count == 1)
+        #expect(result.markup?.pngData != original)
+        #expect(result.upload.contentBase64 == result.markup?.pngData.base64EncodedString())
     }
 
     private func makeWindow<V: View>(host: NSHostingView<V>, size: CGSize) -> NSWindow {

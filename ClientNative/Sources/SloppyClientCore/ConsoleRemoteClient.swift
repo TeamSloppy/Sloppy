@@ -1,5 +1,6 @@
 import Crypto
 import Foundation
+import Logging
 import Security
 import SloppyConsoleProtocol
 import SloppyRemoteProtocol
@@ -85,6 +86,18 @@ public actor ConsoleRemoteClientRegistry {
         else {
             connection = ConsoleRemoteConnection(deviceID: credential.deviceID, signingPrivateKey: credential.privateKey, identity: credential.tls, relayURL: ManagedRemoteClient.productionURL, pins: [:])
             transport = connection
+            let logger = Logger(label: "sloppy.console-transport")
+            await connection.setEventHandler { event in
+                switch event {
+                case .disconnected(let reason):
+                    logger.warning("console.transport.disconnected", metadata: ["reason": .string(reason)])
+                case .packetFailed(let kind, let peer, let reason):
+                    logger.warning("console.transport.packet_failed", metadata: [
+                        "kind": .string(kind), "peer": .string(peer.uuidString), "reason": .string(reason),
+                    ])
+                default: break
+                }
+            }
             await connection.setDisconnectHandler { [weak self] in await self?.transportDisconnected() }
             await connection.setHandler { [weak self] from, _, packet in
                 guard let self else { return nil }

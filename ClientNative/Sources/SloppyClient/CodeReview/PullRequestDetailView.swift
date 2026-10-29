@@ -985,7 +985,7 @@ struct PullRequestDetailView: View {
         switch item.state {
         case .open, .all: .green
         case .closed: .red
-        case .merged: .purple
+        case .merged: .blue
         }
     }
 
