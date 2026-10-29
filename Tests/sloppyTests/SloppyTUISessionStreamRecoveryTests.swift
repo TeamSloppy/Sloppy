@@ -237,7 +237,7 @@ struct SloppyTUISessionStreamRecoveryTests {
         #expect(screen.handleSessionStreamUpdate(update, streamKey: key))
         #expect(screen.transientNoticeLine == "Interactive form available: Ctrl+Y or /ui")
         await screen.reloadSession()
-        #expect(screen.lastRenderedSessionEventIDs.contains(event.id))
+        try await waitForSessionStream { screen.lastRenderedSessionEventIDs.contains(event.id) }
         screen.showSystemNotice("Connection restored")
 
         #expect(screen.handleSessionStreamUpdate(update, streamKey: key))
