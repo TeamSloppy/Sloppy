@@ -213,6 +213,37 @@ struct SloppyTUISessionStreamRecoveryTests {
         #expect(screen.liveAssistantTarget == "Next answer")
     }
 
+    @Test("replayed form events do not repeat the interactive form notice")
+    func replayedFormDoesNotRepeatNotice() async throws {
+        let fixture = try await SessionStreamFixture.make()
+        defer { fixture.stop() }
+        let screen = fixture.screen
+        var button = AgentUIComponent(id: "root", component: .button)
+        button.label = "Continue"
+        button.action = "submit"
+        let surface = AgentUISurfaceSnapshot(
+            surfaceId: "form", revision: 1, fallbackText: "Continue", components: [button]
+        )
+        try surface.validate()
+        let event = AgentSessionEvent(
+            agentId: fixture.agentID, sessionId: fixture.sessionID, type: .message,
+            message: .init(role: .assistant, segments: [.init(kind: .text, text: "Continue")], uiSurface: surface)
+        )
+        let store = await fixture.service.sessionStore
+        _ = try store.appendEvents(agentID: fixture.agentID, sessionID: fixture.sessionID, events: [event])
+        let key = screen.currentSessionStreamKey()
+        let update = AgentSessionStreamUpdate(kind: .sessionEvent, cursor: 1, event: event)
+
+        #expect(screen.handleSessionStreamUpdate(update, streamKey: key))
+        #expect(screen.transientNoticeLine == "Interactive form available: Ctrl+Y or /ui")
+        await screen.reloadSession()
+        try await waitForSessionStream { screen.lastRenderedSessionEventIDs.contains(event.id) }
+        screen.showSystemNotice("Connection restored")
+
+        #expect(screen.handleSessionStreamUpdate(update, streamKey: key))
+        #expect(screen.transientNoticeLine == "Connection restored")
+    }
+
     @Test("reloading old completion does not settle a newly submitted turn")
     func oldCompletionDoesNotSettleNewTurn() async throws {
         let fixture = try await SessionStreamFixture.make()

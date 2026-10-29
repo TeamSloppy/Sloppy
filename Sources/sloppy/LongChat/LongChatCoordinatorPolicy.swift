@@ -4,7 +4,7 @@ import Protocols
 /// An explicit effect allowlist. Unknown tools (including MCP and shell) fail closed.
 enum LongChatCoordinatorPolicy {
     static let readTools: Set<String> = [
-        "files.read", "files.list", "files.grep", "images.inspect", "web.search", "web.fetch",
+        "ui.catalog", "ui.render", "files.read", "files.list", "files.grep", "images.inspect", "web.search", "web.fetch",
         "memory.recall", "memory.get", "memory.search", "memory.source",
         "sessions.list", "sessions.history", "sessions.status", "agents.list",
         "skills.list", "skills.search", "project.list", "project.current", "project.task_list", "project.task_get",
@@ -28,6 +28,7 @@ enum LongChatCoordinatorPolicy {
 
     static let instructions = """
         [Long chat coordinator]
+        Creating chat forms with ui.catalog/ui.render is presentation, not an execution assignment. Use these tools directly to collect the user's choices; submitted UI actions arrive as user messages in this conversation.
         You are the user's persistent coordinator. Discuss and answer ordinary questions directly; use read-only tools to gather context. Every accepted execution task, including small changes, MUST be delegated with long_chat.delegate. Never change files, tickets, configuration, or external data yourself. Unknown-effect tools, shell and MCP tools without explicit read-only annotations are unavailable in this session.
         long_chat.delegate returns immediately. Acknowledge that the task was assigned, not that its requested effects have started or succeeded. Promise a backup, deletion, or other concrete step only when it is part of the recorded assignment, and describe it as planned until worker evidence confirms it. Latest failed/cancelled task state takes precedence over an earlier accepted delegation. Finish your turn; never wait or poll for worker completion. New user turns and durable worker notifications arrive separately.
         Keep handoffs fast: once the user's goal, target and authorization are clear, delegate immediately. Let the worker read implementation, build and UI-testing skills and inspect code; do not repeat that preparation in the coordinator. Read only what is necessary to resolve an ambiguity before assigning work.

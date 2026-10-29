@@ -4,14 +4,16 @@ import SloppyClientCore
 import SloppyClientUI
 import SloppyFeatureChat
 
+private struct AgentChatTranscriptTarget: Identifiable { let id: String }
+
 struct AgentChatView: View {
     let agent: APIAgentRecord
     let apiClient: SloppyAPIClient
 
     @State private var sessionToRename: ChatSessionSummary?
     @State private var sessions: [ChatSessionSummary] = []
-    @State private var selectedSessionId: String?
-    @State private var showTranscript = false
+    @State private var transcriptTarget: AgentChatTranscriptTarget?
+    private var selectedSessionId: String? { transcriptTarget?.id }
     @State private var messages: [ChatMessage] = []
     @State private var isLoadingSessions = false
     @State private var didLoadSessions = false
@@ -34,20 +36,20 @@ struct AgentChatView: View {
                     sessions = sessions.map { $0.id == updated.id ? updated : $0 }
                 }
             }
-            .sheet(isPresented: $showTranscript, onDismiss: { loadSessions(force: true) }) {
-                if let sessionId = selectedSessionId {
-                    ChatTranscriptView(
-                        sessionId: sessionId,
-                        agentId: agent.id,
-                        messages: $messages,
-                        composerDraft: composerDraft,
-                        isSending: isSending,
-                        onSend: { content in
-                            sendMessage(agentId: agent.id, sessionId: sessionId, content: content)
-                        },
-                        onForkFromMessage: forkSession
-                    )
-                }
+            .sheet(item: $transcriptTarget, onDismiss: { loadSessions(force: true) }) { target in
+                let sessionId = target.id
+                ChatTranscriptView(
+                    apiClient: apiClient,
+                    sessionId: sessionId,
+                    agentId: agent.id,
+                    messages: $messages,
+                    composerDraft: composerDraft,
+                    isSending: isSending,
+                    onSend: { content in
+                        sendMessage(agentId: agent.id, sessionId: sessionId, content: content)
+                    },
+                    onForkFromMessage: forkSession
+                )
             }
     }
 
@@ -137,16 +139,14 @@ struct AgentChatView: View {
     private func selectSession(_ sessionId: String) {
         disconnectSocket()
         messages = []
-        selectedSessionId = sessionId
-        showTranscript = true
+        transcriptTarget = .init(id: sessionId)
         loadSessionAndConnect(sessionId: sessionId)
     }
 
     private func disconnectAndClearSession() {
         disconnectSocket()
         messages = []
-        selectedSessionId = nil
-        showTranscript = false
+        transcriptTarget = nil
     }
 
     private func disconnectSocket() {
@@ -494,6 +494,7 @@ private struct AgentChatSessionRow: View {
 }
 
 struct ChatTranscriptView: View {
+    let apiClient: SloppyAPIClient
     let sessionId: String
     let agentId: String
     @Binding var messages: [ChatMessage]
@@ -579,6 +580,8 @@ struct ChatTranscriptView: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
+            ChatUISurfacesView(apiClient: apiClient, agentID: agentId, sessionID: sessionId)
+                .id(apiClient.endpoint.cacheNamespace + ":" + agentId + ":" + sessionId)
         }
         .background(c.background)
     }

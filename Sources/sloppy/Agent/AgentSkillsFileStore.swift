@@ -431,6 +431,7 @@ final class AgentSkillsFileStore {
         try fileManager.createDirectory(at: skillDirectory, withIntermediateDirectories: true)
         for (relativePath, content) in definition.files {
             let destination = try safeSkillFileURL(relativePath: relativePath, skillDirectory: skillDirectory)
+            if skillID == BuiltInSkillCatalog.a2uiID, fileManager.fileExists(atPath: destination.path) { continue }
             try fileManager.createDirectory(
                 at: destination.deletingLastPathComponent(),
                 withIntermediateDirectories: true
@@ -455,7 +456,7 @@ final class AgentSkillsFileStore {
                 allowedTools: definition.allowedTools,
                 context: existing.context,
                 agent: existing.agent,
-                autoRoute: existing.autoRoute
+                autoRoute: existing.autoRoute ?? definition.autoRoute
             )
             manifest.installedSkills[index] = installed
         } else {
@@ -468,7 +469,8 @@ final class AgentSkillsFileStore {
                 version: "built-in",
                 localPath: skillDirectory.standardizedFileURL.path,
                 userInvocable: definition.userInvocable,
-                allowedTools: definition.allowedTools
+                allowedTools: definition.allowedTools,
+                autoRoute: definition.autoRoute
             )
             manifest.installedSkills.append(installed)
         }

@@ -393,6 +393,40 @@ struct AgentsAPIRouter: APIRouter {
             }
         }
 
+        router.post("/v1/agents/:agentId/sessions/:sessionId/ui-surfaces/:surfaceId/actions", metadata: RouteMetadata(summary: "Submit UI action", description: "Accept validated form values and queue one message in the owning session", tags: ["Agents"])) { request in
+            guard let data = request.body, let body = CoreRouter.decode(data, as: AgentUISubmission.self) else { return CoreRouter.json(status: 400, payload: ["error": "invalid_ui_action"]) }
+            let identityEnabled = await service.identityAuthEnabled()
+            let actor = await CoreRouter.identityActor(for: request, service: service)
+            guard !identityEnabled || actor != nil else { return CoreRouter.json(status: 401, payload: ["error": "unauthorized"]) }
+            let userID = identityEnabled ? actor?.user.id : "local"
+            do {
+                let receipt = try await service.submitAgentUIAction(agentID: request.pathParam("agentId") ?? "", sessionID: request.pathParam("sessionId") ?? "", surfaceID: request.pathParam("surfaceId") ?? "", submission: body, userID: userID)
+                return CoreRouter.encodable(status: 200, payload: receipt)
+            } catch CoreService.AgentUIError.revisionConflict(let revision) {
+                return CoreRouter.json(status: 409, payload: ["error": "ui_revision_conflict", "currentRevision": String(revision)])
+            } catch CoreService.AgentUIError.forbidden { return CoreRouter.json(status: 403, payload: ["error": "ui_action_forbidden"])
+            } catch CoreService.AgentUIError.actionConflict { return CoreRouter.json(status: 409, payload: ["error": "ui_action_conflict"])
+            } catch CoreService.AgentUIError.invalidAction { return CoreRouter.json(status: 400, payload: ["error": "invalid_ui_action"])
+            } catch let error as CoreService.AgentSessionError { return CoreRouter.agentSessionErrorResponse(error, fallback: ErrorCode.sessionWriteFailed)
+            } catch { return CoreRouter.json(status: 500, payload: ["error": "ui_action_failed"]) }
+        }
+
+        router.get("/v1/agents/:agentId/sessions/:sessionId/ui-surfaces", metadata: RouteMetadata(summary: "List session UI surfaces", description: "Returns the latest supported, validated UI snapshots from this session's journal", tags: ["Agents"])) { request in
+            do {
+                let surfaces = try await service.listAgentUISurfaces(
+                    agentID: request.pathParam("agentId") ?? "",
+                    sessionID: request.pathParam("sessionId") ?? ""
+                )
+                return CoreRouter.encodable(status: HTTPStatus.ok, payload: surfaces)
+            } catch CoreService.AgentStorageError.notFound {
+                return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.agentNotFound])
+            } catch let error as CoreService.AgentSessionError {
+                return CoreRouter.agentSessionErrorResponse(error, fallback: ErrorCode.sessionLoadFailed)
+            } catch {
+                return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": ErrorCode.sessionLoadFailed])
+            }
+        }
+
         router.get("/v1/agents/:agentId/sessions/:sessionId/attachments/:attachmentId", metadata: RouteMetadata(summary: "Read session attachment", description: "Returns a bounded attachment belonging to this session", tags: ["Agents"])) { request in
             do {
                 let attachment = try await service.getAgentSessionAttachment(

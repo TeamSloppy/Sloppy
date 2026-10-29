@@ -173,6 +173,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     var onExit: (@MainActor @Sendable () -> Void)?
 
     static let baseSlashCommands = [
+        SloppyTUISlashCommand("ui", "Open interactive forms"),
         SloppyTUISlashCommand("help", "Show TUI commands"),
         SloppyTUISlashCommand("status", "Show session status"),
         SloppyTUISlashCommand("approvals", "Choose Ask for approval or Approve for me"),
@@ -272,6 +273,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
         "mcps",
         "mcp",
         "provider",
+        "ui",
         "providers",
         "remote",
         "local",
@@ -307,6 +309,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     let timeline = MarkdownComponent(padding: .init(horizontal: 1, vertical: 0))
     let status = Text(paddingX: 1, paddingY: 0)
 
+    var uiForm: SloppyTUIForm?
+    var uiRefreshTask: Task<Void, Never>?
     var sessionCards: [SloppyTUITimelineBlock] = []
     var localCards: [SloppyTUILocalCard] = []
     var subSessionCards: [SloppyTUISubSessionCard] = []
@@ -582,6 +586,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     func render(width: Int) -> [String] {
+        if let uiForm { return SloppyTUITheme.screenBackgroundLines(SloppyTUITheme.normalize(lines: renderMarkdown(uiForm.markdown, width: width), width: width, height: max(terminal?.rows ?? 24, 12)), width: width) }
         hitRegions.removeAll(keepingCapacity: true)
         scrollRegions.removeAll(keepingCapacity: true)
         terminal?.setMouseReportingEnabled(true)
@@ -601,6 +606,7 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     }
 
     func handle(input: TerminalInput) {
+        if handleUIForm(input) { return }
         controlCExitDetector.reset()
         if handleMouseInput(input) {
             return

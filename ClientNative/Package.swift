@@ -22,6 +22,7 @@ let package = Package(
         .library(name: "SloppyLiveActivity", targets: ["SloppyLiveActivity"])
     ],
     dependencies: [
+        .package(path: "../Packages/SloppyA2UI"),
         .package(path: "../Packages/SloppyMigration"),
         .package(path: "../Packages/SloppyRemoteProtocol"),
         .package(path: "../Packages/SloppyConsoleProtocol"),
@@ -34,6 +35,7 @@ let package = Package(
         .target(
             name: "SloppyClientCore",
             dependencies: [
+                .product(name: "SloppyA2UI", package: "SloppyA2UI"),
                 .product(name: "SloppyMigration", package: "SloppyMigration"),
                 "CSQLite3",
                 .product(name: "SloppyRemoteProtocol", package: "SloppyRemoteProtocol"),
@@ -92,6 +94,7 @@ let package = Package(
         .target(
             name: "SloppyFeatureChat",
             dependencies: [
+                .product(name: "SloppyA2UI", package: "SloppyA2UI"),
                 "SloppyClientCore",
                 "SloppyClientUI",
                 .product(name: "Textual", package: "textual")

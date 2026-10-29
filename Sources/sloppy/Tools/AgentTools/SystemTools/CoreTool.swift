@@ -67,6 +67,7 @@ struct ToolContext: @unchecked Sendable {
     let memoryImportService: (any MemoryImportToolService)?
     let siteService: (any SiteToolService)?
     let sessionService: (any SessionToolService)?
+    let uiService: (any UIToolService)?
     let lspManager: LSPServerManager?
     let fileMutations: FileMutationCoordinator
     var outputArtifacts: ToolOutputArtifactStore {
@@ -107,6 +108,7 @@ struct ToolContext: @unchecked Sendable {
         memoryImportService: (any MemoryImportToolService)? = nil,
         siteService: (any SiteToolService)? = nil,
         sessionService: (any SessionToolService)? = nil,
+        uiService: (any UIToolService)? = nil,
         lspManager: LSPServerManager?,
         fileMutations: FileMutationCoordinator = FileMutationCoordinator(),
         browserService: BrowserCDPService? = nil,
@@ -149,6 +151,7 @@ struct ToolContext: @unchecked Sendable {
         self.memoryImportService = memoryImportService
         self.siteService = siteService
         self.sessionService = sessionService
+        self.uiService = uiService
         self.lspManager = lspManager
         self.applyAgentMarkdown = applyAgentMarkdown
         self.delegateSubagent = delegateSubagent

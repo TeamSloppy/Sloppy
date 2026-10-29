@@ -10,6 +10,8 @@ final class SessionMessageInboxFileStore {
         var sessionId: String
         var request: AgentSessionPostMessageRequest
         var origin: AgentSessionPeerOrigin?
+        var uiSnapshot: AgentUISurfaceSnapshot?
+        var uiSubmission: AgentUISubmission?
         var state: State = .queued
         var error: String?
         // Optional so existing queues decode unchanged and older Core versions can still read them.
@@ -43,7 +45,7 @@ final class SessionMessageInboxFileStore {
     func enqueue(_ entry: Entry) throws -> Entry {
         if let existing = entries.first(where: { $0.id == entry.id }) {
             guard existing.agentId == entry.agentId, existing.sessionId == entry.sessionId,
-                  existing.request.content == entry.request.content,
+                  existing.request.content == entry.request.content, existing.uiSubmission == entry.uiSubmission,
                   existing.origin?.agentId == entry.origin?.agentId,
                   existing.origin?.sessionId == entry.origin?.sessionId else { throw PeerSessionMessageError.conflict }
             return existing

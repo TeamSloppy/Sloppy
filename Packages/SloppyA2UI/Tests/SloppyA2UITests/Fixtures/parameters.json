@@ -1,0 +1,48 @@
+[
+  {
+    "version": "v0.9.1",
+    "createSurface": {
+      "surfaceId": "parameters",
+      "catalogId": "urn:sloppy:a2ui:catalog:v1"
+    }
+  },
+  {
+    "version": "v0.9.1",
+    "updateComponents": {
+      "surfaceId": "parameters",
+      "components": [
+        {
+          "id": "root",
+          "component": "Column",
+          "children": [
+            "count",
+            "notify",
+            "submit"
+          ]
+        },
+        {
+          "id": "count",
+          "component": "TextField",
+          "label": "Count",
+          "binding": "/count",
+          "inputType": "number",
+          "required": true,
+          "minimum": 1,
+          "maximum": 10
+        },
+        {
+          "id": "notify",
+          "component": "CheckBox",
+          "label": "Notify me",
+          "binding": "/notify"
+        },
+        {
+          "id": "submit",
+          "component": "Button",
+          "label": "Continue",
+          "action": "submit_parameters"
+        }
+      ]
+    }
+  }
+]

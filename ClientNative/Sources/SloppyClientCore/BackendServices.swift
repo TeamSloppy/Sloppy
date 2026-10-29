@@ -635,6 +635,7 @@ public actor SessionService {
         clientMessageId: String? = nil
     ) async throws -> ChatSessionMessageReceipt {
         struct Payload: Encodable {
+            var supportsA2UI = true
             var userId: String
             var content: String
             var attachments: [ChatAttachmentUpload]

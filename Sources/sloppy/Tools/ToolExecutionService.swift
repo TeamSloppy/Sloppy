@@ -30,6 +30,7 @@ final class ToolExecutionService: @unchecked Sendable {
     var memoryImportService: (any MemoryImportToolService)?
     var siteService: (any SiteToolService)?
     var sessionService: (any SessionToolService)?
+    var uiService: (any UIToolService)?
     /// `(agentID, userID, field, markdown)` — used to build per-invocation `ToolContext.applyAgentMarkdown`.
     var applyAgentMarkdown: ((String, String?, AgentMarkdownDocumentField, String) async throws -> Void)?
     var delegateSubagent: (@Sendable (String, String, String, String?, [String]?, String?, String?) async -> String?)?
@@ -213,6 +214,7 @@ final class ToolExecutionService: @unchecked Sendable {
             memoryImportService: memoryImportService,
             siteService: siteService,
             sessionService: sessionService,
+            uiService: uiService,
             lspManager: lspManager,
             fileMutations: fileMutations,
             browserService: browserService,

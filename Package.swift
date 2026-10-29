@@ -90,6 +90,7 @@ let package = Package(
         .executable(name: "SloppyNode", targets: ["SloppyNode"]),
     ] + platformRelayProducts,
     dependencies: [
+        .package(path: "Packages/SloppyA2UI"),
         .package(path: "Packages/SloppyMigration"),
         .package(path: "Packages/SloppyRemoteProtocol"),
         .package(path: "Packages/SloppyConsoleProtocol"),
@@ -109,6 +110,7 @@ let package = Package(
         .target(
             name: "Protocols",
             dependencies: [
+                .product(name: "SloppyA2UI", package: "SloppyA2UI"),
                 .product(name: "SloppyComputerControl", package: "SloppyComputerControl"),
                 .product(name: "Logging", package: "swift-log"),
             ],
@@ -244,6 +246,12 @@ let package = Package(
                 .product(name: "Logging", package: "swift-log"),
             ],
             path: "Sources/ChannelPluginDiscord"
+        ),
+        .testTarget(
+            name: "SloppyA2UIContractTests",
+            dependencies: [.product(name: "SloppyA2UI", package: "SloppyA2UI")],
+            path: "Packages/SloppyA2UI/Tests/SloppyA2UITests",
+            resources: [.copy("Fixtures")]
         ),
         .testTarget(
             name: "ProtocolsTests",

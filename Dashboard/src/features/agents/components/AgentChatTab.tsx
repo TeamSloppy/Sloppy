@@ -1,3 +1,4 @@
+import { SessionUISurfaces } from "../ui/SessionUISurfaces";
 import { WorkerTaskCard } from "./WorkerTaskCard";
 import { LongChatPanel } from "./LongChatPanel";
 import { ChatApprovalModePicker } from "./ChatApprovalModePicker";
@@ -7515,6 +7516,7 @@ export function AgentChatTab({
 
               {activeSession?.summary?.kind === "long_chat" && <LongChatPanel agentId={agentId} sessionId={activeSessionId} onOpenWorker={openSubagentPanel} />}
               <div className="agent-chat-compose-sticky-wrap">
+                <SessionUISurfaces agentId={agentId} sessionId={activeSessionId} />
                 <AgentChatToolApprovalBanner
                   approvals={activePendingToolApprovals}
                   resolvingId={resolvingToolApprovalId}

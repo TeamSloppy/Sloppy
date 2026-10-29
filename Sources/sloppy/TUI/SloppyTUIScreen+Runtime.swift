@@ -108,6 +108,10 @@ extension SloppyTUIScreen {
         } else if update.kind == .sessionEvent, let event = update.event {
             // History may already contain events still queued on a lagging stream.
             guard !lastRenderedSessionEventIDs.contains(event.id) else { return true }
+            if let surface = event.message?.uiSurface, surface.isDeleted != true, surface.submittedActionId == nil,
+               surface.components.contains(where: { $0.component == .button }) {
+                showSystemNotice("Interactive form available: Ctrl+Y or /ui", autoDismissAfter: 12)
+            }
             markFirstStreamEventIfNeeded()
             if event.toolCall != nil {
                 markFirstToolCallIfNeeded()
