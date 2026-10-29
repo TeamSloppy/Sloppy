@@ -616,7 +616,7 @@ actor AgentSessionOrchestrator {
             segments: userSegments,
             userId: effectiveRequest.userId,
             peerOrigin: peerOrigin,
-            sessionReferences: SessionReferenceContext.references(for: effectiveRequest)
+            sessionReferences: SessionReferenceContext.references(for: effectiveRequest), supportsA2UI: effectiveRequest.supportsA2UI
         )
 
         let thinkingText =
@@ -1497,7 +1497,8 @@ actor AgentSessionOrchestrator {
             selectedModel: request.selectedModel,
             mode: command.mode,
             clientMessageId: request.clientMessageId,
-            sessionReferences: request.sessionReferences
+            sessionReferences: request.sessionReferences,
+            supportsA2UI: request.supportsA2UI
         )
     }
 

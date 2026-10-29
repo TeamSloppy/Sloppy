@@ -139,6 +139,7 @@ func builtInSkillsBackfillIsIdempotentForExistingAgents() throws {
             && $0.id != BuiltInSkillCatalog.workflowID
             && $0.id != BuiltInSkillCatalog.deepResearchID
             && $0.id != BuiltInSkillCatalog.sitePublishingID
+            && $0.id != BuiltInSkillCatalog.a2uiID
     }.allSatisfy { $0.userInvocable == false })
     #expect(installed.first { $0.id == BuiltInSkillCatalog.workflowID }?.userInvocable == true)
     #expect(installed.first { $0.id == BuiltInSkillCatalog.deepResearchID }?.userInvocable == true)

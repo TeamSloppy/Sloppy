@@ -326,6 +326,8 @@ public struct AgentSessionMessage: Codable, Sendable, Equatable {
     public var peerOrigin: AgentSessionPeerOrigin?
     public var sessionReferences: [AgentSessionReference]?
     public var uiSurface: AgentUISurfaceSnapshot?
+    public var supportsA2UI: Bool?
+    public var uiAction: AgentUISubmission?
 
     public init(
         id: String = UUID().uuidString,
@@ -335,7 +337,9 @@ public struct AgentSessionMessage: Codable, Sendable, Equatable {
         userId: String? = nil,
         peerOrigin: AgentSessionPeerOrigin? = nil,
         sessionReferences: [AgentSessionReference]? = nil,
-        uiSurface: AgentUISurfaceSnapshot? = nil
+        uiSurface: AgentUISurfaceSnapshot? = nil,
+        supportsA2UI: Bool? = nil,
+        uiAction: AgentUISubmission? = nil
     ) {
         self.id = id
         self.role = role
@@ -345,10 +349,12 @@ public struct AgentSessionMessage: Codable, Sendable, Equatable {
         self.peerOrigin = peerOrigin
         self.sessionReferences = sessionReferences
         self.uiSurface = uiSurface
+        self.supportsA2UI = supportsA2UI
+        self.uiAction = uiAction
     }
 
     private enum CodingKeys: String, CodingKey {
-        case id, role, segments, createdAt, userId, peerOrigin, sessionReferences, uiSurface
+        case id, role, segments, createdAt, userId, peerOrigin, sessionReferences, uiSurface, supportsA2UI, uiAction
     }
 
     public init(from decoder: Decoder) throws {
@@ -362,6 +368,8 @@ public struct AgentSessionMessage: Codable, Sendable, Equatable {
         sessionReferences = try values.decodeIfPresent([AgentSessionReference].self, forKey: .sessionReferences)
         // An unsupported or damaged optional interface must never hide the ordinary message.
         uiSurface = try? values.decode(AgentUISurfaceSnapshot.self, forKey: .uiSurface)
+        supportsA2UI = try values.decodeIfPresent(Bool.self, forKey: .supportsA2UI)
+        uiAction = try? values.decode(AgentUISubmission.self, forKey: .uiAction)
     }
 }
 
@@ -964,6 +972,7 @@ public struct AgentSessionPostMessageRequest: Codable, Sendable {
     /// Correlates a persisted user message with its optimistic client submission.
     public var clientMessageId: String?
     public var sessionReferences: [AgentSessionReference]?
+    public var supportsA2UI: Bool?
 
     public init(
         userId: String,
@@ -974,7 +983,8 @@ public struct AgentSessionPostMessageRequest: Codable, Sendable {
         selectedModel: String? = nil,
         mode: AgentChatMode? = nil,
         clientMessageId: String? = nil,
-        sessionReferences: [AgentSessionReference]? = nil
+        sessionReferences: [AgentSessionReference]? = nil,
+        supportsA2UI: Bool? = nil
     ) {
         self.userId = userId
         self.content = content
@@ -985,6 +995,7 @@ public struct AgentSessionPostMessageRequest: Codable, Sendable {
         self.mode = mode
         self.clientMessageId = clientMessageId
         self.sessionReferences = sessionReferences
+        self.supportsA2UI = supportsA2UI
     }
 }
 

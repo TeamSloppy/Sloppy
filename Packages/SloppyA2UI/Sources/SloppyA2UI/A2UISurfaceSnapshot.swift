@@ -1,26 +1,5 @@
 import Foundation
 
-/// A materialized Sloppy surface, not an A2UI transport envelope.
-/// This first catalog supports literal Text and Column components only.
-public struct A2UIComponent: Codable, Sendable, Equatable {
-    public enum Kind: String, Codable, Sendable {
-        case text = "Text"
-        case column = "Column"
-    }
-
-    public var id: String
-    public var component: Kind
-    public var text: String?
-    public var children: [String]?
-
-    public init(id: String, component: Kind, text: String? = nil, children: [String]? = nil) {
-        self.id = id
-        self.component = component
-        self.text = text
-        self.children = children
-    }
-}
-
 public struct A2UISurfaceSnapshot: Codable, Sendable, Equatable {
     public static let supportedProtocolVersion = "0.9.1"
     public static let supportedCatalogID = "urn:sloppy:a2ui:catalog:v1"
@@ -31,6 +10,9 @@ public struct A2UISurfaceSnapshot: Codable, Sendable, Equatable {
     public var revision: Int
     public var fallbackText: String
     public var components: [A2UIComponent]
+    public var dataModel: A2UIValue?
+    public var isDeleted: Bool?
+    public var submittedActionId: String?
 
     public init(
         surfaceId: String, revision: Int, fallbackText: String, components: [A2UIComponent],
@@ -43,6 +25,24 @@ public struct A2UISurfaceSnapshot: Codable, Sendable, Equatable {
         self.revision = revision
         self.fallbackText = fallbackText
         self.components = components
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case protocolVersion, catalogId, surfaceId, revision, fallbackText, components, dataModel, isDeleted, submittedActionId
+    }
+
+    public init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        protocolVersion = try values.decode(String.self, forKey: .protocolVersion)
+        catalogId = try values.decode(String.self, forKey: .catalogId)
+        surfaceId = try values.decode(String.self, forKey: .surfaceId)
+        revision = try values.decode(Int.self, forKey: .revision)
+        fallbackText = try values.decode(String.self, forKey: .fallbackText)
+        components = try values.decode([A2UIComponent].self, forKey: .components)
+        // Explicit JSON null is model data; omission is a legacy snapshot or deleted model.
+        dataModel = values.contains(.dataModel) ? try values.decode(A2UIValue.self, forKey: .dataModel) : nil
+        isDeleted = try values.decodeIfPresent(Bool.self, forKey: .isDeleted)
+        submittedActionId = try values.decodeIfPresent(String.self, forKey: .submittedActionId)
     }
 
     public enum ValidationError: Error, Sendable, Equatable {
@@ -60,30 +60,38 @@ public struct A2UISurfaceSnapshot: Codable, Sendable, Equatable {
         guard protocolVersion == Self.supportedProtocolVersion else { throw ValidationError.unsupportedProtocol }
         guard catalogId == Self.supportedCatalogID else { throw ValidationError.unsupportedCatalog }
         guard Self.validID(surfaceId), revision > 0,
-              !fallbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+            !fallbackText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
             throw ValidationError.invalidMetadata
         }
-        guard (1...128).contains(components.count), fallbackText.utf8.count <= 16_384,
-              try JSONEncoder().encode(self).count <= 65_536 else { throw ValidationError.sizeLimit }
+        try dataModel?.validate()
+        guard components.count <= 128, fallbackText.utf8.count <= 16_384,
+            try JSONEncoder().encode(self).count <= 65_536
+        else { throw ValidationError.sizeLimit }
+        if isDeleted == true {
+            guard components.isEmpty, dataModel == nil else { throw ValidationError.invalidTree }
+            return
+        }
+        guard !components.isEmpty else { throw ValidationError.invalidTree }
 
         var byID: [String: A2UIComponent] = [:]
         for item in components {
             guard Self.validID(item.id), byID[item.id] == nil else {
                 throw ValidationError.invalidComponent(item.id)
             }
-            switch item.component {
-            case .text:
-                guard let text = item.text, text.utf8.count <= 16_384, item.children == nil else {
-                    throw ValidationError.invalidComponent(item.id)
-                }
-            case .column:
-                guard item.text == nil, let children = item.children, children.count <= 128 else {
-                    throw ValidationError.invalidComponent(item.id)
-                }
-            }
+            try item.validateShape()
             byID[item.id] = item
         }
 
+        let paths = components.compactMap(\.binding)
+        guard Set(paths).count == paths.count else { throw ValidationError.invalidTree }
+        let tokens = try paths.map { try A2UIValue.pointerTokens($0, input: true) }
+        for path in paths { _ = try (dataModel ?? .object([:])).setting(path, to: .null) }
+        for (index, path) in tokens.enumerated() {
+            guard !tokens.enumerated().contains(where: { $0.offset != index && $0.element.starts(with: path) }) else {
+                throw ValidationError.invalidTree
+            }
+        }
         var visited: Set<String> = []
         func visit(_ id: String, depth: Int) throws {
             guard depth <= 16, let item = byID[id], visited.insert(id).inserted else {

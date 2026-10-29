@@ -1,0 +1,98 @@
+.a2ui-panel {
+  max-height: 42vh;
+  overflow: auto;
+  padding: 8px 12px;
+}
+.a2ui-surface {
+  background: #f5f2e9;
+  color: #242521;
+  border: 1px solid #d5d7ca;
+  padding: 18px;
+  margin-bottom: 8px;
+  border-radius: 10px;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+.a2ui-column {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.a2ui-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.a2ui-row > * {
+  flex: 1 1 160px;
+}
+.a2ui-field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+}
+.a2ui-field input,
+.a2ui-choice > button {
+  font: inherit;
+  color: inherit;
+  padding: 9px;
+  border: 1px solid #9a9d94;
+  border-radius: 5px;
+  background: transparent;
+  min-height: 40px;
+}
+.a2ui-field input[type="checkbox"] {
+  align-self: flex-start;
+  min-height: 24px;
+  width: 24px;
+}
+.a2ui-field small {
+  color: #8a2f20;
+}
+.a2ui-submit {
+  background: #20261e;
+  color: #f5f2e9;
+  border: 1px solid #52604a;
+  padding: 10px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+}
+.a2ui-surface button:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.a2ui-surface :focus-visible {
+  outline: 2px solid #536c49;
+  outline-offset: 3px;
+}
+.a2ui-choice .actor-team-dropdown {
+  position: static;
+  max-height: 160px;
+  overflow: auto;
+  background: inherit;
+}
+.a2ui-choice .actor-team-dropdown-item {
+  display: block;
+  width: 100%;
+  color: inherit;
+  font: inherit;
+  padding: 10px;
+  background: transparent;
+  border: 0;
+  text-align: left;
+}
+.a2ui-choice [aria-selected="true"] {
+  background: #c8e2ae;
+  color: #242521;
+}
+@media (prefers-color-scheme: dark) {
+  .a2ui-surface {
+    background: #191919;
+    color: #e8e6e3;
+    border-color: #343434;
+  }
+  .a2ui-field small {
+    color: #f3ad9e;
+  }
+}

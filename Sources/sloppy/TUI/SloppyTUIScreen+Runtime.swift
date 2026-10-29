@@ -105,6 +105,10 @@ extension SloppyTUIScreen {
             markFirstModelChunkIfNeeded()
             appendLiveAssistantDraftDelta(message)
         } else if update.kind == .sessionEvent, let event = update.event {
+            if let surface = event.message?.uiSurface, surface.isDeleted != true, surface.submittedActionId == nil,
+               surface.components.contains(where: { $0.component == .button }) {
+                showSystemNotice("Interactive form available: Ctrl+Y or /ui", autoDismissAfter: 12)
+            }
             markFirstStreamEventIfNeeded()
             if event.toolCall != nil {
                 markFirstToolCallIfNeeded()

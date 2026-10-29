@@ -42,6 +42,7 @@ struct ChatTranscriptPane: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.chatTextSelectionActions) private var textSelectionActions
     @Environment(\.chatFileOpenHandler) private var fileOpenHandler
+    @State private var uiPanelHeight: CGFloat = 0
     @State private var isAtBottom = true
     @State private var visibleTranscriptItemID: String?
     @State private var scrollTarget: ChatTranscriptScrollTarget?
@@ -53,7 +54,7 @@ struct ChatTranscriptPane: View {
                 items: nativeItems,
                 contentWidth: contentWidth,
                 topInset: viewModel.hasEarlierTranscriptMessages ? 0 : messagesTopInset,
-                bottomInset: composerScrollInset,
+                bottomInset: composerScrollInset + uiPanelHeight,
                 scrollToEndRequest: scrollToEndRequest,
                 autoFollowAppendedItems: !isLoadingTranscript,
                 autoFollowChangingTail: isRunActive && !isLoadingTranscript,
@@ -68,6 +69,14 @@ struct ChatTranscriptPane: View {
                 onReachedTop: viewModel.loadEarlierMessages,
                 renderer: renderNativeItem
             )
+            .overlay(alignment: .bottom) {
+                if let agentID = viewModel.selectedAgent?.id, let sessionID = viewModel.selectedSessionId {
+                    ChatUISurfacesView(apiClient: viewModel.apiClient, agentID: agentID, sessionID: sessionID)
+                        .id(viewModel.apiClient.endpoint.cacheNamespace + ":" + agentID + ":" + sessionID)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { uiPanelHeight = $0 }
+                        .padding(.bottom, composerScrollInset)
+                }
+            }
 #if os(macOS)
             .overlay(alignment: .bottom) {
                 if !isAtBottom && !transcript.messages.isEmpty {

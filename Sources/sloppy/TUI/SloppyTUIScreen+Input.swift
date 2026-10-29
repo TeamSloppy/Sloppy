@@ -1207,6 +1207,10 @@ extension SloppyTUIScreen {
     }
 
     func handleGlobalShortcut(_ input: TerminalInput) -> Bool {
+        if case .key(.character("y"), let modifiers) = input, modifiers.contains(.control) {
+            Task { @MainActor in await self.openUIForm() }
+            return true
+        }
         guard let action = SloppyTUIGlobalShortcutAction.match(input: input) else {
             return false
         }

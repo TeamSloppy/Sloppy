@@ -90,14 +90,15 @@ extension CoreService: SessionToolService {
 
     func persistSessionInboxMessage(_ entry: SessionMessageInboxFileStore.Entry) throws -> AgentSessionEvent? {
         let detail = try getAgentSession(agentID: entry.agentId, sessionID: entry.sessionId)
+        try persistAcceptedUISnapshot(entry)
         guard !detail.events.contains(where: { $0.message?.id == entry.id }) else { return nil }
         let attachments = try sessionStore.persistAttachments(agentID: entry.agentId, sessionID: entry.sessionId, uploads: entry.request.attachments)
         let event = AgentSessionEvent(
             agentId: entry.agentId, sessionId: entry.sessionId, type: .message,
             message: .init(id: entry.id, role: .user,
-                           segments: [.init(kind: .text, text: entry.request.content)] + attachments.map { .init(kind: .attachment, attachment: $0) },
+                           segments: [.init(kind: .text, text: uiActionDisplayText(entry))] + attachments.map { .init(kind: .attachment, attachment: $0) },
                            userId: entry.request.userId, peerOrigin: entry.origin,
-                           sessionReferences: SessionReferenceContext.references(for: entry.request)))
+                           sessionReferences: SessionReferenceContext.references(for: entry.request), supportsA2UI: entry.request.supportsA2UI, uiAction: entry.uiSubmission))
         let summary = try sessionStore.appendEvents(agentID: entry.agentId, sessionID: entry.sessionId, events: [event])
         publishLiveSessionEvents(agentID: entry.agentId, sessionID: entry.sessionId, summary: summary, events: [event])
         return event

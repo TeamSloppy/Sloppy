@@ -9,6 +9,7 @@ struct BuiltInSkillDefinition: Sendable {
     var userInvocable: Bool
     var allowedTools: [String]
     var files: [String: String]
+    var autoRoute: String? = nil
 }
 
 enum BuiltInSkillCatalog {
@@ -21,6 +22,7 @@ enum BuiltInSkillCatalog {
     static let modeAutoID = "sloppy/mode-auto"
     static let workflowID = "sloppy/workflow"
     static let deepResearchID = "sloppy/deep-research"
+    static let a2uiID = "sloppy/a2ui"
     static let sitePublishingID = "sloppy/site-publishing"
 
     static func all() -> [BuiltInSkillDefinition] {
@@ -34,6 +36,7 @@ enum BuiltInSkillCatalog {
             taskSpecWriter(),
             workflow(),
             deepResearch(),
+            a2ui(),
             sitePublishing()
         ] + bundledResourceSkills()
     }
@@ -137,6 +140,15 @@ enum BuiltInSkillCatalog {
                 "SKILL.md": loadDeepResearchMarkdown()
             ]
         )
+    }
+
+    static func a2ui() -> BuiltInSkillDefinition {
+        var files = ["SKILL.md": loadSkillMarkdown(repo: "a2ui", fallback: "---\nname: a2ui\ndescription: Create native interactive chat forms.\n---\nRead ui.catalog, then publish with ui.render only for a supporting client.")]
+        for root in skillResourceRootURLs(fileManager: .default, executablePath: CommandLine.arguments.first, currentDirectoryPath: FileManager.default.currentDirectoryPath, sourceFilePath: #filePath) {
+            let directory = root.appendingPathComponent("a2ui")
+            if FileManager.default.fileExists(atPath: directory.path) { files = collectSkillFiles(in: directory); break }
+        }
+        return .init(owner: "sloppy", repo: "a2ui", name: "a2ui", description: "Create native chat forms, choices and comparisons.", userInvocable: true, allowedTools: ["ui.catalog", "ui.render", "files.read"], files: files, autoRoute: "The user wants an interactive chat form, selection, comparison or editable parameters.")
     }
 
     static func sitePublishing() -> BuiltInSkillDefinition {
@@ -346,7 +358,7 @@ enum BuiltInSkillCatalog {
     }
 
     private static func bundledResourceSkills(in root: URL) -> [BuiltInSkillDefinition] {
-        let builtInRepos = Set(["task-spec-writer", "kanban-task-manager", "workflow", "deep-research", "site-publishing"] + AgentChatMode.allCases.map { modeSkillRepo(for: $0) })
+        let builtInRepos = Set(["task-spec-writer", "kanban-task-manager", "workflow", "deep-research", "site-publishing", "a2ui"] + AgentChatMode.allCases.map { modeSkillRepo(for: $0) })
         guard let children = try? FileManager.default.contentsOfDirectory(
             at: root,
             includingPropertiesForKeys: [.isDirectoryKey],

@@ -78,6 +78,8 @@ struct ToolRegistry: Sendable {
     /// Builds a ToolRegistry containing all built-in Sloppy tools.
     static func makeDefault() -> ToolRegistry {
         ToolRegistry(tools: [
+            UICatalogTool(),
+            UIRenderTool(),
             FilesReadTool(),
             FilesListTool(),
             FilesGrepTool(),

@@ -16,6 +16,8 @@ extension SloppyTUIScreen {
         let args = Array(parts.dropFirst())
 
         switch command {
+        case "ui":
+            await openUIForm()
         case "help":
             showHelp()
         case "keybindings", "shortcuts":
