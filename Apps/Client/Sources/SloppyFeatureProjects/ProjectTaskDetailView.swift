@@ -9,24 +9,46 @@ import UIKit
 #endif
 
 @MainActor
-struct ProjectTaskDetailView: View {
+public struct ProjectTaskDetailView: View {
     let projectId: String
-    let task: APIProjectTask
+    @State private var task: APIProjectTask
     let apiClient: SloppyAPIClient
+    private let onTaskChanged: ((APIProjectRecord) -> Void)?
 
     @Environment(\.theme) private var theme
     @State private var comments: [APITaskComment] = []
     @State private var commentDraft = ""
     @State private var statusText = ""
     @State private var isLoading = false
+    @State private var isEditing = false
+    @State private var isSaving = false
 
-    var body: some View {
+    public init(projectId: String, task: APIProjectTask, apiClient: SloppyAPIClient, onTaskChanged: ((APIProjectRecord) -> Void)? = nil) {
+        self.projectId = projectId
+        _task = State(initialValue: task)
+        self.apiClient = apiClient
+        self.onTaskChanged = onTaskChanged
+    }
+
+    public var body: some View {
         let c = theme.colors
         let sp = theme.spacing
         let ty = theme.typography
 
         return ScrollView {
             VStack(alignment: .leading, spacing: sp.l) {
+                HStack {
+                    Text(task.externalMetadata?.externalIssueKey ?? task.id).font(.system(size: 12)).foregroundColor(c.textMuted)
+                    Spacer()
+                    Button(isEditing ? "Close editor" : "Edit properties") { isEditing.toggle() }
+                        .accessibilityIdentifier("task-detail-edit-properties")
+                }
+                if !statusText.isEmpty {
+                    Text(statusText).font(.system(size: 12)).foregroundColor(c.textSecondary)
+                }
+                if isEditing {
+                    ProjectTaskProperties(task: task, isSaving: isSaving, onSave: saveProperties, onCancel: { isEditing = false })
+                }
                 VStack(alignment: .leading, spacing: sp.s) {
                     Text(task.title)
                         .font(.system(size: ty.title))
@@ -38,6 +60,15 @@ struct ProjectTaskDetailView: View {
                                 .font(.system(size: ty.micro))
                                 .foregroundColor(c.accent)
                         }
+                    }
+                    if let priority = task.priority {
+                        Text("Priority: \(priority.capitalized)").font(.system(size: ty.caption))
+                    }
+                    if let actor = task.actorId {
+                        Text("Agent: \(actor)").font(.system(size: ty.caption))
+                    }
+                    if let tags = task.tags, !tags.isEmpty {
+                        Text(tags.joined(separator: " · ")).font(.system(size: ty.caption)).foregroundColor(c.accentCyan)
                     }
                     if let key = task.externalMetadata?.externalIssueKey {
                         Text(key)
@@ -56,6 +87,7 @@ struct ProjectTaskDetailView: View {
                     }
                     if let description = task.description, !description.isEmpty {
                         Text(markdown: description)
+                            .textSelection(.enabled)
                             .font(.system(size: ty.body))
                             .foregroundColor(c.textSecondary)
                         ForEach(externalLinks(in: description), id: \.self) { link in
@@ -68,6 +100,8 @@ struct ProjectTaskDetailView: View {
                             .foregroundColor(c.accent)
                     }
                 }
+
+                ProjectTaskActivityView(projectID: projectId, taskID: task.id, api: apiClient)
 
                 VStack(alignment: .leading, spacing: sp.s) {
                     Text("COMMENTS")
@@ -82,6 +116,7 @@ struct ProjectTaskDetailView: View {
                                 .font(.system(size: ty.micro))
                                 .foregroundColor(comment.externalMetadata?.origin == "startrek" ? c.accent : c.textMuted)
                             Text(markdown: comment.content)
+                                .textSelection(.enabled)
                                 .font(.system(size: ty.body))
                                 .foregroundColor(c.textPrimary)
                             ForEach(externalLinks(in: comment.content), id: \.self) { link in
@@ -93,18 +128,18 @@ struct ProjectTaskDetailView: View {
                         .background(c.surface)
                     }
                     TextField("Add a comment", text: $commentDraft)
-                    Button("SEND COMMENT") { submitComment() }
+                        .font(.system(size: 14)).padding(8).frame(height: 42).background(c.surfaceRaised)
+                        .accessibilityIdentifier("task-detail-comment")
+                    Button("Send comment") { submitComment() }
                         .disabled(commentDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || isLoading)
                         .foregroundColor(c.accent)
-                    if !statusText.isEmpty {
-                        Text(statusText)
-                            .font(.system(size: ty.micro))
-                            .foregroundColor(c.textMuted)
-                    }
                 }
             }
             .padding(sp.l)
+            .frame(maxWidth: 920, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .center)
         }
+        .sloppyTextInputStyle(theme.colors)
         .navigationTitle(task.externalMetadata?.externalIssueKey ?? task.id)
         .navigationTitlePosition(.leading)
         .onAppear { loadComments() }
@@ -120,6 +155,21 @@ struct ProjectTaskDetailView: View {
             } catch {
                 statusText = error.localizedDescription
             }
+        }
+    }
+
+    private func saveProperties(_ request: APIProjectTaskUpdateRequest) {
+        guard !isSaving else { return }
+        isSaving = true
+        Task { @MainActor in
+            defer { isSaving = false }
+            do {
+                let project = try await apiClient.updateProjectTask(projectId: projectId, taskId: task.id, request: request)
+                if let updated = project.tasks?.first(where: { $0.id == task.id }) { task = updated }
+                onTaskChanged?(project)
+                isEditing = false
+                statusText = "Properties saved"
+            } catch { statusText = error.localizedDescription }
         }
     }
 
@@ -146,6 +196,8 @@ struct ProjectTaskDetailView: View {
         NSWorkspace.shared.open(url)
         #elseif canImport(UIKit)
         UIApplication.shared.open(url)
+        #else
+        _ = Application.shared?.openURL(url)
         #endif
     }
 

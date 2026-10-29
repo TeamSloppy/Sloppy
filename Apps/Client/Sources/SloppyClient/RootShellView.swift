@@ -124,7 +124,7 @@ extension ClientColorScheme {
     fileprivate var appTheme: Theme {
         switch self {
         case .light:
-            return .sloppyDark
+            return .sloppyLight
         case .dark:
             return .sloppyDark
         }

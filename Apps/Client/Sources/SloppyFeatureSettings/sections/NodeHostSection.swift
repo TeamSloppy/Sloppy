@@ -12,11 +12,11 @@ struct NodeHostSection: View {
     init(config: SloppyConfig, onSave: @escaping (SloppyConfig) -> Void) {
         self.config = config
         self.onSave = onSave
-        self._nodesText = State(initialValue: config.nodes.joined(separator: "\n"))
+        self._nodesText = State(initialValue: config.nodes.map(\.id).joined(separator: "\n"))
     }
 
     private var hasChanges: Bool {
-        parsedNodes != config.nodes
+        parsedNodes != config.nodes.map(\.id)
     }
 
     private var parsedNodes: [String] {
@@ -60,14 +60,14 @@ struct NodeHostSection: View {
                 hasChanges: hasChanges,
                 statusText: hasChanges ? "Unsaved changes" : "Saved",
                 onSave: { save() },
-                onCancel: { nodesText = config.nodes.joined(separator: "\n") }
+                onCancel: { nodesText = config.nodes.map(\.id).joined(separator: "\n") }
             )
         }
     }
 
     private func save() {
         var updated = config
-        updated.nodes = parsedNodes
+        updated.nodes = parsedNodes.map { id in config.nodes.first { $0.id == id } ?? SloppyConfig.Node(id: id, title: id, kind: "local") }
         onSave(updated)
     }
 }

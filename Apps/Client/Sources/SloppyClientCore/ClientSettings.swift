@@ -4,6 +4,7 @@ import Observation
 @Observable
 @MainActor
 public final class ClientSettings {
+    private let defaults: UserDefaults
     private enum Keys {
         static let serverHost = "client_server_host"
         static let serverPort = "client_server_port"
@@ -17,43 +18,43 @@ public final class ClientSettings {
     }
 
     public var serverHost: String {
-        didSet { UserDefaults.standard.set(serverHost, forKey: Keys.serverHost) }
+        didSet { defaults.set(serverHost, forKey: Keys.serverHost) }
     }
 
     public var serverPort: Int {
-        didSet { UserDefaults.standard.set(serverPort, forKey: Keys.serverPort) }
+        didSet { defaults.set(serverPort, forKey: Keys.serverPort) }
     }
 
     public var accentColorHex: String {
-        didSet { UserDefaults.standard.set(accentColorHex, forKey: Keys.accentColorHex) }
+        didSet { defaults.set(accentColorHex, forKey: Keys.accentColorHex) }
     }
 
     public var colorScheme: ClientColorScheme {
-        didSet { UserDefaults.standard.set(colorScheme.rawValue, forKey: Keys.colorScheme) }
+        didSet { defaults.set(colorScheme.rawValue, forKey: Keys.colorScheme) }
     }
 
     public var windowCloseBehavior: ClientWindowCloseBehavior {
-        didSet { UserDefaults.standard.set(windowCloseBehavior.rawValue, forKey: Keys.windowCloseBehavior) }
+        didSet { defaults.set(windowCloseBehavior.rawValue, forKey: Keys.windowCloseBehavior) }
     }
 
     public var lastAgentId: String? {
-        didSet { UserDefaults.standard.set(lastAgentId, forKey: Keys.lastAgentId) }
+        didSet { defaults.set(lastAgentId, forKey: Keys.lastAgentId) }
     }
 
     public var lastSessionId: String? {
-        didSet { UserDefaults.standard.set(lastSessionId, forKey: Keys.lastSessionId) }
+        didSet { defaults.set(lastSessionId, forKey: Keys.lastSessionId) }
     }
 
     public var pinnedSessionIds: Set<String> {
         didSet {
-            UserDefaults.standard.set(Array(pinnedSessionIds).sorted(), forKey: Keys.pinnedSessionIds)
+            defaults.set(Array(pinnedSessionIds).sorted(), forKey: Keys.pinnedSessionIds)
         }
     }
 
     public var savedServers: [SavedServer] {
         didSet {
             if let data = try? JSONEncoder().encode(savedServers) {
-                UserDefaults.standard.set(data, forKey: Keys.savedServers)
+                defaults.set(data, forKey: Keys.savedServers)
             }
         }
     }
@@ -67,14 +68,14 @@ public final class ClientSettings {
         savedServers.first { $0.host == serverHost && $0.port == serverPort }
     }
 
-    public init() {
-        let defaults = UserDefaults.standard
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
         serverHost = defaults.string(forKey: Keys.serverHost) ?? "localhost"
         serverPort = defaults.integer(forKey: Keys.serverPort).nonZero ?? 25101
         accentColorHex = defaults.string(forKey: Keys.accentColorHex) ?? "#FF2D6F"
         colorScheme = defaults
             .string(forKey: Keys.colorScheme)
-            .flatMap(ClientColorScheme.init(rawValue:)) ?? .light
+            .flatMap(ClientColorScheme.init(rawValue:)) ?? .dark
         windowCloseBehavior = defaults
             .string(forKey: Keys.windowCloseBehavior)
             .flatMap(ClientWindowCloseBehavior.init(rawValue:)) ?? .keepProcess
