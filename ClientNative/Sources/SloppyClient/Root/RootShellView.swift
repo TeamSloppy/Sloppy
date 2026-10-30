@@ -183,7 +183,8 @@ private struct RootShellContent: View {
                     onConsumeMenuBarQuickAction: rootViewModel.consumeMenuBarAction,
                     deepLinkRequest: rootViewModel.appDeepLinkRequest,
                     onConsumeDeepLink: rootViewModel.consumeDeepLink,
-                    approvalRequiredSessionIDs: rootViewModel.pendingApprovalSessionIDs
+                    approvalRequiredSessionIDs: rootViewModel.pendingApprovalSessionIDs,
+                    onBrowserTextAnnotationTarget: rootViewModel.makeBrowserTextAnnotationReceiver
                 )
                 .safeAreaInset(edge: .top, spacing: 0) {
                     BackendUpdateReminder(endpoint: rootViewModel.settings.activeInstanceEndpoint)

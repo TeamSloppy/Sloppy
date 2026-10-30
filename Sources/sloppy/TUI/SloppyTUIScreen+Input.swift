@@ -452,7 +452,7 @@ extension SloppyTUIScreen {
         let paletteWidth = layout.paletteWidth
         let left = layout.left
         let visibleCount = max(1, min(9, picker.items.count))
-        var rowCount = 1
+        var rowCount = 1 + SloppyTUITheme.pickerDetailLines(width: width, picker: picker).count
         if picker.supportsSearch {
             rowCount += 1
         }
@@ -524,7 +524,7 @@ extension SloppyTUIScreen {
         let visibleCount = max(1, min(9, picker.items.count))
         let start = max(0, min(picker.selectedIndex - visibleCount / 2, picker.items.count - visibleCount))
         let end = min(picker.items.count, start + visibleCount)
-        var row = startRow + 1
+        var row = startRow + 1 + SloppyTUITheme.pickerDetailLines(width: width, picker: picker).count
         if picker.supportsSearch {
             row += 1
         }
@@ -889,6 +889,9 @@ extension SloppyTUIScreen {
         }
 
         switch key {
+        case .arrowLeft where picker.kind == .planInput:
+            previousPlanInputQuestion()
+            return true
         case .arrowUp:
             picker.selectedIndex = picker.items.isEmpty ? 0 : max(0, picker.selectedIndex - 1)
             activePicker = picker

@@ -356,6 +356,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     var activePicker: SloppyTUIPicker?
     var lastEscapePressAt: Date?
     var pendingPlanInputRequest: PlanInputRequest?
+    var planInputDraft: SloppyTUIPlanInputDraft?
+    var submittingPlanInputRequestID: String?
     var pendingToolApproval: ToolApprovalRecord?
     var pendingToolApprovalPreviewCard: (approvalID: String, cardID: Int)?
     var tokenUsageSummary: SloppyTUITokenUsageSummary?
@@ -393,6 +395,8 @@ final class SloppyTUIScreen: @preconcurrency Component, @unchecked Sendable {
     var liveAssistantInterpolationTask: Task<Void, Never>?
     var liveRunStage: AgentRunStage?
     var liveRunStatusLine: String?
+    var latestSessionRunStatus: AgentRunStatusEvent?
+    var pendingToolCalls: [AgentSessionEvent] = []
     var liveTurnTokenUsageTracker = SloppyTUILiveTurnTokenUsageTracker()
     var lastTurnTokenUsage: TokenUsage?
     var shellRunStatusLine: String?

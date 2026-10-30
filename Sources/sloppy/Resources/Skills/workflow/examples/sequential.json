@@ -1,0 +1,53 @@
+{
+  "operation": "propose",
+  "projectId": "sloppy",
+  "name": "Sequential agent example",
+  "lanes": [
+    {
+      "id": "main",
+      "title": "Workflow",
+      "kind": "system"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "start",
+      "type": "trigger",
+      "title": "start",
+      "laneId": "main",
+      "config": "{}",
+      "positionX": 0,
+      "positionY": 0
+    },
+    {
+      "id": "agent",
+      "type": "agent_step",
+      "title": "agent",
+      "laneId": "main",
+      "config": "{\"agentId\": \"yadev\", \"prompt\": \"Inspect the provided input and return a concise summary. Do not mutate project tasks.\", \"sessionMode\": \"new\"}",
+      "positionX": 0,
+      "positionY": 0
+    },
+    {
+      "id": "end",
+      "type": "end",
+      "title": "end",
+      "laneId": "main",
+      "config": "{}",
+      "positionX": 0,
+      "positionY": 0
+    }
+  ],
+  "edges": [
+    {
+      "id": "start_agent",
+      "sourceNodeId": "start",
+      "targetNodeId": "agent"
+    },
+    {
+      "id": "agent_end",
+      "sourceNodeId": "agent",
+      "targetNodeId": "end"
+    }
+  ]
+}

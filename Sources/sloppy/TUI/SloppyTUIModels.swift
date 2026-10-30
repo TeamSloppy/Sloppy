@@ -161,11 +161,10 @@ enum SloppyTUIPlanInputState {
             events.compactMap { event -> String? in
                 event.type == .inputResponse ? event.inputResponse?.requestId : nil
             })
-        return events.compactMap { event -> PlanInputRequest? in
+        guard let latest = events.compactMap({ event -> PlanInputRequest? in
             event.type == .inputRequest ? event.inputRequest : nil
-        }.last { request in
-            !answered.contains(request.id)
-        }
+        }).last, !answered.contains(latest.id) else { return nil }
+        return latest
     }
 
     static func picker(
@@ -290,6 +289,8 @@ struct SloppyTUIPicker {
     var allItems: [SloppyTUIPickerItem]? = nil
     var searchQuery: String = ""
     var supportsSearch: Bool = false
+    var detailText: String? = nil
+    var actionHint: String? = nil
 
     var totalItemCount: Int {
         allItems?.count ?? items.count
@@ -862,63 +863,39 @@ extension SloppyTUISubSessionStatus {
 }
 
 enum SloppyTUIPlanInputPicker {
-    static func picker(for request: PlanInputRequest, selectedIndex: Int = 0) -> SloppyTUIPicker? {
-        let items = selectionItems(for: request)
+    static func picker(
+        for request: PlanInputRequest,
+        selectedIndex: Int? = nil,
+        questionIndex: Int = 0,
+        answers: [String: String] = [:]
+    ) -> SloppyTUIPicker? {
+        let items = selectionItems(for: request, questionIndex: questionIndex)
         guard !items.isEmpty else {
             return nil
         }
-        let title: String
-        if request.questions.count == 1, let question = request.questions.first {
-            title = question.header ?? question.question
-        } else {
-            title = request.title ?? "Input needed"
-        }
+        let question = request.questions[questionIndex]
+        let title = question.header ?? (request.questions.count == 1 ? question.question : request.title ?? "Input needed")
+        let progress = request.questions.count > 1 ? "\(questionIndex + 1)/\(request.questions.count) · " : ""
+        let savedIndex = question.options.firstIndex { $0.id == answers[question.id] }
         return SloppyTUIPicker(
             kind: .planInput,
-            title: title,
+            title: progress + title,
             items: items,
-            selectedIndex: max(0, min(selectedIndex, items.count - 1))
+            selectedIndex: max(0, min(selectedIndex ?? savedIndex ?? 0, items.count - 1)),
+            detailText: question.header != nil || request.questions.count > 1 ? question.question : nil,
+            actionHint: (questionIndex > 0 ? "← back · " : "")
+                + (questionIndex + 1 < request.questions.count ? "Enter next" : "Enter submit") + " · Esc cancel"
         )
     }
 
-    static func selectionItems(for request: PlanInputRequest) -> [SloppyTUIPickerItem] {
-        let questions = request.questions.filter { !$0.options.isEmpty }
-        guard questions.count == request.questions.count else {
-            return []
-        }
-        if questions.count == 1, let question = questions.first {
-            return question.options.map { option in
-                SloppyTUIPickerItem(
-                    value: encodedValue([(question.id, option.id)]),
-                    label: option.label,
-                    description: option.description,
-                    isCurrent: false
-                )
-            }
-        }
-
-        let combinations = optionCombinations(for: questions)
-        return combinations.map { answers in
-            let labels = answers.compactMap { questionID, optionID -> String? in
-                questions
-                    .first(where: { $0.id == questionID })?
-                    .options
-                    .first(where: { $0.id == optionID })?
-                    .label
-            }
-            let description = answers.compactMap { questionID, optionID -> String? in
-                guard let question = questions.first(where: { $0.id == questionID }),
-                    let option = question.options.first(where: { $0.id == optionID })
-                else {
-                    return nil
-                }
-                let label = question.header ?? question.question
-                return "\(label): \(option.label)"
-            }.joined(separator: " | ")
-            return SloppyTUIPickerItem(
-                value: encodedValue(answers),
-                label: labels.joined(separator: " / "),
-                description: description,
+    static func selectionItems(for request: PlanInputRequest, questionIndex: Int = 0) -> [SloppyTUIPickerItem] {
+        guard request.questions.indices.contains(questionIndex) else { return [] }
+        let question = request.questions[questionIndex]
+        return question.options.map { option in
+            SloppyTUIPickerItem(
+                value: encodedValue([(question.id, option.id)]),
+                label: option.label,
+                description: option.description,
                 isCurrent: false
             )
         }
@@ -927,13 +904,14 @@ enum SloppyTUIPlanInputPicker {
     static func answerRequest(
         for item: SloppyTUIPickerItem,
         request: PlanInputRequest,
+        previousAnswers: [String: String] = [:],
         userID: String = "tui"
     ) -> PlanInputAnswerRequest? {
         let decoded = decodedValue(item.value)
-        guard decoded.count == request.questions.count else {
+        guard decoded.count == 1 else {
             return nil
         }
-        var selectedByQuestion: [String: String] = [:]
+        var selectedByQuestion = previousAnswers
         for (questionID, optionID) in decoded {
             selectedByQuestion[questionID] = optionID
         }
@@ -964,16 +942,11 @@ enum SloppyTUIPlanInputPicker {
         return "## \(title)\n\(questionText)"
     }
 
-    private static func optionCombinations(for questions: [PlanInputQuestion]) -> [[(
-        String, String
-    )]] {
-        questions.reduce([[]]) { combinations, question in
-            combinations.flatMap { prefix in
-                question.options.map { option in
-                    prefix + [(question.id, option.id)]
-                }
-            }
-        }
+    static func selectedOption(for item: SloppyTUIPickerItem, question: PlanInputQuestion) -> String? {
+        let decoded = decodedValue(item.value)
+        guard decoded.count == 1, let (questionID, optionID) = decoded.first,
+              questionID == question.id, question.options.contains(where: { $0.id == optionID }) else { return nil }
+        return optionID
     }
 
     private static func encodedValue(_ answers: [(String, String)]) -> String {
@@ -989,6 +962,12 @@ enum SloppyTUIPlanInputPicker {
             return (String(parts[0]), String(parts[1]))
         }
     }
+}
+
+struct SloppyTUIPlanInputDraft {
+    var requestID: String
+    var questionIndex = 0
+    var answers: [String: String] = [:]
 }
 
 extension AgentChatMode {

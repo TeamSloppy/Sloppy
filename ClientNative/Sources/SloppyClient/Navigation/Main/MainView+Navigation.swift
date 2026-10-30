@@ -15,6 +15,16 @@ import SloppyFeatureSites
 
 @MainActor
 extension MainView {
+#if os(macOS)
+    func toggleMainSidebar() {
+        if browserWorkspace.isBrowsing {
+            browserWorkspace.columnVisibility = browserWorkspace.columnVisibility == .detailOnly ? .all : .detailOnly
+        } else {
+            viewModel.columnVisibility = viewModel.columnVisibility == .detailOnly ? .all : .detailOnly
+        }
+    }
+#endif
+
     @ViewBuilder
     var contentView: some View {
 #if os(visionOS)
@@ -50,6 +60,7 @@ extension MainView {
 
     func handleMenuBarQuickAction(_ request: MenuBarQuickActionRequest?) {
         guard let request else { return }
+        browserWorkspace.isBrowsing = false
         switch request.action {
         case .newChat:
             viewModel.selectNewChat()
@@ -61,6 +72,7 @@ extension MainView {
 
     func handleDeepLink(_ request: AppDeepLinkRequest?) {
         guard let request else { return }
+        browserWorkspace.isBrowsing = false
 
         switch request.deepLink {
         case .connect, .open:
@@ -305,7 +317,8 @@ extension MainView {
         [
             viewModel.selectedAppSection.rawValue,
             viewModel.activeCanvasWorkspaceID ?? "-",
-            viewModel.activeCanvasProjectID ?? "-"
+            viewModel.activeCanvasProjectID ?? "-",
+            collectedBrowserCanvas?.id ?? "-"
         ].joined(separator: "|")
     }
 

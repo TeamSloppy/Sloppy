@@ -17,6 +17,9 @@ final class SloppyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificati
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         NSApp.setActivationPolicy(.regular)
+#if DEBUG
+        if ProcessInfo.processInfo.arguments.contains("--browser-ui-fixture") { return }
+#endif
         UNUserNotificationCenter.current().delegate = self
         SloppyUpdateController.shared.start()
     }
@@ -59,11 +62,13 @@ final class SloppyAppDelegate: NSObject, NSApplicationDelegate, UNUserNotificati
 }
 
 private struct WorkspaceCommands: Commands {
+    @FocusedValue(\.toggleMainSidebar) private var toggleMainSidebar
     @FocusedValue(\.toggleWorkspaceTerminal) private var toggleWorkspaceTerminal
     @FocusedValue(\.projectModeCommands) private var projectModeCommands
 
     var body: some Commands {
         CommandMenu("Workspace") {
+            SidebarToggleButton(action: toggleMainSidebar)
             Button("Toggle Terminal") {
                 toggleWorkspaceTerminal?()
             }
@@ -224,7 +229,13 @@ struct SloppyClientApp: App {
 
     @ViewBuilder
     private var mainContent: some View {
-#if DEBUG && os(iOS)
+#if DEBUG && os(macOS)
+        if ProcessInfo.processInfo.arguments.contains("--browser-ui-fixture") {
+            BrowserMacFixture().theme(.sloppyDark).preferredColorScheme(.dark)
+        } else {
+            rootContent
+        }
+#elseif DEBUG && os(iOS)
         if ProcessInfo.processInfo.arguments.contains("--authentication-ui-fixture") {
             AuthenticationScreen(
                 baseURL: URL(string: "https://mobile-review-ui.invalid")!,

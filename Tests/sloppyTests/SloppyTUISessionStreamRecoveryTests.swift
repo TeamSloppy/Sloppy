@@ -7,6 +7,164 @@ import Testing
 @Suite("TUI session stream recovery")
 @MainActor
 struct SloppyTUISessionStreamRecoveryTests {
+    #if !os(Windows)
+    @Test("runtime.exec persists and streams an OS stop with the command still visible")
+    func runtimeExecPublishesStoppedProcess() async throws {
+        let fixture = try await SessionStreamFixture.make()
+        defer { fixture.stop() }
+        let arguments: [String: JSONValue] = [
+            "command": .string("/bin/sh"),
+            "arguments": .array([.string("-c"), .string("echo $$ > child.pid; kill -STOP $$; printf resumed")]),
+            "timeoutMs": .number(10_000)
+        ]
+        let call = AgentSessionEvent(
+            agentId: fixture.agentID, sessionId: fixture.sessionID, type: .toolCall,
+            toolCall: .init(tool: "runtime.exec", arguments: arguments)
+        )
+        let store = await fixture.service.sessionStore
+        _ = try store.appendEvents(agentID: fixture.agentID, sessionID: fixture.sessionID, events: [call])
+        fixture.screen.streamSession()
+        try await waitForSessionStream { fixture.screen.sessionStreamReadyKey != nil }
+        await fixture.screen.reloadSession()
+        let execution = await fixture.service.toolExecution
+        let run = Task {
+            await execution.invoke(
+                agentID: fixture.agentID, sessionID: fixture.sessionID,
+                request: .init(tool: "runtime.exec", arguments: arguments), policy: AgentToolsPolicy(),
+                currentDirectoryURL: fixture.root
+            )
+        }
+        defer { run.cancel() }
+        try await waitForSessionStream { fixture.screen.liveRunStatusLine?.contains("Process stopped by OS") == true }
+        let text = try #require(fixture.screen.toolActivityStatusLine())
+        #expect(text.contains("child.pid"))
+        #expect(text.contains("PID"))
+        let detail = try await fixture.service.getAgentSession(agentID: fixture.agentID, sessionID: fixture.sessionID)
+        #expect(detail.events.contains { $0.runStatus?.label == "Process stopped by OS" })
+        // Cancellation exercises the existing timeout/termination path for a stopped child.
+        run.cancel()
+        let result = await run.value
+        #expect(result.error?.code == "tool_timeout")
+    }
+    #endif
+
+    @Test("a rejected send preserves the running command, elapsed time and terminal status")
+    func failedSendPreservesActiveTool() async throws {
+        let fixture = try await SessionStreamFixture.make()
+        defer { fixture.stop() }
+        let screen = fixture.screen
+        // Keep a real cached runtime session: cold recovery correctly reconciles
+        // an abandoned tool call and is a different scenario from a failed send.
+        _ = try await fixture.service.postAgentSessionMessage(
+            agentID: fixture.agentID, sessionID: fixture.sessionID,
+            request: .init(userId: "tui", content: "Warm up the mock runtime")
+        )
+        #expect(try await fixture.service.hasLiveAgentRuntimeSession(agentID: fixture.agentID, sessionID: fixture.sessionID))
+        let started = Date()
+        let call = AgentSessionEvent(
+            agentId: fixture.agentID, sessionId: fixture.sessionID, type: .toolCall,
+            createdAt: started,
+            toolCall: .init(tool: "runtime.exec", arguments: [
+                "command": .string("ffmpeg"), "arguments": .array([.string("-nostdin"), .string("input.png")])
+            ])
+        )
+        let store = await fixture.service.sessionStore
+        _ = try store.appendEvents(agentID: fixture.agentID, sessionID: fixture.sessionID, events: [call])
+        await fixture.service.reportSessionRunStatus(
+            agentID: fixture.agentID, sessionID: fixture.sessionID,
+            status: .init(stage: .searching, label: "Process stopped by OS", details: "runtime.exec · PID 123")
+        )
+        await screen.reloadSession()
+        #expect(screen.pendingToolCalls.map(\.id) == [call.id])
+        screen.streamSession()
+        try await waitForSessionStream { screen.sessionStreamReadyKey != nil }
+
+        // Core rejects an empty message before starting a model turn.
+        await screen.sendMessage("", context: nil, uploads: [], clearsPendingInputsOnSuccess: false)
+
+        #expect(screen.localCards.contains { $0.block.plainText.contains("Message failed:") })
+        #expect(!screen.isPosting)
+        #expect(screen.terminalTitleStatus() == "searching")
+        #expect(screen.liveRunStatusLine?.contains("Process stopped by OS") == true)
+        let text = try #require(screen.toolActivityStatusLine(now: started.addingTimeInterval(125)))
+        #expect(text.contains("ffmpeg -nostdin input.png"))
+        #expect(text.contains("PID 123"))
+        #expect(text.contains(SloppyTUITheme.elapsed(125)))
+        screen.refreshStaticChrome()
+        #expect(SloppyTUISelectionRenderer.stripANSI(screen.status.text).contains("ffmpeg"))
+
+        screen.applySessionRunStatus(.init(stage: .done, label: "Done"))
+        screen.restoreSessionRunStatusAfterSend()
+        #expect(screen.pendingToolCalls.isEmpty)
+        #expect(screen.toolActivityStatusLine() == nil)
+        #expect(screen.terminalTitleStatus() == "idle")
+    }
+
+    @Test("tool results clear only their matching active call after history reload")
+    func toolResultsAreCorrelated() async throws {
+        let fixture = try await SessionStreamFixture.make()
+        defer { fixture.stop() }
+        let first = AgentSessionEvent(
+            agentId: fixture.agentID, sessionId: fixture.sessionID, type: .toolCall,
+            toolCall: .init(tool: "runtime.exec", arguments: ["command": .string("first")])
+        )
+        let second = AgentSessionEvent(
+            agentId: fixture.agentID, sessionId: fixture.sessionID, type: .toolCall,
+            toolCall: .init(tool: "runtime.exec", arguments: ["command": .string("second")])
+        )
+        let store = await fixture.service.sessionStore
+        _ = try store.appendEvents(agentID: fixture.agentID, sessionID: fixture.sessionID, events: [
+            .init(agentId: fixture.agentID, sessionId: fixture.sessionID, type: .runStatus,
+                  runStatus: .init(stage: .searching, label: "Executing tool")), first, second,
+            .init(agentId: fixture.agentID, sessionId: fixture.sessionID, type: .toolResult,
+                  toolResult: .init(tool: "runtime.exec", ok: true, callEventId: first.id))
+        ])
+        await fixture.screen.reloadSession()
+        #expect(fixture.screen.pendingToolCalls.map(\.id) == [second.id])
+        #expect(fixture.screen.toolActivityStatusLine()?.contains("second") == true)
+        let result = AgentSessionEvent(
+            agentId: fixture.agentID, sessionId: fixture.sessionID, type: .toolResult,
+            toolResult: .init(tool: "runtime.exec", ok: true, callEventId: second.id)
+        )
+        _ = fixture.screen.handleSessionStreamUpdate(
+            .init(kind: .sessionEvent, cursor: 1, event: result), streamKey: fixture.screen.currentSessionStreamKey()
+        )
+        #expect(fixture.screen.pendingToolCalls.isEmpty)
+    }
+
+    @Test("switching to a draft clears the previous session's active process")
+    func draftClearsRunActivity() async throws {
+        let fixture = try await SessionStreamFixture.make()
+        defer { fixture.stop() }
+        fixture.screen.applySessionRunStatus(.init(stage: .searching, label: "Process stopped by OS"))
+        fixture.screen.trackPendingToolCall(.init(
+            agentId: fixture.agentID, sessionId: fixture.sessionID, type: .toolCall,
+            toolCall: .init(tool: "runtime.exec", arguments: ["command": .string("ffmpeg")])
+        ))
+        fixture.screen.resetToDraftSession()
+        fixture.screen.restoreSessionRunStatusAfterSend()
+        #expect(fixture.screen.latestSessionRunStatus == nil)
+        #expect(fixture.screen.pendingToolCalls.isEmpty)
+        #expect(fixture.screen.terminalTitleStatus() == "draft")
+    }
+
+    @Test("completed turns and imported history do not acquire pending tools")
+    func historicalCallsAreNotActive() async throws {
+        let fixture = try await SessionStreamFixture.make()
+        defer { fixture.stop() }
+        var call = AgentSessionEvent(
+            agentId: fixture.agentID, sessionId: fixture.sessionID, type: .toolCall,
+            toolCall: .init(tool: "runtime.exec", arguments: ["command": .string("historical")])
+        )
+        fixture.screen.applySessionRunStatus(.init(stage: .done, label: "Done"))
+        fixture.screen.trackPendingToolCall(call)
+        #expect(fixture.screen.pendingToolCalls.isEmpty)
+        fixture.screen.applySessionRunStatus(.init(stage: .searching, label: "Executing tool"))
+        call.importOrigin = .init(source: .hermes, sourceID: "import", externalID: "old-call", jobID: "job")
+        fixture.screen.trackPendingToolCall(call, replaying: true)
+        #expect(fixture.screen.pendingToolCalls.isEmpty)
+    }
+
     @Test("plan card shows a resolved address without requiring a slash command")
     func planCardLink() async throws {
         let fixture = try await SessionStreamFixture.make()
@@ -277,6 +435,7 @@ private struct SessionStreamFixture {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("sloppy-tui-stream-\(UUID().uuidString)", isDirectory: true)
         var config = CoreConfig.test
+        config.onboarding.completed = true
         config.workspace = .init(name: "workspace", basePath: root.path)
         let service = CoreService(
             config: config, configPath: root.appendingPathComponent("sloppy.json").path,

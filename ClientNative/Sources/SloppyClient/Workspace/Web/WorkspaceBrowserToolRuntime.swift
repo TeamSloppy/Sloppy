@@ -23,24 +23,47 @@ final class WorkspaceBrowserToolRuntime: NSObject {
 #if os(macOS)
     // The runtime owns the page so hiding the panel never destroys an agent's page.
     let webView: WKWebView
+    private(set) lazy var documentInset = BrowserDocumentInset(webView: webView)
     var onStateChange: (@MainActor (WKWebView, String?) -> Void)?
     var onNavigationFinished: (@MainActor (WKWebView) -> Void)?
+    var onDownload: (@MainActor (WKDownload) -> Void)?
     var onNavigationStarted: (@MainActor () -> Void)?
     private var navigationError: Error?
     private var navigationPending = false
     private var titleObservation: NSKeyValueObservation?
+    private var loadingObservations: [NSKeyValueObservation] = []
 
-    init(webView: WKWebView? = nil) {
-        self.webView = webView ?? WKWebView(frame: CGRect(x: 0, y: 0, width: 1000, height: 750))
+    init(webView: WKWebView? = nil, extensionController: WKWebExtensionController? = nil,
+         textSelection: WorkspaceBrowserSelection? = nil) {
+        let configuration = WKWebViewConfiguration()
+        configuration.webExtensionController = extensionController
+        if webView == nil { textSelection?.install(in: configuration) }
+        self.webView = webView ?? WorkspaceBrowserWebView(frame: CGRect(x: 0, y: 0, width: 1000, height: 750), configuration: configuration)
         super.init()
+        textSelection?.attach(to: self.webView)
         self.webView.navigationDelegate = self
         self.webView.uiDelegate = self
         titleObservation = self.webView.observe(\.title, options: [.new]) { [weak self] _, _ in
             Task { @MainActor [weak self] in
                 guard let self else { return }
-                self.onStateChange?(self.webView, self.navigationError?.localizedDescription)
+                self.onStateChange?(self.webView, WorkspaceBrowserNavigationFailure.message(for: self.navigationError))
             }
         }
+        loadingObservations = [
+            self.webView.observe(\.estimatedProgress, options: [.new]) { [weak self] _, _ in
+                Task { @MainActor [weak self] in self?.publishLoadingState() }
+            },
+            self.webView.observe(\.isLoading, options: [.new]) { [weak self] _, _ in
+                Task { @MainActor [weak self] in self?.publishLoadingState() }
+            },
+            self.webView.observe(\.hasOnlySecureContent, options: [.new]) { [weak self] _, _ in
+                Task { @MainActor [weak self] in self?.publishLoadingState() }
+            },
+        ]
+    }
+
+    private func publishLoadingState() {
+        onStateChange?(webView, WorkspaceBrowserNavigationFailure.message(for: navigationError))
     }
 
     func open(url: String) async throws -> WorkspaceBrowserReadResult {
@@ -56,10 +79,7 @@ final class WorkspaceBrowserToolRuntime: NSObject {
     }
 
     static func resolveURL(_ address: String) throws -> URL {
-        let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
-        let normalized = trimmed == "about:blank" || trimmed.contains("://") ? trimmed : "https://\(trimmed)"
-        guard !trimmed.isEmpty, let url = URL(string: normalized),
-              url.absoluteString == "about:blank" || (["http", "https"].contains(url.scheme?.lowercased() ?? "") && url.host?.isEmpty == false) else {
+        guard let url = WorkspaceBrowserAddress.resolve(address) else {
             throw WorkspaceBrowserRuntimeError.invalidURL
         }
         return url
@@ -217,7 +237,7 @@ extension WorkspaceBrowserToolRuntime: WKNavigationDelegate, WKUIDelegate, Works
     func open(_ address: String) {
         Task {
             do { _ = try await open(url: address) }
-            catch { onStateChange?(webView, error.localizedDescription) }
+            catch { onStateChange?(webView, WorkspaceBrowserNavigationFailure.message(for: error)) }
         }
     }
     func reload() { navigationError = nil; webView.reload() }
@@ -231,27 +251,54 @@ extension WorkspaceBrowserToolRuntime: WKNavigationDelegate, WKUIDelegate, Works
         onStateChange?(webView, nil)
     }
     func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        documentInset.refresh()
         navigationPending = false
         onStateChange?(webView, nil)
         onNavigationFinished?(webView)
     }
+    func webView(_ webView: WKWebView, didCommit navigation: WKNavigation!) {
+        documentInset.refresh()
+    }
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        if WorkspaceBrowserNavigationFailure.isCancellation(error) {
+            navigationPending = webView.isLoading
+            publishLoadingState()
+            return
+        }
         navigationPending = false
         navigationError = error
-        onStateChange?(webView, error.localizedDescription)
+        onStateChange?(webView, WorkspaceBrowserNavigationFailure.message(for: error))
     }
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         self.webView(webView, didFail: navigation, withError: error)
     }
     func webView(_ webView: WKWebView, decidePolicyFor navigationAction: WKNavigationAction) async -> WKNavigationActionPolicy {
+        if onDownload != nil, navigationAction.shouldPerformDownload,
+           ["http", "https", "blob", "data"].contains(navigationAction.request.url?.scheme?.lowercased() ?? "") {
+            return .download
+        }
         guard let url = navigationAction.request.url,
               (try? Self.resolveURL(url.absoluteString)) != nil else {
             navigationPending = false
             navigationError = WorkspaceBrowserRuntimeError.invalidURL
-            onStateChange?(webView, navigationError?.localizedDescription)
+            onStateChange?(webView, WorkspaceBrowserNavigationFailure.message(for: navigationError))
             return .cancel
         }
         return .allow
+    }
+    func webView(_ webView: WKWebView, decidePolicyFor navigationResponse: WKNavigationResponse) async -> WKNavigationResponsePolicy {
+        onDownload != nil && !navigationResponse.canShowMIMEType ? .download : .allow
+    }
+    func webView(_ webView: WKWebView, navigationAction: WKNavigationAction, didBecome download: WKDownload) {
+        receive(download)
+    }
+    func webView(_ webView: WKWebView, navigationResponse: WKNavigationResponse, didBecome download: WKDownload) {
+        receive(download)
+    }
+    private func receive(_ download: WKDownload) {
+        navigationPending = false
+        onStateChange?(webView, nil)
+        onDownload?(download)
     }
     func webView(_ webView: WKWebView, createWebViewWith configuration: WKWebViewConfiguration,
                  for navigationAction: WKNavigationAction, windowFeatures: WKWindowFeatures) -> WKWebView? {

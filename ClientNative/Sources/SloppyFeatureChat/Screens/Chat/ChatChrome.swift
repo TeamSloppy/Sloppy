@@ -18,6 +18,7 @@ struct ChatChrome: View {
     let composerTabActions: ChatComposerTabActions?
 
     @Environment(\.isChatComposerInset) private var isChatComposerInset
+    @Environment(\.chatUsesCompactLayout) private var usesCompactLayout
     @Environment(\.safeAreaInsets) private var safeAreaInsets
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
@@ -47,17 +48,33 @@ struct ChatChrome: View {
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if viewModel.transcript.isEmpty, viewModel.activeInputRequest == nil {
-                ChatEmptyChatRegion(
-                    viewModel: viewModel,
-                    contentWidth: contentWidth,
-                    heroWidth: heroWidth,
-                    bottomClearance: composerScrollInset
-                )
+                if usesCompactLayout {
+                    VStack(spacing: 12) {
+                        Image(systemName: "bubble.left.and.bubble.right")
+                            .font(.system(size: 32, weight: .light))
+                        Text("Ask about a page")
+                            .font(.callout)
+                        Text("Add a page or select text to give your agent context.")
+                            .font(.caption)
+                            .multilineTextAlignment(.center)
+                    }
+                    .foregroundStyle(theme.colors.textMuted)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, composerScrollInset)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                } else {
+                    ChatEmptyChatRegion(
+                        viewModel: viewModel,
+                        contentWidth: contentWidth,
+                        heroWidth: heroWidth,
+                        bottomClearance: composerScrollInset
+                    )
 #if os(macOS)
-                .background {
-                    ChatASCIIBackground(protectedWidth: heroWidth)
-                }
+                    .background {
+                        ChatASCIIBackground(protectedWidth: heroWidth)
+                    }
 #endif
+                }
             } else {
                 ChatTranscriptRegion(
                     viewModel: viewModel,

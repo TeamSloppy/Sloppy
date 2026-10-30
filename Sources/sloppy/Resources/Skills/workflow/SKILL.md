@@ -11,6 +11,30 @@ allowedTools:
 
 # Workflow
 
+## Contract-first authoring
+
+Before constructing any payload, read [API reference](references/api.md). Obtain the
+current exposed tool schema and compare the canonical DTO/parser; provider all-fields
+schemas do not make empty strings valid optional conditions. Prefer omission/null for
+unused edge conditions; never condition:"" or conditionKey:"". If the transport cannot
+omit them, use supported HTTP definition API with objects and explicit required fields.
+
+Choose [sequential](examples/sequential.json) for trigger → agent → End, or
+[approval + Parallel/Join](examples/approval-parallel.json) for gated independent work.
+These complete tool JSON payloads run through the actual parser/validator in tests.
+Resolve real project/agent/task IDs and read full task descriptions before adapting.
+Config taskId does not bind a step; the run task is pinned at Start. Put real child IDs
+in prompts and fetch their full requirements. Check reachability and End paths yourself;
+the draft validator deliberately allows incomplete plans. Never start to test saving.
+
+After errors follow reference recovery: distinguish parse/graph/policy failures, fix
+only proven causes, list/read before retrying uncertain saves. Do not repeat task or
+workflow side effects. Report source test results separately from installed runtime.
+Run `python3 scripts/check-workflow-contract.py` in the checkout to detect source drift.
+Installed skills outside the checkout need explicit synchronization after delivery;
+editing this canonical resource does not hot-update an already running agent.
+
+
 Use this skill when the user explicitly asks for a workflow, visual plan, workflow-mode execution, or when the task benefits from a visible step graph.
 
 When active:

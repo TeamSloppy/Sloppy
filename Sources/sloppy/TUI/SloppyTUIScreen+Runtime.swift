@@ -120,6 +120,11 @@ extension SloppyTUIScreen {
             if event.toolResult != nil {
                 lastAgentToolActivityAt = Date()
             }
+            if event.toolCall != nil || event.toolResult != nil {
+                sessionStreamStatusRevision += 1
+                trackPendingToolCall(event)
+                refreshStaticChrome()
+            }
             var shouldRefreshTokenUsageAfterRun = false
             if let status = event.runStatus {
                 sessionStreamStatusRevision += 1
@@ -148,21 +153,28 @@ extension SloppyTUIScreen {
                 await self.reloadSession()
             }
         } else if update.kind == .sessionClosed {
+            resetSessionRunActivity()
             clearLiveAssistantDraft()
             stopThinkingAnimation()
             appendLocalCard(update.message ?? "Session closed.")
             return false
+        } else if update.kind == .heartbeat {
+            // Keep command elapsed time current in every chat mode, including
+            // while a stopped process produces no events or output.
+            refreshStaticChrome()
         }
         return true
     }
 
     func applySessionRunStatus(_ status: AgentRunStatusEvent) {
+        latestSessionRunStatus = status
         liveTurnTokenUsageTracker.handle(status)
         if let tokenUsage = status.tokenUsage {
             lastTurnTokenUsage = tokenUsage
         }
         sessionStreamTurnCompleted = status.stage == .done || status.stage == .interrupted
         if sessionStreamTurnCompleted {
+            pendingToolCalls.removeAll()
             liveRunStage = nil
             liveRunStatusLine = nil
             clearLiveAssistantDraft()
@@ -580,6 +592,14 @@ extension SloppyTUIScreen {
         sessionCards = blocks
         subSessionCards = children
         if statusRevision == sessionStreamStatusRevision {
+            pendingToolCalls = []
+            for event in events {
+                if let status = event.runStatus, status.stage == .done || status.stage == .interrupted {
+                    pendingToolCalls.removeAll()
+                } else {
+                    trackPendingToolCall(event, replaying: true)
+                }
+            }
             reconcileSessionRunStatus(in: events)
         }
         invalidateSessionTimelineCache()
@@ -591,6 +611,7 @@ extension SloppyTUIScreen {
             refreshSessionList()
         }
         renderTimeline()
+        refreshStaticChrome()
     }
 
     func prepareCurrentSessionContext() async {

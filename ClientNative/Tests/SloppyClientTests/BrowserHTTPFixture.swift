@@ -4,26 +4,41 @@ import Network
 
 final class BrowserHTTPFixture: @unchecked Sendable {
     private let listener: NWListener
+    private let responseDelay: Double
+    private let contentSecurityPolicy: String?
+    private let customHTML: String?
     private let queue = DispatchQueue(label: "sloppy.browser.fixture")
 
-    init() throws {
+    init(responseDelay: Double = 0.3, contentSecurityPolicy: String? = nil, html: String? = nil) throws {
+        self.responseDelay = responseDelay
+        self.contentSecurityPolicy = contentSecurityPolicy
+        self.customHTML = html
         listener = try NWListener(using: .tcp, on: .any)
     }
 
     func start() async throws -> URL {
+        let responseDelay = responseDelay
+        let customHTML = customHTML
+        let securityHeader = contentSecurityPolicy.map { "Content-Security-Policy: \($0)\r\n" } ?? ""
         listener.newConnectionHandler = { connection in
             connection.start(queue: .global())
-            connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { _, _, _, _ in
+            connection.receive(minimumIncompleteLength: 1, maximumLength: 8192) { data, _, _, _ in
+                if let data, String(decoding: data, as: UTF8.self).hasPrefix("GET /download ") {
+                    let body = "Sloppy download fixture"
+                    let response = "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=source.txt\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
+                    connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in connection.cancel() })
+                    return
+                }
                 // Deliberately slow response catches open() reading the previous document.
-                DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) {
-                    let body = """
+                DispatchQueue.global().asyncAfter(deadline: .now() + responseDelay) {
+                    let body = customHTML ?? """
                     <!doctype html><html><head><title>Loaded through HTTP</title>
                     <style>body{font:20px system-ui;padding:40px;background:#f5f7fb;color:#172033}button,input{font:inherit;padding:12px}#result{margin-top:24px}</style></head>
                     <body><h1>Sloppy browser smoke test</h1><input id="name" placeholder="Name">
                     <button id="check" onclick="document.getElementById('result').textContent='Verified: '+document.getElementById('name').value">Check</button>
                     <div id="result">Ready</div></body></html>
                     """
-                    let response = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\nContent-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
+                    let response = "HTTP/1.1 200 OK\r\nContent-Type: text/html; charset=utf-8\r\n\(securityHeader)Content-Length: \(body.utf8.count)\r\nConnection: close\r\n\r\n\(body)"
                     connection.send(content: Data(response.utf8), completion: .contentProcessed { _ in connection.cancel() })
                 }
             }

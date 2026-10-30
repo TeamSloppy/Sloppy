@@ -102,7 +102,7 @@ public struct NotchChatView: View {
 
     private var composer: some View {
         @Bindable var draft = viewModel.composerDraft
-        return HStack(alignment: .bottom, spacing: 8) {
+        return HStack(alignment: .center, spacing: 8) {
             TextField("Message \(agentName)…", text: $draft.text, axis: .vertical)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))

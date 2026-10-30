@@ -31,13 +31,16 @@ struct WorkspaceBrowserHistoryTests {
         }
         history.record(url: nil, title: nil)
         #expect(history.sites.isEmpty)
-        for index in 0...WorkspaceBrowserHistory.maximumCount {
-            history.record(url: URL(string: "https://example.com/\(index)"), title: nil)
+        let saved = try (0..<WorkspaceBrowserHistory.maximumCount).reversed().map { index in
+            WorkspaceBrowserRecentSite(url: try #require(URL(string: "https://example.com/\(index)")), title: "Site")
         }
-        #expect(history.sites.count == WorkspaceBrowserHistory.maximumCount)
-        #expect(history.sites.first?.url.path == "/20")
-        #expect(history.sites.last?.url.path == "/1")
-        #expect(history.sites.first?.title == "example.com")
+        defaults.set(try JSONEncoder().encode(saved), forKey: "workspace.browser.recent-sites")
+        let bounded = WorkspaceBrowserHistory(defaults: defaults)
+        bounded.record(url: URL(string: "https://example.com/\(WorkspaceBrowserHistory.maximumCount)"), title: nil)
+        #expect(bounded.sites.count == WorkspaceBrowserHistory.maximumCount)
+        #expect(bounded.sites.first?.url.path == "/\(WorkspaceBrowserHistory.maximumCount)")
+        #expect(bounded.sites.last?.url.path == "/1")
+        #expect(bounded.sites.first?.title == "example.com")
     }
 
     @Test func titleUpdatesDoNotAddPagesOrChangeTheirOrder() throws {
@@ -54,6 +57,37 @@ struct WorkspaceBrowserHistoryTests {
         #expect(history.sites.map(\.url) == [second, first])
         #expect(history.sites.last?.title == "Loaded title")
         #expect(WorkspaceBrowserHistory(defaults: defaults).sites == history.sites)
+    }
+
+    @Test func frequentSitesAggregatePageVisitsAndSurviveRestart() throws {
+        let suite = "FrequentSites.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let history = WorkspaceBrowserHistory(defaults: defaults)
+        for address in ["https://a.example/one", "https://a.example/two", "https://b.example/", "https://a.example/one", "https://c.example/"] {
+            history.record(url: URL(string: address), title: nil)
+        }
+        history.updateTitle(url: URL(string: "https://c.example/"), title: "A new title")
+        let sites = WorkspaceBrowserHistory(defaults: defaults).frequentSites()
+        #expect(sites.map(\.id) == ["a.example", "c.example", "b.example"])
+        #expect(sites.first?.visits == 3)
+        #expect(sites.first?.url.path == "/one")
+        #expect(sites[1].visits == 1)
+        history.clear()
+        #expect(history.frequentSites().isEmpty)
+        #expect(WorkspaceBrowserHistory(defaults: defaults).frequentSites().isEmpty)
+    }
+
+    @Test func frequentSitesUseAtMostSixRealDistinctSites() throws {
+        let suite = "FrequentSitesLimit.\(UUID())"
+        let defaults = try #require(UserDefaults(suiteName: suite))
+        defer { defaults.removePersistentDomain(forName: suite) }
+        let history = WorkspaceBrowserHistory(defaults: defaults)
+        #expect(history.frequentSites().isEmpty)
+        for index in 0..<8 { history.record(url: URL(string: "https://site\(index).example/"), title: nil) }
+        #expect(history.frequentSites().count == 6)
+        #expect(history.frequentSites(limit: 3).count == 3)
+        #expect(history.frequentSites().first?.id == "site7.example")
     }
 
     @Test func credentialsAreNotPersistedAndDeepLinksArePreserved() throws {

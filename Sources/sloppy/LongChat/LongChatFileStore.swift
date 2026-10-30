@@ -13,6 +13,8 @@ final class LongChatFileStore {
         var isNotification: Bool
         var peerOrigin: AgentSessionPeerOrigin?
         var deliveryError: String?
+        /// The validated executor for an explicit model choice, before the turn delegates work.
+        var resolvedModel: String?
         var processing = false
         var delivered = false
     }
@@ -52,6 +54,29 @@ final class LongChatFileStore {
             throw StoreError.notFound
         }
         return result
+    }
+
+    func recordResolvedModel(_ model: String?, turnId: String) throws {
+        guard let model, let index = state.turns.firstIndex(where: { $0.id == turnId }),
+              state.turns[index].request.selectedModel?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false,
+              state.turns[index].resolvedModel == nil else { return }
+        try transaction { $0.turns[index].resolvedModel = model }
+    }
+
+    /// User turns own their model choice; notifications and peer messages cannot replace it.
+    /// An explicit source keeps delayed workers and retries attached to the authorizing turn.
+    func inheritingModelSelection(
+        _ request: AgentSessionPostMessageRequest, sessionId: String, sourceMessageId: String? = nil
+    ) -> AgentSessionPostMessageRequest {
+        let source = state.turns.last { turn in
+            guard turn.sessionId == sessionId else { return false }
+            if let sourceMessageId { return turn.id == sourceMessageId }
+            return !turn.isNotification && turn.peerOrigin == nil && (turn.delivered || turn.processing)
+        }
+        var request = request
+        if request.selectedModel == nil { request.selectedModel = source?.resolvedModel ?? source?.request.selectedModel }
+        if request.reasoningEffort == nil { request.reasoningEffort = source?.request.reasoningEffort }
+        return request
     }
 
     func delegate(sessionId: String, sourceMessageId: String, request: LongChatDelegationRequest) throws

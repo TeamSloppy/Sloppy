@@ -158,6 +158,16 @@ extension CoreService {
                     let snapshot = longChatContext(conversation)
                     let actionLedger = SessionActionLedger(events: detail.events).context
                     do {
+                        let request = turn.isNotification || turn.peerOrigin != nil
+                            ? storage.inheritingModelSelection(turn.request, sessionId: sessionID) : turn.request
+                        // Persist inherited choices before tools can delegate from this continuation.
+                        if request.selectedModel != turn.request.selectedModel || request.reasoningEffort != turn.request.reasoningEffort {
+                            try storage.transaction { state in
+                                if let index = state.turns.firstIndex(where: { $0.id == turn.id }) {
+                                    state.turns[index].request = request
+                                }
+                            }
+                        }
                         await runtime.setChannelToolAllowList(
                             channelId: sessionChannelID(agentID: turn.agentId, sessionID: sessionID),
                             toolIDs: LongChatCoordinatorPolicy.readTools.union(
@@ -165,12 +175,13 @@ extension CoreService {
                             ).union(["memory.save", "agent.documents.set_memory_markdown"]).union(
                                 await readOnlyLongChatMCPTools()))
                         _ = try await sessionOrchestrator.postMessage(
-                            agentID: turn.agentId, sessionID: sessionID, request: turn.request,
+                            agentID: turn.agentId, sessionID: sessionID, request: request,
                             userMessageAlreadyPersisted: true,
                             additionalContext: SessionCommunicationPolicy.instructions + "\n" + LongChatCoordinatorPolicy.instructions
                                 + "\n[Current assignments — authoritative persisted state]\n" + snapshot + "\n" + actionLedger,
                             responseMessageID: responseID, peerOrigin: turn.peerOrigin,
                             isWorkerNotification: turn.isNotification)
+                        try recordLongChatModel(agentID: turn.agentId, sessionID: sessionID, turnID: turn.id)
                     } catch {
                         if longChatIsStopping { return }
                         let event = AgentSessionEvent(
@@ -202,6 +213,12 @@ extension CoreService {
     private func nextLongChatTurn(storage: LongChatFileStore, sessionID: String) -> LongChatFileStore.Turn? {
         let pending = storage.state.turns.filter { $0.sessionId == sessionID && !$0.delivered }
         return pending.first { !$0.isNotification } ?? pending.first
+    }
+
+    func recordLongChatModel(agentID: String, sessionID: String, turnID: String) throws {
+        let model = try getAgentSession(agentID: agentID, sessionID: sessionID)
+            .events.reversed().compactMap { $0.runStatus?.selectedModel }.first
+        try longChats().recordResolvedModel(model, turnId: turnID)
     }
 
     func longChatContext(_ conversation: LongChatConversation) -> String {
@@ -324,6 +341,7 @@ extension CoreService {
                 request.tasks[i].readOnly != false || !request.tasks[i].resourceKeys.isEmpty
             else { throw AgentSessionError.invalidPayload }
         }
+        try recordLongChatModel(agentID: agentID, sessionID: sessionID, turnID: sourceID)
         let assignment = try longChats().delegate(sessionId: sessionID, sourceMessageId: sourceID, request: request)
         for task in assignment.tasks {
             try await publishLongChatTask(sessionID: sessionID, taskID: task.id, reason: "accepted")

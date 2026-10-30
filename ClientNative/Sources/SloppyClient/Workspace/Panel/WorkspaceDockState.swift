@@ -113,9 +113,9 @@ final class WorkspaceDockState {
         }
     }
 
-    static func visibleWidth(preferred: CGFloat, available: CGFloat) -> CGFloat {
+    static func visibleWidth(preferred: CGFloat, available: CGFloat, minimum: CGFloat = 240) -> CGFloat {
         let maximum = max(0, available - min(320, available * 0.45))
-        return min(max(preferred, min(240, maximum)), maximum)
+        return min(max(preferred, min(minimum, maximum)), maximum)
     }
 }
 

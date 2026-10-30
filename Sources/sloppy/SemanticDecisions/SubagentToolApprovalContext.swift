@@ -3,6 +3,7 @@ import Protocols
 
 struct SubagentToolApprovalContext: Encodable, Sendable {
     var userRequest: String
+    var priorUserRequests: [String] = []
     var objective: String
     var acceptanceCriteria: String?
     var readOnly: Bool

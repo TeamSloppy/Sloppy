@@ -20,10 +20,11 @@ struct ProjectWorkflowsAPIRouter: APIRouter {
 
         router.post("/v1/projects/:projectId/workflows", metadata: RouteMetadata(summary: "Create project workflow", description: "Creates a workflow definition", tags: ["Project Workflows"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
-            guard let body = request.body,
-                  let payload = CoreRouter.decode(body, as: WorkflowDefinitionUpsertRequest.self)
-            else {
-                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            let payload: WorkflowDefinitionUpsertRequest
+            do {
+                payload = try JSONDecoder().decode(WorkflowDefinitionUpsertRequest.self, from: request.body ?? Data())
+            } catch {
+                return workflowDefinitionDecodeError(error)
             }
             do {
                 return CoreRouter.encodable(status: HTTPStatus.created, payload: try await service.createWorkflowDefinition(projectID: projectId, request: payload))
@@ -45,10 +46,11 @@ struct ProjectWorkflowsAPIRouter: APIRouter {
         router.put("/v1/projects/:projectId/workflows/:workflowId", metadata: RouteMetadata(summary: "Update project workflow", description: "Updates one workflow definition", tags: ["Project Workflows"])) { request in
             let projectId = request.pathParam("projectId") ?? ""
             let workflowId = request.pathParam("workflowId") ?? ""
-            guard let body = request.body,
-                  let payload = CoreRouter.decode(body, as: WorkflowDefinitionUpsertRequest.self)
-            else {
-                return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
+            let payload: WorkflowDefinitionUpsertRequest
+            do {
+                payload = try JSONDecoder().decode(WorkflowDefinitionUpsertRequest.self, from: request.body ?? Data())
+            } catch {
+                return workflowDefinitionDecodeError(error)
             }
             do {
                 return CoreRouter.encodable(status: HTTPStatus.ok, payload: try await service.updateWorkflowDefinition(projectID: projectId, workflowID: workflowId, request: payload))
@@ -140,7 +142,11 @@ private func workflowErrorResponse(_ error: Error, fallback: String) -> CoreRout
     }
     if let workflowError = error as? CoreService.WorkflowError {
         switch workflowError {
-        case .invalidPayload, .validationFailed:
+        case .validationFailed(let issues):
+            struct Failure: Encodable { var error: String; var code: String; var validationIssues: [WorkflowValidationIssue] }
+            return CoreRouter.encodable(status: HTTPStatus.badRequest,
+                payload: Failure(error: ErrorCode.invalidBody, code: "validation_failed", validationIssues: issues))
+        case .invalidPayload:
             return CoreRouter.json(status: HTTPStatus.badRequest, payload: ["error": ErrorCode.invalidBody])
         case .workflowNotFound, .runNotFound, .actionNotFound, .projectNotFound:
             return CoreRouter.json(status: HTTPStatus.notFound, payload: ["error": ErrorCode.projectNotFound])
@@ -149,4 +155,33 @@ private func workflowErrorResponse(_ error: Error, fallback: String) -> CoreRout
         }
     }
     return CoreRouter.json(status: HTTPStatus.internalServerError, payload: ["error": fallback])
+}
+
+// Do not expose DecodingError.debugDescription: custom decoders may include input values.
+private func workflowDefinitionDecodeError(_ error: Error) -> CoreRouterResponse {
+    var path: [any CodingKey] = []
+    var reason = "Expected a valid workflow definition JSON object."
+    switch error {
+    case DecodingError.keyNotFound(let key, let context):
+        path = context.codingPath + [key]
+        reason = "Required field is missing."
+    case DecodingError.typeMismatch(let type, let context):
+        path = context.codingPath
+        reason = "Expected \(type)."
+    case DecodingError.valueNotFound(let type, let context):
+        path = context.codingPath
+        reason = "Expected non-null \(type)."
+    case DecodingError.dataCorrupted(let context):
+        path = context.codingPath
+        reason = "Invalid JSON or unsupported field value."
+    default: break
+    }
+    let fieldPath = path.reduce("$") { result, key in
+        result + (key.intValue.map { "[\($0)]" } ?? ".\(key.stringValue)")
+    }
+    return CoreRouter.json(status: HTTPStatus.badRequest, payload: [
+        "error": ErrorCode.invalidBody, "code": "invalid_arguments",
+        "fieldPath": fieldPath, "reason": reason,
+        "hint": "Use WorkflowDefinitionUpsertRequest: object configs, numeric positions and enabled; omit unused conditions."
+    ])
 }

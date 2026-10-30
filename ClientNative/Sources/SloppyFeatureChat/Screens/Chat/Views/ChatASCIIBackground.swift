@@ -1,9 +1,8 @@
-#if os(macOS)
 import SwiftUI
 import SloppyClientUI
 
 /// A quiet, bounded character field behind the empty desktop conversation.
-struct ChatASCIIBackground: View {
+public struct ChatASCIIBackground: View {
     let protectedWidth: CGFloat
 
     @Environment(\.theme) private var theme
@@ -12,7 +11,9 @@ struct ChatASCIIBackground: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var startedAt = Date()
 
-    var body: some View {
+    public init(protectedWidth: CGFloat) { self.protectedWidth = protectedWidth }
+
+    public var body: some View {
         Group {
             if !reduceMotion, scenePhase == .active {
                 TimelineView(.animation(minimumInterval: 1.0 / 12)) { timeline in
@@ -82,4 +83,3 @@ struct ChatASCIIBackground: View {
         }
     }
 }
-#endif

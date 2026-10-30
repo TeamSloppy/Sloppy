@@ -133,6 +133,7 @@ targets:
         NSSpeechRecognitionUsageDescription: Sloppy uses Speech Recognition to transcribe voice input when local fallback is needed.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+          NSAllowsArbitraryLoadsInWebContent: true
         CFBundleURLTypes:
           - CFBundleURLName: team.sloppy.client
             CFBundleURLSchemes:
@@ -200,6 +201,7 @@ targets:
         NSSpeechRecognitionUsageDescription: Sloppy uses Speech Recognition to transcribe voice input when local fallback is needed.
         NSAppTransportSecurity:
           NSAllowsLocalNetworking: true
+          NSAllowsArbitraryLoadsInWebContent: true
         CFBundleURLTypes:
           - CFBundleURLName: team.sloppy.client
             CFBundleURLSchemes:
@@ -209,7 +211,7 @@ targets:
       properties:
         com.apple.security.app-sandbox: true
         com.apple.security.device.audio-input: true
-        com.apple.security.files.user-selected.read-only: true
+        com.apple.security.files.user-selected.read-write: true
         com.apple.security.network.client: true
         com.apple.security.network.server: true
         com.apple.developer.aps-environment: development

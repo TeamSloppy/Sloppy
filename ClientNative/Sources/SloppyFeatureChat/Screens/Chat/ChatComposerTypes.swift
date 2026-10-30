@@ -73,12 +73,15 @@ public struct ChatComposerQuote: Identifiable, Sendable, Equatable {
     public let text: String
     public var comment: String
     public let source: Source?
+    public let browserSource: ChatImageAnnotation.BrowserSource?
 
-    public init(id: UUID = UUID(), text: String, comment: String = "", source: Source? = nil) {
+    public init(id: UUID = UUID(), text: String, comment: String = "", source: Source? = nil,
+                browserSource: ChatImageAnnotation.BrowserSource? = nil) {
         self.id = id
         self.text = text
         self.comment = comment
         self.source = source
+        self.browserSource = browserSource
     }
 
     static func messageContent(
@@ -87,7 +90,8 @@ public struct ChatComposerQuote: Identifiable, Sendable, Equatable {
         let textAnnotations = quotes.map {
             ChatSentAnnotations.Annotation(
                 selectedText: $0.text.replacingOccurrences(of: "\r\n", with: "\n").replacingOccurrences(of: "\r", with: "\n"),
-                comment: $0.comment.trimmingCharacters(in: .whitespacesAndNewlines)
+                comment: $0.comment.trimmingCharacters(in: .whitespacesAndNewlines),
+                source: $0.browserSource.map { "Page URL: \($0.url.absoluteString)\nPage title: \($0.title)" }
             )
         }
         let imageAnnotations = attachments.enumerated().flatMap { index, attachment in
@@ -119,7 +123,9 @@ public struct ChatComposerQuote: Identifiable, Sendable, Equatable {
                 .map { "> \($0)" }
                 .joined(separator: "\n")
             let comment = quote.comment.trimmingCharacters(in: .whitespacesAndNewlines)
-            return comment.isEmpty ? text : "\(text)\nComment: \(comment)"
+            let note = comment.isEmpty ? text : "\(text)\nComment: \(comment)"
+            guard let source = quote.browserSource else { return note }
+            return note + "\nPage URL: \(source.url.absoluteString)\nPage title: \(source.title)"
         }.joined(separator: "\n\n")
         let imageAnnotations = attachments.enumerated().compactMap { index, attachment -> String? in
             guard !attachment.annotations.isEmpty else { return nil }

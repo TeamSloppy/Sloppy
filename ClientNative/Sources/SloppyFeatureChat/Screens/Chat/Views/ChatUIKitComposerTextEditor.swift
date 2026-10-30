@@ -31,6 +31,7 @@ struct UIKitChatComposerTextEditor: UIViewRepresentable {
     let applySelectedSuggestion: @MainActor () -> Bool
     let submit: @MainActor () -> Void
     let pasteItemProviders: @MainActor ([NSItemProvider]) -> Bool
+    var onCommittedText: (@MainActor (String) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -180,6 +181,7 @@ struct UIKitChatComposerTextEditor: UIViewRepresentable {
                 in: updatedText
             )
             updateHeight(textView)
+            if textView.markedTextRange == nil { parent.onCommittedText?(updatedText) }
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {

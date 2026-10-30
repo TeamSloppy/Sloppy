@@ -4,6 +4,21 @@ import Protocols
 import SloppyRuntime
 
 extension CoreService {
+    func longChatWorkerRequest(
+        conversation: LongChatConversation, task: LongChatTask, request: AgentSessionPostMessageRequest
+    ) throws -> AgentSessionPostMessageRequest {
+        var request = request
+        // A worker's explicit follow-up choice takes precedence over its original model.
+        if request.selectedModel == nil, let childID = task.attempts.last?.sessionId {
+            request.selectedModel = try getAgentSession(agentID: conversation.agentId, sessionID: childID)
+                .events.reversed().compactMap { $0.runStatus?.selectedModel }.first
+        }
+        guard let assignment = conversation.assignments.first(where: { $0.tasks.contains { $0.id == task.id } })
+        else { throw LongChatFileStore.StoreError.notFound }
+        return try longChats().inheritingModelSelection(
+            request, sessionId: conversation.sessionId, sourceMessageId: assignment.sourceMessageId)
+    }
+
     func dispatchLongChatWorkers() async {
         guard !longChatIsStopping else { return }
         do {

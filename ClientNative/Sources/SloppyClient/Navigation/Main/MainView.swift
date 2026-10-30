@@ -35,6 +35,7 @@ extension FocusedValues {
 
 @MainActor
 struct MainView: View {
+    var onBrowserTextAnnotationTarget: BrowserTextAnnotationTarget?
     struct MobileTabsHeroOverlayState {
         var tabID: WorkspaceTab.ID
         var frame: CGRect
@@ -118,6 +119,10 @@ struct MainView: View {
     let onConsumeDeepLink: @MainActor (AppDeepLinkRequest) -> Void
     let approvalRequiredSessionIDs: Set<String>
 
+    @State var browserWorkspace = BrowserWorkspaceState()
+    @State var browserAgentChat: BrowserAgentChatState
+    @State var browserCanvasError: String?
+    @State var collectedBrowserCanvas: CanvasWorkspaceSummary?
     @State var viewModel: MainViewModel
     @State var mobileTabPagingDirection = 1
     @State var mobileTabsHeroOverlay: MobileTabsHeroOverlayState?
@@ -196,8 +201,24 @@ struct MainView: View {
         deepLinkRequest: AppDeepLinkRequest? = nil,
         onConsumeDeepLink: @escaping @MainActor (AppDeepLinkRequest) -> Void = { _ in },
         approvalRequiredSessionIDs: Set<String> = [],
-        viewModel: MainViewModel? = nil
+        viewModel: MainViewModel? = nil,
+        browserWorkspace: BrowserWorkspaceState? = nil,
+        browserAgentChat: BrowserAgentChatState? = nil,
+        onBrowserTextAnnotationTarget: BrowserTextAnnotationTarget? = nil
     ) {
+        self.onBrowserTextAnnotationTarget = onBrowserTextAnnotationTarget
+        let mainModel = viewModel ?? MainViewModel(
+            endpoint: endpoint, settings: settings, connectionMonitor: connectionMonitor,
+            onOpenSettings: onOpenSettings, onOpenWorkspace: onOpenWorkspace
+        )
+        _browserWorkspace = State(initialValue: browserWorkspace ?? BrowserWorkspaceState())
+        let browserChat = browserAgentChat ?? BrowserAgentChatState(
+            chat: mainModel.makeStandaloneChatViewModel(), apiClient: mainModel.apiClient
+        )
+        if browserAgentChat == nil {
+            browserChat.chat.applyNavigationRequest(.init(id: 1, context: .blank))
+        }
+        _browserAgentChat = State(initialValue: browserChat)
         self.rootSafeAreaInsets = rootSafeAreaInsets
         self.menuBarQuickActionRequest = menuBarQuickActionRequest
         self.onConsumeMenuBarQuickAction = onConsumeMenuBarQuickAction
@@ -210,15 +231,7 @@ struct MainView: View {
                 apiClient: SloppyAPIClient(endpoint: endpoint)
             )
         )
-        _viewModel = State(
-            initialValue: viewModel ?? MainViewModel(
-                endpoint: endpoint,
-                settings: settings,
-                connectionMonitor: connectionMonitor,
-                onOpenSettings: onOpenSettings,
-                onOpenWorkspace: onOpenWorkspace
-            )
-        )
+        _viewModel = State(initialValue: mainModel)
     }
 
 }

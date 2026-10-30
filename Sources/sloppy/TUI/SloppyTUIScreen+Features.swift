@@ -64,6 +64,7 @@ extension SloppyTUIScreen {
                     projectId: project.id
                 )
             )
+            resetSessionRunActivity()
             session = child
             persistSelection()
             streamSession()
@@ -173,6 +174,7 @@ extension SloppyTUIScreen {
                     forkBeforeMessageId: beforeMessageID
                 )
             )
+            resetSessionRunActivity()
             session = child
             persistSelection()
             streamSession()
@@ -1054,6 +1056,7 @@ extension SloppyTUIScreen {
                 appendLocalCard("Agent `\(agentID)` is no longer available.")
                 return
             }
+            resetSessionRunActivity()
             agent = nextAgent
             session = SloppyTUIApp.makeDraftSession(agent: nextAgent, projectID: project.id)
             hasPersistedSession = false
@@ -1091,6 +1094,7 @@ extension SloppyTUIScreen {
             appendLocalCard("Session `\(sessionID)` is no longer available for `\(agent.displayName)`.")
             return
         }
+        resetSessionRunActivity()
         session = nextSession
         hasPersistedSession = true
         pendingDraftCheckpointSessionID = nil

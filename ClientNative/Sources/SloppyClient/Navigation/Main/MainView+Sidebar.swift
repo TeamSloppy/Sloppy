@@ -79,7 +79,9 @@ extension MainView {
                     viewModel: browser,
                     onOpenTool: { selectWorkspaceSidePanelItem($0) },
                     allowsProjectTools: viewModel.workspaceDockState.context != nil,
-                    onAnnotate: browserAnnotationReceiver
+                    onAnnotate: browserAnnotationReceiver,
+                    onAskSelection: startBrowserChat,
+                    onAnnotateSelection: browserTextAnnotationTarget
                 )
             }
         case .terminal:

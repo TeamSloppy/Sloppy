@@ -79,6 +79,7 @@ final class MainViewModel {
     var chatViewModel: ChatScreenViewModel
     private var loadedSidebarSessions: [ChatSessionSummary]?
     private var isLoadingAggregatedChatCatalog = false
+    private var isRefreshingSidebarSessionCatalog = false
     var workspacePanelViewModel: WorkspacePanelViewModel
     @ObservationIgnored let workspaceDockStore = WorkspaceDockStore()
     private var sidebarSessionActivities: [String: SidebarSessionActivityRecord] = [:]
@@ -1082,6 +1083,40 @@ final class MainViewModel {
         visibleProjectCount = 6
     }
 
+    /// Refresh metadata for chats created outside this window without reopening
+    /// the selected conversation or replacing its composer draft.
+    func refreshSidebarSessionCatalog() async {
+        guard hasLoadedInitialContent, !isRefreshingSidebarSessionCatalog, !Task.isCancelled else { return }
+        isRefreshingSidebarSessionCatalog = true
+        defer { isRefreshingSidebarSessionCatalog = false }
+
+        let client = apiClient
+        let cache = cacheStore
+        let sourceID = settings.discoveredInstances.first { $0.endpoint == endpoint }?.id
+        if let agents = try? await client.fetchAgents() {
+            let sessions = await withTaskGroup(of: [ChatSessionSummary].self, returning: [ChatSessionSummary].self) { group in
+                for agent in agents {
+                    group.addTask {
+                        guard let fetched = try? await client.fetchAgentSessions(agentId: agent.id, includeWorkers: true) else { return [] }
+                        await cache.cacheSessions(agentId: agent.id, projectId: nil, sessions: fetched)
+                        return fetched.map { session in
+                            var tagged = session
+                            tagged.sourceInstanceID = sourceID
+                            return tagged
+                        }
+                    }
+                }
+                var result: [ChatSessionSummary] = []
+                for await batch in group { result += batch }
+                return result
+            }
+            guard inboxSelection == settings.instanceSelection, !Task.isCancelled else { return }
+            chatViewModel.installAggregatedSessionCatalog(sessions)
+            synchronizeSidebarSessionCatalog()
+        }
+        await loadAggregatedChatCatalogIfNeeded()
+    }
+
     func loadAggregatedChatCatalogIfNeeded() async {
         guard inboxSelection == settings.instanceSelection, !Task.isCancelled else { return }
         let catalogInstances: [SloppyInstance]
@@ -1826,6 +1861,12 @@ final class MainViewModel {
     }
 
     func makeChatTabState(endpoint: SloppyInstanceEndpoint? = nil) -> ChatTabState {
+        let viewModel = makeStandaloneChatViewModel(endpoint: endpoint)
+        viewModel.loadInitialData()
+        return ChatTabState(viewModel: viewModel)
+    }
+
+    func makeStandaloneChatViewModel(endpoint: SloppyInstanceEndpoint? = nil) -> ChatScreenViewModel {
         let resolvedEndpoint = endpoint ?? self.endpoint
         let sourceInstanceID = settings.discoveredInstances.first(where: { $0.endpoint == resolvedEndpoint })?.id
         let apiClient = resolvedEndpoint == self.endpoint ? self.apiClient : SloppyAPIClient(endpoint: resolvedEndpoint)
@@ -1851,8 +1892,7 @@ final class MainViewModel {
             self?.openWorkerSessionInSidePanel(session, from: chat)
         }
 #endif
-        viewModel.loadInitialData()
-        return ChatTabState(viewModel: viewModel)
+        return viewModel
     }
 
     func selectProjectModeSection(_ section: ProjectModeSection, project: APIProjectRecord) {

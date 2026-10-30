@@ -52,7 +52,7 @@ struct WorkspaceBrowserRuntimeTests {
         await #expect(throws: (any Error).self) { try await runtime.click(selector: "#disabled") }
         #expect(throws: (any Error).self) { try WorkspaceBrowserToolRuntime.resolveURL("file:///etc/passwd") }
         #expect(throws: (any Error).self) { try WorkspaceBrowserToolRuntime.resolveURL("javascript://alert(1)") }
-        #expect(try WorkspaceBrowserToolRuntime.resolveURL(" localhost:8080 ").absoluteString == "https://localhost:8080")
+        #expect(try WorkspaceBrowserToolRuntime.resolveURL(" localhost:8080 ").absoluteString == "http://localhost:8080")
     }
 
     @Test func opensBlankAndRetainsPageAcrossPanelOwnership() async throws {

@@ -36,6 +36,7 @@ struct AppKitChatComposerTextEditor: NSViewRepresentable {
     var references: [ChatComposerReference] = []
     var openReference: (@MainActor (ChatComposerReference) -> Void)? = nil
     var registerReferences: @MainActor ([ChatComposerReference]) -> Void = { _ in }
+    var onCommittedText: (@MainActor (String) -> Void)? = nil
 
     func makeCoordinator() -> Coordinator {
         Coordinator(parent: self)
@@ -47,12 +48,17 @@ struct AppKitChatComposerTextEditor: NSViewRepresentable {
         context.coordinator.scrollView = scrollView
         context.coordinator.textView = textView
         textView.delegate = context.coordinator
+        textView.onFocusChanged = { [weak coordinator = context.coordinator] focused in
+            coordinator?.parent.isFocused = focused
+        }
         scrollView.documentView = textView
         scrollView.onLayout = { [weak coordinator = context.coordinator] in
             coordinator?.updateHeight()
+            if coordinator?.parent.isFocused == true { coordinator?.synchronizeFocus() }
         }
         textView.onLayout = { [weak coordinator = context.coordinator] in
             coordinator?.updateHeight()
+            if coordinator?.parent.isFocused == true { coordinator?.synchronizeFocus() }
         }
         textView.onMoveSuggestionSelection = { [weak coordinator = context.coordinator] direction in
             coordinator?.parent.moveSuggestionSelection(direction) ?? false
@@ -135,6 +141,7 @@ struct AppKitChatComposerTextEditor: NSViewRepresentable {
     ) {
         coordinator.textView?.delegate = nil
         coordinator.textView?.onLayout = nil
+        coordinator.textView?.onFocusChanged = nil
         coordinator.textView?.onMoveSuggestionSelection = nil
         coordinator.textView?.onApplySelectedSuggestion = nil
         coordinator.textView?.onSubmit = nil
@@ -230,6 +237,7 @@ struct AppKitChatComposerTextEditor: NSViewRepresentable {
                 in: updatedText
             )
             updateHeight()
+            if !textView.hasMarkedText() { parent.onCommittedText?(updatedText) }
         }
 
         func textViewDidChangeSelection(_ notification: Notification) {
@@ -394,6 +402,17 @@ final class ComposerNSTextView: NSTextView {
             placeholderLabel.stringValue = placeholder ?? ""
             updatePlaceholderVisibility()
         }
+    }
+    var onFocusChanged: (@MainActor (Bool) -> Void)?
+    override func becomeFirstResponder() -> Bool {
+        let accepted = super.becomeFirstResponder()
+        if accepted { onFocusChanged?(true) }
+        return accepted
+    }
+    override func resignFirstResponder() -> Bool {
+        let accepted = super.resignFirstResponder()
+        if accepted { onFocusChanged?(false) }
+        return accepted
     }
     var onLayout: (@MainActor () -> Void)?
     var onMoveSuggestionSelection: (@MainActor (ChatComposerSuggestionSelectionDirection) -> Bool)?

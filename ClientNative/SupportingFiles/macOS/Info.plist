@@ -31,8 +31,12 @@
 	</array>
 	<key>CFBundleVersion</key>
 	<string>$(CURRENT_PROJECT_VERSION)</string>
+	<key>LSApplicationCategoryType</key>
+	<string>public.app-category.developer-tools</string>
 	<key>NSAppTransportSecurity</key>
 	<dict>
+		<key>NSAllowsArbitraryLoadsInWebContent</key>
+		<true/>
 		<key>NSAllowsLocalNetworking</key>
 		<true/>
 	</dict>
@@ -54,15 +58,13 @@
 	<true/>
 	<key>SUEnableSystemProfiling</key>
 	<false/>
-	<key>SUScheduledCheckInterval</key>
-	<integer>3600</integer>
 	<key>SUFeedURL</key>
 	<string>$(SLOPPY_UPDATE_FEED_URL)</string>
 	<key>SUPublicEDKey</key>
 	<string>$(SLOPPY_UPDATE_PUBLIC_KEY)</string>
+	<key>SUScheduledCheckInterval</key>
+	<integer>3600</integer>
 	<key>SUVerifyUpdateBeforeExtraction</key>
 	<true/>
-	<key>LSApplicationCategoryType</key>
-	<string>public.app-category.developer-tools</string>
 </dict>
 </plist>

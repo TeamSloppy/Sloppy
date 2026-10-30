@@ -1,0 +1,129 @@
+{
+  "operation": "propose",
+  "projectId": "sloppy",
+  "name": "Approval and parallel example",
+  "lanes": [
+    {
+      "id": "main",
+      "title": "Workflow",
+      "kind": "system"
+    }
+  ],
+  "nodes": [
+    {
+      "id": "start",
+      "type": "trigger",
+      "title": "start",
+      "laneId": "main",
+      "config": "{}",
+      "positionX": 0,
+      "positionY": 0
+    },
+    {
+      "id": "approve",
+      "type": "human_approval",
+      "title": "approve",
+      "laneId": "main",
+      "config": "{\"prompt\": \"Approve read-only analysis?\"}",
+      "positionX": 0,
+      "positionY": 0
+    },
+    {
+      "id": "fork",
+      "type": "parallel",
+      "title": "fork",
+      "laneId": "main",
+      "config": "{\"joinNodeId\": \"join\"}",
+      "positionX": 0,
+      "positionY": 0
+    },
+    {
+      "id": "left",
+      "type": "agent_step",
+      "title": "left",
+      "laneId": "main",
+      "config": "{\"agentId\": \"yadev\", \"prompt\": \"Read-only analysis of input, perspective A.\", \"sessionMode\": \"new\"}",
+      "positionX": 0,
+      "positionY": 0
+    },
+    {
+      "id": "right",
+      "type": "agent_step",
+      "title": "right",
+      "laneId": "main",
+      "config": "{\"agentId\": \"yadev\", \"prompt\": \"Read-only analysis of input, perspective B.\", \"sessionMode\": \"new\"}",
+      "positionX": 0,
+      "positionY": 0
+    },
+    {
+      "id": "join",
+      "type": "join",
+      "title": "join",
+      "laneId": "main",
+      "config": "{\"strategy\": \"all\"}",
+      "positionX": 0,
+      "positionY": 0
+    },
+    {
+      "id": "end",
+      "type": "end",
+      "title": "end",
+      "laneId": "main",
+      "config": "{}",
+      "positionX": 0,
+      "positionY": 0
+    },
+    {
+      "id": "declined",
+      "type": "end",
+      "title": "declined",
+      "laneId": "main",
+      "config": "{\"status\": \"cancelled\"}",
+      "positionX": 0,
+      "positionY": 0
+    }
+  ],
+  "edges": [
+    {
+      "id": "start_approve",
+      "sourceNodeId": "start",
+      "targetNodeId": "approve"
+    },
+    {
+      "id": "approve_fork",
+      "sourceNodeId": "approve",
+      "targetNodeId": "fork",
+      "condition": "{\"path\": \"decision\", \"equals\": \"approved\"}"
+    },
+    {
+      "id": "approve_declined",
+      "sourceNodeId": "approve",
+      "targetNodeId": "declined"
+    },
+    {
+      "id": "fork_left",
+      "sourceNodeId": "fork",
+      "targetNodeId": "left"
+    },
+    {
+      "id": "fork_right",
+      "sourceNodeId": "fork",
+      "targetNodeId": "right"
+    },
+    {
+      "id": "left_join",
+      "sourceNodeId": "left",
+      "targetNodeId": "join"
+    },
+    {
+      "id": "right_join",
+      "sourceNodeId": "right",
+      "targetNodeId": "join"
+    },
+    {
+      "id": "join_end",
+      "sourceNodeId": "join",
+      "targetNodeId": "end"
+    }
+  ]
+}

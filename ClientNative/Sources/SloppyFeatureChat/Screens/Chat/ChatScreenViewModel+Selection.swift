@@ -131,6 +131,26 @@ extension ChatScreenViewModel {
         dismissComposerFocus()
     }
 
+    /// The browser binds its menu to this exact draft, not whichever chat is selected later.
+    public func makeBrowserTextAnnotationReceiver() -> @MainActor (ChatComposerQuote) -> Bool {
+        let draftKey = activeComposerDraftKey
+        let sessionID = selectedSessionId
+        let agentID = selectedAgent?.id
+        let endpoint = sessionEndpoint
+        return { [weak self] quote in
+            guard let self, activeComposerDraftKey == draftKey, selectedSessionId == sessionID,
+                  selectedAgent?.id == agentID, sessionEndpoint == endpoint,
+                  let source = quote.browserSource, ["http", "https"].contains(source.url.scheme?.lowercased() ?? ""),
+                  source.url.host != nil, !quote.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                  quote.text.utf16.count <= 12000 else { return false }
+            if activeComposerDraftKey == nil { pendingComposerQuotes.append(quote) }
+            composerQuotes.append(quote)
+            saveActiveComposerDraft()
+            requestComposerFocus()
+            return true
+        }
+    }
+
     public func updateComposerQuote(id: ChatComposerQuote.ID, comment: String) {
         guard let index = composerQuotes.firstIndex(where: { $0.id == id }) else { return }
         composerQuotes[index].comment = comment

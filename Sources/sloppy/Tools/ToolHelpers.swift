@@ -327,12 +327,17 @@ func runForegroundProcess(
     maxOutputBytes: Int,
     environmentOverrides: [String: String] = [:],
     standardInput: Data? = nil,
-    outputArtifacts: ToolOutputArtifactStore? = nil
+    outputArtifacts: ToolOutputArtifactStore? = nil,
+    progress: (@Sendable (ForegroundProcessState, Int32) async -> Void)? = nil
 ) async throws -> JSONValue {
     let process = Process()
     let stdout = Pipe()
     let stderr = Pipe()
     let stdin = try makeProcessInputPipe()
+    defer {
+        try? stdin.fileHandleForReading.close()
+        try? stdin.fileHandleForWriting.close()
+    }
     var captureError: String?
     func capture() -> ToolOutputCapture? {
         do { return try outputArtifacts?.capture() }
@@ -355,6 +360,11 @@ func runForegroundProcess(
     process.standardError = stderr
     if standardInput != nil {
         process.standardInput = stdin
+    } else {
+        // Agent commands must not inherit the TUI's terminal. Background tools
+        // such as ffmpeg can otherwise stop their process group while setting
+        // terminal attributes. Explicit input continues to use its own pipe.
+        process.standardInput = FileHandle.nullDevice
     }
     process.currentDirectoryURL = cwd
 
@@ -385,7 +395,7 @@ func runForegroundProcess(
         }
     }
 
-    let didTimeout = await waitForProcessExitOrTimeout(process: process, timeoutMs: timeoutMs)
+    let didTimeout = await waitForProcessExitOrTimeout(process: process, timeoutMs: timeoutMs, progress: progress)
 
     if didTimeout, process.isRunning {
         await terminateProcess(process)
@@ -427,14 +437,28 @@ func resolvedExecTimeoutMs(arguments: [String: JSONValue], guardrails: AgentTool
     return min(max(1, requested), max(1, guardrails.maxExecTimeoutMs))
 }
 
-func waitForProcessExitOrTimeout(process: Process, timeoutMs: Int) async -> Bool {
+func waitForProcessExitOrTimeout(
+    process: Process,
+    timeoutMs: Int,
+    progress: (@Sendable (ForegroundProcessState, Int32) async -> Void)? = nil
+) async -> Bool {
     let deadline = Date().addingTimeInterval(Double(max(1, timeoutMs)) / 1000.0)
+    var nextProbe = ContinuousClock.now
+    var previousState: ForegroundProcessState?
     while process.isRunning {
         if Task.isCancelled {
             return true
         }
         if Date() >= deadline {
             return true
+        }
+        if let progress, ContinuousClock.now >= nextProbe {
+            let state = foregroundProcessState(process.processIdentifier) ?? .running
+            if state != previousState {
+                await progress(state, process.processIdentifier)
+                previousState = state
+            }
+            nextProbe = ContinuousClock.now.advanced(by: .milliseconds(250))
         }
         try? await Task.sleep(nanoseconds: 50_000_000)
     }

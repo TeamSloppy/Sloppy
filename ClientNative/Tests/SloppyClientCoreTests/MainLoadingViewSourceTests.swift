@@ -11,13 +11,13 @@ struct MainLoadingViewSourceTests {
         return try mainViewAwareSourceContents(at: packageRoot.appendingPathComponent(relativePath))
     }
 
-    @Test("main content is gated only by the initial app bootstrap")
+    @Test("main Work content waits for app bootstrap")
     func mainContentIsGatedOnlyByInitialAppBootstrap() throws {
         let mainView = try source("Sources/SloppyClient/Navigation/Main/MainView.swift")
         let mainViewModel = try source("Sources/SloppyClient/Navigation/Main/MainViewModel.swift")
         let chatViewModel = try source("Sources/SloppyFeatureChat/Screens/Chat/ChatScreenViewModel.swift")
 
-        #expect(mainView.contains("if viewModel.hasLoadedInitialContent"))
+        #expect(mainView.contains("if shouldShowWorkspaceContent"))
         #expect(mainView.contains("MainLoadingView(status: \"Opening your workspace…\")"))
         #expect(mainView.contains("LoadingSkeleton(\"Loading Inbox…\")"))
         #expect(mainViewModel.contains("didLoadProjects && didLoadSidebarCatalog"))

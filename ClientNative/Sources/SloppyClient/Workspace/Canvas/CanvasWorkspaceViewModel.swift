@@ -280,6 +280,27 @@ final class CanvasWorkspaceViewModel {
         selectedElementID = element.id
     }
 
+    /// Keep research sources on the existing editable canvas, alongside notes and agent results.
+    func collectBrowserTabs(_ tabs: [BrowserTabRecord]) async throws -> CanvasWorkspaceSummary {
+        let sources = tabs.filter { $0.url != nil }
+        let workspace = try await apiClient.createCanvasWorkspace(
+            title: "Browsing research", description: "Sources collected from browser tabs", projectId: nil
+        )
+        let document = try await apiClient.fetchCanvasWorkspaceDocument(workspaceId: workspace.id)
+        let operations = sources.enumerated().map { index, tab in
+            CanvasWorkspaceOperation(kind: .createElement, element: CanvasWorkspaceElement(
+                id: "source-\(tab.id.uuidString.lowercased())", kind: .text,
+                bounds: .init(x: 120 + Double(index % 3) * 340, y: 120 + Double(index / 3) * 200, width: 300, height: 160),
+                zIndex: index, data: ["text": .string("\(tab.title)\n\(tab.url?.absoluteString ?? "")")]
+            ))
+        }
+        _ = try await apiClient.applyCanvasWorkspaceTransaction(workspaceId: workspace.id, request: .init(
+            id: "tx-\(UUID().uuidString.lowercased())", baseRevision: document.revision,
+            expectedElementRevisions: [:], operations: operations, summary: "Collected browser sources"
+        ))
+        return workspace
+    }
+
     func updateElement(_ element: CanvasWorkspaceElement, summary: String = "Updated element") async {
         await commit([.init(kind: .updateElement, element: element)], summary: summary)
     }

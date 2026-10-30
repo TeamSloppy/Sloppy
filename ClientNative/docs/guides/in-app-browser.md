@@ -1,4 +1,227 @@
-# Agent-controlled in-app browser (macOS)
+# Browse and the agent-controlled browser
+
+## Work / Browse
+
+The native client has a Work / Browse switch on macOS, iPhone and iPad. Work
+keeps the existing chats, projects and canvas. Browse uses vertical tabs in its
+own sidebar; switching modes preserves the work selection and browser pages.
+On iPhone, the native split view collapses the tab list and page into navigation.
+
+- **Command-T** opens the search/address launcher for a new tab in either mode.
+- **Command-L** edits the current tab's address.
+- **Command-Shift-S** hides or shows the sidebar in the active Work or Browse
+  mode on macOS. The same command is available in the Workspace menu.
+- Enter opens an HTTP(S) address or searches. Google is the default; the launcher
+  also offers DuckDuckGo, Bing and Yandex. The choice is saved on the device.
+- **Ask agent** opens Assistant beside the page in Browse and adds the launcher
+  text to its draft. It does not send a message or replace a Work draft.
+- The launcher finds open tabs, bookmarks and history by title or address. On Mac it floats over the current page as a compact glass panel, without sheet chrome. Arrow keys select a result, Enter opens it, Escape or an outside click closes the panel, and Command-Return starts an agent draft.
+- **Command-W** closes the selected browser tab in Browse; **Command-R** reloads it.
+  The corresponding page controls are available without a hardware keyboard.
+- **Collect tabs on canvas** creates a personal research workspace containing
+  source titles and URLs as editable text elements. It uses the existing canvas,
+  so notes, agent conversations and further work stay together. This needs Core.
+
+Tabs, their order, the selected tab, the search engine and the last Work / Browse
+mode are saved locally under `sloppy.browser-workspace.v1`. Pages retain their
+WKWebView while switching tabs or modes. Session restoration uses WebKit's public
+`interactionState` when available, with a URL fallback. Inactive restored tabs
+load on selection. WebKit's default website data store retains cookies and logins.
+On macOS, HTTP web pages are allowed through `NSAllowsArbitraryLoadsInWebContent`
+(owner-approved on 2026-10-30). This applies to WKWebView content; URLSession
+connections keep their existing ATS policy. Bare loopback addresses (`localhost`, `*.localhost`, `127.x.x.x`, `[::1]`)
+default to HTTP; other bare addresses default to HTTPS. Explicit HTTP/HTTPS is
+preserved. Failed HTTPS loopback pages offer an explicit Open using HTTP action,
+without automatically downgrading a TLS connection.
+An app restart reloads page content; restoration does not promise to preserve
+unsent site forms or running JavaScript. Tabs are device-local, without server sync.
+
+The feature reuses the native browser and the existing desktop/mobile themes.
+Zephium is an interaction reference: https://github.com/zephium-browser/Zephium.
+Its canvas keeps research sources and results available outside a chat transcript;
+Collect tabs on canvas brings that idea to Sloppy's current canvas.
+
+### Browser-mode verification on 2026-10-30
+
+- 58 focused browser tests passed with interactive WebKit tests enabled, including launcher keys, sidebar layout, frequency ranking, extension integration, context-menu actions, selection annotations and first-message handoff with IME/multiline input.
+- These cover state restoration, search providers and URL encoding, retained
+  form input across tab switches, WebKit back/forward restoration, and Command-T
+  → Ask agent in the main window without replacing the previous chat draft.
+- Opening and closing search preserves the sidebar's titlebar safe area in real
+  full-size-content macOS windows at 1100- and 1700-point widths. The split view
+  retains hit testing; the overlay intercepts background clicks itself.
+- The macOS Release and iPhone Simulator builds passed after the Home/library changes; the earlier iPad Simulator build also passed. Builds used signing disabled, followed by Developer ID signing for the installed Mac app.
+- Screenshots and interactive behavior were checked on macOS; physical Apple devices were not tested. The signed app was installed at `/Applications/Sloppy.app` and launch was verified.
+- The full non-interactive client run executed 1,011 tests and reported six
+  unrelated existing source-text assertion failures in `MainTabsSourceTests`,
+  `ChatConversationNavigatorLayoutTests`, `ChatBubbleRenderingTests` and
+  `ChatInitialLoadSourceTests`. The full suite is not green.
+
+## Home, groups and browser library
+
+### Split View on macOS
+
+Select browser tabs with Command-click, or select a range with Shift-click.
+Right-click the selection and choose **Combine in Split View** to show the pages
+together. Drag the native dividers to resize panels. Two or three pages sit side
+by side; larger selections use a grid.
+
+Click a page or its panel title to make it active. The sidebar address field and
+window navigation controls follow that page. **Separate Split View** in the
+context menu or window toolbar returns the pages to individual tabs. Closing a
+panel leaves the other tabs open. Splits are saved locally, and selecting a
+member later reopens its split. Existing WebKit views are reused while combining
+or separating tabs, preserving their current form input and navigation history.
+
+The sidebar contains the address/search field, Home, a Tabs
+header with its new-tab button, named groups, and a
+persistent three-dot menu at the bottom. The menu opens the existing application
+Settings, History, Downloads and Bookmarks, and offers New tab group and Collect
+tabs on canvas.
+On macOS, the Web Extensions button sits at the trailing end of the address
+field. It appears when the address field is hovered or the button has keyboard
+focus; its reserved space keeps the address stable. The menu retains extension
+actions, options pages and Manage Web Extensions.
+
+Right-click a tab (long-press on touch devices) → Move to group to choose a group
+or create one. Group names, tab membership and collapsed state persist locally.
+On Mac, hovering a tab reveals its trailing close button without shifting the title.
+Removing a group keeps its tabs. Returning Home keeps all open pages available.
+The Home page reuses the chat's ASCII wave field and native message editor. The
+first committed input opens Assistant in Browse with that text; it does not send
+the message. IME composition finishes before focus moves to Assistant, multiline
+paste is kept, and the Work draft is preserved. The Home editor hides while
+Assistant is open. The former quick-action row and counters
+are removed. Up to six frequently visited sites appear below the composer, ranked
+by recorded visits and grouped by host/port. Legacy history entries count as one
+known visit each. Fewer sites are shown when there is not enough real history.
+
+Bookmark the current page from the page controls; saved pages are searchable in
+Bookmarks. History retains up to 2,000 recently visited URLs and can be searched
+or cleared. Its ordering reflects the latest visit to each URL.
+
+WebKit downloads are tracked through completion, cancellation or failure. Files
+are stored in Sloppy's application-support `Sloppy/Browser Downloads` directory
+on macOS and `Documents/Browser Downloads` on iOS/iPadOS. The list offers Show in
+Finder on Mac and sharing on mobile. Clearing finished entries keeps the files.
+No additional filesystem entitlements are introduced. A download interrupted by
+an app restart is shown as failed and can be retried from its source URL.
+
+On macOS, Back and Forward live in the page's window toolbar. Reload sits at the
+trailing end of the address field. Bookmark appears there on address-field hover
+or keyboard focus, beside Web Extensions; its reserved space keeps the text stable.
+Tabs close from their sidebar row or Command-W. The address field
+stays at the top of the sidebar with 16-point
+continuous corners; mobile keeps navigation alongside the address. Loading
+appears as a two-point progress line inside the
+address field, driven by WebKit estimatedProgress/isLoading observations. No
+spinner or loading row is inserted above the page, so its bounds stay fixed. Compact mobile layouts keep a toolbar search button. Sidebar
+layout is covered at 800×600, 1200×780 and 1800×1160 window sizes, alongside real
+WebKit downloads, group/bookmark restoration and committed composer input.
+The macOS sidebar header uses the system bar material through the titlebar safe
+area and a hard top scroll edge, so tab rows scroll behind a blurred navigation
+surface. The address field stays fixed and clickable while the list scrolls.
+
+## Page frame, connection indicator and cancellation
+
+On macOS, web pages fill the detail column to the window edges, without an outer
+inset, border or rounded frame. Split panels are rectangular and separated by
+native dividers. Mobile pages retain an 8-point inset, 10-point continuous corners
+and a thin theme border. The macOS page frame extends beneath the window toolbar;
+the measured titlebar safe area plus the blur's 32-point fade and an 8-point gap
+is applied as padding inside the main HTML document in an isolated content world.
+Viewport-fixed headers and document-sticky top offsets also account for this
+space; nested scrollers and transformed containers retain their own coordinates.
+The layout updates incrementally for dynamically inserted headers and restores
+the site's original inline values when the inset is removed, including in split
+view. Other user scripts and browser selection overlays retain their behavior.
+WebKit's `obscuredContentInsets` remains zero to avoid applying the offset twice.
+The inset follows native window geometry rather than a fixed toolbar height.
+The toolbar uses a Gaussian backdrop filter attached to the retained WebKit layer,
+without a tinted material or a fill. Its alpha mask fades the blur below the controls.
+The page background follows WebKit's document-derived color, including the area
+beneath the toolbar. The default flat toolbar fill is hidden.
+The mode switch uses a capsule glass surface with exterior edge insets;
+the decorative blur does not intercept page input.
+Real-window tests cover resizing and opening search without moving the page frame.
+Error UI overlays the page below that inset rather than changing its bounds.
+NSURLErrorCancelled (-999) is treated as cancelled navigation, including a load
+superseded by another navigation; it does not show an error banner. Genuine
+network failures retain a readable explanation and Retry.
+
+The address field shows a closed lock only for a completed HTTPS document when
+WebKit reports `hasOnlySecureContent`. Loading, HTTP, mixed content and failures
+have separate icons/accessible descriptions. Default WebKit certificate checks
+remain in effect. Tab icons request `/favicon.ico` from the visited origin,
+without sending browsing domains to a third-party icon service, and fall back to
+the globe when an icon is unavailable.
+Hover the macOS connection icon to see the current connection status and the
+certificate supplied by that page's WebKit `serverTrust`: subject, issuer,
+validity dates and SHA-256 fingerprint. Move into the popover to read or copy
+details; clicking the icon pins it open. Show Certificate opens the native
+certificate-chain sheet with trust editing disabled. HTTP has no certificate;
+loading, failed or changed pages never reuse the previous page's certificate.
+
+## Page context menu (macOS)
+
+Right-click a web page for Back, Forward, Reload, Save As, Print, a local QR code,
+translation and page source. Navigation actions reflect the current back/forward
+history. WebKit's original link, image, selection and spelling actions remain in
+the menu. Save As exports a Web Archive through the native save panel; the
+sandboxed TestFlight build allows writing only to user-selected destinations.
+Page Source shows the current HTML DOM in a read-only native text window.
+
+Translate to Russian (Google) sends the current page URL to Google Translate only
+when selected. It is disabled for loopback, private IP addresses and known local
+host names.
+Pages opt in to WebKit's public inspection support. If WebKit supplies an Inspect
+Element action it is preserved; otherwise Inspect in Safari explains how to find
+the running Sloppy page in Safari's Develop menu and offers to open Safari.
+This does not open an in-app developer console. Chromecast/Cast is not included.
+
+## Assistant in Browse
+
+The Assistant button opens a conversation beside the page on Mac. Drag the
+divider to resize it; hiding it retains its draft, transcript and conversation.
+On iPhone and iPad the system inspector adapts to the available space. The panel
+reuses the regular chat composer, including model selection, attachments,
+approvals, queued messages and Stop. Its menu offers New chat and recent chats.
+
+Add page explicitly attaches a bounded snapshot of the visible text, page title
+and URL to the draft. Selection actions open this same Assistant, and Add as
+annotation targets it while visible. Both preserve existing draft text and wait
+for Send. Switching browser tabs keeps the conversation. Closing and reopening
+a selection menu is required if its receiving conversation has changed.
+
+On Mac, browser tools in this conversation use the selected Browse page and its
+retained WebKit view. Switching tabs retargets that connection without changing
+the chat. Leaving Browse disconnects this browser binding. Work conversations
+continue to use their own browser panels.
+
+### Assistant verification on 2026-10-31
+
+The Assistant resize host extends through the toolbar safe area. Its original
+toolbar inset is passed to WebKit for document clearance and blur, while the
+chat alone is padded below the toolbar. Regression coverage checks full-window
+web-view geometry and active blur layers with Assistant hidden, open and closed
+again at 1100- and 1700-point window widths. The expanded browser/chat/split/dock
+regression passed 44 tests in eight suites after this correction.
+
+- 43 focused tests in seven suites passed with interactive macOS windows enabled.
+  They cover sending and receiving through an isolated test API, page snapshots,
+  selection destinations, retained form input, resizing, tab switching and
+  committed IME/multiline input moving from Home to Assistant.
+- macOS Release and iPhone Simulator builds passed with signing disabled.
+- The full non-interactive run executed 1,055 tests and reported the same six
+  existing source-text assertion failures in MainTabsSourceTests,
+  ChatConversationNavigatorLayoutTests, ChatBubbleRenderingTests and
+  ChatInitialLoadSourceTests. The full suite is not green.
+- No live provider message was sent. At the owner's request, the Release app was
+  signed with the existing Developer ID and installed at `/Applications/Sloppy.app`.
+  The previous app is retained under `.build/app-backups`; signature verification,
+  binary comparison and the installed process's launch passed.
+
+## Agent-controlled in-app browser (macOS)
 
 The macOS client connects each opened chat task to its Core endpoint. When the
 agent calls `browser.open` or another browser action, Sloppy shows the Browser

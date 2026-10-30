@@ -384,7 +384,7 @@ extension SloppyTUIScreen {
             sessionID: hasPersistedSession ? session.id : "not created"
         )
         let connectionStatus = sessionStreamReconnecting ? "Reconnecting session..." : nil
-        let busyStatus = (statusLine ?? shellRunStatusLine ?? connectionStatus ?? liveRunStatusLine).map { $0 + elapsed.busySuffix }
+        let busyStatus = (statusLine ?? shellRunStatusLine ?? connectionStatus ?? toolActivityStatusLine() ?? liveRunStatusLine).map { $0 + elapsed.busySuffix }
         status.text = SloppyTUITheme.status(
             busyStatus.map { "\($0)  \(approvalModeStatus)" } ?? defaultStatus,
             isBusy: busyStatus != nil

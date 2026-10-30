@@ -1617,7 +1617,9 @@ enum SloppyTUITheme {
         let start = max(0, min(picker.selectedIndex - visibleCount / 2, picker.items.count - visibleCount))
         let end = min(picker.items.count, start + visibleCount)
         let prompt: String
-        if picker.kind == .toolApproval {
+        if let actionHint = picker.actionHint {
+            prompt = actionHint
+        } else if picker.kind == .toolApproval {
             prompt = "Enter apply · Esc deny"
         } else if picker.supportsSearch {
             prompt = "type search · Enter apply · Esc cancel"
@@ -1625,8 +1627,9 @@ enum SloppyTUITheme {
             prompt = "Enter apply · Esc cancel"
         }
         var lines = [
-            indent + padded("  " + foreground(AnsiStyling.bold(picker.title)) + "  " + muted(prompt), width: paletteWidth),
+            indent + padded(fittedLine("  " + foreground(AnsiStyling.bold(picker.title)) + "  " + muted(prompt), width: paletteWidth), width: paletteWidth),
         ]
+        lines.append(contentsOf: pickerDetailLines(width: width, picker: picker))
         if picker.supportsSearch {
             let query = picker.searchQuery.isEmpty ? muted("type to filter") : accentBright(picker.searchQuery)
             let count = muted("\(picker.items.count)/\(picker.totalItemCount)")
@@ -1685,6 +1688,17 @@ enum SloppyTUITheme {
         return lines
     }
 
+    static func pickerDetailLines(width: Int, picker: SloppyTUIPicker) -> [String] {
+        guard let detail = picker.detailText, !detail.isEmpty else { return [] }
+        let layout = pickerLayout(width: width, picker: picker, maxVisible: 9)
+        let indent = String(repeating: " ", count: layout.left)
+        return detail.split(separator: "\n", omittingEmptySubsequences: false).flatMap { line in
+            AnsiWrapping.wrapText(String(line), width: max(1, layout.paletteWidth - 4)).map {
+                indent + padded("  " + foreground($0), width: layout.paletteWidth)
+            }
+        }
+    }
+
     struct PickerLayout: Equatable {
         var paletteWidth: Int
         var left: Int
@@ -1709,7 +1723,9 @@ enum SloppyTUITheme {
 
     private static func pickerNaturalWidth(picker: SloppyTUIPicker) -> Int {
         let prompt: String
-        if picker.kind == .toolApproval {
+        if let actionHint = picker.actionHint {
+            prompt = actionHint
+        } else if picker.kind == .toolApproval {
             prompt = "Enter apply · Esc deny"
         } else if picker.supportsSearch {
             prompt = "type search · Enter apply · Esc cancel"
@@ -1718,6 +1734,7 @@ enum SloppyTUITheme {
         }
 
         var width = VisibleWidth.measure("  " + picker.title + "  " + prompt)
+        if let detail = picker.detailText { width = max(width, VisibleWidth.measure(detail) + 4) }
         if picker.supportsSearch {
             width = max(width, VisibleWidth.measure("  Search: type to filter  matches \(picker.totalItemCount)/\(picker.totalItemCount)"))
         }

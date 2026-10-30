@@ -77,6 +77,17 @@ final class SloppyDesktopOverlay {
         applyCloseBehavior(closeBehavior)
     }
 
+    func makeBrowserTextAnnotationReceiver() -> BrowserTextAnnotationReceiver? {
+        guard overlayPanel?.isVisible == true, state.isExpanded,
+              let selected = state.selectedChat, let chat = state.chatViewModel else { return nil }
+        let receive = chat.makeBrowserTextAnnotationReceiver()
+        return { [weak state, weak chat] quote in
+            guard let state, let chat, state.isExpanded, state.selectedChat?.id == selected.id,
+                  state.chatViewModel === chat else { return false }
+            return receive(quote)
+        }
+    }
+
     func applyCloseBehavior(_ behavior: ClientWindowCloseBehavior) {
         closeBehavior = behavior
     }
@@ -500,15 +511,15 @@ struct SloppyDesktopNotchView: View {
                         .frame(width: state.notchGeometry.headerSideWidth, alignment: .leading)
                     Color.clear.frame(width: state.notchGeometry.reservedCenterWidth)
                     HStack(spacing: 4) {
-                        newChatButton
                         Spacer(minLength: 0)
+                        newChatButton
                         collapseButton
                     }
                     .frame(width: state.notchGeometry.headerSideWidth)
                 } else {
                     sectionButtons
-                    newChatButton
                     Spacer()
+                    newChatButton
                     collapseButton
                 }
             }

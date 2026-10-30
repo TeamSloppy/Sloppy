@@ -8,7 +8,7 @@ struct RuntimeExecTool: CoreTool {
     let title = "Exec command"
     let status = "fully_functional"
     let name = "runtime.exec"
-    let description = "Run one foreground command with timeout and output limits. Full stdout/stderr are saved at stdoutArtifact.path and stderrArtifact.path; use files.read to inspect sections omitted from the preview. Omit timeoutMs for builds and other long-running commands to use the configured maximum; clean builds can take 20 minutes or longer. Set a shorter timeout only when intentionally limiting the command. Successful recognized build, test, lint/typecheck, and run commands return `verificationEvidence.id` for `session.complete`. The `sloppy` CLI is available in PATH — use it to manage agents, projects, channels, providers, and more (e.g. `sloppy agent list`, `sloppy project task create`)."
+    let description = "Run one foreground command with timeout and output limits. Commands do not inherit terminal stdin; provide input through shell pipelines, file redirection, or a heredoc. Full stdout/stderr are saved at stdoutArtifact.path and stderrArtifact.path; use files.read to inspect sections omitted from the preview. Omit timeoutMs for builds and other long-running commands to use the configured maximum; clean builds can take 20 minutes or longer. Set a shorter timeout only when intentionally limiting the command. Successful recognized build, test, lint/typecheck, and run commands return `verificationEvidence.id` for `session.complete`. The `sloppy` CLI is available in PATH — use it to manage agents, projects, channels, providers, and more (e.g. `sloppy agent list`, `sloppy project task create`)."
 
     var parameters: GenerationSchema {
         .objectSchema([
@@ -50,7 +50,17 @@ struct RuntimeExecTool: CoreTool {
                 timeoutMs: timeoutMs,
                 maxOutputBytes: context.policy.guardrails.maxExecOutputBytes,
                 environmentOverrides: context.environmentOverrides,
-                outputArtifacts: context.outputArtifacts
+                outputArtifacts: context.outputArtifacts,
+                progress: { state, pid in
+                    await context.sessionService?.reportSessionRunStatus(
+                        agentID: context.agentID, sessionID: context.sessionID,
+                        status: .init(
+                            stage: .searching,
+                            label: state == .stopped ? "Process stopped by OS" : "Running command",
+                            details: "runtime.exec · PID \(pid)"
+                        )
+                    )
+                }
             )
             if payload.asObject?["timedOut"]?.asBool == true {
                 return ToolInvocationResult(

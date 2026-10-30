@@ -3,6 +3,7 @@ import Protocols
 import SloppyRuntime
 
 protocol SessionToolService: Sendable {
+    func reportSessionRunStatus(agentID: String, sessionID: String, status: AgentRunStatusEvent) async
     func sessionHasActiveRun(agentID: String, sessionID: String) async -> Bool?
     func linkCurrentSessionToCodeReview(providerID: String, reviewID: String, agentID: String, sessionID: String) async throws -> AgentSessionSummary
     func sendPeerSessionMessage(
@@ -12,6 +13,7 @@ protocol SessionToolService: Sendable {
 }
 
 extension SessionToolService {
+    func reportSessionRunStatus(agentID: String, sessionID: String, status: AgentRunStatusEvent) async {}
     func sessionHasActiveRun(agentID: String, sessionID: String) async -> Bool? { nil }
 }
 

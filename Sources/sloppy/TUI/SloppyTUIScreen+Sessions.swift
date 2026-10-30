@@ -117,14 +117,15 @@ extension SloppyTUIScreen {
         pendingContext = nil
         pendingUploads.removeAll()
         pendingPlanInputRequest = nil
+        planInputDraft = nil
+        submittingPlanInputRequestID = nil
         tokenUsageSummary = nil
         tokenUsageCostUSD = nil
         liveTurnTokenUsageTracker.reset()
         lastTurnTokenUsage = nil
         taskStartedAt = nil
         lastTaskElapsed = nil
-        liveRunStage = nil
-        liveRunStatusLine = nil
+        resetSessionRunActivity()
         activePicker = nil
         addDirectoryInput = nil
         pendingWorkspaceAccessRequest = nil

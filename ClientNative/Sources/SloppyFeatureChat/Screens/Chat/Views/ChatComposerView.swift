@@ -63,6 +63,7 @@ public struct ChatComposerView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.userInterfaceIdiom) private var idiom
     @Environment(\.theme) private var theme
+    @Environment(\.chatUsesCompactLayout) private var usesCompactLayout
     @Environment(\.chatComposerConnectionActions) private var connectionActions
     @Environment(\.mobileComposerAvailableHeight) private var mobileComposerAvailableHeight
 
@@ -305,17 +306,35 @@ public struct ChatComposerView: View {
     private var desktopComposer: some View {
         VStack(spacing: theme.spacing.s) {
             desktopComposerInputSurface
-            HStack(spacing: theme.spacing.s) {
-                desktopServerPicker
-                ChatApprovalModePicker(viewModel: viewModel)
-                Spacer(minLength: theme.spacing.s)
-                desktopModelPicker.layoutPriority(1)
-                ComposerContextUsageView(usage: viewModel.contextUsage, turnUsage: viewModel.contextTokenUsage)
+            if usesCompactLayout {
+                VStack(spacing: theme.spacing.xs) {
+                    HStack(spacing: theme.spacing.s) {
+                        desktopServerPicker
+                        Spacer(minLength: 0)
+                        ComposerContextUsageView(usage: viewModel.contextUsage, turnUsage: viewModel.contextTokenUsage)
+                    }
+                    HStack(alignment: .top, spacing: theme.spacing.s) {
+                        ChatApprovalModePicker(viewModel: viewModel)
+                        Spacer(minLength: 0)
+                        desktopModelPicker
+                    }
+                }
+                .padding(.horizontal, 12)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("chat.composer.settings")
+            } else {
+                HStack(spacing: theme.spacing.s) {
+                    desktopServerPicker
+                    ChatApprovalModePicker(viewModel: viewModel)
+                    Spacer(minLength: theme.spacing.s)
+                    desktopModelPicker.layoutPriority(1)
+                    ComposerContextUsageView(usage: viewModel.contextUsage, turnUsage: viewModel.contextTokenUsage)
+                }
+                .frame(minHeight: 30)
+                .padding(.horizontal, 12)
+                .accessibilityElement(children: .contain)
+                .accessibilityIdentifier("chat.composer.settings")
             }
-            .frame(minHeight: 30)
-            .padding(.horizontal, 12)
-            .accessibilityElement(children: .contain)
-            .accessibilityIdentifier("chat.composer.settings")
         }
     }
 

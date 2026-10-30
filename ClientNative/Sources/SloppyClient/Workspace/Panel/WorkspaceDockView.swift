@@ -157,6 +157,7 @@ import AppKit
 struct WorkspaceResizableSidePanel<Content: View, Panel: View>: View {
     @Bindable var state: WorkspaceDockState
     var reservedContentWidth: CGFloat = 0
+    var minimumPanelWidth: CGFloat = 240
     @ViewBuilder let content: () -> Content
     @ViewBuilder let panel: () -> Panel
     @State private var dragStart: CGFloat?
@@ -165,7 +166,7 @@ struct WorkspaceResizableSidePanel<Content: View, Panel: View>: View {
     var body: some View {
         GeometryReader { geometry in
             let available = max(0, geometry.size.width - reservedContentWidth)
-            let width = WorkspaceDockState.visibleWidth(preferred: state.preferredWidth, available: available)
+            let width = WorkspaceDockState.visibleWidth(preferred: state.preferredWidth, available: available, minimum: minimumPanelWidth)
             HStack(spacing: 0) {
                 content()
                     .frame(width: max(0, geometry.size.width - (state.isPresented ? width : 0)))
@@ -178,7 +179,7 @@ struct WorkspaceResizableSidePanel<Content: View, Panel: View>: View {
                                 let start = dragStart ?? width
                                 dragStart = start
                                 state.preferredWidth = WorkspaceDockState.visibleWidth(
-                                    preferred: start - translation, available: available)
+                                    preferred: start - translation, available: available, minimum: minimumPanelWidth)
                             } onEnd: {
                                 dragStart = nil
                             }
@@ -189,7 +190,7 @@ struct WorkspaceResizableSidePanel<Content: View, Panel: View>: View {
                             .accessibilityValue("\(Int(width)) points")
                             .accessibilityAdjustableAction { direction in
                                 state.preferredWidth = WorkspaceDockState.visibleWidth(
-                                    preferred: width + (direction == .increment ? 40 : -40), available: available)
+                                    preferred: width + (direction == .increment ? 40 : -40), available: available, minimum: minimumPanelWidth)
                             }
                         }
                         .transition(reduceMotion ? .identity : .move(edge: .trailing).combined(with: .opacity))

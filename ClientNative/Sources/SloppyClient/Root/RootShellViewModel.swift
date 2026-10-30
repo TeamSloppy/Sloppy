@@ -193,6 +193,14 @@ final class RootShellViewModel {
         #endif
     }
 
+    func makeBrowserTextAnnotationReceiver() -> BrowserTextAnnotationReceiver? {
+#if os(macOS)
+        desktopOverlay.makeBrowserTextAnnotationReceiver()
+#else
+        nil
+#endif
+    }
+
     #if os(macOS)
     func configureMainWindowOpener(_ action: @escaping @MainActor () -> Void) {
         openMainWindow = action

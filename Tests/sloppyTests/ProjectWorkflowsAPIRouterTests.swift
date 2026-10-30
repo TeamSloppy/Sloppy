@@ -142,3 +142,31 @@ private func manualToolWorkflowRequest() -> WorkflowDefinitionUpsertRequest {
         ]
     )
 }
+
+@Test
+func workflowDefinitionDiagnosticsSeparateSchemaGraphAndMissingProject() async throws {
+    let service = CoreService(config: CoreConfig.test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    let router = CoreRouter(service: service)
+    let encoder = JSONEncoder()
+    let id = "workflow-diagnostics-\(UUID().uuidString)"
+    _ = await router.handle(method: "POST", path: "/v1/projects", body: try encoder.encode(
+        ProjectCreateRequest(id: id, name: "Diagnostics", description: "", channels: [])))
+    let url = "/v1/projects/\(id)/workflows"
+    let request = starterWorkflowRequest()
+    var object = try #require(JSONSerialization.jsonObject(with: encoder.encode(request)) as? [String: Any])
+    object.removeValue(forKey: "enabled")
+    let schema = await router.handle(method: "POST", path: url, body: try JSONSerialization.data(withJSONObject: object))
+    let schemaJSON = try JSONDecoder().decode([String: Protocols.JSONValue].self, from: schema.body)
+    #expect(schema.status == 400)
+    #expect(schemaJSON["code"] == .string("invalid_arguments"))
+    #expect(schemaJSON["fieldPath"] == .string("$.enabled"))
+    object["enabled"] = true
+    object["edges"] = [["id": "bad", "sourceNodeId": "missing", "targetNodeId": "missing"]]
+    let graph = await router.handle(method: "POST", path: url, body: try JSONSerialization.data(withJSONObject: object))
+    let graphJSON = try JSONDecoder().decode([String: Protocols.JSONValue].self, from: graph.body)
+    #expect(graph.status == 400)
+    #expect(graphJSON["code"] == .string("validation_failed"))
+    #expect(graphJSON["validationIssues"]?.asArray?.isEmpty == false)
+    let missing = await router.handle(method: "POST", path: "/v1/projects/nonexistent/workflows", body: try encoder.encode(request))
+    #expect(missing.status == 404)
+}

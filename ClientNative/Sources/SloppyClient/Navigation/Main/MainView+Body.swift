@@ -6,9 +6,9 @@ import SloppyFeatureChat
 
 @MainActor
 extension MainView {
-    private var workspaceWithInstanceDiscoveryUpdates: some View {
+    var workspaceWithInstanceDiscoveryUpdates: some View {
         Group {
-            if viewModel.hasLoadedInitialContent {
+            if shouldShowWorkspaceContent {
                 workspacePanelContainer
             } else {
 #if os(macOS)
@@ -29,17 +29,29 @@ extension MainView {
     }
 
     var body: some View {
-        workspaceWithInstanceDiscoveryUpdates
+        workAndBrowseContent
+        .alert("Could not collect tabs", isPresented: Binding(
+            get: { browserCanvasError != nil }, set: { if !$0 { browserCanvasError = nil } }
+        )) { Button("OK") { browserCanvasError = nil } } message: { Text(browserCanvasError ?? "") }
         .environment(\.chatFileOpenHandler, { reference, chat in
             viewModel.openSourceFile(reference, from: chat)
         })
         .environment(\.chatComposerReferenceOpenHandler, { reference, chat in
             viewModel.openComposerReference(reference, from: chat)
         })
+        .onChange(of: attentionScenePhase) { _, _ in browserWorkspace.checkpoint() }
+        .onDisappear { browserWorkspace.checkpoint() }
         .task(id: attentionScenePhase) {
             guard attentionScenePhase == .active else { return }
             while !Task.isCancelled {
                 await viewModel.attentionInbox.refresh()
+                do { try await Task.sleep(for: .seconds(30)) } catch { return }
+            }
+        }
+        .task(id: attentionScenePhase) {
+            guard attentionScenePhase == .active else { return }
+            while !Task.isCancelled {
+                await viewModel.refreshSidebarSessionCatalog()
                 do { try await Task.sleep(for: .seconds(30)) } catch { return }
             }
         }
@@ -83,21 +95,35 @@ extension MainView {
         .background {
             Group {
                 Button("") {
-                    viewModel.selectNewChat()
+                    browserWorkspace.isBrowsing = true
+                    browserWorkspace.presentSearch(newTab: true)
                 }
                 .keyboardShortcut("t", modifiers: [.command])
                 .opacity(0.001)
                 .allowsHitTesting(false)
 
                 Button("") {
-                    viewModel.closeActivePanelTabOrMainTab()
+                    browserWorkspace.isBrowsing = true
+                    browserWorkspace.presentSearch(newTab: false)
+                }
+                .keyboardShortcut("l", modifiers: [.command])
+                .opacity(0.001)
+                .allowsHitTesting(false)
+
+                Button("") {
+                    if browserWorkspace.isBrowsing, let id = browserWorkspace.selectedID {
+                        browserWorkspace.close(id)
+                    } else if !browserWorkspace.isBrowsing {
+                        viewModel.closeActivePanelTabOrMainTab()
+                    }
                 }
                 .keyboardShortcut("w", modifiers: [.command])
                 .opacity(0.001)
                 .allowsHitTesting(false)
 
                 Button("") {
-                    Task { await viewModel.refreshContent() }
+                    if browserWorkspace.isBrowsing { browserWorkspace.selectedPage?.reload() }
+                    else { Task { await viewModel.refreshContent() } }
                 }
                 .keyboardShortcut("r", modifiers: [.command])
                 .opacity(0.001)
@@ -122,7 +148,11 @@ extension MainView {
         )
 #endif
         .toolbar {
-            if viewModel.hasLoadedInitialContent {
+            ToolbarItem(placement: .navigation) { workBrowsePicker }
+#if os(macOS)
+                .sharedBackgroundVisibility(.hidden)
+#endif
+            if !browserWorkspace.isBrowsing, viewModel.hasLoadedInitialContent {
                 if isCanvasWorkspaceSelected,
                    !canvasWorkspaceViewModel.isShowingLibrary {
                     ToolbarItem(placement: .navigation) {
@@ -292,6 +322,7 @@ extension MainView {
             ? MainContentMode.workspace.rawValue
             : MainContentMode.coding.rawValue
             guard isCanvasWorkspaceSelected else {
+                collectedBrowserCanvas = nil
                 return
             }
             viewModel.selectedSidebarItem = nil
@@ -326,6 +357,7 @@ extension MainView {
                 projectName: viewModel.workspaceContext?.projectName,
                 force: true
             )
+            if let collectedBrowserCanvas { canvasWorkspaceViewModel.openWorkspace(collectedBrowserCanvas) }
         }
     }
 }

@@ -47,3 +47,6 @@ logs/
 Derived/
 *.xcodeproj
 *.xcworkspace
+
+# Local Xcode build caches
+**/.derivedData/

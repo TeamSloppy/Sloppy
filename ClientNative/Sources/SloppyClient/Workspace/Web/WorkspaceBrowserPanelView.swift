@@ -10,14 +10,27 @@ struct WorkspaceBrowserPanelView: View {
     var onOpenTool: (@MainActor (WorkspaceSidePanelItem) -> Void)? = nil
     var allowsProjectTools = false
     var onAnnotate: (@MainActor () -> (@MainActor (ChatComposerAttachment) -> Bool))? = nil
+    var onAskSelection: (@MainActor (String) -> Void)?
+    var onAnnotateSelection: BrowserTextAnnotationTarget?
     @FocusState private var isAddressFocused: Bool
 
     var body: some View {
+        Group {
 #if os(macOS)
-        desktopBrowser
+            desktopBrowser
 #else
-        compactBrowser
+            compactBrowser
 #endif
+        }
+        .onAppear {
+            viewModel.textSelection.onAsk = onAskSelection
+            viewModel.textSelection.annotationTarget = onAnnotateSelection
+        }
+        .onDisappear {
+            viewModel.textSelection.dismiss()
+            viewModel.textSelection.onAsk = nil
+            viewModel.textSelection.annotationTarget = nil
+        }
     }
 
 #if os(macOS)

@@ -4,15 +4,17 @@ import SloppyClientCore
 /// One connection and page per task, using the task's own Core endpoint and credentials.
 @MainActor
 final class WorkspaceBrowserSession {
-    let viewModel = WorkspaceWebViewModel()
+    var viewModel: WorkspaceWebViewModel
     let binding: WorkspaceBrowserBinding
     private let apiClient: SloppyAPIClient
     private var task: Task<Void, Never>?
     private let present: @MainActor () -> Void
 
     init(apiClient: SloppyAPIClient, agentID: String, sessionID: String,
+         viewModel: WorkspaceWebViewModel? = nil,
          present: @escaping @MainActor () -> Void) {
         self.apiClient = apiClient
+        self.viewModel = viewModel ?? WorkspaceWebViewModel()
         binding = .init(bridgeId: UUID().uuidString, agentId: agentID, sessionId: sessionID)
         self.present = present
     }
@@ -50,6 +52,11 @@ final class WorkspaceBrowserSession {
     func stop() {
         task?.cancel()
         viewModel.browserRuntime?.stop()
+    }
+
+    func stopAndWait() async {
+        stop()
+        await task?.value
     }
 
     private func execute(_ command: WorkspaceBrowserCommand) async -> WorkspaceBrowserCompletion {

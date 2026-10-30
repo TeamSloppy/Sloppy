@@ -7,6 +7,67 @@ import Testing
 @Suite("Inbox instance loading", .serialized)
 @MainActor
 struct InboxInstanceLoadingTests {
+    @Test(arguments: [false, true])
+    func sidebarDiscoversExternalChatsWithoutChangingTheOpenDraft(primaryListed: Bool) async throws {
+        let fixture = InboxLoadingFixture(delayedPath: "")
+        let settings = ClientSettings()
+        let selection = settings.instanceSelection
+        let context = (settings.lastAgentId, settings.lastProjectId, settings.lastSessionId)
+        settings.instanceSelection = .all
+        let model = makeModel(api: fixture.api, cache: ClientCacheStore(path: ":memory:"), settings: settings)
+        if primaryListed {
+            settings.discoveredInstances = [.init(id: "primary", name: "Primary", endpoint: fixture.api.endpoint, isLocal: true)]
+        }
+        defer {
+            fixture.release()
+            model.chatViewModel.closeSession()
+            for state in model.tabStates.values { state.chatState?.viewModel.closeSession() }
+            settings.instanceSelection = selection
+            settings.lastAgentId = context.0
+            settings.lastProjectId = context.1
+            settings.lastSessionId = context.2
+        }
+        await model.loadProjects()
+        await model.chatViewModel.waitForInitialData()
+        await model.loadAggregatedChatCatalogIfNeeded()
+        #expect(model.hasLoadedInitialContent)
+        #expect(!model.sidebarSessionCatalog.contains { $0.id == "external-chat" })
+
+        var remote = ChatSessionSummary(id: "remote-chat", agentId: "agent", title: "Other instance")
+        remote.sourceInstanceID = "other-instance"
+        model.chatViewModel.installAggregatedSessionCatalog([remote])
+        model.synchronizeSidebarSessionCatalog()
+        model.createBlankChatTab()
+        let selectedTab = try #require(model.selectedTabID)
+        let chat = try #require(model.tabStates[selectedTab]?.chatState?.viewModel)
+        await chat.waitForInitialData()
+        chat.composerDraft.text = "Unfinished draft"
+        let tabs = model.tabs.map(\.id)
+        let selectedSession = chat.selectedSessionId
+
+        var external = ChatSessionSummary(id: "external-chat", agentId: "agent", title: "Chat created from TUI")
+        external.kind = "long_chat"
+        external.projectId = "fresh"
+        fixture.setSessions([
+            .init(id: "fresh-chat", agentId: "agent", title: "Fresh chat"), external,
+        ])
+        fixture.clearRequestedPaths()
+        await model.refreshSidebarSessionCatalog()
+
+        let discovered = try #require(model.sidebarSessionCatalog.first { $0.id == external.id })
+        #expect(discovered.sourceInstanceID == (primaryListed ? "primary" : nil))
+        let sections = ChatSidebarSections.build(sessions: model.sidebarSessionCatalog, projects: model.projects,
+            pinnedSessionIds: [], mode: .projects, defaultSourceInstanceID: model.sidebarDefaultSourceInstanceID)
+        #expect(sections.projectGroups.first?.visibleSessions.contains { $0.id == external.id } == true)
+        #expect(model.sidebarSessionCatalog.contains { $0.id == remote.id && $0.sourceInstanceID == "other-instance" })
+        #expect(model.selectedTabID == selectedTab)
+        #expect(model.tabs.map(\.id) == tabs)
+        #expect(chat.selectedSessionId == selectedSession)
+        #expect(chat.composerDraft.text == "Unfinished draft")
+        #expect(fixture.requestedPaths.contains("/v1/agent-sessions"))
+        #expect(fixture.requestedPaths.allSatisfy { $0 == "/v1/agents" || $0 == "/v1/agent-sessions" })
+    }
+
     @Test func taskDetailsLoadSeparatelyFromTheCompactProjectList() async throws {
         let fixture = InboxLoadingFixture(delayedPath: "")
         let model = makeModel(api: fixture.api, cache: ClientCacheStore(path: ":memory:"))
@@ -110,8 +171,8 @@ struct InboxInstanceLoadingTests {
         #expect(await second.cacheStore.loadSessions(agentId: "same-id").isEmpty)
     }
 
-    private func makeModel(api: SloppyAPIClient, cache: ClientCacheStore? = nil) -> MainViewModel {
-        let settings = ClientSettings()
+    private func makeModel(api: SloppyAPIClient, cache: ClientCacheStore? = nil, settings: ClientSettings? = nil) -> MainViewModel {
+        let settings = settings ?? ClientSettings()
         // An empty directory uses the injected primary API, as a standalone instance does.
         settings.discoveredInstances = []
         return MainViewModel(endpoint: api.endpoint, settings: settings,
@@ -152,6 +213,9 @@ private final class InboxLoadingFixture: @unchecked Sendable {
     var hasPendingResponse: Bool { state.hasPendingResponse }
     func release() { state.release() }
     func holdAgain() { state.holdAgain() }
+    func setSessions(_ sessions: [ChatSessionSummary]) { state.setSessions(sessions) }
+    func clearRequestedPaths() { state.clearRequestedPaths() }
+    var requestedPaths: [String] { state.requestedPaths }
 }
 
 private final class InboxLoadingURLProtocol: URLProtocol, @unchecked Sendable {
@@ -180,7 +244,7 @@ private final class InboxLoadingURLProtocol: URLProtocol, @unchecked Sendable {
         case "/v1/agents":
             data = try! encoder.encode([APIAgentRecord(id: "agent", displayName: "Fresh agent")])
         case "/v1/agent-sessions":
-            data = try! encoder.encode([ChatSessionSummary(id: "fresh-chat", agentId: "agent", title: "Fresh chat")])
+            data = try! encoder.encode(Self.registry.state(host: url.host ?? "")?.sessions ?? [])
         default:
             data = Data("[]".utf8)
         }
@@ -195,7 +259,29 @@ private final class InboxLoadingURLProtocol: URLProtocol, @unchecked Sendable {
         private let delayedPath: String
         private var released = false
         private var pending: [InboxLoadingURLProtocol] = []
+        private var storedSessions = [ChatSessionSummary(id: "fresh-chat", agentId: "agent", title: "Fresh chat")]
+        private var paths: [String] = []
         init(delayedPath: String) { self.delayedPath = delayedPath }
+        var sessions: [ChatSessionSummary] {
+            lock.lock()
+            defer { lock.unlock() }
+            return storedSessions
+        }
+        func setSessions(_ sessions: [ChatSessionSummary]) {
+            lock.lock()
+            defer { lock.unlock() }
+            storedSessions = sessions
+        }
+        var requestedPaths: [String] {
+            lock.lock()
+            defer { lock.unlock() }
+            return paths
+        }
+        func clearRequestedPaths() {
+            lock.lock()
+            defer { lock.unlock() }
+            paths.removeAll()
+        }
         var hasPendingResponse: Bool {
             lock.lock()
             defer { lock.unlock() }
@@ -203,6 +289,7 @@ private final class InboxLoadingURLProtocol: URLProtocol, @unchecked Sendable {
         }
         func respond(_ request: InboxLoadingURLProtocol, path: String) {
             lock.lock()
+            paths.append(path)
             let hold = path == delayedPath && !released
             if hold { pending.append(request) }
             lock.unlock()

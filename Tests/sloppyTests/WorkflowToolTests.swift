@@ -281,3 +281,79 @@ private func starterWorkflowArguments(projectID: String, taskID: String) -> [Str
         ])
     ]
 }
+
+@Test
+func workflowToolDocumentsExamplesThroughActualParserAndValidator() throws {
+    let root = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
+    for name in ["sequential", "approval-parallel"] {
+        let url = root.appendingPathComponent("Sources/sloppy/Resources/Skills/workflow/examples/\(name).json")
+        let bytes = try Data(contentsOf: url)
+        let arguments: [String: Protocols.JSONValue] = try JSONDecoder().decode([String: Protocols.JSONValue].self, from: bytes)
+        let request = try WorkflowTool().workflowRequest(arguments: arguments)
+        let graph = WorkflowDefinition(id: "example", projectId: "sloppy", name: request.name,
+            lanes: request.lanes, nodes: request.nodes, edges: request.edges)
+        #expect(WorkflowRunner().validate(definition: graph).isEmpty)
+        #expect(graph.nodes.filter { $0.type == .trigger }.count == 1)
+        #expect(graph.nodes.contains { $0.type == .end })
+        for node in graph.nodes where node.type == .agentStep {
+            #expect(node.config["agentId"]?.asString?.isEmpty == false)
+            #expect(node.config["prompt"]?.asString?.isEmpty == false)
+        }
+    }
+}
+
+@Test
+func workflowToolIncidentEmptyConditionReportsPrecisePathWithoutSaving() async throws {
+    let fixture = try await makeWorkflowToolFixture()
+    for value in [JSONValue.string(""), .string("{broken"), .object([:]), .object(["path": .string("status")])] {
+        var args = starterWorkflowArguments(projectID: fixture.projectID, taskID: fixture.taskID)
+        var edges = try #require(args["edges"]?.asArray)
+        var edge = try #require(edges[0].asObject)
+        edge["condition"] = value
+        edges[0] = .object(edge); args["edges"] = .array(edges)
+        let result = await WorkflowTool().invoke(arguments: args, context: fixture.context)
+        #expect(!result.ok)
+        #expect(result.error?.code == "invalid_arguments")
+        #expect(result.data?.asObject?["fieldPath"] == .string("$.edges[0].condition"))
+        #expect(result.data?.asObject?["hint"]?.asString?.isEmpty == false)
+        #expect(try await fixture.service.listWorkflowDefinitions(projectID: fixture.projectID).isEmpty)
+    }
+}
+
+@Test
+func workflowToolNullConditionIsUnconditionalButEmptyKeyIsGraphError() async throws {
+    let fixture = try await makeWorkflowToolFixture()
+    var args = starterWorkflowArguments(projectID: fixture.projectID, taskID: fixture.taskID)
+    var edges = try #require(args["edges"]?.asArray)
+    var edge = try #require(edges[0].asObject)
+    edge["condition"] = .null; edges[0] = .object(edge); args["edges"] = .array(edges)
+    #expect((await WorkflowTool().invoke(arguments: args, context: fixture.context)).ok)
+    edge["conditionKey"] = .string(""); edges[0] = .object(edge); args["edges"] = .array(edges)
+    let invalid = await WorkflowTool().invoke(arguments: args, context: fixture.context)
+    #expect(invalid.error?.code == "validation_failed")
+}
+
+@Test
+func workflowToolInvalidNodeReferenceIsGraphError() async throws {
+    let fixture = try await makeWorkflowToolFixture()
+    var args = starterWorkflowArguments(projectID: fixture.projectID, taskID: fixture.taskID)
+    var nodes = try #require(args["nodes"]?.asArray)
+    var node = try #require(nodes[1].asObject)
+    node["config"] = .object(["agentId": .string("test-agent"), "prompt": .string("{{nodes.missing.output.text}}")])
+    nodes[1] = .object(node); args["nodes"] = .array(nodes)
+    #expect((await WorkflowTool().invoke(arguments: args, context: fixture.context)).error?.code == "validation_failed")
+}
+
+@Test
+func workflowMissingAgentConfigFailsBeforeCreatingSession() async throws {
+    let service = CoreService(config: CoreConfig.test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+    for config: [String: Protocols.JSONValue] in [[:], ["agentId": .string("yadev")], ["prompt": .string("secret prompt")]] {
+        let node = WorkflowNode(id: "agent", type: .agentStep, title: "Agent", laneId: "main", config: config)
+        let result = await service.executeWorkflowAgentRequest(node: node,
+            context: .init(projectId: "unused", startedBy: "test", input: [:]), input: [:])
+        #expect(!result.ok)
+        #expect(result.error?.code == "workflow_agent_invalid")
+        #expect(result.data?.asObject?["sessionId"] == nil)
+        #expect(result.error?.message.contains("secret prompt") == false)
+    }
+}

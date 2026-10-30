@@ -325,6 +325,7 @@ extension SloppyTUIScreen {
         stopThinkingAnimation()
         clearLiveAssistantDraft()
         liveRunStatusLine = nil
+        restoreSessionRunStatusAfterSend()
         markSendTiming("finished")
         refreshStaticChrome()
         renderTimeline()

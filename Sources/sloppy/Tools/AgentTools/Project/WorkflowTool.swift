@@ -117,8 +117,20 @@ struct WorkflowTool: CoreTool {
                 definition = try await service.createWorkflowDefinition(projectID: projectID, request: request)
             }
             return toolSuccess(tool: name, data: responseJSON(projectID: projectID, workflowID: definition.id, runID: nil, issues: issues))
+        } catch let error as WorkflowToolParseError {
+            return ToolInvocationResult(tool: name, ok: false,
+                data: .object(["fieldPath": .string(error.path), "reason": .string(error.reason),
+                    "hint": .string("Omit unused optional conditions and conditionKey. Config must be a JSON object; do not retry a failed save until list/read confirms its state.")]),
+                error: .init(code: "invalid_arguments", message: "Invalid workflow proposal payload at \(error.path): \(error.reason)", retryable: false))
+        } catch let error as CoreService.WorkflowError {
+            if case .validationFailed(let issues) = error {
+                return ToolInvocationResult(tool: name, ok: false,
+                    data: .object(["validationIssues": .array(issues.map(issueJSON))]),
+                    error: .init(code: "validation_failed", message: "Workflow graph is invalid.", retryable: false))
+            }
+            return toolFailure(tool: name, code: "proposal_failed", message: "Workflow service rejected the save. Inspect project access and reread definitions before retrying.", retryable: false)
         } catch {
-            return toolFailure(tool: name, code: "invalid_arguments", message: "Invalid workflow proposal payload.", retryable: false)
+            return toolFailure(tool: name, code: "proposal_failed", message: "Workflow save failed; inspect project permissions or storage and reread definitions before retrying.", retryable: false)
         }
     }
 
@@ -253,7 +265,7 @@ struct WorkflowTool: CoreTool {
         }
     }
 
-    private func workflowRequest(arguments: [String: JSONValue]) throws -> WorkflowDefinitionUpsertRequest {
+    func workflowRequest(arguments: [String: JSONValue]) throws -> WorkflowDefinitionUpsertRequest {
         WorkflowDefinitionUpsertRequest(
             name: stringArgument(arguments, "name", default: "Agent Workflow"),
             lanes: try workflowLanes(from: arguments["lanes"]),
@@ -270,7 +282,7 @@ struct WorkflowTool: CoreTool {
                   let kindRaw = object["kind"]?.asString,
                   let kind = WorkflowLaneKind(rawValue: kindRaw)
             else {
-                throw WorkflowToolParseError.invalidPayload
+                throw WorkflowToolParseError.invalidPayload(path: "$", reason: "Expected workflow fields with valid types and enum values.")
             }
             return WorkflowLane(
                 id: id,
@@ -290,7 +302,7 @@ struct WorkflowTool: CoreTool {
                   let title = object["title"]?.asString,
                   let laneID = object["laneId"]?.asString
             else {
-                throw WorkflowToolParseError.invalidPayload
+                throw WorkflowToolParseError.invalidPayload(path: "$", reason: "Expected workflow fields with valid types and enum values.")
             }
             return WorkflowNode(
                 id: id,
@@ -305,17 +317,22 @@ struct WorkflowTool: CoreTool {
     }
 
     private func workflowEdges(from value: JSONValue?) throws -> [WorkflowEdge] {
-        try arrayObjects(value).map { object in
+        try arrayObjects(value).enumerated().map { index, object in
             guard let id = object["id"]?.asString,
                   let sourceNodeID = object["sourceNodeId"]?.asString,
                   let targetNodeID = object["targetNodeId"]?.asString
             else {
-                throw WorkflowToolParseError.invalidPayload
+                throw WorkflowToolParseError.invalidPayload(path: "$", reason: "Expected workflow fields with valid types and enum values.")
             }
             var condition: WorkflowEdgeCondition?
             if let value = object["condition"], value != .null {
-                let fields = try workflowConfig(from: value)
-                guard let path = fields["path"]?.asString, let expected = fields["equals"] else { throw WorkflowToolParseError.invalidPayload }
+                let fieldPath = "$.edges[\(index)].condition"
+                let fields: [String: JSONValue]
+                do { fields = try workflowConfig(from: value) }
+                catch { throw WorkflowToolParseError.invalidPayload(path: fieldPath, reason: "Expected a JSON object containing path and equals.") }
+                guard let path = fields["path"]?.asString, let expected = fields["equals"] else {
+                    throw WorkflowToolParseError.invalidPayload(path: fieldPath, reason: "Expected string path and a present equals value; omit condition or use null for an unconditional edge.")
+                }
                 condition = .init(path: path, equals: expected)
             }
             return WorkflowEdge(
@@ -334,7 +351,7 @@ struct WorkflowTool: CoreTool {
         guard let values = value?.asArray else { return [] }
         return try values.map { value in
             guard let object = value.asObject else {
-                throw WorkflowToolParseError.invalidPayload
+                throw WorkflowToolParseError.invalidPayload(path: "$", reason: "Expected workflow fields with valid types and enum values.")
             }
             return object
         }
@@ -346,7 +363,7 @@ struct WorkflowTool: CoreTool {
             return object
         }
         guard let string = value.asString else {
-            throw WorkflowToolParseError.invalidPayload
+            throw WorkflowToolParseError.invalidPayload(path: "$", reason: "Expected workflow fields with valid types and enum values.")
         }
         let trimmed = string.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return [:] }
@@ -354,7 +371,7 @@ struct WorkflowTool: CoreTool {
               let decoded = try? JSONDecoder().decode(JSONValue.self, from: data),
               let object = decoded.asObject
         else {
-            throw WorkflowToolParseError.invalidPayload
+            throw WorkflowToolParseError.invalidPayload(path: "$", reason: "Expected workflow fields with valid types and enum values.")
         }
         return object
     }
@@ -405,5 +422,8 @@ struct WorkflowTool: CoreTool {
 }
 
 private enum WorkflowToolParseError: Error {
-    case invalidPayload
+    case invalidPayload(path: String, reason: String)
+
+    var path: String { switch self { case let .invalidPayload(path, _): return path } }
+    var reason: String { switch self { case let .invalidPayload(_, reason): return reason } }
 }

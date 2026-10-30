@@ -604,6 +604,7 @@ extension CoreService {
         }
         if !peerConversation, let (conversation, task) = longChatParent(of: normalizedSessionID) {
             guard task.attempts.last?.sessionId == normalizedSessionID else { throw AgentSessionError.invalidPayload }
+            effectiveRequest = try longChatWorkerRequest(conversation: conversation, task: task, request: effectiveRequest)
             if !longChatWorkerDelivery {
                 guard effectiveRequest.userId == conversation.userId else { throw AgentSessionError.invalidPayload }
                 return try enqueueLongChatWorkerMessage(conversation: conversation, task: task, request: effectiveRequest)

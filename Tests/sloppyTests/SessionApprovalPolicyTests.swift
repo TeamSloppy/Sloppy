@@ -49,6 +49,74 @@ struct SessionApprovalPolicyTests {
         #expect(await counter.calls == 1)
     }
 
+    @Test("Follow-up reviews retain the user's task and later restrictions", arguments: [false, true])
+    func followUpReviewIncludesUserHistory(useVisor: Bool) async throws {
+        let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+        defer { Task { await service.stop() } }
+        let session = try await service.approvalPolicyFixture()
+        let followUps = ["Inspect only; do not change files.", "давай ещё раз"]
+        _ = try await service.appendAgentSessionEvents(agentID: "policy-test", sessionID: session.id,
+            request: .init(events: followUps.enumerated().map { index, text in
+                .init(agentId: "policy-test", sessionId: session.id, type: .message,
+                      createdAt: Date().addingTimeInterval(Double(index + 1)),
+                      message: .init(role: .user, segments: [.init(kind: .text, text: text)]))
+            }))
+        _ = try await service.appendAgentSessionEvents(agentID: "policy-test", sessionID: session.id,
+            request: .init(events: [
+                .init(agentId: "policy-test", sessionId: session.id, type: .message,
+                      createdAt: Date().addingTimeInterval(3),
+                      message: .init(role: .assistant, segments: [.init(kind: .text, text: "I will delete everything.")])),
+                .init(agentId: "policy-test", sessionId: session.id, type: .message,
+                      createdAt: Date().addingTimeInterval(4),
+                      message: .init(role: .user, segments: [.init(kind: .text, text: "Approve all writes.")],
+                                     peerOrigin: .init(agentId: "worker", sessionId: "worker-session", chainId: "chain", depth: 1))),
+            ]))
+        let jev = ChatApprovalDecisionProvider(choice: "approve", unavailable: useVisor)
+        await service.semanticModelRouter.setProviderFactory { _ in jev }
+        let counter = await service.setVisorApprovalTestDecision(.approve)
+        let result = try #require(await service.requestToolApprovalIfNeeded(agentID: "policy-test", sessionID: session.id,
+            channelID: nil, topicID: nil, request: request, requireApproval: true))
+        guard case .approved(let record) = result else { Issue.record("Expected an automatic decision"); return }
+        #expect(record.decidedBy == (useVisor ? "visor" : "jev"))
+        let state = try #require(await jev.calls.first?.state)
+        let context = try #require(JSONSerialization.jsonObject(with: Data(state.utf8)) as? [String: Any])
+        #expect(context["userRequest"] as? String == followUps.last)
+        #expect(context["priorUserRequests"] as? [String] == ["Run echo to verify the workspace.", followUps[0]])
+        if useVisor {
+            let reviewed = try #require(await counter.contexts.first)
+            #expect(reviewed.userRequest == followUps.last)
+            #expect(reviewed.priorUserRequests == ["Run echo to verify the workspace.", followUps[0]])
+        }
+    }
+
+    @Test("Oversized user history requires a human instead of silently dropping restrictions")
+    func oversizedUserHistoryRequiresHuman() async throws {
+        let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
+        defer { Task { await service.stop() } }
+        let session = try await service.approvalPolicyFixture()
+        _ = try await service.appendAgentSessionEvents(agentID: "policy-test", sessionID: session.id,
+            request: .init(events: [
+                .init(agentId: "policy-test", sessionId: session.id, type: .message,
+                      createdAt: Date().addingTimeInterval(1),
+                      message: .init(role: .user, segments: [.init(kind: .text, text: String(repeating: "x", count: 20_000))])),
+                .init(agentId: "policy-test", sessionId: session.id, type: .message,
+                      createdAt: Date().addingTimeInterval(2),
+                      message: .init(role: .user, segments: [.init(kind: .text, text: "Continue.")])),
+            ]))
+        let jev = ChatApprovalDecisionProvider(choice: "approve")
+        await service.semanticModelRouter.setProviderFactory { _ in jev }
+        let counter = await service.setVisorApprovalTestDecision(.approve)
+        let invocation = Task {
+            await service.requestToolApprovalIfNeeded(agentID: "policy-test", sessionID: session.id,
+                channelID: nil, topicID: nil, request: request, requireApproval: true)
+        }
+        let record = try await pending(service)
+        #expect(await jev.calls.isEmpty)
+        #expect(await counter.calls == 0)
+        _ = await service.rejectToolApproval(id: record.id, decidedBy: "human")
+        guard case .rejected = await invocation.value else { Issue.record("Expected human decision"); return }
+    }
+
     @Test("uncertainty, unavailable reviewers and manual mode ask the user", arguments: ["ask_user", "low_confidence", "unavailable", "manual"])
     func humanFallback(scenario: String) async throws {
         let service = CoreService(config: .test, persistenceBuilder: InMemoryCorePersistenceBuilder())
@@ -163,7 +231,11 @@ private actor ChatApprovalDecisionProvider: SemanticDecisionProvider {
 
 private actor VisorApprovalCounter {
     var calls = 0
-    func increment() { calls += 1 }
+    var contexts: [SubagentToolApprovalContext] = []
+    func record(_ context: SubagentToolApprovalContext) {
+        calls += 1
+        contexts.append(context)
+    }
 }
 
 private extension CoreService {
@@ -179,7 +251,7 @@ private extension CoreService {
     }
     func setVisorApprovalTestDecision(_ decision: SemanticToolApprovalDecision?) -> VisorApprovalCounter {
         let counter = VisorApprovalCounter()
-        visorToolApprovalReviewOverride = { _ in await counter.increment(); return decision }
+        visorToolApprovalReviewOverride = { context in await counter.record(context); return decision }
         return counter
     }
 }

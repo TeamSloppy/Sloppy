@@ -272,10 +272,11 @@ extension SloppyTUIScreen {
 
     func updatePendingPlanInputRequest(_ request: PlanInputRequest?) {
         let previousRequestID = pendingPlanInputRequest?.id
-        let previousSelectedIndex = activePicker?.kind == .planInput ? activePicker?.selectedIndex ?? 0 : 0
+        let previousSelectedIndex = activePicker?.kind == .planInput ? activePicker?.selectedIndex : nil
         pendingPlanInputRequest = request
 
         guard let request else {
+            planInputDraft = nil
             if activePicker?.kind == .planInput {
                 activePicker = nil
                 refreshStaticChrome()
@@ -283,12 +284,20 @@ extension SloppyTUIScreen {
             return
         }
 
-        activePicker = SloppyTUIPlanInputState.picker(
+        if planInputDraft?.requestID != request.id {
+            planInputDraft = .init(requestID: request.id)
+        }
+        guard submittingPlanInputRequestID == nil else {
+            if activePicker?.kind == .planInput { activePicker = nil }
+            return
+        }
+        activePicker = SloppyTUIPlanInputPicker.picker(
             for: request,
-            previousRequestID: previousRequestID,
-            previousSelectedIndex: previousSelectedIndex
+            selectedIndex: previousRequestID == request.id ? previousSelectedIndex : nil,
+            questionIndex: planInputDraft?.questionIndex ?? 0,
+            answers: planInputDraft?.answers ?? [:]
         )
-        refreshStaticChrome(statusLine: "select answer with arrows, Enter to submit, Esc to cancel")
+        refreshStaticChrome(statusLine: activePicker?.actionHint)
     }
 
     func refreshPendingToolApproval() async {
@@ -400,13 +409,34 @@ extension SloppyTUIScreen {
     }
 
     func answerPlanInput(with item: SloppyTUIPickerItem) async {
-        guard let request = pendingPlanInputRequest,
-              let payload = SloppyTUIPlanInputPicker.answerRequest(for: item, request: request)
+        guard !isPosting, submittingPlanInputRequestID == nil else { return }
+        guard let request = pendingPlanInputRequest, var draft = planInputDraft,
+              draft.requestID == request.id, request.questions.indices.contains(draft.questionIndex),
+              let optionID = SloppyTUIPlanInputPicker.selectedOption(for: item, question: request.questions[draft.questionIndex])
         else {
             appendLocalCard("Could not read the pending input request.", autoDismissAfter: 8)
             return
         }
+        draft.answers[request.questions[draft.questionIndex].id] = optionID
+        if draft.questionIndex + 1 < request.questions.count {
+            draft.questionIndex += 1
+            planInputDraft = draft
+            activePicker = nil
+            updatePendingPlanInputRequest(request)
+            return
+        }
+        planInputDraft = draft
+        guard let payload = SloppyTUIPlanInputPicker.answerRequest(for: item, request: request, previousAnswers: draft.answers) else { return }
         await submitPlanInput(request: request, payload: payload, busyLabel: "Submitting input answer...")
+    }
+
+    func previousPlanInputQuestion() {
+        guard !isPosting, let request = pendingPlanInputRequest, var draft = planInputDraft,
+              draft.requestID == request.id, draft.questionIndex > 0 else { return }
+        draft.questionIndex -= 1
+        planInputDraft = draft
+        activePicker = nil
+        updatePendingPlanInputRequest(request)
     }
 
     func cancelPlanInputRequest() async {
@@ -428,6 +458,8 @@ extension SloppyTUIScreen {
         }
 
         isPosting = true
+        submittingPlanInputRequestID = request.id
+        activePicker = nil
         taskStartedAt = Date()
         lastTaskElapsed = nil
         liveRunStage = nil
@@ -442,8 +474,8 @@ extension SloppyTUIScreen {
                 requestID: request.id,
                 payload: payload
             )
-            pendingPlanInputRequest = nil
-            activePicker = nil
+            submittingPlanInputRequestID = nil
+            if pendingPlanInputRequest?.id == request.id { updatePendingPlanInputRequest(nil) }
             recordUndoPointIfNeeded(undoBaseline)
             liveRunStatusLine = "Refreshing session..."
             refreshStaticChrome()
@@ -453,9 +485,19 @@ extension SloppyTUIScreen {
             petMood = payload.status == .answered ? .happy : petMood
         } catch {
             petMood = .sad
-            pendingPlanInputRequest = request
-            activePicker = SloppyTUIPlanInputPicker.picker(for: request)
-            appendLocalCard("Input answer failed: \(String(describing: error))")
+            submittingPlanInputRequestID = nil
+            // Core records the answer before resuming the agent. A failed continuation
+            // must not reopen an already answered form and send the same answer again.
+            if let detail = try? await service.getAgentSession(agentID: agent.id, sessionID: session.id) {
+                let saved = detail.events.contains { $0.inputResponse?.requestId == request.id }
+                updatePendingPlanInputRequest(SloppyTUIPlanInputState.latestUnansweredRequest(in: detail.events))
+                appendLocalCard(saved
+                    ? "Input answer is saved. Could not finish this request: \(String(describing: error))"
+                    : "Input answer failed: \(String(describing: error))")
+            } else {
+                updatePendingPlanInputRequest(request)
+                appendLocalCard("Input answer failed: \(String(describing: error))")
+            }
         }
         if let taskStartedAt {
             let elapsed = Date().timeIntervalSince(taskStartedAt)
