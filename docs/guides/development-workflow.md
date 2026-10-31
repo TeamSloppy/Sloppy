@@ -46,6 +46,17 @@ powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\dev.ps1 setup
 .\scripts\dev.ps1 stop
 ```
 
+For subsequent backend rebuilds, use `.\scripts\dev.ps1 setup -Fast` (or
+`.\scripts\install.ps1 -Fast`). This builds debug executables incrementally, reuses the
+Dashboard bundle, and updates the installed commands in PATH. Run setup without `-Fast`
+after frontend changes. An explicit `-Configuration release` overrides the debug default.
+
+In Git Bash, call PowerShell explicitly:
+
+```bash
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/install.ps1 -Fast
+```
+
 It also supports `restart`, `logs`, `autostart`, and `autostart-off`.
 See [Windows setup](./build-from-terminal.md#windows-powershell) for installer options.
 The remaining examples in this section use macOS/Linux shell scripts.

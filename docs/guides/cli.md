@@ -116,15 +116,19 @@ Install and manage Sloppy as a persistent background service (starts on login, r
 
 On Linux, `sloppy service install` also checks `systemd` lingering so the user service can stay up after logout. If that step requires `sudo`, the command prints the exact one-time `loginctl enable-linger` fix.
 
+On Windows, these commands manage a Task Scheduler task for the current user. It starts
+at login, runs without a console window, and restarts after a failure. No administrator
+account or password is needed. Logs are stored in `%USERPROFILE%\.sloppy\service\logs`.
+
 ```bash
-sloppy service install                              # register + start (macOS LaunchAgent / Linux systemd)
+sloppy service install                              # register + start (macOS / Linux / Windows)
 sloppy service install --config-path /path/to/sloppy.json
 sloppy service uninstall                            # stop + remove
 sloppy service start                                # start now
 sloppy service stop                                 # stop now (stays registered)
 sloppy service restart                              # stop then start
-sloppy service status                               # show launchctl / systemctl output
-sloppy service logs                                 # tail -f log (macOS) or journalctl (Linux)
+sloppy service status                               # show service manager state
+sloppy service logs                                 # follow service logs
 sloppy service logs --lines 100                     # show last 100 lines before following
 ```
 

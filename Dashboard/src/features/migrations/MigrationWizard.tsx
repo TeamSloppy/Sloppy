@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { createCoreApi, migrationRequest } from "../../shared/api/coreApi";
 import type { MigrationCatalog, MigrationCategory, MigrationItem, MigrationJob, MigrationPreview, MigrationSelection, MigrationSource, MigrationSourceKind } from "./migrationTypes";
 import { resolveApiBase } from "../../shared/api/httpClient";
@@ -8,6 +9,7 @@ import "./migration.css";
 const stages = ["Sources", "Data", "Agents & projects", "Preview", "Transfer", "Result"];
 const categories: MigrationCategory[] = ["skill", "mcp", "project", "session", "memory", "instructions"];
 const kinds: MigrationSourceKind[] = ["codex", "claude", "openclaw", "hermes"];
+const sourceNames: Record<MigrationSourceKind, string> = { codex: "Codex", claude: "Claude", openclaw: "OpenClaw", hermes: "Hermes" };
 const terminal = new Set(["completed", "completedWithIssues", "waitingForModel", "cancelled", "failed"]);
 function offeredSources(): Set<string> {
   try { return new Set<string>(JSON.parse(localStorage.getItem(`migration.offeredSources:${resolveApiBase()}`) ?? "[]")); } catch { return new Set(); }
@@ -15,7 +17,7 @@ function offeredSources(): Set<string> {
 function profileKey(item: MigrationItem) { return `${item.source.id}:${item.profile}`; }
 function itemBytes(item: MigrationItem) { return item.files.reduce((sum, file) => sum + Math.floor(file.content.length * 3 / 4), 0) + item.messages.reduce((sum, message) => sum + new TextEncoder().encode(message.text).length, 0); }
 
-export function MigrationWizard() {
+export function MigrationWizard({ onClose }: { onClose?: () => void } = {}) {
   const api = useMemo(() => createCoreApi(), []);
   const destination = useMemo(() => resolveApiBase(), []);
   const request = useMemo(() => {
@@ -77,28 +79,35 @@ export function MigrationWizard() {
     });
   }
   return <section className="migration-wizard" aria-label="Data migration">
-    <h2>Bring your work to Sloppy</h2>
-    <p>Scan on the <strong>Core machine</strong>. Import selected data into this Core. Source files are preserved.</p><p><small>Destination: {destination}</small></p>
-    <nav className="migration-steps" aria-label="Migration steps">{stages.map((title, index) => <span key={title} aria-current={index === step ? "step" : undefined}>{index + 1}. {title}</span>)}</nav>
+    <header className="migration-header">
+      <div><h2>Bring your work to Sloppy</h2><p>Import skills, conversations and memory from the Core machine. Your source files stay in place.</p></div>
+      {onClose && <button className="migration-close" type="button" onClick={onClose}>Close</button>}
+    </header>
+    <p className="migration-destination">Import to <code>{destination}</code></p>
+    <ol className="migration-steps" aria-label="Migration steps">{stages.map((title, index) => <li key={title} aria-current={index === step ? "step" : undefined} data-complete={index < step}><span className="migration-step-number" aria-hidden="true">{index + 1}</span><span>{title}</span></li>)}</ol>
     {error && <p className="migration-error" role="alert">{error}</p>}
     {busy && <p role="status">{step === 0 ? "Analyzing selected sources…" : "Preparing…"}</p>}
     {step === 0 && <>
-      {sources.map(source => <label className="migration-row" key={source.id}><input type="checkbox" checked={sourceIds.has(source.id)} onChange={() => toggle(source.id, sourceIds, setSourceIds)} /><span><strong>{source.kind}</strong><small>{source.path}</small></span></label>)}
+      <section className="migration-source-list" aria-label="Detected sources">
+        <div className="migration-section-heading"><h3>Sources on this machine</h3><span>{sourceIds.size} selected</span></div>
+        {sources.map(source => <label className="migration-row migration-choice" key={source.id}><input type="checkbox" checked={sourceIds.has(source.id)} onChange={() => toggle(source.id, sourceIds, setSourceIds)} /><span><strong>{sourceNames[source.kind]}</strong><small className="migration-path">{source.path}</small></span></label>)}
+        {!sources.length && <p className="migration-hint">No sources detected. Add a source folder below.</p>}
+      </section>
       <div className="migration-manual">
-        <details className="actor-team-search"><summary>{manualKind}</summary>{kinds.map(kind => <button type="button" key={kind} onClick={() => setManualKind(kind)}>{kind}</button>)}</details>
-        <input aria-label="Source folder on Core" placeholder="Custom agent folder on Core" value={manualPath} onChange={event => setManualPath(event.target.value)} />
+        <div className="migration-field"><span>Source application</span><details className="actor-team-search"><summary aria-label={`Source application: ${sourceNames[manualKind]}`}>{sourceNames[manualKind]}</summary><div className="migration-options">{kinds.map(kind => <button type="button" key={kind} aria-pressed={manualKind === kind} onClick={event => { setManualKind(kind); event.currentTarget.closest("details")?.removeAttribute("open"); }}>{sourceNames[kind]}</button>)}</div></details></div>
+        <label className="migration-field"><span>Another source folder <small>(optional)</small></span><input aria-label="Source folder on Core" placeholder="Path to an agent folder on Core" value={manualPath} onChange={event => setManualPath(event.target.value)} /></label>
       </div>
-      <p><small>For data on your Mac, use Data Migration in the macOS client.</small></p>
+      <p className="migration-hint">Folders are read on the Core machine. To import from a different Mac, use Data Migration in the macOS client.</p>
       {history.length > 0 && <details><summary>Previous migrations</summary>{history.map(previous => <div className="migration-row" key={previous.id}>{previous.createdAt} · {previous.status}<button type="button" onClick={() => void resume(previous)}>Open / resume</button></div>)}</details>}
     </>}
     {step === 1 && <>
       {categories.map(category => {
         const items = catalog.items.filter(item => item.category === category);
         if (!items.length) return null;
-        return <details key={category} open><summary><label><input type="checkbox" checked={items.every(item => selected.has(item.id))} onChange={event => {
+        return <details className="migration-category" key={category} open><summary><label><input type="checkbox" checked={items.every(item => selected.has(item.id))} onChange={event => {
           const next = new Set(selected); items.forEach(item => event.target.checked ? next.add(item.id) : next.delete(item.id)); setSelected(next);
         }} />{category} · {items.length}</label></summary>
-          {items.map(item => <label className="migration-row" key={item.id}><input type="checkbox" checked={selected.has(item.id)} onChange={() => toggle(item.id, selected, setSelected)} /><span>{item.title}<small>{item.source.kind} · {item.profile} · {itemBytes(item).toLocaleString()} bytes {item.projectPath && `· ${item.projectPath}`}</small>{item.warnings.map((warning, index) => <small className="migration-warning" key={index}>{warning}</small>)}</span></label>)}
+          {items.map(item => <label className="migration-row migration-choice" key={item.id}><input type="checkbox" checked={selected.has(item.id)} onChange={() => toggle(item.id, selected, setSelected)} /><span>{item.title}<small>{sourceNames[item.source.kind]} · {item.profile} · {itemBytes(item).toLocaleString()} bytes {item.projectPath && `· ${item.projectPath}`}</small>{item.warnings.map((warning, index) => <small className="migration-warning" key={index}>{warning}</small>)}</span></label>)}
         </details>;
       })}
       {catalog.warnings.map((warning, index) => <p className="migration-warning" key={index}>{warning}</p>)}
@@ -108,10 +117,10 @@ export function MigrationWizard() {
       <p>Keep separate agent profiles, or choose an existing native agent.</p>
       {profiles.map(key => {
         const item = selection.items.find(item => profileKey(item) === key)!;
-        return <div className="migration-row" key={key}><span>{item.source.kind} · {item.profile}</span><details className="actor-team-search"><summary>{agents.find(agent => agent.id === agentMappings[key])?.displayName ?? "Create separate profile"}</summary>
-          <button type="button" onClick={() => setAgentMappings(previous => { const next = { ...previous }; delete next[key]; return next; })}>Create separate profile</button>
-          {agents.map(agent => <button type="button" key={agent.id} onClick={() => setAgentMappings(previous => ({ ...previous, [key]: agent.id }))}>{agent.displayName}</button>)}
-        </details></div>;
+        return <div className="migration-row" key={key}><span>{sourceNames[item.source.kind]} · {item.profile}</span><details className="actor-team-search"><summary>{agents.find(agent => agent.id === agentMappings[key])?.displayName ?? "Create separate profile"}</summary><div className="migration-options">
+          <button type="button" onClick={event => { setAgentMappings(previous => { const next = { ...previous }; delete next[key]; return next; }); event.currentTarget.closest("details")?.removeAttribute("open"); }}>Create separate profile</button>
+          {agents.map(agent => <button type="button" key={agent.id} onClick={event => { setAgentMappings(previous => ({ ...previous, [key]: agent.id })); event.currentTarget.closest("details")?.removeAttribute("open"); }}>{agent.displayName}</button>)}
+        </div></details></div>;
       })}
       <h3>Project folders on Core</h3><p>Leave blank to import history and context without binding a folder. Project source files are excluded.</p>
       {projectPaths.map(path => <label className="migration-mapping" key={path}>{path}<input placeholder="Destination folder (optional)" value={projectMappings[path] ?? ""} onChange={event => setProjectMappings(previous => ({ ...previous, [path]: event.target.value }))} /></label>)}
@@ -158,6 +167,16 @@ export function MigrationWizard() {
   </section>;
 }
 
+function MigrationDialog({ onClose }: { onClose: () => void }) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const dialog = dialogRef.current;
+    dialog?.showModal();
+    return () => { dialog?.close(); };
+  }, []);
+  return createPortal(<dialog ref={dialogRef} className="migration-modal" aria-label="Data migration" onCancel={onClose}><div className="migration-dialog"><MigrationWizard onClose={onClose} /></div></dialog>, document.body);
+}
+
 export function MigrationLaunchNotice({ onboarding = false }: { onboarding?: boolean }) {
   const [sources, setSources] = useState<MigrationSource[]>([]);
   const [open, setOpen] = useState(false);
@@ -184,6 +203,6 @@ export function MigrationLaunchNotice({ onboarding = false }: { onboarding?: boo
   if ((!sources.length || dismissed) && !open) return null;
   return <>
     {!open && <aside className="migration-notice"><strong>Found {sources.map(source => source.kind).join(", ")} on Core.</strong><span>Bring skills, MCP, conversations and memory to Sloppy.</span><button type="button" onClick={() => { markOffered(); setOpen(true); }}>Import data</button><button type="button" onClick={() => { markOffered(); setDismissed(true); }}>{onboarding ? "Skip" : "Later"}</button></aside>}
-    {open && <div className="migration-modal" role="dialog" aria-modal="true" aria-label="Data migration"><div><button className="migration-close" type="button" onClick={() => { setOpen(false); setDismissed(true); }}>Close</button><MigrationWizard /></div></div>}
+    {open && <MigrationDialog onClose={() => { setOpen(false); setDismissed(true); }} />}
   </>;
 }

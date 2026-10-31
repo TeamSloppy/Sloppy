@@ -19,9 +19,10 @@ interface TerminalDrawerProps {
   currentProjectRepoPath: string | null;
   closedHostElement?: HTMLElement | null;
   isSidebarCompact?: boolean;
+  suspended?: boolean;
 }
 
-interface TerminalTabState {
+export interface TerminalTabState {
   id: string;
   label: string;
   projectId: string | null;
@@ -34,6 +35,7 @@ interface TerminalTabState {
 }
 
 interface TerminalPaneProps {
+  appearance?: "default" | "dashboard";
   tab: TerminalTabState;
   coreApi: CoreApi;
   isActive: boolean;
@@ -93,7 +95,7 @@ function lastPathComponent(value: string | null | undefined) {
   return segments.length > 0 ? segments[segments.length - 1] : normalized;
 }
 
-function makeTerminalTab(index: number, projectId: string | null, projectRepoPath: string | null): TerminalTabState {
+export function makeTerminalTab(index: number, projectId: string | null, projectRepoPath: string | null): TerminalTabState {
   const baseLabel = lastPathComponent(projectRepoPath) || "workspace";
   return {
     id: createTerminalTabId(),
@@ -112,7 +114,8 @@ function tabStatusClass(status: TerminalStatus) {
   return `terminal-tab-indicator terminal-tab-indicator-${status}`;
 }
 
-function TerminalPane({
+export function TerminalPane({
+  appearance = "default",
   tab,
   coreApi,
   isActive,
@@ -145,6 +148,8 @@ function TerminalPane({
       return terminalRef.current;
     }
 
+    const styles = getComputedStyle(containerRef.current);
+    const dashboardTheme = appearance === "dashboard";
     const terminal = new Terminal({
       cursorBlink: true,
       cursorStyle: "block",
@@ -154,9 +159,9 @@ function TerminalPane({
       scrollback: 5000,
       convertEol: false,
       theme: {
-        background: "#0a0d10",
-        foreground: "#f3f7fb",
-        cursor: "#ccff00",
+        background: dashboardTheme ? styles.getPropertyValue("--surface").trim() : "#0a0d10",
+        foreground: dashboardTheme ? styles.getPropertyValue("--text").trim() : "#f3f7fb",
+        cursor: dashboardTheme ? styles.getPropertyValue("--text").trim() : "#ccff00",
         black: "#0a0d10",
         brightBlack: "#616d78",
         red: "#ff6b6b",
@@ -199,7 +204,7 @@ function TerminalPane({
 
     terminalRef.current = terminal;
     return terminal;
-  }, []);
+  }, [appearance]);
 
   const handleServerMessage = useCallback((payload: Record<string, unknown>) => {
     const type = String(payload.type || "").toLowerCase();
@@ -425,11 +430,22 @@ function TerminalPane({
 
   useEffect(() => {
     if (!isDrawerOpen || !isActive) return;
-    window.setTimeout(() => {
+    const timer = window.setTimeout(() => {
       fitAddonRef.current?.fit();
       terminalRef.current?.focus();
     }, 30);
+    return () => window.clearTimeout(timer);
   }, [drawerHeight, isActive, isDrawerOpen]);
+
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container || !isDrawerOpen || !isActive) return;
+    const observer = new ResizeObserver(() => {
+      if (container.clientWidth && container.clientHeight) fitAddonRef.current?.fit();
+    });
+    observer.observe(container);
+    return () => observer.disconnect();
+  }, [isActive, isDrawerOpen]);
 
   useEffect(() => {
     const onWindowResize = () => {
@@ -475,7 +491,8 @@ export function TerminalDrawer({
   currentProjectId,
   currentProjectRepoPath,
   closedHostElement = null,
-  isSidebarCompact = true
+  isSidebarCompact = true,
+  suspended = false
 }: TerminalDrawerProps) {
   const [isOpen, setIsOpen] = useState(loadStoredDrawerOpen);
   const [drawerHeight, setDrawerHeight] = useState(loadStoredDrawerHeight);
@@ -535,9 +552,9 @@ export function TerminalDrawer({
   }, [activeTabId]);
 
   useEffect(() => {
-    if (!isOpen || tabs.length > 0) return;
+    if (suspended || !isOpen || tabs.length > 0) return;
     addTerminalTab();
-  }, [addTerminalTab, isOpen, tabs.length]);
+  }, [addTerminalTab, isOpen, suspended, tabs.length]);
 
   useEffect(() => {
     if (tabs.length === 0) {
@@ -552,6 +569,7 @@ export function TerminalDrawer({
   }, [activeTabId, tabs]);
 
   useEffect(() => {
+    if (suspended) return;
     const onKeyDown = (event: KeyboardEvent) => {
       const isShortcut = (event.metaKey || event.ctrlKey) && !event.shiftKey && !event.altKey && event.key.toLowerCase() === "j";
       if (!isShortcut || isEditableTarget(event.target)) {
@@ -563,7 +581,7 @@ export function TerminalDrawer({
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, []);
+  }, [suspended]);
 
   useEffect(() => {
     if (!isResizing) return;
@@ -596,14 +614,14 @@ export function TerminalDrawer({
   const closedChromeHeight = dockedToSidebarCollapsed ? 0 : 44;
 
   useEffect(() => {
-    const reservedBottom = dockedToSidebarCollapsed ? 0 : isOpen ? drawerHeight : closedChromeHeight;
+    const reservedBottom = suspended || dockedToSidebarCollapsed ? 0 : isOpen ? drawerHeight : closedChromeHeight;
     document.documentElement.style.setProperty("--terminal-drawer-reserved-bottom", `${reservedBottom}px`);
     return () => {
       document.documentElement.style.removeProperty("--terminal-drawer-reserved-bottom");
     };
-  }, [closedChromeHeight, dockedToSidebarCollapsed, drawerHeight, isOpen]);
+  }, [closedChromeHeight, dockedToSidebarCollapsed, drawerHeight, isOpen, suspended]);
 
-  const compactTerminalDock = dockedToSidebarCollapsed ? (
+  const compactTerminalDock = !suspended && dockedToSidebarCollapsed ? (
     <button
       type="button"
       className="sidebar-terminal-dock"
@@ -635,7 +653,7 @@ export function TerminalDrawer({
         className={`terminal-drawer ${isOpen ? "open" : "closed"}${
           dockedToSidebarCollapsed ? " terminal-drawer--docked-collapsed" : ""
         }`}
-        style={{ height: isOpen ? `${drawerHeight}px` : closedChromeHeight }}
+        style={{ display: suspended ? "none" : undefined, height: isOpen ? `${drawerHeight}px` : closedChromeHeight }}
       >
         <button
           type="button"
@@ -742,7 +760,7 @@ export function TerminalDrawer({
                 tab={tab}
                 coreApi={coreApi}
                 isActive={tab.id === activeTabId}
-                isDrawerOpen={isOpen}
+                isDrawerOpen={isOpen && !suspended}
                 drawerHeight={drawerHeight}
                 onUpdate={updateTab}
               />

@@ -303,6 +303,15 @@ The path is embedded in the service definition so every restart picks it up auto
 
 **Linux** — creates a systemd user unit at `~/.config/systemd/user/sloppy.service` and enables it with `systemctl --user`. Install also checks `loginctl` lingering so the service can survive logout; if auto-enabling lingering is not permitted, `sloppy` prints the one-time `sudo loginctl enable-linger <user>` command. Logs are available via `journalctl --user -u sloppy.service`.
 
+**Windows** — registers `Sloppy.Server.<user SID>` in Task Scheduler for the current user,
+starts it immediately, and starts it again at login. The task runs without elevation or
+a password in the user's interactive session, following [Windows task security](https://learn.microsoft.com/en-us/windows/win32/taskschd/security-contexts-for-running-tasks).
+The runner restarts a failed server after five seconds, allows continuous execution on battery power, and
+stops at logout. The runner and saved executable/config paths live in
+`%USERPROFILE%\.sloppy\service`; stdout and stderr logs are in its `logs` subdirectory.
+The installed service does not depend on the repository's `scripts/dev.ps1`.
+`stop` keeps the login task registered; `uninstall` removes it and preserves logs.
+
 :::
 
 ### Uninstall

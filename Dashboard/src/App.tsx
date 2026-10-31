@@ -20,6 +20,7 @@ import { TerminalDrawer } from "./features/terminal/TerminalDrawer";
 import { UpdateBanner } from "./features/updates/UpdateBanner";
 import { useUpdateCheck } from "./features/updates/useUpdateCheck";
 import { ArtifactsView } from "./features/artifacts/ArtifactsView";
+import { WorkView } from "./features/work/WorkView";
 import { CostsView } from "./features/costs/CostsView";
 import "./features/artifacts/artifacts.css";
 import { WorkspacesView } from "./features/workspaces/WorkspacesView";
@@ -147,6 +148,10 @@ function DashboardShell({
   const { route, setSection, setConfigSection, setProjectRoute, setWorkspaceRoute, setAgentRoute, setSessionRoute, setChatsRoute, setMemoryRoute } =
     useDashboardRoute();
   const runtime = useRuntimeOverview(dependencies.coreApi, route.section);
+  const [workOpened, setWorkOpened] = useState(route.section === "work");
+  useEffect(() => {
+    if (route.section === "work") setWorkOpened(true);
+  }, [route.section]);
   const [isTextSearchOpen, setTextSearchOpen] = useState(false);
   useEffect(() => {
     const open = (event: KeyboardEvent) => {
@@ -378,6 +383,11 @@ function DashboardShell({
 
   const sidebarItems: SidebarItem[] = [
     {
+      id: "work",
+      label: { icon: "dock_to_right", title: "Work" },
+      content: null
+    },
+    {
       id: "overview",
       label: { icon: "dashboard", title: "Overview" },
       content: runtimeContent
@@ -532,7 +542,7 @@ function DashboardShell({
 
   return (
     <div
-      className="layout"
+      className={`layout ${route.section === "work" ? "layout-work" : ""}`}
       style={
         {
           "--terminal-drawer-inset-left": sidebarCompact ? "76px" : "228px"
@@ -671,6 +681,23 @@ function DashboardShell({
         </button>
         {updateStatus && <UpdateBanner status={updateStatus} />}
         {pageContent}
+        {workOpened ? (
+          <div className="work-route-container" hidden={route.section !== "work"}>
+            <WorkView
+              coreApi={dependencies.coreApi}
+              projects={sidebarProjects}
+              terminalEnabled={terminalEnabled}
+              visible={route.section === "work"}
+              channelState={runtime.channelState}
+              workers={runtime.workers}
+              bulletins={runtime.bulletins}
+              onWorkersChanged={runtime.refreshRuntime}
+              onOpenProjects={() => setSection("projects")}
+              onOpenTerminalSettings={() => { setSection("config"); setConfigSection("ui"); }}
+              onOpenChannelSession={setSessionRoute}
+            />
+          </div>
+        ) : null}
         {terminalEnabled ? (
           <TerminalDrawer
             coreApi={dependencies.coreApi}
@@ -678,6 +705,7 @@ function DashboardShell({
             currentProjectRepoPath={activeProjectRepoPath}
             closedHostElement={terminalClosedHost}
             isSidebarCompact={sidebarCompact}
+            suspended={route.section === "work"}
           />
         ) : null}
       </div>

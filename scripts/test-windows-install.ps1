@@ -81,7 +81,7 @@ try {
     $env:Path = $originalPath
     $env:CORE_DASHBOARD_PATH = $originalDashboard
     # This uses real build outputs, copies the runtime, and never writes the user's environment.
-    & $installer -InstallRoot $installRoot -Configuration $Configuration -SkipPrerequisites -SkipBuild -NoPath
+    & $installer -InstallRoot $installRoot -Configuration $Configuration -Fast -SkipBuild -NoPath
     & $installer -InstallRoot $installRoot -Configuration $Configuration -SkipPrerequisites -SkipBuild -NoPath
     $installedExe = Join-Path $installRoot "bin/sloppy.exe"
     Assert-SloppyInstall (Test-Path -LiteralPath (Join-Path $installRoot "bin/Sloppy_sloppy.resources/schema.sql")) "SQLite resource bundle was not installed."

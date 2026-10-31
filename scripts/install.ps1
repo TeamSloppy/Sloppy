@@ -2,6 +2,8 @@
 <#
 .SYNOPSIS
 Install Sloppy, Dashboard, and all Windows build prerequisites from this checkout.
+.PARAMETER Fast
+Quick rebuild with installed prerequisites, debug executables, and the existing Dashboard bundle.
 #>
 [CmdletBinding()]
 param(
@@ -12,6 +14,7 @@ param(
     [int]$Jobs = 4,
     [switch]$SkipPrerequisites,
     [switch]$SkipBuild,
+    [switch]$Fast,
     [switch]$NoPath,
     [switch]$DryRun
 )

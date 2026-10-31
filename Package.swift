@@ -198,6 +198,7 @@ let package = Package(
             path: "Sources/sloppy",
             resources: [
                 .copy("Resources/Skills"),
+                .copy("Resources/Windows"),
                 .process("Resources/sloppy-version.json"),
                 .process("Storage/schema.sql"),
             ]

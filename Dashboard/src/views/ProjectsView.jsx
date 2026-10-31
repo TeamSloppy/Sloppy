@@ -1138,6 +1138,7 @@ function ProjectTabPlaceholder({ title, text }) {
 }
 
 export function ProjectsView({
+  embedded = false,
   channelState,
   workers,
   bulletins = [],
@@ -1148,7 +1149,7 @@ export function ProjectsView({
   routeProjectWorkflowRunId = null,
   routeProjectChatAgentId = null,
   routeProjectChatSessionId = null,
-  onRouteProjectChange = () => { },
+  onRouteProjectChange = (_projectId = null, _projectTab = null, _taskReference = null) => { },
   onRouteProjectChatChange = (_projectId, _agentId, _sessionId) => { },
   onSidebarProjectsListChanged = () => { },
   onNavigateToChannelSession = (_sessionId) => { },
@@ -2451,7 +2452,7 @@ export function ProjectsView({
     const isReviewMode = selectedTab === "review";
     return (
       <section className="project-workspace" data-testid={`project-workspace-${project.id}`}>
-        {!isReviewMode && (
+        {!isReviewMode && !embedded && (
           <section className="agent-tabs" aria-label="Project sections">
             {PROJECT_TABS.filter((tab) => tab.id !== "review").map((tab) => (
               <button
@@ -2473,7 +2474,7 @@ export function ProjectsView({
 
   return (
     <main className="projects-shell">
-      {projects.length > 0 && (
+      {!embedded && projects.length > 0 && (
         <Breadcrumbs
           items={[
             { id: 'projects', label: 'Projects', onClick: closeProject },

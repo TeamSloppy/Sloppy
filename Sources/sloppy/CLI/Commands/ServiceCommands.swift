@@ -21,6 +21,7 @@ import Glibc
 ///   `~/.config/systemd/user/sloppy.service` and enabled via
 ///   `systemctl --user`. The unit targets `default.target` so it starts after
 ///   login.
+/// - On **Windows** a per-user Task Scheduler task starts the server at login.
 ///
 /// Usage:
 /// ```
@@ -53,6 +54,7 @@ struct ServiceCommand: AsyncParsableCommand, SloppyGroupCommand {
 private enum ServicePlatform {
     case macOS
     case linux
+    case windows
     case unsupported(String)
 
     static var current: ServicePlatform {
@@ -60,6 +62,8 @@ private enum ServicePlatform {
         return .macOS
 #elseif os(Linux)
         return .linux
+#elseif os(Windows)
+        return .windows
 #else
         return .unsupported(ProcessInfo.processInfo.operatingSystemVersionString)
 #endif
@@ -361,8 +365,10 @@ struct ServiceInstallCommand: AsyncParsableCommand {
             try installMacOS(executablePath: executablePath)
         case .linux:
             try installLinux(executablePath: executablePath)
+        case .windows:
+            try WindowsServiceManager.run(.install, executablePath: executablePath, configPath: configPath)
         case .unsupported(let name):
-            CLIStyle.error("Unsupported platform: \(name). Service install is supported on macOS and Linux.")
+            CLIStyle.error("Unsupported platform: \(name). Service install is supported on macOS, Linux, and Windows.")
             throw ExitCode.failure
         }
     }
@@ -463,6 +469,8 @@ struct ServiceUninstallCommand: AsyncParsableCommand {
             try uninstallMacOS()
         case .linux:
             try uninstallLinux()
+        case .windows:
+            try WindowsServiceManager.run(.uninstall)
         case .unsupported(let name):
             CLIStyle.error("Unsupported platform: \(name).")
             throw ExitCode.failure
@@ -531,6 +539,8 @@ struct ServiceStartCommand: AsyncParsableCommand {
                 CLIStyle.error("systemctl start failed (exit \(status)). Is the service installed? Run: sloppy service install")
                 throw ExitCode.failure
             }
+        case .windows:
+            try WindowsServiceManager.run(.start)
         case .unsupported(let name):
             CLIStyle.error("Unsupported platform: \(name).")
             throw ExitCode.failure
@@ -571,6 +581,8 @@ struct ServiceStopCommand: AsyncParsableCommand {
                 CLIStyle.error("systemctl stop failed (exit \(status)).")
                 throw ExitCode.failure
             }
+        case .windows:
+            try WindowsServiceManager.run(.stop)
         case .unsupported(let name):
             CLIStyle.error("Unsupported platform: \(name).")
             throw ExitCode.failure
@@ -600,6 +612,8 @@ struct ServiceRestartCommand: AsyncParsableCommand {
                 CLIStyle.error("systemctl restart failed (exit \(status)). Is the service installed? Run: sloppy service install")
                 throw ExitCode.failure
             }
+        case .windows:
+            try WindowsServiceManager.run(.restart)
         case .unsupported(let name):
             CLIStyle.error("Unsupported platform: \(name).")
             throw ExitCode.failure
@@ -644,6 +658,8 @@ struct ServiceStatusCommand: AsyncParsableCommand {
             printMacOSStatus()
         case .linux:
             printLinuxStatus()
+        case .windows:
+            try WindowsServiceManager.run(.status)
         case .unsupported(let name):
             CLIStyle.error("Unsupported platform: \(name).")
             throw ExitCode.failure
@@ -743,6 +759,9 @@ struct ServiceLogsCommand: AsyncParsableCommand {
             CLIStyle.error("Failed to exec journalctl.")
             throw ExitCode.failure
 
+        case .windows:
+            guard lines > 0 else { throw ValidationError("--lines must be greater than zero.") }
+            try WindowsServiceManager.run(.logs, lines: lines)
         case .unsupported(let name):
             CLIStyle.error("Unsupported platform: \(name).")
             throw ExitCode.failure

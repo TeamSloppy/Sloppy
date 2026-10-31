@@ -3,6 +3,7 @@ import { createServer } from "node:http";
 import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 import { chromium } from "playwright";
 
@@ -36,7 +37,7 @@ await build({
       window.renderSettings = () => createRootOnce().render(<Settings />);
       window.renderChat(new URLSearchParams(location.search).get("session"));
     `,
-    resolveDir: new URL("..", import.meta.url).pathname,
+    resolveDir: fileURLToPath(new URL("..", import.meta.url)),
     loader: "tsx"
   },
   bundle: true, outdir: directory, entryNames: "app", format: "esm", external: ["/fonts/*"],
@@ -121,7 +122,11 @@ const server = createServer(async (request, response) => {
 });
 await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
 const baseURL = `http://127.0.0.1:${server.address().port}`;
-const browser = await chromium.launch({ headless: true, executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH });
+const browser = await chromium.launch({
+  headless: true,
+  executablePath: process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH,
+  ...(process.platform === "win32" && !process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE_PATH ? { channel: "msedge" } : {})
+});
 const page = await browser.newPage({ viewport: { width: 1280, height: 900 } });
 page.setDefaultTimeout(15000);
 const errors = [];

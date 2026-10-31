@@ -2,10 +2,14 @@
 <#
 .SYNOPSIS
 Build, install, and manage Sloppy on Windows, including build prerequisites.
+.PARAMETER Fast
+Require installed prerequisites, use debug unless configured, and reuse cached dependencies and Dashboard/dist.
 .EXAMPLE
 powershell -NoProfile -ExecutionPolicy Bypass -File scripts/dev.ps1 setup
 .EXAMPLE
 .\scripts\dev.ps1 start
+.EXAMPLE
+.\scripts\dev.ps1 setup -Fast
 #>
 [CmdletBinding()]
 param(
@@ -20,11 +24,13 @@ param(
     [string]$ConfigPath,
     [switch]$SkipPrerequisites,
     [switch]$SkipBuild,
+    [switch]$Fast,
     [switch]$NoPath,
     [switch]$DryRun
 )
 
 $ErrorActionPreference = "Stop"
+if ($Fast -and -not $PSBoundParameters.ContainsKey("Configuration")) { $Configuration = "debug" }
 $repoRoot = Split-Path -Parent $PSScriptRoot
 $InstallRoot = [IO.Path]::GetFullPath($InstallRoot)
 $binDir = Join-Path $InstallRoot "bin"
@@ -134,10 +140,31 @@ function Set-SloppyUserEnvironment {
     [Environment]::SetEnvironmentVariable($Name, $Value, "User")
 }
 
+function Get-SloppyServiceInstallation {
+    param([string]$ServiceRoot = (Join-Path ([Environment]::GetFolderPath("UserProfile")) ".sloppy/service"))
+    $settingsPath = Join-Path $ServiceRoot "service.json"
+    if (-not (Test-Path -LiteralPath $settingsPath)) { return $null }
+    try {
+        $settings = Get-Content -LiteralPath $settingsPath -Raw | ConvertFrom-Json
+        if ($settings.executablePath -ne $executable) { return $null }
+        $running = $false
+        $processPath = Join-Path $ServiceRoot "process.json"
+        if (Test-Path -LiteralPath $processPath) {
+            $state = Get-Content -LiteralPath $processPath -Raw | ConvertFrom-Json
+            $server = Get-Process -Id $state.pid -ErrorAction SilentlyContinue
+            $running = $server -and $server.Path -eq $executable -and
+                $server.StartTime.ToUniversalTime().Ticks.ToString() -eq $state.startedAt
+        }
+        return [pscustomobject]@{ running = [bool]$running; runner = (Join-Path $ServiceRoot "service.ps1") }
+    } catch { return $null }
+}
+
 function Install-Sloppy {
-    Initialize-SloppyPrerequisites -SkipInstall:$SkipPrerequisites -DryRun:$DryRun
+    Initialize-SloppyPrerequisites -SkipInstall:($SkipPrerequisites -or $Fast) -DryRun:$DryRun
+    $skipDashboard = $Fast -and (Test-Path -LiteralPath (Join-Path $repoRoot "Dashboard/dist/index.html"))
     if ($DryRun) {
         if ($SkipBuild) { Write-Host "Would use existing $Configuration build outputs." }
+        elseif ($skipDashboard) { Write-Host "Would build sloppy and SloppyNode ($Configuration), reusing Dashboard/dist." }
         else { Write-Host "Would build sloppy, SloppyNode and Dashboard ($Configuration)." }
         Write-Host "Would install executables, Swift runtime DLLs and resources into $binDir."
         Write-Host "Would install Dashboard into $dashboardDir."
@@ -145,16 +172,24 @@ function Install-Sloppy {
         return
     }
     $wasRunning = $null -ne (Get-SloppyServer)
+    $serviceInstallation = Get-SloppyServiceInstallation
     $runningConfigPath = $null
     if ($wasRunning) { $runningConfigPath = (Get-Content -LiteralPath $stateFile -Raw | ConvertFrom-Json).configPath }
-    if ($wasRunning) { Stop-SloppyServer }
-    if (-not $SkipBuild) { & "$PSScriptRoot/build-windows.ps1" -Configuration $Configuration -Jobs $Jobs }
+    if (-not $SkipBuild) {
+        & "$PSScriptRoot/build-windows.ps1" -Configuration $Configuration -Jobs $Jobs `
+            -SkipDashboard:$skipDashboard -SkipDependencyUpdate:$Fast
+    }
     $binPath = (& swift build --package-path $repoRoot --configuration $Configuration --show-bin-path | Select-Object -Last 1).Trim()
     if ($LASTEXITCODE -ne 0) { throw "Could not locate build output." }
     foreach ($product in @("sloppy.exe", "SloppyNode.exe")) {
         if (-not (Test-Path -LiteralPath (Join-Path $binPath $product))) { throw "Missing $product. Rerun setup without -SkipBuild." }
     }
     if (-not (Test-Path -LiteralPath (Join-Path $repoRoot "Dashboard/dist/index.html"))) { throw "Dashboard is not built. Rerun setup without -SkipBuild." }
+    if ($wasRunning) { Stop-SloppyServer }
+    if ($serviceInstallation -and $serviceInstallation.running) {
+        & $executable service stop
+        if ($LASTEXITCODE -ne 0) { throw "Could not stop the Windows service before updating Sloppy." }
+    }
     New-Item -ItemType Directory -Force -Path $binDir, $dashboardDir | Out-Null
     foreach ($product in @("sloppy.exe", "SloppyNode.exe")) {
         Copy-Item -LiteralPath (Join-Path $binPath $product) -Destination $binDir -Force
@@ -162,6 +197,10 @@ function Install-Sloppy {
     # SwiftPM looks for these bundles beside the executable at runtime.
     foreach ($bundle in Get-ChildItem -LiteralPath $binPath -Directory -Filter "*.resources") {
         Copy-Item -LiteralPath $bundle.FullName -Destination $binDir -Recurse -Force
+    }
+    if ($serviceInstallation) {
+        Copy-Item -LiteralPath (Join-Path $binDir "Sloppy_sloppy.resources/Windows/service.ps1") `
+            -Destination $serviceInstallation.runner -Force
     }
     $targetInfo = (& swift -print-target-info) -join "`n"
     if ($LASTEXITCODE -ne 0) { throw "Could not locate the Swift runtime." }
@@ -179,6 +218,10 @@ function Install-Sloppy {
     if ($LASTEXITCODE -ne 0) { throw "Installed Sloppy could not start (exit $LASTEXITCODE)." }
     if (-not $NoPath) { Add-SloppyToPath }
     if ($wasRunning) { Start-SloppyServer -ServerConfigPath $runningConfigPath }
+    if ($serviceInstallation -and $serviceInstallation.running) {
+        & $executable service start
+        if ($LASTEXITCODE -ne 0) { throw "Windows service failed to restart. Check: sloppy service logs" }
+    }
     Write-Host "Installation complete: $binDir"
     if ($NoPath) { Write-Host "Run: & '$executable' (TUI), or add run for server + Dashboard." }
     else { Write-Host "Open a new terminal: sloppy (TUI), sloppy run (server + Dashboard)." }

@@ -20,7 +20,9 @@
     "preview": "node ./node_modules/vite/bin/vite.js preview",
     "seed:happy-path": "node ./scripts/seedHappyPath.mjs",
     "e2e:happy-path": "node ./scripts/happyPath.mjs",
-    "test:client-pairing": "node --test ./scripts/clientPairingLinkTest.mjs"
+    "test:client-pairing": "node --test ./scripts/clientPairingLinkTest.mjs",
+    "test:migration-layout": "node ./scripts/migrationLayoutTest.mjs",
+    "test:work": "node ./scripts/workLayoutTest.mjs"
   },
   "dependencies": {
     "@git-diff-view/file": "^0.1.2",

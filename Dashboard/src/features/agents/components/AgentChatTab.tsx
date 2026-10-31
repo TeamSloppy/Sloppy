@@ -1,4 +1,5 @@
 import { SessionUISurfaces } from "../ui/SessionUISurfaces";
+import { WorkComposerControls } from "../../work/WorkComposerControls";
 import { WorkerTaskCard } from "./WorkerTaskCard";
 import { LongChatPanel } from "./LongChatPanel";
 import { ChatApprovalModePicker } from "./ChatApprovalModePicker";
@@ -2511,6 +2512,7 @@ function DeepResearchProcessPanel({ process }) {
 }
 
 function AgentChatEvents({
+  quietEmpty = false,
   agentId = "Worker",
   scrollKey,
   isLoadingSession,
@@ -2677,7 +2679,7 @@ function AgentChatEvents({
       ) : isEmptyTranscript ? (
         <section className="agent-chat-empty-tips" aria-label="Session tips">
           <strong>No messages yet.</strong>
-          <div className="agent-chat-empty-tip-list">
+          {quietEmpty ? <p className="placeholder-text">What would you like to work on?</p> : <div className="agent-chat-empty-tip-list">
             {emptySessionTips.map((tip) => (
               <p key={tip.text} className="placeholder-text">
                 <span className="material-symbols-rounded" aria-hidden="true">
@@ -2686,7 +2688,7 @@ function AgentChatEvents({
                 {tip.text}
               </p>
             ))}
-          </div>
+          </div>}
         </section>
       ) : (
         <>
@@ -3060,6 +3062,9 @@ function AgentChatToolApprovalBanner({
 const LIVE_VOICE_USER_ID = "voice-live";
 
 function AgentChatComposer({
+  workLayout = false,
+  modelPicker = null,
+  extraOptions = null,
   agentId,
   projectId = null,
   inputText,
@@ -3117,9 +3122,9 @@ function AgentChatComposer({
         : voiceInput.available
           ? "Dictate message"
           : voiceInput.unavailableReason || "Voice input is not available";
-  const canSend =
-    !inputLocked && !approvalPolicy.busy &&
-    (String(inputText || "").trim().length > 0 || pendingFiles.length > 0 || sourceControlDiffComposeTags.length > 0);
+  const hasComposeContent = String(inputText || "").trim().length > 0 || pendingFiles.length > 0 || sourceControlDiffComposeTags.length > 0;
+  const canSend = !inputLocked && !approvalPolicy.busy && hasComposeContent
+    && (!workLayout || (!isRecording && voiceInput.state !== "transcribing"));
   const isInputDisabled = isBusy || inputLocked;
   const [caretIndex, setCaretIndex] = useState(0);
   const [mentionSuggestions, setMentionSuggestions] = useState<MentionSuggestion[]>([]);
@@ -3984,7 +3989,19 @@ function AgentChatComposer({
               }}
             />
 
-          <div className="agent-chat-compose-row">
+          {workLayout ? <WorkComposerControls
+            modelPicker={modelPicker} extraOptions={extraOptions} approvalPolicy={approvalPolicy}
+            disabled={isInputDisabled} canSend={canSend} hasContent={hasComposeContent}
+            busy={isBusy} stopping={isStopPending} onStop={onStop}
+            onAttach={() => fileInputRef.current?.click()} onDeepResearch={openDeepResearchConfig}
+            modes={CHAT_MODES} mode={chatMode} onModeChange={onChatModeChange}
+            reasoningOptions={supportsReasoningEffort ? REASONING_EFFORT_OPTIONS : []}
+            reasoning={reasoningEffort} onReasoningChange={onReasoningEffortChange}
+            voice={voiceInput} voiceTitle={voiceTitle} voicePlayback={voicePlayback}
+            autoSpeak={autoSpeak} onAutoSpeakChange={onAutoSpeakChange}
+            handsFree={handsFree} onHandsFreeToggle={onHandsFreeToggle}
+            liveVoice={liveVoice} onLiveToggle={onLiveToggle}
+          /> : <div className="agent-chat-compose-row">
             <button
               type="button"
               className="agent-chat-icon-button"
@@ -4144,7 +4161,7 @@ function AgentChatComposer({
                 </button>
               )}
             </div>
-          </div>
+          </div>}
         </form>
       </div>
     </>
@@ -4278,7 +4295,12 @@ export function AgentChatTab({
   projectId = null,
   onActiveSessionIdChange,
   modeStorageScope = null,
-  lockPageScroll = true
+  lockPageScroll = true,
+  showSessionSidebar = true,
+  reviewTag = null,
+  onReviewTagConsumed,
+  layout = "default",
+  composerExtras = null
 }: {
   agentId: string;
   initialSessionId?: string | null;
@@ -4286,6 +4308,11 @@ export function AgentChatTab({
   onActiveSessionIdChange?: (sessionId: string | null) => void;
   modeStorageScope?: string | null;
   lockPageScroll?: boolean;
+  showSessionSidebar?: boolean;
+  reviewTag?: { id: string; label: string; markdown: string } | null;
+  onReviewTagConsumed?: (id: string) => void;
+  layout?: "default" | "work";
+  composerExtras?: React.ReactNode;
 }) {
   const [sessions, setSessions] = useState([]);
   const [activeSessionId, setActiveSessionId] = useState(null);
@@ -4303,6 +4330,9 @@ export function AgentChatTab({
   const [inputText, setInputText] = useState("");
   const [pendingFiles, setPendingFiles] = useState([]);
   const [sourceControlDiffComposeTags, setSourceControlDiffComposeTags] = useState([]);
+  const consumedReviewTagRef = useRef<string | null>(null);
+  const composeDraftSnapshotRef = useRef(null);
+  composeDraftSnapshotRef.current = { agentId, sessionId: activeSessionId, text: inputText, tags: sourceControlDiffComposeTags };
   const [statusText, setStatusText] = useState("Loading sessions...");
   const [pendingToolApprovals, setPendingToolApprovals] = useState([]);
   const [toolApprovalStatusText, setToolApprovalStatusText] = useState("");
@@ -4927,6 +4957,31 @@ export function AgentChatTab({
   }, [agentId, activeSessionId]);
 
   useEffect(() => {
+    if (!reviewTag || !activeSessionId || isLoadingSession || consumedReviewTagRef.current === reviewTag.id) {
+      return;
+    }
+    consumedReviewTagRef.current = reviewTag.id;
+    setSourceControlDiffComposeTags((previous) => [...previous, reviewTag]);
+    onReviewTagConsumed?.(reviewTag.id);
+    composeInputRef.current?.focus();
+  }, [reviewTag, onReviewTagConsumed, activeSessionId, isLoadingSession]);
+
+  useEffect(() => {
+    // A Work tab can close before the debounced draft write runs.
+    const flushDraft = () => {
+      const draft = composeDraftSnapshotRef.current;
+      if (draft?.agentId && draft.sessionId) {
+        writeComposeDraftState(draft.agentId, draft.sessionId, draft.text, draft.tags);
+      }
+    };
+    window.addEventListener("pagehide", flushDraft);
+    return () => {
+      window.removeEventListener("pagehide", flushDraft);
+      flushDraft();
+    };
+  }, []);
+
+  useEffect(() => {
     if (!agentId) {
       return;
     }
@@ -5151,7 +5206,7 @@ export function AgentChatTab({
           let scopedSessions = sessionsResponse;
           let mainSession = null;
           const configuration = await configPromise;
-          if (scoped && (!configuration || (configuration.runtime as { type?: string } | undefined)?.type !== "acp")) {
+          if (showSessionSidebar && scoped && (!configuration || (configuration.runtime as { type?: string } | undefined)?.type !== "acp")) {
             mainSession = await openLongChat(agentId, "user", scoped);
             scopedSessions = await fetchAgentSessions(agentId, sessionOpts);
             if (isCancelled) return;
@@ -7171,7 +7226,7 @@ export function AgentChatTab({
 
   return (
     <section
-      className={`agent-chat-main ${isDragOver ? "drag-over" : ""}${isDesktopSessionsCollapsed ? " agent-chat-sessions-collapsed" : ""}`}
+      className={`agent-chat-main ${isDragOver ? "drag-over" : ""}${isDesktopSessionsCollapsed ? " agent-chat-sessions-collapsed" : ""}${showSessionSidebar ? "" : " agent-chat-external-sessions"}`}
       onDragOver={(event) => {
         event.preventDefault();
         setIsDragOver(true);
@@ -7188,7 +7243,7 @@ export function AgentChatTab({
         addFiles(event.dataTransfer?.files);
       }}
     >
-      {isNarrowChatViewport && isMobileSidebarOpen ? (
+      {showSessionSidebar && isNarrowChatViewport && isMobileSidebarOpen ? (
         <button
           type="button"
           className="agent-chat-sidebar-backdrop"
@@ -7196,7 +7251,7 @@ export function AgentChatTab({
           onClick={closeMobileSessionSidebar}
         />
       ) : null}
-      <div
+      {showSessionSidebar ? <div
         id="agent-chat-session-sidebar"
         className={`agent-chat-sidebar ${isMobileSidebarOpen ? "mobile-open" : ""}`}
       >
@@ -7303,12 +7358,12 @@ export function AgentChatTab({
             add
           </span>
         </button>
-      </div>
+      </div> : null}
 
       <div className="agent-chat-main-area">
-        <div className="agent-chat-main-head">
+        {layout !== "work" ? <div className="agent-chat-main-head">
           <div className="agent-chat-head-title">
-            <button
+            {showSessionSidebar ? <button
               type="button"
               className="agent-chat-icon-button agent-chat-mobile-menu-btn"
               onClick={toggleSessionSidebar}
@@ -7323,7 +7378,7 @@ export function AgentChatTab({
               <span className="material-symbols-rounded" aria-hidden="true">
                 {sessionSidebarMenuIcon}
               </span>
-            </button>
+            </button> : null}
             {activeSession ? getSessionDisplayLabel(activeSession.summary || activeSession) : "Select a session"}
             {isDebugSessionFlagOn ? <span className="agent-chat-debug-badge">Debug</span> : null}
             <div className="agent-chat-model-picker">
@@ -7473,7 +7528,7 @@ export function AgentChatTab({
               </span>
             </button>
           </div>
-        </div>
+        </div> : null}
 
         <div className="agent-chat-workspace">
           {scopedProjectId ? (
@@ -7496,6 +7551,7 @@ export function AgentChatTab({
           <div className={`agent-chat-workspace-inner ${subagentPanel.isOpen ? "has-subagent" : ""}`}>
             <div className="agent-chat-thread">
               <AgentChatEvents
+                quietEmpty={layout === "work"}
                 agentId={agentId}
                 scrollKey={activeSessionId}
                 isLoadingSession={isLoadingSession}
@@ -7537,6 +7593,14 @@ export function AgentChatTab({
                 ) : null}
 
                 <AgentChatComposer
+                  workLayout={layout === "work"}
+                  extraOptions={composerExtras}
+                  modelPicker={layout === "work" ? <AggregatedModelPicker
+                    label={null} value={String(selectedModel || "")} onChange={(modelId) => void handleModelSwitch(modelId)}
+                    aggregatedModels={availableModels} disabled={isSending || availableModels.length === 0}
+                    className="provider-model-picker" inputClassName="work-composer-model-input"
+                    menuClassName="agent-chat-model-dropdown" floating includeEmptyOption={false} aria-label="Select chat model"
+                  /> : null}
                   agentId={agentId}
                   projectId={projectId}
                   inputText={inputText}
@@ -7578,7 +7642,7 @@ export function AgentChatTab({
                   onHandsFreeToggle={handleHandsFreeToggle}
                 />
 
-                {!activePendingInputRequest ? (
+                {layout !== "work" && !activePendingInputRequest ? (
                   <p className="agent-chat-project-path-hint placeholder-text">
                     Type <kbd className="agent-chat-path-hint-kbd">@</kbd> to reference sessions, files or skills.
                   </p>
@@ -7608,7 +7672,8 @@ export function AgentChatTab({
                   <p className="placeholder-text">{subagentPanel.error}</p>
                 ) : (
                   <AgentChatEvents
-                agentId={agentId}
+                    quietEmpty={layout === "work"}
+                    agentId={agentId}
                     scrollKey={subagentPanel.sessionId}
                     isLoadingSession={subagentPanel.loading}
                     isSending={isSubagentBusy}

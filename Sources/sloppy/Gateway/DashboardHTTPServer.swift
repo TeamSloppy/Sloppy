@@ -21,8 +21,9 @@ struct DashboardContentResolver: Sendable {
     let rootURL: URL
     let templateConfigURL: URL?
     let apiBase: String
+    var localAPIBase: String? = nil
 
-    func response(for method: String, uri: String) -> CoreRouterResponse {
+    func response(for method: String, uri: String, localAddress: String? = nil) -> CoreRouterResponse {
         switch method.uppercased() {
         case "GET", "HEAD":
             break
@@ -36,7 +37,7 @@ struct DashboardContentResolver: Sendable {
 
         let requestPath = normalizedRequestPath(from: uri)
         if requestPath == "/config.json" {
-            return runtimeConfigResponse()
+            return runtimeConfigResponse(localAddress: localAddress)
         }
 
         if let assetURL = assetURL(for: requestPath),
@@ -58,7 +59,7 @@ struct DashboardContentResolver: Sendable {
         )
     }
 
-    func runtimeConfigData() -> Data {
+    func runtimeConfigData(localAddress: String? = nil) -> Data {
         let fileManager = FileManager.default
         let baseConfig: DashboardClientConfig = {
             guard let templateConfigURL,
@@ -72,19 +73,24 @@ struct DashboardContentResolver: Sendable {
         }()
 
         var runtimeConfig = baseConfig
-        runtimeConfig.apiBase = apiBase
+        // Keep locally opened Dashboards on loopback so owner-only Console
+        // requests do not take the advertised LAN route back into Core.
+        let resolvedAPIBase = CoreLocalClientCredential.isLoopbackAddress(localAddress)
+            ? (localAPIBase ?? apiBase) : apiBase
+        runtimeConfig.apiBase = resolvedAPIBase
 
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let encoded = (try? encoder.encode(runtimeConfig)) ?? Data("{\"apiBase\":\"\(apiBase)\"}".utf8)
+        let encoded = (try? encoder.encode(runtimeConfig)) ?? Data("{\"apiBase\":\"\(resolvedAPIBase)\"}".utf8)
         return encoded + Data("\n".utf8)
     }
 
-    private func runtimeConfigResponse() -> CoreRouterResponse {
+    private func runtimeConfigResponse(localAddress: String?) -> CoreRouterResponse {
         CoreRouterResponse(
             status: DashboardHTTPStatus.ok,
-            body: runtimeConfigData(),
-            contentType: "application/json"
+            body: runtimeConfigData(localAddress: localAddress),
+            contentType: "application/json",
+            headers: ["cache-control": "no-store"]
         )
     }
 
@@ -249,7 +255,11 @@ private final class DashboardHTTPHandler: ChannelInboundHandler, RemovableChanne
                 return
             }
 
-            let response = responder.response(for: head.method.rawValue, uri: head.uri)
+            let response = responder.response(
+                for: head.method.rawValue,
+                uri: head.uri,
+                localAddress: context.channel.localAddress?.ipAddress
+            )
             writeResponse(context: context, requestHead: head, response: response)
         }
     }
@@ -266,6 +276,9 @@ private final class DashboardHTTPHandler: ChannelInboundHandler, RemovableChanne
     ) {
         let keepAlive = requestHead.isKeepAlive
         var headers = defaultHeaders(contentType: response.contentType, contentLength: response.body.count)
+        for (name, value) in response.headers {
+            headers.replaceOrAdd(name: name, value: value)
+        }
         headers.replaceOrAdd(name: "connection", value: keepAlive ? "keep-alive" : "close")
 
         let responseHead = HTTPResponseHead(

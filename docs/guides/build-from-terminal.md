@@ -67,6 +67,34 @@ Sloppy, SloppyNode, Swift runtime DLLs, resource bundles, and Dashboard are inst
 `CORE_DASHBOARD_PATH` to the installed Dashboard. It preserves your Sloppy workspace and configuration.
 Open a new terminal to use the updated PATH.
 
+For quick rebuilds after setup, run:
+
+```powershell
+.\scripts\dev.ps1 setup -Fast
+# Equivalent:
+.\scripts\install.ps1 -Fast
+```
+
+From **Git Bash**, invoke the PowerShell interpreter explicitly from the checkout root:
+
+```bash
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File ./scripts/install.ps1 -Fast
+```
+
+Omit `-Fast` for the full installation, including prerequisites and a Dashboard rebuild.
+Running `./scripts/install.ps1` directly in Git Bash makes Bash parse PowerShell syntax.
+The path `/scripts/install.ps1` starts at the filesystem root; use `./scripts/install.ps1`
+to refer to this checkout.
+
+`-Fast` uses an incremental debug build, requires prerequisites to be installed, skips remote
+updates of cached Swift dependencies, and reuses `Dashboard/dist` when available.
+If the Dashboard bundle is missing, it builds it once.
+It updates the installed executables in PATH. The first debug build has its own cache and
+can take longer; subsequent builds reuse it. Pass `-Configuration release` to override the
+configuration. After Dashboard changes, run setup without `-Fast` to rebuild the frontend.
+When running through `powershell -File`, open a new terminal after the first installation;
+when invoking `.\scripts\dev.ps1` directly, the calling PowerShell PATH is also updated.
+
 `scripts/dev.ps1 setup` performs the same installation. Useful options:
 
 ```powershell
@@ -92,6 +120,7 @@ the script is stopped before replacement and restarted afterward.
 
 For a build without installation, use `.\scripts\build-windows.ps1`, then
 `.\.build\release\sloppy.exe run`. `-Configuration debug` and `-Jobs 4` control builds.
+Add `-SkipDashboard` to reuse an existing Dashboard bundle without running npm.
 
 The server API listens on `http://127.0.0.1:25101` and the dashboard on
 `http://127.0.0.1:25102`. Launch the interactive TUI in Windows Terminal with
@@ -108,8 +137,10 @@ The Windows CI also runs the runtime/protocol suites and focused Windows, CLI pa
 local owner authentication, and model transport regression tests.
 
 The dashboard terminal uses ConPTY and the Windows command shell. macOS power controls,
-launchd/systemd service management, CodexBar local cost estimates, secure remote console relay connections and optional OTLP exporters
+CodexBar local cost estimates, secure remote console relay connections and optional OTLP exporters
 are unavailable on Windows. Token counts and the runtime API remain available.
+Use `sloppy service install` for a Windows background server with login autostart;
+`start`, `stop`, `restart`, `status`, `logs`, and `uninstall` manage its scheduled task.
 
 ### macOS and Linux
 

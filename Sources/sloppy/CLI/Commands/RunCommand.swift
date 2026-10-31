@@ -193,6 +193,7 @@ struct RunCommand: AsyncParsableCommand {
                     config: config,
                     logger: logger,
                     apiBase: endpoints.dashboardAPIBase,
+                    localAPIBase: endpoints.localAPIURL,
                     publicDashboardURL: endpoints.preferredDashboardURL,
                     overridePath: dashboardOverridePath()
                 )
@@ -676,6 +677,7 @@ private func startDashboardServerIfAvailable(
     config: CoreConfig,
     logger: Logger,
     apiBase: String,
+    localAPIBase: String?,
     publicDashboardURL: String?,
     overridePath: String?
 ) -> DashboardLaunch? {
@@ -700,7 +702,8 @@ private func startDashboardServerIfAvailable(
     let resolver = DashboardContentResolver(
         rootURL: location.distRootURL,
         templateConfigURL: location.templateConfigURL,
-        apiBase: apiBase
+        apiBase: apiBase,
+        localAPIBase: localAPIBase
     )
     let server = DashboardHTTPServer(
         host: config.listen.host,

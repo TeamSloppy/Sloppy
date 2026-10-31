@@ -1,4 +1,5 @@
 export const TOP_LEVEL_SECTIONS = [
+  "work",
   "chats",
   "projects",
   "workspaces",

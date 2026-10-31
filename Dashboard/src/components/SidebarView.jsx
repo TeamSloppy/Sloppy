@@ -1,7 +1,7 @@
 import React from "react";
 import { ProjectIcon } from "./ProjectIcon";
 
-const PRIMARY_NAV_IDS = new Set(["overview", "costs", "projects", "workspaces", "artifacts", "agents", "actors"]);
+const PRIMARY_NAV_IDS = new Set(["work", "overview", "costs", "projects", "workspaces", "artifacts", "agents", "actors"]);
 
 function sidebarProjectInitials(name, id) {
   const raw = String(name || id || "?").trim();

@@ -25,6 +25,12 @@ jobs:
       - name: Build server, dashboard and node
         shell: pwsh
         run: ./scripts/build-windows.ps1
+      - name: Test fast development build workflow
+        shell: powershell
+        run: ./scripts/test-windows-dev.ps1
+      - name: Test Windows background service lifecycle
+        shell: powershell
+        run: ./scripts/test-windows-service.ps1
       - name: Package Windows release with runtime DLLs
         shell: powershell
         run: ./scripts/package-windows.ps1 -OutputDirectory "${{ runner.temp }}/sloppy-release"
@@ -40,7 +46,7 @@ jobs:
           if-no-files-found: ignore
       - name: Windows runtime regression tests
         shell: pwsh
-        run: swift test --parallel --filter 'WindowsSupportTests|SloppyCLIParsingTests|LocalOwnerAuthTests|ProtocolsTests|AgentRuntimeTests|FoundationModelTransportTests|dashboardRuntimeConfigPreservesSidebarProjectChatsFlag'
+        run: swift test --parallel --filter 'WindowsServiceTests|WindowsSupportTests|SloppyCLIParsingTests|LocalOwnerAuthTests|ProtocolsTests|AgentRuntimeTests|FoundationModelTransportTests|dashboardRuntimeConfig|dashboardHTTPServerKeepsLocalConsoleRequestsOnLoopback|consoleDashboardEndpointsRequireLocalOwnerAndRejectExternalOrigins'
       - name: Smoke server, dashboard and TUI
         shell: pwsh
         run: ./scripts/test-windows.ps1 -SkipBuild
